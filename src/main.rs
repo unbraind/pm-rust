@@ -1,5 +1,6 @@
 //! `pm-rust` read-only command-line interface.
 
+use std::io::Write;
 use std::path::PathBuf;
 use std::process::ExitCode;
 
@@ -38,11 +39,26 @@ enum Command {
     },
 }
 
-fn write_json(value: &impl Serialize) -> Result<(), serde_json::Error> {
-    serde_json::to_writer_pretty(std::io::stdout().lock(), value)?;
-    println!();
+fn write_json(value: &impl Serialize) -> Result<(), Box<dyn std::error::Error>> {
+    let mut stdout = std::io::stdout().lock();
+    write_json_to(&mut stdout, value)?;
     Ok(())
 }
+
+fn write_json_to(
+    writer: &mut dyn Write,
+    value: &impl Serialize,
+) -> Result<(), Box<dyn std::error::Error>> {
+    serde_json::to_writer_pretty(&mut *writer, value)?;
+    writer.write_all(b"\n")?;
+    writer
+        .flush()
+        .map_err(|error| -> Box<dyn std::error::Error> { Box::new(error) })
+}
+
+#[cfg(test)]
+#[path = "../tests/support/main_unit.rs"]
+mod tests;
 
 fn run(cli: Cli) -> Result<(), Box<dyn std::error::Error>> {
     let workspace = Workspace::discover(&cli.workspace)?;

@@ -319,6 +319,7 @@ dependencies = [
  "clap",
  "predicates",
  "proptest",
+ "rustix",
  "serde",
  "serde_json",
  "tempfile",

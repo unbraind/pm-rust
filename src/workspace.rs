@@ -2,6 +2,7 @@
 
 use std::collections::BTreeMap;
 use std::fs;
+use std::io;
 use std::path::{Path, PathBuf};
 
 use serde::Serialize;
@@ -125,7 +126,8 @@ impl Workspace {
         let mut paths = Vec::new();
         for entry in read_directory(&self.pm_root)? {
             let entry_path = entry.path();
-            if !entry_path.is_dir()
+            if entry_path.is_symlink()
+                || !entry_path.is_dir()
                 || NON_ITEM_DIRECTORIES.contains(&entry.file_name().to_string_lossy().as_ref())
             {
                 continue;
@@ -192,7 +194,19 @@ fn read_directory(path: &Path) -> Result<Vec<fs::DirEntry>, PmRustError> {
         path: path.to_path_buf(),
         source,
     })?;
-    Ok(entries.flatten().collect())
+    collect_directory_entries(path, entries)
+}
+
+fn collect_directory_entries(
+    path: &Path,
+    entries: impl Iterator<Item = io::Result<fs::DirEntry>>,
+) -> Result<Vec<fs::DirEntry>, PmRustError> {
+    entries
+        .collect::<Result<Vec<_>, _>>()
+        .map_err(|source| PmRustError::Io {
+            path: path.to_path_buf(),
+            source,
+        })
 }
 
 fn collect_toon_paths(path: &Path, paths: &mut Vec<PathBuf>) -> Result<(), PmRustError> {
@@ -211,3 +225,7 @@ fn collect_toon_paths(path: &Path, paths: &mut Vec<PathBuf>) -> Result<(), PmRus
     }
     Ok(())
 }
+
+#[cfg(test)]
+#[path = "../tests/support/workspace_unit.rs"]
+mod tests;

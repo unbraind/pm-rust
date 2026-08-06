@@ -33,8 +33,8 @@ jobs:
           toolchain: "1.90.0"
           components: clippy,rustfmt
       - run: cargo fmt --all -- --check
-      - run: cargo clippy --all-targets --all-features -- -D warnings
-      - run: cargo test --all-targets --all-features
+      - run: cargo clippy --locked --all-targets --all-features -- -D warnings
+      - run: cargo test --locked --all-targets --all-features
 
   coverage-and-governance:
     name: Coverage, security, and pm health
@@ -57,7 +57,7 @@ jobs:
         uses: taiki-e/install-action@91ddec75689c4c78665b598d188dc821c5a43e5c # v2
         with:
           tool: cargo-audit,cargo-llvm-cov
-      - run: cargo +nightly llvm-cov --branch --all-targets --all-features --json --output-path coverage-branch.json
+      - run: cargo +nightly llvm-cov --locked --branch --all-targets --all-features --json --output-path coverage-branch.json
       - name: Enforce 100 percent coverage
         run: jq -e '.data[0].totals.lines.percent == 100 and .data[0].totals.functions.percent == 100 and .data[0].totals.regions.percent == 100 and .data[0].totals.branches.percent == 100' coverage-branch.json
       - run: cargo audit

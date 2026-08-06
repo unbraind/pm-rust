@@ -22,9 +22,9 @@ tracker root; strictly decodes TOON item documents; retains unknown package
 fields; rejects merge markers and duplicate IDs; and returns deterministic JSON
 projections. See [the compatibility contract](docs/COMPATIBILITY.md).
 
-Quality gates run on Linux, macOS, and Windows and require formatting, strict
-Clippy, tests, dependency audit, strict `pm health`, and 100 percent line,
-region, function, and branch coverage.
+Rust formatting, strict Clippy, and tests run on Linux, macOS, and Windows.
+Ubuntu additionally gates the dependency audit, generated changelog, strict
+`pm health`, and 100 percent line, region, function, and branch coverage.
 
 Publication and automated releases remain disabled until the complete tracked
 tree and raw Git history pass a privacy review and a maintainer explicitly

@@ -17,6 +17,7 @@ pub struct ItemMetadata {
     /// Human-readable item title.
     pub title: String,
     /// Human-readable item description.
+    #[serde(default)]
     pub description: String,
     /// Runtime-configurable item type.
     #[serde(rename = "type")]
@@ -85,10 +86,10 @@ impl From<&ItemDocument> for ItemSummary {
 
 pub(crate) fn decode_item(path: &Path, content: &str) -> Result<ItemDocument, PmRustError> {
     if content.lines().any(|line| {
-        let trimmed = line.trim_start();
-        trimmed.starts_with("<<<<<<<")
-            || trimmed.starts_with("=======")
-            || trimmed.starts_with(">>>>>>>")
+        ["<<<<<<<", "=======", ">>>>>>>"].iter().any(|marker| {
+            line.strip_prefix(marker)
+                .is_some_and(|suffix| suffix.is_empty() || suffix.starts_with(' '))
+        })
     }) {
         return Err(PmRustError::InvalidItemDocument {
             path: path.to_path_buf(),

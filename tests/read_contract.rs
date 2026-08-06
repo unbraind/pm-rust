@@ -130,6 +130,26 @@ fn reads_sorts_filters_and_preserves_extension_fields() -> Result<(), Box<dyn st
     Ok(())
 }
 
+#[test]
+fn defaults_an_omitted_description_and_preserves_literal_array_text()
+-> Result<(), Box<dyn std::error::Error>> {
+    let directory = tempfile::tempdir()?;
+    let root = directory.path().join(".agents/pm");
+    write(root.join("settings.json"), "{}\n")?;
+    write(
+        root.join("tasks/demo-a.toon"),
+        &ITEM_A.replacen("description: \"\"\n", "", 1).replacen(
+            "body: \"alpha body\"",
+            "body: \"literal: []\"",
+            1,
+        ),
+    )?;
+    let item = Workspace::discover(directory.path())?.get("demo-a")?;
+    assert!(item.metadata.description.is_empty());
+    assert_eq!(item.body, "literal: []");
+    Ok(())
+}
+
 proptest! {
     #[test]
     fn exact_id_filter_never_returns_a_different_item(candidate in "[a-z0-9-]{1,24}") {
@@ -194,6 +214,11 @@ fn rejects_invalid_documents() -> Result<(), Box<dyn std::error::Error>> {
             ">>>>>>> theirs\n".to_owned(),
             "merge conflict markers detected",
         ),
+        (
+            "=======not-a-conflict-marker\n".to_owned(),
+            "TOON decode failed",
+        ),
+        ("  <<<<<<< indented\n".to_owned(), "TOON decode failed"),
         ("not valid toon [\n".to_owned(), "TOON decode failed"),
     ];
     cases.extend(owned_cases);
@@ -241,6 +266,9 @@ fn rejects_duplicate_ids_and_deleted_tracker() -> Result<(), Box<dyn std::error:
 fn reports_an_unreadable_item_path() -> Result<(), Box<dyn std::error::Error>> {
     use std::os::unix::fs::PermissionsExt;
 
+    if rustix::process::geteuid().is_root() {
+        return Ok(());
+    }
     let (directory, root) = tracker()?;
     let path = root.join("tasks/demo-a.toon");
     fs::set_permissions(&path, fs::Permissions::from_mode(0o000))?;
@@ -263,6 +291,9 @@ fn reports_an_unreadable_item_path() -> Result<(), Box<dyn std::error::Error>> {
 fn reports_an_unreadable_nested_item_directory() -> Result<(), Box<dyn std::error::Error>> {
     use std::os::unix::fs::PermissionsExt;
 
+    if rustix::process::geteuid().is_root() {
+        return Ok(());
+    }
     let (directory, root) = tracker()?;
     let path = root.join("tasks/nested/locked");
     fs::create_dir_all(&path)?;
@@ -285,6 +316,7 @@ fn ignores_symlinked_item_directories() -> Result<(), Box<dyn std::error::Error>
     let external = directory.path().join("external");
     write(external.join("secret.toon"), ITEM_A)?;
     symlink(&external, root.join("tasks/link"))?;
+    symlink(&external, root.join("linked-items"))?;
     let _listener = UnixListener::bind(root.join("tasks/read-side.sock"))?;
     assert_eq!(
         Workspace::discover(directory.path())?.read_items()?.len(),
