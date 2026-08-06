@@ -1,0 +1,13 @@
+# pm-cli:runtime-cache:start
+.agents/pm/runtime/
+.agents/pm/search/*
+.agents/pm/locks/
+.agents/pm/transactions/
+.agents/pm/checkpoints/
+!.agents/pm/search/eval-queries.json
+# pm-cli:runtime-cache:end
+
+# Rust build and coverage artifacts
+/target/
+/coverage/
+*.profraw

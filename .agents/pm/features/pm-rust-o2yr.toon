@@ -1,0 +1,31 @@
+id: pm-rust-o2yr
+title: Read canonical pm workspaces without a JavaScript runtime
+description: "Ship the first vertical Rust conformance slice: deterministic workspace discovery, strict TOON item decoding, schema-safe core metadata validation, recursive item enumeration, filters, and stable JSON output."
+type: Feature
+status: in_progress
+priority: 1
+tags[5]: conformance,query,rust,toon,workspace
+created_at: "2026-08-06T21:15:59.978Z"
+updated_at: "2026-08-06T21:16:04.737Z"
+assignee: codex
+claim_principal: codex
+author: codex
+estimated_minutes: 480
+acceptance_criteria: A Rust API and binary discover .agents/pm from a workspace or nested path and reject missing trackers deterministically; Real item documents from pm 2026.8.6 decode without Node.js or Bun and preserve unknown extension fields; List output is stable and filters status type and exact id; unit integration property and real-workspace differential tests pass with 100 percent line branch and function coverage
+definition_of_ready: Rust 1.90 and pm 2026.8.6 are installed; the canonical companion feature is in progress
+value: Makes useful pm context available to low-overhead native agents immediately
+impact: Establishes the contract and quality architecture for later mutation and merge slices
+outcome: A safe read-only pm-rust CLI and library validated on mature real trackers
+why_now: Read paths are non-destructive and expose format incompatibilities before mutation code exists
+parent: pm-rust-u4al
+risk: medium
+confidence: medium
+notes[1]{created_at,author,text}:
+  "2026-08-06T21:15:59.978Z",codex,Uses toon-format 0.5 with default CLI features disabled; dependency behavior is pinned by pm fixture tests
+files[1]{path,scope,note}:
+  src/lib.rs,project,Rust SDK public surface
+tests[1]{command,scope,timeout_seconds}:
+  cargo test --all-targets --all-features,project,600
+docs[1]{path,scope,note}:
+  README.md,project,Public contract and compatibility matrix
+body: The first slice intentionally does not mutate canonical workspaces. It validates exact on-disk contracts before transaction and merge work begins.
