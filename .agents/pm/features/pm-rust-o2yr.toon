@@ -6,7 +6,7 @@ status: in_progress
 priority: 1
 tags[5]: conformance,query,rust,toon,workspace
 created_at: "2026-08-06T21:15:59.978Z"
-updated_at: "2026-08-06T21:16:04.737Z"
+updated_at: "2026-08-06T21:54:42.911Z"
 assignee: codex
 claim_principal: codex
 author: codex
@@ -20,12 +20,48 @@ why_now: Read paths are non-destructive and expose format incompatibilities befo
 parent: pm-rust-u4al
 risk: medium
 confidence: medium
-notes[1]{created_at,author,text}:
+notes[2]{created_at,author,text}:
   "2026-08-06T21:15:59.978Z",codex,Uses toon-format 0.5 with default CLI features disabled; dependency behavior is pinned by pm fixture tests
-files[1]{path,scope,note}:
+  "2026-08-06T21:54:10.720Z",codex,Real-workspace differential acceptance decoded 609 companion items and exactly matched the official pm 2026.8.6 id status type title priority and parent projection without copying private item contents.
+learnings[1]{created_at,author,text}:
+  "2026-08-06T21:54:10.720Z",codex,Canonical JavaScript TOON encodes empty arrays as field colon space brackets while toon-format 0.5 expects field bracket zero colon; normalize only that exact complete-line suffix before strict decoding.
+files[11]{path,scope,note}:
+  .github/dependabot.yml,project,Daily dependency monitoring
+  .github/workflows/ci.yml,project,Cross-platform mandatory quality gates
+  Cargo.lock,project,Reproducible dependency graph
+  Cargo.toml,project,Package and strict lint contract
+  CHANGELOG.md,project,pm-changelog generated release record
+  src/error.rs,project,Rust-native SDK and CLI implementation
+  src/item.rs,project,Rust-native SDK and CLI implementation
   src/lib.rs,project,Rust SDK public surface
-tests[1]{command,scope,timeout_seconds}:
-  cargo test --all-targets --all-features,project,600
-docs[1]{path,scope,note}:
+  src/main.rs,project,Rust-native SDK and CLI implementation
+  src/workspace.rs,project,Rust-native SDK and CLI implementation
+  tests/read_contract.rs,project,Filesystem property CLI and failure acceptance suite
+tests[7]:
+  - command: "cargo +nightly llvm-cov --branch --all-targets --all-features --json --output-path /tmp/pm-rust-branch.json && jq -e '.data[0].totals.lines.percent == 100 and .data[0].totals.functions.percent == 100 and .data[0].totals.regions.percent == 100 and .data[0].totals.branches.percent == 100' /tmp/pm-rust-branch.json"
+    scope: project
+    timeout_seconds: 900
+  - command: cargo audit
+    scope: project
+    timeout_seconds: 600
+  - command: cargo clippy --all-targets --all-features -- -D warnings
+    scope: project
+    timeout_seconds: 600
+  - command: cargo fmt --all -- --check
+    scope: project
+    timeout_seconds: 120
+  - command: cargo test --all-targets --all-features
+    scope: project
+    timeout_seconds: 600
+  - command: "npx --yes --package=pm-changelog@2026.8.6 -- pm-changelog --pm-root .agents/pm --check --status in_progress --version Unreleased --conventional --include-links --item-url-base https://github.com/unbraind/pm-rust/blob/main/.agents/pm --item-ref-style toon --include-metadata"
+    scope: project
+    timeout_seconds: 300
+  - command: pm health --strict-exit
+    scope: project
+    timeout_seconds: 300
+    pm_context_mode: tracker
+docs[3]{path,scope,note}:
+  docs/COMPATIBILITY.md,project,Exact supported and deliberately unsupported contract
   README.md,project,Public contract and compatibility matrix
+  SECURITY.md,project,Security and disclosure policy
 body: The first slice intentionally does not mutate canonical workspaces. It validates exact on-disk contracts before transaction and merge work begins.
