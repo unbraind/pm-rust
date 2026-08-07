@@ -43,6 +43,7 @@ fn tracker() -> Result<(TempDir, Workspace), Box<dyn std::error::Error>> {
     Ok((directory, workspace))
 }
 
+/// Builds the canonical SDK request used across native create acceptance cases.
 fn request(id: &str) -> CreateItem {
     CreateItem {
         id: id.to_owned(),
@@ -61,6 +62,7 @@ fn request(id: &str) -> CreateItem {
 }
 
 #[test]
+/// Proves the Rust transaction matches the official pm 2026.8.7 SDK byte for byte.
 fn sdk_create_matches_the_published_pm_2026_8_7_fixture_exactly()
 -> Result<(), Box<dyn std::error::Error>> {
     let (_directory, workspace) = tracker()?;
