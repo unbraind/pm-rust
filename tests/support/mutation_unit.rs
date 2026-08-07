@@ -152,11 +152,11 @@ fn validation_rejects_every_unsupported_request_shape() -> Result<(), Box<dyn st
     ));
     let (_directory, no_prefix_root) = root("{}")?;
     let mut no_prefix = request();
-    no_prefix.id = "independent".to_owned();
+    no_prefix.id = "independent1".to_owned();
     no_prefix.author = "unknown".to_owned();
     assert_eq!(
         create_item(&no_prefix_root, no_prefix)?.item.metadata.id,
-        "independent"
+        "independent1"
     );
     Ok(())
 }

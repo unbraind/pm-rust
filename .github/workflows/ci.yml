@@ -60,7 +60,9 @@ jobs:
           tool: cargo-audit,cargo-llvm-cov
       - run: cargo +nightly-2026-08-06 llvm-cov --locked --branch --all-targets --all-features --json --output-path coverage-branch.json
       - name: Enforce 100 percent coverage
-        run: jq -e '.data[0].totals.lines.percent == 100 and .data[0].totals.functions.percent == 100 and .data[0].totals.regions.percent == 100 and .data[0].totals.branches.percent == 100' coverage-branch.json
+        run: |
+          jq '.data[0].totals | {lines, functions, regions, branches}' coverage-branch.json
+          jq -e '.data[0].totals.lines.percent == 100 and .data[0].totals.functions.percent == 100 and .data[0].totals.regions.percent == 100 and .data[0].totals.branches.percent == 100' coverage-branch.json
       - run: cargo audit
       - name: Verify generated changelog
         run: npx --yes --package=pm-changelog@2026.8.6 -- pm-changelog --pm-root .agents/pm --check --status closed --version Unreleased --conventional --include-links --item-url-base https://github.com/unbraind/pm-rust/blob/main/.agents/pm --item-ref-style toon --include-metadata

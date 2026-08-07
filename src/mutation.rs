@@ -327,7 +327,19 @@ fn commit_temporary(
         .and_then(|()| {
             // The target hard link is the commit point; stale temp cleanup is recoverable.
             let _ = fs::remove_file(temporary);
-            sync_parent(path)
+            #[cfg(unix)]
+            {
+                sync_parent(path)
+            }
+            #[cfg(not(unix))]
+            {
+                File::open(path)
+                    .and_then(|target| target.sync_all())
+                    .map_err(|source| PmRustError::Io {
+                        path: path.to_path_buf(),
+                        source,
+                    })
+            }
         });
     if result.is_err() {
         let _ = fs::remove_file(temporary);
@@ -437,7 +449,14 @@ fn remove_file(path: &Path) -> Result<(), PmRustError> {
         path: path.to_path_buf(),
         source,
     })?;
-    sync_parent(path)
+    #[cfg(unix)]
+    {
+        sync_parent(path)
+    }
+    #[cfg(not(unix))]
+    {
+        Ok(())
+    }
 }
 
 #[cfg(unix)]
@@ -453,16 +472,6 @@ fn sync_parent(path: &Path) -> Result<(), PmRustError> {
         path: parent.to_path_buf(),
         source,
     })
-}
-
-#[cfg(not(unix))]
-fn sync_parent(path: &Path) -> Result<(), PmRustError> {
-    File::open(path)
-        .and_then(|file| file.sync_all())
-        .map_err(|source| PmRustError::Io {
-            path: path.to_path_buf(),
-            source,
-        })
 }
 
 fn canonical_item_bytes(document: &ItemDocument) -> String {
