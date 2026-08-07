@@ -6,7 +6,7 @@ status: closed
 priority: 1
 tags: []
 created_at: "2026-08-07T10:07:20.525Z"
-updated_at: "2026-08-07T11:18:03.899Z"
+updated_at: "2026-08-07T11:23:41.193Z"
 closed_at: "2026-08-07T11:02:58.500Z"
 completed_at: "2026-08-07T11:02:58.500Z"
 author: codex
@@ -26,7 +26,7 @@ release: 0.1.0-alpha.2
 resolution: "Delivered a Rust-only explicit-ID create transaction with canonical pm 2026.8.6 item/history bytes, durable recovery, ownership-safe locking, and exact quality evidence."
 expected_result: "Rust SDK and CLI creation is interoperable, race-safe, crash-recoverable, and fully covered without a JavaScript runtime bridge."
 actual_result: "The SDK and CLI create every built-in item type; exact official fixtures and live pm 2026.8.6 reads pass; simultaneous writers preserve one complete result; all recovery states, no-replace publication, and filesystem failures pass; 36 tests achieve exact 100/100/100/100 coverage and cargo audit is clean."
-notes[3]:
+notes[4]:
   - created_at: "2026-08-07T11:02:56.834Z"
     author: codex
     text: "Verification: 36 tests pass across unit, property, SDK, CLI, multi-process concurrency, lock replacement, atomic no-replace publication, crash recovery, and real filesystem failure suites; cargo-llvm-cov reports exact 100 percent lines/functions/regions/branches; cargo audit found no vulnerabilities; official pm 2026.8.6 read, history, health, and validate accepted a Rust-created item."
@@ -37,6 +37,9 @@ notes[3]:
   - created_at: "2026-08-07T11:18:03.899Z"
     author: codex
     text: "Exact-head CI follow-up: Windows exposed that durability syncing a published file and syncing a directory after deletion are distinct operations. The transaction now syncs the published target on non-Unix platforms, syncs parent directories after publication/deletion on Unix, and never reopens a deleted Windows journal or lock. Reproducing the CI nightly coverage command also revealed one untested valid numeric-ID branch; a behavioral create regression now covers it, restoring measured 100/100/100/100 (864 lines, 102 functions, 1272 regions, 130 branches). The CI gate now prints all four totals before enforcing the unchanged exact threshold."
+  - created_at: "2026-08-07T11:23:41.193Z"
+    author: codex
+    text: "Second exact-head Windows/TDD finding: Windows requires the original temporary-file handle to be closed before unlinking its private hard-link name; publication now writes and fsyncs, atomically hard-links without replacement, explicitly closes the handle, removes the private name, then applies platform durability. A repeated property run also shrank a TOON incompatibility to description = -A; list-like leading-hyphen scalars now remain quoted and have a permanent explicit round-trip regression in addition to the property suite."
 learnings[1]{created_at,author,text}:
   "2026-08-07T11:02:57.158Z",codex,"Property generation exposed that generic scalar dequoting must never be applied to TOON array lines: the Rust encoder correctly quoted the string tag 0, but normalization could remove it. Preserve non-empty tag arrays byte-for-byte and normalize only canonical empty-array syntax."
 files[13]{path,scope,note}:

@@ -311,7 +311,7 @@ fn commit_temporary(
     path: &Path,
     contents: &str,
 ) -> Result<(), PmRustError> {
-    let result = file
+    let publication = file
         .write_all(contents.as_bytes())
         .and_then(|()| file.sync_all())
         .map_err(|source| PmRustError::Io {
@@ -323,28 +323,25 @@ fn commit_temporary(
                 path: path.to_path_buf(),
                 source,
             })
-        })
-        .and_then(|()| {
-            // The target hard link is the commit point; stale temp cleanup is recoverable.
-            let _ = fs::remove_file(temporary);
-            #[cfg(unix)]
-            {
-                sync_parent(path)
-            }
-            #[cfg(not(unix))]
-            {
-                File::open(path)
-                    .and_then(|target| target.sync_all())
-                    .map_err(|source| PmRustError::Io {
-                        path: path.to_path_buf(),
-                        source,
-                    })
-            }
         });
-    if result.is_err() {
-        let _ = fs::remove_file(temporary);
+    // The target hard link is the commit point. Close the original handle before
+    // removing its private name because Windows does not permit unlinking it open.
+    drop(file);
+    let _ = fs::remove_file(temporary);
+    publication?;
+    #[cfg(unix)]
+    {
+        sync_parent(path)
     }
-    result
+    #[cfg(not(unix))]
+    {
+        File::open(path)
+            .and_then(|target| target.sync_all())
+            .map_err(|source| PmRustError::Io {
+                path: path.to_path_buf(),
+                source,
+            })
+    }
 }
 
 fn acquire_lock(
@@ -489,6 +486,7 @@ fn canonical_item_bytes(document: &ItemDocument) -> String {
             // `encode_default` always closes the quoted scalar matched above.
             let value = &quoted[..quoted.len() - 1];
             let safe_unquoted = !value.is_empty()
+                && !value.starts_with('-')
                 && !matches!(value, "true" | "false" | "null")
                 && serde_json::from_str::<Value>(value).is_err()
                 && value.bytes().any(|byte| byte.is_ascii_alphanumeric())
