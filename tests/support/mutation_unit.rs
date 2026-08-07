@@ -48,11 +48,21 @@ type CompletedTransaction = (TempDir, PathBuf, String, String, CreateJournal);
 fn serde_defaults_match_the_supported_create_and_settings_contract()
 -> Result<(), Box<dyn std::error::Error>> {
     assert_eq!(type_folder("Plan"), Some("plans"));
+    assert!(matches!(
+        normalize_encoded_item(Err(ToonError::SerializationError(
+            "injected encoder failure".to_owned()
+        ))),
+        Err(PmRustError::ItemEncoding { reason }) if reason.contains("injected encoder failure")
+    ));
+    assert!(matches!(
+        normalize_item_bytes("title: \"unterminated\n"),
+        Err(PmRustError::ItemEncoding { reason }) if reason.contains("unterminated")
+    ));
     let mut reserved = request();
     reserved.title = "true".to_owned();
     let (_reserved_directory, reserved_root) = root(&settings("sample-", "toon", 1_800))?;
     let document = create_item(&reserved_root, reserved)?.item;
-    assert!(canonical_item_bytes(&document).contains("title: \"true\"\n"));
+    assert!(canonical_item_bytes(&document)?.contains("title: \"true\"\n"));
     let mut ambiguous_tags = document.clone();
     ambiguous_tags.metadata.tags = ["0", "1.2", "false", "null", "true"]
         .map(str::to_owned)
@@ -60,7 +70,7 @@ fn serde_defaults_match_the_supported_create_and_settings_contract()
     assert_eq!(
         decode_item(
             Path::new("ambiguous-tags.toon"),
-            &canonical_item_bytes(&ambiguous_tags)
+            &canonical_item_bytes(&ambiguous_tags)?
         )?,
         ambiguous_tags
     );
@@ -69,7 +79,7 @@ fn serde_defaults_match_the_supported_create_and_settings_contract()
     assert_eq!(
         decode_item(
             Path::new("ambiguous-body.toon"),
-            &canonical_item_bytes(&ambiguous_body)
+            &canonical_item_bytes(&ambiguous_body)?
         )?,
         ambiguous_body
     );
@@ -187,11 +197,31 @@ fn lock_conflicts_and_forced_stale_cleanup_preserve_the_current_owner()
     drop(second);
     assert!(!pm_root.join("locks/sample-unit.lock").exists());
 
-    fs::write(pm_root.join("locks/sample-gated.lock"), "foreign")?;
-    fs::create_dir(pm_root.join("locks/sample-gated.lock.stale-cleanup"))?;
+    let gated_lock = pm_root.join("locks/sample-gated.lock");
+    fs::write(&gated_lock, "foreign")?;
+    File::options()
+        .write(true)
+        .open(&gated_lock)?
+        .set_times(fs::FileTimes::new().set_modified(UNIX_EPOCH))?;
+    let gate = pm_root.join("locks/sample-gated.lock.stale-cleanup");
+    fs::create_dir(&gate)?;
     thread::sleep(Duration::from_millis(2));
     assert!(matches!(
-        acquire_lock(&pm_root, "sample-gated", "third", 0, true, TS),
+        acquire_lock(&pm_root, "sample-gated", "third", 1_800, true, TS),
+        Err(PmRustError::LockConflict { .. })
+    ));
+    let recovered_gate = acquire_lock(&pm_root, "sample-gated", "third", 0, true, TS)?;
+    assert!(!gate.exists());
+    drop(recovered_gate);
+
+    let blocked_lock = pm_root.join("locks/sample-blocked-gate.lock");
+    fs::write(&blocked_lock, "foreign")?;
+    let blocked_gate = pm_root.join("locks/sample-blocked-gate.lock.stale-cleanup");
+    fs::create_dir(&blocked_gate)?;
+    fs::write(blocked_gate.join("active-owner"), "present")?;
+    thread::sleep(Duration::from_millis(2));
+    assert!(matches!(
+        acquire_lock(&pm_root, "sample-blocked-gate", "third", 0, true, TS),
         Err(PmRustError::LockConflict { .. })
     ));
     let directory_lock = pm_root.join("locks/sample-directory.lock");
@@ -200,11 +230,14 @@ fn lock_conflicts_and_forced_stale_cleanup_preserve_the_current_owner()
         acquire_lock(&pm_root, "sample-directory", "third", 0, true, TS),
         Err(PmRustError::Io { .. })
     ));
-    let oversized_id = "x".repeat(300);
-    assert!(matches!(
-        acquire_lock(&pm_root, &oversized_id, "third", 0, true, TS),
-        Err(PmRustError::Io { .. })
-    ));
+    #[cfg(unix)]
+    {
+        let oversized_id = "x".repeat(300);
+        assert!(matches!(
+            acquire_lock(&pm_root, &oversized_id, "third", 0, true, TS),
+            Err(PmRustError::Io { .. })
+        ));
+    }
     Ok(())
 }
 
@@ -391,6 +424,7 @@ fn missing_and_invalid_settings_return_typed_errors() -> Result<(), Box<dyn std:
 #[test]
 fn filesystem_failures_are_typed_and_atomic_temps_are_cleaned()
 -> Result<(), Box<dyn std::error::Error>> {
+    #[cfg(unix)]
     assert!(matches!(
         atomic_write(Path::new("/"), "value"),
         Err(PmRustError::InvalidCreateRequest { .. })
@@ -552,7 +586,10 @@ proptest! {
             },
             body,
         };
-        let decoded = decode_item(Path::new("property.toon"), &canonical_item_bytes(&document))?;
+        let decoded = decode_item(
+            Path::new("property.toon"),
+            &canonical_item_bytes(&document)?
+        )?;
         prop_assert_eq!(decoded, document);
     }
 }

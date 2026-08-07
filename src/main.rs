@@ -4,7 +4,7 @@ use std::io::Write;
 use std::path::PathBuf;
 use std::process::ExitCode;
 
-use clap::{Parser, Subcommand};
+use clap::{Parser, Subcommand, value_parser};
 use pm_rust::{CreateItem, ItemFilter, Workspace};
 use serde::Serialize;
 
@@ -55,7 +55,7 @@ enum Command {
         #[arg(long, default_value = "open")]
         status: String,
         /// Priority from zero through four.
-        #[arg(long, default_value_t = 2)]
+        #[arg(long, default_value_t = 2, value_parser = value_parser!(u8).range(0..=4))]
         priority: u8,
         /// Comma-separated tags.
         #[arg(long, value_delimiter = ',')]

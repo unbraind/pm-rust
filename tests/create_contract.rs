@@ -189,6 +189,25 @@ fn cli_create_emits_json_and_reports_validation_and_conflicts()
         .assert()
         .code(2)
         .stderr(contains("canonical built-in item types only"));
+    Command::cargo_bin("pm-rust")?
+        .args([
+            "--workspace",
+            workspace.as_ref(),
+            "create",
+            "--id",
+            "sample-priority",
+            "--title",
+            "Invalid priority",
+            "--type",
+            "Task",
+            "--priority",
+            "5",
+            "--author",
+            "cli-agent",
+        ])
+        .assert()
+        .code(2)
+        .stderr(contains("0..=4"));
     Ok(())
 }
 
@@ -209,7 +228,7 @@ fn cli_create_reports_a_closed_stdout_pipe() -> Result<(), Box<dyn std::error::E
             "--author",
             "pipe-agent",
             "--body",
-            &"x".repeat(100_000),
+            &"x".repeat(16_000),
             "--timestamp",
             TIMESTAMP,
         ])
@@ -243,9 +262,15 @@ fn concurrent_processes_preserve_one_complete_create() -> Result<(), Box<dyn std
                     "--timestamp",
                     TIMESTAMP,
                 ])
-                .output()?,
+                .stdout(Stdio::piped())
+                .stderr(Stdio::piped())
+                .spawn()?,
         );
     }
+    let children = children
+        .into_iter()
+        .map(std::process::Child::wait_with_output)
+        .collect::<Result<Vec<_>, _>>()?;
     assert_eq!(
         children
             .iter()

@@ -50,6 +50,12 @@ pub enum PmRustError {
         /// Stable explanation suitable for CLI diagnostics.
         reason: String,
     },
+    /// A validated native item could not be encoded as canonical TOON.
+    #[error("could not encode canonical pm item: {reason}")]
+    ItemEncoding {
+        /// Encoder or normalization failure retaining the original diagnostic.
+        reason: String,
+    },
     /// Another process owns the per-item mutation lock.
     #[error("pm item {id} is locked by another writer")]
     LockConflict {

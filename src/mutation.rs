@@ -8,12 +8,12 @@ use std::process;
 use std::sync::atomic::{AtomicU64, Ordering};
 use std::time::{Duration, SystemTime, UNIX_EPOCH};
 
-use serde::{Deserialize, Serialize};
+use serde::{Deserialize, Serialize, Serializer};
 use serde_json::{Value, json};
 use sha2::{Digest, Sha256};
 use time::OffsetDateTime;
 use time::format_description::well_known::Rfc3339;
-use toon_format::encode_default;
+use toon_format::{ToonError, encode_default};
 
 use crate::{ItemDocument, ItemMetadata, PmRustError};
 
@@ -63,11 +63,20 @@ pub struct CreateResult {
     /// Created canonical item.
     pub item: ItemDocument,
     /// Item path relative to the tracker root.
+    #[serde(serialize_with = "serialize_portable_path")]
     pub item_path: PathBuf,
     /// History path relative to the tracker root.
+    #[serde(serialize_with = "serialize_portable_path")]
     pub history_path: PathBuf,
     /// SHA-256 hash of the canonical post-create document.
     pub after_hash: String,
+}
+
+fn serialize_portable_path<S>(path: &Path, serializer: S) -> Result<S::Ok, S::Error>
+where
+    S: Serializer,
+{
+    serializer.serialize_str(&path.to_string_lossy().replace('\\', "/"))
 }
 
 #[derive(Debug, Deserialize)]
@@ -392,7 +401,20 @@ fn acquire_lock(
     }
     let gate = locks.join(format!("{id}.lock.stale-cleanup"));
     if fs::create_dir(&gate).is_err() {
-        return Err(PmRustError::LockConflict { id: id.to_owned() });
+        let abandoned = fs::metadata(&gate)
+            .and_then(|metadata| metadata.modified())
+            .ok()
+            .and_then(|modified| SystemTime::now().duration_since(modified).ok())
+            .is_some_and(|age| age > Duration::from_secs(ttl_seconds));
+        if !abandoned {
+            return Err(PmRustError::LockConflict { id: id.to_owned() });
+        }
+        if fs::remove_dir(&gate)
+            .and_then(|()| fs::create_dir(&gate))
+            .is_err()
+        {
+            return Err(PmRustError::LockConflict { id: id.to_owned() });
+        }
     }
     let cleanup_result = remove_stale_lock(&path, &existing_raw, id);
     let _ = fs::remove_dir(&gate);
@@ -471,9 +493,19 @@ fn sync_parent(path: &Path) -> Result<(), PmRustError> {
     })
 }
 
-fn canonical_item_bytes(document: &ItemDocument) -> String {
+fn canonical_item_bytes(document: &ItemDocument) -> Result<String, PmRustError> {
     // The validated create shape contains only TOON-supported scalar and array values.
-    let encoded = encode_default(document).unwrap_or_default();
+    normalize_encoded_item(encode_default(document))
+}
+
+fn normalize_encoded_item(encoded: Result<String, ToonError>) -> Result<String, PmRustError> {
+    let encoded = encoded.map_err(|error| PmRustError::ItemEncoding {
+        reason: error.to_string(),
+    })?;
+    normalize_item_bytes(&encoded)
+}
+
+fn normalize_item_bytes(encoded: &str) -> Result<String, PmRustError> {
     let mut normalized = String::with_capacity(encoded.len() + 1);
     for line in encoded.lines() {
         if let Some(prefix) = line.strip_suffix("[0]:") {
@@ -483,8 +515,11 @@ fn canonical_item_bytes(document: &ItemDocument) -> String {
             // The Rust encoder already quotes ambiguous array strings correctly.
             normalized.push_str(line);
         } else if let Some((key, quoted)) = line.split_once(": \"") {
-            // `encode_default` always closes the quoted scalar matched above.
-            let value = &quoted[..quoted.len() - 1];
+            let value = quoted
+                .strip_suffix('"')
+                .ok_or_else(|| PmRustError::ItemEncoding {
+                    reason: "encoder emitted an unterminated quoted scalar".to_owned(),
+                })?;
             let safe_unquoted = !value.is_empty()
                 && !value.starts_with('-')
                 && !matches!(value, "true" | "false" | "null")
@@ -505,7 +540,7 @@ fn canonical_item_bytes(document: &ItemDocument) -> String {
         }
         normalized.push('\n');
     }
-    normalized
+    Ok(normalized)
 }
 
 fn stable_json(value: &Value, output: &mut String) {
@@ -747,41 +782,42 @@ pub(crate) fn create_item(
         },
         body: request.body,
     };
-    let item_bytes = canonical_item_bytes(&document);
-    let after_hash = document_hash(&document);
-    let history_bytes = history_bytes(
-        &document,
-        &timestamp,
-        &request.author,
-        request.message.as_deref(),
-        &after_hash,
-    );
-    let journal = CreateJournal {
-        version: 1,
-        id: request.id.clone(),
-        item_type: request.item_type,
-        item_bytes: item_bytes.clone(),
-        history_bytes: history_bytes.clone(),
-    };
-    let journal_path = pm_root
-        .join("runtime/transactions")
-        .join(format!("create-{}.json", request.id));
-    let journal_bytes = format!(
-        "{}\n",
-        // This concrete structure has no fallible custom serializers.
-        serde_json::to_string_pretty(&journal).unwrap_or_default()
-    );
-    let result = CreateResult {
-        item: document,
-        item_path: item_relative,
-        history_path: history_relative,
-        after_hash,
-    };
-    atomic_write(&journal_path, &journal_bytes)
-        .and_then(|()| atomic_write(&item_path, &item_bytes))
-        .and_then(|()| atomic_write(&history_path, &history_bytes))
-        .and_then(|()| remove_file(&journal_path))
-        .map(|()| result)
+    canonical_item_bytes(&document).and_then(|item_bytes| {
+        let after_hash = document_hash(&document);
+        let history_bytes = history_bytes(
+            &document,
+            &timestamp,
+            &request.author,
+            request.message.as_deref(),
+            &after_hash,
+        );
+        let journal = CreateJournal {
+            version: 1,
+            id: request.id.clone(),
+            item_type: request.item_type,
+            item_bytes: item_bytes.clone(),
+            history_bytes: history_bytes.clone(),
+        };
+        let journal_path = pm_root
+            .join("runtime/transactions")
+            .join(format!("create-{}.json", request.id));
+        let journal_bytes = format!(
+            "{}\n",
+            // This concrete structure has no fallible custom serializers.
+            serde_json::to_string_pretty(&journal).unwrap_or_default()
+        );
+        let result = CreateResult {
+            item: document,
+            item_path: item_relative,
+            history_path: history_relative,
+            after_hash,
+        };
+        atomic_write(&journal_path, &journal_bytes)
+            .and_then(|()| atomic_write(&item_path, &item_bytes))
+            .and_then(|()| atomic_write(&history_path, &history_bytes))
+            .and_then(|()| remove_file(&journal_path))
+            .map(|()| result)
+    })
 }
 
 #[cfg(test)]

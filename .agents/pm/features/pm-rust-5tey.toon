@@ -6,7 +6,7 @@ status: closed
 priority: 1
 tags: []
 created_at: "2026-08-07T10:07:20.525Z"
-updated_at: "2026-08-07T11:27:22.795Z"
+updated_at: "2026-08-07T11:41:31.675Z"
 closed_at: "2026-08-07T11:02:58.500Z"
 completed_at: "2026-08-07T11:02:58.500Z"
 author: codex
@@ -26,7 +26,7 @@ release: 0.1.0-alpha.2
 resolution: "Delivered a Rust-only explicit-ID create transaction with canonical pm 2026.8.6 item/history bytes, durable recovery, ownership-safe locking, and exact quality evidence."
 expected_result: "Rust SDK and CLI creation is interoperable, race-safe, crash-recoverable, and fully covered without a JavaScript runtime bridge."
 actual_result: "The SDK and CLI create every built-in item type; exact official fixtures and live pm 2026.8.6 reads pass; simultaneous writers preserve one complete result; all recovery states, no-replace publication, and filesystem failures pass; 36 tests achieve exact 100/100/100/100 coverage and cargo audit is clean."
-notes[4]:
+notes[5]:
   - created_at: "2026-08-07T11:02:56.834Z"
     author: codex
     text: "Verification: 36 tests pass across unit, property, SDK, CLI, multi-process concurrency, lock replacement, atomic no-replace publication, crash recovery, and real filesystem failure suites; cargo-llvm-cov reports exact 100 percent lines/functions/regions/branches; cargo audit found no vulnerabilities; official pm 2026.8.6 read, history, health, and validate accepted a Rust-created item."
@@ -41,22 +41,26 @@ notes[4]:
     author: codex
     text: "Second exact-head Windows/TDD finding: Microsoft documents that FlushFileBuffers requires a write-capable handle. The prior read-only target reopen therefore caused AccessDenied before recovery began. Publication now writes and fsyncs, atomically hard-links without replacement, fsyncs the published inode again through the original write-capable handle, closes it, and removes the private name. A repeated property run also shrank a TOON incompatibility to description = -A; list-like leading-hyphen scalars now remain quoted and have a permanent explicit round-trip regression in addition to the property suite."
     edited_at: "2026-08-07T11:27:22.795Z"
+  - created_at: "2026-08-07T11:41:27.187Z"
+    author: codex
+    text: "CodeRabbit review remediation: the CLI now enforces priority 0..=4; eight black-box workers are spawned before any wait, proving real lock contention; abandoned stale-cleanup gates are age-reclaimed while recent/non-empty gates remain protected; TOON encoder and malformed normalization failures propagate as typed errors instead of empty bytes; Unix-only failure probes are cfg-gated; CreateResult JSON emits portable slash-separated tracker paths; and the Windows broken-pipe acceptance stays below the OS command-line limit. The privacy issue now requires annotated-tag recreation/re-signing, CHANGELOG.md is linked, and the historical post-release PM update disposition is recorded without rewriting append-only history. Local evidence: 36 tests and exact 897/111/1320/134 line/function/region/branch coverage."
 learnings[1]{created_at,author,text}:
   "2026-08-07T11:02:57.158Z",codex,"Property generation exposed that generic scalar dequoting must never be applied to TOON array lines: the Rust encoder correctly quoted the string tag 0, but normalization could remove it. Preserve non-empty tag arrays byte-for-byte and normalize only canonical empty-array syntax."
-files[13]{path,scope,note}:
-  Cargo.toml,project,Native create dependencies
+files[14]{path,scope,note}:
+  .gitattributes,project,Latest pm merge-driver mapping
+  .github/workflows/ci.yml,project,Read-only canonical pm health gate
   Cargo.lock,project,Locked dependency graph
+  Cargo.toml,project,Native create dependencies
+  CHANGELOG.md,project,Generated pm-changelog release record
   src/error.rs,project,Typed mutation and recovery failures
   src/item.rs,project,Canonical optional-parent serialization
   src/lib.rs,project,Public native create API
   src/main.rs,project,Native create CLI
-  src/workspace.rs,project,Workspace SDK create entrypoint
   src/mutation.rs,project,Crash-recoverable create transaction
+  src/workspace.rs,project,Workspace SDK create entrypoint
   tests/create_contract.rs,project,Black-box differential and concurrency acceptance
   tests/support/main_unit.rs,project,CLI dispatch coverage
   tests/support/mutation_unit.rs,project,Transaction recovery filesystem and property coverage
-  .github/workflows/ci.yml,project,Read-only canonical pm health gate
-  .gitattributes,project,Latest pm merge-driver mapping
 tests[4]{command,scope,timeout_seconds}:
   cargo +1.90.0 clippy --locked --all-targets --all-features -- -D warnings,project,300
   cargo +1.90.0 fmt --all -- --check,project,120
