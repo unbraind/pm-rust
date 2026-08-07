@@ -6,7 +6,7 @@ status: closed
 priority: 1
 tags[5]: conformance,query,rust,toon,workspace
 created_at: "2026-08-06T21:15:59.978Z"
-updated_at: "2026-08-07T00:26:10.646Z"
+updated_at: "2026-08-07T10:49:20.937Z"
 closed_at: "2026-08-07T00:25:52.705Z"
 completed_at: "2026-08-07T00:25:52.705Z"
 author: codex
@@ -18,8 +18,11 @@ impact: Establishes the contract and quality architecture for later mutation and
 outcome: A safe read-only pm-rust CLI and library validated on mature real trackers
 why_now: Read paths are non-destructive and expose format incompatibilities before mutation code exists
 parent: pm-rust-u4al
+reviewer: maintainer
 risk: medium
 confidence: medium
+sprint: 2026-08-native-read
+release: 0.1.0-alpha.1
 resolution: Delivered the first Rust-native read-only conformance slice with reproducible cross-platform gates.
 expected_result: A safe read-only Rust SDK and CLI exactly decode canonical pm workspaces with deterministic projections and mandatory green quality gates.
 actual_result: "The CLI and SDK match 609 companion items, pass 15 tests at exact 100 percent line/function/region/branch coverage, reject symlinked tracker roots, and pass exact-head Linux, macOS, Windows, security, changelog, and pm CLI 2026.8.6 health gates."

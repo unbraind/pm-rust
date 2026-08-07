@@ -8,7 +8,8 @@ use std::path::{Path, PathBuf};
 use serde::Serialize;
 
 use crate::item::decode_item;
-use crate::{ItemDocument, ItemSummary, PmRustError};
+use crate::mutation::create_item;
+use crate::{CreateItem, CreateResult, ItemDocument, ItemSummary, PmRustError};
 
 const NON_ITEM_DIRECTORIES: [&str; 6] = [
     "extensions",
@@ -34,6 +35,7 @@ pub struct ItemFilter {
 }
 
 impl ItemFilter {
+    /// Reports whether a document satisfies every configured exact filter.
     fn matches(&self, document: &ItemDocument) -> bool {
         self.status
             .as_ref()
@@ -187,8 +189,23 @@ impl Workspace {
             .find(|document| document.metadata.id == id)
             .ok_or_else(|| PmRustError::ItemNotFound { id: id.to_owned() })
     }
+
+    /// Creates one canonical item under a crash-recoverable per-item transaction.
+    ///
+    /// The first mutation slice deliberately requires an explicit identifier and
+    /// supports canonical built-in item folders only. It writes both the TOON
+    /// document and its create-history stream without invoking another runtime.
+    ///
+    /// # Errors
+    ///
+    /// Returns a typed validation, lock, conflict, recovery, or filesystem
+    /// error. Existing item and history bytes are never overwritten.
+    pub fn create(&self, request: CreateItem) -> Result<CreateResult, PmRustError> {
+        create_item(&self.pm_root, request)
+    }
 }
 
+/// Reads every entry in a directory while retaining the path in typed errors.
 fn read_directory(path: &Path) -> Result<Vec<fs::DirEntry>, PmRustError> {
     let entries = fs::read_dir(path).map_err(|source| PmRustError::Io {
         path: path.to_path_buf(),
@@ -197,6 +214,7 @@ fn read_directory(path: &Path) -> Result<Vec<fs::DirEntry>, PmRustError> {
     collect_directory_entries(path, entries)
 }
 
+/// Collects a directory iterator and maps entry failures to the directory path.
 fn collect_directory_entries(
     path: &Path,
     entries: impl Iterator<Item = io::Result<fs::DirEntry>>,
@@ -209,6 +227,7 @@ fn collect_directory_entries(
         })
 }
 
+/// Recursively collects regular TOON files without following symbolic links.
 fn collect_toon_paths(path: &Path, paths: &mut Vec<PathBuf>) -> Result<(), PmRustError> {
     for entry in read_directory(path)? {
         let entry_path = entry.path();
