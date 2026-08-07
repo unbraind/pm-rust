@@ -1,7 +1,7 @@
 # Compatibility contract
 
 The current `pm-rust` slice is a native read-and-create compatibility
-implementation for the published `pm` 2026.8.6 workspace format.
+implementation for the published `pm` 2026.8.7 workspace format.
 
 ## Supported
 
@@ -17,7 +17,7 @@ implementation for the published `pm` 2026.8.6 workspace format.
 - deterministic JSON for full-item and list projections.
 - explicit-ID creation for every canonical built-in item type;
 - canonical tag ordering, TOON bytes, create-history patch ordering, and
-  SHA-256 document hashes compatible with `pm` 2026.8.6;
+  SHA-256 document hashes compatible with `pm` 2026.8.7;
 - exclusive per-item locks with stale-lock cleanup allowed only by an explicit
   force request after the configured TTL;
 - synced same-directory temporary writes and parent-directory syncs on Unix;
@@ -42,7 +42,8 @@ execution, and property-generated exact-ID filters. Manual acceptance runs the
 compiled binary against the private mature companion tracker without copying
 its contents into this public repository. Only aggregate counts and
 contract-level results may be recorded publicly. Create conformance additionally
-uses an exact official-CLI differential fixture, simultaneous process writers,
+uses an exact official-SDK 2026.8.7 differential fixture generated under its
+reproducible workspace clock, simultaneous process writers,
 every recovery presence state, stale-lock ownership races, closed output pipes,
 and real filesystem failures.
 

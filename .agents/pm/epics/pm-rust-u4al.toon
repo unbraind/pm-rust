@@ -6,7 +6,7 @@ status: open
 priority: 1
 tags[5]: agents,cli,interop,rust,sdk
 created_at: "2026-08-06T21:15:44.282Z"
-updated_at: "2026-08-07T11:48:52.475Z"
+updated_at: "2026-08-07T12:19:42.350Z"
 assignee: codex
 claim_principal: codex
 author: codex
@@ -16,7 +16,7 @@ definition_of_ready: Canonical companion item pm-cli-website-204t is active and 
 value: Single-binary low-overhead pm access for agents and native applications
 impact: Exposes accidental TypeScript coupling and hardens the ecosystem's public contracts
 outcome: Production-ready Rust implementation interoperable with canonical pm workspaces
-why_now: pm 2026.8.6 provides a stable contract baseline for the first independent implementation
+why_now: pm 2026.8.7 is the current stable contract baseline for the independent implementation
 reviewer: maintainer
 risk: high
 confidence: medium
