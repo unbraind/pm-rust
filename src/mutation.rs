@@ -324,6 +324,11 @@ fn commit_temporary(
                 source,
             })
         });
+    #[cfg(not(unix))]
+    let published_sync = file.sync_all().map_err(|source| PmRustError::Io {
+        path: path.to_path_buf(),
+        source,
+    });
     // The target hard link is the commit point. Close the original handle before
     // removing its private name because Windows does not permit unlinking it open.
     drop(file);
@@ -335,12 +340,7 @@ fn commit_temporary(
     }
     #[cfg(not(unix))]
     {
-        File::open(path)
-            .and_then(|target| target.sync_all())
-            .map_err(|source| PmRustError::Io {
-                path: path.to_path_buf(),
-                source,
-            })
+        published_sync
     }
 }
 

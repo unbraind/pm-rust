@@ -102,6 +102,8 @@ fn sdk_create_matches_the_published_pm_fixture_exactly() -> Result<(), Box<dyn s
         Err(PmRustError::ItemAlreadyExists { id }) if id == "sample-native"
     ));
     let mut ambiguous = request("sample-ambiguous");
+    ambiguous.title = ".".to_owned();
+    ambiguous.description = "-A".to_owned();
     ambiguous.tags = ["0", "safe", "true"].map(str::to_owned).to_vec();
     ambiguous.body = "0".to_owned();
     let ambiguous_result = workspace.create(ambiguous)?;

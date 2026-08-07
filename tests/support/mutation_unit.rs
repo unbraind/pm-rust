@@ -53,15 +53,6 @@ fn serde_defaults_match_the_supported_create_and_settings_contract()
     let (_reserved_directory, reserved_root) = root(&settings("sample-", "toon", 1_800))?;
     let document = create_item(&reserved_root, reserved)?.item;
     assert!(canonical_item_bytes(&document).contains("title: \"true\"\n"));
-    let mut list_like_scalar = document.clone();
-    list_like_scalar.metadata.description = "-A".to_owned();
-    assert_eq!(
-        decode_item(
-            Path::new("list-like-scalar.toon"),
-            &canonical_item_bytes(&list_like_scalar)
-        )?,
-        list_like_scalar
-    );
     let mut ambiguous_tags = document.clone();
     ambiguous_tags.metadata.tags = ["0", "1.2", "false", "null", "true"]
         .map(str::to_owned)
