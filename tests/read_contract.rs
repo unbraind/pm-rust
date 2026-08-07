@@ -98,6 +98,24 @@ fn discovery_errors_are_typed() -> Result<(), Box<dyn std::error::Error>> {
     Ok(())
 }
 
+#[cfg(unix)]
+#[test]
+fn discovery_rejects_a_symlinked_tracker_root() -> Result<(), Box<dyn std::error::Error>> {
+    use std::os::unix::fs::symlink;
+
+    let directory = tempfile::tempdir()?;
+    let workspace = directory.path().join("workspace");
+    let external = directory.path().join("external-tracker");
+    write(external.join("settings.json"), "{}\n")?;
+    fs::create_dir_all(workspace.join(".agents"))?;
+    symlink(&external, workspace.join(".agents/pm"))?;
+    assert!(matches!(
+        Workspace::discover(&workspace),
+        Err(PmRustError::TrackerNotFound { .. })
+    ));
+    Ok(())
+}
+
 #[test]
 fn reads_sorts_filters_and_preserves_extension_fields() -> Result<(), Box<dyn std::error::Error>> {
     let (directory, _) = tracker()?;

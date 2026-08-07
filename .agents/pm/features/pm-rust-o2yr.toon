@@ -6,7 +6,7 @@ status: in_progress
 priority: 1
 tags[5]: conformance,query,rust,toon,workspace
 created_at: "2026-08-06T21:15:59.978Z"
-updated_at: "2026-08-07T00:16:22.220Z"
+updated_at: "2026-08-07T00:22:39.467Z"
 assignee: codex
 claim_principal: codex
 author: codex
@@ -23,12 +23,13 @@ confidence: medium
 resolution: Delivered the first Rust-native read-only conformance slice and a reproducible cross-platform release gate.
 expected_result: A safe read-only Rust SDK and CLI exactly decode canonical pm workspaces with deterministic projections and mandatory green quality gates.
 actual_result: "The CLI and SDK match 609 companion items, pass 14 tests at exact 100 percent line/function/region/branch coverage, and use the published pm CLI 2026.8.6 for strict CI health."
-notes[5]{created_at,author,text}:
+notes[6]{created_at,author,text}:
   "2026-08-06T21:15:59.978Z",codex,Uses toon-format 0.5 with default CLI features disabled; dependency behavior is pinned by pm fixture tests
   "2026-08-06T21:54:10.720Z",codex,Real-workspace differential acceptance decoded 609 companion items and exactly matched the official pm 2026.8.6 id status type title priority and parent projection without copying private item contents.
   "2026-08-06T22:27:40.365Z",codex,"CodeRabbit posted nine exact-head findings. Implemented eight: locked Cargo gates,accurate platform wording,optional description decoding,precise conflict markers,fallible newline and flush writes,root-level symlink exclusion,directory-entry error propagation,and root-safe permission tests. Retained the exact empty-array compatibility normalization because toon-format 0.5.0 demonstrably rejects canonical pm field colon space brackets while the official pm 2026.8.6 emits it; all 609 real companion items depend on this boundary and literal array text has a regression test."
   "2026-08-07T00:11:44.058Z",codex,Exact-head CI run 31129047096 proved the git-source npm exec form installed pm-cli without its built binary and failed with pm not found. Replaced it with the published exact @unbrained/pm-cli@2026.8.6 package; the identical strict health command passes locally. This changes only the repository workflow and does not modify pm-cli source.
   "2026-08-07T00:15:44.166Z",codex,"Exact-head run 31133900713 fixed the pm CLI install gate and passed Ubuntu, Windows, coverage/security/pm health, Sourcery, and the available reviewer checks, but macOS exposed /var versus /private/var aliasing in three path assertions. Canonicalized the fixture tracker root so assertions compare the same filesystem identity returned by Workspace::discover without weakening production behavior."
+  "2026-08-07T00:22:39.467Z",codex,"CodeRabbit review on 883053b identified four valid reproducibility/security gaps. The current head rejects symlinked .agents/pm tracker roots, pins nightly-2026-08-06 in CI and PM evidence, documents the exact 100 percent coverage commands, and uses the published exact pm CLI command consistently. All four findings were accepted."
 learnings[1]{created_at,author,text}:
   "2026-08-06T21:54:10.720Z",codex,Canonical JavaScript TOON encodes empty arrays as field colon space brackets while toon-format 0.5 expects field bracket zero colon; normalize only that exact complete-line suffix before strict decoding.
 files[13]{path,scope,note}:
@@ -46,7 +47,7 @@ files[13]{path,scope,note}:
   tests/support/main_unit.rs,project,Focused I/O and filesystem error contract tests
   tests/support/workspace_unit.rs,project,Focused I/O and filesystem error contract tests
 tests[7]:
-  - command: "cargo +nightly llvm-cov --locked --branch --all-targets --all-features --json --output-path /tmp/pm-rust-branch.json && jq -e '.data[0].totals.lines.percent == 100 and .data[0].totals.functions.percent == 100 and .data[0].totals.regions.percent == 100 and .data[0].totals.branches.percent == 100' /tmp/pm-rust-branch.json"
+  - command: "cargo +nightly-2026-08-06 llvm-cov --locked --branch --all-targets --all-features --json --output-path /tmp/pm-rust-branch.json && jq -e '.data[0].totals.lines.percent == 100 and .data[0].totals.functions.percent == 100 and .data[0].totals.regions.percent == 100 and .data[0].totals.branches.percent == 100' /tmp/pm-rust-branch.json"
     scope: project
     timeout_seconds: 900
   - command: cargo audit
@@ -61,13 +62,13 @@ tests[7]:
   - command: cargo test --locked --all-targets --all-features
     scope: project
     timeout_seconds: 600
-  - command: "npx --yes --package=pm-changelog@2026.8.6 -- pm-changelog --pm-root .agents/pm --check --status in_progress --version Unreleased --conventional --include-links --item-url-base https://github.com/unbraind/pm-rust/blob/main/.agents/pm --item-ref-style toon --include-metadata"
-    scope: project
-    timeout_seconds: 300
-  - command: pm health --strict-exit
+  - command: npm exec --yes --package=@unbrained/pm-cli@2026.8.6 -- pm health --strict-exit
     scope: project
     timeout_seconds: 300
     pm_context_mode: tracker
+  - command: "npx --yes --package=pm-changelog@2026.8.6 -- pm-changelog --pm-root .agents/pm --check --status in_progress --version Unreleased --conventional --include-links --item-url-base https://github.com/unbraind/pm-rust/blob/main/.agents/pm --item-ref-style toon --include-metadata"
+    scope: project
+    timeout_seconds: 300
 docs[3]{path,scope,note}:
   docs/COMPATIBILITY.md,project,Exact supported and deliberately unsupported contract
   README.md,project,Public contract and compatibility matrix

@@ -100,7 +100,7 @@ impl Workspace {
                 return Ok(Self { pm_root: current });
             }
             let candidate = current.join(".agents/pm");
-            if candidate.join("settings.json").is_file() {
+            if !candidate.is_symlink() && candidate.join("settings.json").is_file() {
                 return Ok(Self { pm_root: candidate });
             }
             if !current.pop() {
