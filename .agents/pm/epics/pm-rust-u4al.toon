@@ -6,7 +6,7 @@ status: open
 priority: 1
 tags[5]: agents,cli,interop,rust,sdk
 created_at: "2026-08-06T21:15:44.282Z"
-updated_at: "2026-08-06T21:15:44.282Z"
+updated_at: "2026-08-07T11:03:56.103Z"
 assignee: codex
 author: codex
 estimated_minutes: 4800
@@ -16,12 +16,22 @@ value: Single-binary low-overhead pm access for agents and native applications
 impact: Exposes accidental TypeScript coupling and hardens the ecosystem's public contracts
 outcome: Production-ready Rust implementation interoperable with canonical pm workspaces
 why_now: pm 2026.8.6 provides a stable contract baseline for the first independent implementation
+reviewer: maintainer
 risk: high
 confidence: medium
+sprint: 2026-08-native-mutations
+release: 0.1.0-alpha.2
+blocked_by: pm-rust-6q0n
+blocked_reason: Publication and release readiness are blocked pending maintainer-approved public-history identity remediation; feature development may continue.
+dependencies[1]{id,kind,created_at,author,source_kind,author_source}:
+  pm-rust-6q0n,blocked_by,"2026-08-07T11:03:56.081Z",codex,"cli:update:blocked_by",detected
 notes[1]{created_at,author,text}:
   "2026-08-06T21:15:44.282Z",codex,"Companion lineage: pm-cli-website-204t"
+files[1]{path,scope,note}:
+  LICENSE,project,Public package licensing boundary
 tests[1]{command,scope,timeout_seconds}:
   cargo test --all-targets --all-features,project,600
-docs[1]{path,scope,note}:
+docs[2]{path,scope,note}:
+  AGENTS.md,project,Repository-wide agent operating instructions
   "https://github.com/unbraind/pm-cli",project,Canonical behavior and contract reference; source is read-only for this programme
 body: "Compatibility is proven through language-neutral fixtures and black-box differential tests. Runtime use of Node.js, Bun, JavaScript, TypeScript, or shelling out to pm is forbidden."

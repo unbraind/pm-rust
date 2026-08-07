@@ -6,10 +6,12 @@
 
 mod error;
 mod item;
+mod mutation;
 mod workspace;
 
 pub use error::PmRustError;
 pub use item::{ItemDocument, ItemMetadata, ItemSummary};
+pub use mutation::{CreateItem, CreateResult};
 pub use workspace::{ItemFilter, ListResult, Workspace};
 
 /// Published canonical `pm` release used by this compatibility slice.

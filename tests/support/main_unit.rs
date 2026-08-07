@@ -1,9 +1,10 @@
 use std::collections::BTreeMap;
+use std::fs;
 use std::io;
 
 use pm_rust::{ItemDocument, ItemFilter, ItemMetadata, ListResult};
 
-use super::write_json_to;
+use super::{Cli, Command, run, write_json_to};
 
 struct NewlineFailure {
     document_complete: bool,
@@ -93,4 +94,32 @@ fn trailing_newline_and_flush_errors_are_propagated() {
         .is_err()
     );
     assert!(write_json_to(&mut FlushFailure, &item).is_err());
+}
+
+#[test]
+fn run_dispatches_create_success_and_error_paths() -> Result<(), Box<dyn std::error::Error>> {
+    let directory = tempfile::tempdir()?;
+    let root = directory.path().join(".agents/pm");
+    fs::create_dir_all(&root)?;
+    fs::write(root.join("settings.json"), "{}")?;
+    let command = || Cli {
+        workspace: directory.path().to_path_buf(),
+        command: Command::Create {
+            id: "unit-create".to_owned(),
+            title: "Unit create".to_owned(),
+            description: "description".to_owned(),
+            item_type: "Task".to_owned(),
+            status: "open".to_owned(),
+            priority: 1,
+            tags: vec!["unit".to_owned()],
+            body: "body".to_owned(),
+            author: "unit-agent".to_owned(),
+            timestamp: Some("2026-08-07T10:06:30.183Z".to_owned()),
+            message: Some("message".to_owned()),
+            force_stale_lock: false,
+        },
+    };
+    run(command())?;
+    assert!(run(command()).is_err());
+    Ok(())
 }

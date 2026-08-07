@@ -65,4 +65,4 @@ jobs:
       - name: Verify generated changelog
         run: npx --yes --package=pm-changelog@2026.8.6 -- pm-changelog --pm-root .agents/pm --check --status closed --version Unreleased --conventional --include-links --item-url-base https://github.com/unbraind/pm-rust/blob/main/.agents/pm --item-ref-style toon --include-metadata
       - name: Verify tracked pm project health
-        run: npm exec --yes --package=@unbrained/pm-cli@2026.8.6 -- pm health --strict-exit
+        run: npm exec --yes --package=@unbrained/pm-cli@2026.8.6 -- pm health --check-only --require-merge-drivers --strict-exit

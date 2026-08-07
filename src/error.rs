@@ -44,4 +44,30 @@ pub enum PmRustError {
         /// Requested stable item identifier.
         id: String,
     },
+    /// A requested write does not satisfy the deliberately narrow mutation contract.
+    #[error("invalid create request: {reason}")]
+    InvalidCreateRequest {
+        /// Stable explanation suitable for CLI diagnostics.
+        reason: String,
+    },
+    /// Another process owns the per-item mutation lock.
+    #[error("pm item {id} is locked by another writer")]
+    LockConflict {
+        /// Stable item identifier whose lock could not be acquired.
+        id: String,
+    },
+    /// A create would overwrite an existing item or history stream.
+    #[error("pm item already exists: {id}")]
+    ItemAlreadyExists {
+        /// Stable item identifier that already has durable state.
+        id: String,
+    },
+    /// Durable recovery found bytes that do not belong to its journal.
+    #[error("create transaction recovery conflict for {id}: {reason}")]
+    RecoveryConflict {
+        /// Stable item identifier whose transaction cannot be recovered automatically.
+        id: String,
+        /// Stable explanation of the conflicting durable state.
+        reason: String,
+    },
 }

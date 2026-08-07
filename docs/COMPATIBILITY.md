@@ -1,7 +1,7 @@
 # Compatibility contract
 
-The first `pm-rust` slice is a read-only compatibility implementation for the
-published `pm` 2026.8.6 workspace format.
+The current `pm-rust` slice is a native read-and-create compatibility
+implementation for the published `pm` 2026.8.6 workspace format.
 
 ## Supported
 
@@ -15,13 +15,24 @@ published `pm` 2026.8.6 workspace format.
 - recursive item folders, stable ID sorting, and exact ID/status/type filters;
 - conflict-marker, duplicate-ID, malformed-document, and missing-item failures;
 - deterministic JSON for full-item and list projections.
+- explicit-ID creation for every canonical built-in item type;
+- canonical tag ordering, TOON bytes, create-history patch ordering, and
+  SHA-256 document hashes compatible with `pm` 2026.8.6;
+- exclusive per-item locks with stale-lock cleanup allowed only by an explicit
+  force request after the configured TTL;
+- synced same-directory temporary writes and parent-directory syncs on Unix;
+- a durable create journal that completes a missing item/history half after a
+  crash, removes a transaction that committed both halves, rolls back a
+  transaction that committed neither, and refuses to overwrite foreign bytes.
 
 ## Deliberately unsupported
 
-Mutation, locking, history append/replay, transactions, recovery, field-aware
-merge, package activation, semantic search, and non-JSON rendering are not
-exposed. Adding a command before its safety and differential fixtures exist is
-treated as a compatibility failure, not progress.
+Update/delete mutations, general history replay, field-aware merge, package
+activation, semantic search, automatic ID allocation, custom item types, and
+non-JSON rendering are not exposed. Create currently fails fast on a live lock;
+it does not yet implement the configured lock wait budget. Adding a command
+before its safety and differential fixtures exist is treated as a compatibility
+failure, not progress.
 
 ## Conformance evidence
 
@@ -30,7 +41,10 @@ attempts, invalid documents, duplicate IDs, extension fields, CLI black-box
 execution, and property-generated exact-ID filters. Manual acceptance runs the
 compiled binary against the private mature companion tracker without copying
 its contents into this public repository. Only aggregate counts and
-contract-level results may be recorded publicly.
+contract-level results may be recorded publicly. Create conformance additionally
+uses an exact official-CLI differential fixture, simultaneous process writers,
+every recovery presence state, stale-lock ownership races, closed output pipes,
+and real filesystem failures.
 
 The Rust `toon-format` crate serializes an empty array as `field[0]:`, while the
 canonical JavaScript encoder used by `pm` emits `field: []`. `pm-rust`

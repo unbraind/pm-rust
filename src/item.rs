@@ -34,7 +34,7 @@ pub struct ItemMetadata {
     /// ISO-8601 last-update timestamp.
     pub updated_at: String,
     /// Optional parent item identifier.
-    #[serde(default)]
+    #[serde(default, skip_serializing_if = "Option::is_none")]
     pub parent: Option<String>,
     /// Forward-compatible fields contributed by core or installed packages.
     #[serde(flatten)]

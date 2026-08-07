@@ -1,0 +1,56 @@
+id: pm-rust-5tey
+title: Create canonical items with crash-safe native Rust transactions
+description: Add the first Rust-native write surface as an explicit-id create transaction that is compatible with pm 2026.8.6 item and history formats and remains safe under concurrent processes and injected failures.
+type: Feature
+status: closed
+priority: 1
+tags: []
+created_at: "2026-08-07T10:07:20.525Z"
+updated_at: "2026-08-07T11:06:25.108Z"
+closed_at: "2026-08-07T11:02:58.500Z"
+completed_at: "2026-08-07T11:02:58.500Z"
+author: codex
+estimated_minutes: 720
+acceptance_criteria: A Rust SDK API and CLI create canonical TOON items with explicit IDs and no JavaScript Node Bun or shell bridge; Per-item exclusive locks reject concurrent duplicate writers without overwriting item or history bytes; Atomic item writes and a durable transaction journal recover every injected interruption between item and history commits; History JSONL patch and hashes differentially match pm 2026.8.6 for the supported create contract; Unit integration property multi-process black-box and real installed-pm acceptance pass at exact 100 percent line function region and branch coverage
+definition_of_ready: The read-only slice pm-rust-o2yr is closed and canonical pm 2026.8.6 contracts are available read-only
+value: Lets native agents create durable work without starting a JavaScript runtime
+impact: Establishes the transaction and locking primitives required by every later mutation
+outcome: A minimal but production-safe native create operation interoperable with canonical pm workspaces
+why_now: Read compatibility is proven; mutation safety is the next critical vertical boundary
+parent: pm-rust-u4al
+reviewer: maintainer
+risk: high
+confidence: medium
+sprint: 2026-08-native-mutations
+release: 0.1.0-alpha.2
+resolution: "Delivered a Rust-only explicit-ID create transaction with canonical pm 2026.8.6 item/history bytes, durable recovery, ownership-safe locking, and exact quality evidence."
+expected_result: "Rust SDK and CLI creation is interoperable, race-safe, crash-recoverable, and fully covered without a JavaScript runtime bridge."
+actual_result: "The SDK and CLI create every built-in item type; exact official fixtures and live pm 2026.8.6 reads pass; simultaneous writers preserve one complete result; all recovery states, no-replace publication, and filesystem failures pass; 36 tests achieve exact 100/100/100/100 coverage and cargo audit is clean."
+notes[1]{created_at,author,text,edited_at}:
+  "2026-08-07T11:02:56.834Z",codex,"Verification: 36 tests pass across unit, property, SDK, CLI, multi-process concurrency, lock replacement, atomic no-replace publication, crash recovery, and real filesystem failure suites; cargo-llvm-cov reports exact 100 percent lines/functions/regions/branches; cargo audit found no vulnerabilities; official pm 2026.8.6 read, history, health, and validate accepted a Rust-created item.","2026-08-07T11:06:25.108Z"
+learnings[1]{created_at,author,text}:
+  "2026-08-07T11:02:57.158Z",codex,"Property generation exposed that generic scalar dequoting must never be applied to TOON array lines: the Rust encoder correctly quoted the string tag 0, but normalization could remove it. Preserve non-empty tag arrays byte-for-byte and normalize only canonical empty-array syntax."
+files[13]{path,scope,note}:
+  Cargo.toml,project,Native create dependencies
+  Cargo.lock,project,Locked dependency graph
+  src/error.rs,project,Typed mutation and recovery failures
+  src/item.rs,project,Canonical optional-parent serialization
+  src/lib.rs,project,Public native create API
+  src/main.rs,project,Native create CLI
+  src/workspace.rs,project,Workspace SDK create entrypoint
+  src/mutation.rs,project,Crash-recoverable create transaction
+  tests/create_contract.rs,project,Black-box differential and concurrency acceptance
+  tests/support/main_unit.rs,project,CLI dispatch coverage
+  tests/support/mutation_unit.rs,project,Transaction recovery filesystem and property coverage
+  .github/workflows/ci.yml,project,Read-only canonical pm health gate
+  .gitattributes,project,Latest pm merge-driver mapping
+tests[4]{command,scope,timeout_seconds}:
+  cargo +1.90.0 clippy --locked --all-targets --all-features -- -D warnings,project,300
+  cargo +1.90.0 fmt --all -- --check,project,120
+  cargo +1.90.0 test --locked --all-targets --all-features,project,300
+  cargo +nightly-2026-08-06 llvm-cov --locked --branch --all-targets --all-features --json --output-path coverage-branch.json,project,300
+docs[2]{path,scope,note}:
+  docs/COMPATIBILITY.md,project,Supported mutation and recovery contract
+  README.md,project,Native create usage and release posture
+close_reason: Delivered and verified the native crash-recoverable create contract; publication remains maintainer-gated.
+body: This slice intentionally requires explicit IDs and supports the canonical built-in type folders first. Broader ID generation runtime schemas extensions and derived indexes remain separate follow-up slices so this transaction can be proven rather than widened prematurely.

@@ -8,7 +8,8 @@ use std::path::{Path, PathBuf};
 use serde::Serialize;
 
 use crate::item::decode_item;
-use crate::{ItemDocument, ItemSummary, PmRustError};
+use crate::mutation::create_item;
+use crate::{CreateItem, CreateResult, ItemDocument, ItemSummary, PmRustError};
 
 const NON_ITEM_DIRECTORIES: [&str; 6] = [
     "extensions",
@@ -186,6 +187,20 @@ impl Workspace {
             .into_iter()
             .find(|document| document.metadata.id == id)
             .ok_or_else(|| PmRustError::ItemNotFound { id: id.to_owned() })
+    }
+
+    /// Creates one canonical item under a crash-recoverable per-item transaction.
+    ///
+    /// The first mutation slice deliberately requires an explicit identifier and
+    /// supports canonical built-in item folders only. It writes both the TOON
+    /// document and its create-history stream without invoking another runtime.
+    ///
+    /// # Errors
+    ///
+    /// Returns a typed validation, lock, conflict, recovery, or filesystem
+    /// error. Existing item and history bytes are never overwritten.
+    pub fn create(&self, request: CreateItem) -> Result<CreateResult, PmRustError> {
+        create_item(&self.pm_root, request)
     }
 }
 
