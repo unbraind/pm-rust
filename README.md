@@ -26,9 +26,10 @@ same-directory atomic writes, a durable recovery journal, canonical history,
 and exact post-document hashes. See
 [the compatibility contract](docs/COMPATIBILITY.md).
 
-Rust formatting, strict Clippy, and tests run on Linux, macOS, and Windows.
-Ubuntu additionally gates the dependency audit, generated changelog, strict
-`pm health`, and 100 percent line, region, function, and branch coverage.
+Rust formatting, strict Clippy, complete private-item rustdoc coverage, and tests
+run on Linux, macOS, and Windows. Ubuntu additionally gates the dependency
+audit, generated changelog, strict `pm health`, and 100 percent line, region,
+function, and branch coverage.
 
 Publication and automated releases remain disabled until the complete tracked
 tree and raw Git history pass a privacy review and a maintainer explicitly
@@ -43,6 +44,7 @@ Work is managed in this repository with the latest `pm` CLI under
 ```bash
 cargo fmt --all -- --check
 cargo clippy --locked --all-targets --all-features -- -D warnings
+RUSTDOCFLAGS='--document-private-items -D missing-docs' cargo doc --locked --all-features --no-deps
 cargo test --locked --all-targets --all-features
 cargo +nightly-2026-08-06 llvm-cov --locked --branch --all-targets --all-features --json --output-path coverage-branch.json
 jq -e '.data[0].totals.lines.percent == 100 and .data[0].totals.functions.percent == 100 and .data[0].totals.regions.percent == 100 and .data[0].totals.branches.percent == 100' coverage-branch.json

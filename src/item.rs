@@ -72,6 +72,7 @@ pub struct ItemSummary {
 }
 
 impl From<&ItemDocument> for ItemSummary {
+    /// Projects a complete item into the stable token-efficient list shape.
     fn from(document: &ItemDocument) -> Self {
         Self {
             id: document.metadata.id.clone(),
@@ -84,6 +85,7 @@ impl From<&ItemDocument> for ItemSummary {
     }
 }
 
+/// Decodes and validates one canonical item document from its stored bytes.
 pub(crate) fn decode_item(path: &Path, content: &str) -> Result<ItemDocument, PmRustError> {
     if content.lines().any(|line| {
         ["<<<<<<<", "=======", ">>>>>>>"].iter().any(|marker| {
@@ -120,6 +122,7 @@ pub(crate) fn decode_item(path: &Path, content: &str) -> Result<ItemDocument, Pm
     Ok(document)
 }
 
+/// Rejects a required string field when it contains no non-whitespace content.
 fn validate_required(path: &Path, field: &str, value: &str) -> Result<(), PmRustError> {
     if value.trim().is_empty() {
         return Err(PmRustError::InvalidItemDocument {
@@ -130,6 +133,7 @@ fn validate_required(path: &Path, field: &str, value: &str) -> Result<(), PmRust
     Ok(())
 }
 
+/// Adapts the JavaScript encoder's empty-array spelling to the Rust decoder.
 fn normalize_javascript_toon_dialect(content: &str) -> String {
     let mut normalized = String::with_capacity(content.len());
     for line in content.lines() {

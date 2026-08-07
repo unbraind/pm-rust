@@ -78,12 +78,14 @@ enum Command {
     },
 }
 
+/// Writes one pretty JSON response to the process standard output stream.
 fn write_json(value: &impl Serialize) -> Result<(), Box<dyn std::error::Error>> {
     let mut stdout = std::io::stdout().lock();
     write_json_to(&mut stdout, value)?;
     Ok(())
 }
 
+/// Serializes one response to a caller-supplied writer and flushes it.
 fn write_json_to(
     writer: &mut dyn Write,
     value: &impl Serialize,
@@ -99,6 +101,7 @@ fn write_json_to(
 #[path = "../tests/support/main_unit.rs"]
 mod tests;
 
+/// Dispatches one parsed command against its discovered workspace.
 fn run(cli: Cli) -> Result<(), Box<dyn std::error::Error>> {
     let workspace = Workspace::discover(&cli.workspace)?;
     match cli.command {
@@ -143,6 +146,7 @@ fn run(cli: Cli) -> Result<(), Box<dyn std::error::Error>> {
     Ok(())
 }
 
+/// Parses the command line and maps success or failure to the process exit code.
 fn main() -> ExitCode {
     match run(Cli::parse()) {
         Ok(()) => ExitCode::SUCCESS,

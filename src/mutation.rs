@@ -72,6 +72,7 @@ pub struct CreateResult {
     pub after_hash: String,
 }
 
+/// Serializes a relative result path with platform-independent separators.
 fn serialize_portable_path<S>(path: &Path, serializer: S) -> Result<S::Ok, S::Error>
 where
     S: Serializer,
@@ -96,6 +97,7 @@ struct LockSettings {
 }
 
 impl Default for LockSettings {
+    /// Builds lock settings with the canonical default time-to-live.
     fn default() -> Self {
         Self {
             ttl_seconds: default_lock_ttl(),
@@ -119,6 +121,7 @@ struct ItemLock {
 }
 
 impl Drop for ItemLock {
+    /// Removes the lock only when its ownership token is still unchanged.
     fn drop(&mut self) {
         if fs::read_to_string(&self.path).is_ok_and(|raw| raw == self.raw) {
             let _ = fs::remove_file(&self.path);
@@ -155,28 +158,34 @@ struct HistoryEntry<'a> {
     message: Option<&'a str>,
 }
 
+/// Returns the canonical lifecycle status for a create request.
 fn default_status() -> String {
     "open".to_owned()
 }
 
+/// Returns the canonical neutral priority for a create request.
 const fn default_priority() -> u8 {
     2
 }
 
+/// Returns the only item storage format supported by this compatibility slice.
 fn default_item_format() -> String {
     "toon".to_owned()
 }
 
+/// Returns the canonical lock lifetime in seconds.
 const fn default_lock_ttl() -> u64 {
     1_800
 }
 
+/// Constructs a typed validation failure with a stable human-readable reason.
 fn invalid(reason: impl Into<String>) -> PmRustError {
     PmRustError::InvalidCreateRequest {
         reason: reason.into(),
     }
 }
 
+/// Reads the mutation settings needed to validate and coordinate a create.
 fn read_settings(pm_root: &Path) -> Result<MutationSettings, PmRustError> {
     let path = pm_root.join("settings.json");
     let raw = fs::read_to_string(&path).map_err(|source| PmRustError::Io {
@@ -186,6 +195,7 @@ fn read_settings(pm_root: &Path) -> Result<MutationSettings, PmRustError> {
     serde_json::from_str(&raw).map_err(|error| invalid(format!("invalid settings.json: {error}")))
 }
 
+/// Maps a canonical built-in item type to its tracker directory.
 fn type_folder(item_type: &str) -> Option<&'static str> {
     match item_type {
         "Epic" => Some("epics"),
@@ -203,6 +213,7 @@ fn type_folder(item_type: &str) -> Option<&'static str> {
     }
 }
 
+/// Validates the deliberately narrow native create contract.
 fn validate_request(
     request: &CreateItem,
     settings: &MutationSettings,
@@ -249,6 +260,7 @@ fn validate_request(
     Ok(folder)
 }
 
+/// Formats the current UTC instant in canonical millisecond RFC 3339 form.
 fn now_iso() -> String {
     let value = OffsetDateTime::now_utc();
     format!(
@@ -263,6 +275,7 @@ fn now_iso() -> String {
     )
 }
 
+/// Requires a non-empty RFC 3339 timestamp expressed explicitly in UTC.
 fn validate_timestamp(value: &str) -> Result<(), PmRustError> {
     if value.trim().is_empty()
         || !value.ends_with('Z')
@@ -273,6 +286,7 @@ fn validate_timestamp(value: &str) -> Result<(), PmRustError> {
     Ok(())
 }
 
+/// Generates a process-local collision-resistant suffix for private files.
 fn unique_token() -> String {
     let nanos = OffsetDateTime::now_utc().unix_timestamp_nanos();
     format!(
@@ -282,6 +296,7 @@ fn unique_token() -> String {
     )
 }
 
+/// Publishes new durable bytes without replacing an existing target.
 fn atomic_write(path: &Path, contents: &str) -> Result<(), PmRustError> {
     let parent = path
         .parent()
@@ -298,6 +313,7 @@ fn atomic_write(path: &Path, contents: &str) -> Result<(), PmRustError> {
     atomic_write_with_temporary(path, &temporary, contents)
 }
 
+/// Opens an explicit private path and delegates no-replace publication.
 fn atomic_write_with_temporary(
     path: &Path,
     temporary: &Path,
@@ -314,6 +330,7 @@ fn atomic_write_with_temporary(
     commit_temporary(file, temporary, path, contents)
 }
 
+/// Flushes a private file, publishes it by hard link, and durably syncs the commit.
 fn commit_temporary(
     mut file: File,
     temporary: &Path,
@@ -353,6 +370,7 @@ fn commit_temporary(
     }
 }
 
+/// Acquires an item lock, optionally reclaiming an expired unchanged owner.
 fn acquire_lock(
     pm_root: &Path,
     id: &str,
@@ -421,6 +439,7 @@ fn acquire_lock(
     cleanup_result.and_then(|()| create_lock_file(&path, &raw, id))
 }
 
+/// Creates and initializes a new lock file without replacing another writer.
 fn create_lock_file(path: &Path, raw: &str, id: &str) -> Result<ItemLock, PmRustError> {
     match OpenOptions::new().write(true).create_new(true).open(path) {
         Ok(file) => write_lock_file(file, path, raw),
@@ -434,6 +453,7 @@ fn create_lock_file(path: &Path, raw: &str, id: &str) -> Result<ItemLock, PmRust
     }
 }
 
+/// Flushes a newly created lock payload before returning its ownership guard.
 fn write_lock_file(mut file: File, path: &Path, raw: &str) -> Result<ItemLock, PmRustError> {
     if let Err(source) = file
         .write_all(raw.as_bytes())
@@ -452,6 +472,7 @@ fn write_lock_file(mut file: File, path: &Path, raw: &str) -> Result<ItemLock, P
     })
 }
 
+/// Removes an expired lock only when its bytes still match the observed owner.
 fn remove_stale_lock(path: &Path, expected_raw: &str, id: &str) -> Result<(), PmRustError> {
     let current_raw = fs::read_to_string(path).map_err(|source| PmRustError::Io {
         path: path.to_path_buf(),
@@ -463,6 +484,7 @@ fn remove_stale_lock(path: &Path, expected_raw: &str, id: &str) -> Result<(), Pm
     remove_file(path)
 }
 
+/// Removes a file and persists the containing-directory change where supported.
 fn remove_file(path: &Path) -> Result<(), PmRustError> {
     fs::remove_file(path).map_err(|source| PmRustError::Io {
         path: path.to_path_buf(),
@@ -479,6 +501,7 @@ fn remove_file(path: &Path) -> Result<(), PmRustError> {
 }
 
 #[cfg(unix)]
+/// Flushes the parent directory so a publication or deletion survives a crash.
 fn sync_parent(path: &Path) -> Result<(), PmRustError> {
     let parent = path
         .parent()
@@ -493,11 +516,13 @@ fn sync_parent(path: &Path) -> Result<(), PmRustError> {
     })
 }
 
+/// Encodes one validated item into canonical JavaScript-compatible TOON bytes.
 fn canonical_item_bytes(document: &ItemDocument) -> Result<String, PmRustError> {
     // The validated create shape contains only TOON-supported scalar and array values.
     normalize_encoded_item(encode_default(document))
 }
 
+/// Converts encoder failures into the public typed error before normalization.
 fn normalize_encoded_item(encoded: Result<String, ToonError>) -> Result<String, PmRustError> {
     let encoded = encoded.map_err(|error| PmRustError::ItemEncoding {
         reason: error.to_string(),
@@ -505,6 +530,7 @@ fn normalize_encoded_item(encoded: Result<String, ToonError>) -> Result<String, 
     normalize_item_bytes(&encoded)
 }
 
+/// Normalizes Rust encoder output without changing ambiguous scalar semantics.
 fn normalize_item_bytes(encoded: &str) -> Result<String, PmRustError> {
     let mut normalized = String::with_capacity(encoded.len() + 1);
     for line in encoded.lines() {
@@ -543,6 +569,7 @@ fn normalize_item_bytes(encoded: &str) -> Result<String, PmRustError> {
     Ok(normalized)
 }
 
+/// Appends recursively key-sorted compact JSON for stable hashing.
 fn stable_json(value: &Value, output: &mut String) {
     match value {
         Value::Array(entries) => {
@@ -573,6 +600,7 @@ fn stable_json(value: &Value, output: &mut String) {
     }
 }
 
+/// Projects item metadata into the canonical history and hashing shape.
 fn metadata_value(document: &ItemDocument) -> serde_json::Map<String, Value> {
     let mut metadata = serde_json::Map::new();
     metadata.insert("id".to_owned(), Value::String(document.metadata.id.clone()));
@@ -623,6 +651,7 @@ fn metadata_value(document: &ItemDocument) -> serde_json::Map<String, Value> {
     metadata
 }
 
+/// Computes the canonical SHA-256 document hash used by pm history.
 fn document_hash(document: &ItemDocument) -> String {
     let front_matter = Value::Object(metadata_value(document));
     let canonical = json!({"front_matter": front_matter, "body": document.body});
@@ -631,6 +660,7 @@ fn document_hash(document: &ItemDocument) -> String {
     format!("{:x}", Sha256::digest(raw.as_bytes()))
 }
 
+/// Builds the canonical first create-history entry as one JSONL record.
 fn history_bytes(
     document: &ItemDocument,
     timestamp: &str,
@@ -681,6 +711,7 @@ fn history_bytes(
         .unwrap_or_default()
 }
 
+/// Reads UTF-8 state while treating an absent path as an expected empty value.
 fn read_optional(path: &Path) -> Result<Option<String>, PmRustError> {
     match fs::read_to_string(path) {
         Ok(raw) => Ok(Some(raw)),
@@ -692,6 +723,7 @@ fn read_optional(path: &Path) -> Result<Option<String>, PmRustError> {
     }
 }
 
+/// Completes or clears an interrupted create whose durable journal still matches.
 fn recover(pm_root: &Path, id: &str) -> Result<(), PmRustError> {
     let journal_path = pm_root
         .join("runtime/transactions")
@@ -738,6 +770,7 @@ fn recover(pm_root: &Path, id: &str) -> Result<(), PmRustError> {
     repair.and_then(|()| remove_file(&journal_path))
 }
 
+/// Executes one validated, locked, journaled, no-overwrite create transaction.
 pub(crate) fn create_item(
     pm_root: &Path,
     mut request: CreateItem,

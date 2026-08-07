@@ -35,6 +35,7 @@ pub struct ItemFilter {
 }
 
 impl ItemFilter {
+    /// Reports whether a document satisfies every configured exact filter.
     fn matches(&self, document: &ItemDocument) -> bool {
         self.status
             .as_ref()
@@ -204,6 +205,7 @@ impl Workspace {
     }
 }
 
+/// Reads every entry in a directory while retaining the path in typed errors.
 fn read_directory(path: &Path) -> Result<Vec<fs::DirEntry>, PmRustError> {
     let entries = fs::read_dir(path).map_err(|source| PmRustError::Io {
         path: path.to_path_buf(),
@@ -212,6 +214,7 @@ fn read_directory(path: &Path) -> Result<Vec<fs::DirEntry>, PmRustError> {
     collect_directory_entries(path, entries)
 }
 
+/// Collects a directory iterator and maps entry failures to the directory path.
 fn collect_directory_entries(
     path: &Path,
     entries: impl Iterator<Item = io::Result<fs::DirEntry>>,
@@ -224,6 +227,7 @@ fn collect_directory_entries(
         })
 }
 
+/// Recursively collects regular TOON files without following symbolic links.
 fn collect_toon_paths(path: &Path, paths: &mut Vec<PathBuf>) -> Result<(), PmRustError> {
     for entry in read_directory(path)? {
         let entry_path = entry.path();
