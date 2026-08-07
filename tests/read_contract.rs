@@ -54,7 +54,7 @@ fn tracker() -> Result<(TempDir, PathBuf), Box<dyn std::error::Error>> {
     write(root.join("issues/nested/demo-b.toon"), ITEM_B)?;
     write(root.join("history/ignored.toon"), "not: an item\n")?;
     write(root.join("tasks/ignored.txt"), "not toon\n")?;
-    Ok((directory, root))
+    Ok((directory, fs::canonicalize(root)?))
 }
 
 #[test]
