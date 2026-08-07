@@ -2,7 +2,9 @@
 
 use std::fs;
 use std::process::{Command as ProcessCommand, Stdio};
+#[cfg(target_os = "linux")]
 use std::thread;
+#[cfg(target_os = "linux")]
 use std::time::Duration;
 
 use assert_cmd::Command;
@@ -261,28 +263,35 @@ fn concurrent_processes_preserve_one_complete_create() -> Result<(), Box<dyn std
     Ok(())
 }
 
+#[cfg(target_os = "linux")]
 #[test]
 fn create_never_removes_a_lock_replaced_by_another_owner() -> Result<(), Box<dyn std::error::Error>>
 {
     let (_directory, workspace) = tracker()?;
-    let lock_path = workspace.pm_root().join("locks/sample-replaced.lock");
-    let watched_path = lock_path.clone();
-    let watcher = thread::spawn(move || {
-        for _ in 0..5_000 {
-            if watched_path.exists() {
-                return fs::write(&watched_path, "replacement owner\n");
-            }
-            thread::sleep(Duration::from_millis(1));
+    let pm_root = workspace.pm_root().to_path_buf();
+    let journal_root = pm_root.join("runtime/transactions");
+    fs::create_dir_all(&journal_root)?;
+    let journal_path = journal_root.join("create-sample-replaced.json");
+    rustix::fs::mkfifoat(
+        rustix::fs::CWD,
+        &journal_path,
+        rustix::fs::Mode::RUSR | rustix::fs::Mode::WUSR,
+    )?;
+    let creator = thread::spawn(move || workspace.create(request("sample-replaced")));
+    let lock_path = pm_root.join("locks/sample-replaced.lock");
+    for _ in 0..5_000 {
+        if lock_path.exists() {
+            break;
         }
-        Err(std::io::Error::new(
-            std::io::ErrorKind::TimedOut,
-            "create lock was not observed",
-        ))
-    });
-    let mut candidate = request("sample-replaced");
-    candidate.body = "x".repeat(5_000_000);
-    workspace.create(candidate)?;
-    watcher.join().map_err(|_| "lock watcher panicked")??;
+        thread::sleep(Duration::from_millis(1));
+    }
+    assert!(lock_path.exists());
+    fs::write(&lock_path, "replacement owner\n")?;
+    fs::write(&journal_path, "not json")?;
+    assert!(matches!(
+        creator.join().map_err(|_| "creator panicked")?,
+        Err(PmRustError::RecoveryConflict { .. })
+    ));
     assert_eq!(fs::read_to_string(&lock_path)?, "replacement owner\n");
     fs::remove_file(lock_path)?;
     Ok(())

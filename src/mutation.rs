@@ -456,8 +456,13 @@ fn sync_parent(path: &Path) -> Result<(), PmRustError> {
 }
 
 #[cfg(not(unix))]
-fn sync_parent(_path: &Path) -> Result<(), PmRustError> {
-    Ok(())
+fn sync_parent(path: &Path) -> Result<(), PmRustError> {
+    File::open(path)
+        .and_then(|file| file.sync_all())
+        .map_err(|source| PmRustError::Io {
+            path: path.to_path_buf(),
+            source,
+        })
 }
 
 fn canonical_item_bytes(document: &ItemDocument) -> String {
