@@ -16,18 +16,18 @@ use tempfile::TempDir;
 const TIMESTAMP: &str = "2026-08-07T10:06:30.183Z";
 const ITEM_BYTES: &str = r#"id: sample-native
 title: Native create
-description: Fixture description
+description: "-A"
 type: Task
 status: open
 priority: 2
-tags[2]: interop,rust
+tags[3]: "0",safe,"true"
 created_at: "2026-08-07T10:06:30.183Z"
 updated_at: "2026-08-07T10:06:30.183Z"
 author: fixture-agent
-body: Fixture body
+body: "0"
 "#;
 const HISTORY_BYTES: &str = concat!(
-    r#"{"ts":"2026-08-07T10:06:30.183Z","author":"fixture-agent","author_source":"asserted","op":"create","patch":[{"op":"replace","path":"/body","value":"Fixture body"},{"op":"add","path":"/metadata/id","value":"sample-native"},{"op":"add","path":"/metadata/title","value":"Native create"},{"op":"add","path":"/metadata/description","value":"Fixture description"},{"op":"add","path":"/metadata/type","value":"Task"},{"op":"add","path":"/metadata/status","value":"open"},{"op":"add","path":"/metadata/priority","value":2},{"op":"add","path":"/metadata/tags","value":["interop","rust"]},{"op":"add","path":"/metadata/created_at","value":"2026-08-07T10:06:30.183Z"},{"op":"add","path":"/metadata/updated_at","value":"2026-08-07T10:06:30.183Z"},{"op":"add","path":"/metadata/author","value":"fixture-agent"}],"before_hash":"3cc22dff72be7b14824654a7a64ea62b04799939b2fee54c1b5f52ca60bf6df0","after_hash":"d0248b34b05b620257829abc43ae2af0dfb6c42042322281e60d2f4922e51591","message":"create fixture"}"#,
+    r#"{"ts":"2026-08-07T10:06:30.183Z","author":"fixture-agent","author_source":"asserted","op":"create","patch":[{"op":"replace","path":"/body","value":"0"},{"op":"add","path":"/metadata/id","value":"sample-native"},{"op":"add","path":"/metadata/title","value":"Native create"},{"op":"add","path":"/metadata/description","value":"-A"},{"op":"add","path":"/metadata/type","value":"Task"},{"op":"add","path":"/metadata/status","value":"open"},{"op":"add","path":"/metadata/priority","value":2},{"op":"add","path":"/metadata/tags","value":["0","safe","true"]},{"op":"add","path":"/metadata/created_at","value":"2026-08-07T10:06:30.183Z"},{"op":"add","path":"/metadata/updated_at","value":"2026-08-07T10:06:30.183Z"},{"op":"add","path":"/metadata/author","value":"fixture-agent"}],"before_hash":"3cc22dff72be7b14824654a7a64ea62b04799939b2fee54c1b5f52ca60bf6df0","after_hash":"6eb97257a863250fafbcc2d460f0b9a08a1b864bebf2c725632258e3f72db01c","message":"create fixture"}"#,
     "\n"
 );
 
@@ -43,16 +43,17 @@ fn tracker() -> Result<(TempDir, Workspace), Box<dyn std::error::Error>> {
     Ok((directory, workspace))
 }
 
+/// Builds the canonical SDK request used across native create acceptance cases.
 fn request(id: &str) -> CreateItem {
     CreateItem {
         id: id.to_owned(),
         title: "Native create".to_owned(),
-        description: "Fixture description".to_owned(),
+        description: "-A".to_owned(),
         item_type: "Task".to_owned(),
         status: "open".to_owned(),
         priority: 2,
-        tags: vec!["rust".to_owned(), "interop".to_owned(), "rust".to_owned()],
-        body: "Fixture body".to_owned(),
+        tags: ["0", "safe", "true"].map(str::to_owned).to_vec(),
+        body: "0".to_owned(),
         author: "fixture-agent".to_owned(),
         timestamp: Some(TIMESTAMP.to_owned()),
         message: Some("create fixture".to_owned()),
@@ -61,7 +62,9 @@ fn request(id: &str) -> CreateItem {
 }
 
 #[test]
-fn sdk_create_matches_the_published_pm_fixture_exactly() -> Result<(), Box<dyn std::error::Error>> {
+/// Proves the Rust transaction matches the official pm 2026.8.7 SDK byte for byte.
+fn sdk_create_matches_the_published_pm_2026_8_7_fixture_exactly()
+-> Result<(), Box<dyn std::error::Error>> {
     let (_directory, workspace) = tracker()?;
     let result = workspace.create(request("sample-native"))?;
     assert_eq!(
@@ -74,7 +77,7 @@ fn sdk_create_matches_the_published_pm_fixture_exactly() -> Result<(), Box<dyn s
     );
     assert_eq!(
         result.after_hash,
-        "d0248b34b05b620257829abc43ae2af0dfb6c42042322281e60d2f4922e51591"
+        "6eb97257a863250fafbcc2d460f0b9a08a1b864bebf2c725632258e3f72db01c"
     );
     assert_eq!(
         fs::read_to_string(workspace.pm_root().join(&result.item_path))?,

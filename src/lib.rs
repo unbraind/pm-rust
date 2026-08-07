@@ -16,4 +16,4 @@ pub use mutation::{CreateItem, CreateResult};
 pub use workspace::{ItemFilter, ListResult, Workspace};
 
 /// Published canonical `pm` release used by this compatibility slice.
-pub const COMPATIBLE_PM_VERSION: &str = "2026.8.6";
+pub const COMPATIBLE_PM_VERSION: &str = "2026.8.7";

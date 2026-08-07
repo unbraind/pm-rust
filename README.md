@@ -5,7 +5,7 @@
 native applications.
 
 The project is pre-release. Its current delivery slice reads workspaces and
-creates canonical items against the published `pm` 2026.8.6 on-disk contract.
+creates canonical items against the published `pm` 2026.8.7 on-disk contract.
 Production code, tests, benchmarks, and build tooling are Rust; the distributed
 binary does not require Node.js, Bun, JavaScript, or TypeScript.
 
@@ -49,7 +49,7 @@ cargo test --locked --all-targets --all-features
 cargo +nightly-2026-08-06 llvm-cov --locked --branch --all-targets --all-features --json --output-path coverage-branch.json
 jq -e '.data[0].totals.lines.percent == 100 and .data[0].totals.functions.percent == 100 and .data[0].totals.regions.percent == 100 and .data[0].totals.branches.percent == 100' coverage-branch.json
 cargo audit
-npm exec --yes --package=@unbrained/pm-cli@2026.8.6 -- pm health --check-only --require-merge-drivers --strict-exit
+npm exec --yes --package=@unbrained/pm-cli@2026.8.7 -- pm health --check-only --require-merge-drivers --strict-exit
 ```
 
 ## License
