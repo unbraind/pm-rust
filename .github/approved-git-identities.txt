@@ -14,8 +14,11 @@
 #    addresses that do not carry personal identity metadata.
 #
 # The identity audit gate (tests/identity_audit.rs) fails closed on any
-# author or committer email not listed here, scanning both reachable and
-# unreachable Git objects.
+# author or committer email not listed here. It scans every object in the LOCAL
+# object store, so it covers unreachable (dangling) objects when the store holds
+# them. In CI it does not: a clone never transfers server-side dangling objects,
+# so a green CI run is evidence about refs and tags, not about the whole
+# upstream object database. See README.md for the distinction.
 
 # Approved public authoring identity (maintainer decision 2026-07-21).
 stefan@preu.at

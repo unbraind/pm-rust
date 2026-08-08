@@ -39,10 +39,22 @@ being set to `true`.
 
 ### Identity audit gate
 
-A native Rust identity-audit gate (`tests/identity_audit.rs`) scans all Git
-objects — both reachable from refs and unreachable (dangling or orphaned) — for
-author and committer identities and fails closed on any identity not listed in
+A native Rust identity-audit gate (`tests/identity_audit.rs`) scans every object
+**in the local object store** — via `git cat-file --batch-all-objects`, so both
+objects reachable from refs and any unreachable (dangling or orphaned) ones that
+store holds — for author and committer identities, and fails closed on any
+identity not listed in
 [`.github/approved-git-identities.txt`](.github/approved-git-identities.txt).
+
+**What CI can and cannot prove.** Workflow jobs check out with `fetch-depth: 0`
+and `fetch-tags: true`, which fetches the complete *reachable* history — so in
+CI the gate covers every commit on every ref and tag. It does **not** cover
+objects that are unreachable on the server: a clone never transfers dangling
+objects, so they cannot be in the runner's object store to scan. The
+unreachable-object capability therefore protects a run against a repository that
+actually holds such objects — a maintainer's local clone, or a forensic mirror —
+and CI's guarantee is the narrower reachable one. Treat a green CI run as
+evidence about refs, not about the whole upstream object database.
 
 ### Changelog and release tooling
 
