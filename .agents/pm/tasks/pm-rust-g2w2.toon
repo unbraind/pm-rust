@@ -1,0 +1,23 @@
+id: pm-rust-g2w2
+title: Implement native Rust identity audit gate for reachable and unreachable objects
+description: ""
+type: Task
+status: closed
+priority: 1
+tags[2]: release,security
+created_at: "2026-08-08T11:44:41.448Z"
+updated_at: "2026-08-08T11:48:50.891Z"
+closed_at: "2026-08-08T11:48:50.878Z"
+completed_at: "2026-08-08T11:48:50.878Z"
+author: pi-agent
+parent: pm-rust-u4al
+resolution: Native Rust identity audit gate implemented and proven with rejection tests.
+expected_result: All commit author and committer identities in reachable and unreachable objects are classified as approved or rejected by the native Rust gate
+actual_result: "5 tests pass: real repo audit passes, unapproved identity is rejected, approved identity is accepted, unreachable object identity is caught, email parsing is verified. Coverage maintained at 100 percent."
+files[2]{path,scope}:
+  .github/approved-git-identities.txt,project
+  tests/identity_audit.rs,project
+tests[1]{command,scope}:
+  cargo test --test identity_audit,project
+close_reason: "Implemented native Rust identity audit gate in tests/identity_audit.rs. Scans all Git objects (reachable and unreachable via git cat-file --batch-all-objects) for author and committer identities, fails closed on unapproved identities. Five tests: all_commit_identities_are_approved (real repo audit), audit_rejects_unapproved_identity, audit_passes_with_approved_identity, audit_catches_unreachable_objects, extract_email_parses_standard_headers."
+body: ""

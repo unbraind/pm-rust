@@ -26,14 +26,39 @@ same-directory atomic writes, a durable recovery journal, canonical history,
 and exact post-document hashes. See
 [the compatibility contract](docs/COMPATIBILITY.md).
 
-Rust formatting, strict Clippy, complete private-item rustdoc coverage, and tests
+Rust formatting, strict Clippy (deny warnings, pedantic), complete
+private-item rustdoc coverage, a native Rust identity-audit gate, and tests
 run on Linux, macOS, and Windows. Ubuntu additionally gates the dependency
-audit, generated changelog, strict `pm health`, and 100 percent line, region,
-function, and branch coverage.
+audit, generated changelog, strict `pm health`, the `release:check` aggregate
+gate, and 100 percent line, region, function, and branch coverage.
 
-Publication and automated releases remain disabled until the complete tracked
-tree and raw Git history pass a privacy review and a maintainer explicitly
-approves publishing.
+Publication and automated releases remain disabled until a maintainer
+explicitly approves publishing. The daily release workflow is present and
+correct but cannot fire without the `PM_RELEASE_APPROVED` repository variable
+being set to `true`.
+
+### Identity audit gate
+
+A native Rust identity-audit gate (`tests/identity_audit.rs`) scans all Git
+objects — both reachable from refs and unreachable (dangling or orphaned) — for
+author and committer identities and fails closed on any identity not listed in
+[`.github/approved-git-identities.txt`](.github/approved-git-identities.txt).
+
+### Changelog and release tooling
+
+Since pm-rust has no `package.json`, changelog and release-note targets are
+exposed via a [`justfile`](justfile):
+
+```bash
+just changelog          # prepend new release section to CHANGELOG.md
+just changelog-full     # rebuild full changelog from all release tags
+just changelog-check    # verify committed changelog matches generated (CI gate)
+just release-notes      # print release notes for the current release window
+just release-check      # aggregate release gate (fmt, clippy, docs, tests, coverage, audit, changelog)
+```
+
+The changelog heading date is fixed (not clock-derived) so the gate produces
+identical output across all timezones.
 
 Work is managed in this repository with the latest `pm` CLI under
 `.agents/pm/`. The ecosystem-level lineage is the private companion item
@@ -42,6 +67,10 @@ Work is managed in this repository with the latest `pm` CLI under
 ## Development
 
 ```bash
+# Run the aggregate release gate (fmt, clippy, docs, tests, coverage, audit, changelog)
+just release-check
+
+# Individual gates
 cargo fmt --all -- --check
 cargo clippy --locked --all-targets --all-features -- -D warnings
 RUSTDOCFLAGS='--document-private-items -D missing-docs' cargo doc --locked --all-features --no-deps

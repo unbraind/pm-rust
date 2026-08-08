@@ -1,0 +1,14 @@
+id: pm-rust-cu3d
+title: Shallow CI checkouts made the identity audit pass without inspecting history and broke the changelog gate
+description: "The release-gate job failed with E_MISSING_TAG_HISTORY because pm-changelog --all-release-tags derives its release window from git tag refs and actions/checkout defaults to a depth-one clone that carries none. Investigating that surfaced the more serious half: the matrix jobs were also shallow, and the native identity audit runs there under cargo test while walking reachable and unreachable objects, so on a depth-one clone it had almost nothing to walk and would have reported a clean history it never inspected."
+type: Issue
+status: open
+priority: 1
+tags[2]: ci,gate-integrity
+created_at: "2026-08-08T12:26:09.308Z"
+updated_at: "2026-08-08T12:26:09.308Z"
+author: pi-agent
+acceptance_criteria: "Every workflow job that runs either the changelog check or the identity audit checks out with full depth and tags so both gates see the complete object graph and tag refs, the release-gate aggregate passes in CI rather than only locally, and the reasoning is recorded in the workflow itself so a later edit does not silently reintroduce a shallow clone."
+notes[1]{created_at,author,text}:
+  "2026-08-08T12:26:09.308Z",pi-agent,Found when the release-gate aggregate failed in CI while passing locally
+body: ""

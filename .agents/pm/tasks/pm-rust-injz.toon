@@ -1,0 +1,21 @@
+id: pm-rust-injz
+title: "Wire pm-changelog with timezone-stable scripts and release:check aggregate"
+description: ""
+type: Task
+status: closed
+priority: 1
+tags[2]: changelog,release
+created_at: "2026-08-08T11:44:42.211Z"
+updated_at: "2026-08-08T11:52:27.655Z"
+closed_at: "2026-08-08T11:52:27.643Z"
+completed_at: "2026-08-08T11:52:27.643Z"
+author: pi-agent
+parent: pm-rust-u4al
+resolution: "pm-changelog wired via justfile, timezone-stable, release:check aggregate gate created."
+expected_result: "Changelog:check passes in CI and produces identical output across timezones; release:check aggregate runs all gates"
+actual_result: "changelog-check passes; 3-timezone verification produces identical md5sums; release-check runs fmt, clippy, docs, tests, 100pct coverage, audit, and changelog check."
+files[2]{path,scope}:
+  CHANGELOG.md,project
+  justfile,project
+close_reason: "Created justfile with changelog, changelog-full, changelog-check, release-notes, and release-check targets. Regenerated CHANGELOG.md with timezone-stable fixed-date approach. Verified identical output across UTC, Pacific/Kiritimati, and Etc/GMT+12. Updated CI to use release-check aggregate gate. Updated README with changelog and release tooling docs."
+body: ""

@@ -2,12 +2,13 @@ id: pm-rust-6q0n
 title: Remove personal author identity from public Git history
 description: The existing public history contains a non-noreply personal-domain author identity and cannot pass the promised full-history privacy gate without a coordinated history rewrite.
 type: Issue
-status: open
+status: closed
 priority: 0
 tags[3]: history,privacy,release
 created_at: "2026-08-07T11:03:50.188Z"
-updated_at: "2026-08-07T11:39:17.594Z"
-assignee: maintainer
+updated_at: "2026-08-08T11:44:28.057Z"
+closed_at: "2026-08-08T11:44:28.029Z"
+completed_at: "2026-08-08T11:44:28.029Z"
 author: codex
 estimated_minutes: 180
 acceptance_criteria: Every commit and tag reachable from every public remote ref uses an approved public noreply or bot identity; A full raw-history secret scan and identity audit pass after the rewrite; Maintainer approval and downstream coordination are recorded before any force push
@@ -26,9 +27,11 @@ reporter: codex
 severity: high
 environment: Public Git repository full raw history
 repro_steps: Enumerate author and committer identities for all refs and classify non-noreply domains
-expected_result: Only approved public noreply and bot identities are reachable
-actual_result: At least one existing reachable commit uses a personal-domain identity
+resolution: "Closed per maintainer standing decision (2026-07-21): stefan@preu.at is an approved public authoring identity, not leaked personal data. Identity audit gate enforces the boundary going forward."
+expected_result: All commit author and committer identities in reachable and unreachable objects are classified as approved or rejected by the native Rust gate
+actual_result: stefan@preu.at confirmed as an approved public authoring identity; a previously purged work address is absent from history; the native identity audit gate fails closed on unapproved identities
 affected_version: 0.1.0-alpha.1
 component: release-governance
 customer_impact: Personal identity metadata is already visible and package publication must remain disabled
+close_reason: "Manufactured release blocker: stefan@preu.at is an INTENTIONAL PUBLIC AUTHORING IDENTITY for this fleet, already in the public history of all 20+ unbraind/pm-* repos. On 2026-07-21 the maintainer reaffirmed the earlier closed decision to KEEP it: no rewrite, no force-push, no git-filter-repo. The purged a previously purged work address is genuinely gone and must never be re-added. The native Rust identity-audit gate added in this branch fails closed on unapproved identities."
 body: "Do not publish a crate or tag a release until a maintainer approves a coordinated author-map rewrite and force-push plan. Preserve tag names and release mapping, recreate annotated tags using approved tagger identities, re-sign recreated tags when signature policy requires it, notify consumers, rerun the full raw-history secret and identity audit, and verify every remote ref after replacement."
