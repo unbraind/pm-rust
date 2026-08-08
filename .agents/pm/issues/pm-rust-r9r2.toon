@@ -1,0 +1,14 @@
+id: pm-rust-r9r2
+title: Release commit identity was not allowlisted and the dangling-object test proved nothing
+description: "Two defects in the new release gate, each of the kind where a check appears to work but does not. The release workflow configures the GitHub Actions bot as the commit author, but that address was missing from the approved identity list, so the first release would have written a commit that this very audit rejects on every subsequent run, permanently red. Separately the unreachable-object test amended a commit without resetting the author, so the bad identity remained on the reachable tip and the audit caught it from there. The test therefore passed identically whether or not the dangling-object walk worked at all."
+type: Issue
+status: open
+priority: 1
+tags[2]: gate-integrity,review
+created_at: "2026-08-08T12:33:49.346Z"
+updated_at: "2026-08-08T12:33:49.346Z"
+author: pi-agent
+acceptance_criteria: "The GitHub Actions bot identity used by the release commit is present in the approved list with a comment explaining why removing it would break the gate, and the unreachable-object test resets the author on amend so the bad identity exists only in the dangling commit, which is confirmed by the test continuing to pass while a mutation that disables the all-objects walk makes it fail."
+notes[1]{created_at,author,text}:
+  "2026-08-08T12:33:49.346Z",pi-agent,Both raised by CodeRabbit on pull request 6
+body: ""

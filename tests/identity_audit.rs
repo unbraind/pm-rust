@@ -332,7 +332,20 @@ fn audit_catches_unreachable_objects() -> Result<(), BoxError> {
     run_git(repo, &["add", "file.txt"], &[])?;
     run_git(
         repo,
-        &["commit", "--quiet", "--amend", "-m", "amended"],
+        // `--reset-author` is load-bearing, not tidiness. A plain `--amend` keeps
+        // the ORIGINAL author, so HEAD would still carry `bad@unreachable.example`
+        // and the audit would catch it from the reachable tip — passing this test
+        // even if the unreachable-object walk were entirely broken. Resetting the
+        // author is what leaves the bad identity reachable only from the dangling
+        // commit, which is the thing under test.
+        &[
+            "commit",
+            "--quiet",
+            "--amend",
+            "--reset-author",
+            "-m",
+            "amended",
+        ],
         &[
             ("GIT_AUTHOR_NAME", "Good Author"),
             ("GIT_AUTHOR_EMAIL", "good@example.com"),
