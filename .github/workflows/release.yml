@@ -1,0 +1,251 @@
+name: Daily Release
+
+on:
+  schedule:
+    - cron: "23 3 * * *"
+  workflow_dispatch:
+
+permissions:
+  contents: write
+
+concurrency:
+  group: daily-release
+  cancel-in-progress: false
+
+jobs:
+  release:
+    # New packages remain non-publishing until a maintainer explicitly enables
+    # the repository variable. The daily trigger is ready without turning a
+    # merge into implicit approval to publish a new crate. This mirrors the
+    # guard pattern from unbraind/pm-rl.
+    if: vars.PM_RELEASE_APPROVED == 'true' && github.ref == 'refs/heads/main'
+    runs-on: ubuntu-latest
+    env:
+      RELEASE_TIMEZONE: Europe/Vienna
+    steps:
+      - name: Checkout
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          fetch-depth: 0
+          fetch-tags: true
+          persist-credentials: false
+
+      - name: Install Rust 1.90
+        uses: dtolnay/rust-toolchain@4360b52568e2003a75bf9bc1d59f33a8e3fc893c # stable
+        with:
+          toolchain: "1.90.0"
+          components: clippy,rustfmt
+
+      - name: Install just
+        uses: taiki-e/install-action@91ddec75689c4c78665b598d188dc821c5a43e5c # v2
+        with:
+          # This job runs `just release-check`, which needs the whole gate
+          # toolchain — not just `just`. Installing only `just` here made the
+          # release fail inside the gate rather than before it.
+          tool: just,cargo-llvm-cov,cargo-audit
+
+      # `just release-check` measures branch coverage with
+      # `cargo +nightly-2026-08-06 llvm-cov --branch`, so the pinned nightly and
+      # llvm-tools-preview must be present alongside the stable 1.90 toolchain.
+      - name: Install nightly Rust for branch instrumentation
+        uses: dtolnay/rust-toolchain@4360b52568e2003a75bf9bc1d59f33a8e3fc893c # stable
+        with:
+          toolchain: "nightly-2026-08-06"
+          components: llvm-tools-preview
+
+      - name: Install Node.js for pm-changelog
+        uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020 # v7.0.0
+        with:
+          node-version: 26
+
+      - name: Decide release
+        id: decide
+        shell: bash
+        run: |
+          set -euo pipefail
+          git fetch --force --tags
+          latest_tag="$(git tag --sort=-creatordate | head -n 1 || true)"
+          if [[ -n "$latest_tag" ]] && git diff --quiet "$latest_tag"..HEAD -- .; then
+            echo "should_release=false" >> "$GITHUB_OUTPUT"
+            echo "latest_tag=$latest_tag" >> "$GITHUB_OUTPUT"
+            echo "No changes since $latest_tag; skipping release." >> "$GITHUB_STEP_SUMMARY"
+            exit 0
+          fi
+
+          release_date="$(TZ="$RELEASE_TIMEZONE" date +%Y.%m.%d)"
+          base_tag="v${release_date}"
+          max_suffix=-1
+          while IFS= read -r existing_tag; do
+            if [[ "$existing_tag" == "$base_tag" ]]; then
+              (( max_suffix < 0 )) && max_suffix=0
+              continue
+            fi
+            if [[ "$existing_tag" == "$base_tag-"* ]]; then
+              suffix="${existing_tag#"$base_tag-"}"
+              if [[ "$suffix" =~ ^[0-9]+$ ]] && (( suffix > max_suffix )); then
+                max_suffix="$suffix"
+              fi
+            fi
+          done < <(git tag -l "${base_tag}*")
+
+          if (( max_suffix >= 0 )); then
+            tag="${base_tag}-$((max_suffix + 1))"
+          else
+            tag="${base_tag}"
+          fi
+
+          # The heading date is derived from the version the tag encodes,
+          # not from the clock, so a release can never publish a version whose
+          # changelog heading names a different day than the version itself.
+          version_core="${tag#v}"
+          year="${version_core%%.*}"
+          version_tail="${version_core#*.}"
+          month="${version_tail%%.*}"
+          day_and_suffix="${version_tail#*.}"
+          day="${day_and_suffix%%-*}"
+
+          echo "should_release=true" >> "$GITHUB_OUTPUT"
+          echo "latest_tag=$latest_tag" >> "$GITHUB_OUTPUT"
+          echo "tag=$tag" >> "$GITHUB_OUTPUT"
+          printf 'release_iso_date=%04d-%02d-%02d\n' "$((10#$year))" "$((10#$month))" "$((10#$day))" >> "$GITHUB_OUTPUT"
+
+      - name: Stamp crate version in Cargo.toml
+        if: steps.decide.outputs.should_release == 'true'
+        shell: bash
+        run: |
+          set -euo pipefail
+          # Parse the manifest properly and write the version back.
+          # Never pattern-match a bare `version:` across files — this has
+          # corrupted a release before.
+          tag="${{ steps.decide.outputs.tag }}"
+          version="${tag#v}"
+          # The git tag is zero-padded (date +%Y.%m.%d gives 2026.08.08), but
+          # Cargo rejects leading zeroes in numeric version fields outright:
+          #   error: invalid leading zero in minor version number
+          # So the tag keeps its padding and the CRATE version strips it,
+          # 2026.08.08 -> 2026.8.8. A `-N` disambiguating suffix is preserved.
+          version="$(printf '%s' "$version" | awk -F- '{
+            n = split($1, p, ".");
+            for (i = 1; i <= n; i++) { p[i] = p[i] + 0; }
+            out = p[1];
+            for (i = 2; i <= n; i++) { out = out "." p[i]; }
+            if (NF > 1) { sub(/^[^-]*-/, "", $0); out = out "-" $0; }
+            print out;
+          }')"
+          node -e "
+            const fs = require('node:fs');
+            const toml = fs.readFileSync('Cargo.toml', 'utf8');
+            const updated = toml.replace(
+              /^version\s*=\s*\"[^\"]*\"/m,
+              'version = \"' + process.argv[1] + '\"'
+            );
+            if (updated === toml) {
+              console.error('Could not find version field in Cargo.toml');
+              process.exit(1);
+            }
+            fs.writeFileSync('Cargo.toml', updated);
+          " "$version"
+
+      - name: Generate changelog and release notes
+        if: steps.decide.outputs.should_release == 'true'
+        shell: bash
+        run: |
+          set -euo pipefail
+          release_date="${{ steps.decide.outputs.release_iso_date }}"
+          crate_version="$(sed -n 's/^version *= *"\([^"]*\)"/\1/p' Cargo.toml)"
+          npx --yes --package=pm-changelog@2026.8.6 -- pm-changelog \
+            --pm-root .agents/pm \
+            --mode prepend \
+            --output CHANGELOG.md \
+            --release-version "$crate_version" \
+            --date "$release_date" \
+            --since-previous-tag \
+            --until-release-tag \
+            --item-url-base https://github.com/unbraind/pm-rust/blob/main/.agents/pm \
+            --respect-item-release \
+            --conventional \
+            --include-links \
+            --item-ref-style toon \
+            --include-metadata \
+            --github-step-summary
+          npx --yes --package=pm-changelog@2026.8.6 -- pm-changelog \
+            --pm-root .agents/pm \
+            --mode prepend \
+            --output CHANGELOG.md \
+            --release-version "$crate_version" \
+            --date "$release_date" \
+            --since-previous-tag \
+            --until-release-tag \
+            --item-url-base https://github.com/unbraind/pm-rust/blob/main/.agents/pm \
+            --respect-item-release \
+            --conventional \
+            --include-links \
+            --item-ref-style toon \
+            --include-metadata \
+            --check
+          npx --yes --package=pm-changelog@2026.8.6 -- pm-changelog \
+            --pm-root .agents/pm \
+            --stdout \
+            --release-version "$crate_version" \
+            --date "$release_date" \
+            --since-previous-tag \
+            --until-release-tag \
+            --item-url-base https://github.com/unbraind/pm-rust/blob/main/.agents/pm \
+            --respect-item-release \
+            --conventional \
+            --include-links \
+            --item-ref-style toon \
+            --include-metadata \
+            > RELEASE_NOTES.md
+
+      - name: Run release checks
+        if: steps.decide.outputs.should_release == 'true'
+        run: just release-check
+
+      - name: Commit release files
+        if: steps.decide.outputs.should_release == 'true'
+        shell: bash
+        run: |
+          set -euo pipefail
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git add Cargo.toml Cargo.lock CHANGELOG.md
+          if git diff --cached --quiet; then
+            echo "Release files are already current; tagging existing commit."
+          else
+            git commit -m "Release ${{ github.event.repository.name }} ${{ steps.decide.outputs.tag }}"
+          fi
+
+      # Refuse non-main release runs BEFORE publishing. Checking the trigger
+      # ref (rather than git topology) reliably distinguishes a feature branch
+      # from main.
+      - name: Check release ref
+        if: steps.decide.outputs.should_release == 'true'
+        shell: bash
+        env:
+          GITHUB_REF: ${{ github.ref }}
+        run: |
+          set -euo pipefail
+          if [[ "$GITHUB_REF" != "refs/heads/main" ]]; then
+            echo "::error::Refusing to release from non-main ref ('$GITHUB_REF')."
+            exit 1
+          fi
+
+      # The crate stays UNPUBLISHED. This step only creates a git tag and
+      # advances main, so the release is recorded without publishing to
+      # crates.io. When PM_RELEASE_APPROVED is set and the maintainer
+      # decides to publish, a separate publish job can be added here.
+      - name: Push release tag and main
+        if: steps.decide.outputs.should_release == 'true'
+        shell: bash
+        run: |
+          set -euo pipefail
+          git tag "${{ steps.decide.outputs.tag }}"
+          git push origin HEAD:main
+          git push origin "${{ steps.decide.outputs.tag }}"
+
+      - name: Create GitHub release
+        if: steps.decide.outputs.should_release == 'true'
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: gh release create "${{ steps.decide.outputs.tag }}" --title "${{ github.event.repository.name }} ${{ steps.decide.outputs.tag }}" --notes-file RELEASE_NOTES.md --verify-tag

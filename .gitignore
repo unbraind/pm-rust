@@ -11,3 +11,4 @@
 /target/
 /coverage/
 *.profraw
+coverage-branch.json

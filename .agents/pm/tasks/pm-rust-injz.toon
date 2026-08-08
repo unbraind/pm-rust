@@ -1,0 +1,31 @@
+id: pm-rust-injz
+title: "Wire pm-changelog with timezone-stable scripts and release:check aggregate"
+description: ""
+type: Task
+status: closed
+priority: 1
+tags[2]: changelog,release
+created_at: "2026-08-08T11:44:42.211Z"
+updated_at: "2026-08-08T12:40:56.113Z"
+closed_at: "2026-08-08T11:52:27.643Z"
+completed_at: "2026-08-08T11:52:27.643Z"
+author: pi-agent
+parent: pm-rust-u4al
+resolution: "pm-changelog wired via justfile, timezone-stable, release:check aggregate gate created."
+expected_result: "Changelog:check passes in CI and produces identical output across timezones; release:check aggregate runs all gates"
+actual_result: "changelog-check passes; 3-timezone verification produces identical md5sums; release-check runs fmt, clippy, docs, tests, 100pct coverage, audit, and changelog check."
+notes[1]{created_at,author,text}:
+  "2026-08-08T12:40:56.113Z",pi-agent,"Release-check evidence recorded as a new history event rather than an edit to a recorded one. On the final tree just release-check exits 0 with fmt, clippy under deny warnings, rustdoc with document-private-items and deny missing-docs, 41 tests passing, llvm-cov branch coverage asserted by jq at exactly 100 for lines functions regions and branches, cargo audit clean over 95 dependencies, and changelog-check up to date under TZ=UTC, TZ=Pacific/Kiritimati and TZ=Etc/GMT+12."
+files[4]:
+  - path: .github/workflows/ci.yml
+    scope: project
+    note: wires just release-check as a required check and checks out full depth so the changelog gate has tag refs
+  - path: CHANGELOG.md
+    scope: project
+  - path: justfile
+    scope: project
+  - path: README.md
+    scope: project
+    note: "documents the changelog and release-check targets, and the CI evidence boundary for the identity audit"
+close_reason: "Created justfile with changelog, changelog-full, changelog-check, release-notes, and release-check targets. Regenerated CHANGELOG.md with timezone-stable fixed-date approach. Verified identical output across UTC, Pacific/Kiritimati, and Etc/GMT+12. Updated CI to use release-check aggregate gate. Updated README with changelog and release tooling docs."
+body: ""

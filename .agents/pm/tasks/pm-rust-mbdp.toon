@@ -1,0 +1,20 @@
+id: pm-rust-mbdp
+title: Add daily release workflow guarded by PM_RELEASE_APPROVED variable
+description: ""
+type: Task
+status: closed
+priority: 1
+tags[1]: release
+created_at: "2026-08-08T11:44:41.804Z"
+updated_at: "2026-08-08T11:52:21.279Z"
+closed_at: "2026-08-08T11:52:21.264Z"
+completed_at: "2026-08-08T11:52:21.264Z"
+author: pi-agent
+parent: pm-rust-u4al
+resolution: "Release workflow created with PM_RELEASE_APPROVED guard, cannot fire without maintainer approval."
+expected_result: Daily release workflow is present and correct but cannot publish without PM_RELEASE_APPROVED=true
+actual_result: "Release workflow created with daily cron schedule, change detection, PM_RELEASE_APPROVED guard, and no publish step (crate stays unpublished). Version stamping parses Cargo.toml manifest."
+files[1]{path,scope}:
+  .github/workflows/release.yml,project
+close_reason: "Created .github/workflows/release.yml with daily schedule, releases only if changes occurred since last tag, publish job guarded by unset PM_RELEASE_APPROVED repository variable (mirrors unbraind/pm-rl pattern). Version stamping parses Cargo.toml properly. Crate stays unpublished."
+body: ""

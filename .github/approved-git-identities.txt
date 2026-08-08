@@ -1,0 +1,40 @@
+# Approved commit author and committer identities for this repository.
+#
+# This list distinguishes two categories:
+#
+# 1. Approved public authoring identities — personal-domain addresses that the
+#    maintainer has explicitly decided to keep as public authoring identities.
+#    These are NOT leaked personal data; they are intentional public identities
+#    already present in the public history of all unbraind/pm-* repositories.
+#    On 2026-07-21 the maintainer reaffirmed an earlier closed decision to
+#    retain stefan@preu.at. A different, previously purged work address WAS
+#    purged in 2026-07 and must never be re-added.
+#
+# 2. Approved service and noreply identities — automated bot and noreply
+#    addresses that do not carry personal identity metadata.
+#
+# The identity audit gate (tests/identity_audit.rs) fails closed on any
+# author or committer email not listed here. It scans every object in the LOCAL
+# object store, so it covers unreachable (dangling) objects when the store holds
+# them. In CI it does not: a clone never transfers server-side dangling objects,
+# so a green CI run is evidence about refs and tags, not about the whole
+# upstream object database. See README.md for the distinction.
+
+# Approved public authoring identity (maintainer decision 2026-07-21).
+stefan@preu.at
+
+# The maintainer's GitHub noreply address.
+unbraind@users.noreply.github.com
+
+# The GitHub Actions bot noreply address used on automated push/merge refs.
+1153461+unbraind@users.noreply.github.com
+
+# GitHub's committer for merges made through the web UI.
+noreply@github.com
+
+# Dependabot's public GitHub noreply address on dependency pull-request refs.
+49699333+dependabot[bot]@users.noreply.github.com
+# The GitHub Actions bot, which authors the release commit created by
+# .github/workflows/release.yml. It must be listed here: the first release would
+# otherwise write a commit that this very audit rejects on every subsequent run.
+41898282+github-actions[bot]@users.noreply.github.com

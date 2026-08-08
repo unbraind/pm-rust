@@ -1,0 +1,21 @@
+id: pm-rust-n7zv
+title: Add approved-git-identities file with maintainer decision header
+description: ""
+type: Task
+status: closed
+priority: 1
+tags[2]: release,security
+created_at: "2026-08-08T11:44:41.060Z"
+updated_at: "2026-08-08T11:45:05.540Z"
+closed_at: "2026-08-08T11:45:05.529Z"
+completed_at: "2026-08-08T11:45:05.529Z"
+author: pi-agent
+parent: pm-rust-u4al
+resolution: Approved-git-identities file created and committed alongside the identity audit gate.
+expected_result: The approved-git-identities.txt file lists every identity present in git history and the header documents the maintainer decision.
+actual_result: "File lists stefan@preu.at, unbraind noreply, noreply@github.com, and dependabot noreply; all identities from git log --all are covered."
+notes[2]{created_at,author,text}:
+  "2026-08-08T11:44:55.481Z",pi-agent,"Created .github/approved-git-identities.txt with header distinguishing approved public authoring identity (stefan@preu.at) from service/noreply identities. Enumerated git identities: 49699333+dependabot[bot]@users.noreply.github.com|noreply@github.com;stefan@preu.at|noreply@github.com;unbraind@users.noreply.github.com|unbraind@users.noreply.github.com;"
+  "2026-08-08T11:44:58.537Z",pi-agent,"Created .github/approved-git-identities.txt with header distinguishing approved public authoring identity from service noreply identities. Enumerated git identities: stefan@preu.at, unbraind noreply, noreply@github.com, dependabot noreply."
+close_reason: "Created .github/approved-git-identities.txt listing stefan@preu.at (approved public authoring identity per maintainer decision), unbraind noreply, noreply@github.com, and dependabot noreply. Header distinguishes approved public authoring identities from service noreply identities."
+body: ""
