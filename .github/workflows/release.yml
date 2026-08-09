@@ -198,7 +198,11 @@ jobs:
 
       - name: Run release checks
         if: steps.decide.outputs.should_release == 'true'
-        run: just release-check
+        # release-check ends in changelog-check, which regenerates and compares.
+        # It must use the same date the generate step above stamped into the
+        # heading, otherwise it rejects the changelog this job just produced on
+        # every day that is not the justfile's hardcoded CHANGELOG_DATE.
+        run: just CHANGELOG_DATE="${{ steps.decide.outputs.release_iso_date }}" release-check
 
       - name: Commit release files
         if: steps.decide.outputs.should_release == 'true'

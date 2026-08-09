@@ -6,7 +6,7 @@ status: closed
 priority: 2
 tags[3]: changelog,ci,release
 created_at: "2026-08-09T20:15:03.617Z"
-updated_at: "2026-08-09T20:16:22.632Z"
+updated_at: "2026-08-09T20:55:46.548Z"
 deadline: "2026-08-11T20:15:03.617Z"
 closed_at: "2026-08-09T20:16:22.615Z"
 completed_at: "2026-08-09T20:16:22.615Z"
@@ -21,9 +21,10 @@ dependencies[1]{id,kind,created_at,author,source_kind,author_source}:
   pm-rust-u4al,related,"2026-08-09T20:15:03.617Z",pi-agent,"cli:create:dep",asserted
 comments[1]{created_at,author,text}:
   "2026-08-09T20:15:03.617Z",pi-agent,Changelog generation and verification must share one render mode
-notes[2]{created_at,author,text}:
+notes[3]{created_at,author,text}:
   "2026-08-09T20:15:03.617Z",pi-agent,justfile changelog-check now delegates to changelog-full --check
   "2026-08-09T20:15:17.157Z",pi-agent,"Converging changelog generation/verification on replace mode. justfile: changelog-full is now variadic and changelog-check delegates to `just changelog-full --check` so generation and verification share one render. release.yml: CHANGELOG generate+check lines switched from --mode prepend --since-previous-tag --until-release-tag to --mode replace --all-release-tags (keeping --date and all other flags); release notes --stdout line left windowed."
+  "2026-08-09T20:55:46.528Z",claude,"A reviewer found that release-check ends in changelog-check,which regenerated with the hardcoded CHANGELOG_DATE while the release job had stamped the tag-derived release date into the heading,so every release on a day other than 2026-08-07 would have rejected the changelog it had just written. A nested just call starts a new process and does not inherit a command-line variable override,so the value is now forwarded explicitly at each hop and the workflow passes the release date in"
 learnings[1]{created_at,author,text}:
   "2026-08-09T20:15:03.617Z",pi-agent,A check that regenerates in a different mode than generation is an unsatisfiable gate
 files[1]{path,scope,note}:
