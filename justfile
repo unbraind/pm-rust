@@ -45,23 +45,22 @@ changelog:
         --until-release-tag
 
 # Rebuild the complete changelog from all release tag windows.
-changelog-full:
-    just _pm-changelog \
-        --mode replace \
-        --output CHANGELOG.md \
-        --all-release-tags \
-        --release-version "{{crate-version}}" \
-        --date {{CHANGELOG_DATE}}
-
-# Verify the committed changelog matches the generated one (CI gate).
-changelog-check:
+changelog-full *extra:
     just _pm-changelog \
         --mode replace \
         --output CHANGELOG.md \
         --all-release-tags \
         --release-version "{{crate-version}}" \
         --date {{CHANGELOG_DATE}} \
-        --check
+        {{extra}}
+
+# Verify the committed changelog matches the generated one (CI gate).
+# CHANGELOG_DATE is forwarded explicitly: a nested `just` starts a new process
+# and does NOT inherit a command-line override, so without this a release job
+# running `just CHANGELOG_DATE=<release date> release-check` would verify against
+# the hardcoded default and reject the changelog it had just generated.
+changelog-check:
+    just CHANGELOG_DATE={{CHANGELOG_DATE}} changelog-full --check
 
 # Print release notes for the current release window to stdout.
 release-notes:
@@ -83,4 +82,4 @@ release-check:
     cargo +nightly-2026-08-06 llvm-cov --locked --branch --all-targets --all-features --json --output-path coverage-branch.json
     jq -e '.data[0].totals.lines.percent == 100 and .data[0].totals.functions.percent == 100 and .data[0].totals.regions.percent == 100 and .data[0].totals.branches.percent == 100' coverage-branch.json
     cargo audit
-    just changelog-check
+    just CHANGELOG_DATE={{CHANGELOG_DATE}} changelog-check
