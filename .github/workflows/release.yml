@@ -155,12 +155,11 @@ jobs:
           crate_version="$(sed -n 's/^version *= *"\([^"]*\)"/\1/p' Cargo.toml)"
           npx --yes --package=pm-changelog@2026.8.6 -- pm-changelog \
             --pm-root .agents/pm \
-            --mode prepend \
+            --mode replace \
             --output CHANGELOG.md \
+            --all-release-tags \
             --release-version "$crate_version" \
             --date "$release_date" \
-            --since-previous-tag \
-            --until-release-tag \
             --item-url-base https://github.com/unbraind/pm-rust/blob/main/.agents/pm \
             --respect-item-release \
             --conventional \
@@ -170,12 +169,11 @@ jobs:
             --github-step-summary
           npx --yes --package=pm-changelog@2026.8.6 -- pm-changelog \
             --pm-root .agents/pm \
-            --mode prepend \
+            --mode replace \
             --output CHANGELOG.md \
+            --all-release-tags \
             --release-version "$crate_version" \
             --date "$release_date" \
-            --since-previous-tag \
-            --until-release-tag \
             --item-url-base https://github.com/unbraind/pm-rust/blob/main/.agents/pm \
             --respect-item-release \
             --conventional \

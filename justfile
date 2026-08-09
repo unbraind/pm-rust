@@ -45,23 +45,18 @@ changelog:
         --until-release-tag
 
 # Rebuild the complete changelog from all release tag windows.
-changelog-full:
-    just _pm-changelog \
-        --mode replace \
-        --output CHANGELOG.md \
-        --all-release-tags \
-        --release-version "{{crate-version}}" \
-        --date {{CHANGELOG_DATE}}
-
-# Verify the committed changelog matches the generated one (CI gate).
-changelog-check:
+changelog-full *extra:
     just _pm-changelog \
         --mode replace \
         --output CHANGELOG.md \
         --all-release-tags \
         --release-version "{{crate-version}}" \
         --date {{CHANGELOG_DATE}} \
-        --check
+        {{extra}}
+
+# Verify the committed changelog matches the generated one (CI gate).
+changelog-check:
+    just changelog-full --check
 
 # Print release notes for the current release window to stdout.
 release-notes:
