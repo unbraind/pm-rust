@@ -651,13 +651,31 @@ fn metadata_value(document: &ItemDocument) -> serde_json::Map<String, Value> {
     metadata
 }
 
+/// Lowercase hexadecimal digits, indexed by the nibble they encode.
+const HEX_DIGITS: [u8; 16] = *b"0123456789abcdef";
+
 /// Computes the canonical SHA-256 document hash used by pm history.
+///
+/// The digest is hex-encoded a nibble at a time rather than through `{:x}` on the
+/// digest value itself. `sha2` 0.10 returns a `GenericArray`, which implements
+/// `LowerHex`; 0.11 returns a `hybrid_array::Array`, which does not, so the
+/// formatting shorthand stops compiling across that upgrade. Indexing [`HEX_DIGITS`]
+/// depends only on `u8` and cannot panic, because a nibble is always in `0..16`,
+/// so it needs neither the shorthand nor a fallible write. The output is identical
+/// on both releases, which matters because this hash is written into every history
+/// record and a change in encoding would invalidate history already on disk.
 fn document_hash(document: &ItemDocument) -> String {
     let front_matter = Value::Object(metadata_value(document));
     let canonical = json!({"front_matter": front_matter, "body": document.body});
     let mut raw = String::new();
     stable_json(&canonical, &mut raw);
-    format!("{:x}", Sha256::digest(raw.as_bytes()))
+    let digest = Sha256::digest(raw.as_bytes());
+    let mut hex = String::with_capacity(digest.len() * 2);
+    for byte in digest {
+        hex.push(char::from(HEX_DIGITS[usize::from(byte >> 4)]));
+        hex.push(char::from(HEX_DIGITS[usize::from(byte & 0x0f)]));
+    }
+    hex
 }
 
 /// Builds the canonical first create-history entry as one JSONL record.
