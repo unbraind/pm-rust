@@ -1,0 +1,29 @@
+id: pm-rust-y12t
+title: Digest hex formatting blocked the sha2 0.11 upgrade across every platform
+description: "Formatting the Sha256 digest with the LowerHex shorthand tied document hashing to the GenericArray type that sha2 0.10 returns. sha2 0.11 returns a hybrid-array Array which does not implement LowerHex, so the dependabot upgrade failed to compile on ubuntu, macos and windows."
+type: Issue
+status: open
+priority: 1
+tags[3]: dependencies,hashing,release-gate
+created_at: "2026-08-10T05:45:39.847Z"
+updated_at: "2026-08-10T05:45:39.847Z"
+deadline: "2026-08-17T00:00:00.000Z"
+assignee: claude
+author: claude
+estimated_minutes: 45
+acceptance_criteria: cargo test passes with sha2 pinned to 0.11.0 and the create contract golden hash 6eb97257a863250fafbcc2d460f0b9a08a1b864bebf2c725632258e3f72db01c is unchanged
+dependencies[1]{id,kind,created_at,author,source_kind,author_source}:
+  pm-rust-u4al,related,"2026-08-10T05:45:39.847Z",claude,"cli:create:dep",asserted
+comments[1]{created_at,author,text}:
+  "2026-08-10T05:45:39.847Z",claude,Verified by pinning sha2 to 0.11.0 locally and running the full suite before committing the bump
+notes[1]{created_at,author,text}:
+  "2026-08-10T05:45:39.847Z",claude,The golden hash in tests create_contract.rs is what makes this upgrade safe to prove rather than assume
+learnings[1]{created_at,author,text}:
+  "2026-08-10T05:45:39.847Z",claude,A formatting shorthand can be a hidden dependency on a transitive type. The LowerHex implementation belonged to generic-array rather than to sha2 so nothing in the call site named the crate that made it compile
+files[1]{path,scope,note}:
+  src/mutation.rs,project,document_hash hex encoding
+tests[1]{command,scope,timeout_seconds}:
+  cargo test,project,600
+docs[1]{path,scope,note}:
+  README.md,project,crate overview
+body: "Dependabot pull request 8 bumped sha2 from 0.10.9 to 0.11.0 and every platform job failed with E0277, the trait bound Array LowerHex is not satisfied. The digest was rendered with the format shorthand, which resolves through the LowerHex implementation that generic-array provides. sha2 0.11 returns hybrid-array Array instead and that type deliberately does not implement LowerHex. Encoding one byte at a time depends only on u8 and so compiles against both releases. The encoding is byte identical, which the committed golden hash proves."
