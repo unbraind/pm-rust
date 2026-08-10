@@ -10,6 +10,7 @@
 
 ### Bug Fixes
 
+- Digest hex formatting blocked the sha2 0.11 upgrade across every platform ([pm-rust-y12t](https://github.com/unbraind/pm-rust/blob/main/.agents/pm/issues/pm-rust-y12t.toon)) _type:Issue; status:closed; P1_
 - Converge changelog generation and verification on replace mode ([pm-rust-f2nv](https://github.com/unbraind/pm-rust/blob/main/.agents/pm/issues/pm-rust-f2nv.toon)) _type:Issue; status:closed; P2_
 - Remove personal author identity from public Git history ([pm-rust-6q0n](https://github.com/unbraind/pm-rust/blob/main/.agents/pm/issues/pm-rust-6q0n.toon)) _type:Issue; status:closed; P0; release:0.1.0-alpha.2_
 
