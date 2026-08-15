@@ -2,20 +2,25 @@ id: pm-rust-9yfr
 title: "A green CI proves nothing about a working copy, because the toolchain is pinned only inside the workflows"
 description: "Cargo.toml declares rust-version 1.90 as a minimum and the two GitHub workflows install 1.90.0 explicitly in three places, but the repository carries no rust-toolchain.toml. rustup therefore selects whichever toolchain the contributor default resolves to. On a host whose stable channel resolved to 1.86.0, cargo test aborted with a rustc-not-supported error before compiling anything, while CI stayed green because it installs its own toolchain. The build requirement was real but discoverable only by reading the workflows."
 type: Issue
-status: open
+status: closed
 priority: 2
 tags[3]: build,ci,toolchain
 created_at: "2026-08-15T10:18:15.476Z"
-updated_at: "2026-08-15T10:18:15.476Z"
+updated_at: "2026-08-15T11:00:05.036Z"
 deadline: "2026-08-16T23:59:00.000Z"
-assignee: pi-agent
+closed_at: "2026-08-15T11:00:05.006Z"
+completed_at: "2026-08-15T11:00:05.006Z"
 author: pi-agent
 estimated_minutes: 30
 acceptance_criteria: A rust-toolchain.toml at the crate root selects 1.90.0 so rustup uses the same compiler locally that CI installs; cargo test succeeds on a host whose default stable toolchain is older than 1.90 without a plus-toolchain override; The pinned channel matches the toolchain values in ci.yml and release.yml
+resolution: "Added rust-toolchain.toml at the crate root pinning channel 1.90.0 with the rustfmt and clippy components, so rustup selects the same compiler locally that the workflows install."
+expected_result: "Bare cargo test, with no plus-toolchain override, succeeds on a host whose default rustup stable toolchain is older than the crate's required 1.90."
+actual_result: "rustup show active-toolchain reports 1.90.0-x86_64-unknown-linux-gnu overridden by rust-toolchain.toml, and bare cargo test passes 41 tests across 6 targets with 0 failures on a host whose stable is 1.86.0. Before the change the same command aborted with rustc 1.86.0 is not supported by the following packages. CI green on ubuntu, macOS and Windows. Shipped in PR 14."
 dependencies[1]{id,kind,created_at,author,source_kind,author_source}:
   pm-rust-u4al,related,"2026-08-15T10:18:15.476Z",pi-agent,"cli:create:dep",detected
-comments[1]{created_at,author,text}:
+comments[2]{created_at,author,text}:
   "2026-08-15T10:18:15.476Z",pi-agent,Found while verifying every fleet package builds on this host rather than trusting CI status. pm-rust was the only package that could not be built or tested locally at all.
+  "2026-08-15T10:58:08.686Z",pi-agent,"Post-pin verification, recorded against the acceptance criterion rather than against the pre-fix measurement.\n\nThe evidence first written on this item was 'cargo +1.90.0 test, 26 tests'. That was the run that proved the CODE was fine while the toolchain was wrong, so it does not satisfy AC2, which requires bare cargo test with no plus-toolchain override. Re-measured after adding rust-toolchain.toml, with no override:\n\n  rustup show active-toolchain\n  1.90.0-x86_64-unknown-linux-gnu (overridden by rust-toolchain.toml)\n\n  cargo test\n  ok 15 passed (lib) | ok 2 | ok 6 | ok 5 | ok 13 | ok 0\n  41 tests across 6 targets, 0 failed\n\nThe count differs from the earlier 26 because that run reused a cached lib-test binary and did not re-report its 15 lib tests. 41 is the full bare-invocation figure.\n\nAC1 satisfied: rust-toolchain.toml at the crate root selects 1.90.0.\nAC2 satisfied: bare cargo test succeeds on this host, whose rustup stable is 1.86.0.\nAC3 satisfied: channel 1.90.0 equals the toolchain values in ci.yml (2 occurrences) and release.yml (1); CI is green on ubuntu, macOS and Windows with the file in place."
 notes[1]{created_at,author,text}:
   "2026-08-15T10:18:15.476Z",pi-agent,"Cargo rust-version is a minimum-version assertion, not a toolchain selector. Only rust-toolchain.toml makes rustup choose a compiler."
 learnings[1]{created_at,author,text}:
@@ -26,4 +31,5 @@ tests[1]{command,scope}:
   cargo test,project
 docs[1]{path,scope}:
   "https://rust-lang.github.io/rustup/overrides.html#the-toolchain-file",project
+close_reason: "Added rust-toolchain.toml at the crate root pinning channel 1.90.0 with the rustfmt and clippy components, so rustup selects the same compiler locally that the workflows install."
 body: "Reproduced on this host: rustup default stable resolved to 1.86.0 and cargo test failed immediately with a rustc-not-supported error naming pm-rust 0.1.0-alpha.1 eight times plus time 0.3.55 and time-core 0.1.9. Running the identical tree under cargo plus-1.90.0 passed all 26 tests across 5 test binaries."
