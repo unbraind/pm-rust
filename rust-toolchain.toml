@@ -1,0 +1,19 @@
+# Toolchain this crate is built and tested with, everywhere.
+#
+# `Cargo.toml` already carries `rust-version = "1.90"`, but that is a *minimum*
+# assertion: cargo refuses to build with anything older and says nothing about
+# what a contributor's default toolchain actually is. CI installs 1.90.0
+# explicitly (three `dtolnay/rust-toolchain` steps across ci.yml and
+# release.yml), so CI was the only place the real toolchain was decided.
+#
+# The consequence was that a green CI told you nothing about whether the crate
+# builds on a working copy: on a host whose `stable` resolved to 1.86.0, every
+# `cargo test` failed with "rustc 1.86.0 is not supported by the following
+# packages" before compiling a line, and no amount of reading CI explained it.
+#
+# rustup reads this file and selects the same toolchain locally that CI pins,
+# so `cargo test` behaves identically in both places. Keep the version here in
+# lockstep with the `toolchain:` values in .github/workflows/*.yml.
+[toolchain]
+channel = "1.90.0"
+components = ["rustfmt", "clippy"]
