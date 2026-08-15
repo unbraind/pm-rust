@@ -10,6 +10,7 @@
 
 ### Bug Fixes
 
+- A green CI proves nothing about a working copy, because the toolchain is pinned only inside the workflows ([pm-rust-9yfr](https://github.com/unbraind/pm-rust/blob/main/.agents/pm/issues/pm-rust-9yfr.toon)) _type:Issue; status:closed; P2_
 - Digest hex formatting blocked the sha2 0.11 upgrade across every platform ([pm-rust-y12t](https://github.com/unbraind/pm-rust/blob/main/.agents/pm/issues/pm-rust-y12t.toon)) _type:Issue; status:closed; P1_
 - Converge changelog generation and verification on replace mode ([pm-rust-f2nv](https://github.com/unbraind/pm-rust/blob/main/.agents/pm/issues/pm-rust-f2nv.toon)) _type:Issue; status:closed; P2_
 - Remove personal author identity from public Git history ([pm-rust-6q0n](https://github.com/unbraind/pm-rust/blob/main/.agents/pm/issues/pm-rust-6q0n.toon)) _type:Issue; status:closed; P0; release:0.1.0-alpha.2_

@@ -1,0 +1,37 @@
+# Default toolchain for ordinary Cargo commands in this crate.
+#
+# `Cargo.toml` already carries `rust-version = "1.90"`, but that is a *minimum*
+# assertion: cargo refuses to build with anything older and says nothing about
+# which toolchain rustup actually selects. Every place that genuinely decided
+# the toolchain named it explicitly, and none of those places is a bare
+# `cargo` invocation:
+#
+#   * `.github/workflows/ci.yml`     — two `dtolnay/rust-toolchain` steps at 1.90.0
+#   * `.github/workflows/release.yml` — one such step at 1.90.0
+#   * `justfile` (`release-check`)   — `cargo +1.90.0 fmt|clippy|doc|test`
+#   * `justfile` (coverage)          — `cargo +nightly-2026-08-06 llvm-cov`
+#
+# So a bare `cargo test` — what a contributor actually types, and what CI never
+# runs — fell through to whatever rustup's default happened to be. On a host
+# whose `stable` resolved to 1.86.0 that aborted before compiling a line:
+#
+#     error: rustc 1.86.0 is not supported by the following packages:
+#       pm-rust@0.1.0-alpha.1 requires rustc 1.90
+#
+# while CI stayed green, because CI installs its own compiler and never observes
+# the default. This file closes only that gap: it sets the default for
+# unqualified Cargo commands so `cargo test` behaves the way the pinned
+# invocations already do.
+#
+# It deliberately does NOT override the explicit selections above — a `+toolchain`
+# argument wins over this file. The coverage step's nightly is a real exception,
+# not an oversight: `llvm-cov --branch` requires nightly, so that line must keep
+# naming its own toolchain.
+#
+# Lockstep: keep `channel` equal to the 1.90.0 values in `.github/workflows/ci.yml`,
+# `.github/workflows/release.yml` and the `+1.90.0` invocations in `justfile`.
+# Nothing enforces that today; a divergence would reintroduce the same class of
+# problem in the opposite direction.
+[toolchain]
+channel = "1.90.0"
+components = ["rustfmt", "clippy"]
