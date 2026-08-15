@@ -212,10 +212,79 @@ fn run_git(repo: &Path, args: &[&str], env: &[(&str, &str)]) -> Result<(), BoxEr
     }
 }
 
+/// Captures a Git command's standard output as UTF-8 text.
+fn git_output(repo: &Path, args: &[&str]) -> Result<String, BoxError> {
+    let output = Command::new("git")
+        .args(["-C"])
+        .arg(repo)
+        .args(args)
+        .output()
+        .map_err(|e| -> BoxError { format!("git {} failed: {e}", args.join(" ")).into() })?;
+    if output.status.success() {
+        Ok(String::from_utf8_lossy(&output.stdout).into_owned())
+    } else {
+        Err(format!("git {} exited with {}", args.join(" "), output.status).into())
+    }
+}
+
 /// Writes a file and propagates the error.
 fn write_file(path: &Path, content: &str) -> Result<(), BoxError> {
     std::fs::write(path, content)?;
     Ok(())
+}
+
+/// Builds the dangling-identity scenario shared by the unreachable-object
+/// tests: a reachable tip authored by an approved identity, and the commit it
+/// replaced — reachable from no ref — authored by `bad@unreachable.example`,
+/// which is not in the allowlist.
+///
+/// Returns the allowlist path. The amend carries `--reset-author`, which is
+/// load-bearing rather than tidiness: a plain `--amend` keeps the original
+/// author, leaving the bad identity on the reachable tip, which would make
+/// the dangling-object assertions pass for the wrong reason — the pm-rust-r9r2
+/// defect. `good@example.com` is in the scenario's allowlist so the audit can
+/// fail *only* because of the dangling commit.
+fn build_dangling_identity_scenario(repo: &Path) -> Result<PathBuf, BoxError> {
+    run_git(repo, &["init", "--quiet"], &[])?;
+    let allowlist = repo.join("allowlist.txt");
+    write_file(&allowlist, "approved@example.com\ngood@example.com\n")?;
+
+    write_file(&repo.join("file.txt"), "v1")?;
+    run_git(repo, &["add", "file.txt"], &[])?;
+    run_git(
+        repo,
+        &["commit", "--quiet", "-m", "original"],
+        &[
+            ("GIT_AUTHOR_NAME", "Bad Author"),
+            ("GIT_AUTHOR_EMAIL", "bad@unreachable.example"),
+            ("GIT_COMMITTER_NAME", "Bad Committer"),
+            ("GIT_COMMITTER_EMAIL", "bad@unreachable.example"),
+        ],
+    )?;
+
+    // Amend with an approved identity, making the original commit unreachable.
+    write_file(&repo.join("file.txt"), "v2")?;
+    run_git(repo, &["add", "file.txt"], &[])?;
+    run_git(
+        repo,
+        // `--reset-author` is what confines the bad identity to the dangling
+        // commit; see the function documentation above.
+        &[
+            "commit",
+            "--quiet",
+            "--amend",
+            "--reset-author",
+            "-m",
+            "amended",
+        ],
+        &[
+            ("GIT_AUTHOR_NAME", "Good Author"),
+            ("GIT_AUTHOR_EMAIL", "good@example.com"),
+            ("GIT_COMMITTER_NAME", "Good Committer"),
+            ("GIT_COMMITTER_EMAIL", "good@example.com"),
+        ],
+    )?;
+    Ok(allowlist)
 }
 
 /// Verifies that every commit identity in this repository (reachable and
@@ -310,49 +379,7 @@ fn audit_catches_unreachable_objects() -> Result<(), BoxError> {
     let temp = tempfile::tempdir()?;
     let repo = temp.path();
 
-    run_git(repo, &["init", "--quiet"], &[])?;
-    let allowlist = repo.join("allowlist.txt");
-    write_file(&allowlist, "approved@example.com\n")?;
-
-    write_file(&repo.join("file.txt"), "v1")?;
-    run_git(repo, &["add", "file.txt"], &[])?;
-    run_git(
-        repo,
-        &["commit", "--quiet", "-m", "original"],
-        &[
-            ("GIT_AUTHOR_NAME", "Bad Author"),
-            ("GIT_AUTHOR_EMAIL", "bad@unreachable.example"),
-            ("GIT_COMMITTER_NAME", "Bad Committer"),
-            ("GIT_COMMITTER_EMAIL", "bad@unreachable.example"),
-        ],
-    )?;
-
-    // Amend with an approved identity, making the original commit unreachable.
-    write_file(&repo.join("file.txt"), "v2")?;
-    run_git(repo, &["add", "file.txt"], &[])?;
-    run_git(
-        repo,
-        // `--reset-author` is load-bearing, not tidiness. A plain `--amend` keeps
-        // the ORIGINAL author, so HEAD would still carry `bad@unreachable.example`
-        // and the audit would catch it from the reachable tip — passing this test
-        // even if the unreachable-object walk were entirely broken. Resetting the
-        // author is what leaves the bad identity reachable only from the dangling
-        // commit, which is the thing under test.
-        &[
-            "commit",
-            "--quiet",
-            "--amend",
-            "--reset-author",
-            "-m",
-            "amended",
-        ],
-        &[
-            ("GIT_AUTHOR_NAME", "Good Author"),
-            ("GIT_AUTHOR_EMAIL", "good@example.com"),
-            ("GIT_COMMITTER_NAME", "Good Committer"),
-            ("GIT_COMMITTER_EMAIL", "good@example.com"),
-        ],
-    )?;
+    let allowlist = build_dangling_identity_scenario(repo)?;
 
     let result = run_audit(repo, &allowlist);
     assert!(
@@ -365,6 +392,53 @@ fn audit_catches_unreachable_objects() -> Result<(), BoxError> {
             "error must name the unreachable identity: {error}"
         );
     }
+    Ok(())
+}
+
+/// Proves the dangling-object scenario cannot pass vacuously (pm-rust-r9r2).
+///
+/// Two guards, each aimed at one historical way the dangling-object test
+/// proved nothing:
+///
+/// * the bad identity must be invisible to every ref walk — if it shows up in
+///   `git log --all`, the amend lost `--reset-author` and the audit catches
+///   the identity from the reachable tip whether or not the all-objects walk
+///   works at all;
+/// * the audit must still reject the repository — with the ref walk clean,
+///   that rejection can only come from the unreachable commit, so a mutation
+///   that disables the all-objects walk (for example enumerating commits with
+///   `git rev-list --all` instead of `cat-file --batch-all-objects`) makes
+///   this test fail rather than pass silently.
+#[test]
+fn dangling_identity_test_cannot_pass_vacuously() -> Result<(), BoxError> {
+    let temp = tempfile::tempdir()?;
+    let repo = temp.path();
+
+    let allowlist = build_dangling_identity_scenario(repo)?;
+
+    let reachable_authors = git_output(repo, &["log", "--all", "--format=%ae"])?;
+    // Guard the guard: the ref walk must have seen something, otherwise the
+    // check below would hold vacuously on an empty repository.
+    assert!(
+        !reachable_authors.trim().is_empty(),
+        "scenario repository has no reachable commits"
+    );
+    for email in reachable_authors
+        .lines()
+        .map(str::trim)
+        .filter(|line| !line.is_empty())
+    {
+        assert_ne!(
+            email, "bad@unreachable.example",
+            "the bad identity is reachable from refs, so the dangling-object test proves nothing: the amend must reset the author (pm-rust-r9r2)"
+        );
+    }
+
+    let result = run_audit(repo, &allowlist);
+    assert!(
+        result.is_err(),
+        "with the ref walk clean, the audit can only fail via the unreachable commit; if it passes, the all-objects walk is disabled (pm-rust-r9r2)"
+    );
     Ok(())
 }
 

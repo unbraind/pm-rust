@@ -2,13 +2,23 @@ id: pm-rust-cu3d
 title: Shallow CI checkouts made the identity audit pass without inspecting history and broke the changelog gate
 description: "The release-gate job failed with E_MISSING_TAG_HISTORY because pm-changelog --all-release-tags derives its release window from git tag refs and actions/checkout defaults to a depth-one clone that carries none. Investigating that surfaced the more serious half: the matrix jobs were also shallow, and the native identity audit runs there under cargo test while walking reachable and unreachable objects, so on a depth-one clone it had almost nothing to walk and would have reported a clean history it never inspected."
 type: Issue
-status: open
+status: closed
 priority: 1
 tags[2]: ci,gate-integrity
 created_at: "2026-08-08T12:26:09.308Z"
-updated_at: "2026-08-08T12:26:09.308Z"
+updated_at: "2026-08-16T01:24:50.752Z"
+closed_at: "2026-08-16T01:23:44.362Z"
+completed_at: "2026-08-16T01:23:44.362Z"
 author: pi-agent
 acceptance_criteria: "Every workflow job that runs either the changelog check or the identity audit checks out with full depth and tags so both gates see the complete object graph and tag refs, the release-gate aggregate passes in CI rather than only locally, and the reasoning is recorded in the workflow itself so a later edit does not silently reintroduce a shallow clone."
+comments[1]{created_at,author,text}:
+  "2026-08-16T01:18:44.099Z",pi-agent,"Regression slice on branch release-pipeline-regression-contract-tests. auditing_and_changelog_jobs_checkout_full_history walks both workflows as parsed YAML and asserts, for every job whose steps run cargo test / release-check / pm-changelog: checkout fetch-depth is 0 and fetch-tags is true. Revert-proof: dropping fetch-depth/fetch-tags from the CI release-check job checkout made the test FAIL with 'checks out with fetch-depth None; a shallow clone makes the identity audit vacuous and breaks the changelog gate'; restored, green."
 notes[1]{created_at,author,text}:
   "2026-08-08T12:26:09.308Z",pi-agent,Found when the release-gate aggregate failed in CI while passing locally
+files[2]{path,scope}:
+  .github/workflows/ci.yml,project
+  tests/release_pipeline_contract.rs,project
+tests[1]{command,scope}:
+  cargo test --test release_pipeline_contract auditing_and_changelog_jobs_checkout_full_history,project
+close_reason: "Full-history checkout contract for every auditing/changelog job landed in tests/release_pipeline_contract.rs, revert-proof verified."
 body: ""
