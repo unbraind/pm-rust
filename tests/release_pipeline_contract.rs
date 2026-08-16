@@ -126,11 +126,39 @@ fn step_run<'a>(steps: &'a [Step], step_name: &str) -> Result<&'a str, BoxError>
         .ok_or_else(|| format!("step '{step_name}' has no run script").into())
 }
 
-/// Whether one script line is a `git push` that writes to `main` directly.
+/// Folds shell backslash continuations so each element is one logical command.
+///
+/// The release workflow already writes `git push` across continuation lines,
+/// so scanning physical lines would let `git push \` followed by
+/// `origin HEAD:main` pass every refspec check: the first physical line
+/// carries no refspec and the second carries no `git push`. Folding first is
+/// what keeps [`line_pushes_to_main`] from holding vacuously.
+fn logical_lines(script: &str) -> Vec<String> {
+    let mut folded: Vec<String> = Vec::new();
+    let mut pending = String::new();
+    for line in script.lines() {
+        let trimmed = line.trim_end();
+        if let Some(head) = trimmed.strip_suffix('\\') {
+            pending.push_str(head);
+            pending.push(' ');
+            continue;
+        }
+        pending.push_str(trimmed);
+        folded.push(std::mem::take(&mut pending));
+    }
+    if !pending.is_empty() {
+        folded.push(pending);
+    }
+    folded
+}
+
+/// Whether one logical script line is a `git push` that writes to `main`
+/// directly.
 ///
 /// Matches both refspec forms (`HEAD:main`, `HEAD:refs/heads/main`) and the
 /// bare branch-name form (`git push origin main`). Pushing `HEAD` to a
 /// release branch or pushing a tag refspec is deliberately not a match.
+/// Callers must pass output of [`logical_lines`], never a raw physical line.
 fn line_pushes_to_main(line: &str) -> bool {
     if !line.contains("git push") {
         return false;
@@ -190,16 +218,150 @@ fn release_workflow_never_pushes_to_protected_main() -> Result<(), BoxError> {
             let Some(run) = step.run.as_deref() else {
                 continue;
             };
-            for line in run.lines() {
-                assert!(
-                    !line_pushes_to_main(line),
-                    "job '{job_name}' step '{}' pushes directly to protected main, which branch protection rejects with GH006 (pm-rust-b9yi):\n  {line}",
-                    step.label
-                );
-            }
+            let offending = offending_push_lines(run);
+            assert!(
+                offending.is_empty(),
+                "job '{job_name}' step '{}' pushes directly to protected main, which branch protection rejects with GH006 (pm-rust-b9yi):\n  {}",
+                step.label,
+                offending.join("\n  ")
+            );
         }
     }
     Ok(())
+}
+
+/// Every logical line of `script` that pushes directly to protected `main`.
+///
+/// The single scan path shared by the workflow contract and its own
+/// regression test, so the two cannot disagree: if this stops folding
+/// continuations, both fail.
+fn offending_push_lines(script: &str) -> Vec<String> {
+    logical_lines(script)
+        .into_iter()
+        .filter(|line| line_pushes_to_main(line))
+        .collect()
+}
+
+/// pm-rust-b9yi: the push scanner must survive the continuation form the
+/// release workflow already uses.
+///
+/// Without folding, `git push \\` and `origin HEAD:main` are two physical
+/// lines and neither matches on its own — the first carries no refspec, the
+/// second carries no `git push` — so the contract above would report a clean
+/// workflow while it pushed straight to protected `main`. This test fails if
+/// the fold is removed, which is the only thing that makes the guard real.
+#[test]
+fn split_push_to_main_is_still_detected() {
+    let split = "git push \\\n  origin HEAD:main\n";
+    assert!(
+        !split.lines().any(line_pushes_to_main),
+        "precondition: neither physical line matches on its own, which is why folding is required"
+    );
+    assert_eq!(
+        offending_push_lines(split).len(),
+        1,
+        "the shared scan must expose a push to main written across continuation lines"
+    );
+
+    let branch = "git push \\\n  --force-with-lease=\"refs/heads/release:abc\" \\\n  origin \"HEAD:refs/heads/release\"\n";
+    assert!(
+        offending_push_lines(branch).is_empty(),
+        "a folded push to a release branch must not be mistaken for a push to main"
+    );
+
+    let tag = "git push \\\n  origin \"refs/tags/v1.2.3\"\n";
+    assert!(
+        offending_push_lines(tag).is_empty(),
+        "a folded tag push must not be mistaken for a push to main"
+    );
+}
+
+/// Every history-dependent checkout defect in one job's steps.
+///
+/// Checks **every** `actions/checkout` step, not only the first: a job that
+/// re-checks out the source after another step, or checks out a second
+/// repository, would otherwise keep the contract green while the effective
+/// working tree is shallow. An empty result means every checkout in the job
+/// fetches full history and tags.
+///
+/// This is the single scan path shared by the workflow contract and its own
+/// regression test, so the two cannot disagree.
+fn shallow_checkout_problems(steps: &[Step]) -> Vec<String> {
+    let checkouts: Vec<&Step> = steps
+        .iter()
+        .filter(|step| {
+            step.uses
+                .as_deref()
+                .is_some_and(|uses| uses.starts_with("actions/checkout"))
+        })
+        .collect();
+    if checkouts.is_empty() {
+        return vec!["has no checkout step".to_owned()];
+    }
+    let mut problems = Vec::new();
+    for checkout in checkouts {
+        let with = checkout.with.as_ref();
+        let fetch_depth = with
+            .and_then(|with| map_get(with, "fetch-depth"))
+            .and_then(Value::as_u64);
+        let fetch_tags = with
+            .and_then(|with| map_get(with, "fetch-tags"))
+            .and_then(Value::as_bool);
+        if fetch_depth != Some(0) {
+            problems.push(format!(
+                "checkout '{}' uses fetch-depth {fetch_depth:?}; a shallow clone makes the identity audit vacuous and breaks the changelog gate",
+                checkout.label
+            ));
+        }
+        if fetch_tags != Some(true) {
+            problems.push(format!(
+                "checkout '{}' sets no fetch-tags; pm-changelog --all-release-tags derives its release window from tag refs",
+                checkout.label
+            ));
+        }
+    }
+    problems
+}
+
+/// pm-rust-cu3d: a second, shallower checkout in the same job must be caught.
+///
+/// The scan originally inspected only the first `actions/checkout` step, so a
+/// job that re-checked out the source shallowly after its first full checkout
+/// kept the contract green with the effective tree shallow. Reverting the scan
+/// to the first step only makes this test fail.
+#[test]
+fn a_later_shallow_checkout_in_the_same_job_is_caught() {
+    let deep = |label: &str| Step {
+        label: label.to_owned(),
+        uses: Some("actions/checkout@v7".to_owned()),
+        run: None,
+        with: serde_yaml_ng::from_str("fetch-depth: 0\nfetch-tags: true\n").ok(),
+    };
+    let shallow = Step {
+        label: "re-checkout".to_owned(),
+        uses: Some("actions/checkout@v7".to_owned()),
+        run: None,
+        with: serde_yaml_ng::from_str("fetch-depth: 1\nfetch-tags: true\n").ok(),
+    };
+
+    assert!(
+        shallow_checkout_problems(&[deep("checkout")]).is_empty(),
+        "a single full checkout must report no problem"
+    );
+    let problems = shallow_checkout_problems(&[deep("checkout"), shallow]);
+    assert_eq!(
+        problems.len(),
+        1,
+        "the later shallow checkout must be reported, got {problems:?}"
+    );
+    assert!(
+        problems[0].contains("re-checkout"),
+        "the report must name the offending step, got {problems:?}"
+    );
+    assert!(
+        shallow_checkout_problems(&[]).len() == 1,
+        "a job with no checkout at all is itself a problem"
+    );
 }
 
 /// pm-rust-b9yi: the release transaction is ordered so the tag can only land
@@ -449,6 +611,11 @@ fn workflow_toolchains_match_the_repository_pins() -> Result<(), BoxError> {
     let justfile = read_repo_file("justfile")?;
     let mut nightlies = Vec::new();
     for line in justfile.lines() {
+        // A justfile comment naming a superseded nightly must not count as a
+        // second pin, or this assertion fails on a recipe that pins exactly one.
+        if line.trim_start().starts_with('#') {
+            continue;
+        }
         if let Some(at) = line.find("+nightly-") {
             let rest = &line[at + 1..];
             let token = rest.split_whitespace().next().unwrap_or(rest);
@@ -548,28 +715,11 @@ fn auditing_and_changelog_jobs_checkout_full_history() -> Result<(), BoxError> {
             if !needs_history {
                 continue;
             }
-            let checkout = steps
-                .iter()
-                .find(|step| {
-                    step.uses
-                        .as_deref()
-                        .is_some_and(|uses| uses.starts_with("actions/checkout"))
-                })
-                .ok_or_else(|| format!("{workflow_name} job {job_name} has no checkout step"))?;
-            let with = checkout.with.as_ref().ok_or_else(|| {
-                format!("{workflow_name} job {job_name} checkout has no with mapping")
-            })?;
-            let fetch_depth = map_get(with, "fetch-depth").and_then(Value::as_u64);
-            let fetch_tags = map_get(with, "fetch-tags").and_then(Value::as_bool);
-            assert_eq!(
-                fetch_depth,
-                Some(0),
-                "{workflow_name} job {job_name} runs history-dependent gates but checks out with fetch-depth {fetch_depth:?}; a shallow clone makes the identity audit vacuous and breaks the changelog gate (pm-rust-cu3d)"
-            );
-            assert_eq!(
-                fetch_tags,
-                Some(true),
-                "{workflow_name} job {job_name} runs history-dependent gates but checks out without fetch-tags; pm-changelog --all-release-tags derives its release window from tag refs (pm-rust-cu3d)"
+            let problems = shallow_checkout_problems(&steps);
+            assert!(
+                problems.is_empty(),
+                "{workflow_name} job {job_name} runs history-dependent gates but {} (pm-rust-cu3d)",
+                problems.join("; ")
             );
         }
     }
@@ -594,9 +744,28 @@ fn release_commit_identity_is_allowlisted_and_justified() -> Result<(), BoxError
         let Some(run) = step.run.as_deref() else {
             continue;
         };
-        for line in run.lines() {
-            if let Some(rest) = line.trim().strip_prefix("git config user.email ") {
-                let email = rest.trim().trim_matches('"');
+        for line in logical_lines(run) {
+            // `git config user.email`, its --global/--local/--system forms, and
+            // `git -c user.email=` all set the identity the release commit is
+            // authored with. Matching only the bare form would let a scoped
+            // form introduce an unallowlisted identity with this test green.
+            let trimmed = line.trim();
+            let email = ["git config user.email ", "git -c user.email="]
+                .iter()
+                .find_map(|prefix| trimmed.strip_prefix(prefix))
+                .or_else(|| {
+                    let rest = trimmed.strip_prefix("git config ")?;
+                    ["--global ", "--local ", "--system "]
+                        .iter()
+                        .find_map(|scope| rest.strip_prefix(scope))
+                        .and_then(|rest| rest.strip_prefix("user.email "))
+                });
+            if let Some(email) = email {
+                let email = email
+                    .split_whitespace()
+                    .next()
+                    .unwrap_or("")
+                    .trim_matches(|c| c == '"' || c == '\'');
                 configured.push((step.label.clone(), email.to_owned()));
             }
         }

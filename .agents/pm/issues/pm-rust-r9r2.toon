@@ -6,13 +6,14 @@ status: closed
 priority: 1
 tags[2]: gate-integrity,review
 created_at: "2026-08-08T12:33:49.346Z"
-updated_at: "2026-08-16T01:24:51.436Z"
+updated_at: "2026-08-16T02:07:24.956Z"
 closed_at: "2026-08-16T01:23:45.213Z"
 completed_at: "2026-08-16T01:23:45.213Z"
 author: pi-agent
 acceptance_criteria: "The GitHub Actions bot identity used by the release commit is present in the approved list with a comment explaining why removing it would break the gate, and the unreachable-object test resets the author on amend so the bad identity exists only in the dangling commit, which is confirmed by the test continuing to pass while a mutation that disables the all-objects walk makes it fail."
-comments[1]{created_at,author,text}:
+comments[2]{created_at,author,text}:
   "2026-08-16T01:18:44.626Z",pi-agent,"Regression slice on branch release-pipeline-regression-contract-tests. New test dangling_identity_test_cannot_pass_vacuously in tests/identity_audit.rs builds the dangling scenario via a shared builder and asserts BOTH: (a) the bad identity (bad@unreachable.example) appears in NO reachable author (git log --all --format=%ae must be non-empty and clean — guarding against the empty-repo vacuity), and (b) the audit still rejects the repository, which with a clean ref walk can only happen via the unreachable commit. Release-workflow half: release_commit_identity_is_allowlisted_and_justified extracts every 'git config user.email' from the release job and requires each to be allowlisted, plus a justification comment referencing release.yml. Revert-proofs (both historical defects reproduced): mutating the audit to enumerate commits with 'git rev-list --all' instead of cat-file --batch-all-objects made the vacuity test FAIL (plus both dangling-object tests); removing --reset-author from the amend — the original vacuous form — made it FAIL with 'the bad identity is reachable from refs, so the dangling-object test proves nothing'; deleting the 41898282+github-actions[bot] identity from approved-git-identities.txt made the allowlist test FAIL. All restored, all green."
+  "2026-08-16T02:07:24.956Z",claude-code,"CodeRabbit review round: the reachable-identity guard walked only %ae, so a bad address reachable solely as a committer would have made run_audit fail on a reachable commit while the dangling-object assertion still passed. The walk is now %ae%n%ce, extracted into reachable_identities so the guard and its regression test share one code path, and a new test builds a commit whose committer is unapproved and whose author is not. Reverting the walk to %ae fails that test. The git config user.email parser also accepted one exact spelling; --global, --local, --system and git -c user.email= are now all matched, proved by mutating release.yml to the --global form."
 notes[1]{created_at,author,text}:
   "2026-08-08T12:33:49.346Z",pi-agent,Both raised by CodeRabbit on pull request 6
 files[2]{path,scope}:

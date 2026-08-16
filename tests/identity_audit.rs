@@ -395,6 +395,57 @@ fn audit_catches_unreachable_objects() -> Result<(), BoxError> {
     Ok(())
 }
 
+/// Every identity reachable from any ref, as author **and** as committer.
+///
+/// `run_audit` rejects an unapproved address in either role, so a walk that
+/// read only `%ae` would miss a bad identity reachable solely as a committer:
+/// the audit would then fail because of a *reachable* commit while the
+/// dangling-object assertion still passed, proving nothing about the
+/// all-objects walk it exists to protect.
+///
+/// This is the single walk shared by the vacuity guard and its own regression
+/// test, so the two cannot disagree.
+fn reachable_identities(repo: &Path) -> Result<String, BoxError> {
+    git_output(repo, &["log", "--all", "--format=%ae%n%ce"])
+}
+
+/// pm-rust-r9r2: a bad identity reachable only as a **committer** must be
+/// visible to the vacuity guard.
+///
+/// `git commit --amend --reset-author` rewrites the author but takes the
+/// committer from the environment, so an amend that resets the author while
+/// leaving `GIT_COMMITTER_EMAIL` unapproved leaves the bad address on the
+/// reachable tip. Reverting the walk to `%ae` makes this test fail.
+#[test]
+fn reachable_committer_identities_are_visible_to_the_guard() -> Result<(), BoxError> {
+    let temp = tempfile::tempdir()?;
+    let repo = temp.path();
+    run_git(repo, &["init", "--quiet"], &[])?;
+    write_file(&repo.join("file.txt"), "v1")?;
+    run_git(repo, &["add", "file.txt"], &[])?;
+    run_git(
+        repo,
+        &["commit", "--quiet", "-m", "committed by the bad identity"],
+        &[
+            ("GIT_AUTHOR_NAME", "Good Author"),
+            ("GIT_AUTHOR_EMAIL", "good@example.com"),
+            ("GIT_COMMITTER_NAME", "Bad Committer"),
+            ("GIT_COMMITTER_EMAIL", "bad@unreachable.example"),
+        ],
+    )?;
+
+    let authors_only = git_output(repo, &["log", "--all", "--format=%ae"])?;
+    assert!(
+        !authors_only.contains("bad@unreachable.example"),
+        "precondition: an author-only walk cannot see this identity, which is why the committer must be walked too"
+    );
+    assert!(
+        reachable_identities(repo)?.contains("bad@unreachable.example"),
+        "the reachable-identity walk must see an address that appears only as a committer"
+    );
+    Ok(())
+}
+
 /// Proves the dangling-object scenario cannot pass vacuously (pm-rust-r9r2).
 ///
 /// Two guards, each aimed at one historical way the dangling-object test
@@ -416,7 +467,7 @@ fn dangling_identity_test_cannot_pass_vacuously() -> Result<(), BoxError> {
 
     let allowlist = build_dangling_identity_scenario(repo)?;
 
-    let reachable_authors = git_output(repo, &["log", "--all", "--format=%ae"])?;
+    let reachable_authors = reachable_identities(repo)?;
     // Guard the guard: the ref walk must have seen something, otherwise the
     // check below would hold vacuously on an empty repository.
     assert!(
@@ -430,7 +481,7 @@ fn dangling_identity_test_cannot_pass_vacuously() -> Result<(), BoxError> {
     {
         assert_ne!(
             email, "bad@unreachable.example",
-            "the bad identity is reachable from refs, so the dangling-object test proves nothing: the amend must reset the author (pm-rust-r9r2)"
+            "the bad identity is reachable from refs as an author or committer, so the dangling-object test proves nothing: the amend must reset both (pm-rust-r9r2)"
         );
     }
 

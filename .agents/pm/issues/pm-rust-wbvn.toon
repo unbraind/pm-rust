@@ -6,13 +6,14 @@ status: closed
 priority: 1
 tags[2]: ci,release
 created_at: "2026-08-08T12:37:30.164Z"
-updated_at: "2026-08-16T01:24:50.042Z"
+updated_at: "2026-08-16T02:07:28.361Z"
 closed_at: "2026-08-16T01:23:43.674Z"
 completed_at: "2026-08-16T01:23:43.674Z"
 author: pi-agent
 acceptance_criteria: "The git tag keeps its zero-padded date form while the crate version stamped into Cargo.toml strips the padding and preserves any disambiguating suffix, verified against Cargo for both plain and suffixed forms, and the release job installs the same toolchain and tools as the working continuous integration gate job so just release-check can run there at all."
-comments[1]{created_at,author,text}:
+comments[2]{created_at,author,text}:
   "2026-08-16T01:18:43.570Z",pi-agent,"Regression slice on branch release-pipeline-regression-contract-tests. Three contracts: (1) stamp_and_verify_share_one_leading_zero_conversion asserts the Stamp and Verify steps still embed the same leading-zero-stripping awk program; (2) cargo_rejects_padded_versions_and_accepts_stripped_ones runs real cargo verify-project against padded (2026.08.08 -> rejected) and stripped forms (2026.8.8, 2026.8.8-2 -> accepted); (3) workflow_awk_strips_padding_the_way_cargo_requires executes the awk program extracted from the live YAML over 2026.08.08/2026.12.05/2026.8.8/2026.8.8-2 and validates every output against real Cargo. Toolchain half: release_job_installs_every_gate_tool_ci_installs requires the release job's taiki-e tool set to be a superset of the CI release-check job's (just, cargo-llvm-cov, cargo-audit), and workflow_toolchains_match_the_repository_pins enforces the rust-toolchain.toml lockstep (stable 1.90.0 + clippy + rustfmt; exactly the one nightly the justfile pins, with llvm-tools-preview). Revert-proofs: removing the awk strip made (1) and (3) FAIL; reverting tool to 'just' made the parity test FAIL ('does not install cargo-audit'); restored, all green."
+  "2026-08-16T02:07:28.361Z",claude-code,"CodeRabbit review round: the justfile nightly-pin reader scanned raw text, so a comment naming a superseded nightly would count as a second pin and fail a repository that pins exactly one. Comment lines are now skipped; appending a decoy comment naming an old nightly fails the test without the skip and passes with it."
 notes[1]{created_at,author,text}:
   "2026-08-08T12:37:30.164Z",pi-agent,Raised by CodeRabbit on pull request 6
 files[2]{path,scope}:
