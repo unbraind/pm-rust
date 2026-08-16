@@ -1,0 +1,30 @@
+id: pm-rust-1ps2
+title: "release-check passes locally and fails in CI whenever CHANGELOG_DATE is overridden, because this repository has no git tags to date releases from"
+description: "The justfile hardcodes CHANGELOG_DATE 2026-08-07 and CI runs just release-check with no override, so the committed CHANGELOG.md must be generated at that exact date. This repository has no git tags at all, so --all-release-tags derives no tag windows and every heading is dated purely by --date."
+type: Issue
+status: open
+priority: 2
+tags[3]: changelog,clock-dependence,release-gate
+created_at: "2026-08-16T01:37:49.364Z"
+updated_at: "2026-08-16T01:37:49.364Z"
+deadline: "2026-08-31T00:00:00.000Z"
+assignee: unassigned
+author: claude-code
+estimated_minutes: 120
+acceptance_criteria: "Generating the changelog in a working copy and verifying it in CI cannot disagree; either the date is derived from a real tag, or an overridden CHANGELOG_DATE cannot silently produce a committed file that CI rejects"
+dependencies[1]{id,kind,created_at,author,source_kind,author_source}:
+  pm-rust-u4al,related,"2026-08-16T01:37:49.364Z",claude-code,"cli:create:dep",detected
+comments[1]{created_at,author,text}:
+  "2026-08-16T01:37:49.364Z",claude-code,"The justfile already documents the nested-just override problem for changelog-check. That comment addresses a different failure: it makes a release run verify against the date it generated with. It does not address a contributor overriding the date outside a release, which is what happened here."
+notes[1]{created_at,author,text}:
+  "2026-08-16T01:37:49.364Z",claude-code,"Related fleet-wide pattern: pm-changelog clock dependence has bitten this fleet twice before, once through timezone handling and once through an untagged today-fallback."
+learnings[1]{created_at,author,text}:
+  "2026-08-16T01:37:49.364Z",claude-code,"A gate whose verdict changes with no change to its inputs is measuring the clock. Here the input is a hardcoded date constant rather than the wall clock, but the effect on a contributor is identical."
+files[2]{path,scope}:
+  justfile,project
+  CHANGELOG.md,project
+tests[1]{command,scope}:
+  just changelog-check,project
+docs[1]{path,scope}:
+  "justfile:changelog-check",project
+body: "Observed concretely on PR 15. The pi subagent ran just CHANGELOG_DATE=2026-08-15 release-check and reported rc 0. CI ran just release-check with the justfile default and the Release gate aggregate failed. The diff moved five bug-fix entries between an 0.1.0-alpha.1 heading dated 2026-08-15 and one dated 2026-08-07, which reads as section churn rather than as a date disagreement, so the real cause is not obvious from the failure output. Regenerating with the defaults CI uses made changelog-check report up to date. The underlying fragility is that with zero tags in the repository the changelog content is a pure function of a hardcoded constant, and the one documented reason to override that constant is a release run."

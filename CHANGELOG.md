@@ -10,6 +10,10 @@
 
 ### Bug Fixes
 
+- Release commit identity was not allowlisted and the dangling-object test proved nothing ([pm-rust-r9r2](https://github.com/unbraind/pm-rust/blob/main/.agents/pm/issues/pm-rust-r9r2.toon)) _type:Issue; status:closed; P1_
+- Shallow CI checkouts made the identity audit pass without inspecting history and broke the changelog gate ([pm-rust-cu3d](https://github.com/unbraind/pm-rust/blob/main/.agents/pm/issues/pm-rust-cu3d.toon)) _type:Issue; status:closed; P1_
+- Release workflow would have failed on a padded crate version and a missing gate toolchain ([pm-rust-wbvn](https://github.com/unbraind/pm-rust/blob/main/.agents/pm/issues/pm-rust-wbvn.toon)) _type:Issue; status:closed; P1_
+- Release workflow pushed version bump straight to protected main, killing the job before the tag push ([pm-rust-b9yi](https://github.com/unbraind/pm-rust/blob/main/.agents/pm/issues/pm-rust-b9yi.toon)) _type:Issue; status:closed; P2_
 - A green CI proves nothing about a working copy, because the toolchain is pinned only inside the workflows ([pm-rust-9yfr](https://github.com/unbraind/pm-rust/blob/main/.agents/pm/issues/pm-rust-9yfr.toon)) _type:Issue; status:closed; P2_
 - Digest hex formatting blocked the sha2 0.11 upgrade across every platform ([pm-rust-y12t](https://github.com/unbraind/pm-rust/blob/main/.agents/pm/issues/pm-rust-y12t.toon)) _type:Issue; status:closed; P1_
 - Converge changelog generation and verification on replace mode ([pm-rust-f2nv](https://github.com/unbraind/pm-rust/blob/main/.agents/pm/issues/pm-rust-f2nv.toon)) _type:Issue; status:closed; P2_
