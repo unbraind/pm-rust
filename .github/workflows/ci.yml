@@ -89,6 +89,6 @@ jobs:
         run: just release-check
 
       - name: Install clone-local pm merge drivers
-        run: npm exec --yes --package=@unbrained/pm-cli@2026.8.7 -- pm merge install
+        run: npm exec --yes --package=@unbrained/pm-cli@2026.8.21 -- pm merge install
       - name: Verify tracked pm project health
-        run: npm exec --yes --package=@unbrained/pm-cli@2026.8.7 -- pm health --check-only --require-merge-drivers --strict-exit
+        run: npm exec --yes --package=@unbrained/pm-cli@2026.8.21 -- pm health --check-only --require-merge-drivers --strict-exit

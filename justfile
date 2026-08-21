@@ -7,14 +7,31 @@
 # The `--date` parameter is fixed so the generated changelog heading does not
 # depend on the clock. This prevents CI from failing on a random day in a
 # random timezone (see pm-rl-yxhe).
+#
+# The fixed date is also the SINGLE source of truth for verification:
+# `changelog-check` deliberately runs in a fresh `just` process without
+# forwarding any command-line CHANGELOG_DATE override, so it always verifies
+# against this constant. A contributor who regenerates the changelog with a
+# private override and commits it gets a red gate locally too, instead of a
+# local-green/CI-red divergence (pm-rust-1ps2). The one legitimate override is
+# a release run, which rewrites this constant to the release date BEFORE
+# generating, so the committed state stays self-consistent and plain
+# `just release-check` passes everywhere without any override.
 
 # The fixed heading date for the current release version.
 # Update this when cutting a new release; the Unreleased section never
 # carries a date.
 CHANGELOG_DATE := "2026-08-07"
 
-# The pm-changelog npm package version used by the fleet.
+# The pm-changelog npm package version used by the fleet, pinned together
+# with the exact pm CLI/SDK build it resolves. pm-changelog declares its SDK
+# as a floating range (>=2026.8.3), so an unpinned install resolves to latest
+# and its tracker reads silently truncate under the newer output-budget
+# contract — dropping closed items from regeneration while the committed
+# CHANGELOG.md keeps them (pm-rust-1ps2). Both packages move together, and a
+# bump here must regenerate CHANGELOG.md in the same change.
 PM_CHANGELOG_PKG := "pm-changelog@2026.8.6"
+PM_CLI_PKG := "@unbrained/pm-cli@2026.8.6"
 
 # The item URL base for changelog links.
 ITEM_URL_BASE := "https://github.com/unbraind/pm-rust/blob/main/.agents/pm"
@@ -24,7 +41,7 @@ crate-version := `sed -n 's/^version *= *"\([^"]*\)"/\1/p' Cargo.toml`
 
 # Runs pm-changelog with the common flags shared by all recipes.
 _pm-changelog *flags:
-    npx --yes --package={{PM_CHANGELOG_PKG}} -- pm-changelog \
+    npx --yes --package={{PM_CHANGELOG_PKG}} --package={{PM_CLI_PKG}} -- pm-changelog \
         --pm-root .agents/pm \
         --item-url-base {{ITEM_URL_BASE}} \
         --respect-item-release \
@@ -55,12 +72,14 @@ changelog-full *extra:
         {{extra}}
 
 # Verify the committed changelog matches the generated one (CI gate).
-# CHANGELOG_DATE is forwarded explicitly: a nested `just` starts a new process
-# and does NOT inherit a command-line override, so without this a release job
-# running `just CHANGELOG_DATE=<release date> release-check` would verify against
-# the hardcoded default and reject the changelog it had just generated.
+# Runs in a fresh `just` process WITHOUT forwarding CHANGELOG_DATE: whatever a
+# caller overrides on the command line, this check verifies against the
+# canonical pinned constant above. That is what makes the gate deterministic
+# across machines and dates — the committed file and the verified generation
+# can no longer disagree about the date (pm-rust-1ps2). A release run keeps
+# them consistent by rewriting the constant before it generates.
 changelog-check:
-    just CHANGELOG_DATE={{CHANGELOG_DATE}} changelog-full --check
+    just changelog-full --check
 
 # Print release notes for the current release window to stdout.
 release-notes:
@@ -82,4 +101,4 @@ release-check:
     cargo +nightly-2026-08-06 llvm-cov --locked --branch --all-targets --all-features --json --output-path coverage-branch.json
     jq -e '.data[0].totals.lines.percent == 100 and .data[0].totals.functions.percent == 100 and .data[0].totals.regions.percent == 100 and .data[0].totals.branches.percent == 100' coverage-branch.json
     cargo audit
-    just CHANGELOG_DATE={{CHANGELOG_DATE}} changelog-check
+    just changelog-check

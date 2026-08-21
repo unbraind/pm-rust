@@ -19,6 +19,12 @@
 //!   missing from the approved allowlist, so the first release would have
 //!   written a commit that this repository's own audit rejects on every
 //!   subsequent run.
+//! * **pm-rust-1ps2** — the changelog gate verified against whatever
+//!   `CHANGELOG_DATE` happened to reach it, so a contributor who regenerated
+//!   with a private override got a green gate locally and a red gate in CI
+//!   with byte-identical inputs. The check now always verifies against the
+//!   canonical pinned constant, and the release flow rewrites that constant
+//!   before generating, so the committed state is self-consistent everywhere.
 //!
 //! The workflows themselves are parsed as YAML — not grepped as text — so the
 //! assertions survive comment edits and reformatting but fail when any of the
@@ -785,6 +791,286 @@ fn release_commit_identity_is_allowlisted_and_justified() -> Result<(), BoxError
             .lines()
             .any(|line| line.trim_start().starts_with('#') && line.contains("release.yml")),
         "the allowlist must explain in a comment why the release workflow's bot identity is listed (pm-rust-r9r2)"
+    );
+    Ok(())
+}
+
+/// Extracts the body of one justfile recipe as its ordered, trimmed lines.
+///
+/// A recipe starts at a line whose first word is `name` followed by `:` (with
+/// optional arguments before the colon) and spans every following line that is
+/// indented deeper than the recipe header. Comment-only lines between recipes
+/// are skipped so they cannot terminate or extend a body. `Err` means the
+/// recipe is missing entirely, which every caller treats as a contract
+/// failure rather than an empty body.
+fn justfile_recipe_body(justfile: &str, name: &str) -> Result<Vec<String>, BoxError> {
+    let mut lines = justfile.lines().peekable();
+    while let Some(line) = lines.next() {
+        let trimmed = line.trim_start();
+        if trimmed.starts_with('#') || trimmed.is_empty() {
+            continue;
+        }
+        let header = trimmed.split(':').next().unwrap_or(trimmed);
+        let recipe_name = header.split_whitespace().next().unwrap_or(header);
+        if recipe_name != name || !trimmed.contains(':') {
+            continue;
+        }
+        let mut body = Vec::new();
+        for line in lines.by_ref() {
+            let trimmed = line.trim_start();
+            if trimmed.starts_with('#') && line.starts_with("    #") {
+                body.push(trimmed.to_owned());
+                continue;
+            }
+            if trimmed.is_empty() {
+                continue;
+            }
+            if !line.starts_with(char::is_whitespace) {
+                break;
+            }
+            body.push(trimmed.to_owned());
+        }
+        return Ok(body);
+    }
+    Err(format!("justfile declares no recipe '{name}'").into())
+}
+
+/// pm-rust-1ps2: the changelog gate must verify against the canonical pinned
+/// date, never against whatever `CHANGELOG_DATE` a caller happened to set.
+///
+/// The pre-fix justfile forwarded the variable into the nested check process,
+/// so `just CHANGELOG_DATE=X release-check` verified a different file than CI
+/// verifies with byte-identical inputs — the local-green/CI-red divergence
+/// this item records. Neither `changelog-check` nor `release-check` may carry
+/// that forwarding anymore.
+#[test]
+fn changelog_check_verifies_against_the_canonical_date_only() -> Result<(), BoxError> {
+    let justfile = read_repo_file("justfile")?;
+
+    let check = justfile_recipe_body(&justfile, "changelog-check")?;
+    assert!(
+        !check.iter().any(|line| line.contains("CHANGELOG_DATE=")),
+        "changelog-check must not forward a CHANGELOG_DATE override into the verification; that forwarding is the divergence channel (pm-rust-1ps2):\n  {}",
+        check.join("\n  ")
+    );
+    assert!(
+        check
+            .iter()
+            .any(|line| *line == "just changelog-full --check"),
+        "changelog-check must verify through a fresh plain `just` process, got:\n  {}",
+        check.join("\n  ")
+    );
+
+    let release = justfile_recipe_body(&justfile, "release-check")?;
+    assert!(
+        !release.iter().any(|line| line.contains("CHANGELOG_DATE=")),
+        "release-check must not forward a CHANGELOG_DATE override either (pm-rust-1ps2)"
+    );
+    assert!(
+        release.iter().any(|line| *line == "just changelog-check"),
+        "release-check must end in the canonical changelog-check recipe"
+    );
+
+    // The helper itself must stay honest: a missing recipe is an error, not a
+    // silently passing empty scan.
+    assert!(
+        justfile_recipe_body(&justfile, "no-such-recipe").is_err(),
+        "a missing recipe must be reported as an error"
+    );
+    Ok(())
+}
+
+/// pm-rust-1ps2: the legitimate override channel survives — generation still
+/// honors an explicit date, only verification ignores it.
+///
+/// If someone "fixes" the divergence by hardcoding the date into the
+/// generation recipes too, a release can no longer stamp its own date and
+/// this test fails.
+#[test]
+fn generation_recipes_still_honor_an_explicit_date_override() -> Result<(), BoxError> {
+    let justfile = read_repo_file("justfile")?;
+    for recipe in ["changelog", "changelog-full", "release-notes"] {
+        let body = justfile_recipe_body(&justfile, recipe)?;
+        assert!(
+            body.iter().any(|line| line.contains("{{CHANGELOG_DATE}}")),
+            "recipe '{recipe}' no longer passes {{CHANGELOG_DATE}} to pm-changelog; an explicit release date could not reach generation anymore"
+        );
+    }
+    Ok(())
+}
+
+/// pm-rust-1ps2: the justfile must not read the wall clock anywhere.
+///
+/// A runtime-clock default would churn the heading date once per day and fail
+/// the gate on every day after the first — strictly worse clock dependence
+/// than the frozen constant. The date stays a visible pin in the justfile.
+#[test]
+fn the_justfile_never_reads_the_wall_clock() -> Result<(), BoxError> {
+    let justfile = read_repo_file("justfile")?;
+    let offenders: Vec<&str> = justfile
+        .lines()
+        .filter(|line| !line.trim_start().starts_with('#'))
+        .filter(|line| line.contains("date +") || line.contains("%Y") || line.contains("$DATE"))
+        .collect();
+    assert!(
+        offenders.is_empty(),
+        "the justfile must derive no date from the clock, found:\n  {}",
+        offenders.join("\n  ")
+    );
+    Ok(())
+}
+
+/// pm-rust-1ps2: the changelog toolchain must pin the pm CLI/SDK build, not a
+/// floating range.
+///
+/// pm-changelog declares its SDK as `>=2026.8.3`, so an unpinned install
+/// resolves to latest. Under SDK >=2026.8.20 the same tracker read truncates
+/// at the default output budget and regeneration silently drops closed items
+/// the committed CHANGELOG.md carries — CI and a warm-cache working copy
+/// disagreed with byte-identical inputs. Both packages must be pinned exactly
+/// in the justfile and in every release-workflow npx invocation.
+#[test]
+fn changelog_toolchain_pins_the_sdk_exactly() -> Result<(), BoxError> {
+    let justfile = read_repo_file("justfile")?;
+    assert!(
+        justfile.contains("PM_CHANGELOG_PKG := \"pm-changelog@2026.8.6\""),
+        "the justfile must pin pm-changelog exactly"
+    );
+    assert!(
+        justfile.contains("PM_CLI_PKG := \"@unbrained/pm-cli@2026.8.6\""),
+        "the justfile must pin @unbrained/pm-cli exactly; the floating range resolves to latest and truncates tracker reads (pm-rust-1ps2)"
+    );
+    assert!(
+        justfile.contains("--package={{PM_CHANGELOG_PKG}} --package={{PM_CLI_PKG}}"),
+        "the shared pm-changelog recipe must install both pinned packages into one npx prefix"
+    );
+
+    let workflow = parse_workflow(".github/workflows/release.yml")?;
+    for (job_name, steps) in workflow_jobs(&workflow)? {
+        for step in &steps {
+            let Some(run) = step.run.as_deref() else {
+                continue;
+            };
+            for line in logical_lines(run) {
+                if !line.contains("npx") || !line.contains("pm-changelog") {
+                    continue;
+                }
+                assert!(
+                    line.contains("--package=pm-changelog@2026.8.6")
+                        && line.contains("--package=@unbrained/pm-cli@2026.8.6"),
+                    "{job_name} step '{}' invokes pm-changelog without pinning both packages exactly; the SDK would float to latest and truncate regeneration (pm-rust-1ps2):\n  {line}",
+                    step.label
+                );
+            }
+        }
+    }
+    Ok(())
+}
+
+/// pm-rust-1ps2: the release workflow must keep the canonical date and the
+/// generated changelog in one atomic, self-consistent commit.
+///
+/// The generate step rewrites the justfile constant before generating and
+/// proves the rewrite landed; both check invocations run plain because the
+/// constant already names the release date; the commit step includes the
+/// justfile so main never carries a heading date the constant disagrees with.
+#[test]
+fn release_workflow_keeps_the_pin_and_the_generation_atomic() -> Result<(), BoxError> {
+    let workflow = parse_workflow(".github/workflows/release.yml")?;
+    let steps = job_steps(&workflow, "release")?;
+
+    let generate = step_run(&steps, "Generate changelog and release notes")?;
+    assert!(
+        generate.contains("sed -i \"s/^CHANGELOG_DATE := "),
+        "the generate step must rewrite the canonical CHANGELOG_DATE constant before generating (pm-rust-1ps2)"
+    );
+    assert!(
+        generate.contains("grep -qx \"CHANGELOG_DATE := "),
+        "the generate step must verify the constant rewrite landed instead of trusting sed's exit code"
+    );
+
+    let checks = step_run(&steps, "Run release checks")?;
+    assert_eq!(
+        checks.trim(),
+        "just release-check",
+        "the release job must run the gate without a CHANGELOG_DATE override; the constant was pinned one step earlier (pm-rust-1ps2)"
+    );
+
+    let commit = step_run(&steps, "Commit release files")?;
+    assert!(
+        commit
+            .lines()
+            .any(|line| line.trim() == "git add Cargo.toml Cargo.lock CHANGELOG.md justfile"),
+        "the release commit must include the justfile so the pinned date and the heading date land atomically (pm-rust-1ps2)"
+    );
+
+    let verify = step_run(&steps, "Verify merged release")?;
+    assert!(
+        verify.contains("just release-check") && !verify.contains("CHANGELOG_DATE="),
+        "the merged-release verification must run the plain gate with no override (pm-rust-1ps2)"
+    );
+    Ok(())
+}
+
+/// pm-rust-1ps2 (health half): CI's pm CLI pin must be a single, current,
+/// deliberately chosen version.
+///
+/// The tracker's history hash chain is only self-consistent within one CLI
+/// generation: `pm health` under an older pinned CLI reported
+/// `history_drift_hash_mismatch` for items written by a newer CLI and failed
+/// the strict gate on valid state. Both ci.yml invocations must therefore
+/// carry the same exact pin, bumped deliberately together with the tooling
+/// that writes tracker state.
+#[test]
+fn ci_pm_cli_pin_is_single_and_current() -> Result<(), BoxError> {
+    let workflow = parse_workflow(".github/workflows/ci.yml")?;
+    let mut pins = Vec::new();
+    for (job_name, steps) in workflow_jobs(&workflow)? {
+        for step in &steps {
+            let Some(run) = step.run.as_deref() else {
+                continue;
+            };
+            for line in logical_lines(run) {
+                if !line.contains("pm-cli@") {
+                    continue;
+                }
+                let version = line
+                    .split("@unbrained/pm-cli@")
+                    .nth(1)
+                    .and_then(|rest| rest.split_whitespace().next())
+                    .ok_or_else(|| format!("unparseable pm-cli pin in {job_name}"))?
+                    .trim_matches('\\')
+                    .to_owned();
+                pins.push((job_name.clone(), step.label.clone(), version));
+            }
+        }
+    }
+    assert!(
+        !pins.is_empty(),
+        "ci.yml declares no @unbrained/pm-cli pin; the health gate would float"
+    );
+    let unique: BTreeSet<&str> = pins.iter().map(|(_, _, v)| v.as_str()).collect();
+    assert_eq!(
+        unique.len(),
+        1,
+        "ci.yml must pin exactly one pm CLI version, found {unique:?}"
+    );
+    let pin = unique
+        .iter()
+        .next()
+        .copied()
+        .ok_or("the single pm CLI pin resolved to nothing")?;
+    let components: Vec<u32> = pin
+        .split('.')
+        .map(str::parse)
+        .collect::<Result<_, _>>()
+        .map_err(|_| format!("invalid pm CLI version: {pin}"))?;
+    let [year, month, day] = components.as_slice() else {
+        return Err(format!("invalid pm CLI version: {pin}").into());
+    };
+    assert!(
+        (*year, *month, *day) >= (2026, 8, 21),
+        "ci.yml pins pm CLI {pin}; versions older than 2026.8.21 reject tracker history written by newer CLIs as drifted (pm-rust-1ps2). Bump this pin deliberately when the writing toolchain moves."
     );
     Ok(())
 }
