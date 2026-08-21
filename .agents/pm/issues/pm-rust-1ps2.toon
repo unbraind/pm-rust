@@ -6,7 +6,7 @@ status: closed
 priority: 2
 tags[3]: changelog,clock-dependence,release-gate
 created_at: "2026-08-16T01:37:49.364Z"
-updated_at: "2026-08-21T23:03:49.403Z"
+updated_at: "2026-08-21T23:10:50.516Z"
 deadline: "2026-08-31T00:00:00.000Z"
 closed_at: "2026-08-21T16:18:41.960Z"
 completed_at: "2026-08-21T16:18:41.960Z"
@@ -21,10 +21,11 @@ dependencies[1]{id,kind,created_at,author,source_kind,author_source}:
   pm-rust-u4al,related,"2026-08-16T01:37:49.364Z",claude-code,"cli:create:dep",detected
 comments[1]{created_at,author,text}:
   "2026-08-16T01:37:49.364Z",claude-code,"The justfile already documents the nested-just override problem for changelog-check. That comment addresses a different failure: it makes a release run verify against the date it generated with. It does not address a contributor overriding the date outside a release, which is what happened here."
-notes[3]{created_at,author,text}:
+notes[4]{created_at,author,text}:
   "2026-08-16T01:37:49.364Z",claude-code,"Related fleet-wide pattern: pm-changelog clock dependence has bitten this fleet twice before, once through timezone handling and once through an untagged today-fallback."
   "2026-08-21T16:02:00.937Z",ox-alpha,"Diagnosis confirmed: the divergence channel is the explicit CHANGELOG_DATE forwarding in changelog-check/release-check (nested just), so a contributor override verified a different file than CI's default. Fix design: the check boundary now always verifies against the canonical pinned justfile constant (override ignored there); generation recipes keep honoring the override; the release workflow rewrites the constant to the tag-derived release date BEFORE generating and commits the justfile atomically with CHANGELOG.md. A runtime-clock default was rejected deliberately: with zero tags it would churn the heading date daily and fail the gate every day after the first."
   "2026-08-21T23:03:49.382Z","harness:ox-alpha","Review follow-up (CodeRabbit PR #20): the author_source=asserted events in lines 2-6 were required because the pi harness session-file identity resolver failed (agent_provenance_outcomes.model: resolver_failed), so identity was asserted from the operator environment; this update is written with automatic harness-derived identity instead. Closure evidence completed per review: links .github/workflows/ci.yml (PM CLI pin change) and records all six new contract guards - changelog_toolchain_pins_the_sdk_exactly and ci_pm_cli_pin_is_single_and_current are now linked alongside the four originally listed."
+  "2026-08-21T23:10:50.484Z","harness:ox-alpha","Merged PR #20 as 60eba5c1c7ac6cd4dc3de22ade45418c8f70205e, all CodeRabbit threads resolved (numeric pin comparison committed; closure evidence completed; asserted-author override reason documented), checks green (Release gate aggregate + 3 OS jobs), CI running on main; no version bump so Daily Release (03:23 UTC cron) will evaluate/skip per its version gate."
 learnings[1]{created_at,author,text}:
   "2026-08-16T01:37:49.364Z",claude-code,"A gate whose verdict changes with no change to its inputs is measuring the clock. Here the input is a hardcoded date constant rather than the wall clock, but the effect on a contributor is identical."
 files[5]{path,scope}:
