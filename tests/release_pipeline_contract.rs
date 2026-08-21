@@ -1060,8 +1060,16 @@ fn ci_pm_cli_pin_is_single_and_current() -> Result<(), BoxError> {
         .next()
         .copied()
         .ok_or("the single pm CLI pin resolved to nothing")?;
+    let components: Vec<u32> = pin
+        .split('.')
+        .map(str::parse)
+        .collect::<Result<_, _>>()
+        .map_err(|_| format!("invalid pm CLI version: {pin}"))?;
+    let [year, month, day] = components.as_slice() else {
+        return Err(format!("invalid pm CLI version: {pin}").into());
+    };
     assert!(
-        pin >= "2026.8.21",
+        (*year, *month, *day) >= (2026, 8, 21),
         "ci.yml pins pm CLI {pin}; versions older than 2026.8.21 reject tracker history written by newer CLIs as drifted (pm-rust-1ps2). Bump this pin deliberately when the writing toolchain moves."
     );
     Ok(())
