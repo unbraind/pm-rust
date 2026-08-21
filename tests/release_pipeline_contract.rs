@@ -1017,7 +1017,7 @@ fn release_workflow_keeps_the_pin_and_the_generation_atomic() -> Result<(), BoxE
 ///
 /// The tracker's history hash chain is only self-consistent within one CLI
 /// generation: `pm health` under an older pinned CLI reported
-/// history_drift_hash_mismatch for items written by a newer CLI and failed
+/// `history_drift_hash_mismatch` for items written by a newer CLI and failed
 /// the strict gate on valid state. Both ci.yml invocations must therefore
 /// carry the same exact pin, bumped deliberately together with the tooling
 /// that writes tracker state.
