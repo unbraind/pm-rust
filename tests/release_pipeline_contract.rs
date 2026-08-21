@@ -1055,7 +1055,11 @@ fn ci_pm_cli_pin_is_single_and_current() -> Result<(), BoxError> {
         1,
         "ci.yml must pin exactly one pm CLI version, found {unique:?}"
     );
-    let pin = unique.iter().next().copied().unwrap();
+    let pin = unique
+        .iter()
+        .next()
+        .copied()
+        .ok_or("the single pm CLI pin resolved to nothing")?;
     assert!(
         pin >= "2026.8.21",
         "ci.yml pins pm CLI {pin}; versions older than 2026.8.21 reject tracker history written by newer CLIs as drifted (pm-rust-1ps2). Bump this pin deliberately when the writing toolchain moves."
