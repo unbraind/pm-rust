@@ -158,6 +158,16 @@ jobs:
         run: |
           set -euo pipefail
           release_date="${{ steps.decide.outputs.release_iso_date }}"
+          # Rewrite the justfile's canonical changelog date BEFORE generating.
+          # `changelog-check` verifies against that constant and refuses any
+          # override (pm-rust-1ps2), so the committed state is only self-
+          # consistent when the constant names the same date the heading does.
+          # The justfile is committed together with CHANGELOG.md below.
+          sed -i "s/^CHANGELOG_DATE := \".*\"$/CHANGELOG_DATE := \"${release_date}\"/" justfile
+          grep -qx "CHANGELOG_DATE := \"${release_date}\"" justfile || {
+            echo "::error::Failed to pin CHANGELOG_DATE to ${release_date} in the justfile."
+            exit 1
+          }
           crate_version="$(sed -n 's/^version *= *"\([^"]*\)"/\1/p' Cargo.toml)"
           npx --yes --package=pm-changelog@2026.8.6 -- pm-changelog \
             --pm-root .agents/pm \
@@ -204,11 +214,12 @@ jobs:
 
       - name: Run release checks
         if: steps.decide.outputs.should_release == 'true'
-        # release-check ends in changelog-check, which regenerates and compares.
-        # It must use the same date the generate step above stamped into the
-        # heading, otherwise it rejects the changelog this job just produced on
-        # every day that is not the justfile's hardcoded CHANGELOG_DATE.
-        run: just CHANGELOG_DATE="${{ steps.decide.outputs.release_iso_date }}" release-check
+        # release-check ends in changelog-check, which regenerates and compares
+        # against the canonical justfile constant. The generate step above
+        # pinned that constant to this release's date before generating, so a
+        # plain invocation verifies exactly what was generated — no override,
+        # and therefore no local-green/CI-red divergence (pm-rust-1ps2).
+        run: just release-check
 
       - name: Commit release files
         if: steps.decide.outputs.should_release == 'true'
@@ -217,7 +228,10 @@ jobs:
           set -euo pipefail
           git config user.name "github-actions[bot]"
           git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
-          git add Cargo.toml Cargo.lock CHANGELOG.md
+          # The justfile carries the pinned changelog date this release stamped
+          # into the heading; committing it keeps the canonical date and the
+          # generated file in one atomic commit (pm-rust-1ps2).
+          git add Cargo.toml Cargo.lock CHANGELOG.md justfile
           if git diff --cached --quiet; then
             echo "Release files are already current; tagging existing commit."
           else
@@ -476,7 +490,6 @@ jobs:
         env:
           MERGED_SHA: ${{ steps.release_pr.outputs.merged_sha }}
           RELEASE_TAG: ${{ steps.decide.outputs.tag }}
-          RELEASE_ISO_DATE: ${{ steps.decide.outputs.release_iso_date }}
         run: |
           set -euo pipefail
           git fetch origin main --force
@@ -507,8 +520,8 @@ jobs:
             exit 1
           fi
 
-          just CHANGELOG_DATE="${RELEASE_ISO_DATE}" release-check
-          git diff --exit-code -- Cargo.toml Cargo.lock CHANGELOG.md
+          just release-check
+          git diff --exit-code -- Cargo.toml Cargo.lock CHANGELOG.md justfile
 
       # Tag the exact merged/verified main commit. main is already advanced
       # by the protected-PR merge above, so this step only creates and pushes
