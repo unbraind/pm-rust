@@ -2,17 +2,21 @@ id: pm-rust-1ps2
 title: "release-check passes locally and fails in CI whenever CHANGELOG_DATE is overridden, because this repository has no git tags to date releases from"
 description: "The justfile hardcodes CHANGELOG_DATE 2026-08-07 and CI runs just release-check with no override, so the committed CHANGELOG.md must be generated at that exact date. This repository has no git tags at all, so --all-release-tags derives no tag windows and every heading is dated purely by --date."
 type: Issue
-status: in_progress
+status: closed
 priority: 2
 tags[3]: changelog,clock-dependence,release-gate
 created_at: "2026-08-16T01:37:49.364Z"
-updated_at: "2026-08-21T16:02:26.430Z"
+updated_at: "2026-08-21T16:18:41.973Z"
 deadline: "2026-08-31T00:00:00.000Z"
-assignee: ox-alpha
+closed_at: "2026-08-21T16:18:41.960Z"
+completed_at: "2026-08-21T16:18:41.960Z"
 claim_principal: ox-alpha
 author: claude-code
 estimated_minutes: 120
 acceptance_criteria: "Generating the changelog in a working copy and verifying it in CI cannot disagree; either the date is derived from a real tag, or an overridden CHANGELOG_DATE cannot silently produce a committed file that CI rejects"
+resolution: "changelog-check/release-check no longer forward CHANGELOG_DATE; they verify the canonical pinned justfile constant, which the release workflow rewrites before generating and commits atomically. The changelog toolchain pins both pm-changelog@2026.8.6 and @unbrained/pm-cli@2026.8.6 exactly, eliminating silent truncation under floating SDK reads."
+expected_result: Generating the changelog in a working copy and verifying it in CI cannot disagree regardless of date overrides or SDK resolution.
+actual_result: Clean-clone cold-npx-cache run of just changelog-check returns rc=0 (previously failed in CI); a hostile CHANGELOG_DATE override is ignored by verification; a committed override-generated file now fails locally with rc=1 matching CI. 5 new contract tests lock both guarantees.
 dependencies[1]{id,kind,created_at,author,source_kind,author_source}:
   pm-rust-u4al,related,"2026-08-16T01:37:49.364Z",claude-code,"cli:create:dep",detected
 comments[1]{created_at,author,text}:
@@ -32,4 +36,5 @@ tests[2]{command,scope}:
   "cargo +1.90.0 test --locked --all-targets --all-features (15 contract tests incl. 4 new pm-rust-1ps2 guards: changelog_check_verifies_against_the_canonical_date_only,generation_recipes_still_honor_an_explicit_date_override,the_justfile_never_reads_the_wall_clock,release_workflow_keeps_the_pin_and_the_generation_atomic)",project
 docs[1]{path,scope}:
   "justfile:changelog-check",project
+close_reason: "changelog-check/release-check no longer forward CHANGELOG_DATE; they verify the canonical pinned justfile constant, which the release workflow rewrites before generating and commits atomically. The changelog toolchain pins both pm-changelog@2026.8.6 and @unbrained/pm-cli@2026.8.6 exactly, eliminating silent truncation under floating SDK reads."
 body: "Observed concretely on PR 15. The pi subagent ran just CHANGELOG_DATE=2026-08-15 release-check and reported rc 0. CI ran just release-check with the justfile default and the Release gate aggregate failed. The diff moved five bug-fix entries between an 0.1.0-alpha.1 heading dated 2026-08-15 and one dated 2026-08-07, which reads as section churn rather than as a date disagreement, so the real cause is not obvious from the failure output. Regenerating with the defaults CI uses made changelog-check report up to date. The underlying fragility is that with zero tags in the repository the changelog content is a pure function of a hardcoded constant, and the one documented reason to override that constant is a release run."

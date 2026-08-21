@@ -10,6 +10,7 @@
 
 ### Bug Fixes
 
+- release-check passes locally and fails in CI whenever CHANGELOG_DATE is overridden, because this repository has no git tags to date releases from ([pm-rust-1ps2](https://github.com/unbraind/pm-rust/blob/main/.agents/pm/issues/pm-rust-1ps2.toon)) _type:Issue; status:closed; P2_
 - Release commit identity was not allowlisted and the dangling-object test proved nothing ([pm-rust-r9r2](https://github.com/unbraind/pm-rust/blob/main/.agents/pm/issues/pm-rust-r9r2.toon)) _type:Issue; status:closed; P1_
 - Shallow CI checkouts made the identity audit pass without inspecting history and broke the changelog gate ([pm-rust-cu3d](https://github.com/unbraind/pm-rust/blob/main/.agents/pm/issues/pm-rust-cu3d.toon)) _type:Issue; status:closed; P1_
 - Release workflow would have failed on a padded crate version and a missing gate toolchain ([pm-rust-wbvn](https://github.com/unbraind/pm-rust/blob/main/.agents/pm/issues/pm-rust-wbvn.toon)) _type:Issue; status:closed; P1_
