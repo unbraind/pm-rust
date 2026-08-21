@@ -1011,3 +1011,54 @@ fn release_workflow_keeps_the_pin_and_the_generation_atomic() -> Result<(), BoxE
     );
     Ok(())
 }
+
+/// pm-rust-1ps2 (health half): CI's pm CLI pin must be a single, current,
+/// deliberately chosen version.
+///
+/// The tracker's history hash chain is only self-consistent within one CLI
+/// generation: `pm health` under an older pinned CLI reported
+/// history_drift_hash_mismatch for items written by a newer CLI and failed
+/// the strict gate on valid state. Both ci.yml invocations must therefore
+/// carry the same exact pin, bumped deliberately together with the tooling
+/// that writes tracker state.
+#[test]
+fn ci_pm_cli_pin_is_single_and_current() -> Result<(), BoxError> {
+    let workflow = parse_workflow(".github/workflows/ci.yml")?;
+    let mut pins = Vec::new();
+    for (job_name, steps) in workflow_jobs(&workflow)? {
+        for step in &steps {
+            let Some(run) = step.run.as_deref() else {
+                continue;
+            };
+            for line in logical_lines(run) {
+                if !line.contains("pm-cli@") {
+                    continue;
+                }
+                let version = line
+                    .split("@unbrained/pm-cli@")
+                    .nth(1)
+                    .and_then(|rest| rest.split_whitespace().next())
+                    .ok_or_else(|| format!("unparseable pm-cli pin in {job_name}"))?
+                    .trim_matches('\\')
+                    .to_owned();
+                pins.push((job_name.clone(), step.label.clone(), version));
+            }
+        }
+    }
+    assert!(
+        !pins.is_empty(),
+        "ci.yml declares no @unbrained/pm-cli pin; the health gate would float"
+    );
+    let unique: BTreeSet<&str> = pins.iter().map(|(_, _, v)| v.as_str()).collect();
+    assert_eq!(
+        unique.len(),
+        1,
+        "ci.yml must pin exactly one pm CLI version, found {unique:?}"
+    );
+    let pin = unique.iter().next().copied().unwrap();
+    assert!(
+        pin >= "2026.8.21",
+        "ci.yml pins pm CLI {pin}; versions older than 2026.8.21 reject tracker history written by newer CLIs as drifted (pm-rust-1ps2). Bump this pin deliberately when the writing toolchain moves."
+    );
+    Ok(())
+}
