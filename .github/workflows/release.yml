@@ -169,7 +169,7 @@ jobs:
             exit 1
           }
           crate_version="$(sed -n 's/^version *= *"\([^"]*\)"/\1/p' Cargo.toml)"
-          npx --yes --package=pm-changelog@2026.8.6 -- pm-changelog \
+          npx --yes --package=pm-changelog@2026.8.6 --package=@unbrained/pm-cli@2026.8.6 -- pm-changelog \
             --pm-root .agents/pm \
             --mode replace \
             --output CHANGELOG.md \
@@ -183,7 +183,7 @@ jobs:
             --item-ref-style toon \
             --include-metadata \
             --github-step-summary
-          npx --yes --package=pm-changelog@2026.8.6 -- pm-changelog \
+          npx --yes --package=pm-changelog@2026.8.6 --package=@unbrained/pm-cli@2026.8.6 -- pm-changelog \
             --pm-root .agents/pm \
             --mode replace \
             --output CHANGELOG.md \
@@ -197,7 +197,7 @@ jobs:
             --item-ref-style toon \
             --include-metadata \
             --check
-          npx --yes --package=pm-changelog@2026.8.6 -- pm-changelog \
+          npx --yes --package=pm-changelog@2026.8.6 --package=@unbrained/pm-cli@2026.8.6 -- pm-changelog \
             --pm-root .agents/pm \
             --stdout \
             --release-version "$crate_version" \

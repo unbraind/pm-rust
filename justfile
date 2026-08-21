@@ -23,8 +23,15 @@
 # carries a date.
 CHANGELOG_DATE := "2026-08-07"
 
-# The pm-changelog npm package version used by the fleet.
+# The pm-changelog npm package version used by the fleet, pinned together
+# with the exact pm CLI/SDK build it resolves. pm-changelog declares its SDK
+# as a floating range (>=2026.8.3), so an unpinned install resolves to latest
+# and its tracker reads silently truncate under the newer output-budget
+# contract — dropping closed items from regeneration while the committed
+# CHANGELOG.md keeps them (pm-rust-1ps2). Both packages move together, and a
+# bump here must regenerate CHANGELOG.md in the same change.
 PM_CHANGELOG_PKG := "pm-changelog@2026.8.6"
+PM_CLI_PKG := "@unbrained/pm-cli@2026.8.6"
 
 # The item URL base for changelog links.
 ITEM_URL_BASE := "https://github.com/unbraind/pm-rust/blob/main/.agents/pm"
@@ -34,7 +41,7 @@ crate-version := `sed -n 's/^version *= *"\([^"]*\)"/\1/p' Cargo.toml`
 
 # Runs pm-changelog with the common flags shared by all recipes.
 _pm-changelog *flags:
-    npx --yes --package={{PM_CHANGELOG_PKG}} -- pm-changelog \
+    npx --yes --package={{PM_CHANGELOG_PKG}} --package={{PM_CLI_PKG}} -- pm-changelog \
         --pm-root .agents/pm \
         --item-url-base {{ITEM_URL_BASE}} \
         --respect-item-release \

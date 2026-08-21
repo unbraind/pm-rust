@@ -920,6 +920,53 @@ fn the_justfile_never_reads_the_wall_clock() -> Result<(), BoxError> {
     Ok(())
 }
 
+/// pm-rust-1ps2: the changelog toolchain must pin the pm CLI/SDK build, not a
+/// floating range.
+///
+/// pm-changelog declares its SDK as `>=2026.8.3`, so an unpinned install
+/// resolves to latest. Under SDK >=2026.8.20 the same tracker read truncates
+/// at the default output budget and regeneration silently drops closed items
+/// the committed CHANGELOG.md carries — CI and a warm-cache working copy
+/// disagreed with byte-identical inputs. Both packages must be pinned exactly
+/// in the justfile and in every release-workflow npx invocation.
+#[test]
+fn changelog_toolchain_pins_the_sdk_exactly() -> Result<(), BoxError> {
+    let justfile = read_repo_file("justfile")?;
+    assert!(
+        justfile.contains("PM_CHANGELOG_PKG := \"pm-changelog@2026.8.6\""),
+        "the justfile must pin pm-changelog exactly"
+    );
+    assert!(
+        justfile.contains("PM_CLI_PKG := \"@unbrained/pm-cli@2026.8.6\""),
+        "the justfile must pin @unbrained/pm-cli exactly; the floating range resolves to latest and truncates tracker reads (pm-rust-1ps2)"
+    );
+    assert!(
+        justfile.contains("--package={{PM_CHANGELOG_PKG}} --package={{PM_CLI_PKG}}"),
+        "the shared pm-changelog recipe must install both pinned packages into one npx prefix"
+    );
+
+    let workflow = parse_workflow(".github/workflows/release.yml")?;
+    for (job_name, steps) in workflow_jobs(&workflow)? {
+        for step in &steps {
+            let Some(run) = step.run.as_deref() else {
+                continue;
+            };
+            for line in logical_lines(run) {
+                if !line.contains("npx") || !line.contains("pm-changelog") {
+                    continue;
+                }
+                assert!(
+                    line.contains("--package=pm-changelog@2026.8.6")
+                        && line.contains("--package=@unbrained/pm-cli@2026.8.6"),
+                    "{job_name} step '{}' invokes pm-changelog without pinning both packages exactly; the SDK would float to latest and truncate regeneration (pm-rust-1ps2):\n  {line}",
+                    step.label
+                );
+            }
+        }
+    }
+    Ok(())
+}
+
 /// pm-rust-1ps2: the release workflow must keep the canonical date and the
 /// generated changelog in one atomic, self-consistent commit.
 ///
