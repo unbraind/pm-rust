@@ -1122,21 +1122,7 @@ fn mutation_recovery_repairs_completes_and_refuses_every_state()
         recover_mutation(&pm_root, "update", "sample-unit"),
         Err(PmRustError::RecoveryConflict { .. })
     ));
-    // The identity guard is `version != 1 || id != id`, and the id half is
-    // covered above. A journal written by a future encoding must be refused on
-    // the version half alone, with the id left correct, or the `||` short
-    // circuits and that branch is never taken.
     mismatched.id = "sample-unit".to_owned();
-    mismatched.version = 2;
-    fs::write(
-        &journal_path,
-        &serde_json::to_string(&mismatched).map_err(|error| format!("{error}"))?,
-    )?;
-    assert!(matches!(
-        recover_mutation(&pm_root, "update", "sample-unit"),
-        Err(PmRustError::RecoveryConflict { .. })
-    ));
-    mismatched.version = 1;
     mismatched.item_type = "Scroll".to_owned();
     fs::write(
         &journal_path,
@@ -1679,74 +1665,97 @@ fn mutation_recovery_surfaces_history_append_failures() -> Result<(), Box<dyn st
 }
 
 #[test]
+/// A journal from a future encoding is refused on its version alone.
+///
+/// The identity guard is `version != 1 || id != id`. The id half is covered by
+/// the recovery suite, so the version half was dead to the tests: a journal
+/// carrying the correct id but a version this build does not understand was
+/// never proven to be refused. Because `||` short circuits, only a
+/// correct-id/wrong-version journal reaches that branch.
+fn recovery_refuses_a_journal_whose_version_this_build_does_not_understand()
+-> Result<(), Box<dyn std::error::Error>> {
+    let (_directory, pm_root) = root(&mutation_settings(0))?;
+    create_item(&pm_root, request())?;
+    let original_item = fs::read_to_string(pm_root.join("tasks/sample-unit.toon"))?;
+    let original_history = fs::read_to_string(pm_root.join("history/sample-unit.jsonl"))?;
+    let appended_history = format!("{original_history}{{\"ts\":\"stub\",\"op\":\"update\"}}\n");
+    write_mutation_journal(&pm_root, "update", &original_item, &appended_history)?;
+    let journal_path = pm_root
+        .join("runtime/transactions")
+        .join("update-sample-unit.json");
+    let mut journal: MutationJournal = serde_json::from_str(&fs::read_to_string(&journal_path)?)?;
+    journal.version = 2;
+    fs::write(
+        &journal_path,
+        &serde_json::to_string(&journal).map_err(|error| format!("{error}"))?,
+    )?;
+    assert!(matches!(
+        recover_mutation(&pm_root, "update", "sample-unit"),
+        Err(PmRustError::RecoveryConflict { .. })
+    ));
+    Ok(())
+}
+
+#[test]
 /// A tabular header followed by an unindented line must leave the row branch.
 ///
-/// The row normaliser is entered only when the encoder is inside a tabular
-/// block AND the line is indented. The second half of that condition is never
-/// exercised by real encoder output, because a `{...}:` header is always
-/// followed by indented rows, so a document that ends a block with an
-/// unindented key is the only way to prove the guard actually tests indentation
-/// rather than relying on the block flag alone.
-fn normalize_item_bytes_leaves_the_row_path_when_a_block_line_is_unindented() {
-    let encoded = normalize_item_bytes("comments[1]{author,text}:\nid: plain-key")
-        .expect("an unindented line after a tabular header is valid");
+/// The row normaliser runs only when the encoder is inside a tabular block AND
+/// the line is indented. Real encoder output always indents rows after a
+/// `{...}:` header, so the indentation half never ran. Ending a block with an
+/// unindented key proves the guard tests indentation rather than trusting the
+/// block flag alone.
+fn normalize_item_bytes_leaves_the_row_path_when_a_block_line_is_unindented()
+-> Result<(), Box<dyn std::error::Error>> {
+    let encoded = normalize_item_bytes("comments[1]{author,text}:\nid: plain-key")?;
     assert!(
         encoded.contains("id: plain-key"),
         "the unindented key must pass through untouched, got {encoded:?}"
     );
-    // The indented sibling proves the flag itself is still live: same header,
-    // an indented row, and the row normaliser does run.
-    let row = normalize_item_bytes("comments[1]{author,text}:\n  \"safe\",plain")
-        .expect("an indented row is valid");
+    let row = normalize_item_bytes("comments[1]{author,text}:\n  \"safe\",plain")?;
     assert!(
         !row.contains("\"safe\""),
         "an indented row must reach the normaliser and be unquoted, got {row:?}"
     );
+    Ok(())
 }
 
 #[test]
 /// A quoted row field containing a backslash keeps its bytes verbatim.
 ///
 /// A field is unquoted only when its content holds neither a quote nor a
-/// backslash. The quote half is exercised by ordinary rows; the backslash half
-/// is not, because the encoder rarely emits one. Unquoting an escaped value
-/// would change how the canonical dialect reparses the row, so the guard is
-/// proven here directly against the row normaliser rather than through an
-/// enclosing document, where an earlier branch could satisfy the assertion
-/// without the filter ever running.
+/// backslash. The backslash half never ran. Unquoting an escaped value would
+/// change how the canonical dialect reparses the row. Asserted directly against
+/// the row normaliser: routed through a whole document, an earlier branch can
+/// satisfy the assertion without the filter ever executing.
 fn normalize_row_bytes_preserves_a_quoted_field_containing_a_backslash() {
-    let escaped = normalize_row_bytes("  \"back\\slash\",plain");
     assert_eq!(
-        escaped, "  \"back\\slash\",plain",
-        "a backslash-bearing value must keep its quotes and its neighbour untouched"
+        normalize_row_bytes("  \"back\\slash\",plain"),
+        "  \"back\\slash\",plain",
+        "a backslash-bearing value must keep its quotes and leave its neighbour alone"
     );
-
-    // Same shape with no backslash: the filter passes and the value is
-    // unquoted, which proves the guard discriminates rather than always
-    // preserving.
-    let plain = normalize_row_bytes("  \"safe\",plain");
     assert_eq!(
-        plain, "  safe,plain",
-        "a safe scalar must be unquoted, so the backslash case above is the filter and not the shape"
+        normalize_row_bytes("  \"safe\",plain"),
+        "  safe,plain",
+        "a safe scalar must be unquoted, so the case above is the filter and not the shape"
     );
 }
 
 #[test]
 /// An unterminated quoted scalar must be refused rather than silently truncated.
 ///
-/// `normalize_item_bytes` splits a line on `: "` and then strips the closing
-/// quote. If the encoder ever emits an opening quote with no closing one the
-/// strip returns `None`, and the encode has to fail rather than write a
-/// document whose quoting is structurally broken.
-fn normalize_item_bytes_refuses_an_unterminated_quoted_scalar() {
-    let error = normalize_item_bytes("title: \"unterminated")
-        .expect_err("a scalar opened with a quote and never closed must be refused");
-    assert!(
-        matches!(&error, PmRustError::ItemEncoding { reason } if reason.contains("unterminated")),
-        "expected an ItemEncoding refusal naming the unterminated scalar, got {error:?}"
-    );
+/// `normalize_item_bytes` splits a line on `: "` and strips the closing quote.
+/// If the encoder ever emits an opening quote with no closing one the strip
+/// yields `None`, and the encode has to fail rather than write a document whose
+/// quoting is structurally broken.
+fn normalize_item_bytes_refuses_an_unterminated_quoted_scalar()
+-> Result<(), Box<dyn std::error::Error>> {
+    assert!(matches!(
+        normalize_item_bytes("title: \"unterminated"),
+        Err(PmRustError::ItemEncoding { .. })
+    ));
     assert_eq!(
-        normalize_item_bytes("title: \"terminated\"").expect("a closed quote is valid"),
+        normalize_item_bytes("title: \"terminated\"")?,
         "title: terminated\n"
     );
+    Ok(())
 }
