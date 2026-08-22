@@ -497,7 +497,7 @@ fn atomic_replace(path: &Path, contents: &str) -> Result<(), PmRustError> {
         .and_then(|value| value.to_str())
         .ok_or_else(|| invalid("target filename is not UTF-8"))?;
     let temporary = parent.join(format!(".{file_name}.{}.tmp", unique_token()));
-    let mut file = OpenOptions::new()
+    let file = OpenOptions::new()
         .write(true)
         .create_new(true)
         .open(&temporary)
@@ -505,20 +505,23 @@ fn atomic_replace(path: &Path, contents: &str) -> Result<(), PmRustError> {
             path: temporary.clone(),
             source,
         })?;
-    let staged = file
-        .write_all(contents.as_bytes())
-        .and_then(|()| file.sync_all())
-        .map_err(|source| PmRustError::Io {
-            path: temporary.clone(),
-            source,
-        });
-    drop(file);
-    staged.and_then(|()| publish_replacement(&temporary, path))?;
+    stage_temporary(file, &temporary, contents)
+        .and_then(|()| publish_replacement(&temporary, path))?;
     let _ = fs::remove_file(&temporary);
     Ok(())
 }
 
-/// Atomically moves staged bytes onto their durable target path.
+/// Writes and durably flushes one private temporary file's contents.
+fn stage_temporary(mut file: File, temporary: &Path, contents: &str) -> Result<(), PmRustError> {
+    file.write_all(contents.as_bytes())
+        .and_then(|()| file.sync_all())
+        .map_err(|source| PmRustError::Io {
+            path: temporary.to_path_buf(),
+            source,
+        })
+}
+
+/// Atomically moves staged bytes onto their durable target path./// Atomically moves staged bytes onto their durable target path.
 fn publish_replacement(temporary: &Path, path: &Path) -> Result<(), PmRustError> {
     #[cfg(not(unix))]
     {
@@ -924,8 +927,9 @@ fn recover(pm_root: &Path, id: &str) -> Result<(), PmRustError> {
 /// Completes or clears an interrupted in-place mutation journal.
 ///
 /// The journal records the exact intended post-mutation item bytes and history
-/// line. Recovery repairs whichever half is missing, refuses foreign bytes,
-/// and removes a transaction that already committed both halves.
+/// line. Recovery restores a missing item half, recreates a wholly absent
+/// history stream, and removes a transaction that already committed both
+/// halves. Any other durable divergence refuses recovery instead of guessing.
 fn recover_mutation(
     pm_root: &Path,
     operation: &str,

@@ -424,3 +424,7 @@ impl Serialize for CanonicalDocument<'_> {
         map.end()
     }
 }
+
+#[cfg(test)]
+#[path = "../tests/support/history_unit.rs"]
+mod tests;

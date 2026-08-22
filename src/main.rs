@@ -173,30 +173,20 @@ fn write_json_to(
 mod tests;
 
 /// Dispatches one parsed command against its discovered workspace.
+#[allow(clippy::too_many_lines)]
 fn run(cli: Cli) -> Result<(), Box<dyn std::error::Error>> {
     let workspace = Workspace::discover(&cli.workspace)?;
-    match cli.command {
+    let payload = match cli.command {
         Command::List {
             status,
             item_type,
             id,
-        } => write_json(&workspace.list(ItemFilter {
+        } => serde_json::to_value(workspace.list(ItemFilter {
             status,
             item_type,
             id,
         })?)?,
-        Command::Get { id } => write_json(&workspace.get(&id)?)?,
-        command => write_json(&execute_mutation(&workspace, command)?)?,
-    }
-    Ok(())
-}
-
-/// Executes one mutating subcommand against its discovered workspace.
-fn execute_mutation(
-    workspace: &Workspace,
-    command: Command,
-) -> Result<serde_json::Value, Box<dyn std::error::Error>> {
-    match command {
+        Command::Get { id } => serde_json::to_value(workspace.get(&id)?)?,
         Command::Create {
             id,
             title,
@@ -210,21 +200,24 @@ fn execute_mutation(
             timestamp,
             message,
             force_stale_lock,
-        } => Ok(serde_json::to_value(workspace.create(CreateItem {
-            id,
-            title,
-            description,
-            item_type,
-            status,
-            priority,
-            tags,
-            body,
-            author,
-            timestamp,
-            message,
-            provenance_role: Some("implementer".to_owned()),
-            force_stale_lock,
-        })?)?),
+        } => create_payload(
+            &workspace,
+            CreateItem {
+                id,
+                title,
+                description,
+                item_type,
+                status,
+                priority,
+                tags,
+                body,
+                author,
+                timestamp,
+                message,
+                provenance_role: None,
+                force_stale_lock,
+            },
+        )?,
         Command::Update {
             id,
             title,
@@ -237,27 +230,30 @@ fn execute_mutation(
             timestamp,
             message,
             force_stale_lock,
-        } => Ok(serde_json::to_value(workspace.update(UpdateItem {
-            id,
-            title,
-            description,
-            status,
-            priority,
-            // A provided CSV value expresses replacement intent even when it
-            // normalizes to an empty tag list.
-            tags: tags_csv.map(|csv| {
-                csv.split(',')
-                    .map(str::to_owned)
-                    .filter(|tag| !tag.is_empty())
-                    .collect()
-            }),
-            body,
-            author,
-            timestamp,
-            message,
-            provenance_role: Some("implementer".to_owned()),
-            force_stale_lock,
-        })?)?),
+        } => update_payload(
+            &workspace,
+            UpdateItem {
+                id,
+                title,
+                description,
+                status,
+                priority,
+                // A provided CSV value expresses replacement intent even when
+                // it normalizes to an empty tag list.
+                tags: tags_csv.map(|csv| {
+                    csv.split(',')
+                        .map(str::to_owned)
+                        .filter(|tag| !tag.is_empty())
+                        .collect()
+                }),
+                body,
+                author,
+                timestamp,
+                message,
+                provenance_role: None,
+                force_stale_lock,
+            },
+        )?,
         Command::Comment {
             id,
             text,
@@ -265,32 +261,72 @@ fn execute_mutation(
             timestamp,
             message,
             force_stale_lock,
-        } => Ok(serde_json::to_value(workspace.comment(&CommentItem {
-            id,
-            text,
-            author,
-            timestamp,
-            message,
-            provenance_role: None,
-            force_stale_lock,
-        })?)?),
+        } => comment_payload(
+            &workspace,
+            &CommentItem {
+                id,
+                text,
+                author,
+                timestamp,
+                message,
+                provenance_role: None,
+                force_stale_lock,
+            },
+        )?,
         Command::Close {
             id,
             reason,
             author,
             timestamp,
             force_stale_lock,
-        } => Ok(serde_json::to_value(workspace.close(CloseItem {
-            id,
-            reason,
-            author,
-            timestamp,
-            provenance_role: Some("implementer".to_owned()),
-            force_stale_lock,
-        })?)?),
-        // Read-only commands never reach the mutation executor.
-        Command::List { .. } | Command::Get { .. } => unreachable!("read commands handled by run"),
-    }
+        } => close_payload(
+            &workspace,
+            CloseItem {
+                id,
+                reason,
+                author,
+                timestamp,
+                provenance_role: None,
+                force_stale_lock,
+            },
+        )?,
+    };
+    write_json(&payload)
+}
+
+/// Creates one item, stamping the argv-derived implementer role.
+fn create_payload(
+    workspace: &Workspace,
+    mut request: CreateItem,
+) -> Result<serde_json::Value, Box<dyn std::error::Error>> {
+    request.provenance_role = Some("implementer".to_owned());
+    Ok(serde_json::to_value(workspace.create(request)?)?)
+}
+
+/// Applies one field update, stamping the argv-derived implementer role.
+fn update_payload(
+    workspace: &Workspace,
+    mut request: UpdateItem,
+) -> Result<serde_json::Value, Box<dyn std::error::Error>> {
+    request.provenance_role = Some("implementer".to_owned());
+    Ok(serde_json::to_value(workspace.update(request)?)?)
+}
+
+/// Appends one comment without an argv-derived role.
+fn comment_payload(
+    workspace: &Workspace,
+    request: &CommentItem,
+) -> Result<serde_json::Value, Box<dyn std::error::Error>> {
+    Ok(serde_json::to_value(workspace.comment(request)?)?)
+}
+
+/// Closes one item, stamping the argv-derived implementer role.
+fn close_payload(
+    workspace: &Workspace,
+    mut request: CloseItem,
+) -> Result<serde_json::Value, Box<dyn std::error::Error>> {
+    request.provenance_role = Some("implementer".to_owned());
+    Ok(serde_json::to_value(workspace.close(request)?)?)
 }
 
 /// Parses the command line and maps success or failure to the process exit code.
