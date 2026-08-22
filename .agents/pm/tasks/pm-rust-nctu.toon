@@ -6,8 +6,10 @@ status: open
 priority: 2
 tags: []
 created_at: "2026-08-22T10:41:27.895Z"
-updated_at: "2026-08-22T10:41:27.895Z"
+updated_at: "2026-08-22T11:40:19.543Z"
 author: pi-agent
 acceptance_criteria: N independent processes mutate one item concurrently;every mutation that exits success is present in the final item and history stream;lock conflicts are retried within the configured wait budget instead of failing fast
 parent: pm-rust-u4al
+comments[1]{created_at,author,text}:
+  "2026-08-22T11:40:19.543Z",pi-agent,"Added tests/concurrency_contract.rs: 8 concurrent OS processes each append 3 comments to one shared item using the per-item lock and its configured wait_ms budget (60s in the fixture), with no test-side coordination. Asserts every accepted mutation survives: comment-row count, history record count, and the before_hash/after_hash chain all agree with the 24 successful processes. The test found and fixed a real race: locate_item read the document before lock acquisition, so writers could apply changes to stale bytes; reads now happen inside the critical section for update, comment, and close. Lock-guard sabotage verified: releasing the lock immediately reproduces lost updates and fails the test."
 body: ""

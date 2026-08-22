@@ -1138,7 +1138,6 @@ pub(crate) fn update_item(
 ) -> Result<MutationResult, PmRustError> {
     let settings = read_settings(pm_root)?;
     let timestamp = validate_mutation_request(&request.author, request.timestamp.as_deref())?;
-    let (_folder, before_document) = locate_item(pm_root, &request.id)?;
     let _lock = acquire_lock(
         pm_root,
         &request.id,
@@ -1148,6 +1147,9 @@ pub(crate) fn update_item(
         &timestamp,
     )?;
     let (item_path, history_path) = recover_mutation(pm_root, "update", &request.id)?;
+    // The stored document must be read under the lock so no writer ever
+    // applies changes to stale bytes.
+    let (_folder, before_document) = locate_item(pm_root, &request.id)?;
     if let Some(tags) = &mut request.tags {
         tags.sort();
         tags.dedup();
@@ -1221,7 +1223,6 @@ pub(crate) fn comment_item(
     if request.text.trim().is_empty() {
         return Err(invalid_mutation("comment text must not be empty"));
     }
-    let (_folder, before_document) = locate_item(pm_root, &request.id)?;
     let _lock = acquire_lock(
         pm_root,
         &request.id,
@@ -1231,6 +1232,8 @@ pub(crate) fn comment_item(
         &timestamp,
     )?;
     let (item_path, history_path) = recover_mutation(pm_root, "comment", &request.id)?;
+    // Read under the lock: appending to stale comments would drop peers' rows.
+    let (_folder, before_document) = locate_item(pm_root, &request.id)?;
     let mut document = before_document.clone();
     let row = serde_json::json!({
         "created_at": timestamp,
@@ -1276,6 +1279,16 @@ pub(crate) fn close_item(
             "a close requires a non-empty closing summary",
         ));
     }
+    let _lock = acquire_lock(
+        pm_root,
+        &request.id,
+        &request.author,
+        &settings.locks,
+        request.force_stale_lock,
+        &timestamp,
+    )?;
+    let (item_path, history_path) = recover_mutation(pm_root, "close", &request.id)?;
+    // Terminal-status refusal and every later decision use post-lock bytes.
     let (_folder, before_document) = locate_item(pm_root, &request.id)?;
     if matches!(
         before_document.metadata.status.as_str(),
@@ -1287,15 +1300,6 @@ pub(crate) fn close_item(
             request.id
         )));
     }
-    let _lock = acquire_lock(
-        pm_root,
-        &request.id,
-        &request.author,
-        &settings.locks,
-        request.force_stale_lock,
-        &timestamp,
-    )?;
-    let (item_path, history_path) = recover_mutation(pm_root, "close", &request.id)?;
     let mut document = before_document.clone();
     document
         .metadata
