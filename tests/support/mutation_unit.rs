@@ -44,6 +44,13 @@ fn settings(prefix: &str, format: &str, ttl: u64) -> String {
 }
 
 type CompletedTransaction = (TempDir, PathBuf, String, String, MutationJournal);
+/// Builds lock settings without a wait budget for deterministic unit tests.
+const fn locks(ttl_seconds: u64) -> LockSettings {
+    LockSettings {
+        ttl_seconds,
+        wait_ms: 0,
+    }
+}
 
 #[test]
 fn serde_defaults_match_the_supported_create_and_settings_contract()
@@ -180,29 +187,9 @@ fn validation_rejects_every_unsupported_request_shape() -> Result<(), Box<dyn st
 fn lock_conflicts_and_forced_stale_cleanup_preserve_the_current_owner()
 -> Result<(), Box<dyn std::error::Error>> {
     let (_directory, pm_root) = root(&settings("sample-", "toon", 0))?;
-    let first = acquire_lock(
-        &pm_root,
-        "sample-unit",
-        "first",
-        &LockSettings {
-            ttl_seconds: 0,
-            wait_ms: 0,
-        },
-        false,
-        TS,
-    )?;
+    let first = acquire_lock(&pm_root, "sample-unit", "first", &locks(0), false, TS)?;
     assert!(matches!(
-        acquire_lock(
-            &pm_root,
-            "sample-unit",
-            "second",
-            &LockSettings {
-                ttl_seconds: 0,
-                wait_ms: 0
-            },
-            false,
-            TS
-        ),
+        acquire_lock(&pm_root, "sample-unit", "second", &locks(0), false, TS),
         Err(PmRustError::LockConflict { .. })
     ));
     let lock_path = pm_root.join("locks/sample-unit.lock");
@@ -211,32 +198,12 @@ fn lock_conflicts_and_forced_stale_cleanup_preserve_the_current_owner()
         fs::FileTimes::new().set_modified(SystemTime::now() + Duration::from_secs(60)),
     )?;
     assert!(matches!(
-        acquire_lock(
-            &pm_root,
-            "sample-unit",
-            "second",
-            &LockSettings {
-                ttl_seconds: 0,
-                wait_ms: 0
-            },
-            true,
-            TS
-        ),
+        acquire_lock(&pm_root, "sample-unit", "second", &locks(0), true, TS),
         Err(PmRustError::LockConflict { .. })
     ));
     lock_file.set_times(fs::FileTimes::new().set_modified(SystemTime::now()))?;
     thread::sleep(Duration::from_millis(2));
-    let second = acquire_lock(
-        &pm_root,
-        "sample-unit",
-        "second",
-        &LockSettings {
-            ttl_seconds: 0,
-            wait_ms: 0,
-        },
-        true,
-        TS,
-    )?;
+    let second = acquire_lock(&pm_root, "sample-unit", "second", &locks(0), true, TS)?;
     drop(first);
     assert!(pm_root.join("locks/sample-unit.lock").exists());
     drop(second);
@@ -252,30 +219,10 @@ fn lock_conflicts_and_forced_stale_cleanup_preserve_the_current_owner()
     fs::create_dir(&gate)?;
     thread::sleep(Duration::from_millis(2));
     assert!(matches!(
-        acquire_lock(
-            &pm_root,
-            "sample-gated",
-            "third",
-            &LockSettings {
-                ttl_seconds: 1_800,
-                wait_ms: 0
-            },
-            true,
-            TS
-        ),
+        acquire_lock(&pm_root, "sample-gated", "third", &locks(1_800), true, TS),
         Err(PmRustError::LockConflict { .. })
     ));
-    let recovered_gate = acquire_lock(
-        &pm_root,
-        "sample-gated",
-        "third",
-        &LockSettings {
-            ttl_seconds: 0,
-            wait_ms: 0,
-        },
-        true,
-        TS,
-    )?;
+    let recovered_gate = acquire_lock(&pm_root, "sample-gated", "third", &locks(0), true, TS)?;
     assert!(!gate.exists());
     drop(recovered_gate);
 
@@ -290,10 +237,7 @@ fn lock_conflicts_and_forced_stale_cleanup_preserve_the_current_owner()
             &pm_root,
             "sample-blocked-gate",
             "third",
-            &LockSettings {
-                ttl_seconds: 0,
-                wait_ms: 0
-            },
+            &locks(0),
             true,
             TS
         ),
@@ -302,34 +246,14 @@ fn lock_conflicts_and_forced_stale_cleanup_preserve_the_current_owner()
     let directory_lock = pm_root.join("locks/sample-directory.lock");
     fs::create_dir(&directory_lock)?;
     assert!(matches!(
-        acquire_lock(
-            &pm_root,
-            "sample-directory",
-            "third",
-            &LockSettings {
-                ttl_seconds: 0,
-                wait_ms: 0
-            },
-            true,
-            TS
-        ),
+        acquire_lock(&pm_root, "sample-directory", "third", &locks(0), true, TS),
         Err(PmRustError::Io { .. })
     ));
     #[cfg(unix)]
     {
         let oversized_id = "x".repeat(300);
         assert!(matches!(
-            acquire_lock(
-                &pm_root,
-                &oversized_id,
-                "third",
-                &LockSettings {
-                    ttl_seconds: 0,
-                    wait_ms: 0
-                },
-                true,
-                TS
-            ),
+            acquire_lock(&pm_root, &oversized_id, "third", &locks(0), true, TS),
             Err(PmRustError::Io { .. })
         ));
     }
@@ -517,6 +441,7 @@ fn missing_and_invalid_settings_return_typed_errors() -> Result<(), Box<dyn std:
 }
 
 #[test]
+#[allow(clippy::too_many_lines)]
 fn filesystem_failures_are_typed_and_atomic_temps_are_cleaned()
 -> Result<(), Box<dyn std::error::Error>> {
     #[cfg(unix)]
