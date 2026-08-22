@@ -32,6 +32,7 @@ fn request() -> CreateItem {
         author: "unit-agent".to_owned(),
         timestamp: Some(TS.to_owned()),
         message: None,
+        provenance_role: None,
         force_stale_lock: false,
     }
 }
@@ -42,7 +43,7 @@ fn settings(prefix: &str, format: &str, ttl: u64) -> String {
     )
 }
 
-type CompletedTransaction = (TempDir, PathBuf, String, String, CreateJournal);
+type CompletedTransaction = (TempDir, PathBuf, String, String, MutationJournal);
 
 #[test]
 fn serde_defaults_match_the_supported_create_and_settings_contract()
@@ -103,7 +104,11 @@ fn serde_defaults_match_the_supported_create_and_settings_contract()
     created.id = "sample-parented".to_owned();
     let mut item = create_item(&pm_root, created)?.item;
     item.metadata.parent = Some("sample-parent".to_owned());
-    assert_eq!(metadata_value(&item)["parent"], "sample-parent");
+    let ordered = OrderedDocument::from_document(&item);
+    assert_eq!(
+        ordered.get("parent"),
+        Some(&Value::String("sample-parent".to_owned()))
+    );
     Ok(())
 }
 
@@ -175,9 +180,29 @@ fn validation_rejects_every_unsupported_request_shape() -> Result<(), Box<dyn st
 fn lock_conflicts_and_forced_stale_cleanup_preserve_the_current_owner()
 -> Result<(), Box<dyn std::error::Error>> {
     let (_directory, pm_root) = root(&settings("sample-", "toon", 0))?;
-    let first = acquire_lock(&pm_root, "sample-unit", "first", 0, false, TS)?;
+    let first = acquire_lock(
+        &pm_root,
+        "sample-unit",
+        "first",
+        &LockSettings {
+            ttl_seconds: 0,
+            wait_ms: 0,
+        },
+        false,
+        TS,
+    )?;
     assert!(matches!(
-        acquire_lock(&pm_root, "sample-unit", "second", 0, false, TS),
+        acquire_lock(
+            &pm_root,
+            "sample-unit",
+            "second",
+            &LockSettings {
+                ttl_seconds: 0,
+                wait_ms: 0
+            },
+            false,
+            TS
+        ),
         Err(PmRustError::LockConflict { .. })
     ));
     let lock_path = pm_root.join("locks/sample-unit.lock");
@@ -186,12 +211,32 @@ fn lock_conflicts_and_forced_stale_cleanup_preserve_the_current_owner()
         fs::FileTimes::new().set_modified(SystemTime::now() + Duration::from_secs(60)),
     )?;
     assert!(matches!(
-        acquire_lock(&pm_root, "sample-unit", "second", 0, true, TS),
+        acquire_lock(
+            &pm_root,
+            "sample-unit",
+            "second",
+            &LockSettings {
+                ttl_seconds: 0,
+                wait_ms: 0
+            },
+            true,
+            TS
+        ),
         Err(PmRustError::LockConflict { .. })
     ));
     lock_file.set_times(fs::FileTimes::new().set_modified(SystemTime::now()))?;
     thread::sleep(Duration::from_millis(2));
-    let second = acquire_lock(&pm_root, "sample-unit", "second", 0, true, TS)?;
+    let second = acquire_lock(
+        &pm_root,
+        "sample-unit",
+        "second",
+        &LockSettings {
+            ttl_seconds: 0,
+            wait_ms: 0,
+        },
+        true,
+        TS,
+    )?;
     drop(first);
     assert!(pm_root.join("locks/sample-unit.lock").exists());
     drop(second);
@@ -207,10 +252,30 @@ fn lock_conflicts_and_forced_stale_cleanup_preserve_the_current_owner()
     fs::create_dir(&gate)?;
     thread::sleep(Duration::from_millis(2));
     assert!(matches!(
-        acquire_lock(&pm_root, "sample-gated", "third", 1_800, true, TS),
+        acquire_lock(
+            &pm_root,
+            "sample-gated",
+            "third",
+            &LockSettings {
+                ttl_seconds: 1_800,
+                wait_ms: 0
+            },
+            true,
+            TS
+        ),
         Err(PmRustError::LockConflict { .. })
     ));
-    let recovered_gate = acquire_lock(&pm_root, "sample-gated", "third", 0, true, TS)?;
+    let recovered_gate = acquire_lock(
+        &pm_root,
+        "sample-gated",
+        "third",
+        &LockSettings {
+            ttl_seconds: 0,
+            wait_ms: 0,
+        },
+        true,
+        TS,
+    )?;
     assert!(!gate.exists());
     drop(recovered_gate);
 
@@ -221,20 +286,50 @@ fn lock_conflicts_and_forced_stale_cleanup_preserve_the_current_owner()
     fs::write(blocked_gate.join("active-owner"), "present")?;
     thread::sleep(Duration::from_millis(2));
     assert!(matches!(
-        acquire_lock(&pm_root, "sample-blocked-gate", "third", 0, true, TS),
+        acquire_lock(
+            &pm_root,
+            "sample-blocked-gate",
+            "third",
+            &LockSettings {
+                ttl_seconds: 0,
+                wait_ms: 0
+            },
+            true,
+            TS
+        ),
         Err(PmRustError::LockConflict { .. })
     ));
     let directory_lock = pm_root.join("locks/sample-directory.lock");
     fs::create_dir(&directory_lock)?;
     assert!(matches!(
-        acquire_lock(&pm_root, "sample-directory", "third", 0, true, TS),
+        acquire_lock(
+            &pm_root,
+            "sample-directory",
+            "third",
+            &LockSettings {
+                ttl_seconds: 0,
+                wait_ms: 0
+            },
+            true,
+            TS
+        ),
         Err(PmRustError::Io { .. })
     ));
     #[cfg(unix)]
     {
         let oversized_id = "x".repeat(300);
         assert!(matches!(
-            acquire_lock(&pm_root, &oversized_id, "third", 0, true, TS),
+            acquire_lock(
+                &pm_root,
+                &oversized_id,
+                "third",
+                &LockSettings {
+                    ttl_seconds: 0,
+                    wait_ms: 0
+                },
+                true,
+                TS
+            ),
             Err(PmRustError::Io { .. })
         ));
     }
@@ -246,7 +341,7 @@ fn completed_transaction() -> Result<CompletedTransaction, Box<dyn std::error::E
     create_item(&pm_root, request())?;
     let item = fs::read_to_string(pm_root.join("tasks/sample-unit.toon"))?;
     let history = fs::read_to_string(pm_root.join("history/sample-unit.jsonl"))?;
-    let journal = CreateJournal {
+    let journal = MutationJournal {
         version: 1,
         id: "sample-unit".to_owned(),
         item_type: "Task".to_owned(),
@@ -258,7 +353,7 @@ fn completed_transaction() -> Result<CompletedTransaction, Box<dyn std::error::E
 
 fn write_journal(
     pm_root: &Path,
-    journal: &CreateJournal,
+    journal: &MutationJournal,
 ) -> Result<(), Box<dyn std::error::Error>> {
     let path = pm_root.join("runtime/transactions/create-sample-unit.json");
     fs::create_dir_all(path.parent().ok_or("journal parent")?)?;
@@ -488,7 +583,14 @@ fn filesystem_failures_are_typed_and_atomic_temps_are_cleaned()
     fs::create_dir_all(&pm_root)?;
     fs::write(pm_root.join("locks"), "not a directory")?;
     assert!(matches!(
-        acquire_lock(&pm_root, "sample-lock", "agent", 1_800, false, TS),
+        acquire_lock(
+            &pm_root,
+            "sample-lock",
+            "agent",
+            &LockSettings::default(),
+            false,
+            TS
+        ),
         Err(PmRustError::Io { .. })
     ));
 
@@ -628,7 +730,14 @@ fn an_interrupted_history_write_is_recovered_before_the_retry_conflicts()
 fn create_surfaces_lock_recovery_journal_and_item_stage_failures()
 -> Result<(), Box<dyn std::error::Error>> {
     let (_directory, lock_root) = root(&settings("sample-", "toon", 1_800))?;
-    let held = acquire_lock(&lock_root, "sample-unit", "holder", 1_800, false, TS)?;
+    let held = acquire_lock(
+        &lock_root,
+        "sample-unit",
+        "holder",
+        &LockSettings::default(),
+        false,
+        TS,
+    )?;
     assert!(matches!(
         create_item(&lock_root, request()),
         Err(PmRustError::LockConflict { .. })

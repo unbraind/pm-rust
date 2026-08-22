@@ -5,7 +5,7 @@ use std::path::PathBuf;
 use std::process::ExitCode;
 
 use clap::{Parser, Subcommand, value_parser};
-use pm_rust::{CreateItem, ItemFilter, Workspace};
+use pm_rust::{CloseItem, CommentItem, CreateItem, ItemFilter, UpdateItem, Workspace};
 use serde::Serialize;
 
 #[derive(Debug, Parser)]
@@ -76,6 +76,77 @@ enum Command {
         #[arg(long)]
         force_stale_lock: bool,
     },
+    /// Update fields on one existing canonical item.
+    Update {
+        /// Exact stable identifier of the item to mutate.
+        id: String,
+        /// Replacement human-readable title.
+        #[arg(long)]
+        title: Option<String>,
+        /// Replacement human-readable description.
+        #[arg(long)]
+        description: Option<String>,
+        /// Replacement runtime lifecycle state.
+        #[arg(long)]
+        status: Option<String>,
+        /// Replacement priority from zero through four.
+        #[arg(long, value_parser = value_parser!(u8).range(0..=4))]
+        priority: Option<u8>,
+        /// Comma-separated replacement tags.
+        #[arg(long = "tags", alias = "tags-csv")]
+        tags_csv: Option<String>,
+        /// Replacement long-form Markdown body.
+        #[arg(long)]
+        body: Option<String>,
+        /// Asserted mutation author.
+        #[arg(long)]
+        author: String,
+        /// Deterministic UTC RFC 3339 timestamp; current time is used when absent.
+        #[arg(long)]
+        timestamp: Option<String>,
+        /// Optional update-history message.
+        #[arg(long)]
+        message: Option<String>,
+        /// Recover an expired lock before updating.
+        #[arg(long)]
+        force_stale_lock: bool,
+    },
+    /// Append one comment row to an existing canonical item.
+    Comment {
+        /// Exact stable identifier of the item to mutate.
+        id: String,
+        /// Non-empty comment text appended as the newest row.
+        text: String,
+        /// Asserted mutation author.
+        #[arg(long)]
+        author: String,
+        /// Deterministic UTC RFC 3339 timestamp; current time is used when absent.
+        #[arg(long)]
+        timestamp: Option<String>,
+        /// Optional comment-history message.
+        #[arg(long)]
+        message: Option<String>,
+        /// Recover an expired lock before commenting.
+        #[arg(long)]
+        force_stale_lock: bool,
+    },
+    /// Close one open canonical item with an immutable closing summary.
+    Close {
+        /// Exact stable identifier of the item to close.
+        id: String,
+        /// Required non-empty immutable closing summary.
+        #[arg(long)]
+        reason: String,
+        /// Asserted mutation author.
+        #[arg(long)]
+        author: String,
+        /// Deterministic UTC RFC 3339 timestamp; current time is used when absent.
+        #[arg(long)]
+        timestamp: Option<String>,
+        /// Recover an expired lock before closing.
+        #[arg(long)]
+        force_stale_lock: bool,
+    },
 }
 
 /// Writes one pretty JSON response to the process standard output stream.
@@ -115,6 +186,17 @@ fn run(cli: Cli) -> Result<(), Box<dyn std::error::Error>> {
             id,
         })?)?,
         Command::Get { id } => write_json(&workspace.get(&id)?)?,
+        command => write_json(&execute_mutation(&workspace, command)?)?,
+    }
+    Ok(())
+}
+
+/// Executes one mutating subcommand against its discovered workspace.
+fn execute_mutation(
+    workspace: &Workspace,
+    command: Command,
+) -> Result<serde_json::Value, Box<dyn std::error::Error>> {
+    match command {
         Command::Create {
             id,
             title,
@@ -128,7 +210,7 @@ fn run(cli: Cli) -> Result<(), Box<dyn std::error::Error>> {
             timestamp,
             message,
             force_stale_lock,
-        } => write_json(&workspace.create(CreateItem {
+        } => Ok(serde_json::to_value(workspace.create(CreateItem {
             id,
             title,
             description,
@@ -140,10 +222,75 @@ fn run(cli: Cli) -> Result<(), Box<dyn std::error::Error>> {
             author,
             timestamp,
             message,
+            provenance_role: Some("implementer".to_owned()),
             force_stale_lock,
-        })?)?,
+        })?)?),
+        Command::Update {
+            id,
+            title,
+            description,
+            status,
+            priority,
+            tags_csv,
+            body,
+            author,
+            timestamp,
+            message,
+            force_stale_lock,
+        } => Ok(serde_json::to_value(workspace.update(UpdateItem {
+            id,
+            title,
+            description,
+            status,
+            priority,
+            // A provided CSV value expresses replacement intent even when it
+            // normalizes to an empty tag list.
+            tags: tags_csv.map(|csv| {
+                csv.split(',')
+                    .map(str::to_owned)
+                    .filter(|tag| !tag.is_empty())
+                    .collect()
+            }),
+            body,
+            author,
+            timestamp,
+            message,
+            provenance_role: Some("implementer".to_owned()),
+            force_stale_lock,
+        })?)?),
+        Command::Comment {
+            id,
+            text,
+            author,
+            timestamp,
+            message,
+            force_stale_lock,
+        } => Ok(serde_json::to_value(workspace.comment(&CommentItem {
+            id,
+            text,
+            author,
+            timestamp,
+            message,
+            provenance_role: None,
+            force_stale_lock,
+        })?)?),
+        Command::Close {
+            id,
+            reason,
+            author,
+            timestamp,
+            force_stale_lock,
+        } => Ok(serde_json::to_value(workspace.close(CloseItem {
+            id,
+            reason,
+            author,
+            timestamp,
+            provenance_role: Some("implementer".to_owned()),
+            force_stale_lock,
+        })?)?),
+        // Read-only commands never reach the mutation executor.
+        Command::List { .. } | Command::Get { .. } => unreachable!("read commands handled by run"),
     }
-    Ok(())
 }
 
 /// Parses the command line and maps success or failure to the process exit code.
