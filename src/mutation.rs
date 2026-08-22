@@ -15,7 +15,7 @@ use time::format_description::well_known::Rfc3339;
 use toon_format::{ToonError, encode_default};
 
 use crate::error::PmRustError;
-use crate::history::{self, CanonicalDocument, EMPTY_DOCUMENT_HASH, OrderedDocument};
+use crate::history::{self, EMPTY_DOCUMENT_HASH, OrderedDocument};
 use crate::item::{ItemDocument, ItemMetadata};
 
 static TEMP_COUNTER: AtomicU64 = AtomicU64::new(0);
@@ -756,12 +756,8 @@ fn sync_parent(path: &Path) -> Result<(), PmRustError> {
 
 /// Encodes one validated item into canonical JavaScript-compatible TOON bytes.
 fn canonical_item_bytes(document: &ItemDocument) -> Result<String, PmRustError> {
-    let ordered = OrderedDocument::from_document(document);
-    let view = CanonicalDocument {
-        metadata: &ordered.metadata,
-        body: &ordered.body,
-    };
     // The validated shape contains only TOON-supported scalar and array values.
+    let view = history::canonical_document_value(document);
     normalize_encoded_item(encode_default(&view))
 }
 
@@ -960,8 +956,10 @@ fn recover_mutation(
         id: id.to_owned(),
         reason: "journal contains an unsupported item type".to_owned(),
     })?;
-    let item_path = pm_root.join(folder).join(format!("{id}.toon"));
-    let history_path = pm_root.join("history").join(format!("{id}.jsonl"));
+    let item_relative = PathBuf::from(folder).join(format!("{id}.toon"));
+    let history_relative = PathBuf::from("history").join(format!("{id}.jsonl"));
+    let item_path = pm_root.join(&item_relative);
+    let history_path = pm_root.join(&history_relative);
     let item = read_optional(&item_path)?;
     let history = read_optional(&history_path)?;
     if item
@@ -989,7 +987,7 @@ fn recover_mutation(
         append_history_line(&history_path, &journal.history_bytes)?;
     }
     remove_file(&journal_path)?;
-    Ok((item_path, history_path))
+    Ok((item_relative, history_relative))
 }
 
 /// Locates the single stored document for one stable identifier.
@@ -1031,13 +1029,16 @@ fn validate_mutation_request(author: &str, timestamp: Option<&str>) -> Result<St
     if author.trim().is_empty() {
         return Err(invalid_mutation("author must not be empty"));
     }
-    if let Some(value) = timestamp {
-        validate_timestamp(value)?;
-        return Ok(value.to_owned());
+    match timestamp {
+        // Caller-supplied timestamps must be validated in full.
+        Some(value) => {
+            validate_timestamp(value)?;
+            Ok(value.to_owned())
+        }
+        // `now_iso` emits canonical UTC RFC 3339 by construction, so the
+        // generated value needs no second validation pass.
+        None => Ok(now_iso()),
     }
-    let generated = now_iso();
-    validate_timestamp(&generated)?;
-    Ok(generated)
 }
 
 /// Executes one validated, locked, journaled, no-overwrite create transaction.

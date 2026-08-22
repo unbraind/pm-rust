@@ -151,12 +151,12 @@ fn update_dispatch_covers_fields_and_refusals() -> Result<(), Box<dyn std::error
         &workspace,
         &["update", "sample-cli", "--author=cli-agent"],
         "at least one field",
-    );
+    )?;
     expect_err(
         &workspace,
         &["update", "sample-cli", "--title=  ", "--author=cli-agent"],
         "must not be empty",
-    );
+    )?;
     expect_err(
         &workspace,
         &[
@@ -166,7 +166,7 @@ fn update_dispatch_covers_fields_and_refusals() -> Result<(), Box<dyn std::error
             "--author=cli-agent",
         ],
         "not found",
-    );
+    )?;
     Ok(())
 }
 
@@ -190,12 +190,12 @@ fn comment_dispatch_appends_and_refuses_empty_text() -> Result<(), Box<dyn std::
         &workspace,
         &["comment", "sample-cli", "   ", "--author=cli-agent"],
         "must not be empty",
-    );
+    )?;
     expect_err(
         &workspace,
         &["comment", "sample-missing", "text", "--author=cli-agent"],
         "not found",
-    );
+    )?;
     Ok(())
 }
 
@@ -225,12 +225,12 @@ fn close_dispatch_closes_once_and_refuses_repeats() -> Result<(), Box<dyn std::e
             "--author=cli-agent",
         ],
         "already terminal",
-    );
+    )?;
     expect_err(
         &workspace,
         &["close", "sample-cli", "--reason=  ", "--author=cli-agent"],
         "closing summary",
-    );
+    )?;
     Ok(())
 }
 

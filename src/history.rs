@@ -401,28 +401,19 @@ pub fn history_line(entry: &HistoryEntry) -> String {
     format!("{line}\n")
 }
 
-/// A TOON-serializable view of an ordered document with a trailing body.
-pub(crate) struct CanonicalDocument<'a> {
-    /// Ordered metadata entries serialized ahead of the body.
-    pub metadata: &'a [(String, Value)],
-    /// Long-form Markdown body serialized last.
-    pub body: &'a str,
-}
-
-impl Serialize for CanonicalDocument<'_> {
-    /// Serializes the ordered entries followed by the body field.
-    fn serialize<S>(&self, serializer: S) -> Result<S::Ok, S::Error>
-    where
-        S: serde::Serializer,
-    {
-        use serde::ser::SerializeMap;
-        let mut map = serializer.serialize_map(Some(self.metadata.len() + 1))?;
-        for (key, value) in self.metadata {
-            map.serialize_entry(key, value)?;
-        }
-        map.serialize_entry("body", self.body)?;
-        map.end()
+/// Builds one TOON-serializable document with canonically ordered metadata.
+///
+/// The returned JSON object preserves insertion order (`serde_json` runs with
+/// `preserve_order`), so the encoder emits fields in canonical storage order
+/// with the body serialized last exactly like the published dialect.
+#[must_use]
+pub fn canonical_document_value(document: &ItemDocument) -> Value {
+    let mut object = serde_json::Map::new();
+    for (key, value) in canonical_metadata_pairs(&document.metadata) {
+        object.insert(key, value);
     }
+    object.insert("body".to_owned(), Value::String(document.body.clone()));
+    Value::Object(object)
 }
 
 #[cfg(test)]
