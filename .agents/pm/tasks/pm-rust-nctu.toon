@@ -1,0 +1,13 @@
+id: pm-rust-nctu
+title: Multi-process no-lost-update concurrency test
+description: "Spawn N concurrent Rust mutation processes against one workspace and assert every accepted mutation survives, using the existing per-item lock and lock wait budget rather than a new primitive."
+type: Task
+status: open
+priority: 2
+tags: []
+created_at: "2026-08-22T10:41:27.895Z"
+updated_at: "2026-08-22T10:41:27.895Z"
+author: pi-agent
+acceptance_criteria: N independent processes mutate one item concurrently;every mutation that exits success is present in the final item and history stream;lock conflicts are retried within the configured wait budget instead of failing fast
+parent: pm-rust-u4al
+body: ""
