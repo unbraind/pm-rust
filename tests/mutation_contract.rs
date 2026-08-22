@@ -521,3 +521,56 @@ fn close_refuses_an_already_terminal_item() -> Result<(), Box<dyn std::error::Er
     ));
     Ok(())
 }
+
+#[test]
+/// Proves a crash between journal write and durable publish is replayed, not lost.
+///
+/// The recovery path exists for the window where a transaction journal is on
+/// disk but the item document and its history line were never published. It is
+/// exercised here by reconstructing that exact on-disk state — journal present,
+/// item removed, history truncated — and then driving an ordinary update, which
+/// must replay the journal before applying its own change.
+fn a_durable_journal_replays_a_missing_item_and_history_before_the_next_mutation()
+-> Result<(), Box<dyn std::error::Error>> {
+    let (directory, workspace) = tracker()?;
+    let root = directory.path();
+    workspace.create(create_request())?;
+
+    let item_bytes = item(root);
+    let history_bytes = history(root);
+    assert!(!item_bytes.is_empty(), "the create must publish an item");
+    assert!(!history_bytes.is_empty(), "the create must publish history");
+
+    // Reconstruct the post-crash state: the journal survived, the durable
+    // publish did not. Both files are REMOVED rather than truncated, which is
+    // the distinction the recovery guard draws — a present-but-divergent stream
+    // is a conflict and is refused, while an absent one is replayable.
+    let transactions = root.join(".agents/pm/runtime/transactions");
+    fs::create_dir_all(&transactions)?;
+    fs::write(
+        transactions.join("update-sample-conv.json"),
+        serde_json::json!({
+            "version": 1,
+            "id": "sample-conv",
+            "item_type": "Task",
+            "item_bytes": item_bytes,
+            "history_bytes": history_bytes,
+        })
+        .to_string(),
+    )?;
+    fs::remove_file(root.join(".agents/pm/tasks/sample-conv.toon"))?;
+    fs::remove_file(root.join(".agents/pm/history/sample-conv.jsonl"))?;
+
+    workspace.update(update_request())?;
+
+    let recovered_history = history(root);
+    assert!(
+        recovered_history.contains(&history_bytes),
+        "the journalled history line must be replayed, not discarded"
+    );
+    assert!(
+        item(root).contains("Renamed item"),
+        "the update must apply on top of the replayed item"
+    );
+    Ok(())
+}

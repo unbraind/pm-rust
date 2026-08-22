@@ -987,7 +987,11 @@ fn recover_mutation(
         append_history_line(&history_path, &journal.history_bytes)?;
     }
     remove_file(&journal_path)?;
-    Ok((item_relative, history_relative))
+    // Both exits must agree on shape. The no-journal exit above returns paths
+    // already joined to `pm_root`, and every caller writes through what it gets
+    // back, so returning the relative forms here would resolve against the
+    // process working directory instead of the tracker.
+    Ok((item_path, history_path))
 }
 
 /// Locates the single stored document for one stable identifier.
