@@ -1,0 +1,17 @@
+id: pm-rust-27qz
+title: "Native update, comment, and close mutations"
+description: "Implement update, comments-add, and close in the Rust CLI and SDK, writing canonical .toon items and appending byte-compatible v2 history events matching the published pm 2026.8.21 release."
+type: Feature
+status: in_progress
+priority: 2
+tags: []
+created_at: "2026-08-22T10:41:16.204Z"
+updated_at: "2026-08-22T11:28:29.622Z"
+assignee: pi-agent
+claim_principal: pi-agent
+author: pi-agent
+acceptance_criteria: "Rust update writes the same .toon bytes as the published CLI for title, description, status, priority, tags, and body changes;Rust comment appends append the same comment row and comment_add history event bytes;Rust close writes the same status, closed_at, completed_at, and close_reason bytes and close history event;history entries carry item_hash_version 2, canonical patch ordering, and argv-derived agent_provenance role exactly like the published release"
+parent: pm-rust-u4al
+comments[1]{created_at,author,text}:
+  "2026-08-22T11:28:29.622Z",pi-agent,"Implemented update, comment, and close in the Rust CLI and SDK (src/mutation.rs, src/history.rs). History records now carry item_hash_version 2, canonical ITEM_METADATA_KEY_ORDER patch diffs, and argv-derived agent_provenance roles; create was upgraded to the same v2 record shape with its recorded fixture regenerated against published pm 2026.8.21 bytes. New recorded-fixture suite tests/mutation_contract.rs proves byte equality for create/update/comment/status-update/close item and history bytes at SDK and black-box CLI level."
+body: ""

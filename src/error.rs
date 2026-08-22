@@ -50,6 +50,12 @@ pub enum PmRustError {
         /// Stable explanation suitable for CLI diagnostics.
         reason: String,
     },
+    /// An in-place mutation does not satisfy its validation contract.
+    #[error("invalid mutation request: {reason}")]
+    InvalidMutationRequest {
+        /// Stable explanation suitable for CLI diagnostics.
+        reason: String,
+    },
     /// A validated native item could not be encoded as canonical TOON.
     #[error("could not encode canonical pm item: {reason}")]
     ItemEncoding {

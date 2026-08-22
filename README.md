@@ -5,9 +5,10 @@
 native applications.
 
 The project is pre-release. Its current delivery slice reads workspaces and
-creates canonical items against the published `pm` 2026.8.7 on-disk contract.
-Production code, tests, benchmarks, and build tooling are Rust; the distributed
-binary does not require Node.js, Bun, JavaScript, or TypeScript.
+creates, updates, comments on, and closes canonical items against the
+published `pm` 2026.8.21 on-disk contract. Production code, tests, benchmarks,
+and build tooling are Rust; the distributed binary does not require Node.js,
+Bun, JavaScript, or TypeScript.
 
 ## Current native slice
 
@@ -16,6 +17,9 @@ cargo run -- --workspace /path/to/project list --status open
 cargo run -- --workspace /path/to/project list --type Feature
 cargo run -- --workspace /path/to/project get pm-example
 cargo run -- --workspace /path/to/project create --id pm-example --title "Native item" --type Task --author agent
+cargo run -- --workspace /path/to/project update pm-example --title "Renamed" --priority 1 --author agent
+cargo run -- --workspace /path/to/project comment pm-example "Status note" --author agent
+cargo run -- --workspace /path/to/project close pm-example --reason "Done: shipped" --author agent
 ```
 
 The library discovers `.agents/pm` from a workspace, nested directory, file, or

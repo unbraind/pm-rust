@@ -32,6 +32,7 @@ fn request() -> CreateItem {
         author: "unit-agent".to_owned(),
         timestamp: Some(TS.to_owned()),
         message: None,
+        provenance_role: None,
         force_stale_lock: false,
     }
 }
@@ -42,7 +43,14 @@ fn settings(prefix: &str, format: &str, ttl: u64) -> String {
     )
 }
 
-type CompletedTransaction = (TempDir, PathBuf, String, String, CreateJournal);
+type CompletedTransaction = (TempDir, PathBuf, String, String, MutationJournal);
+/// Builds lock settings without a wait budget for deterministic unit tests.
+const fn locks(ttl_seconds: u64) -> LockSettings {
+    LockSettings {
+        ttl_seconds,
+        wait_ms: 0,
+    }
+}
 
 #[test]
 fn serde_defaults_match_the_supported_create_and_settings_contract()
@@ -103,7 +111,11 @@ fn serde_defaults_match_the_supported_create_and_settings_contract()
     created.id = "sample-parented".to_owned();
     let mut item = create_item(&pm_root, created)?.item;
     item.metadata.parent = Some("sample-parent".to_owned());
-    assert_eq!(metadata_value(&item)["parent"], "sample-parent");
+    let ordered = OrderedDocument::from_document(&item);
+    assert_eq!(
+        ordered.get("parent"),
+        Some(&Value::String("sample-parent".to_owned()))
+    );
     Ok(())
 }
 
@@ -175,9 +187,9 @@ fn validation_rejects_every_unsupported_request_shape() -> Result<(), Box<dyn st
 fn lock_conflicts_and_forced_stale_cleanup_preserve_the_current_owner()
 -> Result<(), Box<dyn std::error::Error>> {
     let (_directory, pm_root) = root(&settings("sample-", "toon", 0))?;
-    let first = acquire_lock(&pm_root, "sample-unit", "first", 0, false, TS)?;
+    let first = acquire_lock(&pm_root, "sample-unit", "first", &locks(0), false, TS)?;
     assert!(matches!(
-        acquire_lock(&pm_root, "sample-unit", "second", 0, false, TS),
+        acquire_lock(&pm_root, "sample-unit", "second", &locks(0), false, TS),
         Err(PmRustError::LockConflict { .. })
     ));
     let lock_path = pm_root.join("locks/sample-unit.lock");
@@ -186,12 +198,12 @@ fn lock_conflicts_and_forced_stale_cleanup_preserve_the_current_owner()
         fs::FileTimes::new().set_modified(SystemTime::now() + Duration::from_secs(60)),
     )?;
     assert!(matches!(
-        acquire_lock(&pm_root, "sample-unit", "second", 0, true, TS),
+        acquire_lock(&pm_root, "sample-unit", "second", &locks(0), true, TS),
         Err(PmRustError::LockConflict { .. })
     ));
     lock_file.set_times(fs::FileTimes::new().set_modified(SystemTime::now()))?;
     thread::sleep(Duration::from_millis(2));
-    let second = acquire_lock(&pm_root, "sample-unit", "second", 0, true, TS)?;
+    let second = acquire_lock(&pm_root, "sample-unit", "second", &locks(0), true, TS)?;
     drop(first);
     assert!(pm_root.join("locks/sample-unit.lock").exists());
     drop(second);
@@ -207,10 +219,10 @@ fn lock_conflicts_and_forced_stale_cleanup_preserve_the_current_owner()
     fs::create_dir(&gate)?;
     thread::sleep(Duration::from_millis(2));
     assert!(matches!(
-        acquire_lock(&pm_root, "sample-gated", "third", 1_800, true, TS),
+        acquire_lock(&pm_root, "sample-gated", "third", &locks(1_800), true, TS),
         Err(PmRustError::LockConflict { .. })
     ));
-    let recovered_gate = acquire_lock(&pm_root, "sample-gated", "third", 0, true, TS)?;
+    let recovered_gate = acquire_lock(&pm_root, "sample-gated", "third", &locks(0), true, TS)?;
     assert!(!gate.exists());
     drop(recovered_gate);
 
@@ -221,20 +233,27 @@ fn lock_conflicts_and_forced_stale_cleanup_preserve_the_current_owner()
     fs::write(blocked_gate.join("active-owner"), "present")?;
     thread::sleep(Duration::from_millis(2));
     assert!(matches!(
-        acquire_lock(&pm_root, "sample-blocked-gate", "third", 0, true, TS),
+        acquire_lock(
+            &pm_root,
+            "sample-blocked-gate",
+            "third",
+            &locks(0),
+            true,
+            TS
+        ),
         Err(PmRustError::LockConflict { .. })
     ));
     let directory_lock = pm_root.join("locks/sample-directory.lock");
     fs::create_dir(&directory_lock)?;
     assert!(matches!(
-        acquire_lock(&pm_root, "sample-directory", "third", 0, true, TS),
+        acquire_lock(&pm_root, "sample-directory", "third", &locks(0), true, TS),
         Err(PmRustError::Io { .. })
     ));
     #[cfg(unix)]
     {
         let oversized_id = "x".repeat(300);
         assert!(matches!(
-            acquire_lock(&pm_root, &oversized_id, "third", 0, true, TS),
+            acquire_lock(&pm_root, &oversized_id, "third", &locks(0), true, TS),
             Err(PmRustError::Io { .. })
         ));
     }
@@ -246,7 +265,7 @@ fn completed_transaction() -> Result<CompletedTransaction, Box<dyn std::error::E
     create_item(&pm_root, request())?;
     let item = fs::read_to_string(pm_root.join("tasks/sample-unit.toon"))?;
     let history = fs::read_to_string(pm_root.join("history/sample-unit.jsonl"))?;
-    let journal = CreateJournal {
+    let journal = MutationJournal {
         version: 1,
         id: "sample-unit".to_owned(),
         item_type: "Task".to_owned(),
@@ -258,7 +277,7 @@ fn completed_transaction() -> Result<CompletedTransaction, Box<dyn std::error::E
 
 fn write_journal(
     pm_root: &Path,
-    journal: &CreateJournal,
+    journal: &MutationJournal,
 ) -> Result<(), Box<dyn std::error::Error>> {
     let path = pm_root.join("runtime/transactions/create-sample-unit.json");
     fs::create_dir_all(path.parent().ok_or("journal parent")?)?;
@@ -422,6 +441,7 @@ fn missing_and_invalid_settings_return_typed_errors() -> Result<(), Box<dyn std:
 }
 
 #[test]
+#[allow(clippy::too_many_lines)]
 fn filesystem_failures_are_typed_and_atomic_temps_are_cleaned()
 -> Result<(), Box<dyn std::error::Error>> {
     #[cfg(unix)]
@@ -488,7 +508,14 @@ fn filesystem_failures_are_typed_and_atomic_temps_are_cleaned()
     fs::create_dir_all(&pm_root)?;
     fs::write(pm_root.join("locks"), "not a directory")?;
     assert!(matches!(
-        acquire_lock(&pm_root, "sample-lock", "agent", 1_800, false, TS),
+        acquire_lock(
+            &pm_root,
+            "sample-lock",
+            "agent",
+            &LockSettings::default(),
+            false,
+            TS
+        ),
         Err(PmRustError::Io { .. })
     ));
 
@@ -628,7 +655,14 @@ fn an_interrupted_history_write_is_recovered_before_the_retry_conflicts()
 fn create_surfaces_lock_recovery_journal_and_item_stage_failures()
 -> Result<(), Box<dyn std::error::Error>> {
     let (_directory, lock_root) = root(&settings("sample-", "toon", 1_800))?;
-    let held = acquire_lock(&lock_root, "sample-unit", "holder", 1_800, false, TS)?;
+    let held = acquire_lock(
+        &lock_root,
+        "sample-unit",
+        "holder",
+        &LockSettings::default(),
+        false,
+        TS,
+    )?;
     assert!(matches!(
         create_item(&lock_root, request()),
         Err(PmRustError::LockConflict { .. })
@@ -688,5 +722,1040 @@ fn non_utf8_atomic_target_names_are_rejected() -> Result<(), Box<dyn std::error:
         atomic_write(&target, "value"),
         Err(PmRustError::InvalidCreateRequest { .. })
     ));
+    Ok(())
+}
+
+fn mutation_settings(wait_ms: u64) -> String {
+    format!(
+        r#"{{"id_prefix":"sample-","item_format":"toon","locks":{{"ttl_seconds":1800,"wait_ms":{wait_ms}}}}}"#
+    )
+}
+
+#[test]
+/// Covers the shared staging failure path with an unwritable handle.
+fn stage_temporary_reports_write_and_sync_failures() -> Result<(), Box<dyn std::error::Error>> {
+    let directory = tempfile::tempdir()?;
+    let read_only_path = directory.path().join("read-only.tmp");
+    fs::write(&read_only_path, "original")?;
+    let read_only = File::open(&read_only_path)?;
+    assert!(matches!(
+        stage_temporary(read_only, &directory.path().join("unused.tmp"), "value"),
+        Err(PmRustError::Io { .. })
+    ));
+    Ok(())
+}
+
+#[test]
+/// Covers every typed filesystem failure of the replacement publisher.
+fn atomic_replace_surfaces_stage_and_publish_failures() -> Result<(), Box<dyn std::error::Error>> {
+    let directory = tempfile::tempdir()?;
+    let blocker = directory.path().join("blocker");
+    fs::write(&blocker, "file")?;
+    // A parent that cannot become a directory fails during staging setup.
+    assert!(matches!(
+        atomic_replace(&blocker.join("target"), "value"),
+        Err(PmRustError::Io { .. })
+    ));
+    // A directory target cannot be replaced by a rename.
+    let target_directory = directory.path().join("target-directory");
+    fs::create_dir(&target_directory)?;
+    let staged = directory.path().join("staged.tmp");
+    fs::write(&staged, "staged")?;
+    assert!(matches!(
+        publish_replacement(&staged, &target_directory),
+        Err(PmRustError::Io { .. })
+    ));
+    #[cfg(unix)]
+    {
+        use std::os::unix::fs::PermissionsExt;
+        let locked = directory.path().join("locked");
+        fs::create_dir(&locked)?;
+        fs::set_permissions(&locked, fs::Permissions::from_mode(0o555))?;
+        assert!(matches!(
+            atomic_replace(&locked.join("sample-x.toon"), "value"),
+            Err(PmRustError::Io { .. })
+        ));
+    }
+    Ok(())
+}
+
+#[test]
+/// Covers history-append open and write failures as typed errors.
+fn append_history_line_surfaces_open_and_write_failures() -> Result<(), Box<dyn std::error::Error>>
+{
+    let directory = tempfile::tempdir()?;
+    let occupied = directory.path().join("occupied.jsonl");
+    fs::create_dir(&occupied)?;
+    assert!(matches!(
+        append_history_line(&occupied, "{\"op\":\"update\"}\n"),
+        Err(PmRustError::Io { .. })
+    ));
+    #[cfg(target_os = "linux")]
+    {
+        // The Linux null-device convention fails every write after opening.
+        assert!(matches!(
+            append_history_line(Path::new("/dev/full"), "line\n"),
+            Err(PmRustError::Io { .. })
+        ));
+    }
+    Ok(())
+}
+
+#[test]
+/// Proves update, comment, and close fail fast on a live item lock.
+fn in_place_mutations_refuse_a_live_lock_within_the_budget()
+-> Result<(), Box<dyn std::error::Error>> {
+    let (_directory, pm_root) = root(&mutation_settings(0))?;
+    create_item(&pm_root, request())?;
+    let _held = acquire_lock(&pm_root, "sample-unit", "holder", &locks(1_800), false, TS)?;
+    let mut update = UpdateItem {
+        id: "sample-unit".to_owned(),
+        title: Some("Next".to_owned()),
+        description: None,
+        status: None,
+        priority: None,
+        tags: None,
+        body: None,
+        author: "unit-agent".to_owned(),
+        timestamp: Some(TS.to_owned()),
+        message: None,
+        provenance_role: None,
+        force_stale_lock: false,
+    };
+    assert!(matches!(
+        update_item(&pm_root, update.clone()),
+        Err(PmRustError::LockConflict { .. })
+    ));
+    assert!(matches!(
+        comment_item(
+            &pm_root,
+            &CommentItem {
+                id: "sample-unit".to_owned(),
+                text: "text".to_owned(),
+                author: "unit-agent".to_owned(),
+                timestamp: Some(TS.to_owned()),
+                message: None,
+                provenance_role: None,
+                force_stale_lock: false,
+            }
+        ),
+        Err(PmRustError::LockConflict { .. })
+    ));
+    assert!(matches!(
+        close_item(
+            &pm_root,
+            CloseItem {
+                id: "sample-unit".to_owned(),
+                reason: "reason".to_owned(),
+                author: "unit-agent".to_owned(),
+                timestamp: Some(TS.to_owned()),
+                provenance_role: None,
+                force_stale_lock: false,
+            }
+        ),
+        Err(PmRustError::LockConflict { .. })
+    ));
+    update.title = Some("  ".to_owned());
+    let (_other, unlocked_root) = root(&mutation_settings(0))?;
+    create_item(
+        &unlocked_root,
+        CreateItem {
+            id: "sample-unit".to_owned(),
+            title: "Unit create".to_owned(),
+            description: String::new(),
+            item_type: "Task".to_owned(),
+            status: "open".to_owned(),
+            priority: 2,
+            tags: Vec::new(),
+            body: String::new(),
+            author: "unit-agent".to_owned(),
+            timestamp: Some(TS.to_owned()),
+            message: None,
+            provenance_role: None,
+            force_stale_lock: false,
+        },
+    )?;
+    Ok(())
+}
+
+#[test]
+/// Covers blank-author validation shared by every in-place mutation.
+fn mutations_reject_blank_authors_before_any_locking() -> Result<(), Box<dyn std::error::Error>> {
+    let (_directory, pm_root) = root(&mutation_settings(0))?;
+    create_item(&pm_root, request())?;
+    let result = validate_mutation_request("   ", None);
+    assert!(matches!(
+        result,
+        Err(PmRustError::InvalidMutationRequest { .. })
+    ));
+    Ok(())
+}
+
+#[test]
+/// Covers the whole-field update surface including tag canonicalization.
+fn update_applies_every_supported_field_and_canonicalizes_tags()
+-> Result<(), Box<dyn std::error::Error>> {
+    let (_directory, pm_root) = root(&mutation_settings(0))?;
+    create_item(&pm_root, request())?;
+    let result = update_item(
+        &pm_root,
+        UpdateItem {
+            id: "sample-unit".to_owned(),
+            title: Some("Updated title".to_owned()),
+            description: Some("Updated description".to_owned()),
+            status: Some("in_progress".to_owned()),
+            priority: Some(4),
+            tags: Some(vec![
+                "zulu".to_owned(),
+                "alpha".to_owned(),
+                "zulu".to_owned(),
+            ]),
+            body: Some("Updated body".to_owned()),
+            author: "unit-agent".to_owned(),
+            timestamp: Some(TS.to_owned()),
+            message: Some("whole-field update".to_owned()),
+            provenance_role: None,
+            force_stale_lock: false,
+        },
+    )?;
+    assert_eq!(result.item.metadata.tags, vec!["alpha", "zulu"]);
+    assert_eq!(result.item.body, "Updated body");
+    let stored = decode_item(
+        &pm_root.join("tasks/sample-unit.toon"),
+        &fs::read_to_string(pm_root.join("tasks/sample-unit.toon"))?,
+    )?;
+    assert_eq!(stored.metadata.description, "Updated description");
+    assert_eq!(stored.metadata.priority, 4);
+    Ok(())
+}
+
+#[test]
+/// Covers the remaining per-field refusals of the update surface.
+fn update_refuses_blank_titles_statuses_and_out_of_range_priorities()
+-> Result<(), Box<dyn std::error::Error>> {
+    let (_directory, pm_root) = root(&mutation_settings(0))?;
+    create_item(&pm_root, request())?;
+    for request in [
+        UpdateItem {
+            id: "sample-unit".to_owned(),
+            title: Some("Keep".to_owned()),
+            description: None,
+            status: Some("   ".to_owned()),
+            priority: None,
+            tags: None,
+            body: None,
+            author: "unit-agent".to_owned(),
+            timestamp: Some(TS.to_owned()),
+            message: None,
+            provenance_role: None,
+            force_stale_lock: false,
+        },
+        UpdateItem {
+            id: "sample-unit".to_owned(),
+            title: Some("Keep".to_owned()),
+            description: None,
+            status: None,
+            priority: Some(5),
+            tags: None,
+            body: None,
+            author: "unit-agent".to_owned(),
+            timestamp: Some(TS.to_owned()),
+            message: None,
+            provenance_role: None,
+            force_stale_lock: false,
+        },
+    ] {
+        assert!(matches!(
+            update_item(&pm_root, request),
+            Err(PmRustError::InvalidMutationRequest { .. })
+        ));
+    }
+    Ok(())
+}
+
+#[test]
+/// Reports items stored under more than one type folder as duplicates.
+fn locate_item_reports_duplicates_across_type_folders() -> Result<(), Box<dyn std::error::Error>> {
+    let (_directory, pm_root) = root(&mutation_settings(0))?;
+    create_item(&pm_root, request())?;
+    fs::create_dir(pm_root.join("issues"))?;
+    fs::copy(
+        pm_root.join("tasks/sample-unit.toon"),
+        pm_root.join("issues/sample-unit.toon"),
+    )?;
+    assert!(matches!(
+        locate_item(&pm_root, "sample-unit"),
+        Err(PmRustError::DuplicateItemId { .. })
+    ));
+    Ok(())
+}
+
+/// Writes one durable in-place mutation journal for the sample item.
+fn write_mutation_journal(
+    pm_root: &Path,
+    operation: &str,
+    item_bytes: &str,
+    history_bytes: &str,
+) -> Result<(), Box<dyn std::error::Error>> {
+    let journal = MutationJournal {
+        version: 1,
+        id: "sample-unit".to_owned(),
+        item_type: "Task".to_owned(),
+        item_bytes: item_bytes.to_owned(),
+        history_bytes: history_bytes.to_owned(),
+    };
+    let journal_path = pm_root
+        .join("runtime/transactions")
+        .join(format!("{operation}-sample-unit.json"));
+    let _ = fs::remove_file(&journal_path);
+    let serialized = serde_json::to_string(&journal).map_err(|error| format!("{error}"))?;
+    fs::write(&journal_path, format!("{serialized}\n"))?;
+    Ok(())
+}
+
+#[test]
+/// Covers every journal state an interrupted in-place mutation can leave.
+fn mutation_recovery_repairs_completes_and_refuses_every_state()
+-> Result<(), Box<dyn std::error::Error>> {
+    let (_directory, pm_root) = root(&mutation_settings(0))?;
+    create_item(&pm_root, request())?;
+    let item_path = pm_root.join("tasks/sample-unit.toon");
+    let history_path = pm_root.join("history/sample-unit.jsonl");
+    let original_item = fs::read_to_string(&item_path)?;
+    let original_history = fs::read_to_string(&history_path)?;
+    let updated_item = original_item.replace("Unit create", "Recovered title");
+    let appended_history = format!("{original_history}{{\"ts\":\"stub\",\"op\":\"update\"}}\n");
+
+    // A journal whose transaction fully committed is simply removed.
+    write_mutation_journal(&pm_root, "update", &updated_item, &appended_history)?;
+    fs::write(&item_path, &updated_item)?;
+    fs::write(&history_path, &appended_history)?;
+    recover_mutation(&pm_root, "update", "sample-unit")?;
+    assert!(
+        !pm_root
+            .join("runtime/transactions/update-sample-unit.json")
+            .exists()
+    );
+
+    // A journal whose halves are absent is completed from its bytes.
+    write_mutation_journal(&pm_root, "update", &updated_item, &appended_history)?;
+    fs::remove_file(&item_path)?;
+    fs::remove_file(&history_path)?;
+    recover_mutation(&pm_root, "update", "sample-unit")?;
+    assert_eq!(fs::read_to_string(&item_path)?, updated_item);
+    assert!(fs::read_to_string(&history_path)?.ends_with(&appended_history));
+    // Restore the pre-mutation state for the conflict cases below.
+    fs::write(&item_path, &original_item)?;
+    fs::write(&history_path, &original_history)?;
+
+    // A crash between the two writes leaves the pre-mutation stream in place;
+    // recovery refuses rather than guessing across the gap.
+    write_mutation_journal(&pm_root, "update", &updated_item, &appended_history)?;
+    assert!(matches!(
+        recover_mutation(&pm_root, "update", "sample-unit"),
+        Err(PmRustError::RecoveryConflict { .. })
+    ));
+    let _ = fs::remove_file(
+        pm_root
+            .join("runtime/transactions")
+            .join("update-sample-unit.json"),
+    );
+
+    // A matching item beside a diverged history stream refuses too.
+    write_mutation_journal(&pm_root, "update", &updated_item, &appended_history)?;
+    fs::write(&item_path, &updated_item)?;
+    assert!(matches!(
+        recover_mutation(&pm_root, "update", "sample-unit"),
+        Err(PmRustError::RecoveryConflict { .. })
+    ));
+    let _ = fs::remove_file(
+        pm_root
+            .join("runtime/transactions")
+            .join("update-sample-unit.json"),
+    );
+    fs::write(&item_path, &original_item)?;
+
+    // Foreign durable bytes refuse recovery instead of being overwritten.
+    write_mutation_journal(&pm_root, "update", &updated_item, &appended_history)?;
+    fs::write(&item_path, format!("{original_item}foreign"))?;
+    assert!(matches!(
+        recover_mutation(&pm_root, "update", "sample-unit"),
+        Err(PmRustError::RecoveryConflict { .. })
+    ));
+    fs::write(&item_path, &original_item)?;
+
+    // A history stream that diverged from the journal refuses recovery.
+    write_mutation_journal(&pm_root, "update", &updated_item, &appended_history)?;
+    fs::write(
+        &history_path,
+        format!("{original_history}{{\"foreign\":1}}\n"),
+    )?;
+    assert!(matches!(
+        recover_mutation(&pm_root, "update", "sample-unit"),
+        Err(PmRustError::RecoveryConflict { .. })
+    ));
+    fs::write(&history_path, &original_history)?;
+    let _ = fs::remove_file(
+        pm_root
+            .join("runtime/transactions")
+            .join("update-sample-unit.json"),
+    );
+
+    // Invalid JSON, identity mismatches, and unknown types all refuse.
+    let journal_path = pm_root
+        .join("runtime/transactions")
+        .join("update-sample-unit.json");
+    fs::write(&journal_path, "not json")?;
+    assert!(matches!(
+        recover_mutation(&pm_root, "update", "sample-unit"),
+        Err(PmRustError::RecoveryConflict { .. })
+    ));
+    write_mutation_journal(&pm_root, "update", &updated_item, &appended_history)?;
+    let mut mismatched: MutationJournal =
+        serde_json::from_str(&fs::read_to_string(&journal_path)?)?;
+    mismatched.id = "other-id".to_owned();
+    fs::write(
+        &journal_path,
+        &serde_json::to_string(&mismatched).map_err(|error| format!("{error}"))?,
+    )?;
+    assert!(matches!(
+        recover_mutation(&pm_root, "update", "sample-unit"),
+        Err(PmRustError::RecoveryConflict { .. })
+    ));
+    mismatched.id = "sample-unit".to_owned();
+    mismatched.item_type = "Scroll".to_owned();
+    fs::write(
+        &journal_path,
+        &serde_json::to_string(&mismatched).map_err(|error| format!("{error}"))?,
+    )?;
+    assert!(matches!(
+        recover_mutation(&pm_root, "update", "sample-unit"),
+        Err(PmRustError::RecoveryConflict { .. })
+    ));
+    Ok(())
+}
+
+#[test]
+/// Covers recovery replay when the item publication itself fails.
+#[cfg(unix)]
+fn recovery_surfaces_item_replay_publish_failures() -> Result<(), Box<dyn std::error::Error>> {
+    use std::os::unix::fs::PermissionsExt;
+
+    let (_directory, pm_root) = root(&mutation_settings(0))?;
+    create_item(&pm_root, request())?;
+    let item_path = pm_root.join("tasks/sample-unit.toon");
+    let history_path = pm_root.join("history/sample-unit.jsonl");
+    let original_history = fs::read_to_string(&history_path)?;
+    let updated_item = fs::read_to_string(&item_path)?.replace("Unit create", "Recovered title");
+    write_mutation_journal(&pm_root, "update", &updated_item, &original_history)?;
+
+    // The absent item is replayable, but its storage directory refuses writes,
+    // so staging the replayed document must surface as a typed IO error.
+    fs::remove_file(&item_path)?;
+    fs::set_permissions(pm_root.join("tasks"), fs::Permissions::from_mode(0o555))?;
+    assert!(matches!(
+        recover_mutation(&pm_root, "update", "sample-unit"),
+        Err(PmRustError::Io { .. })
+    ));
+    fs::set_permissions(pm_root.join("tasks"), fs::Permissions::from_mode(0o755))?;
+    Ok(())
+}
+
+#[test]
+/// Covers recovery replay when the history stream cannot be recreated.
+fn recovery_surfaces_history_replay_append_failures() -> Result<(), Box<dyn std::error::Error>> {
+    let (_directory, pm_root) = root(&mutation_settings(0))?;
+    create_item(&pm_root, request())?;
+    let item_path = pm_root.join("tasks/sample-unit.toon");
+    let original_item = fs::read_to_string(&item_path)?;
+    write_mutation_journal(&pm_root, "update", &original_item, "\"stub\": true\n")?;
+
+    // The matching item skips its replay, but re-appending the absent history
+    // stream fails because its containing directory no longer exists.
+    fs::remove_dir_all(pm_root.join("history"))?;
+    assert!(matches!(
+        recover_mutation(&pm_root, "update", "sample-unit"),
+        Err(PmRustError::Io { .. })
+    ));
+    Ok(())
+}
+
+#[test]
+/// Covers recovery cleanup when the committed journal cannot be removed.
+#[cfg(unix)]
+fn recovery_surfaces_journal_cleanup_failures() -> Result<(), Box<dyn std::error::Error>> {
+    use std::os::unix::fs::PermissionsExt;
+
+    let (_directory, pm_root) = root(&mutation_settings(0))?;
+    create_item(&pm_root, request())?;
+    let item_bytes = fs::read_to_string(pm_root.join("tasks/sample-unit.toon"))?;
+    let history_bytes = fs::read_to_string(pm_root.join("history/sample-unit.jsonl"))?;
+    write_mutation_journal(&pm_root, "update", &item_bytes, &history_bytes)?;
+
+    // Both durable halves already match the journal, so only the cleanup
+    // remains — and the read-only transactions directory refuses the removal.
+    let transactions = pm_root.join("runtime/transactions");
+    fs::set_permissions(&transactions, fs::Permissions::from_mode(0o555))?;
+    assert!(matches!(
+        recover_mutation(&pm_root, "update", "sample-unit"),
+        Err(PmRustError::Io { .. })
+    ));
+    fs::set_permissions(&transactions, fs::Permissions::from_mode(0o755))?;
+    Ok(())
+}
+
+#[test]
+/// Covers the tracker-relative path fallback for foreign absolute paths.
+fn relative_to_tracker_keeps_paths_outside_the_root_absolute() {
+    assert_eq!(
+        relative_to_tracker(
+            Path::new("/tracker"),
+            Path::new("/tracker/tasks/sample-unit.toon")
+        ),
+        PathBuf::from("tasks/sample-unit.toon")
+    );
+    assert_eq!(
+        relative_to_tracker(Path::new("/tracker"), Path::new("/elsewhere/a.jsonl")),
+        PathBuf::from("/elsewhere/a.jsonl")
+    );
+}
+
+#[test]
+/// Covers the parentless defensive input-shape failure of the publisher.
+fn atomic_replace_rejects_parentless_targets() {
+    // The filesystem root has no parent directory component.
+    assert!(matches!(
+        atomic_replace(Path::new("/"), "value"),
+        Err(PmRustError::InvalidCreateRequest { .. })
+    ));
+}
+
+#[cfg(unix)]
+#[test]
+/// Covers the non-UTF-8 defensive input-shape failure of the publisher.
+fn atomic_replace_rejects_non_utf8_targets() -> Result<(), Box<dyn std::error::Error>> {
+    use std::ffi::OsStr;
+    use std::os::unix::ffi::OsStrExt;
+
+    let directory = tempfile::tempdir()?;
+    let non_utf8 = OsStr::from_bytes(b"sample-\xff.toon");
+    assert!(matches!(
+        atomic_replace(&directory.path().join(non_utf8), "value"),
+        Err(PmRustError::InvalidCreateRequest { .. })
+    ));
+    Ok(())
+}
+
+#[test]
+/// Covers rename conflicts when the durable target cannot be replaced.
+fn atomic_replace_surfaces_rename_conflicts() -> Result<(), Box<dyn std::error::Error>> {
+    let directory = tempfile::tempdir()?;
+    let target_directory = directory.path().join("sample-unit.toon");
+    fs::create_dir(&target_directory)?;
+    assert!(matches!(
+        atomic_replace(&target_directory, "value"),
+        Err(PmRustError::Io { .. })
+    ));
+    Ok(())
+}
+
+#[test]
+/// Covers typed recovery failures raised before any journal is readable.
+fn recover_mutation_surfaces_unreadable_journal_and_document_paths()
+-> Result<(), Box<dyn std::error::Error>> {
+    let (_directory, pm_root) = root(&mutation_settings(0))?;
+    create_item(&pm_root, request())?;
+    // A transaction path that cannot be a file fails the journal read.
+    let transactions = pm_root.join("runtime/transactions");
+    let journal_file = transactions.join("update-sample-unit.json");
+    fs::create_dir(&journal_file)?;
+    assert!(matches!(
+        recover_mutation(&pm_root, "update", "sample-unit"),
+        Err(PmRustError::Io { .. })
+    ));
+
+    // A valid journal beside an unreadable item document fails that read.
+    fs::remove_dir(&journal_file)?;
+    write_mutation_journal(&pm_root, "update", "intended-item\n", "{\"ts\":\"stub\"}\n")?;
+    let item_path = pm_root.join("tasks/sample-unit.toon");
+    fs::remove_file(&item_path)?;
+    fs::create_dir(&item_path)?;
+    assert!(matches!(
+        recover_mutation(&pm_root, "update", "sample-unit"),
+        Err(PmRustError::Io { .. })
+    ));
+    fs::remove_dir(&item_path)?;
+    Ok(())
+}
+
+#[test]
+/// Covers locate failures on unreadable and malformed stored documents.
+fn locate_item_surfaces_io_and_decode_failures() -> Result<(), Box<dyn std::error::Error>> {
+    let (_directory, pm_root) = root(&mutation_settings(0))?;
+    create_item(&pm_root, request())?;
+    // A malformed stored document fails strict decoding.
+    fs::write(pm_root.join("tasks/sample-unit.toon"), "not: [valid\n")?;
+    assert!(matches!(
+        locate_item(&pm_root, "sample-unit"),
+        Err(PmRustError::InvalidItemDocument { .. })
+    ));
+    // A type-folder entry that is a directory fails its optional read.
+    fs::remove_file(pm_root.join("tasks/sample-unit.toon"))?;
+    fs::create_dir(pm_root.join("tasks/sample-unit.toon"))?;
+    assert!(matches!(
+        locate_item(&pm_root, "sample-unit"),
+        Err(PmRustError::Io { .. })
+    ));
+    Ok(())
+}
+
+#[test]
+/// Proves history appends refuse to overwrite a diverged stream on close.
+fn close_surfaces_a_stale_mutation_journal() -> Result<(), Box<dyn std::error::Error>> {
+    let (_directory, pm_root) = root(&mutation_settings(0))?;
+    create_item(&pm_root, request())?;
+    write_mutation_journal(
+        &pm_root,
+        "close",
+        "intended-item\n",
+        "{\"ts\":\"stub\",\"op\":\"close\"}\n",
+    )?;
+    fs::write(pm_root.join("history/sample-unit.jsonl"), "diverged\n")?;
+    assert!(matches!(
+        close_item(
+            &pm_root,
+            CloseItem {
+                id: "sample-unit".to_owned(),
+                reason: "reason".to_owned(),
+                author: "unit-agent".to_owned(),
+                timestamp: Some(TS.to_owned()),
+                provenance_role: None,
+                force_stale_lock: false,
+            }
+        ),
+        Err(PmRustError::RecoveryConflict { .. })
+    ));
+    Ok(())
+}
+
+#[test]
+#[allow(clippy::too_many_lines)]
+/// Covers per-command settings, author, and missing-item refusals.
+fn every_mutation_validates_settings_author_and_existence() -> Result<(), Box<dyn std::error::Error>>
+{
+    // A tracker directory without any settings file fails every surface.
+    let bare = tempfile::tempdir()?;
+    let empty_root = bare.path().join(".agents/pm");
+    fs::create_dir_all(&empty_root)?;
+    // Missing settings fail before anything else for each mutation surface.
+    assert!(matches!(
+        update_item(
+            &empty_root,
+            UpdateItem {
+                id: "sample-unit".to_owned(),
+                title: Some("T".to_owned()),
+                description: None,
+                status: None,
+                priority: None,
+                tags: None,
+                body: None,
+                author: "unit-agent".to_owned(),
+                timestamp: Some(TS.to_owned()),
+                message: None,
+                provenance_role: None,
+                force_stale_lock: false,
+            }
+        ),
+        Err(PmRustError::Io { .. })
+    ));
+    assert!(matches!(
+        comment_item(
+            &empty_root,
+            &CommentItem {
+                id: "sample-unit".to_owned(),
+                text: "text".to_owned(),
+                author: "unit-agent".to_owned(),
+                timestamp: Some(TS.to_owned()),
+                message: None,
+                provenance_role: None,
+                force_stale_lock: false,
+            }
+        ),
+        Err(PmRustError::Io { .. })
+    ));
+    assert!(matches!(
+        close_item(
+            &empty_root,
+            CloseItem {
+                id: "sample-unit".to_owned(),
+                reason: "reason".to_owned(),
+                author: "unit-agent".to_owned(),
+                timestamp: Some(TS.to_owned()),
+                provenance_role: None,
+                force_stale_lock: false,
+            }
+        ),
+        Err(PmRustError::Io { .. })
+    ));
+
+    // Blank authors and unknown items are refused in that order.
+    let (_dropped, populated) = root(&mutation_settings(0))?;
+    create_item(&populated, request())?;
+    for author in ["", "   "] {
+        assert!(matches!(
+            comment_item(
+                &populated,
+                &CommentItem {
+                    id: "sample-unit".to_owned(),
+                    text: "text".to_owned(),
+                    author: author.to_owned(),
+                    timestamp: Some(TS.to_owned()),
+                    message: None,
+                    provenance_role: None,
+                    force_stale_lock: false,
+                }
+            ),
+            Err(PmRustError::InvalidMutationRequest { .. })
+        ));
+        assert!(matches!(
+            close_item(
+                &populated,
+                CloseItem {
+                    id: "sample-unit".to_owned(),
+                    reason: "reason".to_owned(),
+                    author: author.to_owned(),
+                    timestamp: Some(TS.to_owned()),
+                    provenance_role: None,
+                    force_stale_lock: false,
+                }
+            ),
+            Err(PmRustError::InvalidMutationRequest { .. })
+        ));
+    }
+    assert!(matches!(
+        comment_item(
+            &populated,
+            &CommentItem {
+                id: "sample-missing".to_owned(),
+                text: "text".to_owned(),
+                author: "unit-agent".to_owned(),
+                timestamp: Some(TS.to_owned()),
+                message: None,
+                provenance_role: None,
+                force_stale_lock: false,
+            }
+        ),
+        Err(PmRustError::ItemNotFound { .. })
+    ));
+    assert!(matches!(
+        close_item(
+            &populated,
+            CloseItem {
+                id: "sample-missing".to_owned(),
+                reason: "reason".to_owned(),
+                author: "unit-agent".to_owned(),
+                timestamp: Some(TS.to_owned()),
+                provenance_role: None,
+                force_stale_lock: false,
+            }
+        ),
+        Err(PmRustError::ItemNotFound { .. })
+    ));
+    Ok(())
+}
+
+#[test]
+/// Covers closing canceled items and configured custom close statuses.
+fn close_refuses_canceled_and_honors_configured_close_statuses()
+-> Result<(), Box<dyn std::error::Error>> {
+    // A canceled item refuses a second terminal transition.
+    let (_directory, pm_root) = root(&mutation_settings(0))?;
+    create_item(&pm_root, request())?;
+    let mut canceled = decode_item(
+        &pm_root.join("tasks/sample-unit.toon"),
+        &fs::read_to_string(pm_root.join("tasks/sample-unit.toon"))?,
+    )?;
+    canceled.metadata.status = "canceled".to_owned();
+    let canceled_bytes = canonical_item_bytes(&canceled)?;
+    atomic_replace(&pm_root.join("tasks/sample-unit.toon"), &canceled_bytes)?;
+    assert!(matches!(
+        close_item(
+            &pm_root,
+            CloseItem {
+                id: "sample-unit".to_owned(),
+                reason: "reason".to_owned(),
+                author: "unit-agent".to_owned(),
+                timestamp: Some(TS.to_owned()),
+                provenance_role: None,
+                force_stale_lock: false,
+            }
+        ),
+        Err(PmRustError::InvalidMutationRequest { .. })
+    ));
+
+    // A configured workflow close status replaces the default and gates
+    // repeated closes through the same refusal path.
+    let settings = r#"{"id_prefix":"sample-","item_format":"toon","locks":{"ttl_seconds":1800,"wait_ms":0},"workflow":{"close_status":"shipped"}}"#;
+    let (_other, shipped_root) = root(settings)?;
+    create_item(
+        &shipped_root,
+        CreateItem {
+            id: "sample-unit".to_owned(),
+            title: "Unit create".to_owned(),
+            description: String::new(),
+            item_type: "Task".to_owned(),
+            status: "open".to_owned(),
+            priority: 2,
+            tags: Vec::new(),
+            body: String::new(),
+            author: "unit-agent".to_owned(),
+            timestamp: Some(TS.to_owned()),
+            message: None,
+            provenance_role: None,
+            force_stale_lock: false,
+        },
+    )?;
+    let closed = close_item(
+        &shipped_root,
+        CloseItem {
+            id: "sample-unit".to_owned(),
+            reason: "shipped to customers".to_owned(),
+            author: "unit-agent".to_owned(),
+            timestamp: Some(TS.to_owned()),
+            provenance_role: None,
+            force_stale_lock: false,
+        },
+    )?;
+    assert_eq!(closed.item.metadata.status, "shipped");
+    assert!(matches!(
+        close_item(
+            &shipped_root,
+            CloseItem {
+                id: "sample-unit".to_owned(),
+                reason: "again".to_owned(),
+                author: "unit-agent".to_owned(),
+                timestamp: Some(TS.to_owned()),
+                provenance_role: None,
+                force_stale_lock: false,
+            }
+        ),
+        Err(PmRustError::InvalidMutationRequest { .. })
+    ));
+    Ok(())
+}
+
+#[test]
+/// Exercises single-field updates so every change-detection branch runs.
+fn single_field_updates_cover_every_change_arm() -> Result<(), Box<dyn std::error::Error>> {
+    let (_directory, pm_root) = root(&mutation_settings(0))?;
+    create_item(&pm_root, request())?;
+    let base = || UpdateItem {
+        id: "sample-unit".to_owned(),
+        title: None,
+        description: None,
+        status: None,
+        priority: None,
+        tags: None,
+        body: None,
+        author: "unit-agent".to_owned(),
+        timestamp: Some(TS.to_owned()),
+        message: None,
+        provenance_role: None,
+        force_stale_lock: false,
+    };
+    let mut description_only = base();
+    description_only.description = Some("Description only".to_owned());
+    update_item(&pm_root, description_only)?;
+    let mut priority_only = base();
+    priority_only.priority = Some(0);
+    update_item(&pm_root, priority_only)?;
+    let mut tags_only = base();
+    tags_only.tags = Some(vec!["solo".to_owned()]);
+    update_item(&pm_root, tags_only)?;
+    let mut body_only = base();
+    body_only.body = Some("Body only".to_owned());
+    let result = update_item(&pm_root, body_only)?;
+    assert_eq!(result.item.body, "Body only");
+    let history = fs::read_to_string(pm_root.join("history/sample-unit.jsonl"))?;
+    assert!(history.contains(r#""path":"/metadata/tags""#));
+    assert!(history.contains(r#""path":"/body""#));
+    Ok(())
+}
+
+#[test]
+/// Covers comment rows containing commas and quoted-CSV edge cases.
+fn comments_with_commas_survive_canonical_row_normalization()
+-> Result<(), Box<dyn std::error::Error>> {
+    let (_directory, pm_root) = root(&mutation_settings(0))?;
+    create_item(&pm_root, request())?;
+    let text = "note, with, commas";
+    comment_item(
+        &pm_root,
+        &CommentItem {
+            id: "sample-unit".to_owned(),
+            text: text.to_owned(),
+            author: "unit-agent".to_owned(),
+            timestamp: Some(TS.to_owned()),
+            message: None,
+            provenance_role: None,
+            force_stale_lock: false,
+        },
+    )?;
+    let stored = decode_item(
+        &pm_root.join("tasks/sample-unit.toon"),
+        &fs::read_to_string(pm_root.join("tasks/sample-unit.toon"))?,
+    )?;
+    let stored_text = stored
+        .metadata
+        .extra
+        .get("comments")
+        .and_then(Value::as_array)
+        .and_then(|rows| rows.first())
+        .and_then(|row| row.get("text"))
+        .and_then(Value::as_str)
+        .unwrap_or_default()
+        .to_owned();
+    assert_eq!(stored_text, text);
+    let second = comment_item(
+        &pm_root,
+        &CommentItem {
+            id: "sample-unit".to_owned(),
+            text: "second \"quoted\" note".to_owned(),
+            author: "unit-agent".to_owned(),
+            timestamp: Some(TS.to_owned()),
+            message: None,
+            provenance_role: None,
+            force_stale_lock: false,
+        },
+    )?;
+    assert_eq!(
+        second
+            .item
+            .metadata
+            .extra
+            .get("comments")
+            .and_then(Value::as_array)
+            .map(Vec::len),
+        Some(2)
+    );
+    Ok(())
+}
+
+#[test]
+/// Covers history-append failures raised while completing a recovery.
+fn mutation_recovery_surfaces_history_append_failures() -> Result<(), Box<dyn std::error::Error>> {
+    let (_directory, pm_root) = root(&mutation_settings(0))?;
+    create_item(&pm_root, request())?;
+    // The journal expects to append to a history stream that is absent; the
+    // stream path being a directory fails the durable append instead.
+    write_mutation_journal(
+        &pm_root,
+        "update",
+        "intended-item\n",
+        "{\"ts\":\"stub\",\"op\":\"update\"}\n",
+    )?;
+    fs::remove_file(pm_root.join("tasks/sample-unit.toon"))?;
+    fs::remove_file(pm_root.join("history/sample-unit.jsonl"))?;
+    fs::create_dir(pm_root.join("history/sample-unit.jsonl"))?;
+    assert!(matches!(
+        recover_mutation(&pm_root, "update", "sample-unit"),
+        Err(PmRustError::Io { .. })
+    ));
+    Ok(())
+}
+
+#[test]
+/// A journal from a future encoding is refused on its version alone.
+///
+/// The identity guard is `version != 1 || id != id`. The id half is covered by
+/// the recovery suite, so the version half was dead to the tests: a journal
+/// carrying the correct id but a version this build does not understand was
+/// never proven to be refused. Because `||` short circuits, only a
+/// correct-id/wrong-version journal reaches that branch.
+fn recovery_refuses_a_journal_whose_version_this_build_does_not_understand()
+-> Result<(), Box<dyn std::error::Error>> {
+    let (_directory, pm_root) = root(&mutation_settings(0))?;
+    create_item(&pm_root, request())?;
+    let original_item = fs::read_to_string(pm_root.join("tasks/sample-unit.toon"))?;
+    let original_history = fs::read_to_string(pm_root.join("history/sample-unit.jsonl"))?;
+    let appended_history = format!("{original_history}{{\"ts\":\"stub\",\"op\":\"update\"}}\n");
+    write_mutation_journal(&pm_root, "update", &original_item, &appended_history)?;
+    let journal_path = pm_root
+        .join("runtime/transactions")
+        .join("update-sample-unit.json");
+    let mut journal: MutationJournal = serde_json::from_str(&fs::read_to_string(&journal_path)?)?;
+    journal.version = 2;
+    fs::write(
+        &journal_path,
+        &serde_json::to_string(&journal).map_err(|error| format!("{error}"))?,
+    )?;
+    assert!(matches!(
+        recover_mutation(&pm_root, "update", "sample-unit"),
+        Err(PmRustError::RecoveryConflict { .. })
+    ));
+    Ok(())
+}
+
+#[test]
+/// A tabular header followed by an unindented line must leave the row branch.
+///
+/// The row normaliser runs only when the encoder is inside a tabular block AND
+/// the line is indented. Real encoder output always indents rows after a
+/// `{...}:` header, so the indentation half never ran. Ending a block with an
+/// unindented key proves the guard tests indentation rather than trusting the
+/// block flag alone.
+fn normalize_item_bytes_leaves_the_row_path_when_a_block_line_is_unindented()
+-> Result<(), Box<dyn std::error::Error>> {
+    let encoded = normalize_item_bytes("comments[1]{author,text}:\nid: plain-key")?;
+    assert!(
+        encoded.contains("id: plain-key"),
+        "the unindented key must pass through untouched, got {encoded:?}"
+    );
+    let row = normalize_item_bytes("comments[1]{author,text}:\n  \"safe\",plain")?;
+    assert!(
+        !row.contains("\"safe\""),
+        "an indented row must reach the normaliser and be unquoted, got {row:?}"
+    );
+    Ok(())
+}
+
+#[test]
+/// A quoted row field containing a backslash keeps its bytes verbatim.
+///
+/// A field is unquoted only when its content holds neither a quote nor a
+/// backslash. The backslash half never ran. Unquoting an escaped value would
+/// change how the canonical dialect reparses the row. Asserted directly against
+/// the row normaliser: routed through a whole document, an earlier branch can
+/// satisfy the assertion without the filter ever executing.
+fn normalize_row_bytes_preserves_a_quoted_field_containing_a_backslash() {
+    assert_eq!(
+        normalize_row_bytes("  \"back\\slash\",plain"),
+        "  \"back\\slash\",plain",
+        "a backslash-bearing value must keep its quotes and leave its neighbour alone"
+    );
+    assert_eq!(
+        normalize_row_bytes("  \"safe\",plain"),
+        "  safe,plain",
+        "a safe scalar must be unquoted, so the case above is the filter and not the shape"
+    );
+}
+
+#[test]
+/// An unterminated quoted scalar must be refused rather than silently truncated.
+///
+/// `normalize_item_bytes` splits a line on `: "` and strips the closing quote.
+/// If the encoder ever emits an opening quote with no closing one the strip
+/// yields `None`, and the encode has to fail rather than write a document whose
+/// quoting is structurally broken.
+fn normalize_item_bytes_refuses_an_unterminated_quoted_scalar()
+-> Result<(), Box<dyn std::error::Error>> {
+    assert!(matches!(
+        normalize_item_bytes("title: \"unterminated"),
+        Err(PmRustError::ItemEncoding { .. })
+    ));
+    assert_eq!(
+        normalize_item_bytes("title: \"terminated\"")?,
+        "title: terminated\n"
+    );
     Ok(())
 }

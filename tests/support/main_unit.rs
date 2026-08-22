@@ -123,3 +123,128 @@ fn run_dispatches_create_success_and_error_paths() -> Result<(), Box<dyn std::er
     assert!(run(command()).is_err());
     Ok(())
 }
+
+#[test]
+#[allow(clippy::too_many_lines)]
+fn run_dispatches_every_mutation_and_its_error_halves() -> Result<(), Box<dyn std::error::Error>> {
+    let directory = tempfile::tempdir()?;
+    let root = directory.path().join(".agents/pm");
+    fs::create_dir_all(&root)?;
+    fs::write(root.join("settings.json"), "{}")?;
+    let cli = |command: Command| Cli {
+        workspace: directory.path().to_path_buf(),
+        command,
+    };
+
+    // Create succeeds once, then the duplicate refusal flows through the
+    // payload builder's error propagation.
+    run(cli(Command::Create {
+        id: "unit-dispatch".to_owned(),
+        title: "Dispatch".to_owned(),
+        description: String::new(),
+        item_type: "Task".to_owned(),
+        status: "open".to_owned(),
+        priority: 1,
+        tags: Vec::new(),
+        body: String::new(),
+        author: "unit-agent".to_owned(),
+        timestamp: Some("2026-08-07T10:06:30.183Z".to_owned()),
+        message: None,
+        force_stale_lock: false,
+    }))?;
+    assert!(
+        run(cli(Command::Create {
+            id: "unit-dispatch".to_owned(),
+            title: "Duplicate".to_owned(),
+            description: String::new(),
+            item_type: "Task".to_owned(),
+            status: "open".to_owned(),
+            priority: 1,
+            tags: Vec::new(),
+            body: String::new(),
+            author: "unit-agent".to_owned(),
+            timestamp: Some("2026-08-07T10:06:30.183Z".to_owned()),
+            message: None,
+            force_stale_lock: false,
+        }))
+        .is_err()
+    );
+
+    // Update covers both a successful whole-field run and refusals.
+    assert!(
+        run(cli(Command::Update {
+            id: "unit-dispatch".to_owned(),
+            title: None,
+            description: None,
+            status: None,
+            priority: None,
+            tags_csv: None,
+            body: None,
+            author: "unit-agent".to_owned(),
+            timestamp: Some("2026-08-07T10:06:30.183Z".to_owned()),
+            message: None,
+            force_stale_lock: false,
+        }))
+        .is_err()
+    );
+    run(cli(Command::Update {
+        id: "unit-dispatch".to_owned(),
+        title: Some("Renamed in dispatch".to_owned()),
+        description: None,
+        status: None,
+        priority: None,
+        tags_csv: Some("b,a".to_owned()),
+        body: None,
+        author: "unit-agent".to_owned(),
+        timestamp: Some("2026-08-07T10:06:30.183Z".to_owned()),
+        message: None,
+        force_stale_lock: false,
+    }))?;
+
+    // Comment and close cover success plus their typed refusals.
+    assert!(
+        run(cli(Command::Comment {
+            id: "unit-dispatch".to_owned(),
+            text: "   ".to_owned(),
+            author: "unit-agent".to_owned(),
+            timestamp: Some("2026-08-07T10:06:30.183Z".to_owned()),
+            message: None,
+            force_stale_lock: false,
+        }))
+        .is_err()
+    );
+    run(cli(Command::Comment {
+        id: "unit-dispatch".to_owned(),
+        text: "dispatch note".to_owned(),
+        author: "unit-agent".to_owned(),
+        timestamp: Some("2026-08-07T10:06:30.183Z".to_owned()),
+        message: None,
+        force_stale_lock: false,
+    }))?;
+    run(cli(Command::Close {
+        id: "unit-dispatch".to_owned(),
+        reason: "dispatch done".to_owned(),
+        author: "unit-agent".to_owned(),
+        timestamp: Some("2026-08-07T10:06:30.183Z".to_owned()),
+        force_stale_lock: false,
+    }))?;
+    assert!(
+        run(cli(Command::Close {
+            id: "unit-dispatch".to_owned(),
+            reason: "again".to_owned(),
+            author: "unit-agent".to_owned(),
+            timestamp: Some("2026-08-07T10:06:30.183Z".to_owned()),
+            force_stale_lock: false,
+        }))
+        .is_err()
+    );
+
+    // Get over an unknown item fails through the read executor.
+    assert!(
+        run(cli(Command::Get {
+            id: "sample-missing".to_owned(),
+        }))
+        .is_err()
+    );
+    Ok(())
+}
