@@ -1136,25 +1136,113 @@ fn mutation_recovery_repairs_completes_and_refuses_every_state()
 }
 
 #[test]
-/// Covers the defensive input-shape failures of the replacement publisher.
-fn atomic_replace_rejects_parentless_and_non_utf8_targets() -> Result<(), Box<dyn std::error::Error>>
-{
+/// Covers recovery replay when the item publication itself fails.
+#[cfg(unix)]
+fn recovery_surfaces_item_replay_publish_failures() -> Result<(), Box<dyn std::error::Error>> {
+    use std::os::unix::fs::PermissionsExt;
+
+    let (_directory, pm_root) = root(&mutation_settings(0))?;
+    create_item(&pm_root, request())?;
+    let item_path = pm_root.join("tasks/sample-unit.toon");
+    let history_path = pm_root.join("history/sample-unit.jsonl");
+    let original_history = fs::read_to_string(&history_path)?;
+    let updated_item = fs::read_to_string(&item_path)?.replace("Unit create", "Recovered title");
+    write_mutation_journal(&pm_root, "update", &updated_item, &original_history)?;
+
+    // The absent item is replayable, but its storage directory refuses writes,
+    // so staging the replayed document must surface as a typed IO error.
+    fs::remove_file(&item_path)?;
+    fs::set_permissions(pm_root.join("tasks"), fs::Permissions::from_mode(0o555))?;
+    assert!(matches!(
+        recover_mutation(&pm_root, "update", "sample-unit"),
+        Err(PmRustError::Io { .. })
+    ));
+    fs::set_permissions(pm_root.join("tasks"), fs::Permissions::from_mode(0o755))?;
+    Ok(())
+}
+
+#[test]
+/// Covers recovery replay when the history stream cannot be recreated.
+fn recovery_surfaces_history_replay_append_failures() -> Result<(), Box<dyn std::error::Error>> {
+    let (_directory, pm_root) = root(&mutation_settings(0))?;
+    create_item(&pm_root, request())?;
+    let item_path = pm_root.join("tasks/sample-unit.toon");
+    let original_item = fs::read_to_string(&item_path)?;
+    write_mutation_journal(&pm_root, "update", &original_item, "\"stub\": true\n")?;
+
+    // The matching item skips its replay, but re-appending the absent history
+    // stream fails because its containing directory no longer exists.
+    fs::remove_dir_all(pm_root.join("history"))?;
+    assert!(matches!(
+        recover_mutation(&pm_root, "update", "sample-unit"),
+        Err(PmRustError::Io { .. })
+    ));
+    Ok(())
+}
+
+#[test]
+/// Covers recovery cleanup when the committed journal cannot be removed.
+#[cfg(unix)]
+fn recovery_surfaces_journal_cleanup_failures() -> Result<(), Box<dyn std::error::Error>> {
+    use std::os::unix::fs::PermissionsExt;
+
+    let (_directory, pm_root) = root(&mutation_settings(0))?;
+    create_item(&pm_root, request())?;
+    let item_bytes = fs::read_to_string(pm_root.join("tasks/sample-unit.toon"))?;
+    let history_bytes = fs::read_to_string(pm_root.join("history/sample-unit.jsonl"))?;
+    write_mutation_journal(&pm_root, "update", &item_bytes, &history_bytes)?;
+
+    // Both durable halves already match the journal, so only the cleanup
+    // remains — and the read-only transactions directory refuses the removal.
+    let transactions = pm_root.join("runtime/transactions");
+    fs::set_permissions(&transactions, fs::Permissions::from_mode(0o555))?;
+    assert!(matches!(
+        recover_mutation(&pm_root, "update", "sample-unit"),
+        Err(PmRustError::Io { .. })
+    ));
+    fs::set_permissions(&transactions, fs::Permissions::from_mode(0o755))?;
+    Ok(())
+}
+
+#[test]
+/// Covers the tracker-relative path fallback for foreign absolute paths.
+fn relative_to_tracker_keeps_paths_outside_the_root_absolute() {
+    assert_eq!(
+        relative_to_tracker(
+            Path::new("/tracker"),
+            Path::new("/tracker/tasks/sample-unit.toon")
+        ),
+        PathBuf::from("tasks/sample-unit.toon")
+    );
+    assert_eq!(
+        relative_to_tracker(Path::new("/tracker"), Path::new("/elsewhere/a.jsonl")),
+        PathBuf::from("/elsewhere/a.jsonl")
+    );
+}
+
+#[test]
+/// Covers the parentless defensive input-shape failure of the publisher.
+fn atomic_replace_rejects_parentless_targets() {
     // The filesystem root has no parent directory component.
     assert!(matches!(
         atomic_replace(Path::new("/"), "value"),
         Err(PmRustError::InvalidCreateRequest { .. })
     ));
-    #[cfg(unix)]
-    {
-        use std::ffi::OsStr;
-        use std::os::unix::ffi::OsStrExt;
-        let directory = tempfile::tempdir()?;
-        let non_utf8 = OsStr::from_bytes(b"sample-\xff.toon");
-        assert!(matches!(
-            atomic_replace(&directory.path().join(non_utf8), "value"),
-            Err(PmRustError::InvalidCreateRequest { .. })
-        ));
-    }
+}
+
+#[cfg(unix)]
+#[test]
+/// Covers the non-UTF-8 defensive input-shape failure of the publisher.
+fn atomic_replace_rejects_non_utf8_targets() -> Result<(), Box<dyn std::error::Error>> {
+    use std::ffi::OsStr;
+    use std::os::unix::ffi::OsStrExt;
+
+    let directory = tempfile::tempdir()?;
+    let non_utf8 = OsStr::from_bytes(b"sample-\xff.toon");
+    assert!(matches!(
+        atomic_replace(&directory.path().join(non_utf8), "value"),
+        Err(PmRustError::InvalidCreateRequest { .. })
+    ));
     Ok(())
 }
 

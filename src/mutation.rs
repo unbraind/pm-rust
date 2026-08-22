@@ -935,11 +935,12 @@ fn recover_mutation(
         .join("runtime/transactions")
         .join(format!("{operation}-{id}.json"));
     let Some(raw) = read_optional(&journal_path)? else {
-        let (folder, _) = locate_item(pm_root, id)?;
-        return Ok((
-            pm_root.join(folder).join(format!("{id}.toon")),
-            pm_root.join("history").join(format!("{id}.jsonl")),
-        ));
+        return locate_item(pm_root, id).map(|(folder, _)| {
+            (
+                pm_root.join(folder).join(format!("{id}.toon")),
+                pm_root.join("history").join(format!("{id}.jsonl")),
+            )
+        });
     };
     let journal: MutationJournal =
         serde_json::from_str(&raw).map_err(|error| PmRustError::RecoveryConflict {
@@ -992,6 +993,20 @@ fn recover_mutation(
     // back, so returning the relative forms here would resolve against the
     // process working directory instead of the tracker.
     Ok((item_path, history_path))
+}
+
+/// Replays any durable journal and reads the locked document for an in-place
+/// mutation. Reading the stored document only after recovery and under the
+/// caller's lock guarantees no writer ever applies changes to stale bytes.
+fn recover_and_locate(
+    pm_root: &Path,
+    operation: &str,
+    id: &str,
+) -> Result<(PathBuf, PathBuf, ItemDocument), PmRustError> {
+    recover_mutation(pm_root, operation, id).and_then(|(item_path, history_path)| {
+        locate_item(pm_root, id)
+            .map(|(_folder, before_document)| (item_path, history_path, before_document))
+    })
 }
 
 /// Locates the single stored document for one stable identifier.
@@ -1155,10 +1170,10 @@ pub(crate) fn update_item(
         request.force_stale_lock,
         &timestamp,
     )?;
-    let (item_path, history_path) = recover_mutation(pm_root, "update", &request.id)?;
+    let (item_path, history_path, before_document) =
+        recover_and_locate(pm_root, "update", &request.id)?;
     // The stored document must be read under the lock so no writer ever
     // applies changes to stale bytes.
-    let (_folder, before_document) = locate_item(pm_root, &request.id)?;
     if let Some(tags) = &mut request.tags {
         tags.sort();
         tags.dedup();
@@ -1240,9 +1255,8 @@ pub(crate) fn comment_item(
         request.force_stale_lock,
         &timestamp,
     )?;
-    let (item_path, history_path) = recover_mutation(pm_root, "comment", &request.id)?;
-    // Read under the lock: appending to stale comments would drop peers' rows.
-    let (_folder, before_document) = locate_item(pm_root, &request.id)?;
+    let (item_path, history_path, before_document) =
+        recover_and_locate(pm_root, "comment", &request.id)?;
     let mut document = before_document.clone();
     let row = serde_json::json!({
         "created_at": timestamp,
@@ -1296,9 +1310,8 @@ pub(crate) fn close_item(
         request.force_stale_lock,
         &timestamp,
     )?;
-    let (item_path, history_path) = recover_mutation(pm_root, "close", &request.id)?;
-    // Terminal-status refusal and every later decision use post-lock bytes.
-    let (_folder, before_document) = locate_item(pm_root, &request.id)?;
+    let (item_path, history_path, before_document) =
+        recover_and_locate(pm_root, "close", &request.id)?;
     if matches!(
         before_document.metadata.status.as_str(),
         "closed" | "canceled"
@@ -1339,6 +1352,16 @@ pub(crate) fn close_item(
         &item_path,
         &history_path,
     )
+}
+
+/// Expresses one durable path relative to the tracker root.
+///
+/// Callers hand back paths joined to `pm_root`, so stripping succeeds for every
+/// real tracker; the fallback keeps foreign absolute paths verbatim instead of
+/// panicking when the prefix does not apply.
+fn relative_to_tracker(pm_root: &Path, path: &Path) -> PathBuf {
+    path.strip_prefix(pm_root)
+        .map_or_else(|_error| path.to_path_buf(), Path::to_path_buf)
 }
 
 /// Journals, writes, and records one completed in-place mutation.
@@ -1392,12 +1415,8 @@ fn commit_mutation(
         );
         let result = MutationResult {
             item: document,
-            item_path: item_path
-                .strip_prefix(pm_root)
-                .map_or_else(|_error| item_path.to_path_buf(), Path::to_path_buf),
-            history_path: history_path
-                .strip_prefix(pm_root)
-                .map_or_else(|_error| history_path.to_path_buf(), Path::to_path_buf),
+            item_path: relative_to_tracker(pm_root, item_path),
+            history_path: relative_to_tracker(pm_root, history_path),
             after_hash,
         };
         atomic_write(&journal_path, &journal_bytes)

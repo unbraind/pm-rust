@@ -407,6 +407,7 @@ fn cli_mutations_drive_the_same_native_transactions() -> Result<(), Box<dyn std:
 }
 
 #[test]
+#[allow(clippy::too_many_lines)]
 /// Proves mutation guards refuse unknown items and empty required inputs.
 fn mutation_guards_reject_invalid_requests() -> Result<(), Box<dyn std::error::Error>> {
     let (_directory, workspace) = tracker()?;
@@ -425,6 +426,33 @@ fn mutation_guards_reject_invalid_requests() -> Result<(), Box<dyn std::error::E
         force_stale_lock: false,
     });
     assert!(matches!(missing, Err(PmRustError::ItemNotFound { .. })));
+
+    let missing_comment = workspace.comment(&CommentItem {
+        id: "sample-missing".to_owned(),
+        text: "Orphan note".to_owned(),
+        author: "fixture-agent".to_owned(),
+        timestamp: Some(TIMESTAMP.to_owned()),
+        message: None,
+        provenance_role: None,
+        force_stale_lock: false,
+    });
+    assert!(matches!(
+        missing_comment,
+        Err(PmRustError::ItemNotFound { .. })
+    ));
+
+    let missing_close = workspace.close(CloseItem {
+        id: "sample-missing".to_owned(),
+        reason: "orphan close".to_owned(),
+        author: "fixture-agent".to_owned(),
+        timestamp: Some(TIMESTAMP.to_owned()),
+        provenance_role: None,
+        force_stale_lock: false,
+    });
+    assert!(matches!(
+        missing_close,
+        Err(PmRustError::ItemNotFound { .. })
+    ));
 
     workspace.create(create_request())?;
     let empty = workspace.update(UpdateItem {
@@ -491,6 +519,107 @@ fn mutation_guards_reject_invalid_requests() -> Result<(), Box<dyn std::error::E
         bad_timestamp,
         Err(PmRustError::InvalidCreateRequest { .. })
     ));
+    Ok(())
+}
+
+#[test]
+/// Proves a conflicting durable journal refuses every in-place mutation entry point.
+fn a_conflicting_journal_refuses_update_comment_and_close() -> Result<(), Box<dyn std::error::Error>>
+{
+    let (directory, workspace) = tracker()?;
+    let root = directory.path();
+    workspace.create(create_request())?;
+    let item_bytes = item(root);
+
+    // Plant one diverged journal per operation: the journalled bytes differ
+    // from the durable item, so recovery must refuse instead of guessing.
+    let transactions = root.join(".agents/pm/runtime/transactions");
+    fs::create_dir_all(&transactions)?;
+    for operation in ["update", "comment", "close"] {
+        fs::write(
+            transactions.join(format!("{operation}-sample-conv.json")),
+            serde_json::json!({
+                "version": 1,
+                "id": "sample-conv",
+                "item_type": "Task",
+                "item_bytes": format!("{item_bytes}foreign"),
+                "history_bytes": "\"stub\": true\n",
+            })
+            .to_string(),
+        )?;
+    }
+
+    let refused = workspace.update(update_request());
+    assert!(matches!(refused, Err(PmRustError::RecoveryConflict { .. })));
+    let refused = workspace.comment(&CommentItem {
+        id: "sample-conv".to_owned(),
+        text: "Conflicting note".to_owned(),
+        author: "fixture-agent".to_owned(),
+        timestamp: Some(TIMESTAMP.to_owned()),
+        message: None,
+        provenance_role: None,
+        force_stale_lock: false,
+    });
+    assert!(matches!(refused, Err(PmRustError::RecoveryConflict { .. })));
+    let refused = workspace.close(CloseItem {
+        id: "sample-conv".to_owned(),
+        reason: "conflicting close".to_owned(),
+        author: "fixture-agent".to_owned(),
+        timestamp: Some(TIMESTAMP.to_owned()),
+        provenance_role: None,
+        force_stale_lock: false,
+    });
+    assert!(matches!(refused, Err(PmRustError::RecoveryConflict { .. })));
+    Ok(())
+}
+
+#[test]
+/// Proves closed stdout pipes turn completed CLI mutations into exit code 2.
+fn cli_mutations_report_a_closed_stdout_pipe() -> Result<(), Box<dyn std::error::Error>> {
+    use std::process::{Command as ProcessCommand, Stdio};
+
+    let (directory, workspace) = tracker()?;
+    let binary = env!("CARGO_BIN_EXE_pm-rust");
+    workspace.create(create_request())?;
+
+    // Each mutation completes its durable transaction and only then fails to
+    // write the JSON response onto the closed pipe, so every dispatch arm's
+    // write failure must surface as exit code 2.
+    let sequences: [&[&str]; 3] = [
+        &[
+            "update",
+            "sample-conv",
+            "--title",
+            "Piped title",
+            "--author",
+            "pipe-agent",
+        ],
+        &[
+            "comment",
+            "sample-conv",
+            "piped note",
+            "--author",
+            "pipe-agent",
+        ],
+        &[
+            "close",
+            "sample-conv",
+            "--reason",
+            "piped close",
+            "--author",
+            "pipe-agent",
+        ],
+    ];
+    for arguments in sequences {
+        let mut command = ProcessCommand::new(binary);
+        command
+            .args(["--workspace", directory.path().to_string_lossy().as_ref()])
+            .args(arguments)
+            .stdout(Stdio::piped());
+        let mut child = command.spawn()?;
+        drop(child.stdout.take());
+        assert_eq!(child.wait()?.code(), Some(2));
+    }
     Ok(())
 }
 
