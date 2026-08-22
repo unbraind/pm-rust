@@ -1122,7 +1122,21 @@ fn mutation_recovery_repairs_completes_and_refuses_every_state()
         recover_mutation(&pm_root, "update", "sample-unit"),
         Err(PmRustError::RecoveryConflict { .. })
     ));
+    // The identity guard is `version != 1 || id != id`, and the id half is
+    // covered above. A journal written by a future encoding must be refused on
+    // the version half alone, with the id left correct, or the `||` short
+    // circuits and that branch is never taken.
     mismatched.id = "sample-unit".to_owned();
+    mismatched.version = 2;
+    fs::write(
+        &journal_path,
+        &serde_json::to_string(&mismatched).map_err(|error| format!("{error}"))?,
+    )?;
+    assert!(matches!(
+        recover_mutation(&pm_root, "update", "sample-unit"),
+        Err(PmRustError::RecoveryConflict { .. })
+    ));
+    mismatched.version = 1;
     mismatched.item_type = "Scroll".to_owned();
     fs::write(
         &journal_path,
@@ -1662,4 +1676,77 @@ fn mutation_recovery_surfaces_history_append_failures() -> Result<(), Box<dyn st
         Err(PmRustError::Io { .. })
     ));
     Ok(())
+}
+
+#[test]
+/// A tabular header followed by an unindented line must leave the row branch.
+///
+/// The row normaliser is entered only when the encoder is inside a tabular
+/// block AND the line is indented. The second half of that condition is never
+/// exercised by real encoder output, because a `{...}:` header is always
+/// followed by indented rows, so a document that ends a block with an
+/// unindented key is the only way to prove the guard actually tests indentation
+/// rather than relying on the block flag alone.
+fn normalize_item_bytes_leaves_the_row_path_when_a_block_line_is_unindented() {
+    let encoded = normalize_item_bytes("comments[1]{author,text}:\nid: plain-key")
+        .expect("an unindented line after a tabular header is valid");
+    assert!(
+        encoded.contains("id: plain-key"),
+        "the unindented key must pass through untouched, got {encoded:?}"
+    );
+    // The indented sibling proves the flag itself is still live: same header,
+    // an indented row, and the row normaliser does run.
+    let row = normalize_item_bytes("comments[1]{author,text}:\n  \"safe\",plain")
+        .expect("an indented row is valid");
+    assert!(
+        !row.contains("\"safe\""),
+        "an indented row must reach the normaliser and be unquoted, got {row:?}"
+    );
+}
+
+#[test]
+/// A quoted row field containing a backslash keeps its bytes verbatim.
+///
+/// A field is unquoted only when its content holds neither a quote nor a
+/// backslash. The quote half is exercised by ordinary rows; the backslash half
+/// is not, because the encoder rarely emits one. Unquoting an escaped value
+/// would change how the canonical dialect reparses the row, so the guard is
+/// proven here directly against the row normaliser rather than through an
+/// enclosing document, where an earlier branch could satisfy the assertion
+/// without the filter ever running.
+fn normalize_row_bytes_preserves_a_quoted_field_containing_a_backslash() {
+    let escaped = normalize_row_bytes("  \"back\\slash\",plain");
+    assert_eq!(
+        escaped, "  \"back\\slash\",plain",
+        "a backslash-bearing value must keep its quotes and its neighbour untouched"
+    );
+
+    // Same shape with no backslash: the filter passes and the value is
+    // unquoted, which proves the guard discriminates rather than always
+    // preserving.
+    let plain = normalize_row_bytes("  \"safe\",plain");
+    assert_eq!(
+        plain, "  safe,plain",
+        "a safe scalar must be unquoted, so the backslash case above is the filter and not the shape"
+    );
+}
+
+#[test]
+/// An unterminated quoted scalar must be refused rather than silently truncated.
+///
+/// `normalize_item_bytes` splits a line on `: "` and then strips the closing
+/// quote. If the encoder ever emits an opening quote with no closing one the
+/// strip returns `None`, and the encode has to fail rather than write a
+/// document whose quoting is structurally broken.
+fn normalize_item_bytes_refuses_an_unterminated_quoted_scalar() {
+    let error = normalize_item_bytes("title: \"unterminated")
+        .expect_err("a scalar opened with a quote and never closed must be refused");
+    assert!(
+        matches!(&error, PmRustError::ItemEncoding { reason } if reason.contains("unterminated")),
+        "expected an ItemEncoding refusal naming the unterminated scalar, got {error:?}"
+    );
+    assert_eq!(
+        normalize_item_bytes("title: \"terminated\"").expect("a closed quote is valid"),
+        "title: terminated\n"
+    );
 }
