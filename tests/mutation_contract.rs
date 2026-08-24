@@ -519,6 +519,65 @@ fn mutation_guards_reject_invalid_requests() -> Result<(), Box<dyn std::error::E
         bad_timestamp,
         Err(PmRustError::InvalidCreateRequest { .. })
     ));
+
+    // An out-of-range priority is refused before any durable state moves.
+    let bad_priority = workspace.update(UpdateItem {
+        id: "sample-conv".to_owned(),
+        title: None,
+        description: None,
+        status: None,
+        priority: Some(5),
+        tags: None,
+        body: None,
+        author: "fixture-agent".to_owned(),
+        timestamp: Some(TIMESTAMP.to_owned()),
+        message: None,
+        provenance_role: None,
+        force_stale_lock: false,
+    });
+    assert!(matches!(
+        bad_priority,
+        Err(PmRustError::InvalidMutationRequest { .. })
+    ));
+
+    // Whitespace-only required fields are refused like absent ones.
+    let blank_title = workspace.update(UpdateItem {
+        id: "sample-conv".to_owned(),
+        title: Some("   ".to_owned()),
+        description: None,
+        status: None,
+        priority: None,
+        tags: None,
+        body: None,
+        author: "fixture-agent".to_owned(),
+        timestamp: Some(TIMESTAMP.to_owned()),
+        message: None,
+        provenance_role: None,
+        force_stale_lock: false,
+    });
+    assert!(matches!(
+        blank_title,
+        Err(PmRustError::InvalidMutationRequest { .. })
+    ));
+
+    let blank_status = workspace.update(UpdateItem {
+        id: "sample-conv".to_owned(),
+        title: None,
+        description: None,
+        status: Some(String::new()),
+        priority: None,
+        tags: None,
+        body: None,
+        author: "fixture-agent".to_owned(),
+        timestamp: Some(TIMESTAMP.to_owned()),
+        message: None,
+        provenance_role: None,
+        force_stale_lock: false,
+    });
+    assert!(matches!(
+        blank_status,
+        Err(PmRustError::InvalidMutationRequest { .. })
+    ));
     Ok(())
 }
 

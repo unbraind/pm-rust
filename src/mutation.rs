@@ -817,6 +817,20 @@ fn safe_unquoted_scalar(value: &str) -> bool {
         && value
             .bytes()
             .all(|byte| byte.is_ascii_alphanumeric() || b"._/-".contains(&byte))
+        && !decoder_parses_as_number(value)
+}
+
+/// Reports whether the TOON decoder would read this scalar back as a number.
+///
+/// The Rust decoder accepts lenient numeric spellings such as `0.` or `1.`
+/// that serde_json rejects, so the JSON probe alone let ambiguous scalars
+/// through unquoted and broke the canonical round trip (the decoder then read
+/// the description `"0."` back as the integer `0`). Ask the real decoder
+/// instead of duplicating its grammar here.
+fn decoder_parses_as_number(value: &str) -> bool {
+    toon_format::decode_strict::<Value>(&format!("k: {value}"))
+        .ok()
+        .is_some_and(|decoded| decoded.get("k").is_some_and(Value::is_number))
 }
 
 /// Unquotes safe scalars in one tabular row while preserving every other field.

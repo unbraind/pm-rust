@@ -72,7 +72,7 @@ fn serde_defaults_match_the_supported_create_and_settings_contract()
     let document = create_item(&reserved_root, reserved)?.item;
     assert!(canonical_item_bytes(&document)?.contains("title: \"true\"\n"));
     let mut ambiguous_tags = document.clone();
-    ambiguous_tags.metadata.tags = ["0", "1.2", "false", "null", "true"]
+    ambiguous_tags.metadata.tags = ["0", "1.2", "0.", "1.", "false", "null", "true"]
         .map(str::to_owned)
         .to_vec();
     assert_eq!(
@@ -1720,6 +1720,27 @@ fn normalize_item_bytes_leaves_the_row_path_when_a_block_line_is_unindented()
 }
 
 #[test]
+/// A quoted tabular field that survives the quote/escape filter but fails the
+/// scalar-safety probe must keep its quotes.
+///
+/// `"true"` and `"0."` pass the strip-and-filter half (simple quotes, no
+/// escapes) yet must stay quoted: unquoting them would change what the decoder
+/// reads back (`true` becomes boolean, `0.` becomes integer). Without this
+/// case the guard-false arm of that match is never exercised.
+fn normalize_row_bytes_preserves_quoted_ambiguous_scalars() {
+    assert_eq!(
+        normalize_row_bytes("  \"true\",plain"),
+        "  \"true\",plain",
+        "a quoted boolean-looking field must keep its quotes"
+    );
+    assert_eq!(
+        normalize_row_bytes("  \"0.\",plain"),
+        "  \"0.\",plain",
+        "a quoted lenient-number field must keep its quotes"
+    );
+}
+
+#[test]
 /// A quoted row field containing a backslash keeps its bytes verbatim.
 ///
 /// A field is unquoted only when its content holds neither a quote nor a
@@ -1732,6 +1753,29 @@ fn normalize_row_bytes_preserves_a_quoted_field_containing_a_backslash() {
         normalize_row_bytes("  \"back\\slash\",plain"),
         "  \"back\\slash\",plain",
         "a backslash-bearing value must keep its quotes and leave its neighbour alone"
+    );
+    assert_eq!(
+        normalize_row_bytes("  \"safe\",plain"),
+        "  safe,plain",
+        "a safe scalar must be unquoted, so the case above is the filter and not the shape"
+    );
+}
+
+#[test]
+/// A quoted field whose content still holds a quote must keep its quotes.
+///
+/// The unquoting filter is `!contains('"') && !contains('\\')`. Its backslash
+/// half is covered above; its quote half never ran, so nothing proved that a
+/// doubled inner quote survives normalisation. Unquoting `"a""b"` would emit
+/// `a""b`, which the canonical dialect reparses as a different value — a silent
+/// corruption of a field the encoder deliberately quoted. Asserted directly
+/// against the row normaliser: routed through a whole document, an earlier
+/// branch can satisfy the assertion without this filter ever executing.
+fn normalize_row_bytes_preserves_a_quoted_field_containing_a_quote() {
+    assert_eq!(
+        normalize_row_bytes("  \"a\"\"b\",plain"),
+        "  \"a\"\"b\",plain",
+        "a quote-bearing value must keep its quotes and leave its neighbour alone"
     );
     assert_eq!(
         normalize_row_bytes("  \"safe\",plain"),
