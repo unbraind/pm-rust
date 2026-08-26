@@ -8,7 +8,7 @@
 //! processes that reported success.
 
 use std::fs;
-use std::path::{Path, PathBuf};
+use std::path::Path;
 use std::process::Command;
 use std::sync::Arc;
 use std::thread;
@@ -43,7 +43,7 @@ fn seeded_workspace() -> Result<tempfile::TempDir, Box<dyn std::error::Error>> {
 }
 
 /// Appends one comment from one dedicated OS process.
-fn append_comment(workspace: &PathBuf, marker: &str) -> bool {
+fn append_comment(workspace: &Path, marker: &str) -> bool {
     let text = format!("concurrent note {marker}");
     let output = Command::new(env!("CARGO_BIN_EXE_pm-rust"))
         .current_dir(workspace)
@@ -89,7 +89,7 @@ fn concurrent_comment_processes_preserve_every_accepted_mutation()
             let mut accepted = 0;
             for mutation in 0..MUTATIONS_PER_PROCESS {
                 let marker = format!("{process}-{mutation}");
-                if append_comment(&workspace, &marker) {
+                if append_comment(workspace.as_path(), &marker) {
                     accepted += 1;
                 }
             }

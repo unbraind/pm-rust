@@ -17,81 +17,53 @@ use std::process::Command;
 
 const CLOCK: &str = "2026-08-22T10:00:00.000Z";
 
-/// Describes one located published CLI installation.
-struct PublishedCli {
-    /// Path to the package root holding `dist/`.
-    package_root: PathBuf,
-    /// Entry script used to boot the CLI.
-    entry: PathBuf,
-}
+#[path = "support/published_cli.rs"]
+mod published_cli;
 
-/// Locates the published Node CLI through the environment or common prefixes.
-///
-/// `PM_NODE_CLI` may point at the package root or directly at an entry script;
-/// otherwise each directory on `PATH` is probed for a `pm` launcher resolving
-/// inside an `@unbrained/pm-cli` installation.
-fn locate_published_cli() -> Option<PublishedCli> {
-    if let Ok(value) = std::env::var("PM_NODE_CLI") {
-        let path = PathBuf::from(value);
-        let entry = path.join("dist/cli.js");
-        if path.is_dir() && entry.is_file() {
-            return Some(PublishedCli {
-                package_root: path,
-                entry,
-            });
-        }
-        // An explicit entry script implies its package root two levels up.
-        if let (true, Some(root)) = (path.is_file(), path.parent().and_then(Path::parent)) {
-            return Some(PublishedCli {
-                package_root: root.to_path_buf(),
-                entry: path,
-            });
-        }
-        return None;
-    }
-    let path_variable = std::env::var("PATH").ok()?;
-    for directory in std::env::split_paths(&path_variable) {
-        let candidate = directory.join("pm");
-        if !candidate.is_file() {
-            continue;
-        }
-        let Ok(resolved) = fs::canonicalize(&candidate) else {
-            continue;
-        };
-        let mut current = resolved.parent().map(Path::to_path_buf);
-        while let Some(ancestor) = current {
-            current = ancestor.parent().map(Path::to_path_buf);
-            if ancestor.file_name().is_some_and(|name| name == "pm-cli")
-                && ancestor
-                    .parent()
-                    .and_then(Path::file_name)
-                    .is_some_and(|name| name == "@unbrained")
-            {
-                let entry = ancestor.join("dist/cli.js");
-                if entry.is_file() {
-                    return Some(PublishedCli {
-                        package_root: ancestor.clone(),
-                        entry,
-                    });
-                }
-            }
-        }
-    }
-    None
-}
+use published_cli::{PublishedCli, locate_published_cli};
 
 /// Renders the deterministic recipe driver used to execute the published CLI.
 ///
 /// The driver pins the recipe clock at [`CLOCK`] with zero tick and replaces
 /// the global `Date` constructor with one returning the same fixed instant, so
 /// even code paths that bypass the recipe clock write reproducible values.
+/// Encodes one path as a JSON string literal.
+///
+/// A Windows path contains backslashes, which are escape introducers inside a
+/// JavaScript double-quoted string. JSON-encoding the path keeps the driver
+/// script syntactically valid on every platform.
+fn json_string(value: &str) -> String {
+    use std::fmt::Write as _;
+    let mut out = String::from("\"");
+    for ch in value.chars() {
+        match ch {
+            '"' => out.push_str("\\\""),
+            '\\' => out.push_str("\\\\"),
+            '\n' => out.push_str("\\n"),
+            '\r' => out.push_str("\\r"),
+            '\t' => out.push_str("\\t"),
+            c if (c as u32) < 0x20 => {
+                let _ = write!(out, "\\u{:04x}", c as u32);
+            }
+            c => out.push(c),
+        }
+    }
+    out.push('"');
+    out
+}
+
 fn driver_script(sdk: &Path, entry: &Path) -> String {
+    let sdk_json = json_string(&sdk.to_string_lossy());
+    let entry_json = json_string(&entry.to_string_lossy());
     let template = r#"
 // Differential-conformance driver: runs one real published-pm CLI invocation
 // under a reproducible workspace recipe (fixed clock, zero tick) with the
-// wall-clock Date pinned to the same instant.
-import { runWithWorkspaceRecipe } from "@SDK@";
+// wall-clock Date pinned to the same instant. Both interpolated paths are
+// JSON-encoded so Windows backslashes do not break the string literals, and
+// both imports go through `pathToFileURL` so the specifiers are valid on every
+// platform.
 import { pathToFileURL } from "node:url";
+const { runWithWorkspaceRecipe } = await import(pathToFileURL(__SDK_JSON__));
 
 const fixed = Date.parse(process.env.FIXED_CLOCK);
 class pinnedDate extends Date {
@@ -113,7 +85,7 @@ const recipe = {
 };
 try {
   await runWithWorkspaceRecipe(recipe, async () => {
-    await import(pathToFileURL("@ENTRY@"));
+    await import(pathToFileURL(__ENTRY_JSON__));
   });
 } catch (error) {
   if (error && error.name !== "CommanderError") {
@@ -123,8 +95,8 @@ try {
 }
 "#;
     template
-        .replace("@SDK@", &sdk.to_string_lossy())
-        .replace("@ENTRY@", &entry.to_string_lossy())
+        .replace("__SDK_JSON__", &sdk_json)
+        .replace("__ENTRY_JSON__", &entry_json)
 }
 
 /// Writes the driver script into the scratch directory and returns its path.

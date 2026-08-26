@@ -55,10 +55,10 @@ enum Command {
         #[arg(long = "type")]
         item_type: String,
         /// Runtime lifecycle state.
-        #[arg(long, default_value = "open")]
+        #[arg(long, default_value_t = pm_rust::default_status())]
         status: String,
         /// Priority from zero through four.
-        #[arg(long, default_value_t = 2, value_parser = value_parser!(u8).range(0..=4))]
+        #[arg(long, default_value_t = pm_rust::default_priority(), value_parser = value_parser!(u8).range(0..=4))]
         priority: u8,
         /// Comma-separated tags.
         #[arg(long, value_delimiter = ',')]
@@ -245,9 +245,14 @@ fn run(cli: Cli) -> Result<(), Box<dyn std::error::Error>> {
                     status,
                     priority,
                     // A provided CSV value expresses replacement intent even
-                    // when it normalizes to an empty tag list.
+                    // when it normalizes to an empty tag list. Each segment is
+                    // trimmed before the empty filter so `--tags "alpha, beta"`
+                    // stores `beta`, not `" beta"`, and `--tags "alpha, "`
+                    // stores only `alpha` rather than keeping a whitespace-only
+                    // segment.
                     tags: tags_csv.map(|csv| {
                         csv.split(',')
+                            .map(str::trim)
                             .map(str::to_owned)
                             .filter(|tag| !tag.is_empty())
                             .collect()

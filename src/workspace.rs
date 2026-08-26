@@ -14,7 +14,7 @@ use crate::{
     PmRustError, UpdateItem,
 };
 
-const NON_ITEM_DIRECTORIES: [&str; 6] = [
+pub(crate) const NON_ITEM_DIRECTORIES: [&str; 6] = [
     "extensions",
     "history",
     "locks",
@@ -242,7 +242,7 @@ impl Workspace {
 }
 
 /// Reads every entry in a directory while retaining the path in typed errors.
-fn read_directory(path: &Path) -> Result<Vec<fs::DirEntry>, PmRustError> {
+pub(crate) fn read_directory(path: &Path) -> Result<Vec<fs::DirEntry>, PmRustError> {
     let entries = fs::read_dir(path).map_err(|source| PmRustError::Io {
         path: path.to_path_buf(),
         source,

@@ -374,3 +374,137 @@ fn all_builtin_type_folders_and_current_timestamp_are_supported()
     }
     Ok(())
 }
+
+#[test]
+#[allow(clippy::too_many_lines)]
+fn sdk_create_rejects_invalid_ids_and_fields() -> Result<(), Box<dyn std::error::Error>> {
+    let (_directory, workspace) = tracker()?;
+
+    // An id starting with a hyphen is refused.
+    let dash_prefix = workspace.create(CreateItem {
+        id: "-bad".to_owned(),
+        title: "Bad".to_owned(),
+        description: String::new(),
+        item_type: "Task".to_owned(),
+        status: "open".to_owned(),
+        priority: 2,
+        tags: Vec::new(),
+        body: String::new(),
+        author: "agent".to_owned(),
+        timestamp: Some(TIMESTAMP.to_owned()),
+        message: None,
+        provenance_role: None,
+        force_stale_lock: false,
+    });
+    assert!(matches!(dash_prefix, Err(PmRustError::InvalidCreateRequest { .. })));
+
+    // An id ending with a hyphen is refused.
+    let dash_suffix = workspace.create(CreateItem {
+        id: "bad-".to_owned(),
+        title: "Bad".to_owned(),
+        description: String::new(),
+        item_type: "Task".to_owned(),
+        status: "open".to_owned(),
+        priority: 2,
+        tags: Vec::new(),
+        body: String::new(),
+        author: "agent".to_owned(),
+        timestamp: Some(TIMESTAMP.to_owned()),
+        message: None,
+        provenance_role: None,
+        force_stale_lock: false,
+    });
+    assert!(matches!(dash_suffix, Err(PmRustError::InvalidCreateRequest { .. })));
+
+    // An empty title is refused.
+    let empty_title = workspace.create(CreateItem {
+        id: "sample-empty".to_owned(),
+        title: "  ".to_owned(),
+        description: String::new(),
+        item_type: "Task".to_owned(),
+        status: "open".to_owned(),
+        priority: 2,
+        tags: Vec::new(),
+        body: String::new(),
+        author: "agent".to_owned(),
+        timestamp: Some(TIMESTAMP.to_owned()),
+        message: None,
+        provenance_role: None,
+        force_stale_lock: false,
+    });
+    assert!(matches!(empty_title, Err(PmRustError::InvalidCreateRequest { .. })));
+
+    // An unsupported item type is refused.
+    let bad_type = workspace.create(CreateItem {
+        id: "sample-custom".to_owned(),
+        title: "Custom".to_owned(),
+        description: String::new(),
+        item_type: "Custom".to_owned(),
+        status: "open".to_owned(),
+        priority: 2,
+        tags: Vec::new(),
+        body: String::new(),
+        author: "agent".to_owned(),
+        timestamp: Some(TIMESTAMP.to_owned()),
+        message: None,
+        provenance_role: None,
+        force_stale_lock: false,
+    });
+    assert!(matches!(bad_type, Err(PmRustError::InvalidCreateRequest { .. })));
+
+    // An empty id is refused.
+    let empty_id = workspace.create(CreateItem {
+        id: String::new(),
+        title: "Bad".to_owned(),
+        description: String::new(),
+        item_type: "Task".to_owned(),
+        status: "open".to_owned(),
+        priority: 2,
+        tags: Vec::new(),
+        body: String::new(),
+        author: "agent".to_owned(),
+        timestamp: Some(TIMESTAMP.to_owned()),
+        message: None,
+        provenance_role: None,
+        force_stale_lock: false,
+    });
+    assert!(matches!(empty_id, Err(PmRustError::InvalidCreateRequest { .. })));
+
+    // An out-of-range priority is refused.
+    let bad_priority = workspace.create(CreateItem {
+        id: "sample-bad-prio".to_owned(),
+        title: "Bad priority".to_owned(),
+        description: String::new(),
+        item_type: "Task".to_owned(),
+        status: "open".to_owned(),
+        priority: 5,
+        tags: Vec::new(),
+        body: String::new(),
+        author: "agent".to_owned(),
+        timestamp: Some(TIMESTAMP.to_owned()),
+        message: None,
+        provenance_role: None,
+        force_stale_lock: false,
+    });
+    assert!(matches!(bad_priority, Err(PmRustError::InvalidCreateRequest { .. })));
+
+    // A malformed timestamp is refused.
+    let bad_timestamp = workspace.create(CreateItem {
+        id: "sample-bad-ts".to_owned(),
+        title: "Bad timestamp".to_owned(),
+        description: String::new(),
+        item_type: "Task".to_owned(),
+        status: "open".to_owned(),
+        priority: 2,
+        tags: Vec::new(),
+        body: String::new(),
+        author: "agent".to_owned(),
+        timestamp: Some("not-a-timestamp".to_owned()),
+        message: None,
+        provenance_role: None,
+        force_stale_lock: false,
+    });
+    assert!(matches!(bad_timestamp, Err(PmRustError::InvalidCreateRequest { .. })));
+
+    Ok(())
+}
