@@ -6,7 +6,7 @@ status: open
 priority: 1
 tags[5]: agents,cli,interop,rust,sdk
 created_at: "2026-08-06T21:15:44.282Z"
-updated_at: "2026-08-22T11:46:49.625Z"
+updated_at: "2026-08-26T23:00:04.663Z"
 assignee: codex
 claim_principal: codex
 author: codex
@@ -22,8 +22,10 @@ risk: high
 confidence: medium
 sprint: 2026-08-native-mutations
 release: 0.1.0-alpha.2
-comments[1]{created_at,author,text}:
+comments[3]{created_at,author,text}:
   "2026-08-22T11:46:49.625Z",codex,"Real-branch acceptance added as tests/branch_merge_contract.rs: two git branches mutate the same tracked item, then git merge reconciles through the published pm merge drivers installed from @unbrained/pm-cli 2026.8.21. Both mutations survive in the merged item and history."
+  "2026-08-26T23:00:04.105Z",claude,"Coverage gate status measured precisely on 2026-08-27 UTC. The release-check gate asserts lines, functions, regions and branches are each exactly 100. Current measurement on the in-progress tree is lines 99.7556, functions 100, regions 99.6554, branches 99.5762, reproduced identically across three runs. The whole remaining gap is in src/mutation.rs: eight regions, four lines and one branch. history.rs, item.rs, main.rs and workspace.rs are all at 100 across every metric. main.rs reports branches as a dash rather than a percentage because it contains no branches at all, which is not a gap."
+  "2026-08-26T23:00:04.663Z",claude,"Two measurement traps recorded so the next attempt does not pay for them again. First, llvm-cov's --lcov and --text exports report this tree as fully covered while --json and the summary table agree it is not; the exports cover a different file set, so --json is the one to trust and the one the gate reads. Second, the conformance tests skip when they cannot locate a published Node CLI, which looks like it would make the verdict environment-dependent. It does not: measured with PM_NODE_CLI set and unset, all four percentages are byte-identical, because the locator already resolves a CLI through PATH. I asserted that hypothesis before testing it and it was wrong."
 notes[3]{created_at,author,text}:
   "2026-08-06T21:15:44.282Z",codex,"Companion lineage: pm-cli-website-204t"
   "2026-08-07T11:39:16.643Z",codex,"Governance audit: CodeRabbit identified that an earlier metadata backfill on closed slice pm-rust-o2yr followed its release event. The append-only history is preserved rather than manually rewritten; the active epic is currently claimed by codex, and all review-driven implementation and PM evidence changes in this tranche remain under that active claim until verification completes."
