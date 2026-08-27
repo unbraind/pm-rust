@@ -898,6 +898,12 @@ fn in_place_mutations_refuse_a_live_lock_within_the_budget()
             force_stale_lock: false,
         },
     )?;
+    // The live lock above still holds `pm_root`, so the blank-title refusal
+    // is asserted against the unlocked tracker, which holds the item and no lock.
+    assert!(matches!(
+        update_item(&unlocked_root, update),
+        Err(PmRustError::InvalidMutationRequest { .. })
+    ));
     Ok(())
 }
 

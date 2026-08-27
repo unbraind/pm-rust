@@ -142,6 +142,57 @@ fn update_request() -> UpdateItem {
     }
 }
 
+/// Builds the canonical SDK comment request used by the recorded sequence.
+fn comment_request() -> CommentItem {
+    CommentItem {
+        id: "sample-conv".to_owned(),
+        text: "First native note".to_owned(),
+        author: "fixture-agent".to_owned(),
+        timestamp: Some(TIMESTAMP.to_owned()),
+        message: Some("note recorded".to_owned()),
+        provenance_role: None,
+        force_stale_lock: false,
+    }
+}
+
+/// Builds the canonical SDK status-only update used by the recorded sequence.
+fn status_update_request() -> UpdateItem {
+    UpdateItem {
+        id: "sample-conv".to_owned(),
+        title: None,
+        description: None,
+        status: Some("in_progress".to_owned()),
+        priority: None,
+        tags: None,
+        body: None,
+        author: "fixture-agent".to_owned(),
+        timestamp: Some(TIMESTAMP.to_owned()),
+        message: None,
+        provenance_role: Some("implementer".to_owned()),
+        force_stale_lock: false,
+    }
+}
+
+/// Replays the recorded sequence prefix through `step` so every byte-exact
+/// test starts from the same durable state. `step` selects the last
+/// operation to apply: `create`, `update`, `comment`, or `status-update`.
+fn advance_to(workspace: &Workspace, step: &str) -> Result<(), Box<dyn std::error::Error>> {
+    workspace.create(create_request())?;
+    if step == "create" {
+        return Ok(());
+    }
+    workspace.update(update_request())?;
+    if step == "update" {
+        return Ok(());
+    }
+    workspace.comment(&comment_request())?;
+    if step == "comment" {
+        return Ok(());
+    }
+    workspace.update(status_update_request())?;
+    Ok(())
+}
+
 /// Reads the stored history stream for the sample item.
 fn history(root: &Path) -> String {
     fs::read_to_string(root.join(".agents/pm/history/sample-conv.jsonl")).unwrap_or_default()
@@ -191,17 +242,8 @@ fn native_update_matches_the_published_2026_8_21_bytes_exactly()
 fn native_comment_matches_the_published_2026_8_21_bytes_exactly()
 -> Result<(), Box<dyn std::error::Error>> {
     let (directory, workspace) = tracker()?;
-    workspace.create(create_request())?;
-    workspace.update(update_request())?;
-    let result = workspace.comment(&CommentItem {
-        id: "sample-conv".to_owned(),
-        text: "First native note".to_owned(),
-        author: "fixture-agent".to_owned(),
-        timestamp: Some(TIMESTAMP.to_owned()),
-        message: Some("note recorded".to_owned()),
-        provenance_role: None,
-        force_stale_lock: false,
-    })?;
+    advance_to(&workspace, "update")?;
+    let result = workspace.comment(&comment_request())?;
     assert_eq!(
         result.after_hash,
         "2f2d4a1680bcbb9dbf4e570ea50ceedbd7807a5f7d3c514bf8a4187b99fa37c0"
@@ -217,31 +259,8 @@ fn native_comment_matches_the_published_2026_8_21_bytes_exactly()
 /// Proves a status-only update omits the history message key like pm does.
 fn native_status_update_omits_an_absent_message_key() -> Result<(), Box<dyn std::error::Error>> {
     let (directory, workspace) = tracker()?;
-    workspace.create(create_request())?;
-    workspace.update(update_request())?;
-    workspace.comment(&CommentItem {
-        id: "sample-conv".to_owned(),
-        text: "First native note".to_owned(),
-        author: "fixture-agent".to_owned(),
-        timestamp: Some(TIMESTAMP.to_owned()),
-        message: Some("note recorded".to_owned()),
-        provenance_role: None,
-        force_stale_lock: false,
-    })?;
-    workspace.update(UpdateItem {
-        id: "sample-conv".to_owned(),
-        title: None,
-        description: None,
-        status: Some("in_progress".to_owned()),
-        priority: None,
-        tags: None,
-        body: None,
-        author: "fixture-agent".to_owned(),
-        timestamp: Some(TIMESTAMP.to_owned()),
-        message: None,
-        provenance_role: Some("implementer".to_owned()),
-        force_stale_lock: false,
-    })?;
+    advance_to(&workspace, "comment")?;
+    workspace.update(status_update_request())?;
     assert_eq!(
         history(directory.path()),
         CREATE_HISTORY_LINE.to_owned()
@@ -257,31 +276,7 @@ fn native_status_update_omits_an_absent_message_key() -> Result<(), Box<dyn std:
 fn native_close_matches_the_published_2026_8_21_bytes_exactly()
 -> Result<(), Box<dyn std::error::Error>> {
     let (directory, workspace) = tracker()?;
-    workspace.create(create_request())?;
-    workspace.update(update_request())?;
-    workspace.comment(&CommentItem {
-        id: "sample-conv".to_owned(),
-        text: "First native note".to_owned(),
-        author: "fixture-agent".to_owned(),
-        timestamp: Some(TIMESTAMP.to_owned()),
-        message: Some("note recorded".to_owned()),
-        provenance_role: None,
-        force_stale_lock: false,
-    })?;
-    workspace.update(UpdateItem {
-        id: "sample-conv".to_owned(),
-        title: None,
-        description: None,
-        status: Some("in_progress".to_owned()),
-        priority: None,
-        tags: None,
-        body: None,
-        author: "fixture-agent".to_owned(),
-        timestamp: Some(TIMESTAMP.to_owned()),
-        message: None,
-        provenance_role: Some("implementer".to_owned()),
-        force_stale_lock: false,
-    })?;
+    advance_to(&workspace, "status-update")?;
     let result = workspace.close(CloseItem {
         id: "sample-conv".to_owned(),
         reason: "conformance complete".to_owned(),

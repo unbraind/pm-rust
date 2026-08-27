@@ -171,6 +171,29 @@ fn update_dispatch_covers_fields_and_refusals() -> Result<(), Box<dyn std::error
 }
 
 #[test]
+/// Proves the CLI trims whitespace from each `--tags` CSV segment before storing
+/// it, so `--tags "alpha, beta"` stores `alpha,beta` rather than ` beta`.
+fn update_dispatch_trims_tag_csv_segments() -> Result<(), Box<dyn std::error::Error>> {
+    let workspace = workspace()?;
+    seed_item(&workspace)?;
+    expect_ok(
+        &workspace,
+        &[
+            "update",
+            "sample-cli",
+            "--tags=alpha, beta",
+            "--author=cli-agent",
+        ],
+    )?;
+    let item = fs::read_to_string(workspace.path().join(".agents/pm/tasks/sample-cli.toon"))?;
+    assert!(
+        item.contains("tags[2]: alpha,beta"),
+        "trailing/leading whitespace was not trimmed from a tag CSV segment: {item}"
+    );
+    Ok(())
+}
+
+#[test]
 /// Covers comment dispatch including its empty-text refusal.
 fn comment_dispatch_appends_and_refuses_empty_text() -> Result<(), Box<dyn std::error::Error>> {
     let workspace = workspace()?;
@@ -265,7 +288,9 @@ fn parser_refusals_exit_with_diagnostics() -> Result<(), Box<dyn std::error::Err
         "tracker-not-found diagnostic missing: {stderr}"
     );
 
-    // A relative workspace that exists but holds no tracker fails identically.
+    // A tracked workspace whose requested item is absent fails with
+    // item-not-found. The no-tracker case is covered by the absolute
+    // `--workspace` invocation above.
     expect_err(&workspace, &["get", "sample-missing"], "pm item not found")?;
     Ok(())
 }
