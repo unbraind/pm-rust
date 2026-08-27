@@ -1231,6 +1231,7 @@ fn a_journal_completes_the_history_half_when_the_item_is_already_replaced()
     Ok(())
 }
 
+#[cfg(unix)]
 #[test]
 /// Proves a failed roll-forward surfaces its IO error rather than reporting success.
 ///
@@ -1286,6 +1287,7 @@ fn a_roll_forward_that_cannot_write_the_item_fails_instead_of_reporting_success(
     Ok(())
 }
 
+#[cfg(unix)]
 #[test]
 /// Proves an unreadable item subdirectory fails the lookup rather than reporting the item missing.
 ///
