@@ -75,7 +75,12 @@ pub enum PmRustError {
         id: String,
     },
     /// Durable recovery found bytes that do not belong to its journal.
-    #[error("create transaction recovery conflict for {id}: {reason}")]
+    ///
+    /// The message is deliberately neutral about the transaction kind: this
+    /// variant is returned by create recovery and by update, comment and close
+    /// recovery alike, and naming one of them made the other three report a
+    /// transaction they were not.
+    #[error("transaction recovery conflict for {id}: {reason}")]
     RecoveryConflict {
         /// Stable item identifier whose transaction cannot be recovered automatically.
         id: String,

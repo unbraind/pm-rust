@@ -1359,3 +1359,49 @@ fn a_roll_forward_surfaces_a_history_append_failure() -> Result<(), Box<dyn std:
     );
     Ok(())
 }
+
+#[test]
+/// Proves a journal written before `before_item_hash` existed still parses.
+///
+/// The field was added as a required one, which meant a journal written by the
+/// previous build failed `serde_json::from_str`; `recover` and `recover_mutation`
+/// then returned `RecoveryConflict` for every later operation on that identifier
+/// until an operator deleted the file by hand. The exposure window is a crash
+/// followed by an upgrade, which is exactly when recovery has to work.
+fn a_journal_without_the_before_hash_still_recovers() -> Result<(), Box<dyn std::error::Error>> {
+    let (directory, workspace) = tracker()?;
+    let root = directory.path();
+    workspace.create(create_request())?;
+
+    // A legacy journal: valid in every respect except that it predates the
+    // before-image hash, so the field is absent rather than empty.
+    let journal_dir = root.join(".agents/pm/runtime/transactions");
+    fs::create_dir_all(&journal_dir)?;
+    let item_path = root.join(".agents/pm/tasks/sample-conv.toon");
+    let after_bytes = fs::read_to_string(&item_path)?;
+    fs::write(
+        journal_dir.join("update-sample-conv.json"),
+        serde_json::to_string(&serde_json::json!({
+            "version": 1,
+            "id": "sample-conv",
+            "item_type": "Task",
+            "item_bytes": after_bytes,
+            "history_bytes": "{\"op\":\"legacy\"}\n",
+        }))?,
+    )?;
+
+    // The mutation must not fail on the journal's shape. Whatever it decides
+    // about the durable bytes, it must decide it - not refuse to parse.
+    let result = workspace.update(UpdateItem {
+        title: Some("Parsed a legacy journal".to_owned()),
+        ..update_request()
+    });
+    if let Err(error) = &result {
+        let text = error.to_string();
+        assert!(
+            !text.contains("invalid durable journal"),
+            "a journal predating before_item_hash must still deserialize, got: {text}"
+        );
+    }
+    Ok(())
+}

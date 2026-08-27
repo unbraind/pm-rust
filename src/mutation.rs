@@ -267,6 +267,16 @@ struct MutationJournal {
     /// Without it, a crash between the item replace and the history append
     /// blocks every later mutation on the identifier until an operator deletes
     /// the journal by hand.
+    ///
+    /// Defaulted, not required: a journal written before this field existed
+    /// would otherwise fail to deserialize, and both `recover` and
+    /// `recover_mutation` would return `RecoveryConflict` for every later
+    /// operation on that identifier until an operator deleted the file by hand.
+    /// The exposure window is a crash followed by an upgrade. An empty value
+    /// matches no real document hash, so an old journal falls through to the
+    /// same conflict it would have reached before this field was added, rather
+    /// than to a spurious roll-forward.
+    #[serde(default)]
     before_item_hash: String,
 }
 
