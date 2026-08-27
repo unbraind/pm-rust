@@ -177,16 +177,25 @@ fn status_update_request() -> UpdateItem {
 /// test starts from the same durable state. `step` selects the last
 /// operation to apply: `create`, `update`, `comment`, or `status-update`.
 fn advance_to(workspace: &Workspace, step: &str) -> Result<(), Box<dyn std::error::Error>> {
+    // Reject an unknown step rather than falling through to the full sequence.
+    // A typo such as "comment " previously replayed four mutations instead of
+    // three, and the byte-exact assertion that followed compared against the
+    // wrong durable state without naming the cause.
+    const STEPS: [&str; 4] = ["create", "update", "comment", "status-update"];
+    let Some(target) = STEPS.iter().position(|candidate| *candidate == step) else {
+        return Err(format!("unknown advance_to step {step:?}; expected one of {STEPS:?}").into());
+    };
+
     workspace.create(create_request())?;
-    if step == "create" {
+    if target == 0 {
         return Ok(());
     }
     workspace.update(update_request())?;
-    if step == "update" {
+    if target == 1 {
         return Ok(());
     }
     workspace.comment(&comment_request())?;
-    if step == "comment" {
+    if target == 2 {
         return Ok(());
     }
     workspace.update(status_update_request())?;
@@ -975,6 +984,14 @@ fn a_durable_journal_replays_a_missing_item_and_history_before_the_next_mutation
 }
 
 #[test]
+// POSIX-shaped end to end: the second phase backdates a stale-cleanup GATE,
+// which is a directory, and `File::open` on a directory succeeds on unix but
+// not on Windows. Ageing only the lock file made the first phase work there and
+// the second fail, so the gate stayed fresh, `acquire_lock_attempt` returned
+// LockConflict, and the reclaim assertion failed. Gating the whole test is the
+// honest option: it does not run on Windows rather than running and asserting
+// nothing. Coverage is measured on Linux, where it does run.
+#[cfg(unix)]
 /// Proves a stale lock is reclaimed when `force_stale_lock` is set.
 ///
 /// This exercises the `acquire_lock_attempt` stale-cleanup path through the

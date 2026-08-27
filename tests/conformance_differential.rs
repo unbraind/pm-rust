@@ -122,8 +122,30 @@ fn run_minimal(
     let mut command = Command::new(program);
     command.current_dir(working_directory);
     command.env_clear();
-    command.env("PATH", std::env::var("PATH").unwrap_or_default());
-    command.env("HOME", std::env::var("HOME").unwrap_or_default());
+    // The clear is deliberate - the point is a reproducible environment - but a
+    // few variables are load-bearing for the interpreter itself rather than for
+    // the program under test. On Windows, node.exe fails to start without
+    // SystemRoot, so clearing it breaks the launch before the published CLI
+    // ever runs. Restore those from the parent, then apply the deterministic
+    // overrides on top so they still win.
+    for name in [
+        "PATH",
+        "HOME",
+        "SystemRoot",
+        "SystemDrive",
+        "windir",
+        "TEMP",
+        "TMP",
+        "USERPROFILE",
+        "COMSPEC",
+        "PATHEXT",
+        "NUMBER_OF_PROCESSORS",
+        "PROCESSOR_ARCHITECTURE",
+    ] {
+        if let Ok(value) = std::env::var(name) {
+            command.env(name, value);
+        }
+    }
     command.env("FIXED_CLOCK", CLOCK);
     command.args(arguments).output().map_err(Into::into)
 }

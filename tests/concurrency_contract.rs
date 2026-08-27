@@ -125,7 +125,20 @@ fn concurrent_comment_processes_preserve_every_accepted_mutation()
         accepted_total + 1,
         "history stream length diverges from accepted mutations"
     );
-    for pair in records.windows(2) {
+    for (index, pair) in records.windows(2).enumerate() {
+        // Presence first. `Value::Null` is what indexing returns for a missing
+        // key, so if the record schema ever renamed or dropped either field
+        // both sides would be Null, the equality would hold, and this test
+        // would keep passing while proving nothing about the chain.
+        assert!(
+            pair[0]["after_hash"].is_string(),
+            "record {index} has no after_hash; the chain check would compare Null to Null"
+        );
+        assert!(
+            pair[1]["before_hash"].is_string(),
+            "record {} has no before_hash; the chain check would compare Null to Null",
+            index + 1
+        );
         assert_eq!(
             pair[0]["after_hash"], pair[1]["before_hash"],
             "history hash chain broke under concurrency"

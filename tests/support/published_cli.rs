@@ -33,7 +33,13 @@ pub struct PublishedCli {
 #[allow(clippy::module_name_repetitions)]
 pub fn locate_published_cli() -> Option<PublishedCli> {
     if let Ok(value) = std::env::var("PM_NODE_CLI") {
-        let path = PathBuf::from(value);
+        // Canonicalized: a relative PM_NODE_CLI otherwise yields relative
+        // package_root and entry, and a consumer that runs a child with a
+        // different working directory cannot resolve either.
+        let path = match PathBuf::from(&value).canonicalize() {
+            Ok(absolute) => absolute,
+            Err(_) => PathBuf::from(value),
+        };
         let entry = path.join("dist/cli.js");
         if path.is_dir() && entry.is_file() {
             return Some(PublishedCli {
@@ -41,8 +47,16 @@ pub fn locate_published_cli() -> Option<PublishedCli> {
                 entry,
             });
         }
-        // An explicit entry script implies its package root two levels up.
+        // An explicit entry script implies its package root two levels up, but
+        // only `dist/cli.js` is that entry. Checking merely that the sibling
+        // `dist/cli.js` exists accepted any other file under `dist`, so a value
+        // such as `dist/cli-bundle/sdk.js` was returned as `entry` and the
+        // conformance driver then ran the wrong file.
         if path.is_file()
+            && path.file_name().is_some_and(|name| name == "cli.js")
+            && path
+                .parent()
+                .is_some_and(|dir| dir.file_name().is_some_and(|name| name == "dist"))
             && let Some(root) = path.parent().and_then(Path::parent)
             && root.join("dist/cli.js").is_file()
         {

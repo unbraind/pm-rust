@@ -1447,6 +1447,7 @@ fn locate_item_skips_symbolic_links() -> Result<(), Box<dyn std::error::Error>> 
 /// for it and skip it, so the real item beside it is still found. This covers
 /// the `is_file() == false` branch of the locator's else-if.
 fn locate_item_skips_a_non_file_entry() -> Result<(), Box<dyn std::error::Error>> {
+    use std::os::unix::fs::FileTypeExt;
     let (_directory, pm_root) = root(&mutation_settings(0))?;
     create_item(&pm_root, request())?;
     // Move the real item into a nested folder.
@@ -1461,7 +1462,19 @@ fn locate_item_skips_a_non_file_entry() -> Result<(), Box<dyn std::error::Error>
     // `else if entry_path.is_file()` guard must evaluate to `false` and skip
     // it, then recurse into `subdir` and find the real item.
     let fifo = pm_root.join("tasks/sample-unit.toon");
-    std::process::Command::new("mkfifo").arg(&fifo).status()?;
+    // `status()?` is Ok for a NON-ZERO exit too, so an unavailable or failing
+    // mkfifo left no entry at all: the locator never evaluated its `is_file()`
+    // guard against a non-file entry, the nested item was still found, and the
+    // test passed while reporting coverage of a branch it had not executed.
+    let created = std::process::Command::new("mkfifo").arg(&fifo).status()?;
+    assert!(
+        created.success(),
+        "mkfifo failed; the non-file branch would not be exercised"
+    );
+    assert!(
+        fifo.symlink_metadata()?.file_type().is_fifo(),
+        "the planted entry must be a FIFO, or the is_file() guard is not the branch under test"
+    );
     let (found_path, document) = locate_item(&pm_root, "sample-unit")?;
     assert_eq!(found_path, nested.join("sample-unit.toon"));
     assert_eq!(document.metadata.id, "sample-unit");
