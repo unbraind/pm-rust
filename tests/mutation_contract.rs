@@ -1422,3 +1422,55 @@ fn a_journal_without_the_before_hash_still_recovers() -> Result<(), Box<dyn std:
     }
     Ok(())
 }
+
+#[test]
+/// Proves a mutation that replays a journal still re-reads the durable item.
+///
+/// `recover_mutation` hands back the document it decoded on its common
+/// no-journal path so the tracker is not walked twice. When a journal IS
+/// replayed it returns `None` instead, because the replay has just rewritten
+/// the item on disk and any copy read before that is stale. This drives that
+/// second path: without the re-read, the mutation would build its result from
+/// a document that no longer matches the bytes on disk.
+fn a_replayed_journal_forces_the_item_to_be_read_again() -> Result<(), Box<dyn std::error::Error>> {
+    let (directory, workspace) = tracker()?;
+    let root = directory.path();
+    workspace.create(create_request())?;
+
+    let item_path = root.join(".agents/pm/tasks/sample-conv.toon");
+    let after_bytes = fs::read_to_string(&item_path)?;
+    let history_line = "{\"op\":\"replayed\",\"id\":\"sample-conv\"}\n";
+
+    // A journal whose after-image matches the item already on disk: the item
+    // half is complete, so recovery replays only the history half and then
+    // reports that the caller must re-read.
+    let journal_dir = root.join(".agents/pm/runtime/transactions");
+    fs::create_dir_all(&journal_dir)?;
+    fs::write(
+        journal_dir.join("update-sample-conv.json"),
+        serde_json::to_string(&serde_json::json!({
+            "version": 1,
+            "id": "sample-conv",
+            "item_type": "Task",
+            "item_bytes": after_bytes,
+            "history_bytes": history_line,
+            "before_item_hash": "",
+        }))?,
+    )?;
+
+    workspace.update(UpdateItem {
+        title: Some("Read again after replay".to_owned()),
+        ..update_request()
+    })?;
+
+    let history = fs::read_to_string(root.join(".agents/pm/history/sample-conv.jsonl"))?;
+    assert!(
+        history.contains("\"op\":\"replayed\""),
+        "the journalled history line must be replayed before the mutation appends its own"
+    );
+    assert!(
+        fs::read_to_string(&item_path)?.contains("Read again after replay"),
+        "the mutation must apply on top of the re-read document"
+    );
+    Ok(())
+}
