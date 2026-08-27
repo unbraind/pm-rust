@@ -1071,10 +1071,15 @@ fn mutation_recovery_repairs_completes_and_refuses_every_state()
     let original_item = fs::read_to_string(&item_path)?;
     let original_history = fs::read_to_string(&history_path)?;
     let updated_item = original_item.replace("Unit create", "Recovered title");
-    let appended_history = format!("{original_history}{{\"ts\":\"stub\",\"op\":\"update\"}}\n");
+    // `commit_mutation` stores ONE history line and `append_history_line` writes
+    // it verbatim, so a journal carrying the whole stream makes recovery append
+    // the entire history again. The line and the resulting file are separate
+    // values here for that reason.
+    let history_line = "{\"ts\":\"stub\",\"op\":\"update\"}\n".to_owned();
+    let appended_history = format!("{original_history}{history_line}");
 
     // A journal whose transaction fully committed is simply removed.
-    write_mutation_journal(&pm_root, "update", &updated_item, &appended_history)?;
+    write_mutation_journal(&pm_root, "update", &updated_item, &history_line)?;
     fs::write(&item_path, &updated_item)?;
     fs::write(&history_path, &appended_history)?;
     recover_mutation(&pm_root, "update", "sample-unit")?;
@@ -1085,12 +1090,14 @@ fn mutation_recovery_repairs_completes_and_refuses_every_state()
     );
 
     // A journal whose halves are absent is completed from its bytes.
-    write_mutation_journal(&pm_root, "update", &updated_item, &appended_history)?;
+    write_mutation_journal(&pm_root, "update", &updated_item, &history_line)?;
     fs::remove_file(&item_path)?;
     fs::remove_file(&history_path)?;
     recover_mutation(&pm_root, "update", "sample-unit")?;
     assert_eq!(fs::read_to_string(&item_path)?, updated_item);
-    assert!(fs::read_to_string(&history_path)?.ends_with(&appended_history));
+    // Exactly the journalled line: the stream was absent, so recovery wrote
+    // only what the journal carried.
+    assert_eq!(fs::read_to_string(&history_path)?, history_line);
     // Restore the pre-mutation state for the conflict cases below.
     fs::write(&item_path, &original_item)?;
     fs::write(&history_path, &original_history)?;
@@ -1099,10 +1106,10 @@ fn mutation_recovery_repairs_completes_and_refuses_every_state()
     // The journal records the pre-mutation hash, so recovery recognises the
     // before-image and rolls the whole transaction forward instead of
     // blocking the identifier permanently.
-    write_mutation_journal(&pm_root, "update", &updated_item, &appended_history)?;
+    write_mutation_journal(&pm_root, "update", &updated_item, &history_line)?;
     recover_mutation(&pm_root, "update", "sample-unit")?;
     assert_eq!(fs::read_to_string(&item_path)?, updated_item);
-    assert!(fs::read_to_string(&history_path)?.ends_with(&appended_history));
+    assert!(fs::read_to_string(&history_path)?.ends_with(&history_line));
     assert!(
         !pm_root
             .join("runtime/transactions/update-sample-unit.json")
@@ -1114,11 +1121,11 @@ fn mutation_recovery_repairs_completes_and_refuses_every_state()
     // A crash after the item replace but before the history append leaves the
     // post-mutation item beside the pre-mutation history. Recovery recognises
     // the after-image and completes the history half instead of refusing.
-    write_mutation_journal(&pm_root, "update", &updated_item, &appended_history)?;
+    write_mutation_journal(&pm_root, "update", &updated_item, &history_line)?;
     fs::write(&item_path, &updated_item)?;
     recover_mutation(&pm_root, "update", "sample-unit")?;
     assert_eq!(fs::read_to_string(&item_path)?, updated_item);
-    assert!(fs::read_to_string(&history_path)?.ends_with(&appended_history));
+    assert!(fs::read_to_string(&history_path)?.ends_with(&history_line));
     assert!(
         !pm_root
             .join("runtime/transactions/update-sample-unit.json")
@@ -1129,7 +1136,7 @@ fn mutation_recovery_repairs_completes_and_refuses_every_state()
 
     // Foreign durable bytes that match neither the pre-mutation nor the
     // post-mutation image refuse recovery instead of being overwritten.
-    write_mutation_journal(&pm_root, "update", &updated_item, &appended_history)?;
+    write_mutation_journal(&pm_root, "update", &updated_item, &history_line)?;
     let foreign_item = original_item.replace("Unit create", "Foreign title");
     fs::write(&item_path, &foreign_item)?;
     assert!(matches!(
@@ -1146,14 +1153,14 @@ fn mutation_recovery_repairs_completes_and_refuses_every_state()
     // A history stream that diverged from the journal still rolls forward when
     // the item matches the before-image: the item half is the authority, and
     // the history half is append-only, so recovery replays the missing line.
-    write_mutation_journal(&pm_root, "update", &updated_item, &appended_history)?;
+    write_mutation_journal(&pm_root, "update", &updated_item, &history_line)?;
     fs::write(
         &history_path,
         format!("{original_history}{{\"foreign\":1}}\n"),
     )?;
     recover_mutation(&pm_root, "update", "sample-unit")?;
     assert_eq!(fs::read_to_string(&item_path)?, updated_item);
-    assert!(fs::read_to_string(&history_path)?.ends_with(&appended_history));
+    assert!(fs::read_to_string(&history_path)?.ends_with(&history_line));
     fs::write(&item_path, &original_item)?;
     fs::write(&history_path, &original_history)?;
 
@@ -1166,7 +1173,7 @@ fn mutation_recovery_repairs_completes_and_refuses_every_state()
         recover_mutation(&pm_root, "update", "sample-unit"),
         Err(PmRustError::RecoveryConflict { .. })
     ));
-    write_mutation_journal(&pm_root, "update", &updated_item, &appended_history)?;
+    write_mutation_journal(&pm_root, "update", &updated_item, &history_line)?;
     let mut mismatched: MutationJournal =
         serde_json::from_str(&fs::read_to_string(&journal_path)?)?;
     mismatched.id = "other-id".to_owned();

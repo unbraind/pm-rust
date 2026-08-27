@@ -376,156 +376,81 @@ fn all_builtin_type_folders_and_current_timestamp_are_supported()
 }
 
 #[test]
-#[allow(clippy::too_many_lines)]
+/// Proves each validation rule refuses on its own.
+///
+/// Every case overrides exactly one field of the canonical fixture, so the
+/// refusal it asserts can only come from the rule it names. Building the cases
+/// from `request` rather than repeating a full literal also means a new
+/// `CreateItem` field is one edit rather than seven.
 fn sdk_create_rejects_invalid_ids_and_fields() -> Result<(), Box<dyn std::error::Error>> {
     let (_directory, workspace) = tracker()?;
 
-    // An id starting with a hyphen is refused.
-    let dash_prefix = workspace.create(CreateItem {
-        id: "-bad".to_owned(),
-        title: "Bad".to_owned(),
-        description: String::new(),
-        item_type: "Task".to_owned(),
-        status: "open".to_owned(),
-        priority: 2,
-        tags: Vec::new(),
-        body: String::new(),
-        author: "agent".to_owned(),
-        timestamp: Some(TIMESTAMP.to_owned()),
-        message: None,
-        provenance_role: None,
-        force_stale_lock: false,
-    });
-    assert!(matches!(
-        dash_prefix,
-        Err(PmRustError::InvalidCreateRequest { .. })
-    ));
+    // `sample-bad-`, not `bad-`: an id that also violates the configured
+    // `sample-` prefix would let the refusal come from the prefix rule instead
+    // of the trailing-hyphen rule this case exists to pin.
+    //
+    // The leading-hyphen case cannot be isolated the same way - an id that
+    // starts with a hyphen cannot also start with `sample-` - so it asserts the
+    // refusal without claiming which of the two rules produced it.
+    let cases: Vec<(&str, CreateItem)> = vec![
+        (
+            "an id starting with a hyphen",
+            CreateItem {
+                id: "-bad".to_owned(),
+                ..request("sample-unused")
+            },
+        ),
+        (
+            "an id ending with a hyphen",
+            CreateItem {
+                id: "sample-bad-".to_owned(),
+                ..request("sample-unused")
+            },
+        ),
+        (
+            "an empty id",
+            CreateItem {
+                id: String::new(),
+                ..request("sample-unused")
+            },
+        ),
+        (
+            "a blank title",
+            CreateItem {
+                title: "  ".to_owned(),
+                ..request("sample-empty")
+            },
+        ),
+        (
+            "an unsupported item type",
+            CreateItem {
+                item_type: "Custom".to_owned(),
+                ..request("sample-custom")
+            },
+        ),
+        (
+            "an out-of-range priority",
+            CreateItem {
+                priority: 5,
+                ..request("sample-bad-prio")
+            },
+        ),
+        (
+            "a malformed timestamp",
+            CreateItem {
+                timestamp: Some("not-a-timestamp".to_owned()),
+                ..request("sample-bad-ts")
+            },
+        ),
+    ];
 
-    // An id ending with a hyphen is refused.
-    let dash_suffix = workspace.create(CreateItem {
-        id: "bad-".to_owned(),
-        title: "Bad".to_owned(),
-        description: String::new(),
-        item_type: "Task".to_owned(),
-        status: "open".to_owned(),
-        priority: 2,
-        tags: Vec::new(),
-        body: String::new(),
-        author: "agent".to_owned(),
-        timestamp: Some(TIMESTAMP.to_owned()),
-        message: None,
-        provenance_role: None,
-        force_stale_lock: false,
-    });
-    assert!(matches!(
-        dash_suffix,
-        Err(PmRustError::InvalidCreateRequest { .. })
-    ));
-
-    // An empty title is refused.
-    let empty_title = workspace.create(CreateItem {
-        id: "sample-empty".to_owned(),
-        title: "  ".to_owned(),
-        description: String::new(),
-        item_type: "Task".to_owned(),
-        status: "open".to_owned(),
-        priority: 2,
-        tags: Vec::new(),
-        body: String::new(),
-        author: "agent".to_owned(),
-        timestamp: Some(TIMESTAMP.to_owned()),
-        message: None,
-        provenance_role: None,
-        force_stale_lock: false,
-    });
-    assert!(matches!(
-        empty_title,
-        Err(PmRustError::InvalidCreateRequest { .. })
-    ));
-
-    // An unsupported item type is refused.
-    let bad_type = workspace.create(CreateItem {
-        id: "sample-custom".to_owned(),
-        title: "Custom".to_owned(),
-        description: String::new(),
-        item_type: "Custom".to_owned(),
-        status: "open".to_owned(),
-        priority: 2,
-        tags: Vec::new(),
-        body: String::new(),
-        author: "agent".to_owned(),
-        timestamp: Some(TIMESTAMP.to_owned()),
-        message: None,
-        provenance_role: None,
-        force_stale_lock: false,
-    });
-    assert!(matches!(
-        bad_type,
-        Err(PmRustError::InvalidCreateRequest { .. })
-    ));
-
-    // An empty id is refused.
-    let empty_id = workspace.create(CreateItem {
-        id: String::new(),
-        title: "Bad".to_owned(),
-        description: String::new(),
-        item_type: "Task".to_owned(),
-        status: "open".to_owned(),
-        priority: 2,
-        tags: Vec::new(),
-        body: String::new(),
-        author: "agent".to_owned(),
-        timestamp: Some(TIMESTAMP.to_owned()),
-        message: None,
-        provenance_role: None,
-        force_stale_lock: false,
-    });
-    assert!(matches!(
-        empty_id,
-        Err(PmRustError::InvalidCreateRequest { .. })
-    ));
-
-    // An out-of-range priority is refused.
-    let bad_priority = workspace.create(CreateItem {
-        id: "sample-bad-prio".to_owned(),
-        title: "Bad priority".to_owned(),
-        description: String::new(),
-        item_type: "Task".to_owned(),
-        status: "open".to_owned(),
-        priority: 5,
-        tags: Vec::new(),
-        body: String::new(),
-        author: "agent".to_owned(),
-        timestamp: Some(TIMESTAMP.to_owned()),
-        message: None,
-        provenance_role: None,
-        force_stale_lock: false,
-    });
-    assert!(matches!(
-        bad_priority,
-        Err(PmRustError::InvalidCreateRequest { .. })
-    ));
-
-    // A malformed timestamp is refused.
-    let bad_timestamp = workspace.create(CreateItem {
-        id: "sample-bad-ts".to_owned(),
-        title: "Bad timestamp".to_owned(),
-        description: String::new(),
-        item_type: "Task".to_owned(),
-        status: "open".to_owned(),
-        priority: 2,
-        tags: Vec::new(),
-        body: String::new(),
-        author: "agent".to_owned(),
-        timestamp: Some("not-a-timestamp".to_owned()),
-        message: None,
-        provenance_role: None,
-        force_stale_lock: false,
-    });
-    assert!(matches!(
-        bad_timestamp,
-        Err(PmRustError::InvalidCreateRequest { .. })
-    ));
+    for (rule, invalid) in cases {
+        let result = workspace.create(invalid);
+        assert!(
+            matches!(result, Err(PmRustError::InvalidCreateRequest { .. })),
+            "{rule} must be refused with InvalidCreateRequest, got {result:?}"
+        );
+    }
 
     Ok(())
 }
