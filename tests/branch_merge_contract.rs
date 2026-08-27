@@ -66,6 +66,20 @@ fn branch_merge_preserves_mutations_from_both_sides() -> Result<(), Box<dyn std:
         println!("skip: no git binary found");
         return Ok(());
     }
+    // The merge install below spawns this interpreter directly. Probing it here
+    // keeps the promise the module header makes about external tools: a missing
+    // one produces an explicit skip notice rather than an assertion failure on
+    // an empty output several steps later.
+    let node_interpreter =
+        std::env::var("PM_NODE_INTERPRETER").unwrap_or_else(|_| "node".to_owned());
+    if Command::new(&node_interpreter)
+        .arg("--version")
+        .output()
+        .is_err()
+    {
+        println!("skip: no Node interpreter found (set PM_NODE_INTERPRETER to select one)");
+        return Ok(());
+    }
 
     let repository = tempfile::tempdir()?;
     run_git(repository.path(), &["init", "--initial-branch=main"])?;
@@ -85,9 +99,7 @@ fn branch_merge_preserves_mutations_from_both_sides() -> Result<(), Box<dyn std:
 
     // Install the published clone-local merge drivers into this repository.
     let installer = published.package_root.join("dist/cli.js");
-    let node_interpreter =
-        std::env::var("PM_NODE_INTERPRETER").unwrap_or_else(|_| "node".to_owned());
-    let merge_install = Command::new(node_interpreter)
+    let merge_install = Command::new(&node_interpreter)
         .current_dir(repository.path())
         .args([installer.to_string_lossy().as_ref(), "merge", "install"])
         .output()?;

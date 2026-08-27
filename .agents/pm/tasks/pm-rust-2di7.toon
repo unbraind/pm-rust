@@ -6,14 +6,17 @@ status: closed
 priority: 2
 tags: []
 created_at: "2026-08-22T10:41:27.180Z"
-updated_at: "2026-08-27T00:44:32.233Z"
+updated_at: "2026-08-27T10:19:34.762Z"
 closed_at: "2026-08-27T00:44:31.660Z"
 completed_at: "2026-08-27T00:44:31.660Z"
 author: pi-agent
 acceptance_criteria: "The test executes both binaries; it does not read recorded fixtures only;the test is skipped with a clear message when no Node pm installation is available;create, update, comment, and close outputs are compared byte for byte"
 parent: pm-rust-u4al
-comments[1]{created_at,author,text}:
+comments[2]{created_at,author,text}:
   "2026-08-22T11:36:10.339Z",pi-agent,"Added tests/conformance_differential.rs. The suite locates the real published Node pm installation (PM_NODE_CLI or PATH probe), initializes one fixture workspace with it, clones the tracker for the Rust side, then runs the same five-operation sequence (create, update, comment, status update, close) against both binaries and asserts .toon and .jsonl bytes are identical after every step. The published side runs under its own workspace-recipe facility (fixed clock, zero tick) with wall-clock Date pinned, so all timestamps are deterministic. Verified live against global @unbrained/pm-cli 2026.8.21: identical bytes at every step. A deliberate sabotage (one changed word) made the test fail, proving it compares real output rather than skipping. Skips with an explicit notice when no Node CLI is present."
+  "2026-08-27T10:19:34.762Z",claude,"Recording the changed file in structured metadata rather than only in prose: tests/conformance_differential.rs is the differential driver this task's evidence depends on, and it was named in the close reason but absent from the files list, so a reader querying the tracker would not have found it."
+files[1]{path,scope}:
+  tests/conformance_differential.rs,project
 tests[1]{command,scope,provenance{author,created_at,source_kind,source_ref},note}:
   cargo test --test conformance_differential,project,pi-agent,"2026-08-27T00:43:51.965Z",local_mutation,feat/rust-native-mutations-and-conformance,live differential conformance against the published Node pm CLI
 docs[1]{path,scope,note}:

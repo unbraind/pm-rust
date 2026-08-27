@@ -22,11 +22,6 @@ mod published_cli;
 
 use published_cli::{PublishedCli, locate_published_cli};
 
-/// Renders the deterministic recipe driver used to execute the published CLI.
-///
-/// The driver pins the recipe clock at [`CLOCK`] with zero tick and replaces
-/// the global `Date` constructor with one returning the same fixed instant, so
-/// even code paths that bypass the recipe clock write reproducible values.
 /// Encodes one path as a JSON string literal.
 ///
 /// A Windows path contains backslashes, which are escape introducers inside a
@@ -52,6 +47,14 @@ fn json_string(value: &str) -> String {
     out
 }
 
+/// Renders the deterministic recipe driver used to execute the published CLI.
+///
+/// The driver pins the recipe clock at [`CLOCK`] with zero tick and replaces
+/// the global `Date` constructor with one returning the same fixed instant, so
+/// even code paths that bypass the recipe clock write reproducible values.
+///
+/// `sdk` is the SDK entry the driver imports and `entry` the published CLI
+/// entry script; both are JSON-encoded before interpolation.
 fn driver_script(sdk: &Path, entry: &Path) -> String {
     let sdk_json = json_string(&sdk.to_string_lossy());
     let entry_json = json_string(&entry.to_string_lossy());
