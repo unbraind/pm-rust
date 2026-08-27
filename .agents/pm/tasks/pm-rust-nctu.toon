@@ -2,14 +2,21 @@ id: pm-rust-nctu
 title: Multi-process no-lost-update concurrency test
 description: "Spawn N concurrent Rust mutation processes against one workspace and assert every accepted mutation survives, using the existing per-item lock and lock wait budget rather than a new primitive."
 type: Task
-status: open
+status: closed
 priority: 2
 tags: []
 created_at: "2026-08-22T10:41:27.895Z"
-updated_at: "2026-08-22T11:40:19.543Z"
+updated_at: "2026-08-27T00:44:43.374Z"
+closed_at: "2026-08-27T00:44:42.943Z"
+completed_at: "2026-08-27T00:44:42.943Z"
 author: pi-agent
 acceptance_criteria: N independent processes mutate one item concurrently;every mutation that exits success is present in the final item and history stream;lock conflicts are retried within the configured wait budget instead of failing fast
 parent: pm-rust-u4al
 comments[1]{created_at,author,text}:
   "2026-08-22T11:40:19.543Z",pi-agent,"Added tests/concurrency_contract.rs: 8 concurrent OS processes each append 3 comments to one shared item using the per-item lock and its configured wait_ms budget (60s in the fixture), with no test-side coordination. Asserts every accepted mutation survives: comment-row count, history record count, and the before_hash/after_hash chain all agree with the 24 successful processes. The test found and fixed a real race: locate_item read the document before lock acquisition, so writers could apply changes to stale bytes; reads now happen inside the critical section for update, comment, and close. Lock-guard sabotage verified: releasing the lock immediately reproduces lost updates and fails the test."
+files[1]{path,scope,note}:
+  src/mutation.rs,project,per-item lock and lock wait budget implementation backing the concurrency guarantee
+tests[1]{command,scope,provenance{author,created_at,source_kind,source_ref},note}:
+  cargo test --test concurrency_contract,project,pi-agent,"2026-08-27T00:43:58.220Z",local_mutation,feat/rust-native-mutations-and-conformance,multi-process no-lost-update concurrency test
+close_reason: "tests/concurrency_contract.rs spawns 8 concurrent OS processes that each append 3 comments to one shared item using the per-item lock and its configured wait_ms budget; it asserts every accepted mutation survives in the final item and history stream, and lock-guard sabotage verifies the test fails when the lock is released early."
 body: ""
