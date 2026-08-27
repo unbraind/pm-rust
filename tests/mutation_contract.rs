@@ -997,11 +997,13 @@ fn a_stale_lock_is_reclaimed_when_force_stale_lock_is_set() -> Result<(), Box<dy
         &lock_path,
         r#"{"id":"sample-conv","pid":1,"owner":"stale-owner","created_at":"2020-01-01T00:00:00.000Z","ttl_seconds":1800,"token":"stale"}"#,
     )?;
-    #[cfg(unix)]
-    {
-        let file = std::fs::File::options().write(true).open(&lock_path)?;
-        file.set_times(std::fs::FileTimes::new().set_modified(std::time::SystemTime::UNIX_EPOCH))?;
-    }
+    // NOT cfg(unix): `File::set_times` and `FileTimes` are cross-platform. Under
+    // a unix-only guard the mtime stayed at "now" on Windows, so the planted
+    // lock was never stale, `force_stale_lock` had nothing to reclaim, and the
+    // test failed there while passing on Linux - a guard that made the test
+    // vacuous on one platform and red on the other.
+    let file = std::fs::File::options().write(true).open(&lock_path)?;
+    file.set_times(std::fs::FileTimes::new().set_modified(std::time::SystemTime::UNIX_EPOCH))?;
 
     // The update with `force_stale_lock` must reclaim the stale lock and apply.
     let result = workspace.update(UpdateItem {
@@ -1021,14 +1023,17 @@ fn a_stale_lock_is_reclaimed_when_force_stale_lock_is_set() -> Result<(), Box<dy
     )?;
     let gate = root.join(".agents/pm/locks/sample-conv.lock.stale-cleanup");
     fs::create_dir_all(&gate)?;
+    // The lock file is aged on every platform: without it the planted lock is
+    // not stale on Windows and the test asserts nothing there.
+    std::fs::File::options()
+        .write(true)
+        .open(&lock_path)?
+        .set_times(std::fs::FileTimes::new().set_modified(std::time::SystemTime::UNIX_EPOCH))?;
+    // The GATE is a directory, and `File::open` on a directory succeeds on unix
+    // but not on Windows, so only this half is guarded.
     #[cfg(unix)]
     {
-        let gate_file = std::fs::File::open(&gate)?;
-        gate_file
-            .set_times(std::fs::FileTimes::new().set_modified(std::time::SystemTime::UNIX_EPOCH))?;
-        std::fs::File::options()
-            .write(true)
-            .open(&lock_path)?
+        std::fs::File::open(&gate)?
             .set_times(std::fs::FileTimes::new().set_modified(std::time::SystemTime::UNIX_EPOCH))?;
     }
     let result = workspace.update(UpdateItem {
