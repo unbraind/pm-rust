@@ -6,14 +6,17 @@ status: closed
 priority: 2
 tags: []
 created_at: "2026-08-22T10:41:27.895Z"
-updated_at: "2026-08-27T00:44:43.374Z"
+updated_at: "2026-08-27T20:19:46.699Z"
 closed_at: "2026-08-27T00:44:42.943Z"
 completed_at: "2026-08-27T00:44:42.943Z"
+assignee: pi-agent
+claim_principal: pi-agent
 author: pi-agent
 acceptance_criteria: N independent processes mutate one item concurrently;every mutation that exits success is present in the final item and history stream;lock conflicts are retried within the configured wait budget instead of failing fast
 parent: pm-rust-u4al
-comments[1]{created_at,author,text}:
+comments[2]{created_at,author,text}:
   "2026-08-22T11:40:19.543Z",pi-agent,"Added tests/concurrency_contract.rs: 8 concurrent OS processes each append 3 comments to one shared item using the per-item lock and its configured wait_ms budget (60s in the fixture), with no test-side coordination. Asserts every accepted mutation survives: comment-row count, history record count, and the before_hash/after_hash chain all agree with the 24 successful processes. The test found and fixed a real race: locate_item read the document before lock acquisition, so writers could apply changes to stale bytes; reads now happen inside the critical section for update, comment, and close. Lock-guard sabotage verified: releasing the lock immediately reproduces lost updates and fails the test."
+  "2026-08-27T20:19:46.699Z",pi-agent,"Follow-up audit entry recorded under established ownership (item claimed by pi-agent) to correct the order in which this tracker learned the concurrency-test evidence. Restated evidence: tests/concurrency_contract.rs spawns 8 concurrent OS processes that each append 3 comments to one shared item using the per-item lock and its configured wait_ms budget (60s in the fixture), with no test-side coordination; it asserts every accepted mutation survives (comment-row count, history record count, and the before_hash/after_hash chain all agree with the 24 successful processes). The test found and fixed a real race: locate_item read the document before lock acquisition, so writers could apply changes to stale bytes; reads now happen inside the critical section for update, comment, and close. Lock-guard sabotage verified: releasing the lock immediately reproduces lost updates and fails the test. This evidence was originally appended in history events that precede the claim (the comment_add at 2026-08-22T11:40:19Z, the tests_add at 2026-08-27T00:43:58Z, and the files_add at 2026-08-27T00:43:58Z, all before the claim at 2026-08-27T00:44:42Z). It is restated here under established ownership rather than by rewriting the append-only, hash-chained history."
 files[1]{path,scope,note}:
   src/mutation.rs,project,per-item lock and lock wait budget implementation backing the concurrency guarantee
 tests[1]{command,scope,provenance{author,created_at,source_kind,source_ref},note}:
