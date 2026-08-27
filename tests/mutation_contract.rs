@@ -1407,19 +1407,24 @@ fn a_journal_without_the_before_hash_still_recovers() -> Result<(), Box<dyn std:
         }))?,
     )?;
 
-    // The mutation must not fail on the journal's shape. Whatever it decides
-    // about the durable bytes, it must decide it - not refuse to parse.
+    // Recovery must actually succeed: a journal predating before_item_hash
+    // still deserializes (the field is `#[serde(default)]`) and the mutation
+    // completes. Asserting only that the failure is not one specific failure
+    // ("invalid durable journal") would let any other `RecoveryConflict` pass —
+    // a test named "still recovers" that passes when recovery fails is worse
+    // than no test.
     let result = workspace.update(UpdateItem {
         title: Some("Parsed a legacy journal".to_owned()),
         ..update_request()
     });
-    if let Err(error) = &result {
-        let text = error.to_string();
-        assert!(
-            !text.contains("invalid durable journal"),
-            "a journal predating before_item_hash must still deserialize, got: {text}"
-        );
-    }
+    assert!(
+        result.is_ok(),
+        "a journal predating before_item_hash must still recover, but recovery failed: {}",
+        result
+            .as_ref()
+            .err()
+            .map_or("no error".to_owned(), std::string::ToString::to_string)
+    );
     Ok(())
 }
 

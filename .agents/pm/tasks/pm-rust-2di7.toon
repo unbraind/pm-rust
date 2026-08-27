@@ -6,11 +6,9 @@ status: closed
 priority: 2
 tags: []
 created_at: "2026-08-22T10:41:27.180Z"
-updated_at: "2026-08-27T20:19:30.061Z"
+updated_at: "2026-08-27T21:33:02.413Z"
 closed_at: "2026-08-27T00:44:31.660Z"
 completed_at: "2026-08-27T00:44:31.660Z"
-assignee: pi-agent
-claim_principal: pi-agent
 author: pi-agent
 acceptance_criteria: "The test executes both binaries; it does not read recorded fixtures only;the test is skipped with a clear message when no Node pm installation is available;create, update, comment, and close outputs are compared byte for byte"
 parent: pm-rust-u4al
