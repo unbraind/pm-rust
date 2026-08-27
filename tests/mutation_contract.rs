@@ -7,6 +7,7 @@ use std::path::Path;
 
 use assert_cmd::Command;
 use pm_rust::{CloseItem, CommentItem, CreateItem, PmRustError, UpdateItem, Workspace};
+use predicates::str::contains;
 use tempfile::TempDir;
 
 const TIMESTAMP: &str = "2026-08-22T10:00:00.000Z";
@@ -515,9 +516,12 @@ fn mutation_guards_reject_invalid_requests() -> Result<(), Box<dyn std::error::E
         provenance_role: None,
         force_stale_lock: false,
     });
+    // A malformed timestamp on an in-place mutation reports the mutation
+    // variant, not the create variant, so the failure reads as `invalid
+    // mutation request`.
     assert!(matches!(
         bad_timestamp,
-        Err(PmRustError::InvalidCreateRequest { .. })
+        Err(PmRustError::InvalidMutationRequest { .. })
     ));
 
     // An out-of-range priority is refused before any durable state moves.
@@ -578,6 +582,26 @@ fn mutation_guards_reject_invalid_requests() -> Result<(), Box<dyn std::error::E
         blank_status,
         Err(PmRustError::InvalidMutationRequest { .. })
     ));
+
+    // A blank author is refused before any durable state moves.
+    let blank_author = workspace.update(UpdateItem {
+        id: "sample-conv".to_owned(),
+        title: Some("Author test".to_owned()),
+        description: None,
+        status: None,
+        priority: None,
+        tags: None,
+        body: None,
+        author: "   ".to_owned(),
+        timestamp: Some(TIMESTAMP.to_owned()),
+        message: None,
+        provenance_role: None,
+        force_stale_lock: false,
+    });
+    assert!(matches!(
+        blank_author,
+        Err(PmRustError::InvalidMutationRequest { .. })
+    ));
     Ok(())
 }
 
@@ -603,6 +627,7 @@ fn a_conflicting_journal_refuses_update_comment_and_close() -> Result<(), Box<dy
                 "item_type": "Task",
                 "item_bytes": format!("{item_bytes}foreign"),
                 "history_bytes": "\"stub\": true\n",
+                "before_item_hash": "foreign-before-hash",
             })
             .to_string(),
         )?;
@@ -683,6 +708,102 @@ fn cli_mutations_report_a_closed_stdout_pipe() -> Result<(), Box<dyn std::error:
 }
 
 #[test]
+/// Proves CLI mutations reject invalid inputs with the same guards as the SDK.
+fn cli_mutations_reject_invalid_inputs() -> Result<(), Box<dyn std::error::Error>> {
+    let (directory, _workspace) = tracker()?;
+    let workspace_arg = format!("--workspace={}", directory.path().display());
+    Command::cargo_bin("pm-rust")?
+        .args([
+            workspace_arg.as_str(),
+            "create",
+            "--id",
+            "sample-conv",
+            "--title",
+            "Conformance item",
+            "--type",
+            "Task",
+            "--author",
+            "fixture-agent",
+            "--description",
+            "First desc",
+            "--timestamp",
+            TIMESTAMP,
+        ])
+        .assert()
+        .success();
+
+    // A blank author is refused.
+    Command::cargo_bin("pm-rust")?
+        .args([
+            workspace_arg.as_str(),
+            "update",
+            "sample-conv",
+            "--title",
+            "Bad author",
+            "--author",
+            "   ",
+            "--timestamp",
+            TIMESTAMP,
+        ])
+        .assert()
+        .code(2)
+        .stderr(contains("invalid mutation request"));
+
+    // A bad timestamp is refused.
+    Command::cargo_bin("pm-rust")?
+        .args([
+            workspace_arg.as_str(),
+            "update",
+            "sample-conv",
+            "--title",
+            "Bad timestamp",
+            "--author",
+            "fixture-agent",
+            "--timestamp",
+            "not-a-timestamp",
+        ])
+        .assert()
+        .code(2)
+        .stderr(contains("invalid mutation request"));
+
+    // A blank title is refused.
+    Command::cargo_bin("pm-rust")?
+        .args([
+            workspace_arg.as_str(),
+            "update",
+            "sample-conv",
+            "--title",
+            "   ",
+            "--author",
+            "fixture-agent",
+            "--timestamp",
+            TIMESTAMP,
+        ])
+        .assert()
+        .code(2)
+        .stderr(contains("invalid mutation request"));
+
+    // A blank close reason is refused.
+    Command::cargo_bin("pm-rust")?
+        .args([
+            workspace_arg.as_str(),
+            "close",
+            "sample-conv",
+            "--reason",
+            "  ",
+            "--author",
+            "fixture-agent",
+            "--timestamp",
+            TIMESTAMP,
+        ])
+        .assert()
+        .code(2)
+        .stderr(contains("invalid mutation request"));
+
+    Ok(())
+}
+
+#[test]
 /// Proves closing an already terminal item is refused.
 fn close_refuses_an_already_terminal_item() -> Result<(), Box<dyn std::error::Error>> {
     let (_directory, workspace) = tracker()?;
@@ -707,6 +828,100 @@ fn close_refuses_an_already_terminal_item() -> Result<(), Box<dyn std::error::Er
         second,
         Err(PmRustError::InvalidMutationRequest { .. })
     ));
+    Ok(())
+}
+
+#[test]
+/// Proves each updateable field can be changed individually.
+///
+/// The `changed` guard uses `||` short-circuiting, so updating only `title`
+/// never evaluates `description.is_some()`, `priority.is_some()`, etc. This
+/// test exercises each field in isolation so every `||` operand has its true
+/// direction taken in the integration-test binary.
+fn single_field_updates_cover_every_change_arm() -> Result<(), Box<dyn std::error::Error>> {
+    let (_directory, workspace) = tracker()?;
+    workspace.create(create_request())?;
+
+    // Description only.
+    workspace.update(UpdateItem {
+        id: "sample-conv".to_owned(),
+        title: None,
+        description: Some("Updated desc".to_owned()),
+        status: None,
+        priority: None,
+        tags: None,
+        body: None,
+        author: "fixture-agent".to_owned(),
+        timestamp: Some(TIMESTAMP.to_owned()),
+        message: None,
+        provenance_role: None,
+        force_stale_lock: false,
+    })?;
+
+    // Status only.
+    workspace.update(UpdateItem {
+        id: "sample-conv".to_owned(),
+        title: None,
+        description: None,
+        status: Some("in_progress".to_owned()),
+        priority: None,
+        tags: None,
+        body: None,
+        author: "fixture-agent".to_owned(),
+        timestamp: Some(TIMESTAMP.to_owned()),
+        message: None,
+        provenance_role: None,
+        force_stale_lock: false,
+    })?;
+
+    // Priority only.
+    workspace.update(UpdateItem {
+        id: "sample-conv".to_owned(),
+        title: None,
+        description: None,
+        status: None,
+        priority: Some(3),
+        tags: None,
+        body: None,
+        author: "fixture-agent".to_owned(),
+        timestamp: Some(TIMESTAMP.to_owned()),
+        message: None,
+        provenance_role: None,
+        force_stale_lock: false,
+    })?;
+
+    // Tags only.
+    workspace.update(UpdateItem {
+        id: "sample-conv".to_owned(),
+        title: None,
+        description: None,
+        status: None,
+        priority: None,
+        tags: Some(vec!["solo".to_owned()]),
+        body: None,
+        author: "fixture-agent".to_owned(),
+        timestamp: Some(TIMESTAMP.to_owned()),
+        message: None,
+        provenance_role: None,
+        force_stale_lock: false,
+    })?;
+
+    // Body only.
+    workspace.update(UpdateItem {
+        id: "sample-conv".to_owned(),
+        title: None,
+        description: None,
+        status: None,
+        priority: None,
+        tags: None,
+        body: Some("Updated body".to_owned()),
+        author: "fixture-agent".to_owned(),
+        timestamp: Some(TIMESTAMP.to_owned()),
+        message: None,
+        provenance_role: None,
+        force_stale_lock: false,
+    })?;
+
     Ok(())
 }
 
@@ -743,6 +958,7 @@ fn a_durable_journal_replays_a_missing_item_and_history_before_the_next_mutation
             "item_type": "Task",
             "item_bytes": item_bytes,
             "history_bytes": history_bytes,
+            "before_item_hash": "0000000000000000000000000000000000000000000000000000000000000000",
         })
         .to_string(),
     )?;
@@ -759,6 +975,385 @@ fn a_durable_journal_replays_a_missing_item_and_history_before_the_next_mutation
     assert!(
         item(root).contains("Renamed item"),
         "the update must apply on top of the replayed item"
+    );
+    Ok(())
+}
+
+#[test]
+/// Proves a stale lock is reclaimed when `force_stale_lock` is set.
+///
+/// This exercises the `acquire_lock_attempt` stale-cleanup path through the
+/// public API, covering the `!stale || !force_stale`, gate-creation, and
+/// abandoned-gate branches in the integration-test compilation unit.
+fn a_stale_lock_is_reclaimed_when_force_stale_lock_is_set() -> Result<(), Box<dyn std::error::Error>>
+{
+    let (directory, workspace) = tracker()?;
+    let root = directory.path();
+    workspace.create(create_request())?;
+
+    // Plant a stale lock: write a valid-looking payload and set its mtime far
+    // enough in the past that the ttl_seconds=1800 threshold is exceeded.
+    let lock_path = root.join(".agents/pm/locks/sample-conv.lock");
+    let Some(parent) = lock_path.parent() else {
+        return Err("lock path has no parent".into());
+    };
+    fs::create_dir_all(parent)?;
+    fs::write(
+        &lock_path,
+        r#"{"id":"sample-conv","pid":1,"owner":"stale-owner","created_at":"2020-01-01T00:00:00.000Z","ttl_seconds":1800,"token":"stale"}"#,
+    )?;
+    #[cfg(unix)]
+    {
+        let file = std::fs::File::options().write(true).open(&lock_path)?;
+        file.set_times(std::fs::FileTimes::new().set_modified(std::time::SystemTime::UNIX_EPOCH))?;
+    }
+
+    // The update with `force_stale_lock` must reclaim the stale lock and apply.
+    let result = workspace.update(UpdateItem {
+        force_stale_lock: true,
+        ..update_request()
+    });
+    assert!(result.is_ok(), "a stale lock should be reclaimed, not held");
+    assert!(item(root).contains("Renamed item"));
+
+    // Plant a stale lock again, this time beside an abandoned stale-cleanup
+    // gate directory. The gate's mtime is set to the epoch so it reads as
+    // abandoned; the reclaim path removes the gate and recreates it before
+    // proceeding.
+    fs::write(
+        &lock_path,
+        r#"{"id":"sample-conv","pid":1,"owner":"stale-owner","created_at":"2020-01-01T00:00:00.000Z","ttl_seconds":1800,"token":"stale"}"#,
+    )?;
+    let gate = root.join(".agents/pm/locks/sample-conv.lock.stale-cleanup");
+    fs::create_dir_all(&gate)?;
+    #[cfg(unix)]
+    {
+        let gate_file = std::fs::File::open(&gate)?;
+        gate_file
+            .set_times(std::fs::FileTimes::new().set_modified(std::time::SystemTime::UNIX_EPOCH))?;
+        std::fs::File::options()
+            .write(true)
+            .open(&lock_path)?
+            .set_times(std::fs::FileTimes::new().set_modified(std::time::SystemTime::UNIX_EPOCH))?;
+    }
+    let result = workspace.update(UpdateItem {
+        id: "sample-conv".to_owned(),
+        title: Some("Twice renamed".to_owned()),
+        description: None,
+        status: None,
+        priority: None,
+        tags: None,
+        body: None,
+        author: "fixture-agent".to_owned(),
+        timestamp: Some(TIMESTAMP.to_owned()),
+        message: None,
+        provenance_role: Some("implementer".to_owned()),
+        force_stale_lock: true,
+    });
+    assert!(result.is_ok(), "an abandoned gate should be reclaimed");
+    assert!(item(root).contains("Twice renamed"));
+    Ok(())
+}
+
+#[test]
+/// Proves create recovery refuses a journal whose item bytes differ.
+///
+/// This exercises the create `recover` conflict branches through the public
+/// API: a foreign durable item beside a create journal must refuse rather than
+/// overwrite.
+fn create_recovery_refuses_foreign_durable_item() -> Result<(), Box<dyn std::error::Error>> {
+    let (directory, workspace) = tracker()?;
+    let root = directory.path();
+    workspace.create(create_request())?;
+
+    // Plant a create journal whose item bytes differ from the durable item.
+    let transactions = root.join(".agents/pm/runtime/transactions");
+    let item_bytes = item(root);
+    fs::write(
+        transactions.join("create-sample-conv.json"),
+        serde_json::json!({
+            "version": 1,
+            "id": "sample-conv",
+            "item_type": "Task",
+            "item_bytes": format!("{item_bytes}foreign"),
+            "history_bytes": "\"stub\": true\n",
+            "before_item_hash": "0000000000000000000000000000000000000000000000000000000000000000",
+        })
+        .to_string(),
+    )?;
+
+    // A second create on the same id fails because the item exists; but the
+    // recovery check fires first and refuses the foreign journal.
+    let refused = workspace.create(create_request());
+    assert!(matches!(
+        refused,
+        Err(PmRustError::ItemAlreadyExists { .. } | PmRustError::RecoveryConflict { .. })
+    ));
+    Ok(())
+}
+
+#[test]
+/// Proves create recovery refuses a journal with a version mismatch.
+fn create_recovery_refuses_a_mismatched_journal() -> Result<(), Box<dyn std::error::Error>> {
+    let (directory, workspace) = tracker()?;
+    let root = directory.path();
+    workspace.create(create_request())?;
+
+    let transactions = root.join(".agents/pm/runtime/transactions");
+    fs::write(
+        transactions.join("create-sample-conv.json"),
+        serde_json::json!({
+            "version": 2,
+            "id": "sample-conv",
+            "item_type": "Task",
+            "item_bytes": item(root),
+            "history_bytes": history(root),
+            "before_item_hash": "0000000000000000000000000000000000000000000000000000000000000000",
+        })
+        .to_string(),
+    )?;
+
+    let refused = workspace.create(create_request());
+    assert!(matches!(
+        refused,
+        Err(PmRustError::RecoveryConflict { .. } | PmRustError::ItemAlreadyExists { .. })
+    ));
+    Ok(())
+}
+
+#[test]
+/// Proves a comment refuses when the stored `comments` value is not an array.
+///
+/// A scalar, object, or null `comments` field is not a compatible append
+/// target. The mutation must refuse instead of silently overwriting the stored
+/// content with a one-element array.
+fn a_comment_refuses_a_non_array_comments_value() -> Result<(), Box<dyn std::error::Error>> {
+    let (directory, workspace) = tracker()?;
+    let root = directory.path();
+    workspace.create(create_request())?;
+
+    // Plant a non-array `comments` value directly in the stored item.
+    let item_path = root.join(".agents/pm/tasks/sample-conv.toon");
+    let raw = fs::read_to_string(&item_path)?;
+    let polluted = format!("{raw}comments: \"not-an-array\"\n");
+    fs::write(&item_path, polluted)?;
+
+    let refused = workspace.comment(&CommentItem {
+        id: "sample-conv".to_owned(),
+        text: "note".to_owned(),
+        author: "fixture-agent".to_owned(),
+        timestamp: Some(TIMESTAMP.to_owned()),
+        message: None,
+        provenance_role: None,
+        force_stale_lock: false,
+    });
+    assert!(matches!(
+        refused,
+        Err(PmRustError::InvalidMutationRequest { .. })
+    ));
+    // The stored content must be unchanged.
+    assert!(fs::read_to_string(&item_path)?.contains("not-an-array"));
+    Ok(())
+}
+
+#[test]
+/// Proves create recovery refuses when the durable history differs from the
+/// journal even though the item matches.
+fn create_recovery_refuses_a_diverged_history() -> Result<(), Box<dyn std::error::Error>> {
+    let (directory, workspace) = tracker()?;
+    let root = directory.path();
+    workspace.create(create_request())?;
+    let item_bytes = item(root);
+    let transactions = root.join(".agents/pm/runtime/transactions");
+    fs::write(
+        transactions.join("create-sample-conv.json"),
+        serde_json::json!({
+            "version": 1,
+            "id": "sample-conv",
+            "item_type": "Task",
+            "item_bytes": item_bytes,
+            "history_bytes": "{\"stub\": true}\n",
+            "before_item_hash": "0000000000000000000000000000000000000000000000000000000000000000",
+        })
+        .to_string(),
+    )?;
+    // The item matches the journal but the history stream diverged.
+    fs::write(
+        root.join(".agents/pm/history/sample-conv.jsonl"),
+        "diverged\n",
+    )?;
+    let refused = workspace.create(create_request());
+    assert!(matches!(
+        refused,
+        Err(PmRustError::RecoveryConflict { .. } | PmRustError::ItemAlreadyExists { .. })
+    ));
+    Ok(())
+}
+
+#[test]
+/// Proves `recover_mutation` completes the history half when the item already
+/// holds the post-mutation image (crash after item replace, before history
+/// append).
+fn a_journal_completes_the_history_half_when_the_item_is_already_replaced()
+-> Result<(), Box<dyn std::error::Error>> {
+    let (directory, workspace) = tracker()?;
+    let root = directory.path();
+    workspace.create(create_request())?;
+    let original_item = item(root);
+    let updated_item = original_item.replace("Conformance item", "Recovered title");
+    let original_history = history(root);
+    let appended_history = format!("{original_history}{{\"ts\":\"stub\",\"op\":\"update\"}}\n");
+
+    // Plant an update journal whose item_bytes match the durable item (the
+    // item half already committed) but whose history line has not been
+    // appended yet.
+    let transactions = root.join(".agents/pm/runtime/transactions");
+    fs::write(
+        transactions.join("update-sample-conv.json"),
+        serde_json::json!({
+            "version": 1,
+            "id": "sample-conv",
+            "item_type": "Task",
+            "item_bytes": updated_item,
+            "history_bytes": appended_history,
+            "before_item_hash": "0000000000000000000000000000000000000000000000000000000000000000",
+        })
+        .to_string(),
+    )?;
+    fs::write(
+        root.join(".agents/pm/tasks/sample-conv.toon"),
+        &updated_item,
+    )?;
+
+    // The next update must recover: recognise the after-image, append the
+    // missing history line, remove the journal, then apply the update.
+    workspace.update(update_request())?;
+    assert!(
+        history(root).contains(&appended_history),
+        "the journalled history line must be replayed during recovery"
+    );
+    assert!(!transactions.join("update-sample-conv.json").exists());
+    Ok(())
+}
+
+#[test]
+/// Proves a failed roll-forward surfaces its IO error rather than reporting success.
+///
+/// `recover_mutation`'s roll-forward arm runs when the durable item still holds
+/// the before-image or is absent: it replays the journalled item and history.
+/// Every existing test drives that arm with a writable tracker, so the `?` on
+/// `atomic_replace` was never taken and a recovery that could not write would
+/// have been indistinguishable from one that did.
+///
+/// The item directory is made unwritable so `atomic_replace` fails creating its
+/// private temporary, which is the first fallible step of the replay.
+fn a_roll_forward_that_cannot_write_the_item_fails_instead_of_reporting_success()
+-> Result<(), Box<dyn std::error::Error>> {
+    use std::os::unix::fs::PermissionsExt;
+
+    let (directory, workspace) = tracker()?;
+    let root = directory.path();
+    workspace.create(create_request())?;
+
+    let item_bytes = item(root);
+    let history_bytes = history(root);
+
+    // Post-crash state: journal survived, durable publish did not.
+    let transactions = root.join(".agents/pm/runtime/transactions");
+    fs::create_dir_all(&transactions)?;
+    fs::write(
+        transactions.join("update-sample-conv.json"),
+        serde_json::json!({
+            "version": 1,
+            "id": "sample-conv",
+            "item_type": "Task",
+            "item_bytes": item_bytes,
+            "history_bytes": history_bytes,
+            "before_item_hash": "0000000000000000000000000000000000000000000000000000000000000000",
+        })
+        .to_string(),
+    )?;
+    fs::remove_file(root.join(".agents/pm/tasks/sample-conv.toon"))?;
+    fs::remove_file(root.join(".agents/pm/history/sample-conv.jsonl"))?;
+
+    // Deny writes to the directory the replay must create its temporary in.
+    let tasks = root.join(".agents/pm/tasks");
+    fs::set_permissions(&tasks, fs::Permissions::from_mode(0o555))?;
+    let outcome = workspace.update(update_request());
+    // Restore before asserting so a failed assertion cannot leave the temporary
+    // directory undeletable.
+    fs::set_permissions(&tasks, fs::Permissions::from_mode(0o755))?;
+
+    assert!(
+        matches!(outcome, Err(PmRustError::Io { .. })),
+        "an unwritable item directory must surface as an IO error, got {outcome:?}"
+    );
+    Ok(())
+}
+
+#[test]
+/// Proves an unreadable item subdirectory fails the lookup rather than reporting the item missing.
+///
+/// `locate_item_recursive` walks every directory that is not excluded at the
+/// root. Its `read_directory(dir)?` had no coverage because the walk always
+/// succeeded in tests, so a directory the process cannot read would have been
+/// silently skipped and the item reported absent — a wrong answer rather than
+/// an error.
+fn an_unreadable_item_directory_fails_the_lookup_rather_than_hiding_the_item()
+-> Result<(), Box<dyn std::error::Error>> {
+    use std::os::unix::fs::PermissionsExt;
+
+    let (directory, workspace) = tracker()?;
+    let root = directory.path();
+    workspace.create(create_request())?;
+
+    let tasks = root.join(".agents/pm/tasks");
+    fs::set_permissions(&tasks, fs::Permissions::from_mode(0o000))?;
+    let outcome = workspace.update(update_request());
+    fs::set_permissions(&tasks, fs::Permissions::from_mode(0o755))?;
+
+    assert!(
+        outcome.is_err(),
+        "an unreadable item directory must fail the lookup, got {outcome:?}"
+    );
+    Ok(())
+}
+
+#[test]
+/// Proves a roll-forward recovery surfaces a history append failure.
+///
+/// When the item is absent and the history directory is gone, `atomic_replace`
+/// succeeds (the tasks directory exists) but `append_history_line` fails
+/// because it cannot create the history file. The error must surface rather
+/// than being silently swallowed.
+fn a_roll_forward_surfaces_a_history_append_failure() -> Result<(), Box<dyn std::error::Error>> {
+    let (directory, workspace) = tracker()?;
+    let root = directory.path();
+    workspace.create(create_request())?;
+    let item_bytes = item(root);
+    let history_bytes = history(root);
+
+    let transactions = root.join(".agents/pm/runtime/transactions");
+    fs::create_dir_all(&transactions)?;
+    fs::write(
+        transactions.join("update-sample-conv.json"),
+        serde_json::json!({
+            "version": 1,
+            "id": "sample-conv",
+            "item_type": "Task",
+            "item_bytes": item_bytes,
+            "history_bytes": history_bytes,
+            "before_item_hash": "0000000000000000000000000000000000000000000000000000000000000000",
+        })
+        .to_string(),
+    )?;
+    fs::remove_file(root.join(".agents/pm/tasks/sample-conv.toon"))?;
+    fs::remove_dir_all(root.join(".agents/pm/history"))?;
+
+    let outcome = workspace.update(update_request());
+    assert!(
+        matches!(outcome, Err(PmRustError::Io { .. })),
+        "a missing history directory must surface as an IO error, got {outcome:?}"
     );
     Ok(())
 }

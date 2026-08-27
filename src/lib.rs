@@ -16,7 +16,10 @@ mod workspace;
 pub use error::PmRustError;
 pub use history::canonical_metadata_pairs;
 pub use item::{ItemDocument, ItemMetadata, ItemSummary};
-pub use mutation::{CloseItem, CommentItem, CreateItem, CreateResult, MutationResult, UpdateItem};
+pub use mutation::{
+    CloseItem, CommentItem, CreateItem, CreateResult, MutationResult, UpdateItem, default_priority,
+    default_status,
+};
 pub use workspace::{ItemFilter, ListResult, Workspace};
 
 /// Published canonical `pm` release used by this compatibility slice.

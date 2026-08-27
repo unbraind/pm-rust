@@ -10,55 +10,13 @@
 //! a git binary; when either is missing it prints an explicit skip notice.
 
 use std::fs;
-use std::path::{Path, PathBuf};
+use std::path::Path;
 use std::process::Command;
 
-/// Describes one located published CLI installation.
-struct PublishedCli {
-    /// Path to the package root holding `dist/`.
-    package_root: PathBuf,
-}
+#[path = "support/published_cli.rs"]
+mod published_cli;
 
-/// Locates the published Node CLI via `PM_NODE_CLI` or a PATH probe.
-fn locate_published_cli() -> Option<PublishedCli> {
-    if let Ok(value) = std::env::var("PM_NODE_CLI") {
-        let path = PathBuf::from(value);
-        if path.is_dir() && path.join("dist").is_dir() {
-            return Some(PublishedCli { package_root: path });
-        }
-        if let Some(root) = path.parent().and_then(Path::parent) {
-            return Some(PublishedCli {
-                package_root: root.to_path_buf(),
-            });
-        }
-        return None;
-    }
-    let path_variable = std::env::var("PATH").ok()?;
-    for directory in std::env::split_paths(&path_variable) {
-        let candidate = directory.join("pm");
-        if !candidate.is_file() {
-            continue;
-        }
-        let Ok(resolved) = fs::canonicalize(&candidate) else {
-            continue;
-        };
-        let mut current = resolved.parent().map(Path::to_path_buf);
-        while let Some(ancestor) = current {
-            current = ancestor.parent().map(Path::to_path_buf);
-            if ancestor.file_name().is_some_and(|name| name == "pm-cli")
-                && ancestor
-                    .parent()
-                    .and_then(Path::file_name)
-                    .is_some_and(|name| name == "@unbrained")
-            {
-                return Some(PublishedCli {
-                    package_root: ancestor.clone(),
-                });
-            }
-        }
-    }
-    None
-}
+use published_cli::locate_published_cli;
 
 /// Runs one git command and fails loudly when it exits nonzero.
 fn run_git(repository: &Path, arguments: &[&str]) -> Result<String, Box<dyn std::error::Error>> {
