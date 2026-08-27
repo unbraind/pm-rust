@@ -32,6 +32,7 @@
 
 ### Other
 
+- Release two re-claimed tasks and assert legacy-journal recovery succeeds ([pm-rust-x1u8](https://github.com/unbraind/pm-rust/blob/main/.agents/pm/tasks/pm-rust-x1u8.toon)) _type:Task; status:closed; P2_
 - Live differential conformance suite against the published Node pm CLI ([pm-rust-2di7](https://github.com/unbraind/pm-rust/blob/main/.agents/pm/tasks/pm-rust-2di7.toon)) _type:Task; status:closed; P2_
 - Wire pm-changelog with timezone-stable scripts and release:check aggregate ([pm-rust-injz](https://github.com/unbraind/pm-rust/blob/main/.agents/pm/tasks/pm-rust-injz.toon)) _type:Task; status:closed; P1_
 
