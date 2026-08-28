@@ -727,7 +727,7 @@ fn acquire_lock_attempt(
     // it before this read runs.
     let existing_raw = match fs::read_to_string(&path) {
         Ok(raw) => raw,
-        Err(source) if lock_error_is_contention(source.kind()) => {
+        Err(source) if lock_error_is_contention(&path, source.kind()) => {
             return Err(PmRustError::LockConflict { id: id.to_owned() });
         }
         Err(source) => {
@@ -786,13 +786,22 @@ fn acquire_lock_attempt(
 ///   between two of our own calls. The next attempt recreates the directory and
 ///   retries the create, so this too is a retry rather than a failure.
 ///
-/// Every one of these is retried inside the caller's `wait_ms` budget, so a
+/// A directory sitting where the lock file belongs is excluded whatever the
+/// platform calls it. That is a structural fault and a permanent one, and the
+/// platforms disagree about how it presents -- Unix reports `AlreadyExists`
+/// then `IsADirectory`, Windows reports `PermissionDenied` -- so the shape of
+/// the path decides it rather than the error kind.
+///
+/// Every remaining case is retried inside the caller's `wait_ms` budget, so a
 /// lock that never frees still fails, and it fails as a lock conflict. The
 /// residual cost is diagnostic: a `locks` directory that is genuinely
 /// unwritable reports a lock conflict after the budget rather than a
 /// permissions error. That trade is deliberate -- the common case is
 /// contention, and the rare case still fails.
-fn lock_error_is_contention(kind: ErrorKind) -> bool {
+fn lock_error_is_contention(path: &Path, kind: ErrorKind) -> bool {
+    if path.is_dir() {
+        return false;
+    }
     matches!(
         kind,
         ErrorKind::AlreadyExists | ErrorKind::PermissionDenied | ErrorKind::NotFound
@@ -803,7 +812,7 @@ fn lock_error_is_contention(kind: ErrorKind) -> bool {
 fn create_lock_file(path: &Path, raw: &str, id: &str) -> Result<ItemLock, PmRustError> {
     match OpenOptions::new().write(true).create_new(true).open(path) {
         Ok(file) => write_lock_file(file, path, raw),
-        Err(source) if lock_error_is_contention(source.kind()) => {
+        Err(source) if lock_error_is_contention(path, source.kind()) => {
             Err(PmRustError::LockConflict { id: id.to_owned() })
         }
         Err(source) => Err(PmRustError::Io {

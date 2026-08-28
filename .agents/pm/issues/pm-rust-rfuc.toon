@@ -6,7 +6,7 @@ status: closed
 priority: 0
 tags[4]: "area:concurrency","platform:windows","severity:data-safety","type:defect"
 created_at: "2026-08-28T06:21:26.582Z"
-updated_at: "2026-08-28T06:21:42.602Z"
+updated_at: "2026-08-28T06:32:49.520Z"
 deadline: "2026-08-29T00:00:00.000Z"
 closed_at: "2026-08-28T06:21:42.577Z"
 completed_at: "2026-08-28T06:21:42.577Z"
@@ -18,8 +18,9 @@ expected_result: "A writer releasing its lock no longer aborts a concurrent writ
 actual_result: "Narrowing the classification back to AlreadyExists fails both new tests; restoring it passes. Gates: cargo fmt --check 0, clippy -D warnings 0, cargo test --all-targets --all-features 141 passed 0 failed, llvm-cov --branch 100.00 percent regions / functions / lines / branches."
 dependencies[1]{id,kind,created_at,author,source_kind,author_source}:
   pm-rust-kgfh,related,"2026-08-28T06:21:26.582Z",claude,"cli:create:dep",asserted
-comments[1]{created_at,author,text}:
+comments[2]{created_at,author,text}:
   "2026-08-28T06:21:26.582Z",claude,"Found because the concurrency contract now asserts every rejection carries the lock-conflict diagnostic. The tolerant version added one round earlier would have counted these two dead writers as writers the budget did not admit,and passed."
+  "2026-08-28T06:32:49.520Z",claude,"Windows round 2: the contention fix made the concurrency contract pass, but it also reclassified a DIRECTORY sitting at the lock path. Unix reports that as AlreadyExists then IsADirectory and lands on Io; Windows reports it as PermissionDenied, which the new classification read as contention, so lock_conflicts_and_forced_stale_cleanup_preserve_the_current_owner failed there. A directory at the lock path is a structural fault and a permanent one, so the shape of the path decides it rather than the error kind. Also covered the read path's remaining fault arm with a lock file holding invalid UTF-8, which is the only way that read can now fail once the create has classified the path as held."
 notes[1]{created_at,author,text}:
   "2026-08-28T06:21:26.582Z",claude,"Observed on the runner: 'pm-rust: filesystem operation failed at ...locks/sample-load.lock: Access is denied. (os error 5)',twice in one run of 24 writers."
 learnings[1]{created_at,author,text}:

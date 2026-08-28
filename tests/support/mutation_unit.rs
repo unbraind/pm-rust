@@ -2231,13 +2231,17 @@ fn windows_pending_delete_reads_as_lock_contention_not_as_a_fault() {
     // writer's create fail fatally instead of retrying, which is how a busy
     // lock became an aborted mutation on the Windows runner while every Unix
     // job passed.
+    let Ok(scratch) = tempfile::tempdir() else {
+        unreachable!("the fixture builds");
+    };
+    let absent = scratch.path().join("sample-absent.lock");
     for kind in [
         ErrorKind::AlreadyExists,
         ErrorKind::PermissionDenied,
         ErrorKind::NotFound,
     ] {
         assert!(
-            lock_error_is_contention(kind),
+            lock_error_is_contention(&absent, kind),
             "{kind:?} is a way a held or just-released lock presents itself",
         );
     }
@@ -2250,8 +2254,27 @@ fn windows_pending_delete_reads_as_lock_contention_not_as_a_fault() {
         ErrorKind::Unsupported,
     ] {
         assert!(
-            !lock_error_is_contention(kind),
+            !lock_error_is_contention(&absent, kind),
             "{kind:?} is not contention and must not be retried as if it were",
+        );
+    }
+    // A directory where the lock file belongs is a structural fault and a
+    // permanent one. Unix reports it as AlreadyExists then IsADirectory and
+    // Windows reports it as PermissionDenied, so the shape of the path has to
+    // decide it -- otherwise the Windows presentation would be retried for the
+    // whole wait budget and then reported as contention it is not.
+    let occupied = scratch.path().join("sample-directory.lock");
+    let Ok(()) = fs::create_dir(&occupied) else {
+        unreachable!("the fixture builds");
+    };
+    for kind in [
+        ErrorKind::AlreadyExists,
+        ErrorKind::PermissionDenied,
+        ErrorKind::NotFound,
+    ] {
+        assert!(
+            !lock_error_is_contention(&occupied, kind),
+            "a directory at the lock path is a fault, not contention ({kind:?})",
         );
     }
 }
@@ -2316,6 +2339,34 @@ fn an_unreadable_incumbent_lock_is_contention_rather_than_a_filesystem_error() {
     assert!(
         matches!(error, PmRustError::LockConflict { .. }),
         "an unreadable incumbent lock is contention, got {error:?}",
+    );
+    drop(directory);
+}
+
+#[test]
+fn a_lock_file_holding_invalid_utf8_is_a_fault_not_contention() {
+    // Reaching the read means the create already classified the path as a held
+    // lock, so the remaining way that read can fail is the file's contents. A
+    // lock whose bytes are not UTF-8 is corrupt, and retrying it for the whole
+    // wait budget before reporting a lock conflict would hide that behind a
+    // diagnosis that is simply wrong.
+    let Ok((directory, pm_root)) = root(r#"{"id_prefix":"sample-","item_format":"toon"}"#) else {
+        unreachable!("the fixture builds");
+    };
+    let locks = pm_root.join("locks");
+    let Ok(()) = fs::create_dir_all(&locks) else {
+        unreachable!("the fixture builds");
+    };
+    let Ok(()) = fs::write(locks.join("sample-corrupt.lock"), [0xff, 0xfe, 0x00]) else {
+        unreachable!("the fixture builds");
+    };
+    let outcome = acquire_lock_attempt(&pm_root, "sample-corrupt", "load-agent", 1800, false, TS);
+    let Err(error) = outcome else {
+        unreachable!("a held lock cannot be acquired");
+    };
+    assert!(
+        matches!(error, PmRustError::Io { .. }),
+        "a corrupt lock file keeps its own diagnostic, got {error:?}",
     );
     drop(directory);
 }
