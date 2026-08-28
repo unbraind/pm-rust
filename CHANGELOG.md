@@ -15,6 +15,7 @@
 
 ### Bug Fixes
 
+- Windows-only concurrency test failure: concurrent_comment_processes_preserve_every_accepted_mutation asserts host timing ([pm-rust-b6ey](https://github.com/unbraind/pm-rust/blob/main/.agents/pm/issues/pm-rust-b6ey.toon)) _type:Issue; status:closed; P2_
 - release-check passes locally and fails in CI whenever CHANGELOG_DATE is overridden, because this repository has no git tags to date releases from ([pm-rust-1ps2](https://github.com/unbraind/pm-rust/blob/main/.agents/pm/issues/pm-rust-1ps2.toon)) _type:Issue; status:closed; P2_
 - Release commit identity was not allowlisted and the dangling-object test proved nothing ([pm-rust-r9r2](https://github.com/unbraind/pm-rust/blob/main/.agents/pm/issues/pm-rust-r9r2.toon)) _type:Issue; status:closed; P1_
 - Shallow CI checkouts made the identity audit pass without inspecting history and broke the changelog gate ([pm-rust-cu3d](https://github.com/unbraind/pm-rust/blob/main/.agents/pm/issues/pm-rust-cu3d.toon)) _type:Issue; status:closed; P1_
