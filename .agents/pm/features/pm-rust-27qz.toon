@@ -1,0 +1,23 @@
+id: pm-rust-27qz
+title: "Native update, comment, and close mutations"
+description: "Implement update, comments-add, and close in the Rust CLI and SDK, writing canonical .toon items and appending byte-compatible v2 history events matching the published pm 2026.8.21 release."
+type: Feature
+status: closed
+priority: 2
+tags: []
+created_at: "2026-08-22T10:41:16.204Z"
+updated_at: "2026-08-27T00:44:19.354Z"
+closed_at: "2026-08-27T00:44:14.322Z"
+completed_at: "2026-08-27T00:44:14.322Z"
+author: pi-agent
+acceptance_criteria: "Rust update writes the same .toon bytes as the published CLI for title, description, status, priority, tags, and body changes;Rust comment appends append the same comment row and comment_add history event bytes;Rust close writes the same status, closed_at, completed_at, and close_reason bytes and close history event;history entries carry item_hash_version 2, canonical patch ordering, and argv-derived agent_provenance role exactly like the published release"
+parent: pm-rust-u4al
+comments[1]{created_at,author,text}:
+  "2026-08-22T11:28:29.622Z",pi-agent,"Implemented update, comment, and close in the Rust CLI and SDK (src/mutation.rs, src/history.rs). History records now carry item_hash_version 2, canonical ITEM_METADATA_KEY_ORDER patch diffs, and argv-derived agent_provenance roles; create was upgraded to the same v2 record shape with its recorded fixture regenerated against published pm 2026.8.21 bytes. New recorded-fixture suite tests/mutation_contract.rs proves byte equality for create/update/comment/status-update/close item and history bytes at SDK and black-box CLI level."
+files[2]{path,scope,note}:
+  src/history.rs,project,canonical v2 history records shared by every native mutation
+  src/mutation.rs,project,native update/comment/close mutation implementation
+tests[1]{command,scope,provenance{author,created_at,source_kind,source_ref},note}:
+  cargo test --test mutation_contract,project,pi-agent,"2026-08-27T00:43:44.521Z",local_mutation,feat/rust-native-mutations-and-conformance,byte-exact create/update/comment/status-update/close contract
+close_reason: "Native update, comment, and close mutations implemented in src/mutation.rs and src/history.rs; tests/mutation_contract.rs proves byte-exact create/update/comment/status-update/close item and history bytes; the coverage gate is at 100 percent under --branch --all-targets --all-features."
+body: ""

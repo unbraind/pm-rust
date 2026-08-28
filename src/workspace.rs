@@ -8,10 +8,13 @@ use std::path::{Path, PathBuf};
 use serde::Serialize;
 
 use crate::item::decode_item;
-use crate::mutation::create_item;
-use crate::{CreateItem, CreateResult, ItemDocument, ItemSummary, PmRustError};
+use crate::mutation::{close_item, comment_item, create_item, update_item};
+use crate::{
+    CloseItem, CommentItem, CreateItem, CreateResult, ItemDocument, ItemSummary, MutationResult,
+    PmRustError, UpdateItem,
+};
 
-const NON_ITEM_DIRECTORIES: [&str; 6] = [
+pub(crate) const NON_ITEM_DIRECTORIES: [&str; 6] = [
     "extensions",
     "history",
     "locks",
@@ -203,10 +206,47 @@ impl Workspace {
     pub fn create(&self, request: CreateItem) -> Result<CreateResult, PmRustError> {
         create_item(&self.pm_root, request)
     }
+
+    /// Applies one validated field update to an existing item in place.
+    ///
+    /// The mutation writes canonical TOON bytes and appends the matching
+    /// `update` history record without invoking another runtime.
+    ///
+    /// # Errors
+    ///
+    /// Returns a typed validation, lock, conflict, recovery, or filesystem
+    /// error. The item must already exist and at least one of `title`,
+    /// `description`, `status`, `priority`, `tags` or `body` must be supplied.
+    /// Supplying a field is what is required, not changing its value: a request
+    /// that sets a field to what it already holds is accepted and writes a
+    /// history record, matching the published CLI.
+    pub fn update(&self, request: UpdateItem) -> Result<MutationResult, PmRustError> {
+        update_item(&self.pm_root, request)
+    }
+
+    /// Appends one comment row to an existing item's comment list.
+    ///
+    /// # Errors
+    ///
+    /// Returns a typed validation, lock, conflict, recovery, or filesystem
+    /// error. The item and the comment text must both exist.
+    pub fn comment(&self, request: &CommentItem) -> Result<MutationResult, PmRustError> {
+        comment_item(&self.pm_root, request)
+    }
+
+    /// Closes one open item with an immutable closing summary.
+    ///
+    /// # Errors
+    ///
+    /// Returns a typed validation, lock, conflict, recovery, or filesystem
+    /// error. Terminal items cannot be closed a second time.
+    pub fn close(&self, request: CloseItem) -> Result<MutationResult, PmRustError> {
+        close_item(&self.pm_root, request)
+    }
 }
 
 /// Reads every entry in a directory while retaining the path in typed errors.
-fn read_directory(path: &Path) -> Result<Vec<fs::DirEntry>, PmRustError> {
+pub(crate) fn read_directory(path: &Path) -> Result<Vec<fs::DirEntry>, PmRustError> {
     let entries = fs::read_dir(path).map_err(|source| PmRustError::Io {
         path: path.to_path_buf(),
         source,

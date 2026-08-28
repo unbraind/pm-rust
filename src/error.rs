@@ -50,6 +50,12 @@ pub enum PmRustError {
         /// Stable explanation suitable for CLI diagnostics.
         reason: String,
     },
+    /// An in-place mutation does not satisfy its validation contract.
+    #[error("invalid mutation request: {reason}")]
+    InvalidMutationRequest {
+        /// Stable explanation suitable for CLI diagnostics.
+        reason: String,
+    },
     /// A validated native item could not be encoded as canonical TOON.
     #[error("could not encode canonical pm item: {reason}")]
     ItemEncoding {
@@ -69,7 +75,12 @@ pub enum PmRustError {
         id: String,
     },
     /// Durable recovery found bytes that do not belong to its journal.
-    #[error("create transaction recovery conflict for {id}: {reason}")]
+    ///
+    /// The message is deliberately neutral about the transaction kind: this
+    /// variant is returned by create recovery and by update, comment and close
+    /// recovery alike, and naming one of them made the other three report a
+    /// transaction they were not.
+    #[error("transaction recovery conflict for {id}: {reason}")]
     RecoveryConflict {
         /// Stable item identifier whose transaction cannot be recovered automatically.
         id: String,

@@ -1,0 +1,34 @@
+id: pm-rust-kgfh
+title: The concurrency contract cannot tell lock admission control apart from a real platform failure
+description: "The multi-process no-lost-update test counted only successes, collapsing every rejected writer to a boolean. Relaxing its count assertion to tolerate a slower Windows filesystem therefore made it blind: a writer rejected because the native binary genuinely failed on that platform was indistinguishable from a writer whose lock wait budget simply expired, so the test would have passed through a real platform defect while silently exercising fewer writers."
+type: Issue
+status: closed
+priority: 1
+tags[4]: "area:concurrency","area:testing","platform:windows","type:defect"
+created_at: "2026-08-28T05:19:49.595Z"
+updated_at: "2026-08-28T05:20:13.503Z"
+deadline: "2026-08-29T00:00:00.000Z"
+closed_at: "2026-08-28T05:20:13.481Z"
+completed_at: "2026-08-28T05:20:13.481Z"
+author: claude
+estimated_minutes: 60
+acceptance_criteria: Every rejected writer's own diagnostic is retained rather than collapsed to a boolean; a rejection carrying the lock-conflict message is tolerated as admission control; a rejection carrying any other message fails the test and names the diagnostic; the assertion is proven non-vacuous by injecting a non-lock failure and observing the test fail.
+resolution: "append_comment returns Result<(),String> carrying each rejected writer's own stderr; the test asserts every rejection contains the lock-conflict diagnostic and fails naming any other reason."
+expected_result: A writer turned away by the lock wait budget is tolerated; a writer that fails for any other reason fails the test with its diagnostic named.
+actual_result: "Injecting a non-lock rejection made the test fail with the injected diagnostic; removing it restored a pass. Gates: cargo fmt --check exit 0, clippy -D warnings exit 0, cargo test --all-targets --all-features 138 passed 0 failed, just changelog-check exit 0."
+dependencies[1]{id,kind,created_at,author,source_kind,author_source}:
+  pm-rust-u4al,related,"2026-08-28T05:19:49.595Z",claude,"cli:create:dep",asserted
+comments[1]{created_at,author,text}:
+  "2026-08-28T05:19:49.595Z",claude,"Proven by injection: adding a non-lock rejection to the comment mutation made the test fail with 'a writer failed for a reason other than the lock wait budget: [exit exit status: 2: pm-rust: invalid mutation request: INJECTED non-lock defect]'. Removing the injection restored a pass."
+notes[1]{created_at,author,text}:
+  "2026-08-28T05:19:49.595Z",claude,"A lock timeout surfaces as PmRustError::LockConflict whose Display is: pm item {id} is locked by another writer. Matching the id-independent substring recognises admission control without matching any other failure."
+learnings[1]{created_at,author,text}:
+  "2026-08-28T05:19:49.595Z",claude,"When a gate is relaxed to stop measuring the runner,the relaxation must keep the reason for the shortfall observable. Otherwise the fix for a flaky gate is a blind gate."
+files[1]{path,scope,note}:
+  tests/concurrency_contract.rs,project,captures each rejected writer's diagnostic and asserts every rejection is lock admission control
+tests[1]{command,scope,timeout_seconds,provenance{author,created_at,source_kind,source_ref}}:
+  cargo test --test concurrency_contract,project,300,claude,"2026-08-28T05:19:49.595Z",local_mutation,feat/rust-native-mutations-and-conformance
+docs[1]{path,scope,note}:
+  tests/concurrency_contract.rs,project,the contract this issue hardens
+close_reason: fixed
+body: "A test that measures the host is one defect; a test that stops measuring anything in order to survive the host is a worse one. The wait budget genuinely is host-dependent, so tolerating a short admission is right, but only while the reason for the shortfall is known. Keeping each rejection's diagnostic is what makes the tolerance sound."

@@ -1,0 +1,16 @@
+id: pm-rust-x1u8
+title: Release two re-claimed tasks and assert legacy-journal recovery succeeds
+description: "Two review findings on pm-rust#22: release the re-claimed tasks pm-rust-2di7 and pm-rust-nctu after their follow-up audit updates, and fix the a_journal_without_the_before_hash_still_recovers test to assert recovery actually succeeds rather than that it failed in a way that is not one specific way."
+type: Task
+status: closed
+priority: 2
+tags: []
+created_at: "2026-08-27T21:29:50.745Z"
+updated_at: "2026-08-27T21:35:33.672Z"
+closed_at: "2026-08-27T21:35:33.633Z"
+completed_at: "2026-08-27T21:35:33.633Z"
+author: pi-agent
+acceptance_criteria: "Release events appended to pm-rust-2di7 and pm-rust-nctu history (additions only, continuous hash chain); a_journal_without_the_before_hash_still_recovers asserts recovery succeeds, not that it failed in a non-specific way; Deliberate-break check: test FAILS when recovery returns RecoveryConflict, PASSES when restored"
+parent: pm-rust-u4al
+close_reason: Done
+body: ""

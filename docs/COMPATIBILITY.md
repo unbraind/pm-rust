@@ -1,7 +1,7 @@
 # Compatibility contract
 
-The current `pm-rust` slice is a native read-and-create compatibility
-implementation for the published `pm` 2026.8.7 workspace format.
+The current `pm-rust` slice is a native read-and-mutate compatibility
+implementation for the published `pm` 2026.8.21 workspace format.
 
 ## Supported
 
@@ -16,8 +16,13 @@ implementation for the published `pm` 2026.8.7 workspace format.
 - conflict-marker, duplicate-ID, malformed-document, and missing-item failures;
 - deterministic JSON for full-item and list projections.
 - explicit-ID creation for every canonical built-in item type;
-- canonical tag ordering, TOON bytes, create-history patch ordering, and
-  SHA-256 document hashes compatible with `pm` 2026.8.7;
+- in-place field updates, comment appends, and closes that write the same
+  canonical TOON item bytes and `item_hash_version: 2` history records as
+  the published CLI, including argv-derived `agent_provenance` roles;
+- canonical metadata ordering for storage, diffs, and hashes, matching the
+  published `ITEM_METADATA_KEY_ORDER` contract;
+- a lock wait budget (`locks.wait_ms`) retried by every mutation before a
+  lock-conflict failure;
 - exclusive per-item locks with stale-lock cleanup allowed only by an explicit
   force request after the configured TTL;
 - synced same-directory temporary writes and parent-directory syncs on Unix;
@@ -27,10 +32,13 @@ implementation for the published `pm` 2026.8.7 workspace format.
 
 ## Deliberately unsupported
 
-Update/delete mutations, general history replay, field-aware merge, package
-activation, semantic search, automatic ID allocation, custom item types, and
-non-JSON rendering are not exposed. Create currently fails fast on a live lock;
-it does not yet implement the configured lock wait budget. Adding a command
+Item deletion, item moves between type folders, lifecycle workflow validation
+beyond terminal-status refusal on close, harness/model identity detection
+(the native slice records asserted authors and argv-derived roles only), and
+general history replay are not exposed. Close requires a non-empty closing
+summary because the published default governance policy does. Update accepts
+only whole-field replacements of title, description, status, priority, tags,
+and body. Adding a command
 before its safety and differential fixtures exist is treated as a compatibility
 failure, not progress.
 

@@ -1,0 +1,36 @@
+id: pm-rust-27da
+title: "A float in item metadata hashes differently from the published CLI, and two doc contracts describe behaviour the code does not have"
+description: "Three findings from CodeRabbit that had no reply. The hash: stable_json rendered numbers with serde_json, which writes a whole-valued f64 as 30.0 where JSON.stringify writes 30. Any item carrying a float in its metadata therefore produced a different before_hash and after_hash than the published CLI, which reads downstream as a corrupt history chain rather than as a formatting disagreement. The docs: COMPATIBILITY.md listed create as failing fast on a live lock and not implementing the wait budget, while the supported list above it said every mutation retries the budget and create_item does call acquire_lock with settings.locks. workspace.rs said an update requires at least one field to change, while update_item only tests presence, so setting a field to the value it already holds is accepted and writes a history record."
+type: Issue
+status: closed
+priority: 1
+tags[4]: "area:conformance","area:history","review:coderabbit","type:defect"
+created_at: "2026-08-28T06:09:05.835Z"
+updated_at: "2026-08-28T06:09:22.958Z"
+deadline: "2026-08-29T00:00:00.000Z"
+closed_at: "2026-08-28T06:09:22.942Z"
+completed_at: "2026-08-28T06:09:22.942Z"
+author: claude
+estimated_minutes: 90
+acceptance_criteria: A whole-valued float and the same integer produce identical document hashes; exponent-form values render as JSON.stringify renders them; the renderer contains no unreachable branch; COMPATIBILITY.md no longer contradicts itself about the create lock wait budget; the update docstring states presence rather than change; coverage stays at 100 percent on every metric.
+resolution: "stable_json routes Value::Number through javascript_number, which renders a finite whole-valued float below 1e21 without a decimal point and leaves everything else to serde_json, whose exponent form already matches. COMPATIBILITY.md's stale create exclusion is gone and workspace.rs states presence rather than change."
+expected_result: "An item carrying a float in its metadata hashes identically on the native and published sides, and both documents describe what the code does."
+actual_result: "Removing the Value::Number arm makes a whole-valued float and the same integer hash differently and the test fails; restoring it passes. Gates: cargo fmt --check 0, clippy -D warnings 0, cargo test 139 passed 0 failed, rustdoc with -D missing-docs 0, llvm-cov --branch 100.00 percent regions / functions / lines / branches."
+dependencies[1]{id,kind,created_at,author,source_kind,author_source}:
+  pm-rust-u4al,related,"2026-08-28T06:09:05.835Z",claude,"cli:create:dep",asserted
+comments[1]{created_at,author,text}:
+  "2026-08-28T06:09:05.835Z",claude,"Non-vacuity at the digest level: removing the Value::Number arm makes a whole-valued float and the same integer hash to 1517ee47... and 61849ffe... respectively; restoring it makes them identical."
+notes[1]{created_at,author,text}:
+  "2026-08-28T06:09:05.835Z",claude,"Measured against node: JSON.stringify(30.0) is 30,JSON.stringify(1e21) is 1e+21,JSON.stringify(1e-7) is 1e-7. serde_json already signs exponents identically,so only the whole-valued case diverges and an exponent branch would have been unreachable code dressed as a safeguard."
+learnings[1]{created_at,author,text}:
+  "2026-08-28T06:09:05.835Z",claude,A bot marking its own finding addressed is not evidence it was addressed. This one said addressed in commits a0df8fa to dc1c2bd and the scalar branch still had no normalisation.
+files[3]{path,scope,note}:
+  src/history.rs,project,javascript_number renders numbers the way JSON.stringify does
+  src/workspace.rs,project,"update contract restated as presence,not change"
+  docs/COMPATIBILITY.md,project,stale create lock-wait exclusion removed
+tests[1]{command,scope,timeout_seconds,provenance{author,created_at,source_kind,source_ref}}:
+  cargo test floats_hash_the_way_json_stringify_renders_them,project,300,claude,"2026-08-28T06:09:05.835Z",local_mutation,feat/rust-native-mutations-and-conformance
+docs[1]{path,scope,note}:
+  "https://github.com/unbraind/pm-cli/issues/1135",project,The same divergence class filed upstream
+close_reason: fixed
+body: "The number finding matters more than its severity label suggests. This package exists to be byte-identical with the published CLI, and a hash divergence does not surface as a wrong number, it surfaces as history_drift on someone else's machine days later. It is the same failure class as two CLI versions hashing identically-declared records differently, filed upstream as pm-cli issue 1135."

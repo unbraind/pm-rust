@@ -27,7 +27,7 @@ author: fixture-agent
 body: "0"
 "#;
 const HISTORY_BYTES: &str = concat!(
-    r#"{"ts":"2026-08-07T10:06:30.183Z","author":"fixture-agent","author_source":"asserted","op":"create","patch":[{"op":"replace","path":"/body","value":"0"},{"op":"add","path":"/metadata/id","value":"sample-native"},{"op":"add","path":"/metadata/title","value":"Native create"},{"op":"add","path":"/metadata/description","value":"-A"},{"op":"add","path":"/metadata/type","value":"Task"},{"op":"add","path":"/metadata/status","value":"open"},{"op":"add","path":"/metadata/priority","value":2},{"op":"add","path":"/metadata/tags","value":["0","safe","true"]},{"op":"add","path":"/metadata/created_at","value":"2026-08-07T10:06:30.183Z"},{"op":"add","path":"/metadata/updated_at","value":"2026-08-07T10:06:30.183Z"},{"op":"add","path":"/metadata/author","value":"fixture-agent"}],"before_hash":"3cc22dff72be7b14824654a7a64ea62b04799939b2fee54c1b5f52ca60bf6df0","after_hash":"6eb97257a863250fafbcc2d460f0b9a08a1b864bebf2c725632258e3f72db01c","message":"create fixture"}"#,
+    r#"{"ts":"2026-08-07T10:06:30.183Z","author":"fixture-agent","author_source":"asserted","agent_provenance":{"role":{"value":"implementer","source":"argv"}},"op":"create","patch":[{"op":"replace","path":"/body","value":"0"},{"op":"add","path":"/metadata/id","value":"sample-native"},{"op":"add","path":"/metadata/title","value":"Native create"},{"op":"add","path":"/metadata/description","value":"-A"},{"op":"add","path":"/metadata/type","value":"Task"},{"op":"add","path":"/metadata/status","value":"open"},{"op":"add","path":"/metadata/priority","value":2},{"op":"add","path":"/metadata/tags","value":["0","safe","true"]},{"op":"add","path":"/metadata/created_at","value":"2026-08-07T10:06:30.183Z"},{"op":"add","path":"/metadata/updated_at","value":"2026-08-07T10:06:30.183Z"},{"op":"add","path":"/metadata/author","value":"fixture-agent"}],"before_hash":"3cc22dff72be7b14824654a7a64ea62b04799939b2fee54c1b5f52ca60bf6df0","after_hash":"6eb97257a863250fafbcc2d460f0b9a08a1b864bebf2c725632258e3f72db01c","item_hash_version":2,"message":"create fixture"}"#,
     "\n"
 );
 
@@ -57,6 +57,7 @@ fn request(id: &str) -> CreateItem {
         author: "fixture-agent".to_owned(),
         timestamp: Some(TIMESTAMP.to_owned()),
         message: Some("create fixture".to_owned()),
+        provenance_role: Some("implementer".to_owned()),
         force_stale_lock: false,
     }
 }
@@ -371,5 +372,85 @@ fn all_builtin_type_folders_and_current_timestamp_are_supported()
         assert!(raw.contains("tags: []\n"));
         assert!(raw.contains("author: \"true\"\n"));
     }
+    Ok(())
+}
+
+#[test]
+/// Proves each validation rule refuses on its own.
+///
+/// Every case overrides exactly one field of the canonical fixture, so the
+/// refusal it asserts can only come from the rule it names. Building the cases
+/// from `request` rather than repeating a full literal also means a new
+/// `CreateItem` field is one edit rather than seven.
+fn sdk_create_rejects_invalid_ids_and_fields() -> Result<(), Box<dyn std::error::Error>> {
+    let (_directory, workspace) = tracker()?;
+
+    // `sample-bad-`, not `bad-`: an id that also violates the configured
+    // `sample-` prefix would let the refusal come from the prefix rule instead
+    // of the trailing-hyphen rule this case exists to pin.
+    //
+    // The leading-hyphen case cannot be isolated the same way - an id that
+    // starts with a hyphen cannot also start with `sample-` - so it asserts the
+    // refusal without claiming which of the two rules produced it.
+    let cases: Vec<(&str, CreateItem)> = vec![
+        (
+            "an id starting with a hyphen",
+            CreateItem {
+                id: "-bad".to_owned(),
+                ..request("sample-unused")
+            },
+        ),
+        (
+            "an id ending with a hyphen",
+            CreateItem {
+                id: "sample-bad-".to_owned(),
+                ..request("sample-unused")
+            },
+        ),
+        (
+            "an empty id",
+            CreateItem {
+                id: String::new(),
+                ..request("sample-unused")
+            },
+        ),
+        (
+            "a blank title",
+            CreateItem {
+                title: "  ".to_owned(),
+                ..request("sample-empty")
+            },
+        ),
+        (
+            "an unsupported item type",
+            CreateItem {
+                item_type: "Custom".to_owned(),
+                ..request("sample-custom")
+            },
+        ),
+        (
+            "an out-of-range priority",
+            CreateItem {
+                priority: 5,
+                ..request("sample-bad-prio")
+            },
+        ),
+        (
+            "a malformed timestamp",
+            CreateItem {
+                timestamp: Some("not-a-timestamp".to_owned()),
+                ..request("sample-bad-ts")
+            },
+        ),
+    ];
+
+    for (rule, invalid) in cases {
+        let result = workspace.create(invalid);
+        assert!(
+            matches!(result, Err(PmRustError::InvalidCreateRequest { .. })),
+            "{rule} must be refused with InvalidCreateRequest, got {result:?}"
+        );
+    }
+
     Ok(())
 }

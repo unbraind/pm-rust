@@ -6,7 +6,7 @@ status: open
 priority: 1
 tags[5]: agents,cli,interop,rust,sdk
 created_at: "2026-08-06T21:15:44.282Z"
-updated_at: "2026-08-08T11:44:31.335Z"
+updated_at: "2026-08-27T10:19:33.265Z"
 assignee: codex
 claim_principal: codex
 author: codex
@@ -16,23 +16,40 @@ definition_of_ready: Canonical companion item pm-cli-website-204t is active and 
 value: Single-binary low-overhead pm access for agents and native applications
 impact: Exposes accidental TypeScript coupling and hardens the ecosystem's public contracts
 outcome: Production-ready Rust implementation interoperable with canonical pm workspaces
-why_now: pm 2026.8.7 is the current stable contract baseline for the independent implementation
+why_now: pm 2026.8.21 is the current stable contract baseline for the independent implementation
 reviewer: maintainer
 risk: high
 confidence: medium
 sprint: 2026-08-native-mutations
 release: 0.1.0-alpha.2
-blocked_by: pm-rust-6q0n
-dependencies[1]{id,kind,created_at,author,source_kind,author_source}:
-  pm-rust-6q0n,blocked_by,"2026-08-07T11:03:56.081Z",codex,"cli:update:blocked_by",detected
+comments[9]{created_at,author,text}:
+  "2026-08-22T11:46:49.625Z",codex,"Real-branch acceptance added as tests/branch_merge_contract.rs: two git branches mutate the same tracked item, then git merge reconciles through the published pm merge drivers installed from @unbrained/pm-cli 2026.8.21. Both mutations survive in the merged item and history."
+  "2026-08-26T23:00:04.105Z",claude,"Coverage gate status measured precisely on 2026-08-27 UTC. The release-check gate asserts lines, functions, regions and branches are each exactly 100. Current measurement on the in-progress tree is lines 99.7556, functions 100, regions 99.6554, branches 99.5762, reproduced identically across three runs. The whole remaining gap is in src/mutation.rs: eight regions, four lines and one branch. history.rs, item.rs, main.rs and workspace.rs are all at 100 across every metric. main.rs reports branches as a dash rather than a percentage because it contains no branches at all, which is not a gap."
+  "2026-08-26T23:00:04.663Z",claude,"Two measurement traps recorded so the next attempt does not pay for them again. First, llvm-cov's --lcov and --text exports report this tree as fully covered while --json and the summary table agree it is not; the exports cover a different file set, so --json is the one to trust and the one the gate reads. Second, the conformance tests skip when they cannot locate a published Node CLI, which looks like it would make the verdict environment-dependent. It does not: measured with PM_NODE_CLI set and unset, all four percentages are byte-identical, because the locator already resolves a CLI through PATH. I asserted that hypothesis before testing it and it was wrong."
+  "2026-08-27T04:06:08.180Z",claude,"The coverage gate now passes end to end: lines, functions, regions and branches are each exactly 100, verified independently of the agent that produced the work by re-running llvm-cov and the gate's own jq assertion. The raise did not delete behaviour - the diff adds forty-seven error returns and removes one, and that one is a refactor of the same RecoveryConflict from a map_err combinator into an explicit match arm so each error path becomes a distinct coverable region. The justfile thresholds are untouched. Windows CI was broken by the new tests, which used std::os::unix::fs::PermissionsExt and Permissions::from_mode with no cfg guard, so the crate failed to compile on windows-latest with E0433 and E0599 while Linux was green; both tests now carry cfg(unix) exactly as the equivalent tests in read_contract.rs do, and coverage on Linux is unchanged at 100."
+  "2026-08-27T05:02:16.368Z",claude,"Windows CI is green now, and the second failure was more interesting than the first. After the compile errors were fixed with cfg(unix) on two permission tests, one test failed at runtime: a_stale_lock_is_reclaimed_when_force_stale_lock_is_set. The test plants a lock and ages its mtime past the ttl, but the ageing was itself wrapped in cfg(unix) - so on Windows the mtime stayed at now, the planted lock was never stale, force_stale_lock had nothing to reclaim, and the assertion failed. std::fs::File::set_times and FileTimes are cross-platform, so the guard was unnecessary as well as harmful; removing it makes the test exercise the same behaviour on both platforms. The neighbouring stale-gate test had the same shape and is now split: the lock file is aged everywhere, and only the directory half stays guarded, because File::open on a directory succeeds on unix and not on Windows. A cfg guard that silences a compile error can quietly convert a test into one that asserts nothing on that platform."
+  "2026-08-27T05:16:16.570Z",claude,"Round-9 review found a backward-compatibility regression introduced by the recovery fix itself. Adding before_item_hash as a required field meant a journal written by the previous build failed serde deserialization, so both recover and recover_mutation returned RecoveryConflict for every later operation on that identifier until an operator deleted the file by hand - and the exposure window is a crash followed by an upgrade, which is precisely when recovery has to work. The field is now serde(default): an old journal parses, and because an empty value matches no real document hash it falls through to the same conflict it would have reached before the field existed, rather than to a spurious roll-forward. Verified by revert: removing serde(default) fails the new legacy-journal test. Separately, RecoveryConflict formatted as 'create transaction recovery conflict' while recover_mutation returns it for update, comment and close as well, so three of the four kinds reported a transaction they were not; the message is neutral now."
+  "2026-08-27T10:11:24.356Z",claude,"Round-9 test-quality findings, including one regression of my own. Two tests could pass without exercising what they claimed: the concurrency hash-chain check compared pair indices that return Value::Null for a missing key, so a schema rename would have made both sides Null and kept the equality true while proving nothing about the chain; and the locator's non-file branch planted a FIFO with a status() call that returns Ok for a non-zero exit, so an unavailable mkfifo left no entry, the is_file() guard was never evaluated against a non-file, and the test still passed while reporting coverage of a branch it had not run. Both now assert presence and type first. advance_to compared its step argument against string literals and fell through to the full sequence on no match, so a typo replayed four mutations instead of three and the byte-exact assertion compared against the wrong durable state without naming the cause; it rejects unknown steps now. And my own earlier fix made the stale-lock test run further on Windows and then fail, because its second phase backdates a directory and File::open on a directory does not work there; the test is gated on unix, which is honest, rather than running and asserting nothing."
+  "2026-08-27T10:16:37.140Z",claude,"Declined the double-scan optimization, with reasoning rather than silence. Returning the already-decoded document from recover_mutation does remove a second recursive walk and decode on every update, comment and close, and it works: the change passed the suite. But it introduces one new region - the error edge of the locate_item call on the journal-replay path - that is only reachable when locate_item fails immediately after a replay has just written the item, which cannot be constructed without contriving the tracker into a state the code does not otherwise produce. That dropped regions to 99.956 and the gate requires exactly 100. Trading a contrived test in correctness-critical recovery code for a trivial-severity performance win is the wrong trade, so the change is reverted. The replayed-journal test written while investigating is kept, because it pins that a mutation applies on top of a replayed journal, which nothing else asserted."
+  "2026-08-27T10:19:33.265Z",claude,"Correcting a date this record contradicted itself on. An earlier comment said the coverage measurement occurred on 2026-08-27 UTC while its own event timestamp was 2026-08-26T23:00:04.105Z, and Z denotes UTC, so the two cannot both be right. The measurement that produced 99.7556 lines, 100 functions, 99.6554 regions and 99.5762 branches was taken on 2026-08-26 UTC, shortly before 23:00Z; the later measurement confirming 100 on all four metrics was taken on 2026-08-27 UTC. Appended rather than edited, per the append-only contract."
 notes[3]{created_at,author,text}:
   "2026-08-06T21:15:44.282Z",codex,"Companion lineage: pm-cli-website-204t"
   "2026-08-07T11:39:16.643Z",codex,"Governance audit: CodeRabbit identified that an earlier metadata backfill on closed slice pm-rust-o2yr followed its release event. The append-only history is preserved rather than manually rewritten; the active epic is currently claimed by codex, and all review-driven implementation and PM evidence changes in this tranche remain under that active claim until verification completes."
   "2026-08-07T12:31:09.068Z",codex,Exact-head CodeRabbit review raised a 50% docstring warning because integration-test functions are outside cargo doc. Added high-signal rustdoc to both changed test functions while retaining the mandatory private-library rustdoc gate; no production behavior changed.
 files[1]{path,scope,note}:
   LICENSE,project,Public package licensing boundary
-tests[1]{command,scope,timeout_seconds}:
-  cargo test --all-targets --all-features,project,600
+tests[2]:
+  - command: cargo test --all-targets --all-features
+    scope: project
+    timeout_seconds: 600
+  - command: cargo test --test branch_merge_contract
+    scope: project
+    provenance:
+      author: pi-agent
+      created_at: "2026-08-27T00:43:28.660Z"
+      source_kind: local_mutation
+      source_ref: feat/rust-native-mutations-and-conformance
+    note: real-branch merge acceptance via the published pm merge drivers
 docs[2]{path,scope,note}:
   AGENTS.md,project,Repository-wide agent operating instructions
   "https://github.com/unbraind/pm-cli",project,Canonical behavior and contract reference; source is read-only for this programme
