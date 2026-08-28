@@ -43,7 +43,15 @@ fn seeded_workspace() -> Result<tempfile::TempDir, Box<dyn std::error::Error>> {
 }
 
 /// Appends one comment from one dedicated OS process.
-fn append_comment(workspace: &Path, marker: &str) -> bool {
+///
+/// Returns `Ok(())` when the mutation was accepted, and `Err(reason)` carrying
+/// the process's own diagnostic when it was not. The reason is kept rather than
+/// collapsed to a boolean because the two ways a writer can be turned away are
+/// not equivalent: exhausting the configured lock wait budget is admission
+/// control and depends on how fast the host is, while any other failure is a
+/// product defect. A test that only counts successes cannot tell them apart and
+/// would pass through a real crash on a slow platform.
+fn append_comment(workspace: &Path, marker: &str) -> Result<(), String> {
     let text = format!("concurrent note {marker}");
     let output = Command::new(env!("CARGO_BIN_EXE_pm-rust"))
         .current_dir(workspace)
@@ -54,9 +62,24 @@ fn append_comment(workspace: &Path, marker: &str) -> bool {
             text.as_str(),
             "--author=load-agent",
         ])
-        .output();
-    output.is_ok_and(|output| output.status.success())
+        .output()
+        .map_err(|error| format!("could not spawn the native binary: {error}"))?;
+    if output.status.success() {
+        return Ok(());
+    }
+    Err(format!(
+        "exit {status}: {stderr}",
+        status = output.status,
+        stderr = String::from_utf8_lossy(&output.stderr).trim()
+    ))
 }
+
+/// The diagnostic a writer emits when the configured lock wait budget expires.
+///
+/// Kept as the substring of `PmRustError::LockConflict`'s `Display` that does
+/// not vary with the item id, so the test recognises admission control without
+/// matching any other failure.
+const LOCK_WAIT_EXHAUSTED: &str = "is locked by another writer";
 
 /// Reads the stored item document bytes for the contention target.
 fn stored_item(workspace: &Path) -> Result<String, Box<dyn std::error::Error>> {
@@ -87,37 +110,51 @@ fn concurrent_comment_processes_preserve_every_accepted_mutation()
         let workspace = Arc::clone(&workspace);
         handles.push(thread::spawn(move || {
             let mut accepted = 0;
+            let mut rejections = Vec::new();
             for mutation in 0..MUTATIONS_PER_PROCESS {
                 let marker = format!("{process}-{mutation}");
-                if append_comment(workspace.as_path(), &marker) {
-                    accepted += 1;
+                match append_comment(workspace.as_path(), &marker) {
+                    Ok(()) => accepted += 1,
+                    Err(reason) => rejections.push(reason),
                 }
             }
-            accepted
+            (accepted, rejections)
         }));
     }
     let mut accepted_total = 0;
+    let mut rejections = Vec::new();
     for handle in handles {
-        let accepted = handle
+        let (accepted, mut reasons) = handle
             .join()
             .map_err(|panic| format!("worker thread panicked: {panic:?}"))?;
         accepted_total += accepted;
+        rejections.append(&mut reasons);
     }
     // The configured `wait_ms` budget is host-dependent admission control, not
     // a correctness property: on a slower filesystem (notably the Windows CI
-    // runner) some writers may time out before the per-item lock frees, so the
-    // number admitted is a function of how fast the host is, not of whether
-    // the code preserves mutations. Asserting that the budget admits every
-    // writer measures the runner, not the code (the same class of defect as a
-    // gate that measures the clock).
+    // runner) a writer can exhaust the budget before the per-item lock frees,
+    // so the number admitted is a function of how fast the host is. Asserting
+    // that the budget admits every writer measures the runner, not the code —
+    // the same class of defect as a gate that measures the clock.
     //
-    // The contract under test is deterministic: every writer the lock DID
-    // admit must have its mutation fully preserved — comment rows, history
-    // records, and the hash chain all agree — regardless of how many the
-    // budget happened to admit. Guard only against the degenerate case where
-    // the fixture admitted no writer at all and so could not exercise the
-    // invariant; the defect-injection run below proves the remaining
-    // assertions are not vacuous when at least one writer is admitted.
+    // Tolerating a short admission is only sound while the reason is known.
+    // Every writer that was turned away must have been turned away by the lock,
+    // because that is the one rejection this contract permits; a rejection with
+    // any other diagnostic is a real defect on that platform and must fail the
+    // test rather than quietly reduce the number of writers it exercises.
+    let unexpected: Vec<&String> = rejections
+        .iter()
+        .filter(|reason| !reason.contains(LOCK_WAIT_EXHAUSTED))
+        .collect();
+    assert!(
+        unexpected.is_empty(),
+        "a writer failed for a reason other than the lock wait budget: {unexpected:?}"
+    );
+    // The contract under test is deterministic: every writer the lock DID admit
+    // must have its mutation fully preserved — comment rows, history records,
+    // and the hash chain all agree — regardless of how many the budget
+    // admitted. Guard against the degenerate case where the fixture admitted no
+    // writer at all and so could not exercise the invariant at all.
     assert_ne!(
         accepted_total, 0,
         "the contention fixture must admit at least one writer to exercise the contract"
