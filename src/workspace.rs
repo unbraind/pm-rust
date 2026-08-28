@@ -215,7 +215,11 @@ impl Workspace {
     /// # Errors
     ///
     /// Returns a typed validation, lock, conflict, recovery, or filesystem
-    /// error. The item must already exist and at least one field must change.
+    /// error. The item must already exist and at least one of `title`,
+    /// `description`, `status`, `priority`, `tags` or `body` must be supplied.
+    /// Supplying a field is what is required, not changing its value: a request
+    /// that sets a field to what it already holds is accepted and writes a
+    /// history record, matching the published CLI.
     pub fn update(&self, request: UpdateItem) -> Result<MutationResult, PmRustError> {
         update_item(&self.pm_root, request)
     }

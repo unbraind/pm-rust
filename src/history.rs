@@ -309,11 +309,46 @@ fn stable_json(value: &Value, output: &mut String) {
             }
             output.push('}');
         }
+        Value::Number(number) => output.push_str(&javascript_number(number)),
         scalar => {
             let encoded = serde_json::to_string(scalar).unwrap_or_default();
             output.push_str(&encoded);
         }
     }
+}
+
+/// Renders one JSON number the way `JSON.stringify` renders it.
+///
+/// The hash must match the published JavaScript CLI byte for byte, and the two
+/// runtimes disagree about numbers that a TOON document decodes as `f64`.
+/// `serde_json` writes `30.0` and `1e21`; `JSON.stringify` writes `30` and
+/// `1e+21`. Either difference changes `before_hash` and `after_hash` for any
+/// item carrying a float in its metadata, which reads downstream as a corrupt
+/// history chain rather than as a formatting disagreement.
+///
+/// Integers are left to `serde_json`, which already agrees. Floats are rendered
+/// by JavaScript's own two rules: a finite value whose fractional part is zero
+/// and whose magnitude is below `1e21` prints without a decimal point, and an
+/// exponent always carries an explicit sign.
+///
+/// @param number - The decoded JSON number.
+/// @returns The number formatted as `JSON.stringify` would format it.
+pub(crate) fn javascript_number(number: &serde_json::Number) -> String {
+    let Some(float) = number
+        .as_f64()
+        .filter(|_| number.as_i64().is_none() && number.as_u64().is_none())
+    else {
+        return number.to_string();
+    };
+    if float.fract() == 0.0 && float.abs() < 1e21 {
+        return format!("{float:.0}");
+    }
+    // Exponent form needs no adjustment: `serde_json` already writes the sign
+    // that `JSON.stringify` writes, `1e+21` and `1e-7` alike. Only the
+    // whole-valued case above actually diverges, and a branch here for the
+    // unsigned exponent `serde_json` never emits would be unreachable code
+    // dressed as a safeguard.
+    number.to_string()
 }
 
 /// Computes the canonical SHA-256 document hash used by pm history.

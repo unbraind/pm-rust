@@ -38,8 +38,7 @@ beyond terminal-status refusal on close, harness/model identity detection
 general history replay are not exposed. Close requires a non-empty closing
 summary because the published default governance policy does. Update accepts
 only whole-field replacements of title, description, status, priority, tags,
-and body. Create currently fails fast on a live lock;
-it does not yet implement the configured lock wait budget. Adding a command
+and body. Adding a command
 before its safety and differential fixtures exist is treated as a compatibility
 failure, not progress.
 
