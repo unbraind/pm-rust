@@ -1,0 +1,22 @@
+id: pm-rust-yilr
+title: "The release workflow pins a pm CLI three weeks older than CI's, and its changelog reads are bounded"
+description: "This repository pins two different pm CLI versions. CI installs 2026.8.21 to run pm health with merge drivers required; the release workflow installs 2026.8.6 for all three of its pm-changelog invocations. That older pin is not neutral: its pm health invocation is known to hang, so any step that reaches for health inside the release job inherits a silent stall rather than a failure, and the two pins disagree about item hashing, which is what makes a history drift verdict depend on which binary produced it. Separately, none of the three invocations passes the unbounded output budget and output limit controls every other fleet package passes. pm-github proved that fuse is real: it kept releasing until its tracker reached eighty-six items, then failed for ten consecutive days on a read truncated to five."
+type: Issue
+status: closed
+priority: 1
+tags[2]: "area:release","type:defect"
+created_at: "2026-08-28T15:59:27.509Z"
+updated_at: "2026-08-28T16:00:31.430Z"
+closed_at: "2026-08-28T16:00:31.417Z"
+completed_at: "2026-08-28T16:00:31.417Z"
+author: claude
+acceptance_criteria: Both workflows install the same exact pm CLI version; every pm-changelog invocation in the release workflow requests a complete unbounded workspace read
+resolution: fixed
+expected_result: "One pm CLI version across both workflows, and a generator that refuses a partial workspace read rather than silently shortening the changelog."
+actual_result: Both workflows install @unbrained/pm-cli 2026.8.21; pm-changelog moves from 2026.8.6 to 2026.8.22; all three invocations carry the unbounded output-budget and output-limit controls. Forwarding proven by pm returning its own unknown_option error for a bogus forwarded flag.
+comments[1]{created_at,author,text}:
+  "2026-08-28T16:00:17.177Z",claude,"Both workflows now install @unbrained/pm-cli 2026.8.21, and the release workflow's pm-changelog moves from 2026.8.6 to 2026.8.22 to match the rest of the fleet. All three invocations request a complete unbounded workspace read. The forwarding is proven rather than assumed: running the pinned generator with --pm-arg naming a flag pm does not have returns pm's own unknown_option error for that flag, so the arguments reach the binary and the controls are not inert."
+docs[1]{path,scope,note}:
+  .github/workflows/release.yml,project,the three pm-changelog invocations and their pins
+close_reason: "Both workflows install the same exact pm CLI version, and all three release-time changelog invocations request a complete unbounded read."
+body: ""
