@@ -722,8 +722,14 @@ fn acquire_lock_attempt(
     }
     // `match` instead of `.map_err(..)` avoids a per-instantiation closure
     // function the coverage gate counts separately.
+    // The same pending-delete window applies to reading the incumbent lock: the
+    // create above failed because a lock was there, and the holder may release
+    // it before this read runs.
     let existing_raw = match fs::read_to_string(&path) {
         Ok(raw) => raw,
+        Err(source) if lock_error_is_contention(source.kind()) => {
+            return Err(PmRustError::LockConflict { id: id.to_owned() });
+        }
         Err(source) => {
             return Err(PmRustError::Io {
                 path: path.clone(),
@@ -763,11 +769,41 @@ fn acquire_lock_attempt(
     cleanup_result.and_then(|()| create_lock_file(&path, &raw, id))
 }
 
+/// Decides whether a lock-path filesystem error means contention or a fault.
+///
+/// Contention does not present the same way on every platform, and reading a
+/// Windows presentation as a fault is what turns a busy lock into an aborted
+/// mutation:
+///
+/// - `AlreadyExists` is the ordinary case: another writer holds the lock.
+/// - `PermissionDenied` is the Windows presentation of the same thing. Windows
+///   keeps a deleted file in a *pending delete* state until every handle to it
+///   closes, and an open against a file in that state fails with
+///   `ERROR_ACCESS_DENIED` rather than with "already exists" or "not found". A
+///   writer releasing its lock therefore makes a concurrent writer's open fail
+///   with `PermissionDenied` for a moment -- which is contention, precisely.
+/// - `NotFound` means the lock, or the directory holding it, disappeared
+///   between two of our own calls. The next attempt recreates the directory and
+///   retries the create, so this too is a retry rather than a failure.
+///
+/// Every one of these is retried inside the caller's `wait_ms` budget, so a
+/// lock that never frees still fails, and it fails as a lock conflict. The
+/// residual cost is diagnostic: a `locks` directory that is genuinely
+/// unwritable reports a lock conflict after the budget rather than a
+/// permissions error. That trade is deliberate -- the common case is
+/// contention, and the rare case still fails.
+fn lock_error_is_contention(kind: ErrorKind) -> bool {
+    matches!(
+        kind,
+        ErrorKind::AlreadyExists | ErrorKind::PermissionDenied | ErrorKind::NotFound
+    )
+}
+
 /// Creates and initializes a new lock file without replacing another writer.
 fn create_lock_file(path: &Path, raw: &str, id: &str) -> Result<ItemLock, PmRustError> {
     match OpenOptions::new().write(true).create_new(true).open(path) {
         Ok(file) => write_lock_file(file, path, raw),
-        Err(source) if source.kind() == ErrorKind::AlreadyExists => {
+        Err(source) if lock_error_is_contention(source.kind()) => {
             Err(PmRustError::LockConflict { id: id.to_owned() })
         }
         Err(source) => Err(PmRustError::Io {

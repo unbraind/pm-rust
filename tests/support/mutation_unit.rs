@@ -2221,3 +2221,101 @@ fn remaining_unix_only_mutation_arms_are_covered_in_the_unit_binary()
     fs::set_permissions(&nested, fs::Permissions::from_mode(0o755))?;
     Ok(())
 }
+
+#[test]
+fn windows_pending_delete_reads_as_lock_contention_not_as_a_fault() {
+    // Windows keeps a deleted file in a pending-delete state until every handle
+    // to it closes, and an open against a file in that state fails with
+    // ERROR_ACCESS_DENIED -- surfacing in Rust as PermissionDenied, not as
+    // AlreadyExists. A writer releasing its lock therefore made a concurrent
+    // writer's create fail fatally instead of retrying, which is how a busy
+    // lock became an aborted mutation on the Windows runner while every Unix
+    // job passed.
+    for kind in [
+        ErrorKind::AlreadyExists,
+        ErrorKind::PermissionDenied,
+        ErrorKind::NotFound,
+    ] {
+        assert!(
+            lock_error_is_contention(kind),
+            "{kind:?} is a way a held or just-released lock presents itself",
+        );
+    }
+    // Anything else is a real fault and must keep its own diagnostic rather
+    // than being retried until the wait budget expires and then reported as a
+    // lock conflict.
+    for kind in [
+        ErrorKind::InvalidInput,
+        ErrorKind::OutOfMemory,
+        ErrorKind::Unsupported,
+    ] {
+        assert!(
+            !lock_error_is_contention(kind),
+            "{kind:?} is not contention and must not be retried as if it were",
+        );
+    }
+}
+
+#[test]
+fn a_lock_path_that_cannot_be_opened_is_reported_as_contention() {
+    // Drives `create_lock_file` against a path whose parent is a file rather
+    // than a directory, so the open fails with `NotFound` -- the same class the
+    // Windows pending-delete window produces, reached deterministically on any
+    // platform. Before the fix this returned a filesystem error and killed the
+    // mutation; now it is a conflict, which the caller retries inside its wait
+    // budget and only then reports as a lock conflict.
+    let Ok((directory, pm_root)) = root(r#"{"id_prefix":"sample-","item_format":"toon"}"#) else {
+        unreachable!("the fixture builds");
+    };
+    let locks = pm_root.join("locks");
+    let Ok(()) = fs::create_dir_all(&locks) else {
+        unreachable!("the fixture builds");
+    };
+    let path = locks.join("sample-gone.lock");
+    let Err(error) = create_lock_file(&path.join("unreachable-child"), "{}", "sample-gone") else {
+        unreachable!("creating a lock beneath a non-directory cannot succeed");
+    };
+    assert!(
+        matches!(error, PmRustError::LockConflict { .. }),
+        "a vanished or unopenable lock path is contention, got {error:?}",
+    );
+    drop(directory);
+}
+
+#[cfg(unix)]
+#[test]
+fn an_unreadable_incumbent_lock_is_contention_rather_than_a_filesystem_error() {
+    // The second half of the pending-delete window: the create fails because a
+    // lock is present, and the read of that incumbent then fails too. Windows
+    // produces this with ERROR_ACCESS_DENIED on a file awaiting deletion;
+    // an unreadable file reproduces the same `PermissionDenied` deterministically
+    // here. Reported as a filesystem error it kills the mutation; reported as
+    // contention the caller retries inside its wait budget.
+    use std::os::unix::fs::PermissionsExt;
+    let Ok((directory, pm_root)) = root(r#"{"id_prefix":"sample-","item_format":"toon"}"#) else {
+        unreachable!("the fixture builds");
+    };
+    let locks = pm_root.join("locks");
+    let Ok(()) = fs::create_dir_all(&locks) else {
+        unreachable!("the fixture builds");
+    };
+    let path = locks.join("sample-held.lock");
+    let Ok(()) = fs::write(&path, "{}\n") else {
+        unreachable!("the fixture builds");
+    };
+    let Ok(()) = fs::set_permissions(&path, fs::Permissions::from_mode(0o000)) else {
+        unreachable!("the fixture builds");
+    };
+    let outcome = acquire_lock_attempt(&pm_root, "sample-held", "load-agent", 1800, false, TS);
+    let Ok(()) = fs::set_permissions(&path, fs::Permissions::from_mode(0o600)) else {
+        unreachable!("the fixture is restored so the directory can be removed");
+    };
+    let Err(error) = outcome else {
+        unreachable!("a held lock cannot be acquired");
+    };
+    assert!(
+        matches!(error, PmRustError::LockConflict { .. }),
+        "an unreadable incumbent lock is contention, got {error:?}",
+    );
+    drop(directory);
+}

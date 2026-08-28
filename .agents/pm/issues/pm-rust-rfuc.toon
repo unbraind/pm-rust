@@ -1,0 +1,35 @@
+id: pm-rust-rfuc
+title: "Lock contention on Windows presents as access denied, and the native binary treated it as a fatal filesystem error"
+description: "On Windows a deleted file stays in a pending-delete state until every handle to it closes, and an open against a file in that state fails with ERROR_ACCESS_DENIED rather than with already-exists or not-found. create_lock_file matched only ErrorKind::AlreadyExists, so a writer releasing its lock made a concurrent writer's create fail with PmRustError::Io and abort the mutation instead of retrying inside the configured wait budget. The read of the incumbent lock sat in the same window and had the same defect. Every Unix job passed; only the Windows runner reached the window, and only under real multi-process contention."
+type: Issue
+status: closed
+priority: 0
+tags[4]: "area:concurrency","platform:windows","severity:data-safety","type:defect"
+created_at: "2026-08-28T06:21:26.582Z"
+updated_at: "2026-08-28T06:21:42.602Z"
+deadline: "2026-08-29T00:00:00.000Z"
+closed_at: "2026-08-28T06:21:42.577Z"
+completed_at: "2026-08-28T06:21:42.577Z"
+author: claude
+estimated_minutes: 120
+acceptance_criteria: "A lock-path open or read that fails with AlreadyExists, PermissionDenied or NotFound is reported as a lock conflict and retried inside the wait budget; any other error keeps its own filesystem diagnostic; both arms are covered by tests that fail when the classification is narrowed back to AlreadyExists; coverage stays at 100 percent on every metric."
+resolution: "lock_error_is_contention treats AlreadyExists, PermissionDenied and NotFound on a lock path as contention, so both the create and the incumbent read retry inside the caller's wait budget. Any other error keeps its own filesystem diagnostic."
+expected_result: "A writer releasing its lock no longer aborts a concurrent writer's mutation on Windows; a lock that never frees still fails, and fails as a lock conflict."
+actual_result: "Narrowing the classification back to AlreadyExists fails both new tests; restoring it passes. Gates: cargo fmt --check 0, clippy -D warnings 0, cargo test --all-targets --all-features 141 passed 0 failed, llvm-cov --branch 100.00 percent regions / functions / lines / branches."
+dependencies[1]{id,kind,created_at,author,source_kind,author_source}:
+  pm-rust-kgfh,related,"2026-08-28T06:21:26.582Z",claude,"cli:create:dep",asserted
+comments[1]{created_at,author,text}:
+  "2026-08-28T06:21:26.582Z",claude,"Found because the concurrency contract now asserts every rejection carries the lock-conflict diagnostic. The tolerant version added one round earlier would have counted these two dead writers as writers the budget did not admit,and passed."
+notes[1]{created_at,author,text}:
+  "2026-08-28T06:21:26.582Z",claude,"Observed on the runner: 'pm-rust: filesystem operation failed at ...locks/sample-load.lock: Access is denied. (os error 5)',twice in one run of 24 writers."
+learnings[1]{created_at,author,text}:
+  "2026-08-28T06:21:26.582Z",claude,A platform's presentation of an ordinary condition is not the condition changing. Windows reports a busy or releasing file as access denied; matching only the Unix presentation turns routine contention into an aborted write.
+files[2]{path,scope,note}:
+  src/mutation.rs,project,lock_error_is_contention classifies the Windows presentation of a held or just-released lock
+  tests/support/mutation_unit.rs,project,"classification,unopenable path,and unreadable incumbent"
+tests[1]{command,scope,timeout_seconds,provenance{author,created_at,source_kind,source_ref}}:
+  cargo test --lib windows_pending_delete_reads_as_lock_contention_not_as_a_fault,project,300,claude,"2026-08-28T06:21:26.582Z",local_mutation,feat/rust-native-mutations-and-conformance
+docs[1]{path,scope,note}:
+  tests/concurrency_contract.rs,project,the assertion that surfaced it
+close_reason: fixed
+body: "This defect was invisible until the concurrency contract was made to keep each rejected writer's diagnostic. The previous round had relaxed that test to tolerate a short admission count, which is right in itself, but it collapsed every rejection to a boolean. Under that assertion this run would have reported success: the writers that died on ERROR_ACCESS_DENIED would simply have counted as writers the budget did not admit. The failing assertion that found it is the one added in pm-rust-kgfh."
