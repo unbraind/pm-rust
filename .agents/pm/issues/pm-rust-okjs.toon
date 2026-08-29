@@ -1,0 +1,27 @@
+id: pm-rust-okjs
+title: "Align local, CI, and release pm tooling for PR 26"
+description: Update the local justfile and release contract tests to use the same pm CLI as CI and require complete changelog workspace reads.
+type: Issue
+status: closed
+priority: 2
+tags: []
+created_at: "2026-08-29T04:53:28.447Z"
+updated_at: "2026-08-29T04:56:00.792Z"
+closed_at: "2026-08-29T04:53:41.227Z"
+completed_at: "2026-08-29T04:53:41.227Z"
+author: pi-agent
+estimated_minutes: 45
+acceptance_criteria: "All changelog and CI health invocations pin pm CLI 2026.8.28, request unbounded output budget and limit, and the release pipeline contract and pinned health check pass"
+resolution: "Aligned local, CI, and release pm CLI pins and made complete workspace reads contractual."
+expected_result: "All local, CI, and release surfaces use pm CLI 2026.8.28 and changelog reads are unbounded and untruncated."
+actual_result: The release contract passes and pm 2026.8.28 reports tracker health clean; pm 2026.8.21 reproduced gate-failing drift against origin/main.
+comments[2]{created_at,author,text}:
+  "2026-08-29T04:53:39.931Z",pi-agent,CI failures came from stale release contract expectations and the local justfile still using pm CLI 2026.8.6. Updated all local/release expectations to 2026.8.21 and complete workspace reads.
+  "2026-08-29T04:56:00.792Z",pi-agent,"A strict health run proved 2026.8.21 is too old for the committed tracker: it reports hash and chain drift even on origin/main. Pinning every CI, release, and local surface to 2026.8.28 makes health clean without rewriting history."
+files[2]{path,scope,note}:
+  justfile,project,Align local changelog toolchain and complete reads
+  tests/release_pipeline_contract.rs,project,Enforce unified pins and complete reads
+tests[1]{command,scope,timeout_seconds}:
+  cargo test --locked --test release_pipeline_contract,project,300
+close_reason: Unified pm tooling pins and complete workspace reads with passing release contracts.
+body: ""

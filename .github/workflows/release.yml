@@ -169,7 +169,7 @@ jobs:
             exit 1
           }
           crate_version="$(sed -n 's/^version *= *"\([^"]*\)"/\1/p' Cargo.toml)"
-          npx --yes --package=pm-changelog@2026.8.22 --package=@unbrained/pm-cli@2026.8.21 -- pm-changelog \
+          npx --yes --package=pm-changelog@2026.8.22 --package=@unbrained/pm-cli@2026.8.28 -- pm-changelog \
             --pm-root .agents/pm \
             --pm-arg=--output-budget --pm-arg=unbounded \
             --pm-arg=--output-limit --pm-arg=unbounded \
@@ -185,7 +185,7 @@ jobs:
             --item-ref-style toon \
             --include-metadata \
             --github-step-summary
-          npx --yes --package=pm-changelog@2026.8.22 --package=@unbrained/pm-cli@2026.8.21 -- pm-changelog \
+          npx --yes --package=pm-changelog@2026.8.22 --package=@unbrained/pm-cli@2026.8.28 -- pm-changelog \
             --pm-root .agents/pm \
             --pm-arg=--output-budget --pm-arg=unbounded \
             --pm-arg=--output-limit --pm-arg=unbounded \
@@ -201,7 +201,7 @@ jobs:
             --item-ref-style toon \
             --include-metadata \
             --check
-          npx --yes --package=pm-changelog@2026.8.22 --package=@unbrained/pm-cli@2026.8.21 -- pm-changelog \
+          npx --yes --package=pm-changelog@2026.8.22 --package=@unbrained/pm-cli@2026.8.28 -- pm-changelog \
             --pm-root .agents/pm \
             --pm-arg=--output-budget --pm-arg=unbounded \
             --pm-arg=--output-limit --pm-arg=unbounded \
