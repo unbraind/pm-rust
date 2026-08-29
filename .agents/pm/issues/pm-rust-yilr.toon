@@ -6,17 +6,24 @@ status: closed
 priority: 1
 tags[2]: "area:release","type:defect"
 created_at: "2026-08-28T15:59:27.509Z"
-updated_at: "2026-08-28T16:00:31.430Z"
-closed_at: "2026-08-28T16:00:31.417Z"
-completed_at: "2026-08-28T16:00:31.417Z"
+updated_at: "2026-08-29T05:08:06.760Z"
+closed_at: "2026-08-29T05:08:06.312Z"
+completed_at: "2026-08-29T05:08:06.312Z"
 author: claude
 acceptance_criteria: Both workflows install the same exact pm CLI version; every pm-changelog invocation in the release workflow requests a complete unbounded workspace read
 resolution: fixed
 expected_result: "One pm CLI version across both workflows, and a generator that refuses a partial workspace read rather than silently shortening the changelog."
-actual_result: Both workflows install @unbrained/pm-cli 2026.8.21; pm-changelog moves from 2026.8.6 to 2026.8.22; all three invocations carry the unbounded output-budget and output-limit controls. Forwarding proven by pm returning its own unknown_option error for a bogus forwarded flag.
-comments[1]{created_at,author,text}:
-  "2026-08-28T16:00:17.177Z",claude,"Both workflows now install @unbrained/pm-cli 2026.8.21, and the release workflow's pm-changelog moves from 2026.8.6 to 2026.8.22 to match the rest of the fleet. All three invocations request a complete unbounded workspace read. The forwarding is proven rather than assumed: running the pinned generator with --pm-arg naming a flag pm does not have returns pm's own unknown_option error for that flag, so the arguments reach the binary and the controls are not inert."
+actual_result: "CI, release, and local just recipes install @unbrained/pm-cli 2026.8.28; pm-changelog is 2026.8.22; every changelog invocation carries unbounded output-budget and output-limit controls; strict health and release-check pass."
+comments[1]{created_at,author,text,edited_at}:
+  "2026-08-28T16:00:17.177Z",claude,"CI, release, and local just recipes now install @unbrained/pm-cli 2026.8.28, while pm-changelog uses 2026.8.22. Every changelog invocation requests a complete unbounded workspace read. The release contract verifies the exact pins and forwarded output controls, and pinned strict health passes.","2026-08-29T05:08:05.386Z"
+files[3]{path,scope,note}:
+  .github/workflows/ci.yml,project,Unified pm health pin
+  .github/workflows/release.yml,project,Unified release pin and complete read flags
+  justfile,project,Unified local pin and complete read flags
+tests[2]{command,scope,timeout_seconds,provenance{author,created_at,source_kind,source_ref}}:
+  cargo test --locked --test release_pipeline_contract,project,300,pi-agent,"2026-08-29T05:08:05.828Z",local_mutation,fix/align-release-pm-pin-and-unbounded-reads
+  just changelog-check,project,300,pi-agent,"2026-08-29T05:08:05.828Z",local_mutation,fix/align-release-pm-pin-and-unbounded-reads
 docs[1]{path,scope,note}:
   .github/workflows/release.yml,project,the three pm-changelog invocations and their pins
-close_reason: "Both workflows install the same exact pm CLI version, and all three release-time changelog invocations request a complete unbounded read."
+close_reason: All tooling surfaces ship pm 2026.8.28 and complete changelog reads with contract evidence.
 body: ""

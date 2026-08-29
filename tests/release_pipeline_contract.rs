@@ -936,7 +936,7 @@ fn changelog_toolchain_pins_the_sdk_exactly() -> Result<(), BoxError> {
     );
     assert!(
         justfile.contains("PM_CLI_PKG := \"@unbrained/pm-cli@2026.8.28\""),
-        "the justfile must pin @unbrained/pm-cli exactly; the floating range resolves to latest and truncates tracker reads (pm-rust-1ps2)"
+        "the justfile must pin @unbrained/pm-cli exactly; the floating range resolves to latest and truncates tracker reads (pm-rust-yilr)"
     );
     assert!(
         justfile.contains("--package={{PM_CHANGELOG_PKG}} --package={{PM_CLI_PKG}}"),
