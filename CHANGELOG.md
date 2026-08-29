@@ -15,6 +15,8 @@
 
 ### Bug Fixes
 
+- The release workflow pins a pm CLI three weeks older than CI's, and its changelog reads are bounded ([pm-rust-yilr](https://github.com/unbraind/pm-rust/blob/main/.agents/pm/issues/pm-rust-yilr.toon)) _type:Issue; status:closed; P1_
+- Align local, CI, and release pm tooling for PR 26 ([pm-rust-okjs](https://github.com/unbraind/pm-rust/blob/main/.agents/pm/issues/pm-rust-okjs.toon)) _type:Issue; status:closed; P2_
 - Lock contention on Windows presents as access denied, and the native binary treated it as a fatal filesystem error ([pm-rust-rfuc](https://github.com/unbraind/pm-rust/blob/main/.agents/pm/issues/pm-rust-rfuc.toon)) _type:Issue; status:closed; P0_
 - A float in item metadata hashes differently from the published CLI, and two doc contracts describe behaviour the code does not have ([pm-rust-27da](https://github.com/unbraind/pm-rust/blob/main/.agents/pm/issues/pm-rust-27da.toon)) _type:Issue; status:closed; P1_
 - The concurrency contract cannot tell lock admission control apart from a real platform failure ([pm-rust-kgfh](https://github.com/unbraind/pm-rust/blob/main/.agents/pm/issues/pm-rust-kgfh.toon)) _type:Issue; status:closed; P1_

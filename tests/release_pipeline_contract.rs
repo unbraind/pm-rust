@@ -920,29 +920,32 @@ fn the_justfile_never_reads_the_wall_clock() -> Result<(), BoxError> {
     Ok(())
 }
 
-/// pm-rust-1ps2: the changelog toolchain must pin the pm CLI/SDK build, not a
-/// floating range.
+/// pm-rust-yilr: the changelog toolchain must pin the pm CLI/SDK build, not a
+/// floating range, and explicitly request the complete workspace.
 ///
-/// pm-changelog declares its SDK as `>=2026.8.3`, so an unpinned install
-/// resolves to latest. Under SDK >=2026.8.20 the same tracker read truncates
-/// at the default output budget and regeneration silently drops closed items
-/// the committed CHANGELOG.md carries — CI and a warm-cache working copy
-/// disagreed with byte-identical inputs. Both packages must be pinned exactly
-/// in the justfile and in every release-workflow npx invocation.
+/// pm-changelog declares its SDK as a range, so an unpinned install can resolve
+/// differently from CI. Modern SDKs also bound reads by default; both output
+/// controls must be disabled explicitly so regeneration cannot silently omit
+/// closed items. The same pm CLI pin is used by the justfile, CI, and release.
 #[test]
 fn changelog_toolchain_pins_the_sdk_exactly() -> Result<(), BoxError> {
     let justfile = read_repo_file("justfile")?;
     assert!(
-        justfile.contains("PM_CHANGELOG_PKG := \"pm-changelog@2026.8.6\""),
+        justfile.contains("PM_CHANGELOG_PKG := \"pm-changelog@2026.8.22\""),
         "the justfile must pin pm-changelog exactly"
     );
     assert!(
-        justfile.contains("PM_CLI_PKG := \"@unbrained/pm-cli@2026.8.6\""),
-        "the justfile must pin @unbrained/pm-cli exactly; the floating range resolves to latest and truncates tracker reads (pm-rust-1ps2)"
+        justfile.contains("PM_CLI_PKG := \"@unbrained/pm-cli@2026.8.28\""),
+        "the justfile must pin @unbrained/pm-cli exactly; the floating range resolves to latest and truncates tracker reads (pm-rust-yilr)"
     );
     assert!(
         justfile.contains("--package={{PM_CHANGELOG_PKG}} --package={{PM_CLI_PKG}}"),
         "the shared pm-changelog recipe must install both pinned packages into one npx prefix"
+    );
+    assert!(
+        justfile.contains("--pm-arg=--output-budget --pm-arg=unbounded")
+            && justfile.contains("--pm-arg=--output-limit --pm-arg=unbounded"),
+        "the shared pm-changelog recipe must request an unbounded, untruncated workspace read"
     );
 
     let workflow = parse_workflow(".github/workflows/release.yml")?;
@@ -956,9 +959,15 @@ fn changelog_toolchain_pins_the_sdk_exactly() -> Result<(), BoxError> {
                     continue;
                 }
                 assert!(
-                    line.contains("--package=pm-changelog@2026.8.6")
-                        && line.contains("--package=@unbrained/pm-cli@2026.8.6"),
-                    "{job_name} step '{}' invokes pm-changelog without pinning both packages exactly; the SDK would float to latest and truncate regeneration (pm-rust-1ps2):\n  {line}",
+                    line.contains("--package=pm-changelog@2026.8.22")
+                        && line.contains("--package=@unbrained/pm-cli@2026.8.28"),
+                    "{job_name} step '{}' invokes pm-changelog without the fleet's exact package pins (pm-rust-yilr):\n  {line}",
+                    step.label
+                );
+                assert!(
+                    line.contains("--pm-arg=--output-budget --pm-arg=unbounded")
+                        && line.contains("--pm-arg=--output-limit --pm-arg=unbounded"),
+                    "{job_name} step '{}' must request a complete workspace read (pm-rust-yilr):\n  {line}",
                     step.label
                 );
             }
