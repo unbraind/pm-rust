@@ -15,6 +15,7 @@
 
 ### Bug Fixes
 
+- The differential conformance suite never ran in CI, and it was hiding that pm-rust stamps a superseded history epoch ([pm-rust-ap8k](https://github.com/unbraind/pm-rust/blob/main/.agents/pm/issues/pm-rust-ap8k.toon)) _type:Issue; status:closed; P2_
 - The release workflow pins a pm CLI three weeks older than CI's, and its changelog reads are bounded ([pm-rust-yilr](https://github.com/unbraind/pm-rust/blob/main/.agents/pm/issues/pm-rust-yilr.toon)) _type:Issue; status:closed; P1_
 - Align local, CI, and release pm tooling for PR 26 ([pm-rust-okjs](https://github.com/unbraind/pm-rust/blob/main/.agents/pm/issues/pm-rust-okjs.toon)) _type:Issue; status:closed; P2_
 - Lock contention on Windows presents as access denied, and the native binary treated it as a fatal filesystem error ([pm-rust-rfuc](https://github.com/unbraind/pm-rust/blob/main/.agents/pm/issues/pm-rust-rfuc.toon)) _type:Issue; status:closed; P0_

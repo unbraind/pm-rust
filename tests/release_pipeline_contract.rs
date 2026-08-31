@@ -935,7 +935,7 @@ fn changelog_toolchain_pins_the_sdk_exactly() -> Result<(), BoxError> {
         "the justfile must pin pm-changelog exactly"
     );
     assert!(
-        justfile.contains("PM_CLI_PKG := \"@unbrained/pm-cli@2026.8.28\""),
+        justfile.contains("PM_CLI_PKG := \"@unbrained/pm-cli@2026.8.31\""),
         "the justfile must pin @unbrained/pm-cli exactly; the floating range resolves to latest and truncates tracker reads (pm-rust-yilr)"
     );
     assert!(
@@ -960,7 +960,7 @@ fn changelog_toolchain_pins_the_sdk_exactly() -> Result<(), BoxError> {
                 }
                 assert!(
                     line.contains("--package=pm-changelog@2026.8.22")
-                        && line.contains("--package=@unbrained/pm-cli@2026.8.28"),
+                        && line.contains("--package=@unbrained/pm-cli@2026.8.31"),
                     "{job_name} step '{}' invokes pm-changelog without the fleet's exact package pins (pm-rust-yilr):\n  {line}",
                     step.label
                 );

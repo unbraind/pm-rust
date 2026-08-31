@@ -1,7 +1,7 @@
 # Compatibility contract
 
 The current `pm-rust` slice is a native read-and-mutate compatibility
-implementation for the published `pm` 2026.8.21 workspace format.
+implementation for the published `pm` 2026.8.31 workspace format.
 
 ## Supported
 
@@ -50,8 +50,11 @@ execution, and property-generated exact-ID filters. Manual acceptance runs the
 compiled binary against the private mature companion tracker without copying
 its contents into this public repository. Only aggregate counts and
 contract-level results may be recorded publicly. Create conformance additionally
-uses an exact official-SDK 2026.8.7 differential fixture generated under its
-reproducible workspace clock, simultaneous process writers,
+uses an exact official-SDK differential fixture, recorded from 2026.8.7 and
+carried forward: the published CLI moved `item_hash_version` from 2 to 3 in its
+2026.8.24 release, and every other byte of that fixture — `before_hash` and
+`after_hash` included — is unchanged, so only the epoch marker was updated.
+The fixture is generated under its reproducible workspace clock, simultaneous process writers,
 every recovery presence state, stale-lock ownership races, closed output pipes,
 and real filesystem failures.
 

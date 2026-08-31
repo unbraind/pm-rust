@@ -102,7 +102,7 @@ fn unknown_metadata_keys_sort_after_every_canonical_key() {
 }
 
 #[test]
-fn hashes_are_stable_and_entry_lines_carry_the_v2_epoch() {
+fn hashes_are_stable_and_entry_lines_carry_the_published_epoch() {
     let document = ordered(&json!({"id": "sample-x"}), "b");
     let again = ordered(&json!({"id": "sample-x"}), "b");
     assert_eq!(document_hash(&document), document_hash(&again));
@@ -121,7 +121,7 @@ fn hashes_are_stable_and_entry_lines_carry_the_v2_epoch() {
     assert!(
         line.contains(r#""agent_provenance":{"role":{"value":"implementer","source":"argv"}}"#)
     );
-    assert!(line.contains(r#""item_hash_version":2"#));
+    assert!(line.contains(r#""item_hash_version":3"#));
     assert!(!line.contains("message"));
     assert!(line.ends_with('\n'));
 }

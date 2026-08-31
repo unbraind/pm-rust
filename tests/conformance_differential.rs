@@ -20,7 +20,7 @@ const CLOCK: &str = "2026-08-22T10:00:00.000Z";
 #[path = "support/published_cli.rs"]
 mod published_cli;
 
-use published_cli::{PublishedCli, locate_published_cli};
+use published_cli::{PublishedCli, published_cli_or_skip};
 
 /// Encodes one path as a JSON string literal.
 ///
@@ -312,8 +312,7 @@ fn steps() -> Vec<Step> {
 /// Proves the native binary matches the live published CLI byte for byte.
 fn rust_and_published_cli_produce_identical_bytes_over_the_same_sequence()
 -> Result<(), Box<dyn std::error::Error>> {
-    let Some(published) = locate_published_cli() else {
-        println!("skip: no published Node pm CLI found (set PM_NODE_CLI to enable)");
+    let Some(published) = published_cli_or_skip("The differential conformance suite") else {
         return Ok(());
     };
     let scratch = tempfile::tempdir()?;

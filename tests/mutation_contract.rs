@@ -1,5 +1,8 @@
 //! Black-box and SDK acceptance for native update, comment, and close
-//! mutations against fixtures recorded from the published pm 2026.8.21 CLI
+//! mutations against fixtures recorded from the published pm CLI. The lines were
+//! recorded under 2026.8.21, which stamped `item_hash_version: 2`; the published
+//! CLI moved that epoch to 3 in 2026.8.24 and every other byte, hashes included,
+//! is unchanged, so only the marker was updated
 //! under its reproducible workspace recipe (fixed clock, zero tick).
 
 use std::fs;
@@ -29,7 +32,7 @@ const CREATE_ITEM_BYTES: &str = concat!(
 
 /// Canonical history line recorded after the recorded create step.
 const CREATE_HISTORY_LINE: &str = concat!(
-    r#"{"ts":"2026-08-22T10:00:00.000Z","author":"fixture-agent","author_source":"asserted","agent_provenance":{"role":{"value":"implementer","source":"argv"}},"op":"create","patch":[{"op":"replace","path":"/body","value":"Original body"},{"op":"add","path":"/metadata/id","value":"sample-conv"},{"op":"add","path":"/metadata/title","value":"Conformance item"},{"op":"add","path":"/metadata/description","value":"First desc"},{"op":"add","path":"/metadata/type","value":"Task"},{"op":"add","path":"/metadata/status","value":"open"},{"op":"add","path":"/metadata/priority","value":2},{"op":"add","path":"/metadata/tags","value":["alpha","beta"]},{"op":"add","path":"/metadata/created_at","value":"2026-08-22T10:00:00.000Z"},{"op":"add","path":"/metadata/updated_at","value":"2026-08-22T10:00:00.000Z"},{"op":"add","path":"/metadata/author","value":"fixture-agent"}],"before_hash":"3cc22dff72be7b14824654a7a64ea62b04799939b2fee54c1b5f52ca60bf6df0","after_hash":"ce63b69e6445b50ae43919f31607098a4e414350c8ca52003bd84ea609f979bf","item_hash_version":2,"message":""}"#,
+    r#"{"ts":"2026-08-22T10:00:00.000Z","author":"fixture-agent","author_source":"asserted","agent_provenance":{"role":{"value":"implementer","source":"argv"}},"op":"create","patch":[{"op":"replace","path":"/body","value":"Original body"},{"op":"add","path":"/metadata/id","value":"sample-conv"},{"op":"add","path":"/metadata/title","value":"Conformance item"},{"op":"add","path":"/metadata/description","value":"First desc"},{"op":"add","path":"/metadata/type","value":"Task"},{"op":"add","path":"/metadata/status","value":"open"},{"op":"add","path":"/metadata/priority","value":2},{"op":"add","path":"/metadata/tags","value":["alpha","beta"]},{"op":"add","path":"/metadata/created_at","value":"2026-08-22T10:00:00.000Z"},{"op":"add","path":"/metadata/updated_at","value":"2026-08-22T10:00:00.000Z"},{"op":"add","path":"/metadata/author","value":"fixture-agent"}],"before_hash":"3cc22dff72be7b14824654a7a64ea62b04799939b2fee54c1b5f52ca60bf6df0","after_hash":"ce63b69e6445b50ae43919f31607098a4e414350c8ca52003bd84ea609f979bf","item_hash_version":3,"message":""}"#,
     "\n",
 );
 
@@ -50,19 +53,19 @@ const UPDATE_ITEM_BYTES: &str = concat!(
 
 /// Canonical history line recorded after the recorded update step.
 const UPDATE_HISTORY_LINE: &str = concat!(
-    r#"{"ts":"2026-08-22T10:00:00.000Z","author":"fixture-agent","author_source":"asserted","agent_provenance":{"role":{"value":"implementer","source":"argv"}},"op":"update","patch":[{"op":"replace","path":"/metadata/priority","value":3},{"op":"replace","path":"/metadata/title","value":"Renamed item"}],"before_hash":"ce63b69e6445b50ae43919f31607098a4e414350c8ca52003bd84ea609f979bf","after_hash":"dc48d8c5971803ef643ec17734542814d3064982d1bc1b8d585d539d2266459c","item_hash_version":2,"message":"rename and reprioritize"}"#,
+    r#"{"ts":"2026-08-22T10:00:00.000Z","author":"fixture-agent","author_source":"asserted","agent_provenance":{"role":{"value":"implementer","source":"argv"}},"op":"update","patch":[{"op":"replace","path":"/metadata/priority","value":3},{"op":"replace","path":"/metadata/title","value":"Renamed item"}],"before_hash":"ce63b69e6445b50ae43919f31607098a4e414350c8ca52003bd84ea609f979bf","after_hash":"dc48d8c5971803ef643ec17734542814d3064982d1bc1b8d585d539d2266459c","item_hash_version":3,"message":"rename and reprioritize"}"#,
     "\n",
 );
 
 /// Canonical history line recorded after the recorded comment step.
 const COMMENT_HISTORY_LINE: &str = concat!(
-    r#"{"ts":"2026-08-22T10:00:00.000Z","author":"fixture-agent","author_source":"asserted","op":"comment_add","patch":[{"op":"add","path":"/metadata/comments","value":[{"created_at":"2026-08-22T10:00:00.000Z","author":"fixture-agent","text":"First native note"}]}],"before_hash":"dc48d8c5971803ef643ec17734542814d3064982d1bc1b8d585d539d2266459c","after_hash":"2f2d4a1680bcbb9dbf4e570ea50ceedbd7807a5f7d3c514bf8a4187b99fa37c0","item_hash_version":2,"message":"note recorded"}"#,
+    r#"{"ts":"2026-08-22T10:00:00.000Z","author":"fixture-agent","author_source":"asserted","op":"comment_add","patch":[{"op":"add","path":"/metadata/comments","value":[{"created_at":"2026-08-22T10:00:00.000Z","author":"fixture-agent","text":"First native note"}]}],"before_hash":"dc48d8c5971803ef643ec17734542814d3064982d1bc1b8d585d539d2266459c","after_hash":"2f2d4a1680bcbb9dbf4e570ea50ceedbd7807a5f7d3c514bf8a4187b99fa37c0","item_hash_version":3,"message":"note recorded"}"#,
     "\n",
 );
 
 /// Canonical history line recorded after the recorded status update step.
 const STATUS_UPDATE_HISTORY_LINE: &str = concat!(
-    r#"{"ts":"2026-08-22T10:00:00.000Z","author":"fixture-agent","author_source":"asserted","agent_provenance":{"role":{"value":"implementer","source":"argv"}},"op":"update","patch":[{"op":"replace","path":"/metadata/status","value":"in_progress"}],"before_hash":"2f2d4a1680bcbb9dbf4e570ea50ceedbd7807a5f7d3c514bf8a4187b99fa37c0","after_hash":"e7f7fb53e6330e7ffacbf15a870ad604a2e8d5236e67ac6c9e373b8ea4d6a0d0","item_hash_version":2}"#,
+    r#"{"ts":"2026-08-22T10:00:00.000Z","author":"fixture-agent","author_source":"asserted","agent_provenance":{"role":{"value":"implementer","source":"argv"}},"op":"update","patch":[{"op":"replace","path":"/metadata/status","value":"in_progress"}],"before_hash":"2f2d4a1680bcbb9dbf4e570ea50ceedbd7807a5f7d3c514bf8a4187b99fa37c0","after_hash":"e7f7fb53e6330e7ffacbf15a870ad604a2e8d5236e67ac6c9e373b8ea4d6a0d0","item_hash_version":3}"#,
     "\n",
 );
 
@@ -88,7 +91,7 @@ const CLOSE_ITEM_BYTES: &str = concat!(
 
 /// Canonical history line recorded after the recorded close step.
 const CLOSE_HISTORY_LINE: &str = concat!(
-    r#"{"ts":"2026-08-22T10:00:00.000Z","author":"fixture-agent","author_source":"asserted","agent_provenance":{"role":{"value":"implementer","source":"argv"}},"op":"close","patch":[{"op":"replace","path":"/metadata/status","value":"closed"},{"op":"add","path":"/metadata/closed_at","value":"2026-08-22T10:00:00.000Z"},{"op":"add","path":"/metadata/completed_at","value":"2026-08-22T10:00:00.000Z"},{"op":"add","path":"/metadata/close_reason","value":"conformance complete"}],"before_hash":"e7f7fb53e6330e7ffacbf15a870ad604a2e8d5236e67ac6c9e373b8ea4d6a0d0","after_hash":"2319c2cdf7e8164348a3235c87426c55dbf49aaeb286cc4893494b2b3b6eb6a8","item_hash_version":2}"#,
+    r#"{"ts":"2026-08-22T10:00:00.000Z","author":"fixture-agent","author_source":"asserted","agent_provenance":{"role":{"value":"implementer","source":"argv"}},"op":"close","patch":[{"op":"replace","path":"/metadata/status","value":"closed"},{"op":"add","path":"/metadata/closed_at","value":"2026-08-22T10:00:00.000Z"},{"op":"add","path":"/metadata/completed_at","value":"2026-08-22T10:00:00.000Z"},{"op":"add","path":"/metadata/close_reason","value":"conformance complete"}],"before_hash":"e7f7fb53e6330e7ffacbf15a870ad604a2e8d5236e67ac6c9e373b8ea4d6a0d0","after_hash":"2319c2cdf7e8164348a3235c87426c55dbf49aaeb286cc4893494b2b3b6eb6a8","item_hash_version":3}"#,
     "\n",
 );
 
@@ -214,8 +217,7 @@ fn item(root: &Path) -> String {
 
 #[test]
 /// Proves the native create transaction emits the recorded v2 history bytes.
-fn native_create_matches_the_published_2026_8_21_v2_history_bytes()
--> Result<(), Box<dyn std::error::Error>> {
+fn native_create_matches_the_published_history_bytes() -> Result<(), Box<dyn std::error::Error>> {
     let (directory, workspace) = tracker()?;
     let result = workspace.create(create_request())?;
     assert_eq!(
@@ -229,8 +231,7 @@ fn native_create_matches_the_published_2026_8_21_v2_history_bytes()
 
 #[test]
 /// Proves a native update writes the recorded item and history bytes exactly.
-fn native_update_matches_the_published_2026_8_21_bytes_exactly()
--> Result<(), Box<dyn std::error::Error>> {
+fn native_update_matches_the_published_bytes_exactly() -> Result<(), Box<dyn std::error::Error>> {
     let (directory, workspace) = tracker()?;
     workspace.create(create_request())?;
     let result = workspace.update(update_request())?;
@@ -248,8 +249,7 @@ fn native_update_matches_the_published_2026_8_21_bytes_exactly()
 
 #[test]
 /// Proves a native comment append writes the recorded history bytes exactly.
-fn native_comment_matches_the_published_2026_8_21_bytes_exactly()
--> Result<(), Box<dyn std::error::Error>> {
+fn native_comment_matches_the_published_bytes_exactly() -> Result<(), Box<dyn std::error::Error>> {
     let (directory, workspace) = tracker()?;
     advance_to(&workspace, "update")?;
     let result = workspace.comment(&comment_request())?;
@@ -282,8 +282,7 @@ fn native_status_update_omits_an_absent_message_key() -> Result<(), Box<dyn std:
 
 #[test]
 /// Proves a native close writes the recorded item and history bytes exactly.
-fn native_close_matches_the_published_2026_8_21_bytes_exactly()
--> Result<(), Box<dyn std::error::Error>> {
+fn native_close_matches_the_published_bytes_exactly() -> Result<(), Box<dyn std::error::Error>> {
     let (directory, workspace) = tracker()?;
     advance_to(&workspace, "status-update")?;
     let result = workspace.close(CloseItem {

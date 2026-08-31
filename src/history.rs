@@ -1,9 +1,9 @@
 //! Canonical pm history construction shared by every native mutation.
 //!
-//! The published pm 2026.8.21 release stores one JSON line per mutation in
+//! The published pm 2026.8.31 release stores one JSON line per mutation in
 //! `.agents/pm/history/<id>.jsonl`. Every record carries the canonical
 //! recursively key-sorted document hashes, a JSON-patch diff computed over
-//! canonically ordered metadata, and the `item_hash_version: 2` epoch marker.
+//! canonically ordered metadata, and the `item_hash_version` epoch marker.
 //! This module reproduces those bytes exactly without invoking another
 //! runtime.
 
@@ -93,6 +93,18 @@ pub(crate) const CANONICAL_METADATA_KEY_ORDER: [&str; 72] = [
 ];
 
 /// Hash of the canonical empty document that opens every create-history chain.
+/// Epoch marker stamped on every history record this implementation writes.
+///
+/// The published CLI moved from `2` to `3` in its 2026.8.24 release. The hash
+/// bytes this implementation computes are already byte-identical to the
+/// published CLI's under that epoch — a differential run over the same input
+/// sequence agrees on `before_hash` and `after_hash` and differed on this field
+/// alone. Stamping `2` while writing v3 hashes is the exact ambiguity
+/// unbraind/pm-cli#1135 describes: two writers claiming one epoch while their
+/// bytes belong to different ones, which leaves a consumer unable to tell from
+/// the record which computation produced it.
+pub(crate) const ITEM_HASH_VERSION: u8 = 3;
+
 pub(crate) const EMPTY_DOCUMENT_HASH: &str =
     "3cc22dff72be7b14824654a7a64ea62b04799939b2fee54c1b5f52ca60bf6df0";
 
@@ -420,7 +432,7 @@ pub(crate) fn history_entry<'a>(
         patch,
         before_hash,
         after_hash,
-        item_hash_version: 2,
+        item_hash_version: ITEM_HASH_VERSION,
         message,
     }
 }

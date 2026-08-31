@@ -200,7 +200,10 @@ fn concurrent_comment_processes_preserve_every_accepted_mutation()
             record["op"], "comment_add",
             "record {index} is not a comment"
         );
-        assert_eq!(record["item_hash_version"], 2, "record {index} is not v2");
+        assert_eq!(
+            record["item_hash_version"], 3,
+            "record {index} is not stamped with the published epoch"
+        );
     }
     Ok(())
 }

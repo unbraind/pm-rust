@@ -31,6 +31,26 @@ pub struct PublishedCli {
 /// before returning so a misconfigured `PM_NODE_CLI` produces an explicit skip
 /// notice rather than a confusing downstream assertion failure.
 #[allow(clippy::module_name_repetitions)]
+/// Panics when a required published CLI is absent, otherwise returns `None`.
+///
+/// Both differential suites degrade to a printed skip when no published CLI is
+/// reachable, so a run without one passes while proving nothing. That is the
+/// shape a gate fails in silently: present, green, and never executed. Setting
+/// `PM_RUST_REQUIRE_PUBLISHED_CLI=1` — which CI does — turns the absence into a
+/// failure, so the differential can only pass by actually running.
+pub fn published_cli_or_skip(context: &str) -> Option<PublishedCli> {
+    if let Some(cli) = locate_published_cli() {
+        return Some(cli);
+    }
+    assert!(
+        std::env::var("PM_RUST_REQUIRE_PUBLISHED_CLI").is_err(),
+        "{context} requires the published Node pm CLI, but none was found and \
+         PM_RUST_REQUIRE_PUBLISHED_CLI is set. Install it and point PM_NODE_CLI at it.",
+    );
+    println!("skip: no published Node pm CLI found (set PM_NODE_CLI to enable)");
+    None
+}
+
 pub fn locate_published_cli() -> Option<PublishedCli> {
     if let Ok(value) = std::env::var("PM_NODE_CLI") {
         // Canonicalized: a relative PM_NODE_CLI otherwise yields relative
