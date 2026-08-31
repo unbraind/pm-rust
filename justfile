@@ -95,11 +95,18 @@ release-notes:
 # The aggregate release gate: build, clippy (deny warnings), fmt check,
 # full test suite with coverage, docstring/doc-coverage gate, identity
 # audit, and changelog check.
+# The differential suites skip when no published Node CLI is discoverable, so a
+# release-check that does not demand one passes while proving nothing about
+# conformance — the same vacuous-pass this repository just fixed in CI. Requiring
+# it here means every path that gates a release enforces the comparison, not only
+# the CI test job.
 release-check:
+    @test -n "${PM_NODE_CLI:-}" || command -v pm >/dev/null 2>&1 || \
+      { echo "release-check needs the published pm CLI: set PM_NODE_CLI or install {{PM_CLI_PKG}}" >&2; exit 1; }
     cargo +1.90.0 fmt --all -- --check
     cargo +1.90.0 clippy --locked --all-targets --all-features -- -D warnings
     RUSTDOCFLAGS='--document-private-items -D missing-docs' cargo +1.90.0 doc --locked --all-features --no-deps
-    cargo +1.90.0 test --locked --all-targets --all-features
+    PM_RUST_REQUIRE_PUBLISHED_CLI=1 cargo +1.90.0 test --locked --all-targets --all-features
     cargo +nightly-2026-08-06 llvm-cov --locked --branch --all-targets --all-features --json --output-path coverage-branch.json
     jq -e '.data[0].totals.lines.percent == 100 and .data[0].totals.functions.percent == 100 and .data[0].totals.regions.percent == 100 and .data[0].totals.branches.percent == 100' coverage-branch.json
     cargo audit

@@ -6,28 +6,33 @@ status: closed
 priority: 2
 tags: []
 created_at: "2026-08-31T19:04:40.913Z"
-updated_at: "2026-08-31T19:05:19.428Z"
+updated_at: "2026-08-31T20:01:23.063Z"
 closed_at: "2026-08-31T19:05:19.397Z"
 completed_at: "2026-08-31T19:05:19.397Z"
 author: claude
 resolution: fixed
 expected_result: "Every history record pm-rust writes is byte-identical to one the published pm CLI would write for the same input, and CI proves it on every run rather than skipping the proof."
 actual_result: "item_hash_version now stamps 3, matching the published CLI. The differential suite passes byte-for-byte against pm 2026.8.31 over a full create/update/comment/close sequence. Each recorded fixture needed only its epoch marker changed and then passed unchanged, confirming the hash bytes were always correct. The Rust CI job installs the published CLI and sets PM_RUST_REQUIRE_PUBLISHED_CLI=1, so the suite can no longer pass by skipping; the guard was verified to fail with the flag set and no CLI, and to still skip without it. Full suite, fmt, clippy -D warnings and the doc gate are green."
+comments[1]{created_at,author,text}:
+  "2026-08-31T20:01:23.063Z",claude,"Second review round found the same vacuous-pass one level up: just release-check ran the differential tests but set neither PM_NODE_CLI nor PM_RUST_REQUIRE_PUBLISHED_CLI, so every release-gating path outside the CI test job still passed while the comparison skipped. release-check now refuses to start unless a published CLI is discoverable and runs cargo test with the require flag, and a contract test asserts both halves so the hardening cannot be quietly removed. The environment the differential run needs is recorded in this item's tests collection rather than left implicit."
 notes[1]{created_at,author,text}:
   "2026-08-31T19:04:57.754Z",claude,"The epoch was the only divergence. Decoding both sides of the differential failure showed before_hash 3cc22dff72be and after_hash ba6c2311b115 identical on both, with item_hash_version 2 on the native side and 3 on the published side. That is why the fix is a constant rather than a rewrite of the hashing, and why every recorded fixture needed only its marker updated, which each fixture test then confirmed by passing unchanged otherwise."
 learnings[1]{created_at,author,text}:
   "2026-08-31T19:04:56.557Z",claude,"A skip-on-missing-dependency test is a gate that fails by not running. conformance_differential printed a clear skip notice and returned Ok, which is correct for a developer without Node installed and wrong for CI, where the dependency is the point of the run. The fix is not to remove the skip but to make it conditional: PM_RUST_REQUIRE_PUBLISHED_CLI turns a missing CLI into a failure, CI sets it, and local runs keep the convenience. Verified in both directions, the guard fails loudly with the flag set and no CLI, and still skips cleanly without the flag."
-files[7]{path,scope}:
+files[8]{path,scope}:
   .github/workflows/ci.yml,project
   justfile,project
   src/history.rs,project
   src/lib.rs,project
   tests/branch_merge_contract.rs,project
   tests/conformance_differential.rs,project
+  tests/release_pipeline_contract.rs,project
   tests/support/published_cli.rs,project
-tests[2]{command,scope,timeout_seconds,provenance{author,created_at,source_kind,source_ref},note}:
+tests[4]{command,scope,timeout_seconds,provenance{author,created_at,source_kind,source_ref},note}:
   cargo test --locked --all-targets --all-features,project,1800,claude,"2026-08-31T19:05:08.222Z",local_mutation,main,Full suite; with PM_RUST_REQUIRE_PUBLISHED_CLI=1 and PM_NODE_CLI set it includes the live byte-for-byte differential against the published CLI
   cargo clippy --locked --all-targets --all-features -- -D warnings,project,900,claude,"2026-08-31T19:05:08.222Z",local_mutation,main,"Lint gate, warnings denied"
+  "PM_RUST_REQUIRE_PUBLISHED_CLI=1 PM_NODE_CLI=\"$(npm root -g)/@unbrained/pm-cli\" cargo test --locked --all-targets --all-features",project,1800,claude,"2026-08-31T20:01:22.179Z",local_mutation,fix/stamp-the-published-history-epoch-and-run-the-differential-in-ci,"The differential suites only run with both set; without them they skip and pass, which is the defect this item is about"
+  just release-check,project,2400,claude,"2026-08-31T20:01:22.179Z",local_mutation,fix/stamp-the-published-history-epoch-and-run-the-differential-in-ci,Now refuses to start without a discoverable published CLI and runs cargo test with the require flag
 docs[1]{path,scope,note}:
   "https://github.com/unbraind/pm-cli/issues/1135",project,Upstream issue describing two writers stamping one epoch while hashing differently
 close_reason: fixed
