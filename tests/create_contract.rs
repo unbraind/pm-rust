@@ -27,7 +27,7 @@ author: fixture-agent
 body: "0"
 "#;
 const HISTORY_BYTES: &str = concat!(
-    r#"{"ts":"2026-08-07T10:06:30.183Z","author":"fixture-agent","author_source":"asserted","agent_provenance":{"role":{"value":"implementer","source":"argv"}},"op":"create","patch":[{"op":"replace","path":"/body","value":"0"},{"op":"add","path":"/metadata/id","value":"sample-native"},{"op":"add","path":"/metadata/title","value":"Native create"},{"op":"add","path":"/metadata/description","value":"-A"},{"op":"add","path":"/metadata/type","value":"Task"},{"op":"add","path":"/metadata/status","value":"open"},{"op":"add","path":"/metadata/priority","value":2},{"op":"add","path":"/metadata/tags","value":["0","safe","true"]},{"op":"add","path":"/metadata/created_at","value":"2026-08-07T10:06:30.183Z"},{"op":"add","path":"/metadata/updated_at","value":"2026-08-07T10:06:30.183Z"},{"op":"add","path":"/metadata/author","value":"fixture-agent"}],"before_hash":"3cc22dff72be7b14824654a7a64ea62b04799939b2fee54c1b5f52ca60bf6df0","after_hash":"6eb97257a863250fafbcc2d460f0b9a08a1b864bebf2c725632258e3f72db01c","item_hash_version":2,"message":"create fixture"}"#,
+    r#"{"ts":"2026-08-07T10:06:30.183Z","author":"fixture-agent","author_source":"asserted","agent_provenance":{"role":{"value":"implementer","source":"argv"}},"op":"create","patch":[{"op":"replace","path":"/body","value":"0"},{"op":"add","path":"/metadata/id","value":"sample-native"},{"op":"add","path":"/metadata/title","value":"Native create"},{"op":"add","path":"/metadata/description","value":"-A"},{"op":"add","path":"/metadata/type","value":"Task"},{"op":"add","path":"/metadata/status","value":"open"},{"op":"add","path":"/metadata/priority","value":2},{"op":"add","path":"/metadata/tags","value":["0","safe","true"]},{"op":"add","path":"/metadata/created_at","value":"2026-08-07T10:06:30.183Z"},{"op":"add","path":"/metadata/updated_at","value":"2026-08-07T10:06:30.183Z"},{"op":"add","path":"/metadata/author","value":"fixture-agent"}],"before_hash":"3cc22dff72be7b14824654a7a64ea62b04799939b2fee54c1b5f52ca60bf6df0","after_hash":"6eb97257a863250fafbcc2d460f0b9a08a1b864bebf2c725632258e3f72db01c","item_hash_version":3,"message":"create fixture"}"#,
     "\n"
 );
 
@@ -63,9 +63,14 @@ fn request(id: &str) -> CreateItem {
 }
 
 #[test]
-/// Proves the Rust transaction matches the official pm 2026.8.7 SDK byte for byte.
-fn sdk_create_matches_the_published_pm_2026_8_7_fixture_exactly()
--> Result<(), Box<dyn std::error::Error>> {
+/// Proves the Rust transaction matches the published pm SDK byte for byte.
+///
+/// The recorded line came from pm 2026.8.7 and carried `item_hash_version: 2`.
+/// The published CLI moved that epoch to 3 in 2026.8.24; every other byte,
+/// including `before_hash` and `after_hash`, is unchanged, which is what makes
+/// editing the marker in place the honest update rather than a re-record.
+fn sdk_create_matches_the_published_sdk_fixture_exactly() -> Result<(), Box<dyn std::error::Error>>
+{
     let (_directory, workspace) = tracker()?;
     let result = workspace.create(request("sample-native"))?;
     assert_eq!(

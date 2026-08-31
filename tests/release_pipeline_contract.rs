@@ -927,6 +927,32 @@ fn the_justfile_never_reads_the_wall_clock() -> Result<(), BoxError> {
 /// differently from CI. Modern SDKs also bound reads by default; both output
 /// controls must be disabled explicitly so regeneration cannot silently omit
 /// closed items. The same pm CLI pin is used by the justfile, CI, and release.
+/// Proves `just release-check` cannot pass without the published CLI present.
+///
+/// The differential suites skip when no published Node CLI is discoverable, so a
+/// release-check that merely runs `cargo test` proves nothing about conformance
+/// while reporting success. Both halves are required: a guard that refuses to run
+/// without a CLI, and `PM_RUST_REQUIRE_PUBLISHED_CLI` so the suites fail rather
+/// than skip if one is somehow still not found.
+#[test]
+fn release_check_demands_the_published_cli() -> Result<(), BoxError> {
+    let justfile = read_repo_file("justfile")?;
+    let recipe = justfile
+        .split_once("\nrelease-check:")
+        .ok_or("the justfile must define a release-check recipe")?
+        .1;
+    let body = recipe.split("\n\n").next().unwrap_or(recipe);
+    assert!(
+        body.contains("PM_NODE_CLI") && body.contains("command -v pm"),
+        "release-check must refuse to run without a published pm CLI, or the differential suites skip and it passes vacuously"
+    );
+    assert!(
+        body.contains("PM_RUST_REQUIRE_PUBLISHED_CLI=1 cargo"),
+        "release-check must run cargo test with PM_RUST_REQUIRE_PUBLISHED_CLI=1 so the differential suites fail rather than skip"
+    );
+    Ok(())
+}
+
 #[test]
 fn changelog_toolchain_pins_the_sdk_exactly() -> Result<(), BoxError> {
     let justfile = read_repo_file("justfile")?;
@@ -935,7 +961,7 @@ fn changelog_toolchain_pins_the_sdk_exactly() -> Result<(), BoxError> {
         "the justfile must pin pm-changelog exactly"
     );
     assert!(
-        justfile.contains("PM_CLI_PKG := \"@unbrained/pm-cli@2026.8.28\""),
+        justfile.contains("PM_CLI_PKG := \"@unbrained/pm-cli@2026.8.31\""),
         "the justfile must pin @unbrained/pm-cli exactly; the floating range resolves to latest and truncates tracker reads (pm-rust-yilr)"
     );
     assert!(
@@ -960,7 +986,7 @@ fn changelog_toolchain_pins_the_sdk_exactly() -> Result<(), BoxError> {
                 }
                 assert!(
                     line.contains("--package=pm-changelog@2026.8.22")
-                        && line.contains("--package=@unbrained/pm-cli@2026.8.28"),
+                        && line.contains("--package=@unbrained/pm-cli@2026.8.31"),
                     "{job_name} step '{}' invokes pm-changelog without the fleet's exact package pins (pm-rust-yilr):\n  {line}",
                     step.label
                 );

@@ -16,7 +16,7 @@ use std::process::Command;
 #[path = "support/published_cli.rs"]
 mod published_cli;
 
-use published_cli::locate_published_cli;
+use published_cli::published_cli_or_skip;
 
 /// Runs one git command and fails loudly when it exits nonzero.
 fn run_git(repository: &Path, arguments: &[&str]) -> Result<String, Box<dyn std::error::Error>> {
@@ -58,8 +58,7 @@ fn run_native(repository: &Path, arguments: &[&str]) -> Result<(), Box<dyn std::
 /// Proves merging two real branches that mutate one item loses nothing.
 #[allow(clippy::too_many_lines)]
 fn branch_merge_preserves_mutations_from_both_sides() -> Result<(), Box<dyn std::error::Error>> {
-    let Some(published) = locate_published_cli() else {
-        println!("skip: no published Node pm CLI found (set PM_NODE_CLI to enable)");
+    let Some(published) = published_cli_or_skip("The branch merge contract suite") else {
         return Ok(());
     };
     if Command::new("git").arg("--version").output().is_err() {
