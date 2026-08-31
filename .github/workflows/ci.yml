@@ -104,6 +104,15 @@ jobs:
       # The release:check aggregate: fmt, clippy (deny warnings), docstring
       # gate, full test suite, coverage at 100 percent, security audit, and
       # timezone-stable changelog check — all in one command.
+      # release-check runs the differential suites, which skip when no published
+      # CLI is discoverable. Installing it here is what makes the release gate
+      # actually compare against the published CLI instead of passing over a skip.
+      - name: Resolve the published CLI package root
+        shell: bash
+        run: |
+          set -euo pipefail
+          npm install -g @unbrained/pm-cli@2026.8.31
+          echo "PM_NODE_CLI=$(npm root -g)/@unbrained/pm-cli" >> "$GITHUB_ENV"
       - name: Run release:check aggregate gate
         run: just release-check
 

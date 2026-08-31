@@ -6,15 +6,16 @@ status: closed
 priority: 2
 tags: []
 created_at: "2026-08-31T19:04:40.913Z"
-updated_at: "2026-08-31T20:01:23.063Z"
+updated_at: "2026-08-31T20:07:18.174Z"
 closed_at: "2026-08-31T19:05:19.397Z"
 completed_at: "2026-08-31T19:05:19.397Z"
 author: claude
 resolution: fixed
 expected_result: "Every history record pm-rust writes is byte-identical to one the published pm CLI would write for the same input, and CI proves it on every run rather than skipping the proof."
 actual_result: "item_hash_version now stamps 3, matching the published CLI. The differential suite passes byte-for-byte against pm 2026.8.31 over a full create/update/comment/close sequence. Each recorded fixture needed only its epoch marker changed and then passed unchanged, confirming the hash bytes were always correct. The Rust CI job installs the published CLI and sets PM_RUST_REQUIRE_PUBLISHED_CLI=1, so the suite can no longer pass by skipping; the guard was verified to fail with the flag set and no CLI, and to still skip without it. Full suite, fmt, clippy -D warnings and the doc gate are green."
-comments[1]{created_at,author,text}:
+comments[2]{created_at,author,text}:
   "2026-08-31T20:01:23.063Z",claude,"Second review round found the same vacuous-pass one level up: just release-check ran the differential tests but set neither PM_NODE_CLI nor PM_RUST_REQUIRE_PUBLISHED_CLI, so every release-gating path outside the CI test job still passed while the comparison skipped. release-check now refuses to start unless a published CLI is discoverable and runs cargo test with the require flag, and a contract test asserts both halves so the hardening cannot be quietly removed. The environment the differential run needs is recorded in this item's tests collection rather than left implicit."
+  "2026-08-31T20:07:18.174Z",claude,"Hardening release-check broke the Release gate aggregate job on the first push, and the failure was the correct signal. That job installs Node but only ever reaches the pm CLI through npm exec --yes --package=..., so nothing puts pm on PATH and PM_NODE_CLI was unset; the new guard fired and failed the job. That is exactly the condition the guard exists to catch, and it means the release gate had been running the differential suites in skip mode all along. Fixed by installing the published CLI and exporting PM_NODE_CLI in that job too, so both the test job and the release gate compare against the real CLI rather than passing over a skip."
 notes[1]{created_at,author,text}:
   "2026-08-31T19:04:57.754Z",claude,"The epoch was the only divergence. Decoding both sides of the differential failure showed before_hash 3cc22dff72be and after_hash ba6c2311b115 identical on both, with item_hash_version 2 on the native side and 3 on the published side. That is why the fix is a constant rather than a rewrite of the hashing, and why every recorded fixture needed only its marker updated, which each fixture test then confirmed by passing unchanged otherwise."
 learnings[1]{created_at,author,text}:
