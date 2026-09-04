@@ -1,14 +1,16 @@
 //! Canonical pm history construction shared by every native mutation.
 //!
-//! The published pm 2026.8.31 release stores one JSON line per mutation in
+//! The published pm 2026.9.4 release stores one JSON line per mutation in
 //! `.agents/pm/history/<id>.jsonl`. Every record carries the canonical
 //! recursively key-sorted document hashes, a JSON-patch diff computed over
-//! canonically ordered metadata, and the `item_hash_version` epoch marker.
+//! canonically ordered metadata, the `item_hash_version` epoch marker, and a
+//! record-integrity envelope covering attribution and event classification.
 //! This module reproduces those bytes exactly without invoking another
 //! runtime.
 
 use serde::Serialize;
 use serde_json::Value;
+use sha2::{Digest, Sha256};
 
 use crate::item::{ItemDocument, ItemMetadata};
 
@@ -161,6 +163,92 @@ pub(crate) struct HistoryEntry<'a> {
     /// Optional free-form history message.
     #[serde(skip_serializing_if = "Option::is_none")]
     pub message: Option<&'a str>,
+    /// Whether the event advances working context or records maintenance.
+    pub event_class: &'static str,
+    /// Version of the canonical immutable-record integrity contract.
+    pub record_hash_version: u8,
+    /// SHA-256 of all recursively sorted record fields except this digest.
+    #[serde(skip_serializing_if = "String::is_empty")]
+    pub record_hash: String,
+}
+
+/// Classifies the published operation and patch contract without hiding unknown work.
+pub(crate) fn classify_history_event(operation: &str, patch: &[HistoryPatch]) -> &'static str {
+    /// Published operations whose semantics are always maintenance.
+    const MAINTENANCE_OPERATIONS: &[&str] = &[
+        "docs_add",
+        "files_add",
+        "history:author-acknowledge",
+        "history_author_acknowledge",
+        "history_compact",
+        "history_compact_baseline",
+        "history_redact",
+        "history_repair",
+        "normalize",
+        "release",
+        "test_run_track",
+        "tests_add",
+        "tests_remove",
+        "update_audit",
+        "update_ownership_bypass",
+    ];
+    /// Top-level update fields classified as bookkeeping by policy version one.
+    const MAINTENANCE_FIELDS: &[&str] = &[
+        "actual_result",
+        "affected_version",
+        "assignee",
+        "blocked_by",
+        "blocked_reason",
+        "close_reason",
+        "confidence",
+        "customer_impact",
+        "definition_of_ready",
+        "dependencies",
+        "docs",
+        "environment",
+        "expected_result",
+        "files",
+        "fixed_version",
+        "goal",
+        "impact",
+        "learnings",
+        "notes",
+        "objective",
+        "order",
+        "outcome",
+        "parent",
+        "release",
+        "reminders",
+        "reporter",
+        "repro_steps",
+        "resolution",
+        "reviewer",
+        "severity",
+        "sprint",
+        "tests",
+        "test_runs",
+        "unblock_note",
+        "updated_at",
+        "value",
+        "why_now",
+    ];
+    if MAINTENANCE_OPERATIONS.contains(&operation) {
+        return "maintenance";
+    }
+    if operation == "update"
+        && !patch.is_empty()
+        && patch.iter().all(|change| {
+            let mut segments = change.path.split('/').filter(|part| !part.is_empty());
+            matches!(segments.next(), Some("metadata" | "front_matter"))
+                && segments
+                    .next()
+                    .is_some_and(|field| MAINTENANCE_FIELDS.contains(&field))
+        })
+    {
+        "maintenance"
+    } else {
+        "substantive"
+    }
 }
 
 /// An ordered metadata-plus-body view used for diffs, hashes, and encoding.
@@ -392,7 +480,6 @@ fn metadata_object(document: &OrderedDocument) -> serde_json::Map<String, Value>
 /// Computes the SHA-256 digest of one byte slice as lowercase hexadecimal.
 #[must_use]
 pub fn sha256_digest(bytes: &[u8]) -> String {
-    use sha2::{Digest, Sha256};
     let digest = Sha256::digest(bytes);
     let mut hex = String::with_capacity(digest.len() * 2);
     for byte in digest {
@@ -414,7 +501,8 @@ pub(crate) fn history_entry<'a>(
     after_hash: String,
     message: Option<&'a str>,
 ) -> HistoryEntry<'a> {
-    HistoryEntry {
+    let event_class = classify_history_event(op, &patch);
+    let mut entry = HistoryEntry {
         ts,
         author,
         author_source: if author == "unknown" {
@@ -434,7 +522,17 @@ pub(crate) fn history_entry<'a>(
         after_hash,
         item_hash_version: ITEM_HASH_VERSION,
         message,
-    }
+        event_class,
+        record_hash_version: 1,
+        record_hash: String::new(),
+    };
+    // Every field is a JSON-compatible scalar, collection, or Value; the
+    // temporary empty digest is omitted from the canonical hash input.
+    let canonical = serde_json::to_value(&entry).unwrap_or_default();
+    let mut serialized = String::new();
+    stable_json(&canonical, &mut serialized);
+    entry.record_hash = sha256_digest(serialized.as_bytes());
+    entry
 }
 
 /// Serializes one history record into its final JSON line including newline.

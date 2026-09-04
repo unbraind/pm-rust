@@ -5,9 +5,130 @@ use std::collections::BTreeMap;
 use serde_json::{Value, json};
 
 use crate::history::{
-    OrderedDocument, canonical_metadata_pairs, document_hash, history_entry, history_line,
-    history_patch, javascript_number,
+    HistoryPatch, OrderedDocument, canonical_metadata_pairs, classify_history_event, document_hash,
+    history_entry, history_line, history_patch, javascript_number,
 };
+
+/// The published classifier retains unknown work while distinguishing bookkeeping updates.
+#[test]
+fn event_classification_preserves_work_and_recognizes_maintenance() {
+    for operation in [
+        "docs_add",
+        "files_add",
+        "history:author-acknowledge",
+        "history_author_acknowledge",
+        "history_compact",
+        "history_compact_baseline",
+        "history_redact",
+        "history_repair",
+        "normalize",
+        "release",
+        "test_run_track",
+        "tests_add",
+        "tests_remove",
+        "update_audit",
+        "update_ownership_bypass",
+    ] {
+        assert_eq!(classify_history_event(operation, &[]), "maintenance");
+    }
+    for operation in [
+        "create",
+        "comment_add",
+        "close",
+        "future_operation",
+        "update",
+    ] {
+        assert_eq!(classify_history_event(operation, &[]), "substantive");
+    }
+    for field in [
+        "actual_result",
+        "affected_version",
+        "assignee",
+        "blocked_by",
+        "blocked_reason",
+        "close_reason",
+        "confidence",
+        "customer_impact",
+        "definition_of_ready",
+        "dependencies",
+        "docs",
+        "environment",
+        "expected_result",
+        "files",
+        "fixed_version",
+        "goal",
+        "impact",
+        "learnings",
+        "notes",
+        "objective",
+        "order",
+        "outcome",
+        "parent",
+        "release",
+        "reminders",
+        "reporter",
+        "repro_steps",
+        "resolution",
+        "reviewer",
+        "severity",
+        "sprint",
+        "tests",
+        "test_runs",
+        "unblock_note",
+        "updated_at",
+        "value",
+        "why_now",
+    ] {
+        for prefix in ["metadata", "front_matter"] {
+            let patch = [HistoryPatch {
+                op: "replace",
+                path: format!("/{prefix}/{field}"),
+                value: Some(json!("value")),
+            }];
+            assert_eq!(classify_history_event("update", &patch), "maintenance");
+        }
+    }
+    for path in [
+        "/metadata/title",
+        "/body",
+        "/metadata",
+        "/",
+        "/unexpected/updated_at",
+    ] {
+        let patch = [HistoryPatch {
+            op: "replace",
+            path: path.to_owned(),
+            value: Some(json!("value")),
+        }];
+        assert_eq!(classify_history_event("update", &patch), "substantive");
+    }
+}
+
+/// Record integrity must cover attribution even when the item snapshots are identical.
+#[test]
+fn history_record_hash_covers_author_and_provenance() -> Result<(), Box<dyn std::error::Error>> {
+    let mut hashes = std::collections::BTreeSet::new();
+    for (author, role) in [("one", None), ("two", None), ("one", Some("implementer"))] {
+        let entry = history_entry(
+            "2026-09-04T00:00:00.000Z",
+            author,
+            "create",
+            role,
+            Vec::new(),
+            "before".to_owned(),
+            "after".to_owned(),
+            None,
+        );
+        let value: Value = serde_json::from_str(&history_line(&entry))?;
+        assert_eq!(value["event_class"], "substantive");
+        assert_eq!(value["record_hash_version"], 1);
+        let hash = value["record_hash"].as_str().ok_or("missing record hash")?;
+        assert_eq!(hash.len(), 64);
+        hashes.insert(hash.to_owned());
+    }
+    assert_eq!(hashes.len(), 3);
+    Ok(())
+}
 
 /// Builds one ordered document from a JSON metadata object and a body.
 fn ordered(metadata: &Value, body: &str) -> OrderedDocument {
