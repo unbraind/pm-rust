@@ -1,0 +1,29 @@
+id: pm-rust-ing0
+title: Match PM CLI 2026.9.4 event classification and immutable history-record hashes
+description: "The required differential conformance test fails against published PM CLI 2026.9.4 on the first create operation. Native history omits event_class, record_hash_version and record_hash; item snapshot hashes already match. Implement the published immutable-record envelope in native Rust and update differential and release tooling to the same published CLI. Preserve the independent native implementation and compare complete persisted bytes."
+type: Issue
+status: in_progress
+priority: 1
+tags[3]: conformance,history,rust
+created_at: "2026-09-04T19:56:23.648Z"
+updated_at: "2026-09-04T20:06:50.659Z"
+assignee: codex-pm-services
+claim_principal: codex-pm-services
+author: codex-pm-services
+estimated_minutes: 90
+acceptance_criteria: Real differential tests match complete item and history bytes against PM CLI 2026.9.4; record classification distinguishes maintenance from substantive operations; record hashes cover author and provenance; strict Rust checks and the existing exact coverage gate pass
+risk: high
+comments[1]{created_at,author,text}:
+  "2026-09-04T20:06:50.659Z",codex-pm-services,"The existing full-byte differential acceptance failed before implementation on missing event_class, record_hash_version and record_hash. After the native implementation, it passes against published PM CLI 2026.9.4. All 146 tests pass with the published CLI required, including branch-merge and differential suites. LLVM reports 1691/1691 lines, 159/159 functions, 2363/2363 regions and 278/278 branches covered; no exclusions or thresholds were relaxed. Strict clippy, private-item rustdoc, cargo audit, PM strict health, and pm-changelog regeneration/check also pass. Review remains pending; npm/crate publication stays disabled."
+files[6]{path,scope}:
+  .github/workflows/ci.yml,project
+  .github/workflows/release.yml,project
+  justfile,project
+  src/history.rs,project
+  tests/conformance_differential.rs,project
+  tests/support/history_unit.rs,project
+tests[1]{command,scope,timeout_seconds,provenance{author,created_at,source_kind,source_ref}}:
+  cargo +1.90.0 test --locked --test conformance_differential,project,120,codex-pm-services,"2026-09-04T20:06:49.420Z",local_mutation,fix/match-published-history-record-integrity
+docs[1]{path,scope,note}:
+  "https://github.com/unbraind/pm-cli-companion/blob/main/.agents/pm/features/pm-cli-website-204t.toon",project,Companion native Rust roadmap
+body: ""

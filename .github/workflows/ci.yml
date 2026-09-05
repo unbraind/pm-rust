@@ -59,7 +59,7 @@ jobs:
         shell: bash
         run: |
           set -euo pipefail
-          npm install -g @unbrained/pm-cli@2026.8.31
+          npm install -g @unbrained/pm-cli@2026.9.4
           echo "PM_NODE_CLI=$(npm root -g)/@unbrained/pm-cli" >> "$GITHUB_ENV"
       - run: cargo test --locked --all-targets --all-features
         env:
@@ -111,12 +111,12 @@ jobs:
         shell: bash
         run: |
           set -euo pipefail
-          npm install -g @unbrained/pm-cli@2026.8.31
+          npm install -g @unbrained/pm-cli@2026.9.4
           echo "PM_NODE_CLI=$(npm root -g)/@unbrained/pm-cli" >> "$GITHUB_ENV"
       - name: Run release:check aggregate gate
         run: just release-check
 
       - name: Install clone-local pm merge drivers
-        run: npm exec --yes --package=@unbrained/pm-cli@2026.8.31 -- pm merge install
+        run: npm exec --yes --package=@unbrained/pm-cli@2026.9.4 -- pm merge install
       - name: Verify tracked pm project health
-        run: npm exec --yes --package=@unbrained/pm-cli@2026.8.31 -- pm health --check-only --require-merge-drivers --strict-exit
+        run: npm exec --yes --package=@unbrained/pm-cli@2026.9.4 -- pm health --check-only --require-merge-drivers --strict-exit

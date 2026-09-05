@@ -1,9 +1,9 @@
-//! Black-box and SDK acceptance for native update, comment, and close
-//! mutations against fixtures recorded from the published pm CLI. The lines were
-//! recorded under 2026.8.21, which stamped `item_hash_version: 2`; the published
-//! CLI moved that epoch to 3 in 2026.8.24 and every other byte, hashes included,
-//! is unchanged, so only the marker was updated
-//! under its reproducible workspace recipe (fixed clock, zero tick).
+//! Black-box and SDK acceptance for native mutations against published pm.
+//!
+//! Item and patch fixtures retain their original deterministic workspace
+//! recipe. Their event classification and record-integrity envelopes were
+//! sealed using the published PM CLI 2026.9.4 implementation. The independent
+//! live differential suite additionally compares complete persisted bytes.
 
 use std::fs;
 use std::path::Path;
@@ -32,7 +32,7 @@ const CREATE_ITEM_BYTES: &str = concat!(
 
 /// Canonical history line recorded after the recorded create step.
 const CREATE_HISTORY_LINE: &str = concat!(
-    r#"{"ts":"2026-08-22T10:00:00.000Z","author":"fixture-agent","author_source":"asserted","agent_provenance":{"role":{"value":"implementer","source":"argv"}},"op":"create","patch":[{"op":"replace","path":"/body","value":"Original body"},{"op":"add","path":"/metadata/id","value":"sample-conv"},{"op":"add","path":"/metadata/title","value":"Conformance item"},{"op":"add","path":"/metadata/description","value":"First desc"},{"op":"add","path":"/metadata/type","value":"Task"},{"op":"add","path":"/metadata/status","value":"open"},{"op":"add","path":"/metadata/priority","value":2},{"op":"add","path":"/metadata/tags","value":["alpha","beta"]},{"op":"add","path":"/metadata/created_at","value":"2026-08-22T10:00:00.000Z"},{"op":"add","path":"/metadata/updated_at","value":"2026-08-22T10:00:00.000Z"},{"op":"add","path":"/metadata/author","value":"fixture-agent"}],"before_hash":"3cc22dff72be7b14824654a7a64ea62b04799939b2fee54c1b5f52ca60bf6df0","after_hash":"ce63b69e6445b50ae43919f31607098a4e414350c8ca52003bd84ea609f979bf","item_hash_version":3,"message":""}"#,
+    r#"{"ts":"2026-08-22T10:00:00.000Z","author":"fixture-agent","author_source":"asserted","agent_provenance":{"role":{"value":"implementer","source":"argv"}},"op":"create","patch":[{"op":"replace","path":"/body","value":"Original body"},{"op":"add","path":"/metadata/id","value":"sample-conv"},{"op":"add","path":"/metadata/title","value":"Conformance item"},{"op":"add","path":"/metadata/description","value":"First desc"},{"op":"add","path":"/metadata/type","value":"Task"},{"op":"add","path":"/metadata/status","value":"open"},{"op":"add","path":"/metadata/priority","value":2},{"op":"add","path":"/metadata/tags","value":["alpha","beta"]},{"op":"add","path":"/metadata/created_at","value":"2026-08-22T10:00:00.000Z"},{"op":"add","path":"/metadata/updated_at","value":"2026-08-22T10:00:00.000Z"},{"op":"add","path":"/metadata/author","value":"fixture-agent"}],"before_hash":"3cc22dff72be7b14824654a7a64ea62b04799939b2fee54c1b5f52ca60bf6df0","after_hash":"ce63b69e6445b50ae43919f31607098a4e414350c8ca52003bd84ea609f979bf","item_hash_version":3,"message":"","event_class":"substantive","record_hash_version":1,"record_hash":"e750549a13e46de26f4946c140a9c23055e956e609d0c38d9d0b67019dc152b2"}"#,
     "\n",
 );
 
@@ -53,19 +53,19 @@ const UPDATE_ITEM_BYTES: &str = concat!(
 
 /// Canonical history line recorded after the recorded update step.
 const UPDATE_HISTORY_LINE: &str = concat!(
-    r#"{"ts":"2026-08-22T10:00:00.000Z","author":"fixture-agent","author_source":"asserted","agent_provenance":{"role":{"value":"implementer","source":"argv"}},"op":"update","patch":[{"op":"replace","path":"/metadata/priority","value":3},{"op":"replace","path":"/metadata/title","value":"Renamed item"}],"before_hash":"ce63b69e6445b50ae43919f31607098a4e414350c8ca52003bd84ea609f979bf","after_hash":"dc48d8c5971803ef643ec17734542814d3064982d1bc1b8d585d539d2266459c","item_hash_version":3,"message":"rename and reprioritize"}"#,
+    r#"{"ts":"2026-08-22T10:00:00.000Z","author":"fixture-agent","author_source":"asserted","agent_provenance":{"role":{"value":"implementer","source":"argv"}},"op":"update","patch":[{"op":"replace","path":"/metadata/priority","value":3},{"op":"replace","path":"/metadata/title","value":"Renamed item"}],"before_hash":"ce63b69e6445b50ae43919f31607098a4e414350c8ca52003bd84ea609f979bf","after_hash":"dc48d8c5971803ef643ec17734542814d3064982d1bc1b8d585d539d2266459c","item_hash_version":3,"message":"rename and reprioritize","event_class":"substantive","record_hash_version":1,"record_hash":"69a7a2e9b4c7de6326deaac238ddfe6b3fee6df1cfefc3f5fabf18a6c5b3a1c0"}"#,
     "\n",
 );
 
 /// Canonical history line recorded after the recorded comment step.
 const COMMENT_HISTORY_LINE: &str = concat!(
-    r#"{"ts":"2026-08-22T10:00:00.000Z","author":"fixture-agent","author_source":"asserted","op":"comment_add","patch":[{"op":"add","path":"/metadata/comments","value":[{"created_at":"2026-08-22T10:00:00.000Z","author":"fixture-agent","text":"First native note"}]}],"before_hash":"dc48d8c5971803ef643ec17734542814d3064982d1bc1b8d585d539d2266459c","after_hash":"2f2d4a1680bcbb9dbf4e570ea50ceedbd7807a5f7d3c514bf8a4187b99fa37c0","item_hash_version":3,"message":"note recorded"}"#,
+    r#"{"ts":"2026-08-22T10:00:00.000Z","author":"fixture-agent","author_source":"asserted","op":"comment_add","patch":[{"op":"add","path":"/metadata/comments","value":[{"created_at":"2026-08-22T10:00:00.000Z","author":"fixture-agent","text":"First native note"}]}],"before_hash":"dc48d8c5971803ef643ec17734542814d3064982d1bc1b8d585d539d2266459c","after_hash":"2f2d4a1680bcbb9dbf4e570ea50ceedbd7807a5f7d3c514bf8a4187b99fa37c0","item_hash_version":3,"message":"note recorded","event_class":"substantive","record_hash_version":1,"record_hash":"3158c03422db29673bfcdcb0c1765fb3acba048ed11e2ead4ed9f55931379dd0"}"#,
     "\n",
 );
 
 /// Canonical history line recorded after the recorded status update step.
 const STATUS_UPDATE_HISTORY_LINE: &str = concat!(
-    r#"{"ts":"2026-08-22T10:00:00.000Z","author":"fixture-agent","author_source":"asserted","agent_provenance":{"role":{"value":"implementer","source":"argv"}},"op":"update","patch":[{"op":"replace","path":"/metadata/status","value":"in_progress"}],"before_hash":"2f2d4a1680bcbb9dbf4e570ea50ceedbd7807a5f7d3c514bf8a4187b99fa37c0","after_hash":"e7f7fb53e6330e7ffacbf15a870ad604a2e8d5236e67ac6c9e373b8ea4d6a0d0","item_hash_version":3}"#,
+    r#"{"ts":"2026-08-22T10:00:00.000Z","author":"fixture-agent","author_source":"asserted","agent_provenance":{"role":{"value":"implementer","source":"argv"}},"op":"update","patch":[{"op":"replace","path":"/metadata/status","value":"in_progress"}],"before_hash":"2f2d4a1680bcbb9dbf4e570ea50ceedbd7807a5f7d3c514bf8a4187b99fa37c0","after_hash":"e7f7fb53e6330e7ffacbf15a870ad604a2e8d5236e67ac6c9e373b8ea4d6a0d0","item_hash_version":3,"event_class":"substantive","record_hash_version":1,"record_hash":"e5df5d617800b1e89f5a808a647372fdb90c4030121c166eb4588b93515b19cb"}"#,
     "\n",
 );
 
@@ -91,7 +91,7 @@ const CLOSE_ITEM_BYTES: &str = concat!(
 
 /// Canonical history line recorded after the recorded close step.
 const CLOSE_HISTORY_LINE: &str = concat!(
-    r#"{"ts":"2026-08-22T10:00:00.000Z","author":"fixture-agent","author_source":"asserted","agent_provenance":{"role":{"value":"implementer","source":"argv"}},"op":"close","patch":[{"op":"replace","path":"/metadata/status","value":"closed"},{"op":"add","path":"/metadata/closed_at","value":"2026-08-22T10:00:00.000Z"},{"op":"add","path":"/metadata/completed_at","value":"2026-08-22T10:00:00.000Z"},{"op":"add","path":"/metadata/close_reason","value":"conformance complete"}],"before_hash":"e7f7fb53e6330e7ffacbf15a870ad604a2e8d5236e67ac6c9e373b8ea4d6a0d0","after_hash":"2319c2cdf7e8164348a3235c87426c55dbf49aaeb286cc4893494b2b3b6eb6a8","item_hash_version":3}"#,
+    r#"{"ts":"2026-08-22T10:00:00.000Z","author":"fixture-agent","author_source":"asserted","agent_provenance":{"role":{"value":"implementer","source":"argv"}},"op":"close","patch":[{"op":"replace","path":"/metadata/status","value":"closed"},{"op":"add","path":"/metadata/closed_at","value":"2026-08-22T10:00:00.000Z"},{"op":"add","path":"/metadata/completed_at","value":"2026-08-22T10:00:00.000Z"},{"op":"add","path":"/metadata/close_reason","value":"conformance complete"}],"before_hash":"e7f7fb53e6330e7ffacbf15a870ad604a2e8d5236e67ac6c9e373b8ea4d6a0d0","after_hash":"2319c2cdf7e8164348a3235c87426c55dbf49aaeb286cc4893494b2b3b6eb6a8","item_hash_version":3,"event_class":"substantive","record_hash_version":1,"record_hash":"145aef732674f6a4f9fd28245c94ed6314957f4945c5eae95c860cc55a2f44fe"}"#,
     "\n",
 );
 
