@@ -2,17 +2,20 @@ id: pm-rust-f4sy
 title: Add the missing Rust CodeQL analysis
 description: "Measured 2026-09-06 across 23 fleet repositories: 22 reference github/codeql-action, while pm-rust is the only repository with no scan despite containing the native Rust CLI and SDK. GitHub default setup is not configured, and GET /repos/unbraind/pm-rust/code-scanning/alerts answered HTTP 404 with 'no analysis found' rather than returning zero alerts, which made the coverage gap look like a clean result."
 type: Issue
-status: in_progress
+status: closed
 priority: 2
 tags: []
 created_at: "2026-09-06T05:16:21.360Z"
-updated_at: "2026-09-06T05:17:15.220Z"
-assignee: pi-agent
-claim_principal: pi-agent
+updated_at: "2026-09-06T05:23:40.883Z"
+closed_at: "2026-09-06T05:23:36.063Z"
+completed_at: "2026-09-06T05:23:36.063Z"
 author: pi-agent
+comments[1]{created_at,author,text}:
+  "2026-09-06T05:23:27.097Z",pi-agent,The first successful hosted scan (CodeQL run 34013676866) completed its Analyze step and uploaded a Rust analysis. It reported 0 security results/alerts across 25 rules; extraction metrics were 21 Rust files without error and 3 with extraction errors. GET /repos/unbraind/pm-rust/code-scanning/alerts now returns HTTP 200 with an empty JSON array instead of HTTP 404 'no analysis found'. No genuine findings require separate pm items.
 files[2]{path,scope}:
   .github/dependabot.yml,project
   .github/workflows/codeql.yml,project
 tests[1]{command,scope,provenance{author,created_at,source_kind,source_ref}}:
   go run github.com/rhysd/actionlint/cmd/actionlint@v1.7.7 .github/workflows/codeql.yml,project,pi-agent,"2026-09-06T05:17:15.199Z",local_mutation,ci/scan-the-rust-that-has-never-been-analysed
+close_reason: "Added pinned Rust CodeQL scanning, verified hosted run 34013676866 completed Analyze, and confirmed the alerts API now returns HTTP 200 with zero alerts instead of 'no analysis found'."
 body: ""
