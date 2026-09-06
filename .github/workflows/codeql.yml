@@ -31,14 +31,16 @@ jobs:
           toolchain: "1.90.0"
           components: clippy,rustfmt
 
+      - name: Build
+        run: cargo build --locked --all-targets --all-features
+
+      # Rust extraction uses rust-analyzer and supports only no-build mode.
+      # The explicit build above still verifies the crate with CI's toolchain.
       - name: Initialize CodeQL
         uses: github/codeql-action/init@cdf488f595d80d6e07e03d4674febd5ab45fa938 # v4.37.9
         with:
           languages: rust
-          build-mode: manual
-
-      - name: Build
-        run: cargo build --locked --all-targets --all-features
+          build-mode: none
 
       - name: Analyze
         uses: github/codeql-action/analyze@cdf488f595d80d6e07e03d4674febd5ab45fa938 # v4.37.9
