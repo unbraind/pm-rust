@@ -1,0 +1,18 @@
+id: pm-rust-f4sy
+title: Add the missing Rust CodeQL analysis
+description: "Measured 2026-09-06 across 23 fleet repositories: 22 reference github/codeql-action, while pm-rust is the only repository with no scan despite containing the native Rust CLI and SDK. GitHub default setup is not configured, and GET /repos/unbraind/pm-rust/code-scanning/alerts answered HTTP 404 with 'no analysis found' rather than returning zero alerts, which made the coverage gap look like a clean result."
+type: Issue
+status: in_progress
+priority: 2
+tags: []
+created_at: "2026-09-06T05:16:21.360Z"
+updated_at: "2026-09-06T05:17:15.220Z"
+assignee: pi-agent
+claim_principal: pi-agent
+author: pi-agent
+files[2]{path,scope}:
+  .github/dependabot.yml,project
+  .github/workflows/codeql.yml,project
+tests[1]{command,scope,provenance{author,created_at,source_kind,source_ref}}:
+  go run github.com/rhysd/actionlint/cmd/actionlint@v1.7.7 .github/workflows/codeql.yml,project,pi-agent,"2026-09-06T05:17:15.199Z",local_mutation,ci/scan-the-rust-that-has-never-been-analysed
+body: ""
