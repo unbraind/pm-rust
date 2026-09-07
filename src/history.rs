@@ -1,6 +1,6 @@
 //! Canonical pm history construction shared by every native mutation.
 //!
-//! The published pm 2026.9.4 release stores one JSON line per mutation in
+//! The published pm 2026.9.7 release stores one JSON line per mutation in
 //! `.agents/pm/history/<id>.jsonl`. Every record carries the canonical
 //! recursively key-sorted document hashes, a JSON-patch diff computed over
 //! canonically ordered metadata, the `item_hash_version` epoch marker, and a

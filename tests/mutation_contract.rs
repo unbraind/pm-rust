@@ -3,7 +3,8 @@
 //! Item and patch fixtures retain their original deterministic workspace
 //! recipe. Their event classification and record-integrity envelopes were
 //! sealed using the published PM CLI 2026.9.4 implementation. The independent
-//! live differential suite additionally compares complete persisted bytes.
+//! live differential suite compares complete persisted bytes against the
+//! current PM CLI 2026.9.7 compatibility target.
 
 use std::fs;
 use std::path::Path;
