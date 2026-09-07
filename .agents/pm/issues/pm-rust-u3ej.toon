@@ -1,0 +1,19 @@
+id: pm-rust-u3ej
+title: The CodeQL Dependabot group matched no dependency because the pattern lacked a wildcard
+description: "CodeRabbit reported this as a Major finding on the CodeQL pull request and it is correct. The group pattern was written as a bare github/codeql-action, which matches no dependency: Dependabot sees the sub-actions github/codeql-action/init and github/codeql-action/analyze as separate names, and a pattern without a wildcard matches neither. The group was therefore inert and both actions would have been updated as two independent pull requests.\n\nThat failure mode is not hypothetical for this pair. The init and analyze steps must run at the same version; a mismatched pair fails the analysis, and because each update arrives as its own pull request each one fails alone with nothing indicating that the two must land together.\n\nMeasured across the fleet on 2026-09-06: 18 repositories already use the wildcard form \"github/codeql-action*\" and pm-rust was the only one with the bare name. Three carry no CodeQL group at all: pm-cli, which is upstream, pm-changelog, and pm-ops. pm-ops is the one that matters, because it publishes the canonical publish-attestation auditor the fleet is converging onto, and it will receive split init and analyze updates that each fail on their own.\n\nFixed here by adopting the same wildcard form the other 18 repositories use. Tracked separately for pm-ops and pm-changelog."
+type: Issue
+status: closed
+priority: 2
+tags: []
+created_at: "2026-09-06T05:39:33.081Z"
+updated_at: "2026-09-06T05:39:48.658Z"
+closed_at: "2026-09-06T05:39:48.627Z"
+completed_at: "2026-09-06T05:39:48.627Z"
+author: "harness:claude-code"
+resolution: "Replaced the bare github/codeql-action pattern with the wildcard form github/codeql-action* that the other 18 fleet repositories already use, so the group matches both the init and analyze sub-actions."
+expected_result: Dependabot groups github/codeql-action/init and github/codeql-action/analyze into one pull request so the pair always moves together.
+actual_result: "The bare pattern matched neither sub-action, leaving the group inert and both actions updating as separate pull requests that each fail alone on a version mismatch."
+files[1]{path,scope}:
+  .github/dependabot.yml,project
+close_reason: "Replaced the bare github/codeql-action pattern with the wildcard form github/codeql-action* that the other 18 fleet repositories already use, so the group matches both the init and analyze sub-actions."
+body: ""
