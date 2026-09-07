@@ -1,20 +1,21 @@
 id: pm-rust-ing0
-title: Match PM CLI 2026.9.4 event classification and immutable history-record hashes
+title: Match published history integrity and certify CLI 2026.9.7
 description: "The required differential conformance test fails against published PM CLI 2026.9.4 on the first create operation. Native history omits event_class, record_hash_version and record_hash; item snapshot hashes already match. Implement the published immutable-record envelope in native Rust and update differential and release tooling to the same published CLI. Preserve the independent native implementation and compare complete persisted bytes."
 type: Issue
 status: in_progress
 priority: 1
 tags[3]: conformance,history,rust
 created_at: "2026-09-04T19:56:23.648Z"
-updated_at: "2026-09-04T20:06:50.659Z"
-assignee: codex-pm-services
-claim_principal: codex-pm-services
+updated_at: "2026-09-07T21:12:13.951Z"
+assignee: codex-pm-ecosystem
+claim_principal: codex-pm-ecosystem
 author: codex-pm-services
 estimated_minutes: 90
 acceptance_criteria: Real differential tests match complete item and history bytes against PM CLI 2026.9.4; record classification distinguishes maintenance from substantive operations; record hashes cover author and provenance; strict Rust checks and the existing exact coverage gate pass
 risk: high
-comments[1]{created_at,author,text}:
+comments[2]{created_at,author,text}:
   "2026-09-04T20:06:50.659Z",codex-pm-services,"The existing full-byte differential acceptance failed before implementation on missing event_class, record_hash_version and record_hash. After the native implementation, it passes against published PM CLI 2026.9.4. All 146 tests pass with the published CLI required, including branch-merge and differential suites. LLVM reports 1691/1691 lines, 159/159 functions, 2363/2363 regions and 278/278 branches covered; no exclusions or thresholds were relaxed. Strict clippy, private-item rustdoc, cargo audit, PM strict health, and pm-changelog regeneration/check also pass. Review remains pending; npm/crate publication stays disabled."
+  "2026-09-07T21:12:13.951Z",codex-pm-ecosystem,"2026-09-07 UTC: the full just release-check passes with published CLI 2026.9.7 and pm-changelog 2026.9.6. LLVM totals: lines 1691/1691, functions 159/159, regions 2363/2363, branches 278/278 (100% each); instantiations 308/343 (89.80%). Required published-CLI differential suites, fmt, clippy, private-item rustdoc, cargo audit and regenerated changelog pass. This certifies the implemented native subset, not full CLI parity. Required exact-head reviewers and publication approval remain separate pending gates."
 files[6]{path,scope}:
   .github/workflows/ci.yml,project
   .github/workflows/release.yml,project

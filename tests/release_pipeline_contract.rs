@@ -957,11 +957,11 @@ fn release_check_demands_the_published_cli() -> Result<(), BoxError> {
 fn changelog_toolchain_pins_the_sdk_exactly() -> Result<(), BoxError> {
     let justfile = read_repo_file("justfile")?;
     assert!(
-        justfile.contains("PM_CHANGELOG_PKG := \"pm-changelog@2026.8.22\""),
+        justfile.contains("PM_CHANGELOG_PKG := \"pm-changelog@2026.9.6\""),
         "the justfile must pin pm-changelog exactly"
     );
     assert!(
-        justfile.contains("PM_CLI_PKG := \"@unbrained/pm-cli@2026.9.4\""),
+        justfile.contains("PM_CLI_PKG := \"@unbrained/pm-cli@2026.9.7\""),
         "the justfile must pin @unbrained/pm-cli exactly; the floating range resolves to latest and truncates tracker reads (pm-rust-yilr)"
     );
     assert!(
@@ -985,8 +985,8 @@ fn changelog_toolchain_pins_the_sdk_exactly() -> Result<(), BoxError> {
                     continue;
                 }
                 assert!(
-                    line.contains("--package=pm-changelog@2026.8.22")
-                        && line.contains("--package=@unbrained/pm-cli@2026.9.4"),
+                    line.contains("--package=pm-changelog@2026.9.6")
+                        && line.contains("--package=@unbrained/pm-cli@2026.9.7"),
                     "{job_name} step '{}' invokes pm-changelog without the fleet's exact package pins (pm-rust-yilr):\n  {line}",
                     step.label
                 );
