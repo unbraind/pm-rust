@@ -6,17 +6,18 @@ status: in_progress
 priority: 1
 tags[3]: conformance,history,rust
 created_at: "2026-09-04T19:56:23.648Z"
-updated_at: "2026-09-07T22:23:15.981Z"
+updated_at: "2026-09-12T23:23:10.705Z"
 assignee: codex-pm-ecosystem
 claim_principal: codex-pm-ecosystem
 author: codex-pm-services
 estimated_minutes: 90
 acceptance_criteria: Real differential tests match complete item and history bytes against PM CLI 2026.9.7; record classification distinguishes maintenance from substantive operations; record hashes cover author and provenance; strict Rust checks and the existing exact coverage gate pass
 risk: high
-comments[3]{created_at,author,text}:
+comments[4]{created_at,author,text}:
   "2026-09-04T20:06:50.659Z",codex-pm-services,"The existing full-byte differential acceptance failed before implementation on missing event_class, record_hash_version and record_hash. After the native implementation, it passes against published PM CLI 2026.9.4. All 146 tests pass with the published CLI required, including branch-merge and differential suites. LLVM reports 1691/1691 lines, 159/159 functions, 2363/2363 regions and 278/278 branches covered; no exclusions or thresholds were relaxed. Strict clippy, private-item rustdoc, cargo audit, PM strict health, and pm-changelog regeneration/check also pass. Review remains pending; npm/crate publication stays disabled."
   "2026-09-07T21:12:13.951Z",codex-pm-ecosystem,"2026-09-07 UTC: the full just release-check passes with published CLI 2026.9.7 and pm-changelog 2026.9.6. LLVM totals: lines 1691/1691, functions 159/159, regions 2363/2363, branches 278/278 (100% each); instantiations 308/343 (89.80%). Required published-CLI differential suites, fmt, clippy, private-item rustdoc, cargo audit and regenerated changelog pass. This certifies the implemented native subset, not full CLI parity. Required exact-head reviewers and publication approval remain separate pending gates."
   "2026-09-07T22:23:15.981Z",codex-pm-ecosystem,"Review follow-up: the active acceptance contract now requires complete-byte differential validation against PM CLI 2026.9.7. The history module names the current target. Mutation fixtures retain their truthful original 2026.9.4 sealing provenance and explicitly name the separate 2026.9.7 live differential target. This changes documentation and PM criteria only; the earlier full native release gate remains the runtime evidence."
+  "2026-09-12T23:23:10.705Z",pi-agent,"Audit 2026-09-13: EXISTS — the 2026.9.7 parity work is complete per the 2026-09-07 codex-pm-ecosystem comment (full just release-check passed with published CLI 2026.9.7, 100 percent coverage on all four metrics, record classification and record hashes implemented in src/history.rs). REMAINS — the conformance_differential test now fails against the installed pm CLI 2026.9.12 because pm CLI 2026.9.11+ writes a top-level hash_algorithm: sha256 field on every history entry that pm-rust omits (confirmed: grep hash_algorithm src/history.rs returns no matches; the differential test reports the published CLI emits this field first). The record_hash also diverges because the hash input includes the hash_algorithm field. This gap is not covered by this item's 2026.9.7 scope and is tracked in a new Feature item for 2026.9.11+ parity. --force used: the item is claimed by codex-pm-ecosystem since 2026-09-07 (5 days stale)."
 files[6]{path,scope}:
   .github/workflows/ci.yml,project
   .github/workflows/release.yml,project
