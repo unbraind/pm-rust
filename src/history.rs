@@ -1,6 +1,6 @@
 //! Canonical pm history construction shared by every native mutation.
 //!
-//! The published pm 2026.9.7 release stores one JSON line per mutation in
+//! The published pm 2026.9.17 release stores one JSON line per mutation in
 //! `.agents/pm/history/<id>.jsonl`. Every record carries the canonical
 //! recursively key-sorted document hashes, a JSON-patch diff computed over
 //! canonically ordered metadata, the `item_hash_version` epoch marker, and a
@@ -141,6 +141,8 @@ pub(crate) struct ProvenanceRole<'a> {
 /// One complete history record ready for JSON serialization.
 #[derive(Serialize)]
 pub(crate) struct HistoryEntry<'a> {
+    /// Named digest algorithm used for all hashes in this record.
+    pub hash_algorithm: &'static str,
     /// Mutation timestamp in canonical UTC RFC 3339 form.
     pub ts: &'a str,
     /// Asserted mutation author.
@@ -503,6 +505,7 @@ pub(crate) fn history_entry<'a>(
 ) -> HistoryEntry<'a> {
     let event_class = classify_history_event(op, &patch);
     let mut entry = HistoryEntry {
+        hash_algorithm: "sha256",
         ts,
         author,
         author_source: if author == "unknown" {

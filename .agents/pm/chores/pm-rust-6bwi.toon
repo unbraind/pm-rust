@@ -1,0 +1,29 @@
+id: pm-rust-6bwi
+title: Certify pm CLI 2026.9.17
+description: "Move the differential pin from 2026.9.7 to 2026.9.17 in CI, justfile, and release workflow. Fix hash_algorithm field in HistoryEntry to match pm CLI 2026.9.11+ output. Update frozen fixtures with new record_hash values."
+type: Chore
+status: closed
+priority: 1
+tags[2]: certify,conformance
+created_at: "2026-09-17T20:02:22.582Z"
+updated_at: "2026-09-17T20:02:31.248Z"
+deadline: "2026-10-01T20:02:22.582Z"
+closed_at: "2026-09-17T20:02:31.231Z"
+completed_at: "2026-09-17T20:02:31.231Z"
+claim_principal: pi-agent
+author: pi-agent
+estimated_minutes: 60
+acceptance_criteria: CI pins @unbrained/pm-cli@2026.9.17 for differential testing; justfile pins pm-cli@2026.9.17 and pm-changelog@2026.9.16; conformance_differential passes byte-for-byte; cargo clippy/test/audit pass; 100% coverage maintained; pm-rust-hkk3 closed
+resolution: "Moved differential pin from 2026.9.7 to 2026.9.17 in CI, justfile, and release workflow. Added hash_algorithm: sha256 field to HistoryEntry. Updated frozen fixtures with new record_hash values. Updated COMPATIBLE_PM_VERSION."
+expected_result: "All gates pass: fmt, clippy, doc, tests, 100% coverage, audit, changelog check. conformance_differential passes byte-for-byte vs pm CLI 2026.9.17."
+actual_result: "82/82 tests pass, 100% coverage (lines/functions/regions/branches). conformance_differential: 5/5 steps byte-identical. cargo audit clean. Changelog up to date."
+files[5]{path,scope}:
+  src/history.rs,project
+  tests/create_contract.rs,project
+  tests/mutation_contract.rs,project
+  .github/workflows/ci.yml,project
+  justfile,project
+tests[1]{command,scope,provenance{author,created_at,source_kind,source_ref}}:
+  cargo test --locked --all-targets --all-features,project,pi-agent,"2026-09-17T20:02:30.327Z",local_mutation,main
+close_reason: All acceptance criteria verified at close time
+body: ""
