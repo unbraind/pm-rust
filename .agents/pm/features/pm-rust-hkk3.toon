@@ -2,11 +2,24 @@ id: pm-rust-hkk3
 title: "Write the hash_algorithm field on history entries, matching pm CLI 2026.9.11 and later"
 description: "pm CLI 2026.9.11 and later writes a top-level hash_algorithm: sha256 field on every history entry (named digest algorithms, pm-cli changelog pm-bbk8we). pm-rust's history entries omit this field: grep hash_algorithm src/history.rs returns no matches. Verified 2026-09-13 with pm CLI 2026.9.12 installed: the conformance_differential test (tests/conformance_differential.rs) fails on the first create operation because the published CLI emits hash_algorithm as the first field of each JSONL entry, and pm-rust does not. The record_hash also diverges because the hash input includes the hash_algorithm field. pm-rust reads a 2026.9.12 workspace correctly and history it writes passes 2026.9.12 pm health (ok true, 0 unreadable), so pm-rust relies on the legacy-default path where the hash algorithm is implied rather than named. This item tracks adding the hash_algorithm field to match pm CLI 2026.9.11+ output exactly, restoring byte-identical differential conformance."
 type: Feature
-status: open
+status: closed
 priority: 1
 tags[3]: conformance,history,rust
 created_at: "2026-09-12T23:23:17.601Z"
-updated_at: "2026-09-12T23:23:17.601Z"
+updated_at: "2026-09-17T20:01:52.371Z"
+closed_at: "2026-09-17T20:01:52.346Z"
+completed_at: "2026-09-17T20:01:52.346Z"
+claim_principal: pi-agent
 author: pi-agent
 acceptance_criteria: "Every history entry written by pm-rust includes a top-level hash_algorithm: sha256 field matching the field order and value pm CLI 2026.9.12 produces; the record_hash is computed over the same serialized bytes as the published CLI (including hash_algorithm); the conformance_differential test passes byte-for-byte against pm CLI 2026.9.12; strict Rust checks and the exact coverage gate pass"
+resolution: "Added hash_algorithm: sha256 as the first field of every HistoryEntry in src/history.rs, matching pm CLI 2026.9.11+ (pm-bbk8we). Updated frozen fixtures in tests/create_contract.rs and tests/mutation_contract.rs with the new field and recomputed record_hash values."
+expected_result: "Every history entry includes hash_algorithm: sha256 as the first field; record_hash is computed over the same serialized bytes as the published CLI; conformance_differential test passes byte-for-byte against pm CLI 2026.9.17"
+actual_result: "conformance_differential passes: 5/5 steps (create, update title and priority, comment append, status transition, close) produce byte-identical output vs pm CLI 2026.9.17. All 82 tests pass, 100% coverage (lines/functions/regions/branches)."
+files[3]{path,scope}:
+  src/history.rs,project
+  tests/create_contract.rs,project
+  tests/mutation_contract.rs,project
+tests[1]{command,scope,provenance{author,created_at,source_kind,source_ref}}:
+  cargo test --test conformance_differential,project,pi-agent,"2026-09-17T20:01:51.723Z",local_mutation,main
+close_reason: hash_algorithm field implemented and verified against published CLI 2026.9.17
 body: ""
