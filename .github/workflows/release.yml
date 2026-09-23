@@ -42,7 +42,7 @@ jobs:
           components: clippy,rustfmt
 
       - name: Install just
-        uses: taiki-e/install-action@9114bf4d891761788c546334fd37538eae1bf8b3 # v2
+        uses: taiki-e/install-action@94c31af3204a9f15ab40b35ad084410b905bbc73 # v2
         with:
           # This job runs `just release-check`, which needs the whole gate
           # toolchain — not just `just`. Installing only `just` here made the

@@ -97,7 +97,7 @@ jobs:
         with:
           node-version: 26
       - name: Install Rust quality tools and just
-        uses: taiki-e/install-action@9114bf4d891761788c546334fd37538eae1bf8b3 # v2
+        uses: taiki-e/install-action@94c31af3204a9f15ab40b35ad084410b905bbc73 # v2
         with:
           tool: cargo-audit,cargo-llvm-cov,just
 
