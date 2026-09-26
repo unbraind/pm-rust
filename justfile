@@ -30,8 +30,8 @@ CHANGELOG_DATE := "2026-08-07"
 # contract — dropping closed items from regeneration while the committed
 # CHANGELOG.md keeps them (pm-rust-1ps2). Both packages move together, and a
 # bump here must regenerate CHANGELOG.md in the same change.
-PM_CHANGELOG_PKG := "pm-changelog@2026.9.16"
-PM_CLI_PKG := "@unbrained/pm-cli@2026.9.17"
+PM_CHANGELOG_PKG := "pm-changelog@2026.9.25"
+PM_CLI_PKG := "@unbrained/pm-cli@2026.9.26"
 
 # The item URL base for changelog links.
 ITEM_URL_BASE := "https://github.com/unbraind/pm-rust/blob/main/.agents/pm"

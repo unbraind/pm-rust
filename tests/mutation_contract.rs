@@ -4,7 +4,7 @@
 //! recipe. Their event classification and record-integrity envelopes were
 //! sealed using the published PM CLI 2026.9.4 implementation. The independent
 //! live differential suite compares complete persisted bytes against the
-//! current PM CLI 2026.9.17 compatibility target.
+//! current PM CLI 2026.9.26 compatibility target.
 
 use std::fs;
 use std::path::Path;
