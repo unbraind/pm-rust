@@ -1,0 +1,29 @@
+id: pm-rust-4ld8
+title: Pin pm-rust CI and release tooling to current pm CLI and pm-changelog
+description: "CI and Daily Release still use pm CLI 2026.9.17 and pm-changelog 2026.9.16 while 2026.9.26 and 2026.9.25 are published. Align the workflow and operator command, then prove strict merge-driver health with the published CLI without enabling crate publication."
+type: Issue
+status: in_progress
+priority: 1
+tags[4]: ci,compatibility,release,toolchain
+created_at: "2026-09-26T13:34:49.757Z"
+updated_at: "2026-09-26T13:39:17.985Z"
+author: codex
+acceptance_criteria: "CI installs and invokes exactly @unbrained/pm-cli 2026.9.26; Daily Release invokes pm-changelog 2026.9.25 with pm CLI 2026.9.26; README operator command matches; workflow syntax, strict merge-driver health, Rust release gate and changelog invocation are verified; PM_RELEASE_APPROVED guard remains"
+parent: pm-rust-u4al
+notes[1]{created_at,author,text}:
+  "2026-09-26T13:39:17.985Z",codex,"2026-09-26: Published @unbrained/pm-cli 2026.9.26 and pm-changelog 2026.9.25 are pinned consistently in CI, release workflow, justfile and README. Exact published-CLI strict merge-driver health passed. Full just release-check passed: 292 Rust tests, 100/100/100/100 LLVM lines/functions/regions/branches, clippy, rustdoc, cargo audit, and changelog check. Workflow YAML parsed. Daily Release remains guarded by PM_RELEASE_APPROVED and Cargo publish=false."
+files[9]{path,scope,note}:
+  .gitattributes,project,Refresh tracked merge driver marker for current CLI
+  .github/workflows/ci.yml,project,Pin published CLI in CI
+  .github/workflows/release.yml,project,Pin published CLI and pm-changelog in release
+  justfile,project,Pin local release gate tools with CI
+  README.md,project,Align operator command
+  src/history.rs,project,Document certified history format
+  src/lib.rs,project,Declare certified published compatibility version
+  tests/mutation_contract.rs,project,Document current differential target
+  tests/release_pipeline_contract.rs,project,Enforce exact workflow and justfile pins
+tests[1]{command,path,scope,timeout_seconds,pm_context_mode,provenance{author,created_at,source_kind,source_ref}}:
+  just release-check,justfile,project,900,tracker,codex,"2026-09-26T13:39:16.856Z",local_mutation,fix/pm-rust-ci-release-toolchain-2026-9-26
+docs[1]{path,scope,note}:
+  "https://github.com/unbraind/pm-cli-companion/blob/main/.agents/pm/epics/pm-cli-website-5s6z.toon",global,Companion fleet CLI certification epic
+body: ""
