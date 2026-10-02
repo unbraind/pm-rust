@@ -424,7 +424,12 @@ pub fn now_iso() -> String {
 }
 
 /// Requires a non-empty RFC 3339 timestamp expressed explicitly in UTC.
-fn validate_timestamp(value: &str) -> Result<(), PmRustError> {
+///
+/// # Errors
+///
+/// Returns [`PmRustError::InvalidMutation`] when the value is empty, does not
+/// end with `Z`, or cannot be parsed as RFC 3339.
+pub fn validate_timestamp(value: &str) -> Result<(), PmRustError> {
     if value.trim().is_empty()
         || !value.ends_with('Z')
         || OffsetDateTime::parse(value, &Rfc3339).is_err()

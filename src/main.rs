@@ -212,6 +212,7 @@ fn run(cli: Cli) -> Result<(), Box<dyn std::error::Error>> {
             };
             if json {
                 let now = timestamp.unwrap_or_else(pm_rust::current_timestamp);
+                pm_rust::validate_timestamp(&now)?;
                 write_json(&workspace.list_unbounded(&filters, all, &now)?)?;
             } else {
                 write_json(&workspace.list(filters)?)?;

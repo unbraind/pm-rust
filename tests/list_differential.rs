@@ -39,15 +39,28 @@ fn tracker() -> Result<tempfile::TempDir, Box<dyn std::error::Error>> {
     Ok(directory)
 }
 
-/// Executes the real published CLI and native CLI against the same tracker.
-#[test]
-fn unbounded_list_matches_published_cli_and_golden() -> Result<(), Box<dyn std::error::Error>> {
+/// Prepares the fixed-clock published driver if its CLI and interpreter exist.
+fn published_driver(
+    directory: &std::path::Path,
+) -> Result<Option<(String, std::path::PathBuf)>, Box<dyn std::error::Error>> {
     let Some(published) = published_cli::published_cli_or_skip("list differential") else {
-        return Ok(());
+        return Ok(None);
     };
+    let interpreter = std::env::var("PM_NODE_INTERPRETER").unwrap_or_else(|_| "node".to_owned());
+    if !Command::new(&interpreter)
+        .arg("--version")
+        .output()
+        .is_ok_and(|output| output.status.success())
+    {
+        assert!(
+            std::env::var("PM_RUST_REQUIRE_PUBLISHED_CLI").is_err(),
+            "list differential requires a Node interpreter, but none was found and PM_RUST_REQUIRE_PUBLISHED_CLI is set"
+        );
+        println!("skip: no Node interpreter found (set PM_NODE_INTERPRETER to select one)");
+        return Ok(None);
+    }
     assert!(published.package_root.join("package.json").is_file());
-    let fixture = tracker()?;
-    let driver = fixture.path().join("driver.mjs");
+    let driver = directory.join("driver.mjs");
     fs::write(
         &driver,
         format!(
@@ -56,6 +69,14 @@ fn unbounded_list_matches_published_cli_and_golden() -> Result<(), Box<dyn std::
             serde_json::to_string(&published.entry)?
         ),
     )?;
+    Ok(Some((interpreter, driver)))
+}
+
+/// Executes the real published CLI and native CLI against the same tracker.
+#[test]
+fn unbounded_list_matches_published_cli_and_golden() -> Result<(), Box<dyn std::error::Error>> {
+    let fixture = tracker()?;
+    let published = published_driver(fixture.path())?;
     let golden: Value = serde_json::from_str(GOLDEN)?;
     for (label, flags) in [
         ("default", vec![]),
@@ -79,20 +100,22 @@ fn unbounded_list_matches_published_cli_and_golden() -> Result<(), Box<dyn std::
             "--output-limit",
             "unbounded",
         ];
-        let output = Command::new("node")
-            .arg(&driver)
-            .args(args)
-            .args(&flags)
-            .current_dir(fixture.path())
-            .env_remove("PM_PATH")
-            .output()?;
-        assert!(
-            output.status.success(),
-            "published {label}: {}",
-            String::from_utf8_lossy(&output.stderr)
-        );
-        let published_value: Value = serde_json::from_slice(&output.stdout)?;
-        assert_eq!(published_value, golden[label], "published golden {label}");
+        if let Some((interpreter, driver)) = &published {
+            let output = Command::new(interpreter)
+                .arg(driver)
+                .args(args)
+                .args(&flags)
+                .current_dir(fixture.path())
+                .env_remove("PM_PATH")
+                .output()?;
+            assert!(
+                output.status.success(),
+                "published {label}: {}",
+                String::from_utf8_lossy(&output.stderr)
+            );
+            let published_value: Value = serde_json::from_slice(&output.stdout)?;
+            assert_eq!(published_value, golden[label], "published golden {label}");
+        }
         let mut filters = pm_rust::ItemFilter::default();
         for pair in flags.chunks_exact(2) {
             match pair[0] {
@@ -105,8 +128,8 @@ fn unbounded_list_matches_published_cli_and_golden() -> Result<(), Box<dyn std::
         let workspace = pm_rust::Workspace::discover(fixture.path())?;
         assert_eq!(
             workspace.list_unbounded(&filters, label == "all", CLOCK)?,
-            published_value,
-            "SDK envelope {label}"
+            golden[label],
+            "SDK golden {label}"
         );
         let output = Command::new(env!("CARGO_BIN_EXE_pm-rust"))
             .args(args)
@@ -121,8 +144,9 @@ fn unbounded_list_matches_published_cli_and_golden() -> Result<(), Box<dyn std::
             String::from_utf8_lossy(&output.stderr)
         );
         let native: Value = serde_json::from_slice(&output.stdout)?;
-        assert_eq!(native, published_value, "full envelope {label}");
+        assert_eq!(native, golden[label], "native golden {label}");
     }
+    println!("verified 9 native and SDK golden envelopes");
     Ok(())
 }
 
@@ -239,5 +263,106 @@ fn compatibility_list_reports_read_and_output_failures() -> Result<(), Box<dyn s
         .output()?;
     assert_eq!(output.status.code(), Some(2));
     assert!(String::from_utf8_lossy(&output.stderr).contains("invalid pm item document"));
+    Ok(())
+}
+
+/// Invalid read clocks fail before emitting an envelope.
+#[test]
+fn invalid_list_timestamps_fail_closed() -> Result<(), Box<dyn std::error::Error>> {
+    let fixture = tracker()?;
+    for timestamp in ["", "2026-10-02", "garbageZ", "2026-10-02T10:00:00+00:00"] {
+        let output = Command::new(env!("CARGO_BIN_EXE_pm-rust"))
+            .args([
+                "list",
+                "--json",
+                "--output-budget",
+                "unbounded",
+                "--output-limit",
+                "unbounded",
+                "--timestamp",
+                timestamp,
+            ])
+            .current_dir(fixture.path())
+            .env_remove("PM_PATH")
+            .output()?;
+        assert_eq!(output.status.code(), Some(2), "accepted {timestamp:?}");
+        assert!(output.stdout.is_empty());
+        assert!(
+            String::from_utf8_lossy(&output.stderr)
+                .contains("timestamp must be a non-empty UTC RFC 3339 value")
+        );
+    }
+    Ok(())
+}
+
+/// Missing external tooling may skip only the published comparison.
+#[test]
+fn golden_checks_survive_missing_published_tools() -> Result<(), Box<dyn std::error::Error>> {
+    let package = tempfile::tempdir()?;
+    fs::create_dir(package.path().join("dist"))?;
+    fs::write(package.path().join("dist/cli.js"), "")?;
+    for (cli, interpreter, notice) in [
+        (
+            std::path::PathBuf::from("/nonexistent/pm-rust-review-cli"),
+            "node",
+            "skip: no published Node pm CLI found",
+        ),
+        (
+            package.path().to_path_buf(),
+            "/nonexistent/pm-rust-review-node",
+            "skip: no Node interpreter found",
+        ),
+    ] {
+        let output = Command::new(std::env::current_exe()?)
+            .args([
+                "--exact",
+                "unbounded_list_matches_published_cli_and_golden",
+                "--nocapture",
+            ])
+            .env("PM_NODE_CLI", &cli)
+            .env("PM_NODE_INTERPRETER", interpreter)
+            .env_remove("PM_RUST_REQUIRE_PUBLISHED_CLI")
+            .output()?;
+        let stdout = String::from_utf8_lossy(&output.stdout);
+        assert!(
+            output.status.success(),
+            "{stdout} {}",
+            String::from_utf8_lossy(&output.stderr)
+        );
+        assert!(stdout.contains(notice), "{stdout}");
+        assert!(
+            stdout.contains("verified 9 native and SDK golden envelopes"),
+            "{stdout}"
+        );
+        let required = Command::new(std::env::current_exe()?)
+            .args([
+                "--exact",
+                "unbounded_list_matches_published_cli_and_golden",
+                "--nocapture",
+            ])
+            .env("PM_NODE_CLI", &cli)
+            .env("PM_NODE_INTERPRETER", interpreter)
+            .env("PM_RUST_REQUIRE_PUBLISHED_CLI", "1")
+            .output()?;
+        assert!(!required.status.success());
+    }
+    Ok(())
+}
+
+/// SDK callers must receive the same all/status conflict refusal as CLI callers.
+#[test]
+fn all_with_explicit_status_fails_closed() -> Result<(), Box<dyn std::error::Error>> {
+    let fixture = tracker()?;
+    let workspace = pm_rust::Workspace::discover(fixture.path())?;
+    for status in ["open", "all", ""] {
+        let filters = pm_rust::ItemFilter {
+            status: Some(status.to_owned()),
+            ..pm_rust::ItemFilter::default()
+        };
+        assert!(matches!(
+            workspace.list_unbounded(&filters, true, CLOCK),
+            Err(pm_rust::PmRustError::InvalidReadRequest { .. })
+        ));
+    }
     Ok(())
 }

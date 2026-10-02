@@ -20,7 +20,7 @@ pub use item::{ItemDocument, ItemMetadata, ItemSummary};
 pub use mutation::now_iso as current_timestamp;
 pub use mutation::{
     CloseItem, CommentItem, CreateItem, CreateResult, MutationResult, UpdateItem, default_priority,
-    default_status,
+    default_status, validate_timestamp,
 };
 pub use workspace::{ItemFilter, ListResult, Workspace};
 

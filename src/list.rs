@@ -53,6 +53,11 @@ pub(crate) fn read_unbounded(
             });
         }
     }
+    if all && filters.status.is_some() {
+        return Err(PmRustError::InvalidReadRequest {
+            reason: "all conflicts with an explicit status filter".to_owned(),
+        });
+    }
     let full = all || filters.status.as_deref() == Some("all");
     let mut echo = Map::new();
     if full {

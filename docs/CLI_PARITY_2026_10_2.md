@@ -28,10 +28,10 @@ pm-rust --workspace /path/to/project list --json --output-budget unbounded --out
 pm-rust --workspace /path/to/project list --json --output-budget unbounded --output-limit unbounded --status open --type Task --ids demo-a
 ```
 
-`--id` remains a native alias for `--ids`. `--all` conflicts with `--status`.
-CSV selectors fail with a typed read error. `--timestamp` supplies the native
-read clock for fixtures; ordinary invocations use current UTC time. The SDK
-accepts the caller's clock string. Timestamp ordering parses RFC 3339 instants
+`--ids` remains a native alias for `--id`. `--all` conflicts with `--status`.
+CSV selectors fail with a typed read error. `--timestamp` supplies a validated
+UTC RFC 3339 read clock for fixtures; ordinary invocations use current UTC time.
+The SDK accepts the caller's clock string. Timestamp ordering parses RFC 3339 instants
 and uses spelling to break equal-instant ties; alternate formats accepted by
 JavaScript `Date.parse` are outside the slice. Native invalid/duplicate item
 reads fail closed rather than reporting TypeScript's partial completeness.
@@ -48,7 +48,7 @@ list-draft list-in-progress list-open ops package pause-task plan release restor
 search start-task update upgrade workspace
 ```
 
-Only the create/update/close/list/get roots have native implementation slices;
+The create/update/comment/close/list/get native commands have implementation slices;
 help differs and the other roots remain missing. Nested operations do not
 become implemented because one related native alias exists. In particular,
 agent `context`, `search`, `next` (nested/alias task selection), claim/release,
@@ -76,8 +76,10 @@ envelopes are checked against `tests/fixtures/list-2026-10-2.json`, recorded
 from the exact published oracle. Cases cover defaults, all statuses, explicit
 terminal status, case-insensitive type, ID, combined filters and an empty
 result; fixtures cover priority/update/ID ties and unknown metadata. No fields
-are removed from either output during comparison. Native unit tests cover empty
-trackers, malformed-document refusal, CSV refusal and timestamp fallback.
+are removed from either output during comparison. Native and SDK golden comparisons run even when the published CLI or Node
+interpreter is absent; only the published comparison skips. Required-tool mode
+fails instead of skipping. Regression tests also cover invalid CLI clocks, the
+SDK all/status conflict, empty trackers, malformed documents and CSV refusal.
 Fixtures contain synthetic data only. Production remains entirely Rust.
 
 CI requires the published CLI, runs tests on Linux/macOS/Windows, and keeps the

@@ -23,13 +23,12 @@
 # carries a date.
 CHANGELOG_DATE := "2026-08-07"
 
-# The pm-changelog npm package version used by the fleet, pinned together
-# with the exact pm CLI/SDK build it resolves. pm-changelog declares its SDK
-# as a floating range (>=2026.8.3), so an unpinned install resolves to latest
-# and its tracker reads silently truncate under the newer output-budget
-# contract — dropping closed items from regeneration while the committed
-# CHANGELOG.md keeps them (pm-rust-1ps2). Both packages move together, and a
-# bump here must regenerate CHANGELOG.md in the same change.
+# The CLI pin tracks the published conformance target independently.
+# pm-changelog stays pinned to the version that generated CHANGELOG.md;
+# changelog-check verifies the committed output with this exact pairing.
+# Pin both packages explicitly because pm-changelog's floating SDK range
+# (>=2026.8.3) otherwise changes tracker reads with the latest CLI.
+# A pm-changelog bump must regenerate CHANGELOG.md in the same change.
 PM_CHANGELOG_PKG := "pm-changelog@2026.9.25"
 PM_CLI_PKG := "@unbrained/pm-cli@2026.10.2"
 
