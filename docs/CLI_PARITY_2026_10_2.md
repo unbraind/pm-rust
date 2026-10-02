@@ -36,7 +36,8 @@ UTC RFC 3339 read clock for fixtures; ordinary invocations use current UTC time.
 The SDK accepts the caller's clock string. Timestamp ordering parses RFC 3339 instants
 and uses spelling to break equal-instant ties; malformed stored timestamps
 sort after valid timestamps within the same priority, with lexical ordering
-between malformed values; alternate formats accepted by
+between malformed values; timestamps are parsed once per selected item and
+cached with the complete ordering key; alternate formats accepted by
 JavaScript `Date.parse` are outside the slice. Native invalid/duplicate item
 reads fail closed rather than reporting TypeScript's partial completeness.
 

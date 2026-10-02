@@ -1,40 +1,34 @@
 //! Published unbounded-list projection for the default lifecycle registry.
 
-use std::cmp::Ordering;
+use std::cmp::Reverse;
 
 use serde_json::{Map, Value, json};
 use time::OffsetDateTime;
 use time::format_description::well_known::Rfc3339;
 
-use crate::{ItemFilter, ItemMetadata, PmRustError, Workspace, canonical_metadata_pairs};
+use crate::{ItemFilter, PmRustError, Workspace, canonical_metadata_pairs};
+
+#[cfg(test)]
+thread_local! {
+    /// Optional per-test timestamp parse counter, isolated across test threads.
+    static TIMESTAMP_PARSES: std::cell::Cell<Option<usize>> = const { std::cell::Cell::new(None) };
+}
 
 /// Classifies terminal statuses in the published built-in lifecycle registry.
 fn terminal(status: &str) -> bool {
     matches!(status, "closed" | "canceled")
 }
 
-/// Compares RFC 3339 update timestamps, retaining the published lexical tie-break.
-fn compare_time(left: &str, right: &str) -> Ordering {
-    match (
-        OffsetDateTime::parse(left, &Rfc3339),
-        OffsetDateTime::parse(right, &Rfc3339),
-    ) {
-        (Ok(left_time), Ok(right_time)) => (left_time.unix_timestamp_nanos().div_euclid(1_000_000))
-            .cmp(&right_time.unix_timestamp_nanos().div_euclid(1_000_000))
-            .then_with(|| left.cmp(right)),
-        (Ok(_), Err(_)) => Ordering::Greater,
-        (Err(_), Ok(_)) => Ordering::Less,
-        (Err(_), Err(_)) => left.cmp(right),
-    }
-}
-
-/// Applies the published default order to canonical ASCII identifiers.
-fn compare(left: &ItemMetadata, right: &ItemMetadata) -> Ordering {
-    terminal(&left.status)
-        .cmp(&terminal(&right.status))
-        .then_with(|| left.priority.cmp(&right.priority))
-        .then_with(|| compare_time(&right.updated_at, &left.updated_at))
-        .then_with(|| left.id.cmp(&right.id))
+/// Builds an ascending timestamp key with invalid values below valid instants.
+fn timestamp_key(value: &str) -> (Option<i128>, String) {
+    #[cfg(test)]
+    TIMESTAMP_PARSES.with(|counter| counter.set(counter.get().map(|count| count + 1)));
+    (
+        OffsetDateTime::parse(value, &Rfc3339)
+            .ok()
+            .map(|instant| instant.unix_timestamp_nanos().div_euclid(1_000_000)),
+        value.to_owned(),
+    )
 }
 
 /// Projects validated documents into an exact, unbounded published envelope.
@@ -94,7 +88,15 @@ pub(crate) fn read_unbounded(
                 .is_none_or(|kind| metadata.item_type.eq_ignore_ascii_case(kind))
             && filters.id.as_ref().is_none_or(|id| metadata.id == *id)
     });
-    documents.sort_by(|left, right| compare(&left.metadata, &right.metadata));
+    documents.sort_by_cached_key(|document| {
+        let metadata = &document.metadata;
+        (
+            terminal(&metadata.status),
+            metadata.priority,
+            Reverse(timestamp_key(&metadata.updated_at)),
+            metadata.id.clone(),
+        )
+    });
     let items: Vec<Value> = documents.into_iter().map(|document| {
         let metadata = document.metadata;
         if full {

@@ -6,7 +6,7 @@ status: in_progress
 priority: 1
 tags[3]: conformance,read-parity,rust
 created_at: "2026-10-02T18:56:00.427Z"
-updated_at: "2026-10-02T20:12:36.071Z"
+updated_at: "2026-10-02T20:26:06.657Z"
 deadline: "2026-10-09T00:00:00.000Z"
 author: pi-glm-rust-parity
 estimated_minutes: 240
@@ -14,7 +14,7 @@ acceptance_criteria: "Both unbounded flags are required with --json; Complete pa
 parent: pm-rust-u4al
 dependencies[1]{id,kind,created_at,author,source_kind,author_source}:
   pm-rust-u4al,parent,"2026-10-02T18:56:00.427Z",pi-glm-rust-parity,"cli:create:dep",asserted
-comments[17]{created_at,author,text}:
+comments[20]{created_at,author,text}:
   "2026-10-02T18:56:00.427Z",pi-glm-rust-parity,"Plan: test-first golden differential vs real TS CLI 2026.10.2 with fixed Date driver; implement native list mode; keep SDK Workspace::list contract intact."
   "2026-10-02T18:59:38.814Z",pi-glm-rust-parity,"Ollama session limit interrupted implementation after contract research; no source changes yet. Orchestrator will continue the same unbounded-list slice on an allowed fallback provider after checking fresh quota. Item remains open for work, never closed."
   "2026-10-02T19:01:31.028Z",codex-sol,"Orchestrator continuing implementation directly after both GLM providers exhausted quota and Grok OAuth refresh failed; no additional Codex agent authorized under over-forecast policy. Scope: explicit unbounded full JSON list mode; native legacy list API stays stable; deterministic full-envelope golden tests compare published2026.10.2 and Rust on the same temporary tracker."
@@ -32,6 +32,9 @@ comments[17]{created_at,author,text}:
   "2026-10-02T20:08:13.799Z",codex-sol,"Fresh cubic review duplicates all three CodeRabbit findings, plus missing tracker file links. Added src/error.rs and src/history.rs through pm files; no hand edits to TOON/history. All seven new threads will be individually replied to and resolved with the round 2 fix commit."
   "2026-10-02T20:09:17.824Z",codex-sol,The added published --full probe exposed an extra read_output diagnostic receipt that does not occur in the original nine envelopes. Captured its complete synthetic receipt as a new fixture and compare complete published/native envelopes against their respective contracts without stripping fields. Native --full projection/selection is implemented; output-policy alias/budget diagnostics are explicitly scoped as a difference and linked to existing follow-up pm-rust-ufzy. Existing exact golden gates are unchanged.
   "2026-10-02T20:12:35.319Z",codex-sol,"Round 2 remediation validation PASSED: unchanged just release-check through pm test, including 157 tests in normal and coverage runs, strict fmt/Clippy/rustdoc, cargo audit, changelog-check and exact 100% lines/functions/regions/branches (1822/176/2606/312). All nine original envelopes still match published CLI/native/SDK. New full-projection tests restore five nonterminal items with complete metadata, reject CSV selectors and verify the complete published diagnostic receipt separately. Mixed-validity SDK ordering and transitivity regressions pass. Tracker health integrity/history passes. All seven fresh bot threads will receive this fix commit and resolution before the round 2 review request. Scope difference read_output is documented and linked to pm-rust-ufzy."
+  "2026-10-02T20:23:42.115Z",codex-sol,"Round 2 on 4ed15e7: all hosted CI/gates/CodeQL pass; CodeRabbit explicitly verifies comparator, full projection and error-doc fixes in-thread but fresh full review is quota-limited. Cubic confirms the prior findings and reports one P3 repeated timestamp parsing during sorting. Add a red-first parse-count regression, replace comparison-time parsing with sort_by_cached_key (sort_by_key would still recalculate keys), preserve exact ordering/goldens and run unchanged release-check. This will be the third and final requested review round. Existing Sourcery quota and absent Greptile response remain missing evidence."
+  "2026-10-02T20:24:27.677Z",codex-sol,"Red-first parse-count measurement failed on the old comparator: sorting 16 items parsed timestamps 30 times. Cached complete sort keys now parse exactly 16 times; timestamp/priority/id/terminal ordering and all golden envelopes are unchanged. sort_by_cached_key is used because sort_by_key would recompute expensive keys during comparisons."
+  "2026-10-02T20:26:06.059Z",codex-sol,"Third-round candidate PASSED unchanged just release-check through pm test: 158 tests in normal and coverage runs, 100% lines/functions/regions/branches (1819/174/2591/312), fmt, strict Clippy, rustdoc, audit and changelog-check. Repeated timestamp parses are reduced from 30 to 16 for 16 selected items by cached complete sort keys. Original nine complete oracle/native/SDK envelopes and full-projection/mixed-validity regressions pass. Prior exact head 4ed15e7 has all required hosted CI/CodeQL green and CodeRabbit scoped in-thread fix verification; fresh whole-PR review is rate-limited, Sourcery is quota-limited, Greptile has not responded. All 19 prior threads are resolved; the final performance thread will receive this commit and be resolved before request round 3. read_output policy diagnostics remain documented under existing pm-rust-ufzy. No items closed or PR merged; coding claim released while final review/CI is monitored."
 notes[1]{created_at,author,text}:
   "2026-10-02T18:56:00.427Z",pi-glm-rust-parity,Slice scope deliberately narrow
 learnings[1]{created_at,author,text}:
