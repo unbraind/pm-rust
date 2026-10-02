@@ -1,0 +1,17 @@
+id: pm-rust-ufzy
+title: Extend native list parity to pagination and bounded output contracts
+description: "Follow-up to pm-rust-p0no: current compatibility mode explicitly requires unbounded amount and cost. Implement limits, cursors, continuation fingerprints and output budgeting with full-envelope golden tests against the exact published PM CLI. Keep 100 percent coverage and maintainer publication guard."
+type: Task
+status: open
+priority: 2
+tags[3]: conformance,read-parity,rust
+created_at: "2026-10-02T19:11:02.190Z"
+updated_at: "2026-10-02T20:09:16.243Z"
+author: codex-sol
+acceptance_criteria: Real TS and Rust CLIs match multi-page envelopes and continuation fingerprints on shared fixtures; Stale or mismatched cursors fail consistently; No item loss or repeated rows; Output omission and budget receipts match; Existing gates remain enforced
+parent: pm-rust-u4al
+comments[1]{created_at,author,text}:
+  "2026-10-02T20:09:16.243Z",codex-sol,"PR #58 full-projection follow-up: published --full additionally emits read_output alias/migration/budget diagnostics, including estimated_tokens. Native --full restores complete metadata with unchanged selection, but these output-policy diagnostics remain outside the current slice and are explicitly documented. Synthetic exact published read_output receipt captured in tests/fixtures/list-full-read-output-2026-10-2.json; original nine envelope comparisons remain exact and unchanged. Include full-projection output policy in this bounded-output/canonical-controls follow-up."
+docs[1]{path,scope}:
+  docs/CLI_PARITY_2026_10_2.md,project
+body: ""

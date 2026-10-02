@@ -1,0 +1,14 @@
+{
+  "contract_version": 1,
+  "command": "list",
+  "requested_dimensions": ["include", "amount", "cost"],
+  "precedence": ["canonical", "legacy", "intent", "default"],
+  "canonical_options_used": ["--output-limit", "--output-budget"],
+  "legacy_aliases_used": ["--full"],
+  "migration_hints": ["--full is a compatibility alias; prefer --output-include full."],
+  "estimated_tokens": 678,
+  "within_budget": true,
+  "strings_compacted": false,
+  "rows_compacted": false,
+  "result_omitted": false
+}

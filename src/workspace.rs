@@ -181,6 +181,48 @@ impl Workspace {
         })
     }
 
+    /// Returns the published PM CLI 2026.10.2 unbounded-list JSON envelope.
+    ///
+    /// Uses the default lifecycle registry: closed and canceled are terminal.
+    /// Default reads exclude terminal items and project id/status/type/title;
+    /// `all` or status `all` includes them and projects complete metadata.
+    /// Ordering is terminal-last, priority ascending, update time descending,
+    /// then canonical lowercase ASCII ID. The caller supplies the read clock.
+    /// Pagination, runtime registries, hooks and output budgeting are outside
+    /// this slice. Existing [`Self::list`] retains its native contract.
+    ///
+    /// # Errors
+    ///
+    /// Fails closed on stored-item read errors, unsupported CSV filters, or
+    /// combining `all` with an explicit status filter.
+    pub fn list_unbounded(
+        &self,
+        filters: &ItemFilter,
+        all: bool,
+        now: &str,
+    ) -> Result<serde_json::Value, PmRustError> {
+        crate::list::read_unbounded(self, filters, all, false, now)
+    }
+
+    /// Returns complete item metadata with the same unbounded list selection.
+    ///
+    /// Restores fields omitted by [`Self::list_unbounded`] without including
+    /// terminal items unless `all` or an explicit status requests them. The
+    /// caller supplies the read clock; ordering and filtering are unchanged.
+    ///
+    /// # Errors
+    ///
+    /// Fails closed on stored-item read errors, unsupported CSV filters, or
+    /// combining `all` with an explicit status filter.
+    pub fn list_unbounded_full(
+        &self,
+        filters: &ItemFilter,
+        all: bool,
+        now: &str,
+    ) -> Result<serde_json::Value, PmRustError> {
+        crate::list::read_unbounded(self, filters, all, true, now)
+    }
+
     /// Reads one item by exact stable identifier.
     ///
     /// # Errors

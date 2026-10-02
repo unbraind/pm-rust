@@ -6,6 +6,12 @@ use std::path::PathBuf;
 /// Failures returned by the Rust-native read surface.
 #[derive(Debug, thiserror::Error)]
 pub enum PmRustError {
+    /// A query requests behavior outside the supported native read slice.
+    #[error("invalid read request: {reason}")]
+    InvalidReadRequest {
+        /// Explanation suitable for CLI diagnostics.
+        reason: String,
+    },
     /// A filesystem operation failed at a known path.
     #[error("filesystem operation failed at {path}: {source}")]
     Io {
