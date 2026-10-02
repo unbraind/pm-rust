@@ -6,15 +6,19 @@ native applications.
 
 The project is pre-release. Its current delivery slice reads workspaces and
 creates, updates, comments on, and closes canonical items against the
-published `pm` 2026.9.26 on-disk contract. Production code, tests, benchmarks,
+published `pm` 2026.10.2 on-disk contract. Production code, tests, benchmarks,
 and build tooling are Rust; the distributed binary does not require Node.js,
 Bun, JavaScript, or TypeScript.
+
+See the [2026.10.2 command and storage parity matrix](docs/CLI_PARITY_2026_10_2.md)
+for supported read flags and remaining gaps.
 
 ## Current native slice
 
 ```bash
 cargo run -- --workspace /path/to/project list --status open
 cargo run -- --workspace /path/to/project list --type Feature
+cargo run -- --workspace /path/to/project list --json --output-budget unbounded --output-limit unbounded --all
 cargo run -- --workspace /path/to/project get pm-example
 cargo run -- --workspace /path/to/project create --id pm-example --title "Native item" --type Task --author agent
 cargo run -- --workspace /path/to/project update pm-example --title "Renamed" --priority 1 --author agent
@@ -94,7 +98,7 @@ cargo test --locked --all-targets --all-features
 cargo +nightly-2026-08-06 llvm-cov --locked --branch --all-targets --all-features --json --output-path coverage-branch.json
 jq -e '.data[0].totals.lines.percent == 100 and .data[0].totals.functions.percent == 100 and .data[0].totals.regions.percent == 100 and .data[0].totals.branches.percent == 100' coverage-branch.json
 cargo audit
-npm exec --yes --package=@unbrained/pm-cli@2026.9.26 -- pm health --check-only --require-merge-drivers --strict-exit
+npm exec --yes --package=@unbrained/pm-cli@2026.10.2 -- pm health --check-only --require-merge-drivers --strict-exit
 ```
 
 ## License

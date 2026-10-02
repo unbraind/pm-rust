@@ -408,7 +408,8 @@ fn validate_request(
 }
 
 /// Formats the current UTC instant in canonical millisecond RFC 3339 form.
-fn now_iso() -> String {
+#[must_use]
+pub fn now_iso() -> String {
     let value = OffsetDateTime::now_utc();
     format!(
         "{:04}-{:02}-{:02}T{:02}:{:02}:{:02}.{:03}Z",

@@ -25,6 +25,21 @@ struct Cli {
 enum Command {
     /// List stable item projections.
     List {
+        /// Emit the published unbounded-list JSON envelope.
+        #[arg(long, requires_all = ["output_budget", "output_limit"])]
+        json: bool,
+        /// Explicit cost policy for the compatibility slice.
+        #[arg(long, value_parser = ["unbounded"], requires = "json")]
+        output_budget: Option<String>,
+        /// Explicit amount policy for the compatibility slice.
+        #[arg(long, value_parser = ["unbounded"], requires = "json")]
+        output_limit: Option<String>,
+        /// Include terminal items and return full metadata.
+        #[arg(long, requires = "json", conflicts_with = "status")]
+        all: bool,
+        /// Fixed read timestamp for reproducible compatibility fixtures.
+        #[arg(long, requires = "json")]
+        timestamp: Option<String>,
         /// Exact lifecycle status.
         #[arg(long)]
         status: Option<String>,
@@ -32,7 +47,7 @@ enum Command {
         #[arg(long = "type")]
         item_type: Option<String>,
         /// Exact stable item identifier.
-        #[arg(long)]
+        #[arg(long, alias = "ids")]
         id: Option<String>,
     },
     /// Read one complete item document by identifier.
@@ -181,14 +196,27 @@ fn run(cli: Cli) -> Result<(), Box<dyn std::error::Error>> {
     let workspace = Workspace::discover(&cli.workspace)?;
     match cli.command {
         Command::List {
+            json,
+            output_budget: _,
+            output_limit: _,
+            all,
+            timestamp,
             status,
             item_type,
             id,
-        } => write_json(&workspace.list(ItemFilter {
-            status,
-            item_type,
-            id,
-        })?)?,
+        } => {
+            let filters = ItemFilter {
+                status,
+                item_type,
+                id,
+            };
+            if json {
+                let now = timestamp.unwrap_or_else(pm_rust::current_timestamp);
+                write_json(&workspace.list_unbounded(&filters, all, &now)?)?;
+            } else {
+                write_json(&workspace.list(filters)?)?;
+            }
+        }
         Command::Get { id } => write_json(&workspace.get(&id)?)?,
         Command::Create {
             id,

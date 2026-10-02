@@ -1,7 +1,8 @@
 # Compatibility contract
 
 The current `pm-rust` slice is a native read-and-mutate compatibility
-implementation for the published `pm` 2026.8.31 workspace format.
+implementation for the published `pm` 2026.10.2 workspace format. Read flag boundaries and remaining
+command gaps are enumerated in [the parity matrix](CLI_PARITY_2026_10_2.md).
 
 ## Supported
 
@@ -17,7 +18,7 @@ implementation for the published `pm` 2026.8.31 workspace format.
 - deterministic JSON for full-item and list projections.
 - explicit-ID creation for every canonical built-in item type;
 - in-place field updates, comment appends, and closes that write the same
-  canonical TOON item bytes and `item_hash_version: 2` history records as
+  canonical TOON item bytes and `item_hash_version: 3` history records as
   the published CLI, including argv-derived `agent_provenance` roles;
 - canonical metadata ordering for storage, diffs, and hashes, matching the
   published `ITEM_METADATA_KEY_ORDER` contract;
