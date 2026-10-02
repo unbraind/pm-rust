@@ -6,7 +6,7 @@ status: in_progress
 priority: 1
 tags[3]: conformance,read-parity,rust
 created_at: "2026-10-02T18:56:00.427Z"
-updated_at: "2026-10-02T19:19:57.036Z"
+updated_at: "2026-10-02T19:22:00.887Z"
 deadline: "2026-10-09T00:00:00.000Z"
 author: pi-glm-rust-parity
 estimated_minutes: 240
@@ -14,13 +14,14 @@ acceptance_criteria: "Both unbounded flags are required with --json; Complete pa
 parent: pm-rust-u4al
 dependencies[1]{id,kind,created_at,author,source_kind,author_source}:
   pm-rust-u4al,parent,"2026-10-02T18:56:00.427Z",pi-glm-rust-parity,"cli:create:dep",asserted
-comments[6]{created_at,author,text}:
+comments[7]{created_at,author,text}:
   "2026-10-02T18:56:00.427Z",pi-glm-rust-parity,"Plan: test-first golden differential vs real TS CLI 2026.10.2 with fixed Date driver; implement native list mode; keep SDK Workspace::list contract intact."
   "2026-10-02T18:59:38.814Z",pi-glm-rust-parity,"Ollama session limit interrupted implementation after contract research; no source changes yet. Orchestrator will continue the same unbounded-list slice on an allowed fallback provider after checking fresh quota. Item remains open for work, never closed."
   "2026-10-02T19:01:31.028Z",codex-sol,"Orchestrator continuing implementation directly after both GLM providers exhausted quota and Grok OAuth refresh failed; no additional Codex agent authorized under over-forecast policy. Scope: explicit unbounded full JSON list mode; native legacy list API stays stable; deterministic full-envelope golden tests compare published2026.10.2 and Rust on the same temporary tracker."
   "2026-10-02T19:04:49.535Z",codex-sol,"Test-first RED confirmed: eight full golden envelopes recorded from PM CLI2026.10.2; native list differential fails because --json is not recognized. Implement explicit unbounded compatibility mode with default brief projection and full projection for --all/--status all. Actual ordering is terminal-last, priority ascending, updated_at descending, ID tie-breaker."
   "2026-10-02T19:16:11.308Z",codex-sol,"Nine complete golden envelopes now compare the real TS CLI, the native binary and the native SDK on one shared temporary tracker. Added a sub-millisecond timestamp fixture to enforce JavaScript millisecond comparison with lexical ties. Explicit selector refusal, live-clock and closed-output-pipe paths have direct tests. Full aggregate is running through pm test with required PM CLI2026.10.2; coverage threshold remains100 on lines/functions/regions/branches."
   "2026-10-02T19:19:56.329Z",codex-sol,"Verification PASS: pm test pm-rust-p0no --run --match \"just release-check\" --progress ran aggregate successfully with published PM CLI2026.10.2 required. Formatting, all-target all-feature strict Clippy, complete rustdoc, cargo test, nightly llvm-cov and exact100 line/function/region/branch assertion, cargo audit and changelog check all passed. Native CLI and SDK match nine complete published golden envelopes; existing mutation and multi-branch history differential suites pass. Strict tracker health ok=true (guidance/provenance warnings remain). Dependency backlog receipts are included; no merge, publication, release execution or companion writes. Pagination follow-up is pm-rust-ufzy."
+  "2026-10-02T19:22:00.125Z",codex-sol,"Parity PR #58 opened: https://github.com/unbraind/pm-rust/pull/58 . Implementation commit2f7babe passed required aggregate on its source content and a post-commit 7-test raw identity audit. Canonical checkout restored to clean main and fast-forwarded; old toolchain branch retained. Fresh PR CI is separate exact-head evidence and is pending. No upstream issues were filed; no merges or releases."
 notes[1]{created_at,author,text}:
   "2026-10-02T18:56:00.427Z",pi-glm-rust-parity,Slice scope deliberately narrow
 learnings[1]{created_at,author,text}:
@@ -59,6 +60,7 @@ tests[2]:
       created_at: "2026-10-02T19:09:43.710Z"
       source_kind: local_mutation
       source_ref: feat/read-parity-2026-10-2
-docs[1]{path,scope}:
+docs[2]{path,scope}:
   docs/CLI_PARITY_2026_10_2.md,project
+  "https://github.com/unbraind/pm-rust/pull/58",project
 body: "Read parity slice: unbounded full list only. Defer limit, cursor, search, context, next, tree, full get."
