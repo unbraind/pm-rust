@@ -6,17 +6,15 @@ status: in_progress
 priority: 1
 tags[3]: conformance,read-parity,rust
 created_at: "2026-10-02T18:56:00.427Z"
-updated_at: "2026-10-02T19:53:53.919Z"
+updated_at: "2026-10-02T19:55:33.466Z"
 deadline: "2026-10-09T00:00:00.000Z"
-assignee: codex-sol
-claim_principal: codex-sol
 author: pi-glm-rust-parity
 estimated_minutes: 240
 acceptance_criteria: "Both unbounded flags are required with --json; Complete parsed JSON matches PM CLI 2026.10.2 golden envelopes for default, all, terminal status, type, ID, combined and empty selections; Ordering is terminal-last then priority ascending then updated_at descending then canonical ASCII ID; Unknown full metadata is preserved and body omitted; Rustdoc, strict Clippy, full tests and 100 percent line function region branch coverage pass without lowered gates; Matrix documents pagination runtime-schema and remaining command gaps"
 parent: pm-rust-u4al
 dependencies[1]{id,kind,created_at,author,source_kind,author_source}:
   pm-rust-u4al,parent,"2026-10-02T18:56:00.427Z",pi-glm-rust-parity,"cli:create:dep",asserted
-comments[11]{created_at,author,text}:
+comments[12]{created_at,author,text}:
   "2026-10-02T18:56:00.427Z",pi-glm-rust-parity,"Plan: test-first golden differential vs real TS CLI 2026.10.2 with fixed Date driver; implement native list mode; keep SDK Workspace::list contract intact."
   "2026-10-02T18:59:38.814Z",pi-glm-rust-parity,"Ollama session limit interrupted implementation after contract research; no source changes yet. Orchestrator will continue the same unbounded-list slice on an allowed fallback provider after checking fresh quota. Item remains open for work, never closed."
   "2026-10-02T19:01:31.028Z",codex-sol,"Orchestrator continuing implementation directly after both GLM providers exhausted quota and Grok OAuth refresh failed; no additional Codex agent authorized under over-forecast policy. Scope: explicit unbounded full JSON list mode; native legacy list API stays stable; deterministic full-envelope golden tests compare published2026.10.2 and Rust on the same temporary tracker."
@@ -28,6 +26,7 @@ comments[11]{created_at,author,text}:
   "2026-10-02T19:48:17.808Z",codex-sol,"Red-first evidence: all_with_explicit_status_fails_closed failed because SDK accepted the conflict; invalid_list_timestamps_fail_closed failed because empty timestamp returned exit 0; golden_checks_survive_missing_published_tools failed because no native/SDK golden assertions ran. A direct run with missing PM_NODE_INTERPRETER and PM_RUST_REQUIRE_PUBLISHED_CLI=1 incorrectly passed before the fix. Fix now validates clocks through the existing shared validator, rejects SDK all/status, and gates only published comparisons with interpreter probing and strict required-tool refusal."
   "2026-10-02T19:52:33.358Z",codex-sol,The first coverage run exposed one uncovered SDK refusal branch in the separately compiled integration-library instance despite the unit regression passing. Moved the red-first all/status regression to the public SDK integration suite against a nonempty tracker so the actual consumer build executes the refusal. No gate or coverage threshold changed.
   "2026-10-02T19:53:53.919Z",codex-sol,"Final local remediation gate PASSED: pm test pm-rust-p0no --run --match \"just release-check\" --progress, using PM_NODE_CLI=/tmp/claude-1000/rust-wt/ts-cli/node_modules/@unbrained/pm-cli (2026.10.2). Includes fmt, strict all-target/all-feature Clippy, private rustdoc, all tests, exact 100% lines/functions/regions/branches, cargo audit and changelog-check. Focused regressions passed, including public SDK all/status refusal and missing CLI/interpreter golden/required-mode cases. pm health --strict-exit passes integrity/history with four existing guidance/provenance advisories. Linked-test result tracking is disabled by project policy, so this explicit receipt records the result."
+  "2026-10-02T19:55:32.692Z",codex-sol,"Fix commit e687fc273bbe344dd027d56350cccf21d7a45949 pushed to PR #58. All 12 original cubic threads individually reacted +1, replied with fix SHA or explicit retention rationale, and resolved via GraphQL. All original bot review bodies and issue comments reacted and acknowledged with linked replies; skipped/quota notices rated -1 and recorded as missing evidence. No refusal of behavioral fixes. Coding ownership is released while the orchestrator monitors fresh exact-head CI and bot feedback. No item is closed."
 notes[1]{created_at,author,text}:
   "2026-10-02T18:56:00.427Z",pi-glm-rust-parity,Slice scope deliberately narrow
 learnings[1]{created_at,author,text}:
