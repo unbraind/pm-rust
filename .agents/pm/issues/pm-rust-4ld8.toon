@@ -6,15 +6,16 @@ status: in_progress
 priority: 1
 tags[4]: ci,compatibility,release,toolchain
 created_at: "2026-09-26T13:34:49.757Z"
-updated_at: "2026-10-02T18:48:54.964Z"
+updated_at: "2026-10-02T18:56:03.486Z"
 author: codex
 acceptance_criteria: "CI installs and invokes exactly @unbrained/pm-cli 2026.9.26; Daily Release invokes pm-changelog 2026.9.25 with pm CLI 2026.9.26; README operator command matches; workflow syntax, strict merge-driver health, Rust release gate and changelog invocation are verified; PM_RELEASE_APPROVED guard remains"
 parent: pm-rust-u4al
-comments[4]{created_at,author,text}:
+comments[5]{created_at,author,text}:
   "2026-10-02T18:43:11.130Z",codex-sol,"2026-10-02 backlog audit: canonical branch commit 823513e was already squash-merged in PR #52 as a39a52b on main. No new toolchain PR is warranted; preserve the old branch without deletion. Dependabot #54 head 7fa2a348 and #57 head 4cc2ac68 pass Rust Linux/macOS/Windows, CodeQL and release-check aggregate on their exact heads; #53 head 91754311 has passing checks but is BEHIND and @dependabot rebase was requested. Publication approval guard and Cargo publish=false remain mandatory."
   "2026-10-02T18:47:17.312Z",codex-sol,"Existing main baseline cargo test --locked --all-targets --all-features passed locally against an isolated PM CLI 2026.10.2 installation with PM_RUST_REQUIRE_PUBLISHED_CLI=1, including live mutation and branch-merge differential suites. This is not full read parity. Backlog receipt in docs/backlog-review-2026-10-02.md; #53 rebase produced e6fda8f927c7b189827cb5e1b62a4f1e2000d71b and fresh cross-platform CI is pending."
   "2026-10-02T18:47:52.435Z",codex-sol,Rebased Dependabot #53 e6fda8f now has successful Linux/macOS/Windows and Release gate aggregate. CodeQL extraction still pending; wait for complete exact-head CI before final merge-ready verdict. Main baseline has 146 tests across 11 suites against PM CLI 2026.10.2. pm test pm-rust-4ld8 --run --only-index 4 --progress executed strict all-target Clippy successfully.
   "2026-10-02T18:48:52.976Z",codex-sol,"Final backlog verdict: #53 rebased head e6fda8f927c7b189827cb5e1b62a4f1e2000d71b passes Linux/macOS/Windows, Release gate aggregate, Analyze Rust and CodeQL; GitHub CLEAN. #54 7fa2a348 and #57 4cc2ac68 likewise CLEAN with all target/gate checks successful. All three are merge-ready against their declared target; no merging performed. Old toolchain branch duplicates already merged #52 and is retained."
+  "2026-10-02T18:56:02.339Z",codex-sol,"Additional independent verification: rebased Dependabot #53 e6fda8f in its own detached worktree passed all146 cargo tests locally with PM_NODE_CLI pointing at published2026.10.2 and PM_RUST_REQUIRE_PUBLISHED_CLI=1. Platform verdicts remain from exact-head hosted CI."
 notes[1]{created_at,author,text}:
   "2026-09-26T13:39:17.985Z",codex,"2026-09-26: Published @unbrained/pm-cli 2026.9.26 and pm-changelog 2026.9.25 are pinned consistently in CI, release workflow, justfile and README. Exact published-CLI strict merge-driver health passed. Full just release-check passed: 292 Rust tests, 100/100/100/100 LLVM lines/functions/regions/branches, clippy, rustdoc, cargo audit, and changelog check. Workflow YAML parsed. Daily Release remains guarded by PM_RELEASE_APPROVED and Cargo publish=false."
 files[10]:

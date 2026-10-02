@@ -41,3 +41,8 @@ already match the TypeScript CLI.
 
 `pm test pm-rust-4ld8 --run --only-index 4 --progress` passed the linked
 `cargo clippy --locked --all-targets --all-features -- -D warnings` command.
+
+The rebased #53 head was also checked in a detached local worktree with
+`cargo test --locked --all-targets --all-features` and the required published
+PM CLI 2026.10.2: 146 tests passed. macOS and Windows results are hosted-CI
+evidence, rather than local emulation.
