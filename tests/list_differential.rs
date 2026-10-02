@@ -167,6 +167,7 @@ fn explicit_unbounded_policies_and_live_clock() -> Result<(), Box<dyn std::error
             "unbounded",
         ],
         vec!["list", "--all"],
+        vec!["list", "--full"],
         vec![
             "list",
             "--json",
@@ -364,5 +365,134 @@ fn all_with_explicit_status_fails_closed() -> Result<(), Box<dyn std::error::Err
             Err(pm_rust::PmRustError::InvalidReadRequest { .. })
         ));
     }
+    Ok(())
+}
+
+/// The omission receipt must restore metadata without changing the selection.
+#[test]
+fn full_restores_fields_without_adding_terminal_items() -> Result<(), Box<dyn std::error::Error>> {
+    let fixture = tracker()?;
+    let golden: Value = serde_json::from_str(GOLDEN)?;
+    let mut expected = golden["all"].clone();
+    let items = expected["items"]
+        .as_array_mut()
+        .ok_or("missing golden items")?;
+    items.retain(|item| item["status"] != "closed" && item["status"] != "canceled");
+    expected["count"] = 5.into();
+    expected["total"] = 5.into();
+    expected["filters"]
+        .as_object_mut()
+        .ok_or("missing filters")?
+        .remove("status");
+    let output = Command::new(env!("CARGO_BIN_EXE_pm-rust"))
+        .args([
+            "list",
+            "--json",
+            "--output-budget",
+            "unbounded",
+            "--output-limit",
+            "unbounded",
+            "--full",
+            "--timestamp",
+            CLOCK,
+        ])
+        .current_dir(fixture.path())
+        .env_remove("PM_PATH")
+        .output()?;
+    assert!(
+        output.status.success(),
+        "{}",
+        String::from_utf8_lossy(&output.stderr)
+    );
+    let actual: Value = serde_json::from_slice(&output.stdout)?;
+    assert_eq!(actual, expected);
+    if let Some((interpreter, driver)) = published_driver(fixture.path())? {
+        let output = Command::new(interpreter)
+            .arg(driver)
+            .args([
+                "list",
+                "--json",
+                "--output-budget",
+                "unbounded",
+                "--output-limit",
+                "unbounded",
+                "--full",
+            ])
+            .current_dir(fixture.path())
+            .env_remove("PM_PATH")
+            .output()?;
+        assert!(output.status.success());
+        let published: Value = serde_json::from_slice(&output.stdout)?;
+        let mut published_expected = expected.clone();
+        published_expected["read_output"] = serde_json::from_str(include_str!(
+            "fixtures/list-full-read-output-2026-10-2.json"
+        ))?;
+        assert_eq!(published, published_expected, "published full envelope");
+    }
+    let workspace = pm_rust::Workspace::discover(fixture.path())?;
+    assert_eq!(
+        workspace.list_unbounded_full(&pm_rust::ItemFilter::default(), false, CLOCK)?,
+        expected
+    );
+    assert_eq!(
+        workspace.list_unbounded_full(&pm_rust::ItemFilter::default(), true, CLOCK)?,
+        golden["all"]
+    );
+    let output = Command::new(env!("CARGO_BIN_EXE_pm-rust"))
+        .args([
+            "list",
+            "--json",
+            "--output-budget",
+            "unbounded",
+            "--output-limit",
+            "unbounded",
+            "--full",
+            "--ids",
+            "demo-a,demo-b",
+        ])
+        .current_dir(fixture.path())
+        .env_remove("PM_PATH")
+        .output()?;
+    assert_eq!(output.status.code(), Some(2));
+    assert!(output.stdout.is_empty());
+    assert!(String::from_utf8_lossy(&output.stderr).contains("invalid read request"));
+    Ok(())
+}
+
+/// Public SDK ordering stays deterministic for mixed valid and invalid clocks.
+#[test]
+fn sdk_mixed_timestamp_order_has_no_cycle() -> Result<(), Box<dyn std::error::Error>> {
+    let fixture = tracker()?;
+    let root = fixture.path().join(".agents/pm/tasks");
+    fs::remove_dir_all(&root)?;
+    fs::create_dir(&root)?;
+    for (id, updated) in [
+        ("demo-a", "2026-10-02T00:00:00+01:00"),
+        ("demo-b", "2026-10-01T23:30:00Z"),
+        ("demo-c", "2026-10-01T23:45:00Z?"),
+        ("demo-d", "invalid"),
+    ] {
+        fs::write(
+            root.join(format!("{id}.toon")),
+            format!(
+                "id: {id}\ntitle: {id}\ndescription: \"\"\ntype: Task\nstatus: open\npriority: 1\ntags: []\ncreated_at: \"2026-09-01T00:00:00.000Z\"\nupdated_at: \"{updated}\"\nbody: \"\"\n"
+            ),
+        )?;
+    }
+    let workspace = pm_rust::Workspace::discover(fixture.path())?;
+    let value = workspace.list_unbounded(&pm_rust::ItemFilter::default(), false, CLOCK)?;
+    let items = value["items"].as_array().ok_or("missing items")?;
+    assert_eq!(
+        items
+            .iter()
+            .map(|item| item["id"].as_str())
+            .collect::<Vec<_>>(),
+        vec![
+            Some("demo-b"),
+            Some("demo-a"),
+            Some("demo-d"),
+            Some("demo-c")
+        ]
+    );
     Ok(())
 }

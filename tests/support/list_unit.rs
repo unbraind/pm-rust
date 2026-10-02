@@ -22,11 +22,11 @@ fn timestamps_compare_instants_then_spelling_and_invalid_values() {
     );
     assert_eq!(
         compare_time("invalid", "2026-10-02T00:00:00Z"),
-        Ordering::Greater
+        Ordering::Less
     );
     assert_eq!(
         compare_time("2026-10-02T00:00:00Z", "invalid"),
-        Ordering::Less
+        Ordering::Greater
     );
     assert_eq!(compare_time("a", "b"), Ordering::Less);
 }
@@ -57,4 +57,26 @@ fn unsupported_csv_and_invalid_items_fail_closed() -> Result<(), Box<dyn std::er
         Err(PmRustError::InvalidItemDocument { .. })
     ));
     Ok(())
+}
+
+/// Mixed invalid and offset timestamps must define a transitive total order.
+#[test]
+fn timestamp_order_is_transitive_for_mixed_validity() {
+    let values = [
+        "2026-10-02T00:00:00+01:00",
+        "2026-10-01T23:30:00Z",
+        "2026-10-01T23:45:00Z?",
+    ];
+    for left in values {
+        for middle in values {
+            for right in values {
+                if compare_time(left, middle).is_lt() && compare_time(middle, right).is_lt() {
+                    assert!(
+                        compare_time(left, right).is_lt(),
+                        "cycle: {left}, {middle}, {right}"
+                    );
+                }
+            }
+        }
+    }
 }

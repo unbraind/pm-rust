@@ -11,7 +11,7 @@ conformance slice; the version pin does not claim whole-CLI parity.
 
 | Native command / SDK operation | Implemented | Remaining differences |
 | --- | --- | --- |
-| `list --json --output-budget unbounded --output-limit unbounded` / `Workspace::list_unbounded` | Complete published JSON envelope; default terminal exclusion; terminal-last/priority ascending/update descending/ID ordering; brief projection; full metadata for `--all` or `--status all`; single status/type/ID filters; matching-count total; omission receipt; unknown metadata retained | Canonical default lifecycle registry and lowercase ASCII IDs only. No paging, cursors, automatic budgets, field selection, hooks, runtime schemas, CSV filters, or partial-result recovery |
+| `list --json --output-budget unbounded --output-limit unbounded` / `Workspace::list_unbounded` | Complete published JSON envelope; default terminal exclusion; terminal-last/priority ascending/update descending/ID ordering; brief projection; full metadata for `--full`, `--all` or `--status all`; single status/type/ID filters; matching-count total; omission receipt; unknown metadata retained | Canonical default lifecycle registry and lowercase ASCII IDs only. Native `--full` restores fields but omits published `read_output` alias/budget diagnostics. No paging, cursors, automatic budgets, custom field selection, hooks, runtime schemas, CSV filters, or partial-result recovery |
 | Bare `list` / `Workspace::list` | Existing deterministic native projection, ID order, exact filters | Native priority/parent fields and pre-filter total; includes terminal items; different envelope/order from published defaults |
 | `get` / `Workspace::get` | Validated complete item by ID; unknown fields retained | Flat native document; published entity envelope includes linked data, claim state, child summary, projections and omission receipts |
 | `create` / `Workspace::create` | Explicit ID; TOON and append-only history differential | Native argv/receipt subset; automatic IDs, runtime types, governance, hooks and other fields omitted |
@@ -29,10 +29,14 @@ pm-rust --workspace /path/to/project list --json --output-budget unbounded --out
 ```
 
 `--ids` remains a native alias for `--id`. `--all` conflicts with `--status`.
+`--full` restores complete metadata without changing the selected statuses;
+`Workspace::list_unbounded_full` exposes the same projection in the SDK.
 CSV selectors fail with a typed read error. `--timestamp` supplies a validated
 UTC RFC 3339 read clock for fixtures; ordinary invocations use current UTC time.
 The SDK accepts the caller's clock string. Timestamp ordering parses RFC 3339 instants
-and uses spelling to break equal-instant ties; alternate formats accepted by
+and uses spelling to break equal-instant ties; malformed stored timestamps
+sort after valid timestamps within the same priority, with lexical ordering
+between malformed values; alternate formats accepted by
 JavaScript `Date.parse` are outside the slice. Native invalid/duplicate item
 reads fail closed rather than reporting TypeScript's partial completeness.
 
@@ -76,11 +80,13 @@ envelopes are checked against `tests/fixtures/list-2026-10-2.json`, recorded
 from the exact published oracle. Cases cover defaults, all statuses, explicit
 terminal status, case-insensitive type, ID, combined filters and an empty
 result; fixtures cover priority/update/ID ties and unknown metadata. No fields
-are removed from either output during comparison. Native and SDK golden comparisons run even when the published CLI or Node
+are removed from either output during the nine-envelope comparison. Native and SDK golden comparisons run even when the published CLI or Node
 interpreter is absent; only the published comparison skips. Required-tool mode
 fails instead of skipping. Regression tests also cover invalid CLI clocks, the
 SDK all/status conflict, empty trackers, malformed documents and CSV refusal.
-Fixtures contain synthetic data only. Production remains entirely Rust.
+Additional full-projection regressions compare complete native and published
+envelopes with their respective expected diagnostics, and mixed-validity
+ordering regressions cover comparator transitivity. Fixtures contain synthetic data only. Production remains entirely Rust.
 
 CI requires the published CLI, runs tests on Linux/macOS/Windows, and keeps the
 100 percent line/function/region/branch gate. Rustdoc remains enforced by

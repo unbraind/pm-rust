@@ -22,7 +22,9 @@ fn compare_time(left: &str, right: &str) -> Ordering {
         (Ok(left_time), Ok(right_time)) => (left_time.unix_timestamp_nanos().div_euclid(1_000_000))
             .cmp(&right_time.unix_timestamp_nanos().div_euclid(1_000_000))
             .then_with(|| left.cmp(right)),
-        _ => left.cmp(right),
+        (Ok(_), Err(_)) => Ordering::Greater,
+        (Err(_), Ok(_)) => Ordering::Less,
+        (Err(_), Err(_)) => left.cmp(right),
     }
 }
 
@@ -40,6 +42,7 @@ pub(crate) fn read_unbounded(
     workspace: &Workspace,
     filters: &ItemFilter,
     all: bool,
+    full_projection: bool,
     now: &str,
 ) -> Result<Value, PmRustError> {
     for value in [&filters.status, &filters.item_type, &filters.id]
@@ -58,9 +61,10 @@ pub(crate) fn read_unbounded(
             reason: "all conflicts with an explicit status filter".to_owned(),
         });
     }
-    let full = all || filters.status.as_deref() == Some("all");
+    let include_terminal = all || filters.status.as_deref() == Some("all");
+    let full = full_projection || include_terminal;
     let mut echo = Map::new();
-    if full {
+    if include_terminal {
         echo.insert("status".to_owned(), json!("all"));
     } else if let Some(status) = &filters.status {
         echo.insert("status".to_owned(), json!(status));
@@ -75,7 +79,7 @@ pub(crate) fn read_unbounded(
     let mut documents = workspace.read_items()?;
     documents.retain(|document| {
         let metadata = &document.metadata;
-        let status_matches = if full {
+        let status_matches = if include_terminal {
             true
         } else {
             filters.status.as_ref().map_or_else(

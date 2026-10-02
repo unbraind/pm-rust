@@ -193,14 +193,34 @@ impl Workspace {
     ///
     /// # Errors
     ///
-    /// Fails closed on any stored-item read error or unsupported CSV filters.
+    /// Fails closed on stored-item read errors, unsupported CSV filters, or
+    /// combining `all` with an explicit status filter.
     pub fn list_unbounded(
         &self,
         filters: &ItemFilter,
         all: bool,
         now: &str,
     ) -> Result<serde_json::Value, PmRustError> {
-        crate::list::read_unbounded(self, filters, all, now)
+        crate::list::read_unbounded(self, filters, all, false, now)
+    }
+
+    /// Returns complete item metadata with the same unbounded list selection.
+    ///
+    /// Restores fields omitted by [`Self::list_unbounded`] without including
+    /// terminal items unless `all` or an explicit status requests them. The
+    /// caller supplies the read clock; ordering and filtering are unchanged.
+    ///
+    /// # Errors
+    ///
+    /// Fails closed on stored-item read errors, unsupported CSV filters, or
+    /// combining `all` with an explicit status filter.
+    pub fn list_unbounded_full(
+        &self,
+        filters: &ItemFilter,
+        all: bool,
+        now: &str,
+    ) -> Result<serde_json::Value, PmRustError> {
+        crate::list::read_unbounded(self, filters, all, true, now)
     }
 
     /// Reads one item by exact stable identifier.

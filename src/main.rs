@@ -37,6 +37,9 @@ enum Command {
         /// Include terminal items and return full metadata.
         #[arg(long, requires = "json", conflicts_with = "status")]
         all: bool,
+        /// Return complete metadata without changing the selected statuses.
+        #[arg(long, requires = "json")]
+        full: bool,
         /// Fixed read timestamp for reproducible compatibility fixtures.
         #[arg(long, requires = "json")]
         timestamp: Option<String>,
@@ -200,6 +203,7 @@ fn run(cli: Cli) -> Result<(), Box<dyn std::error::Error>> {
             output_budget: _,
             output_limit: _,
             all,
+            full,
             timestamp,
             status,
             item_type,
@@ -213,7 +217,12 @@ fn run(cli: Cli) -> Result<(), Box<dyn std::error::Error>> {
             if json {
                 let now = timestamp.unwrap_or_else(pm_rust::current_timestamp);
                 pm_rust::validate_timestamp(&now)?;
-                write_json(&workspace.list_unbounded(&filters, all, &now)?)?;
+                let result = if full {
+                    workspace.list_unbounded_full(&filters, all, &now)?
+                } else {
+                    workspace.list_unbounded(&filters, all, &now)?
+                };
+                write_json(&result)?;
             } else {
                 write_json(&workspace.list(filters)?)?;
             }
