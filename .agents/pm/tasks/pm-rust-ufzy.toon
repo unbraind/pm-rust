@@ -6,13 +6,13 @@ status: in_progress
 priority: 2
 tags[3]: conformance,read-parity,rust
 created_at: "2026-10-02T19:11:02.190Z"
-updated_at: "2026-10-05T09:21:21.060Z"
+updated_at: "2026-10-05T09:32:09.585Z"
 assignee: codex-sol
 claim_principal: codex-sol
 author: codex-sol
 acceptance_criteria: Real TS and Rust CLIs match multi-page envelopes and continuation fingerprints on shared fixtures; Stale or mismatched cursors fail consistently; No item loss or repeated rows; Output omission and budget receipts match; Existing gates remain enforced
 parent: pm-rust-u4al
-comments[14]{created_at,author,text}:
+comments[15]{created_at,author,text}:
   "2026-10-02T20:09:16.243Z",codex-sol,"PR #58 full-projection follow-up: published --full additionally emits read_output alias/migration/budget diagnostics, including estimated_tokens. Native --full restores complete metadata with unchanged selection, but these output-policy diagnostics remain outside the current slice and are explicitly documented. Synthetic exact published read_output receipt captured in tests/fixtures/list-full-read-output-2026-10-2.json; original nine envelope comparisons remain exact and unchanged. Include full-projection output policy in this bounded-output/canonical-controls follow-up."
   "2026-10-05T07:13:33.482Z",codex-sol,"Inspect the published 2026.10.5 list contract and existing differential fixtures before implementing native pagination, cursor validation and bounded projection receipts. Preserve every existing release gate; add shared-fixture differential and randomized page-walk evidence."
   "2026-10-05T07:38:18.064Z",codex-sol,"Baseline: all eight existing list differential tests pass with the installed TS CLI 2026.10.5, including nine golden envelopes. Contract discovery: --after follows item identity and collapses subsequent envelope metadata into continuation_contract; it does not bind a snapshot. --output-cursor binds the projected row collection and rejects stale snapshots. Pagination tests will distinguish these contracts instead of claiming producer cursors refuse mutations."
@@ -27,7 +27,8 @@ comments[14]{created_at,author,text}:
   "2026-10-05T09:10:28.973Z",codex-sol,"Root cause confirmed as a native product bug, not a fixture artifact: Rust canonicalize adds the Windows verbatim namespace prefix to pmRoot; published SDK resolvePmRoot uses Node path.resolve/path.join and hashes the ordinary drive or UNC spelling. All three Windows failures first differ inside next_cursor.fingerprint after identical rows/counts; snapshot cursors do not hash pmRoot and pass. Native query hashing now strips only the namespace prefix, preserving backslashes and filesystem paths. Portable drive/UNC regression tests include a hash measured with the actual published 2026.10.5 SDK. Differential harness and Windows test selection remain unchanged."
   "2026-10-05T09:13:59.395Z",codex-sol,"Local Windows-fix verification passed: just release-check completed all 184 tests in ordinary and instrumented runs, formatting, deny-warning clippy, private/public rustdoc, dependency and identity audit, pinned changelog verification. Coverage remains 100 percent: lines 2897/2897, functions 252/252, regions 4392/4392, branches 606/606. pm test pm-rust-ufzy --run --progress passed both linked commands: 15 real-CLI differential tests including randomized page walks, and 4 pagination unit tests including the new drive/UNC regression. Preparing the focused product fix for PR #60; Windows CI verification is next."
   "2026-10-05T09:21:21.060Z",codex-sol,"The first focused namespace fix passed local release-check and CI ubuntu/macOS/aggregate, but Windows run 37288712120 still fails at producer query fingerprints. Namespace removal alone is insufficient. Adding failure-only path-shape diagnostics (separator counts, case-insensitive equality, canonical equality and first differing character codes), without storing or logging paths, to identify the remaining Windows representation difference. All byte assertions remain intact."
-files[11]{path,scope}:
+  "2026-10-05T09:30:12.649Z",codex-sol,"Windows diagnostic evidence from run 37289539548: native canonical-root spelling has length 61 and no short-name alias; Node resolved-root spelling has length 58 and an 8.3 alias. Both use eight backslashes and zero forward slashes, so separator or budgeting changes cannot fix the difference. The product now retains resolved discovery spelling for query hashes separately from its canonical filesystem root. Temporary diagnostic instrumentation is removed and original exact byte assertions restored. New cross-platform discovery tests cover workspace, nested directory, file and direct tracker starts, plus typed empty-path refusal; no Windows tests are disabled."
+files[13]{path,scope}:
   src/list_intent.rs,project
   src/list.rs,project
   src/main.rs,project
@@ -35,11 +36,13 @@ files[11]{path,scope}:
   src/read_output.rs,project
   src/workspace.rs,project
   tests/pagination_differential.rs,project
+  tests/read_contract.rs,project
   tests/support/list_intent_unit.rs,project
   tests/support/list_unit.rs,project
   tests/support/pagination_unit.rs,project
   tests/support/read_output_unit.rs,project
-tests[2]:
+  tests/support/workspace_unit.rs,project
+tests[3]:
   - command: PM_RUST_REQUIRE_PUBLISHED_CLI=1 cargo test --locked --test pagination_differential --test list_differential
     scope: project
     timeout_seconds: 600
@@ -53,6 +56,13 @@ tests[2]:
     provenance:
       author: codex-sol
       created_at: "2026-10-05T09:12:06.587Z"
+      source_kind: local_mutation
+      source_ref: feat/list-pagination-parity
+  - command: "cargo test --locked --lib workspace::tests"
+    scope: project
+    provenance:
+      author: codex-sol
+      created_at: "2026-10-05T09:30:14.315Z"
       source_kind: local_mutation
       source_ref: feat/list-pagination-parity
 docs[3]{path,scope}:

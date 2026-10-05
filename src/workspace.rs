@@ -71,6 +71,7 @@ pub struct ListResult {
 #[derive(Clone, Debug, PartialEq)]
 pub struct Workspace {
     pm_root: PathBuf,
+    query_pm_root: PathBuf,
 }
 
 impl Workspace {
@@ -85,12 +86,28 @@ impl Workspace {
     /// or [`PmRustError::TrackerNotFound`] when no tracker marker exists.
     pub fn discover(start: &Path) -> Result<Self, PmRustError> {
         let supplied = start;
+        let resolved = std::path::absolute(supplied).map_err(|source| PmRustError::Io {
+            path: supplied.to_path_buf(),
+            source,
+        })?;
+        let mut query_current =
+            resolved
+                .components()
+                .fold(PathBuf::new(), |mut root, component| {
+                    if component == std::path::Component::ParentDir {
+                        root.pop();
+                    } else {
+                        root.push(component.as_os_str());
+                    }
+                    root
+                });
         let mut current = fs::canonicalize(supplied).map_err(|source| PmRustError::Io {
             path: supplied.to_path_buf(),
             source,
         })?;
         if current.is_file() {
             current.pop();
+            query_current.pop();
         }
         let discovery_start = current.clone();
 
@@ -102,17 +119,24 @@ impl Workspace {
                     .and_then(Path::file_name)
                     .is_some_and(|name| name == ".agents")
             {
-                return Ok(Self { pm_root: current });
+                return Ok(Self {
+                    pm_root: current,
+                    query_pm_root: query_current,
+                });
             }
             let candidate = current.join(".agents/pm");
             if !candidate.is_symlink() && candidate.join("settings.json").is_file() {
-                return Ok(Self { pm_root: candidate });
+                return Ok(Self {
+                    pm_root: candidate,
+                    query_pm_root: query_current.join(".agents").join("pm"),
+                });
             }
             if !current.pop() {
                 return Err(PmRustError::TrackerNotFound {
                     start: discovery_start,
                 });
             }
+            query_current.pop();
         }
     }
 
@@ -120,6 +144,11 @@ impl Workspace {
     #[must_use]
     pub fn pm_root(&self) -> &Path {
         &self.pm_root
+    }
+
+    /// Returns the resolved discovery spelling used by published query hashes.
+    pub(crate) fn query_pm_root(&self) -> &Path {
+        &self.query_pm_root
     }
 
     /// Reads and validates every stored TOON item, sorted by identifier.
@@ -225,7 +254,7 @@ impl Workspace {
 
     /// Returns the published list envelope with paging and bounded output receipts.
     ///
-    /// Cursors bind the canonical tracker root and selection. Producer cursors
+    /// Cursors bind the resolved tracker root and selection. Producer cursors
     /// follow item identity; output cursors additionally bind the row snapshot.
     /// The caller supplies the read clock, which does not bind either cursor.
     ///

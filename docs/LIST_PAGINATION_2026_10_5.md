@@ -103,10 +103,15 @@ failing differential cases first differed inside `next_cursor.fingerprint`
 (including byte 43,225 in the triage case), after identical rows and counts.
 Rust's canonical tracker path carries a Windows verbatim namespace prefix;
 the published SDK's `resolvePmRoot` uses Node `path.resolve`/`path.join` and
-hashes the ordinary drive or UNC spelling. Native hashing now removes that
-namespace prefix while keeping backslashes and the filesystem path intact.
+hashes the ordinary drive or UNC spelling. Run `37289539548` then proved a
+second difference: the canonical filesystem root had no short-name alias and
+61 characters, while Node's resolved root retained an 8.3 alias and had 58
+characters. Both had eight backslashes and zero forward slashes. Native
+discovery now retains the resolved input spelling separately for query hashing,
+removing its namespace prefix while keeping the canonical filesystem root intact.
 Portable drive/UNC regression cases include a fingerprint measured with the
-published SDK. The differential harness and Windows test selection are unchanged.
+published SDK. Temporary path-shape diagnostics were removed after diagnosis;
+the byte-comparison harness and Windows test selection remain unchanged.
 
 Source implementation: `5ecc383`. Review: [draft PR #60](https://github.com/unbraind/pm-rust/pull/60).
 

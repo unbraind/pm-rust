@@ -66,6 +66,7 @@ fn discovers_workspace_tracker_nested_path_and_file() -> Result<(), Box<dyn std:
         directory.path().to_path_buf(),
         nested.clone(),
         nested.join("input.txt"),
+        nested.join(".."),
         root.clone(),
     ] {
         assert_eq!(Workspace::discover(&start)?.pm_root(), root);
@@ -75,6 +76,10 @@ fn discovers_workspace_tracker_nested_path_and_file() -> Result<(), Box<dyn std:
 
 #[test]
 fn discovery_errors_are_typed() -> Result<(), Box<dyn std::error::Error>> {
+    assert!(matches!(
+        Workspace::discover(std::path::Path::new("")),
+        Err(PmRustError::Io { source, .. }) if source.kind() == std::io::ErrorKind::InvalidInput
+    ));
     let directory = tempfile::tempdir()?;
     let missing = directory.path().join("missing");
     assert!(matches!(

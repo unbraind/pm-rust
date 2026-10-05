@@ -5,6 +5,37 @@ use super::collect_directory_entries;
 use crate::PmRustError;
 
 #[test]
+fn empty_discovery_paths_fail_before_filesystem_reads() -> Result<(), Box<dyn std::error::Error>> {
+    let Err(PmRustError::Io { path, source }) = super::Workspace::discover(Path::new("")) else {
+        return Err("empty discovery path did not return a typed I/O error".into());
+    };
+    assert!(path.as_os_str().is_empty());
+    assert_eq!(source.kind(), io::ErrorKind::InvalidInput);
+    Ok(())
+}
+
+#[test]
+fn query_discovery_keeps_resolved_input_spelling() -> Result<(), Box<dyn std::error::Error>> {
+    let directory = tempfile::tempdir()?;
+    let tracker = directory.path().join(".agents").join("pm");
+    let nested = directory.path().join("src").join("nested");
+    std::fs::create_dir_all(&tracker)?;
+    std::fs::create_dir_all(&nested)?;
+    std::fs::write(tracker.join("settings.json"), "{}")?;
+    let file = nested.join("input.txt");
+    std::fs::write(&file, "fixture")?;
+    let resolved = std::path::absolute(&tracker)?;
+    let canonical = std::fs::canonicalize(&tracker)?;
+    let parent = nested.join("..");
+    for start in [directory.path(), &nested, &file, &tracker, &parent] {
+        let workspace = super::Workspace::discover(start)?;
+        assert_eq!(workspace.query_pm_root(), resolved);
+        assert_eq!(workspace.pm_root(), canonical);
+    }
+    Ok(())
+}
+
+#[test]
 fn directory_iteration_errors_retain_the_directory_path() -> Result<(), Box<dyn std::error::Error>>
 {
     let path = Path::new("tracker/items");
