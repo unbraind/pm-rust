@@ -2,16 +2,42 @@ id: pm-rust-ufzy
 title: Extend native list parity to pagination and bounded output contracts
 description: "Follow-up to pm-rust-p0no: current compatibility mode explicitly requires unbounded amount and cost. Implement limits, cursors, continuation fingerprints and output budgeting with full-envelope golden tests against the exact published PM CLI. Keep 100 percent coverage and maintainer publication guard."
 type: Task
-status: open
+status: in_progress
 priority: 2
 tags[3]: conformance,read-parity,rust
 created_at: "2026-10-02T19:11:02.190Z"
-updated_at: "2026-10-02T20:09:16.243Z"
+updated_at: "2026-10-05T08:54:07.569Z"
+assignee: codex-sol
+claim_principal: codex-sol
 author: codex-sol
 acceptance_criteria: Real TS and Rust CLIs match multi-page envelopes and continuation fingerprints on shared fixtures; Stale or mismatched cursors fail consistently; No item loss or repeated rows; Output omission and budget receipts match; Existing gates remain enforced
 parent: pm-rust-u4al
-comments[1]{created_at,author,text}:
+comments[9]{created_at,author,text}:
   "2026-10-02T20:09:16.243Z",codex-sol,"PR #58 full-projection follow-up: published --full additionally emits read_output alias/migration/budget diagnostics, including estimated_tokens. Native --full restores complete metadata with unchanged selection, but these output-policy diagnostics remain outside the current slice and are explicitly documented. Synthetic exact published read_output receipt captured in tests/fixtures/list-full-read-output-2026-10-2.json; original nine envelope comparisons remain exact and unchanged. Include full-projection output policy in this bounded-output/canonical-controls follow-up."
-docs[1]{path,scope}:
+  "2026-10-05T07:13:33.482Z",codex-sol,"Inspect the published 2026.10.5 list contract and existing differential fixtures before implementing native pagination, cursor validation and bounded projection receipts. Preserve every existing release gate; add shared-fixture differential and randomized page-walk evidence."
+  "2026-10-05T07:38:18.064Z",codex-sol,"Baseline: all eight existing list differential tests pass with the installed TS CLI 2026.10.5, including nine golden envelopes. Contract discovery: --after follows item identity and collapses subsequent envelope metadata into continuation_contract; it does not bind a snapshot. --output-cursor binds the projected row collection and rejects stale snapshots. Pagination tests will distinguish these contracts instead of claiming producer cursors refuse mutations."
+  "2026-10-05T08:09:45.528Z",codex-sol,"Implemented producer paging, snapshot output continuations, full-output diagnostics and core triage budgets in the CLI and Workspace::list_page. Differential comparisons use complete stdout/stderr bytes and fixed clocks, with no field normalization. Original nine unbounded goldens remain unchanged on 2026.10.5. Additional tests exposed canonical-plus-legacy receipt precedence and final-page rebasing; both now have regression cases. Changelog regenerated via just changelog-full: unchanged because the documented generator selects closed items and this task must remain open."
+  "2026-10-05T08:21:26.474Z",codex-sol,"Resume verification: producer and budget page walks match both published 2026.10.5 and native CLIs, including exact receipts. Concurrent mutation is now exercised through a separate native update process. Unicode surrogate-splitting compaction has a reproduced serialization gap tracked separately in pm-rust-8hkb; this task remains open pending orchestrator verification. Coverage gates remain at 100 percent in all four dimensions."
+  "2026-10-05T08:25:52.357Z",codex-sol,The first pm-linked differential run passed the eight existing list tests but exceeded its default 120-second runner timeout while the pagination suite was still running under concurrent gate load. Raised only the runner timeout to 600 seconds; assertions and coverage thresholds remain unchanged. A fresh linked run will provide the final receipt.
+  "2026-10-05T08:28:47.061Z",codex-sol,"Final PM-linked differential receipt passed: all eight existing list tests and all six pagination tests, including 96 randomized SDK page walks and separate-process stale snapshot mutation. Full all-targets/all-features suite also passed 178 tests. Clippy and private/public rustdoc gates passed. Instrumented four-metric coverage is still being measured; no 100-percent result is claimed yet."
+  "2026-10-05T08:38:05.644Z",codex-sol,"Coverage gate initially refused the implementation at 99.48 percent lines, 98.80 functions, 99.34 regions and 97.85 branches. Added meaningful direct-SDK refusal and multiple nested collection compaction tests, plus existing/final producer cursor rebasing checks. The expanded 181-test suite and deny-warning clippy pass; fresh instrumented coverage is running with the same four 100-percent thresholds."
+  "2026-10-05T08:54:07.569Z",codex-sol,"Final just release-check passed on the implemented source: 183 ordinary and instrumented tests; 2892/2892 lines, 251/251 functions, 4383/4383 regions, 604/604 branches. Formatting, deny-warning clippy, private/public rustdoc, dependency audit and generated changelog check passed. PM-linked real-CLI differential run passed all 15 tests including 96 randomized page walks. Original nine unbounded goldens remain unchanged. Full Unicode-boundary parity is deferred to pm-rust-8hkb, so the PR will remain draft and this item stays open. The unchanged lock-replacement fixture had one intermittent failure, passed isolated and aggregate retries, and is tracked in pm-rust-ax0o."
+files[11]{path,scope}:
+  src/list_intent.rs,project
+  src/list.rs,project
+  src/main.rs,project
+  src/pagination.rs,project
+  src/read_output.rs,project
+  src/workspace.rs,project
+  tests/pagination_differential.rs,project
+  tests/support/list_intent_unit.rs,project
+  tests/support/list_unit.rs,project
+  tests/support/pagination_unit.rs,project
+  tests/support/read_output_unit.rs,project
+tests[1]{command,scope,timeout_seconds,provenance{author,created_at,source_kind,source_ref}}:
+  PM_RUST_REQUIRE_PUBLISHED_CLI=1 cargo test --locked --test pagination_differential --test list_differential,project,600,codex-sol,"2026-10-05T08:25:44.616Z",local_mutation,feat/list-pagination-parity
+docs[3]{path,scope}:
   docs/CLI_PARITY_2026_10_2.md,project
+  docs/LIST_PAGINATION_2026_10_5.md,project
+  README.md,project
 body: ""

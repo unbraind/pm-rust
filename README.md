@@ -6,18 +6,34 @@ native applications.
 
 The project is pre-release. Its current delivery slice reads workspaces and
 creates, updates, comments on, and closes canonical items against the
-published `pm` 2026.10.2 on-disk contract. Production code, tests, benchmarks,
+published `pm` 2026.10.5 on-disk contract. Production code, tests, benchmarks,
 and build tooling are Rust; the distributed binary does not require Node.js,
 Bun, JavaScript, or TypeScript.
 
-See the [2026.10.2 command and storage parity matrix](docs/CLI_PARITY_2026_10_2.md)
-for supported read flags and remaining gaps.
+See the [command and storage parity matrix](docs/CLI_PARITY_2026_10_2.md) and
+[2026.10.5 pagination contract](docs/LIST_PAGINATION_2026_10_5.md) for supported
+read flags and remaining gaps.
+
+| Read surface | Native parity |
+| --- | --- |
+| JSON list / `Workspace::list_page` | Producer pages, offsets, query fingerprints, continuation envelopes, empty/final pages |
+| Bounded JSON list | Output limits, budget compaction and omission receipts, snapshot continuations and stale refusal |
+| Triage list | Built-in projection, token-budget ceilings, intent receipts and rebased cursors |
+| Legacy SDK list methods | Existing native and unbounded envelopes retained |
+
+Parity uses both real CLIs over shared fixtures. Stable page walks preserve every
+item exactly once; `--after` follows the TypeScript contract and accepts workspace
+mutations, while `--output-cursor` refuses changed row snapshots.
+String compaction that splits a Unicode surrogate pair remains a known gap,
+tracked in [pm-rust-8hkb](https://github.com/unbraind/pm-rust/blob/main/.agents/pm/issues/pm-rust-8hkb.toon).
 
 ## Current native slice
 
 ```bash
 cargo run -- --workspace /path/to/project list --status open
 cargo run -- --workspace /path/to/project list --type Feature
+cargo run -- list --json --limit 20 --output-budget unbounded
+cargo run -- list --json --for triage --token-budget 1000
 cargo run -- --workspace /path/to/project list --json --output-budget unbounded --output-limit unbounded --all
 cargo run -- --workspace /path/to/project get pm-example
 cargo run -- --workspace /path/to/project create --id pm-example --title "Native item" --type Task --author agent
@@ -98,7 +114,7 @@ cargo test --locked --all-targets --all-features
 cargo +nightly-2026-08-06 llvm-cov --locked --branch --all-targets --all-features --json --output-path coverage-branch.json
 jq -e '.data[0].totals.lines.percent == 100 and .data[0].totals.functions.percent == 100 and .data[0].totals.regions.percent == 100 and .data[0].totals.branches.percent == 100' coverage-branch.json
 cargo audit
-npm exec --yes --package=@unbrained/pm-cli@2026.10.2 -- pm health --check-only --require-merge-drivers --strict-exit
+npm exec --yes --package=@unbrained/pm-cli@2026.10.5 -- pm health --check-only --require-merge-drivers --strict-exit
 ```
 
 ## License

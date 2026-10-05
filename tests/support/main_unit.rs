@@ -248,3 +248,32 @@ fn run_dispatches_every_mutation_and_its_error_halves() -> Result<(), Box<dyn st
     );
     Ok(())
 }
+
+/// Native-only controls are absent from recovery; repeated public flags deduplicate.
+#[test]
+fn cursor_recovery_arguments_preserve_public_flags() {
+    let args = super::published_read_arguments(
+        [
+            "--workspace",
+            "fixture",
+            "list",
+            "--json",
+            "--json",
+            "--timestamp",
+            "fixed",
+            "--after",
+            "cursor",
+        ]
+        .into_iter()
+        .map(str::to_owned),
+    );
+    assert_eq!(args, ["list", "--json", "--json", "--after", "cursor"]);
+    let producer = super::cursor_error_json("invalid_query_cursor", "reason", &args);
+    assert_eq!(
+        producer["recovery"]["provided_fields"],
+        serde_json::json!(["--json", "--after"])
+    );
+    assert!(producer["next_steps"].is_array());
+    let output = super::cursor_error_json("read_output_cursor_stale", "reason", &args);
+    assert!(output.get("next_steps").is_none());
+}

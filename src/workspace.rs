@@ -223,6 +223,25 @@ impl Workspace {
         crate::list::read_unbounded(self, filters, all, true, now)
     }
 
+    /// Returns the published list envelope with paging and bounded output receipts.
+    ///
+    /// Cursors bind the canonical tracker root and selection. Producer cursors
+    /// follow item identity; output cursors additionally bind the row snapshot.
+    /// The caller supplies the read clock, which does not bind either cursor.
+    ///
+    /// # Errors
+    ///
+    /// Fails on unreadable items, unsupported filters, invalid output controls,
+    /// mismatched query cursors, or stale output continuations.
+    pub fn list_page(
+        &self,
+        filters: &ItemFilter,
+        options: &crate::ListOptions,
+        now: &str,
+    ) -> Result<serde_json::Value, PmRustError> {
+        crate::list::read_page(self, filters, options, now)
+    }
+
     /// Reads one item by exact stable identifier.
     ///
     /// # Errors
