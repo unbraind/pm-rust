@@ -6,13 +6,13 @@ status: in_progress
 priority: 2
 tags[3]: conformance,read-parity,rust
 created_at: "2026-10-02T19:11:02.190Z"
-updated_at: "2026-10-05T09:13:59.396Z"
+updated_at: "2026-10-05T09:21:21.060Z"
 assignee: codex-sol
 claim_principal: codex-sol
 author: codex-sol
 acceptance_criteria: Real TS and Rust CLIs match multi-page envelopes and continuation fingerprints on shared fixtures; Stale or mismatched cursors fail consistently; No item loss or repeated rows; Output omission and budget receipts match; Existing gates remain enforced
 parent: pm-rust-u4al
-comments[13]{created_at,author,text}:
+comments[14]{created_at,author,text}:
   "2026-10-02T20:09:16.243Z",codex-sol,"PR #58 full-projection follow-up: published --full additionally emits read_output alias/migration/budget diagnostics, including estimated_tokens. Native --full restores complete metadata with unchanged selection, but these output-policy diagnostics remain outside the current slice and are explicitly documented. Synthetic exact published read_output receipt captured in tests/fixtures/list-full-read-output-2026-10-2.json; original nine envelope comparisons remain exact and unchanged. Include full-projection output policy in this bounded-output/canonical-controls follow-up."
   "2026-10-05T07:13:33.482Z",codex-sol,"Inspect the published 2026.10.5 list contract and existing differential fixtures before implementing native pagination, cursor validation and bounded projection receipts. Preserve every existing release gate; add shared-fixture differential and randomized page-walk evidence."
   "2026-10-05T07:38:18.064Z",codex-sol,"Baseline: all eight existing list differential tests pass with the installed TS CLI 2026.10.5, including nine golden envelopes. Contract discovery: --after follows item identity and collapses subsequent envelope metadata into continuation_contract; it does not bind a snapshot. --output-cursor binds the projected row collection and rejects stale snapshots. Pagination tests will distinguish these contracts instead of claiming producer cursors refuse mutations."
@@ -26,6 +26,7 @@ comments[13]{created_at,author,text}:
   "2026-10-05T09:04:46.450Z",codex-sol,"Windows CI follow-up: full run 37287014816 log retrieved. All three failures first differ inside producer next_cursor fingerprints; preceding rows, row counts and after-id/index values match. Budget snapshot continuation and stale-refusal tests pass on Windows. Investigating canonical tracker-root representation in the native query hash before changing product or harness; no tests will be skipped and no GitHub replies will be posted."
   "2026-10-05T09:10:28.973Z",codex-sol,"Root cause confirmed as a native product bug, not a fixture artifact: Rust canonicalize adds the Windows verbatim namespace prefix to pmRoot; published SDK resolvePmRoot uses Node path.resolve/path.join and hashes the ordinary drive or UNC spelling. All three Windows failures first differ inside next_cursor.fingerprint after identical rows/counts; snapshot cursors do not hash pmRoot and pass. Native query hashing now strips only the namespace prefix, preserving backslashes and filesystem paths. Portable drive/UNC regression tests include a hash measured with the actual published 2026.10.5 SDK. Differential harness and Windows test selection remain unchanged."
   "2026-10-05T09:13:59.395Z",codex-sol,"Local Windows-fix verification passed: just release-check completed all 184 tests in ordinary and instrumented runs, formatting, deny-warning clippy, private/public rustdoc, dependency and identity audit, pinned changelog verification. Coverage remains 100 percent: lines 2897/2897, functions 252/252, regions 4392/4392, branches 606/606. pm test pm-rust-ufzy --run --progress passed both linked commands: 15 real-CLI differential tests including randomized page walks, and 4 pagination unit tests including the new drive/UNC regression. Preparing the focused product fix for PR #60; Windows CI verification is next."
+  "2026-10-05T09:21:21.060Z",codex-sol,"The first focused namespace fix passed local release-check and CI ubuntu/macOS/aggregate, but Windows run 37288712120 still fails at producer query fingerprints. Namespace removal alone is insufficient. Adding failure-only path-shape diagnostics (separator counts, case-insensitive equality, canonical equality and first differing character codes), without storing or logging paths, to identify the remaining Windows representation difference. All byte assertions remain intact."
 files[11]{path,scope}:
   src/list_intent.rs,project
   src/list.rs,project

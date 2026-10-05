@@ -50,11 +50,7 @@ fn fixture(
         );
         fs::write(
             directory.path().join("driver.mjs"),
-            format!(
-                "import {{pathToFileURL}} from 'node:url';\nconst fixed=Date.parse({});const OriginalDate=Date;globalThis.Date=class extends OriginalDate {{constructor(...args){{args.length?super(...args):super(fixed)}}static now(){{return fixed}}}};\nprocess.argv=[process.argv[0],'pm',...process.argv.slice(2)];await import(pathToFileURL({}));\n",
-                serde_json::to_string(CLOCK)?,
-                serde_json::to_string(&published.entry)?
-            ),
+            include_str!("support/pagination_driver.mjs"),
         )?;
     }
     Ok(directory)
@@ -80,6 +76,8 @@ fn compare(
         String::from_utf8_lossy(&native.stderr)
     );
     if directory.join("driver.mjs").is_file() {
+        let published_cli = published_cli::published_cli_or_skip("pagination diagnostics")
+            .ok_or("published CLI disappeared")?;
         let published = Command::new(
             std::env::var("PM_NODE_INTERPRETER").unwrap_or_else(|_| "node".to_owned()),
         )
@@ -87,8 +85,20 @@ fn compare(
         .args(["list", "--json"])
         .args(flags)
         .current_dir(directory)
+        .env("PM_RUST_FIXED_CLOCK", CLOCK)
+        .env("PM_RUST_PUBLISHED_ENTRY", &published_cli.entry)
+        .env(
+            "PM_RUST_QUERY_ROOT",
+            Workspace::discover(directory)?.pm_root(),
+        )
         .env_remove("PM_PATH")
         .output()?;
+        if native.stdout != published.stdout || native.stderr != published.stderr {
+            eprintln!(
+                "query path shape: {}",
+                fs::read_to_string(directory.join("query-shape.json")).unwrap_or_default()
+            );
+        }
         assert_eq!(
             published.status.code(),
             native.status.code(),
