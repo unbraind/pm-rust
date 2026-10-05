@@ -1,0 +1,15 @@
+id: pm-rust-ba8f
+title: Preserve .toon extra metadata key order in list output
+description: "Native list output sorts extra metadata keys alphabetically (BTreeMap decoding in the item reader), while published PM CLI 2026.10.5 preserves the .toon file order in --full row projections. Verified byte-level against the installed reference: a task with metadata keys zebra, budget, alpha prints alpha/budget/zebra natively but zebra/budget/alpha in the reference. Existing differential fixtures never use non-alphabetical metadata, so this pre-existing divergence at HEAD is invisible to the current PR #60 suite; the new float-metadata differential test works around it with alphabetical fixture keys. Fixing this requires order-preserving metadata decoding and may affect .toon write-back formatting and history hashes."
+type: Issue
+status: open
+priority: 2
+tags[3]: conformance,read-parity,rust
+created_at: "2026-10-05T11:05:06.690Z"
+updated_at: "2026-10-05T11:05:16.629Z"
+author: pi-rust-greptile2
+acceptance_criteria: Full-row list output preserves .toon file metadata order byte-identically against published PM CLI 2026.10.5
+parent: pm-rust-u4al
+comments[1]{created_at,author,text,edited_at}:
+  "2026-10-05T11:05:11.691Z",pi-rust-greptile2,"Reproduction evidence from the PR #60 review follow-up: a synthetic task with extra metadata zebra: 1, budget: 30.0, alpha: 2 (in that file order) was read with list --json --full by both real executables. The reference emits zebra/budget/alpha; native emits alpha/budget/zebra. All float values match after the JS number formatting fix, so this is purely a key-order divergence. The float-metadata regression test on the PR #60 branch uses alphabetical fixture keys so the number-formatting slice stays isolated; this issue tracks the ordering fix.","2026-10-05T11:05:16.629Z"
+body: ""

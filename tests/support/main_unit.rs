@@ -6,6 +6,57 @@ use pm_rust::{ItemDocument, ItemFilter, ItemMetadata, ListResult};
 
 use super::{Cli, Command, run, write_json_to};
 
+/// Deliberately failing response proves encoding errors reach the caller.
+struct SerializationFailure;
+
+impl serde::Serialize for SerializationFailure {
+    fn serialize<S: serde::Serializer>(&self, _: S) -> Result<S::Ok, S::Error> {
+        Err(serde::ser::Error::custom("response cannot be encoded"))
+    }
+}
+
+#[test]
+fn response_serialization_errors_are_propagated() {
+    assert!(write_json_to(&mut Vec::new(), &SerializationFailure).is_err());
+}
+
+#[test]
+fn published_recovery_strips_both_native_control_spellings() {
+    for args in [
+        vec![
+            "--workspace",
+            "fixture",
+            "list",
+            "--timestamp",
+            "clock",
+            "--json",
+            "--after",
+            "bad",
+        ],
+        vec![
+            "--workspace=fixture",
+            "list",
+            "--timestamp=clock",
+            "--json",
+            "--after",
+            "bad",
+        ],
+    ] {
+        assert_eq!(
+            super::published_read_arguments(args.into_iter().map(str::to_owned)),
+            ["list", "--json", "--after", "bad"]
+        );
+    }
+    assert_eq!(
+        super::published_read_arguments(
+            ["--workspace-extra=fixture", "--timestamp-extra=clock"]
+                .into_iter()
+                .map(str::to_owned)
+        ),
+        ["--workspace-extra=fixture", "--timestamp-extra=clock"]
+    );
+}
+
 struct NewlineFailure {
     document_complete: bool,
 }
@@ -46,6 +97,39 @@ impl io::Write for FlushFailure {
     fn flush(&mut self) -> io::Result<()> {
         Err(io::Error::new(io::ErrorKind::BrokenPipe, "closed"))
     }
+}
+
+#[test]
+fn wire_bytes_match_the_shared_renderer_and_carry_the_newline()
+-> Result<(), Box<dyn std::error::Error>> {
+    let value = serde_json::json!({
+        "z": [{}, [], null, true, "line\n\"quoted\"", 30.0, 30.5, 1e20, -0.0, 7],
+        "a": 2
+    });
+    let mut bytes = Vec::new();
+    write_json_to(&mut bytes, &value)?;
+    let expected = pm_rust::stringify_json(&value, true);
+    assert_eq!(String::from_utf8(bytes)?, format!("{expected}\n"));
+    assert!(expected.starts_with("{\n  \"z\": [\n    {},\n"));
+    Ok(())
+}
+
+#[test]
+fn refusal_payload_write_errors_are_propagated() {
+    // Cursor refusals print their payload to stderr and ignore write errors:
+    // a closed diagnostic pipe must not change the exit path.
+    let payload = serde_json::json!({"code": "read_output_cursor_stale"});
+    assert!(write_json_to(&mut WriteFailure, &payload).is_err());
+    assert!(
+        write_json_to(
+            &mut NewlineFailure {
+                document_complete: false,
+            },
+            &payload,
+        )
+        .is_err()
+    );
+    assert!(write_json_to(&mut FlushFailure, &payload).is_err());
 }
 
 #[test]

@@ -16,21 +16,9 @@ pub(crate) fn refusal(code: &'static str, detail: impl Into<String>) -> PmRustEr
 
 /// Serializes JSON with recursively sorted object keys for published hashing.
 pub(crate) fn stable(value: &Value) -> String {
-    fn sorted(value: &Value) -> Value {
-        match value {
-            Value::Object(map) => {
-                let mut map = map
-                    .iter()
-                    .map(|(key, value)| (key.clone(), sorted(value)))
-                    .collect::<serde_json::Map<_, _>>();
-                map.sort_keys();
-                Value::Object(map)
-            }
-            Value::Array(rows) => Value::Array(rows.iter().map(sorted).collect()),
-            scalar => scalar.clone(),
-        }
-    }
-    sorted(value).to_string()
+    let mut output = String::new();
+    crate::history::stable_json(value, &mut output);
+    output
 }
 
 /// Encodes a JSON cursor with the published unpadded base64url alphabet.

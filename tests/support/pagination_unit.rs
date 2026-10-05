@@ -19,6 +19,10 @@ fn stable_hashes_ignore_object_key_order_but_keep_row_order() {
         "{\"a\":true,\"z\":[{\"a\":1,\"b\":2}]}"
     );
     assert_ne!(collection(&json!([1, 2])), collection(&json!([2, 1])));
+    assert_eq!(
+        stable(&json!({"z":[30.0,1e20,1e-6,-0.0]})),
+        "{\"z\":[30,100000000000000000000,0.000001,0]}"
+    );
 }
 
 #[test]

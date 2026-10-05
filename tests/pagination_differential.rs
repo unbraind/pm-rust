@@ -66,10 +66,25 @@ fn compare(
     flags: &[&str],
     expected_success: bool,
 ) -> Result<Value, Box<dyn std::error::Error>> {
-    let native = Command::new(env!("CARGO_BIN_EXE_pm-rust"))
-        .args(["list", "--json"])
+    compare_controls(directory, flags, expected_success, false)
+}
+
+/// Exercises equivalent native-only control spellings against the same oracle command.
+fn compare_controls(
+    directory: &Path,
+    flags: &[&str],
+    expected_success: bool,
+    equals_controls: bool,
+) -> Result<Value, Box<dyn std::error::Error>> {
+    let mut native = Command::new(env!("CARGO_BIN_EXE_pm-rust"));
+    if equals_controls {
+        native.args(["--workspace=.", "list", &format!("--timestamp={CLOCK}")]);
+    } else {
+        native.args(["--workspace", ".", "list", "--timestamp", CLOCK]);
+    }
+    let native = native
+        .arg("--json")
         .args(flags)
-        .args(["--timestamp", CLOCK])
         .current_dir(directory)
         .env_remove("PM_PATH")
         .output()?;
@@ -101,6 +116,154 @@ fn compare(
     } else {
         &native.stdout
     })?)
+}
+
+/// Published combined ceilings capture a limited snapshot and refuse its replay.
+#[test]
+fn combined_output_ceilings_match_published_stale_replay() -> TestResult {
+    let directory = fixture(75, 400)?;
+    let flags = ["--output-limit", "50", "--output-budget", "1500"];
+    let page = compare(directory.path(), &flags, true)?;
+    assert!(
+        page["count"]
+            .as_u64()
+            .is_some_and(|count| count > 0 && count < 50)
+    );
+    assert_eq!(
+        page["output_budget_truncation"]["continuations"][0]["total_rows"],
+        50
+    );
+    let cursor = page["next_cursor"]
+        .as_str()
+        .ok_or("missing snapshot cursor")?;
+    let refused = compare(
+        directory.path(),
+        &[
+            "--output-limit",
+            "50",
+            "--output-budget",
+            "1500",
+            "--output-cursor",
+            cursor,
+        ],
+        false,
+    )?;
+    assert_eq!(refused["code"], "read_output_cursor_stale");
+    Ok(())
+}
+
+/// Published producer rebasing after both ceilings retains the capped count.
+#[test]
+fn combined_ceilings_match_published_deleted_identity_fallback() -> TestResult {
+    use base64::{Engine, engine::general_purpose::URL_SAFE_NO_PAD};
+    let directory = fixture(75, 400)?;
+    let flags = [
+        "--limit",
+        "50",
+        "--output-limit",
+        "30",
+        "--output-budget",
+        "1500",
+    ];
+    let page = compare(directory.path(), &flags, true)?;
+    let retained = page["items"]
+        .as_array()
+        .ok_or("missing compacted rows")?
+        .len();
+    assert!(retained > 0 && retained < 30);
+    let cursor = page["next_cursor"]
+        .as_str()
+        .ok_or("missing producer cursor")?;
+    let envelope: Value = serde_json::from_slice(&URL_SAFE_NO_PAD.decode(cursor)?)?;
+    assert_eq!(envelope["after_index"], 49 - (30 - retained));
+    let id = envelope["after_id"]
+        .as_str()
+        .ok_or("missing delivered identity")?;
+    fs::remove_file(
+        directory
+            .path()
+            .join(".agents/pm/tasks")
+            .join(format!("{id}.toon")),
+    )?;
+    let next = compare(
+        directory.path(),
+        &[
+            "--limit",
+            "50",
+            "--output-budget",
+            "unbounded",
+            "--after",
+            cursor,
+        ],
+        true,
+    )?;
+    // All rows have equal timestamps; priority then ID determines the original order.
+    let mut ids = (0..75).map(|i| format!("demo-{i:04}")).collect::<Vec<_>>();
+    ids.sort_by_key(|id| (id[5..].parse::<usize>().unwrap_or_default() % 5, id.clone()));
+    ids.retain(|row| row != id);
+    assert_eq!(next["items"][0]["id"], ids[49 - (30 - retained)]);
+    assert_ne!(next["items"][0]["id"], ids[retained - 1]);
+    Ok(())
+}
+
+/// Float metadata preserves byte-identical receipts and cross-CLI snapshot replay.
+#[test]
+fn float_metadata_snapshots_match_bytes_and_cross_cli_replay() -> TestResult {
+    let directory = fixture(75, 400)?;
+    for index in 0..75 {
+        let path = directory
+            .path()
+            .join(".agents/pm/tasks")
+            .join(format!("demo-{index:04}.toon"));
+        let mut content = fs::read_to_string(&path)?;
+        // Keys are appended alphabetically: native preserves only sorted
+        // metadata order (tracked separately); this test isolates numbers.
+        content.push_str("budget: 30.0\nfraction: 30.5\nlarge_budget: 1e20\nsmall_budget: 1e-6\n");
+        fs::write(path, content)?;
+    }
+    let flags = ["--full", "--output-budget", "1500"];
+    let first = compare(directory.path(), &flags, true)?;
+    assert!(
+        first["items"]
+            .as_array()
+            .is_some_and(|rows| !rows.is_empty())
+    );
+    let cursor = first["next_cursor"]
+        .as_str()
+        .ok_or("missing float snapshot cursor")?;
+    compare(
+        directory.path(),
+        &[
+            "--full",
+            "--output-budget",
+            "1500",
+            "--output-cursor",
+            cursor,
+        ],
+        true,
+    )?;
+    // compare() requires identical cursors, so each replay consumes both producers' bytes.
+    let workspace = Workspace::discover(directory.path())?;
+    let options = ListOptions {
+        full: true,
+        output_budget: Some("1500".to_owned()),
+        output_cursor: Some(cursor.to_owned()),
+        ..ListOptions::default()
+    };
+    workspace.list_page(&ItemFilter::default(), &options, CLOCK)?;
+    Ok(())
+}
+
+/// Equals controls must disappear from published recovery without losing adjacent flags.
+#[test]
+fn equals_native_controls_match_published_cursor_refusals() -> TestResult {
+    let directory = fixture(3, 0)?;
+    for flags in [["--output-cursor", "bad"], ["--after", "invalid"]] {
+        let separated = compare(directory.path(), &flags, false)?;
+        let equals = compare_controls(directory.path(), &flags, false, true)?;
+        assert_eq!(equals, separated);
+    }
+    Ok(())
 }
 
 /// Requires identical serialized bytes, including key order and every receipt field.

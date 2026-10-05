@@ -206,7 +206,7 @@ fn write_json_to(
     writer: &mut dyn Write,
     value: &impl Serialize,
 ) -> Result<(), Box<dyn std::error::Error>> {
-    serde_json::to_writer_pretty(&mut *writer, value)?;
+    pm_rust::write_pretty_json(&mut *writer, value)?;
     writer.write_all(b"\n")?;
     writer
         .flush()
@@ -464,7 +464,7 @@ fn published_read_arguments(args: impl Iterator<Item = String>) -> Vec<String> {
     while let Some(arg) = args.next() {
         if arg == "--timestamp" || arg == "--workspace" {
             args.next();
-        } else {
+        } else if !arg.starts_with("--timestamp=") && !arg.starts_with("--workspace=") {
             arguments.push(arg);
         }
     }

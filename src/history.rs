@@ -384,7 +384,7 @@ pub fn history_patch(before: &OrderedDocument, after: &OrderedDocument) -> Vec<H
 const HEX_DIGITS: [u8; 16] = *b"0123456789abcdef";
 
 /// Appends recursively key-sorted compact JSON for stable hashing.
-fn stable_json(value: &Value, output: &mut String) {
+pub(crate) fn stable_json(value: &Value, output: &mut String) {
     match value {
         Value::Array(entries) => {
             output.push('[');
@@ -428,10 +428,8 @@ fn stable_json(value: &Value, output: &mut String) {
 /// item carrying a float in its metadata, which reads downstream as a corrupt
 /// history chain rather than as a formatting disagreement.
 ///
-/// Integers are left to `serde_json`, which already agrees. Floats are rendered
-/// by JavaScript's own two rules: a finite value whose fractional part is zero
-/// and whose magnitude is below `1e21` prints without a decimal point, and an
-/// exponent always carries an explicit sign.
+/// Integers retain their stored representation. Floats use ECMAScript's
+/// shortest decimal representation, including its exponent thresholds and zero.
 ///
 /// @param number - The decoded JSON number.
 /// @returns The number formatted as `JSON.stringify` would format it.
@@ -442,15 +440,12 @@ pub(crate) fn javascript_number(number: &serde_json::Number) -> String {
     else {
         return number.to_string();
     };
-    if float.fract() == 0.0 && float.abs() < 1e21 {
-        return format!("{float:.0}");
-    }
-    // Exponent form needs no adjustment: `serde_json` already writes the sign
-    // that `JSON.stringify` writes, `1e+21` and `1e-7` alike. Only the
-    // whole-valued case above actually diverges, and a branch here for the
-    // unsigned exponent `serde_json` never emits would be unreachable code
-    // dressed as a safeguard.
-    number.to_string()
+    javascript_float(float)
+}
+
+/// Renders one finite double the way `JSON.stringify` renders it.
+pub(crate) fn javascript_float(float: f64) -> String {
+    ryu_js::Buffer::new().format(float).to_owned()
 }
 
 /// Computes the canonical SHA-256 document hash used by pm history.

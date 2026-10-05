@@ -6,12 +6,9 @@ use serde_json::{Value, json};
 /// Estimates output tokens using the published UTF-8 byte heuristic.
 pub(crate) fn estimate(value: &Value, pretty: bool) -> usize {
     let bytes = if pretty {
-        serde_json::to_string_pretty(value)
-            .unwrap_or_default()
-            .len()
-            + 1
+        crate::stringify_json(value, true).len() + 1
     } else {
-        value.to_string().len()
+        crate::stringify_json(value, false).len()
     };
     bytes.div_ceil(4)
 }

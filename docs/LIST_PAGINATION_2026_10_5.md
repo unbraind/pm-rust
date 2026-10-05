@@ -96,6 +96,26 @@ flow. It selects closed items, so this still-open task receives its generated
 entry after orchestrator verification and closure. No item is closed by this
 implementation change.
 
+## Review follow-up on 78068d9
+
+JavaScript number formatting is now shared by history hashes, snapshot
+fingerprints, wire JSON and token estimates: whole-valued floats render without
+a fraction (`30.0` as `30`), `1e20` renders as a decimal and `1e-6` as `0.000001`,
+matching `JSON.stringify` in every emitted byte. Float metadata therefore
+produces byte-identical rows and cross-CLI continuation cursors. Native-only
+`--workspace=` and `--timestamp=` controls are stripped from published recovery
+like their space-separated forms, without consuming the next argument.
+
+Two reviewer findings reproduce byte-identically in the published reference and
+are pinned by differential tests rather than fixed: when both an output limit
+and an output budget remove rows, the reference hashes the amount-capped
+collection and refuses an unchanged replay with `read_output_cursor_stale`;
+and producer rebasing after both ceilings uses the capped delivered count, so
+deleting the last delivered item makes the position fallback skip unread rows.
+A pre-existing metadata key-order divergence — native sorts extra metadata
+while the reference preserves `.toon` file order — is tracked in
+[pm-rust-ba8f](https://github.com/unbraind/pm-rust/blob/main/.agents/pm/issues/pm-rust-ba8f.toon).
+
 ## Verification receipt
 
 Windows run `37287014816` exposed a native query fingerprint bug: the three
