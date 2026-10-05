@@ -98,6 +98,16 @@ implementation change.
 
 ## Verification receipt
 
+Windows run `37287014816` exposed a native query fingerprint bug: the three
+failing differential cases first differed inside `next_cursor.fingerprint`
+(including byte 43,225 in the triage case), after identical rows and counts.
+Rust's canonical tracker path carries a Windows verbatim namespace prefix;
+the published SDK's `resolvePmRoot` uses Node `path.resolve`/`path.join` and
+hashes the ordinary drive or UNC spelling. Native hashing now removes that
+namespace prefix while keeping backslashes and the filesystem path intact.
+Portable drive/UNC regression cases include a fingerprint measured with the
+published SDK. The differential harness and Windows test selection are unchanged.
+
 Source implementation: `5ecc383`. Review: [draft PR #60](https://github.com/unbraind/pm-rust/pull/60).
 
 `just release-check` passed 183 tests in both ordinary and instrumented runs,

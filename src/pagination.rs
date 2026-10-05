@@ -94,6 +94,19 @@ pub(crate) fn fingerprint(contract: &Value) -> String {
     crate::history::sha256_digest(format!("list\0{}", stable(contract)).as_bytes())[..24].to_owned()
 }
 
+/// Uses Node's ordinary Windows path spelling in the query contract.
+///
+/// Rust canonicalization adds a verbatim namespace prefix on Windows; Node's
+/// tracker discovery uses `path.resolve`/`path.join` without that prefix. Keep
+/// the filesystem path intact and translate only its fingerprint input.
+pub(crate) fn query_root(root: &str) -> String {
+    if let Some(share) = root.strip_prefix(r"\\?\UNC\") {
+        format!(r"\\{share}")
+    } else {
+        root.strip_prefix(r"\\?\").unwrap_or(root).to_owned()
+    }
+}
+
 /// Creates a producer cursor after one delivered row.
 pub(crate) fn after(fingerprint: &str, row: &Value, index: usize) -> String {
     encode(&json!({"version":1,"fingerprint":fingerprint,"after_id":row["id"],"after_index":index}))

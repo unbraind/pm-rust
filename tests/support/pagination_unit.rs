@@ -1,6 +1,6 @@
 //! Refusal-shape boundaries and canonical hash contracts for list continuations.
 
-use super::{collection, encode, output, query, stable};
+use super::{collection, encode, fingerprint, output, query, query_root, stable};
 use serde_json::{Value, json};
 
 /// Valid producer cursor with optional snapshot and fallback position.
@@ -19,6 +19,31 @@ fn stable_hashes_ignore_object_key_order_but_keep_row_order() {
         "{\"a\":true,\"z\":[{\"a\":1,\"b\":2}]}"
     );
     assert_ne!(collection(&json!([1, 2])), collection(&json!([2, 1])));
+}
+
+#[test]
+fn query_roots_match_node_without_changing_native_path_separators() {
+    // Synthetic drive/share names exercise Windows namespace spelling on every OS.
+    for (native, node) in [
+        (r"\\?\Q:\fixture\.agents\pm", r"Q:\fixture\.agents\pm"),
+        (
+            r"\\?\UNC\fixture\share\.agents\pm",
+            r"\\fixture\share\.agents\pm",
+        ),
+        (r"Q:\fixture\.agents\pm", r"Q:\fixture\.agents\pm"),
+        (r"\\fixture\share\.agents\pm", r"\\fixture\share\.agents\pm"),
+        ("fixture/.agents/pm", "fixture/.agents/pm"),
+        (r"fixture\name/.agents/pm", r"fixture\name/.agents/pm"),
+    ] {
+        assert_eq!(query_root(native), node);
+    }
+    // Measured with the published 2026.10.5 SDK's createQueryFingerprint.
+    let contract = json!({"pmRoot":query_root(r"\\?\Q:\fixture\.agents\pm")});
+    assert_eq!(fingerprint(&contract), "86cd0674cda9746c0b6a58d2");
+    assert_ne!(
+        fingerprint(&json!({"pmRoot":r"\\?\Q:\fixture\.agents\pm"})),
+        fingerprint(&contract)
+    );
 }
 
 #[test]

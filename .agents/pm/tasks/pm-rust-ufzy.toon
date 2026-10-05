@@ -2,15 +2,17 @@ id: pm-rust-ufzy
 title: Extend native list parity to pagination and bounded output contracts
 description: "Follow-up to pm-rust-p0no: current compatibility mode explicitly requires unbounded amount and cost. Implement limits, cursors, continuation fingerprints and output budgeting with full-envelope golden tests against the exact published PM CLI. Keep 100 percent coverage and maintainer publication guard."
 type: Task
-status: open
+status: in_progress
 priority: 2
 tags[3]: conformance,read-parity,rust
 created_at: "2026-10-02T19:11:02.190Z"
-updated_at: "2026-10-05T08:57:34.741Z"
+updated_at: "2026-10-05T09:13:59.396Z"
+assignee: codex-sol
+claim_principal: codex-sol
 author: codex-sol
 acceptance_criteria: Real TS and Rust CLIs match multi-page envelopes and continuation fingerprints on shared fixtures; Stale or mismatched cursors fail consistently; No item loss or repeated rows; Output omission and budget receipts match; Existing gates remain enforced
 parent: pm-rust-u4al
-comments[10]{created_at,author,text}:
+comments[13]{created_at,author,text}:
   "2026-10-02T20:09:16.243Z",codex-sol,"PR #58 full-projection follow-up: published --full additionally emits read_output alias/migration/budget diagnostics, including estimated_tokens. Native --full restores complete metadata with unchanged selection, but these output-policy diagnostics remain outside the current slice and are explicitly documented. Synthetic exact published read_output receipt captured in tests/fixtures/list-full-read-output-2026-10-2.json; original nine envelope comparisons remain exact and unchanged. Include full-projection output policy in this bounded-output/canonical-controls follow-up."
   "2026-10-05T07:13:33.482Z",codex-sol,"Inspect the published 2026.10.5 list contract and existing differential fixtures before implementing native pagination, cursor validation and bounded projection receipts. Preserve every existing release gate; add shared-fixture differential and randomized page-walk evidence."
   "2026-10-05T07:38:18.064Z",codex-sol,"Baseline: all eight existing list differential tests pass with the installed TS CLI 2026.10.5, including nine golden envelopes. Contract discovery: --after follows item identity and collapses subsequent envelope metadata into continuation_contract; it does not bind a snapshot. --output-cursor binds the projected row collection and rejects stale snapshots. Pagination tests will distinguish these contracts instead of claiming producer cursors refuse mutations."
@@ -21,6 +23,9 @@ comments[10]{created_at,author,text}:
   "2026-10-05T08:38:05.644Z",codex-sol,"Coverage gate initially refused the implementation at 99.48 percent lines, 98.80 functions, 99.34 regions and 97.85 branches. Added meaningful direct-SDK refusal and multiple nested collection compaction tests, plus existing/final producer cursor rebasing checks. The expanded 181-test suite and deny-warning clippy pass; fresh instrumented coverage is running with the same four 100-percent thresholds."
   "2026-10-05T08:54:07.569Z",codex-sol,"Final just release-check passed on the implemented source: 183 ordinary and instrumented tests; 2892/2892 lines, 251/251 functions, 4383/4383 regions, 604/604 branches. Formatting, deny-warning clippy, private/public rustdoc, dependency audit and generated changelog check passed. PM-linked real-CLI differential run passed all 15 tests including 96 randomized page walks. Original nine unbounded goldens remain unchanged. Full Unicode-boundary parity is deferred to pm-rust-8hkb, so the PR will remain draft and this item stays open. The unchanged lock-replacement fixture had one intermittent failure, passed isolated and aggregate retries, and is tracked in pm-rust-ax0o."
   "2026-10-05T08:56:50.536Z",codex-sol,"Implementation committed as 5ecc383 and published in draft PR https://github.com/unbraind/pm-rust/pull/60. Verification receipt is recorded in docs/LIST_PAGINATION_2026_10_5.md. Release gate and all four coverage metrics pass; original goldens remain unchanged. Full parity remains incomplete at the surrogate-splitting boundary tracked in pm-rust-8hkb; pm-rust-ax0o tracks the observed legacy fixture race. No items are closed, and the claim is being released for orchestrator review."
+  "2026-10-05T09:04:46.450Z",codex-sol,"Windows CI follow-up: full run 37287014816 log retrieved. All three failures first differ inside producer next_cursor fingerprints; preceding rows, row counts and after-id/index values match. Budget snapshot continuation and stale-refusal tests pass on Windows. Investigating canonical tracker-root representation in the native query hash before changing product or harness; no tests will be skipped and no GitHub replies will be posted."
+  "2026-10-05T09:10:28.973Z",codex-sol,"Root cause confirmed as a native product bug, not a fixture artifact: Rust canonicalize adds the Windows verbatim namespace prefix to pmRoot; published SDK resolvePmRoot uses Node path.resolve/path.join and hashes the ordinary drive or UNC spelling. All three Windows failures first differ inside next_cursor.fingerprint after identical rows/counts; snapshot cursors do not hash pmRoot and pass. Native query hashing now strips only the namespace prefix, preserving backslashes and filesystem paths. Portable drive/UNC regression tests include a hash measured with the actual published 2026.10.5 SDK. Differential harness and Windows test selection remain unchanged."
+  "2026-10-05T09:13:59.395Z",codex-sol,"Local Windows-fix verification passed: just release-check completed all 184 tests in ordinary and instrumented runs, formatting, deny-warning clippy, private/public rustdoc, dependency and identity audit, pinned changelog verification. Coverage remains 100 percent: lines 2897/2897, functions 252/252, regions 4392/4392, branches 606/606. pm test pm-rust-ufzy --run --progress passed both linked commands: 15 real-CLI differential tests including randomized page walks, and 4 pagination unit tests including the new drive/UNC regression. Preparing the focused product fix for PR #60; Windows CI verification is next."
 files[11]{path,scope}:
   src/list_intent.rs,project
   src/list.rs,project
@@ -33,8 +38,22 @@ files[11]{path,scope}:
   tests/support/list_unit.rs,project
   tests/support/pagination_unit.rs,project
   tests/support/read_output_unit.rs,project
-tests[1]{command,scope,timeout_seconds,provenance{author,created_at,source_kind,source_ref}}:
-  PM_RUST_REQUIRE_PUBLISHED_CLI=1 cargo test --locked --test pagination_differential --test list_differential,project,600,codex-sol,"2026-10-05T08:25:44.616Z",local_mutation,feat/list-pagination-parity
+tests[2]:
+  - command: PM_RUST_REQUIRE_PUBLISHED_CLI=1 cargo test --locked --test pagination_differential --test list_differential
+    scope: project
+    timeout_seconds: 600
+    provenance:
+      author: codex-sol
+      created_at: "2026-10-05T08:25:44.616Z"
+      source_kind: local_mutation
+      source_ref: feat/list-pagination-parity
+  - command: "cargo test --locked --lib pagination::tests"
+    scope: project
+    provenance:
+      author: codex-sol
+      created_at: "2026-10-05T09:12:06.587Z"
+      source_kind: local_mutation
+      source_ref: feat/list-pagination-parity
 docs[3]{path,scope}:
   docs/CLI_PARITY_2026_10_2.md,project
   docs/LIST_PAGINATION_2026_10_5.md,project

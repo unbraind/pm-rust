@@ -230,7 +230,7 @@ fn cursor_fingerprint(
         semantic["for"] = json!(value);
     }
     crate::pagination::fingerprint(
-        &json!({"pmRoot":workspace.pm_root().to_string_lossy(), "status":if variant {json!("all")} else {json!(status)}, "options":semantic,"sort":"default","order":"asc","tree":false,"tree_depth":null}),
+        &json!({"pmRoot":crate::pagination::query_root(&workspace.pm_root().to_string_lossy()), "status":if variant {json!("all")} else {json!(status)}, "options":semantic,"sort":"default","order":"asc","tree":false,"tree_depth":null}),
     )
 }
 
