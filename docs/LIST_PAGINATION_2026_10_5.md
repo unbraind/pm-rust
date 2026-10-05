@@ -95,3 +95,29 @@ in `\ud83d…`; the native title ends in `�…`.
 flow. It selects closed items, so this still-open task receives its generated
 entry after orchestrator verification and closure. No item is closed by this
 implementation change.
+
+## Verification receipt
+
+Source implementation: `5ecc383`. Review: [draft PR #60](https://github.com/unbraind/pm-rust/pull/60).
+
+`just release-check` passed 183 tests in both ordinary and instrumented runs,
+formatting, deny-warning Clippy, public/private rustdoc, dependency audit, and
+pinned changelog verification. Measured coverage:
+
+| Metric | Covered / total |
+| --- | --- |
+| Lines | 2,892 / 2,892 |
+| Functions | 251 / 251 |
+| Regions | 4,383 / 4,383 |
+| Branches | 604 / 604 |
+
+`pm test pm-rust-ufzy --run --progress` passed the linked command
+`PM_RUST_REQUIRE_PUBLISHED_CLI=1 cargo test --locked --test pagination_differential --test list_differential`:
+eight existing list tests and seven pagination tests, including 96 randomized
+walks. Strict tracker health and validation passed with existing guidance and
+historical provenance advisories.
+
+The unchanged lock-replacement fixture failed once during an aggregate run and
+passed both an isolated PM-linked run and the final aggregate retry. Investigation
+is tracked in [pm-rust-ax0o](https://github.com/unbraind/pm-rust/blob/main/.agents/pm/issues/pm-rust-ax0o.toon).
+The draft remains open for the Unicode boundary above and orchestrator verification.

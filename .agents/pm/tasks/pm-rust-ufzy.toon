@@ -2,17 +2,15 @@ id: pm-rust-ufzy
 title: Extend native list parity to pagination and bounded output contracts
 description: "Follow-up to pm-rust-p0no: current compatibility mode explicitly requires unbounded amount and cost. Implement limits, cursors, continuation fingerprints and output budgeting with full-envelope golden tests against the exact published PM CLI. Keep 100 percent coverage and maintainer publication guard."
 type: Task
-status: in_progress
+status: open
 priority: 2
 tags[3]: conformance,read-parity,rust
 created_at: "2026-10-02T19:11:02.190Z"
-updated_at: "2026-10-05T08:54:07.569Z"
-assignee: codex-sol
-claim_principal: codex-sol
+updated_at: "2026-10-05T08:57:34.741Z"
 author: codex-sol
 acceptance_criteria: Real TS and Rust CLIs match multi-page envelopes and continuation fingerprints on shared fixtures; Stale or mismatched cursors fail consistently; No item loss or repeated rows; Output omission and budget receipts match; Existing gates remain enforced
 parent: pm-rust-u4al
-comments[9]{created_at,author,text}:
+comments[10]{created_at,author,text}:
   "2026-10-02T20:09:16.243Z",codex-sol,"PR #58 full-projection follow-up: published --full additionally emits read_output alias/migration/budget diagnostics, including estimated_tokens. Native --full restores complete metadata with unchanged selection, but these output-policy diagnostics remain outside the current slice and are explicitly documented. Synthetic exact published read_output receipt captured in tests/fixtures/list-full-read-output-2026-10-2.json; original nine envelope comparisons remain exact and unchanged. Include full-projection output policy in this bounded-output/canonical-controls follow-up."
   "2026-10-05T07:13:33.482Z",codex-sol,"Inspect the published 2026.10.5 list contract and existing differential fixtures before implementing native pagination, cursor validation and bounded projection receipts. Preserve every existing release gate; add shared-fixture differential and randomized page-walk evidence."
   "2026-10-05T07:38:18.064Z",codex-sol,"Baseline: all eight existing list differential tests pass with the installed TS CLI 2026.10.5, including nine golden envelopes. Contract discovery: --after follows item identity and collapses subsequent envelope metadata into continuation_contract; it does not bind a snapshot. --output-cursor binds the projected row collection and rejects stale snapshots. Pagination tests will distinguish these contracts instead of claiming producer cursors refuse mutations."
@@ -22,6 +20,7 @@ comments[9]{created_at,author,text}:
   "2026-10-05T08:28:47.061Z",codex-sol,"Final PM-linked differential receipt passed: all eight existing list tests and all six pagination tests, including 96 randomized SDK page walks and separate-process stale snapshot mutation. Full all-targets/all-features suite also passed 178 tests. Clippy and private/public rustdoc gates passed. Instrumented four-metric coverage is still being measured; no 100-percent result is claimed yet."
   "2026-10-05T08:38:05.644Z",codex-sol,"Coverage gate initially refused the implementation at 99.48 percent lines, 98.80 functions, 99.34 regions and 97.85 branches. Added meaningful direct-SDK refusal and multiple nested collection compaction tests, plus existing/final producer cursor rebasing checks. The expanded 181-test suite and deny-warning clippy pass; fresh instrumented coverage is running with the same four 100-percent thresholds."
   "2026-10-05T08:54:07.569Z",codex-sol,"Final just release-check passed on the implemented source: 183 ordinary and instrumented tests; 2892/2892 lines, 251/251 functions, 4383/4383 regions, 604/604 branches. Formatting, deny-warning clippy, private/public rustdoc, dependency audit and generated changelog check passed. PM-linked real-CLI differential run passed all 15 tests including 96 randomized page walks. Original nine unbounded goldens remain unchanged. Full Unicode-boundary parity is deferred to pm-rust-8hkb, so the PR will remain draft and this item stays open. The unchanged lock-replacement fixture had one intermittent failure, passed isolated and aggregate retries, and is tracked in pm-rust-ax0o."
+  "2026-10-05T08:56:50.536Z",codex-sol,"Implementation committed as 5ecc383 and published in draft PR https://github.com/unbraind/pm-rust/pull/60. Verification receipt is recorded in docs/LIST_PAGINATION_2026_10_5.md. Release gate and all four coverage metrics pass; original goldens remain unchanged. Full parity remains incomplete at the surrogate-splitting boundary tracked in pm-rust-8hkb; pm-rust-ax0o tracks the observed legacy fixture race. No items are closed, and the claim is being released for orchestrator review."
 files[11]{path,scope}:
   src/list_intent.rs,project
   src/list.rs,project
