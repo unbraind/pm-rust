@@ -146,9 +146,9 @@ impl Workspace {
         &self.pm_root
     }
 
-    /// Returns the resolved discovery spelling used by published query hashes.
+    /// Returns the platform's working-directory spelling for published query hashes.
     pub(crate) fn query_pm_root(&self) -> &Path {
-        &self.query_pm_root
+        query_root_path(&self.query_pm_root, &self.pm_root, cfg!(windows))
     }
 
     /// Reads and validates every stored TOON item, sorted by identifier.
@@ -333,6 +333,11 @@ impl Workspace {
     pub fn close(&self, request: CloseItem) -> Result<MutationResult, PmRustError> {
         close_item(&self.pm_root, request)
     }
+}
+
+/// Matches Node's working-directory spelling without expanding Windows aliases.
+fn query_root_path<'a>(resolved: &'a Path, canonical: &'a Path, windows: bool) -> &'a Path {
+    if windows { resolved } else { canonical }
 }
 
 /// Reads every entry in a directory while retaining the path in typed errors.

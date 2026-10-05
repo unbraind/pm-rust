@@ -26,13 +26,29 @@ fn query_discovery_keeps_resolved_input_spelling() -> Result<(), Box<dyn std::er
     std::fs::write(&file, "fixture")?;
     let resolved = std::path::absolute(&tracker)?;
     let canonical = std::fs::canonicalize(&tracker)?;
+    let expected = if cfg!(windows) {
+        resolved
+    } else {
+        canonical.clone()
+    };
     let parent = nested.join("..");
     for start in [directory.path(), &nested, &file, &tracker, &parent] {
         let workspace = super::Workspace::discover(start)?;
-        assert_eq!(workspace.query_pm_root(), resolved);
+        assert_eq!(workspace.query_pm_root(), expected);
         assert_eq!(workspace.pm_root(), canonical);
     }
     Ok(())
+}
+
+#[test]
+fn query_spelling_preserves_windows_aliases_and_unix_physical_roots() {
+    let resolved = Path::new("short-name/.agents/pm");
+    let canonical = Path::new("expanded-name/.agents/pm");
+    assert_eq!(super::query_root_path(resolved, canonical, true), resolved);
+    assert_eq!(
+        super::query_root_path(resolved, canonical, false),
+        canonical
+    );
 }
 
 #[test]

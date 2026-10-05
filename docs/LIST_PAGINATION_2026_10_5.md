@@ -107,11 +107,22 @@ hashes the ordinary drive or UNC spelling. Run `37289539548` then proved a
 second difference: the canonical filesystem root had no short-name alias and
 61 characters, while Node's resolved root retained an 8.3 alias and had 58
 characters. Both had eight backslashes and zero forward slashes. Native
-discovery now retains the resolved input spelling separately for query hashing,
-removing its namespace prefix while keeping the canonical filesystem root intact.
+discovery now retains the resolved input spelling separately for Windows query
+hashing, removing its namespace prefix while keeping the canonical filesystem
+root intact. Unix query hashes retain the physical working-directory spelling;
+this also keeps macOS SDK reads consistent with both CLI processes.
 Portable drive/UNC regression cases include a fingerprint measured with the
 published SDK. Temporary path-shape diagnostics were removed after diagnosis;
 the byte-comparison harness and Windows test selection remain unchanged.
+
+Windows correction `889e4bf` passed the full Windows test job in
+[run 37290744982](https://github.com/unbraind/pm-rust/actions/runs/37290744982).
+The final platform selection retains Unix canonical spelling and Windows
+resolved spelling. Its refreshed `just release-check` passed 187 tests in each
+ordinary/instrumented run and every aggregate gate. Coverage is 100 percent:
+2,928 lines, 256 functions, 4,427 regions, and 610 branches. The PM-linked
+commands passed 15 real-CLI differential tests, four pagination unit tests,
+and four workspace unit tests.
 
 Source implementation: `5ecc383`. Review: [draft PR #60](https://github.com/unbraind/pm-rust/pull/60).
 
