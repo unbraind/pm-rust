@@ -27,7 +27,12 @@ published CLI then still advertises the producer cursor, so following it skips t
 trimmed rows. pm-rust keeps byte parity with that defect until it is fixed
 upstream ([pm-cli#1420](https://github.com/unbraind/pm-cli/issues/1420), tracked as
 [pm-rust-8qbo](.agents/pm/tasks/pm-rust-8qbo.toon)); `--after` follows the TypeScript contract and accepts workspace
-mutations, while `--output-cursor` refuses changed row snapshots.
+mutations, while `--output-cursor` refuses changed row snapshots. When both
+`--output-limit` and `--output-budget` cut rows from one page, the published CLI's
+advertised output cursor is refused as `read_output_cursor_stale` even on an unchanged
+workspace; pm-rust reproduces that byte for byte
+(`combined_output_ceilings_match_published_stale_replay`), so such a page cannot be
+continued with `--output-cursor` ([pm-cli#1411](https://github.com/unbraind/pm-cli/issues/1411)).
 String compaction that splits a Unicode surrogate pair remains a known gap,
 tracked in [pm-rust-8hkb](https://github.com/unbraind/pm-rust/blob/main/.agents/pm/issues/pm-rust-8hkb.toon).
 
