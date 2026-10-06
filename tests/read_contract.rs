@@ -104,6 +104,32 @@ fn discovery_errors_are_typed() -> Result<(), Box<dyn std::error::Error>> {
             Err(PmRustError::TrackerNotFound { .. })
         ));
     }
+    #[cfg(windows)]
+    {
+        // Ordinary Windows paths resolve away `..` in absolute(). A verbatim
+        // spelling retains it through discovery's fold, then Win32 refuses it
+        // at canonicalize. Exercise the library and CLI builds, too.
+        let mut spelling = fs::canonicalize(directory.path())?.into_os_string();
+        spelling.push(r"\..");
+        let parent = PathBuf::from(spelling);
+        assert!(
+            std::path::absolute(&parent)?
+                .components()
+                .any(|component| component == std::path::Component::ParentDir)
+        );
+        assert!(matches!(
+            Workspace::discover(&parent),
+            Err(PmRustError::Io { path, source })
+                if path == parent && source.raw_os_error() == Some(123)
+        ));
+        Command::cargo_bin("pm-rust")?
+            .arg("--workspace")
+            .arg(&parent)
+            .arg("list")
+            .assert()
+            .code(2)
+            .stderr(contains("filesystem operation failed"));
+    }
     Ok(())
 }
 
