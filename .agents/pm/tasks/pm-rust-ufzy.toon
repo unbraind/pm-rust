@@ -6,11 +6,11 @@ status: in_progress
 priority: 2
 tags[3]: conformance,read-parity,rust
 created_at: "2026-10-02T19:11:02.190Z"
-updated_at: "2026-10-06T15:28:52.386Z"
+updated_at: "2026-10-06T17:01:05.953Z"
 author: codex-sol
 acceptance_criteria: Real TS and Rust CLIs match multi-page envelopes and continuation fingerprints on shared fixtures; Stale or mismatched cursors fail consistently; No item loss or repeated rows; Output omission and budget receipts match; Existing gates remain enforced
 parent: pm-rust-u4al
-comments[75]{created_at,author,text}:
+comments[76]{created_at,author,text}:
   "2026-10-02T20:09:16.243Z",codex-sol,"PR #58 full-projection follow-up: published --full additionally emits read_output alias/migration/budget diagnostics, including estimated_tokens. Native --full restores complete metadata with unchanged selection, but these output-policy diagnostics remain outside the current slice and are explicitly documented. Synthetic exact published read_output receipt captured in tests/fixtures/list-full-read-output-2026-10-2.json; original nine envelope comparisons remain exact and unchanged. Include full-projection output policy in this bounded-output/canonical-controls follow-up."
   "2026-10-05T07:13:33.482Z",codex-sol,"Inspect the published 2026.10.5 list contract and existing differential fixtures before implementing native pagination, cursor validation and bounded projection receipts. Preserve every existing release gate; add shared-fixture differential and randomized page-walk evidence."
   "2026-10-05T07:38:18.064Z",codex-sol,"Baseline: all eight existing list differential tests pass with the installed TS CLI 2026.10.5, including nine golden envelopes. Contract discovery: --after follows item identity and collapses subsequent envelope metadata into continuation_contract; it does not bind a snapshot. --output-cursor binds the projected row collection and rejects stale snapshots. Pagination tests will distinguish these contracts instead of claiming producer cursors refuse mutations."
@@ -86,6 +86,7 @@ comments[75]{created_at,author,text}:
   "2026-10-06T14:54:19.309Z",codex-sol,"Third local release-check passed at 100/100/100/100 with full tests, fmt/clippy/docs, audit and changelog. LLVM JSON confirms collect_toon_entries now has 8/8 branch arms covered in both function instances on Linux, including the unit instance previously partial. Windows GNU all-target check and deny-warning clippy passed; linked snapshot fixture passed via pm test. Removed its obsolete linked test name. Pushing CI round 3 (final allowed round); all implementation and tracker changes staged explicitly."
   "2026-10-06T15:06:54.659Z",codex-sol,"Final Round 4 receipt: all three aggregates in run 37482885416 on pushed head bfbbf89 reached 100/100/100/100. Linux/macOS totals: 3063 lines, 276 functions, 4629 regions, 624 branches, all covered. Windows: 3059 lines, 276 functions, 4626 regions, 624 branches, all covered. Windows recovery fixtures and expanded directory-snapshot fixture passed. Final aggregate states: Linux pass, macOS pass, Windows fail after coverage and audit at changelog-check. Whole-file changelog diff has 50 deleted and 50 added lines with identical text after line-ending normalization; suspected CRLF/LF mismatch tracked separately in pm-rust-cwlf. All original fault locations, both recovery error regions, ParentDir fold and collector skip branch are covered. Original run 37461636884 reports a missed main.rs region but no main.rs uncovered line in show-missing-lines; final main.rs is fully covered. Three allowed CI rounds exhausted; no further push. Retaining this final tracker receipt locally so the checked code head remains bfbbf89. Release claim without closing."
   "2026-10-06T15:28:52.386Z",claude-orchestrator,"CodeRabbit 4197211899: the LIST_PAGINATION doc's last receipt (5ecc383, 183 tests / 2,892 lines) read as current. Added a 'Current receipt' for head 79fd16e from CI run 37484930789 (6/6 green; 203 tests per run; 100% of 3,063 lines, 276 functions, 4,629 regions, 624 branches) and moved the older measurements under 'Historical receipts'."
+  "2026-10-06T17:01:05.285Z",claude-orchestrator,"CodeRabbit 4198077636 (triage row sizing used serde to_string while the estimate uses stringify_json) is valid and fixed. Investigating it with a differential budget sweep (40 items, --after continuation, --for triage, budgets 400..1600 step 40, float risk 1e20) exposed a second, pre-existing parity defect: Rust echoed the continuation cursor as filters.after, so every --after intent estimate was ~35 tokens (137 bytes) larger than the published CLI's and compacted rows the oracle keeps (e.g. budget 520: oracle 2 rows, native 1; also without floats at 440/520/600/670). The published CLI never puts after under filters (instrumented 2026.10.5 bundle: filters={limit,runtime_filters} at measurement), and filters is hidden in continuation output anyway. Fix: drop after from the filters echo. New test triage_continuation_compaction_matches_the_published_cli fails with either fix reverted and passes with both."
 files[21]{path,scope}:
   .github/workflows/ci.yml,project
   justfile,project
@@ -108,7 +109,7 @@ files[21]{path,scope}:
   tests/support/windows_acl.rs,project
   tests/support/windows_fs.rs,project
   tests/support/workspace_unit.rs,project
-tests[25]:
+tests[26]:
   - command: PM_RUST_REQUIRE_PUBLISHED_CLI=1 cargo test --locked --test pagination_differential --test list_differential
     scope: project
     timeout_seconds: 600
@@ -288,6 +289,13 @@ tests[25]:
     provenance:
       author: codex-sol
       created_at: "2026-10-06T14:51:05.847Z"
+      source_kind: local_mutation
+      source_ref: feat/list-pagination-parity
+  - command: PM_RUST_REQUIRE_PUBLISHED_CLI=1 cargo test --locked --test pagination_differential triage_continuation_compaction_matches_the_published_cli
+    scope: project
+    provenance:
+      author: claude-orchestrator
+      created_at: "2026-10-06T17:01:05.902Z"
       source_kind: local_mutation
       source_ref: feat/list-pagination-parity
 docs[3]:

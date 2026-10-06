@@ -120,7 +120,10 @@ pub(crate) fn attach(mut result: Value, options: &ListOptions, budget: usize) ->
             if measured <= budget || count <= 1 {
                 break;
             }
-            let row_bytes = result["items"].to_string().len();
+            // Size rows with the renderer the estimate uses: serde writes 1e20 in
+            // 4 bytes, JSON.stringify in 21, and the difference changes how many
+            // rows a compaction removes.
+            let row_bytes = crate::stringify_json(&result["items"], false).len();
             let excess = (measured - budget) * 4;
             let remove = excess
                 .div_ceil(row_bytes.div_ceil(count).max(1))

@@ -583,6 +583,58 @@ fn output_budget_pages_are_complete_and_byte_identical() -> TestResult {
     Ok(())
 }
 
+/// Triage continuation pages compact exactly like the published CLI across a
+/// budget sweep. Two divergences are pinned: rows are sized with the
+/// JavaScript renderer (a float such as `1e20` is 4 bytes under serde but 21
+/// under `JSON.stringify`), and the intent estimate does not count the
+/// continuation cursor under `filters`, which the published CLI never echoes.
+#[test]
+fn triage_continuation_compaction_matches_the_published_cli() -> TestResult {
+    let directory = fixture(40, 120)?;
+    for entry in fs::read_dir(directory.path().join(".agents/pm/tasks"))? {
+        let path = entry?.path();
+        let text = fs::read_to_string(&path)?;
+        fs::write(&path, format!("{text}risk: 1e20\n"))?;
+    }
+    let first = compare(
+        directory.path(),
+        &[
+            "--for",
+            "triage",
+            "--token-budget",
+            "100000",
+            "--limit",
+            "25",
+            "--output-budget",
+            "unbounded",
+        ],
+        true,
+    )?;
+    let cursor = first["next_cursor"]
+        .as_str()
+        .ok_or("missing page cursor")?
+        .to_owned();
+    for budget in (400..=1600).step_by(40) {
+        let budget = budget.to_string();
+        compare(
+            directory.path(),
+            &[
+                "--for",
+                "triage",
+                "--token-budget",
+                &budget,
+                "--full",
+                "--after",
+                &cursor,
+                "--output-budget",
+                "unbounded",
+            ],
+            true,
+        )?;
+    }
+    Ok(())
+}
+
 /// A legacy final-page cursor without `after_index` must omit, not rebase from zero.
 #[test]
 fn legacy_after_without_after_index_omits_final_triage_page() -> TestResult {

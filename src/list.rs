@@ -272,11 +272,10 @@ pub(crate) fn read_page(
     result = page_envelope(result, &options, &fingerprint)?;
     let mut echo = result["filters"].as_object().cloned().unwrap_or_default();
     echo.shift_remove("runtime_filters");
-    for (key, value) in [
-        ("limit", &options.limit),
-        ("offset", &options.offset),
-        ("after", &options.after),
-    ] {
+    // The published CLI never echoes the continuation cursor under `filters`;
+    // echoing it here made every `--after` intent estimate ~35 tokens larger
+    // than the oracle's and compacted rows the published CLI keeps.
+    for (key, value) in [("limit", &options.limit), ("offset", &options.offset)] {
         if let Some(value) = value {
             echo.insert(key.to_owned(), json!(value));
         }
