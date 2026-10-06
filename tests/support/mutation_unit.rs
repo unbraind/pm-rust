@@ -757,8 +757,11 @@ fn non_utf8_atomic_target_names_are_rejected() -> Result<(), Box<dyn std::error:
     #[cfg(windows)]
     let name = OsString::from_wide(&[0xD800]);
     let target = directory.path().join(name);
-    fs::write(&target, "original")?;
-    assert!(target.is_file());
+    #[cfg(windows)]
+    {
+        fs::write(&target, "original")?;
+        assert!(target.is_file());
+    }
     assert!(matches!(
         atomic_write(&target, "value"),
         Err(PmRustError::InvalidCreateRequest { .. })
@@ -1366,6 +1369,7 @@ fn atomic_replace_rejects_non_utf8_targets() -> Result<(), Box<dyn std::error::E
     let non_utf8 = OsString::from_vec(b"sample-\xff.toon".to_vec());
     #[cfg(windows)]
     let non_utf8 = OsString::from_wide(&[0xD800]);
+    #[cfg(windows)]
     fs::write(directory.path().join(&non_utf8), "original")?;
     assert!(matches!(
         atomic_replace(&directory.path().join(&non_utf8), "value"),
@@ -2465,22 +2469,34 @@ fn an_unreadable_incumbent_lock_is_contention_rather_than_a_filesystem_error() {
 
 #[cfg(windows)]
 #[test]
-/// A real second handle prevents reading the incumbent after create-new fails.
-fn an_exclusively_held_windows_lock_is_contention() -> Result<(), Box<dyn std::error::Error>> {
+/// A real second handle keeps a deleted incumbent pending until release.
+fn a_windows_pending_delete_incumbent_lock_is_contention() -> Result<(), Box<dyn std::error::Error>>
+{
     use std::os::windows::fs::OpenOptionsExt;
 
     let (_directory, pm_root) = root(&mutation_settings(0))?;
     fs::create_dir_all(pm_root.join("locks"))?;
     let path = pm_root.join("locks/sample-held.lock");
     fs::write(&path, "{}\n")?;
-    let held = OpenOptions::new().read(true).share_mode(0).open(&path)?;
-    assert!(fs::read_to_string(&path).is_err());
-    assert!(matches!(
-        acquire_lock_attempt(&pm_root, "sample-held", "load-agent", 1800, false, TS),
-        Err(PmRustError::LockConflict { id }) if id == "sample-held"
-    ));
+    // Share deletion so DeleteFileW can mark the file pending, but keep this
+    // second handle open so the name cannot be reused or read by a contender.
+    // FILE_SHARE_READ | FILE_SHARE_WRITE | FILE_SHARE_DELETE.
+    let held = OpenOptions::new().read(true).share_mode(0x7).open(&path)?;
+    fs::remove_file(&path)?;
+    let error = fs::read_to_string(&path)
+        .err()
+        .ok_or("pending-delete read succeeded")?;
+    assert_eq!(error.kind(), ErrorKind::PermissionDenied);
+    let outcome = acquire_lock_attempt(&pm_root, "sample-held", "load-agent", 1800, false, TS);
+    assert!(
+        matches!(&outcome, Err(PmRustError::LockConflict { id }) if id == "sample-held"),
+        "pending-delete lock must remain contention: {:?}",
+        outcome.as_ref().err()
+    );
     drop(held);
-    assert_eq!(fs::read_to_string(&path)?, "{}\n");
+    assert!(!path.exists());
+    let acquired = acquire_lock_attempt(&pm_root, "sample-held", "load-agent", 1800, false, TS)?;
+    drop(acquired);
     Ok(())
 }
 

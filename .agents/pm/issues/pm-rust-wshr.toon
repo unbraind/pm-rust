@@ -1,0 +1,13 @@
+id: pm-rust-wshr
+title: Investigate Windows sharing-violation incumbent lock classification
+description: "PR #60 CI run 37463670264, Rust windows-latest job 112269223502: a real incumbent lock held through OpenOptionsExt::share_mode(0) refuses reading, but acquire_lock_attempt does not return LockConflict. The classifier accepts AlreadyExists, PermissionDenied and NotFound; sharing violation is a distinct OS error. Investigate contention classification without hiding corrupt-lock or directory faults. Coverage work uses a real pending-delete incumbent to exercise the existing PermissionDenied arm."
+type: Issue
+status: open
+priority: 2
+tags[3]: concurrency,rust,windows
+created_at: "2026-10-06T12:35:10.638Z"
+updated_at: "2026-10-06T12:35:10.638Z"
+author: codex-sol
+acceptance_criteria: Reproduce the returned typed error and raw Windows code with an exclusive second handle; classify genuine sharing contention without weakening structural/corrupt lock errors; validate on Windows and retain complete coverage
+parent: pm-rust-u4al
+body: ""

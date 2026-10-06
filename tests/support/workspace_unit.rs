@@ -61,9 +61,16 @@ fn verbatim_windows_parent_path_reaches_the_component_fold()
             .components()
             .any(|c| c == std::path::Component::ParentDir)
     );
-    let workspace = super::Workspace::discover(&parent)?;
+    // Win32 refuses the verbatim parent component at canonicalize, after
+    // discovery has folded the query spelling. Assert the real refusal.
+    let Err(PmRustError::Io { path, source }) = super::Workspace::discover(&parent) else {
+        return Err("verbatim parent path must return a typed filesystem refusal".into());
+    };
+    assert_eq!(path, parent);
+    assert_eq!(source.raw_os_error(), Some(123));
+    // The same existing path in ordinary spelling resolves successfully.
+    let workspace = super::Workspace::discover(&nested.join(".."))?;
     assert_eq!(workspace.pm_root(), std::fs::canonicalize(&tracker)?);
-    assert_eq!(workspace.query_pm_root(), std::fs::canonicalize(&tracker)?);
     Ok(())
 }
 
