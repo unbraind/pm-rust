@@ -162,6 +162,21 @@ Portable drive/UNC regression cases include a fingerprint measured with the
 published SDK. Temporary path-shape diagnostics were removed after diagnosis;
 the byte-comparison harness and Windows test selection remain unchanged.
 
+### Current receipt (head `79fd16e`)
+
+[CI run 37484930789](https://github.com/unbraind/pm-rust/actions/runs/37484930789) passed all six
+checks: the Rust jobs and the `just release-check` aggregate on Linux, macOS and Windows. Each
+aggregate ran 203 tests in both ordinary and instrumented runs. Coverage is exact 100 percent on
+every platform: 3,063 lines, 276 functions, 4,629 regions and 624 branches (Linux totals; the
+Windows aggregate reaches 100 percent through native fixtures for symlinks, unpaired-surrogate
+file names, share-mode locks and verbatim `..` paths). Text files are checked out LF on every
+platform, so pinned changelog verification compares identical bytes on Windows.
+
+### Historical receipts
+
+The measurements below are older states of this branch, kept for the record. They are not the
+current totals.
+
 Windows correction `889e4bf` passed the full Windows test job in
 [run 37290744982](https://github.com/unbraind/pm-rust/actions/runs/37290744982).
 The final platform selection retains Unix canonical spelling and Windows
