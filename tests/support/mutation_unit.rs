@@ -2365,7 +2365,7 @@ fn windows_pending_delete_reads_as_lock_contention_not_as_a_fault() {
         ErrorKind::NotFound,
     ] {
         assert!(
-            lock_error_is_contention(&absent, kind),
+            lock_error_is_contention(&absent, &std::io::Error::from(kind)),
             "{kind:?} is a way a held or just-released lock presents itself",
         );
     }
@@ -2378,7 +2378,7 @@ fn windows_pending_delete_reads_as_lock_contention_not_as_a_fault() {
         ErrorKind::Unsupported,
     ] {
         assert!(
-            !lock_error_is_contention(&absent, kind),
+            !lock_error_is_contention(&absent, &std::io::Error::from(kind)),
             "{kind:?} is not contention and must not be retried as if it were",
         );
     }
@@ -2397,7 +2397,7 @@ fn windows_pending_delete_reads_as_lock_contention_not_as_a_fault() {
         ErrorKind::NotFound,
     ] {
         assert!(
-            !lock_error_is_contention(&occupied, kind),
+            !lock_error_is_contention(&occupied, &std::io::Error::from(kind)),
             "a directory at the lock path is a fault, not contention ({kind:?})",
         );
     }
@@ -2469,41 +2469,43 @@ fn an_unreadable_incumbent_lock_is_contention_rather_than_a_filesystem_error() {
 
 #[cfg(windows)]
 #[test]
-/// A real second handle keeps a deleted incumbent pending until release.
-fn a_windows_pending_delete_incumbent_lock_is_contention() -> Result<(), Box<dyn std::error::Error>>
-{
+/// An exclusive second handle refuses incumbent reads until release.
+fn a_windows_exclusive_incumbent_lock_is_contention() -> Result<(), Box<dyn std::error::Error>> {
     use std::os::windows::fs::OpenOptionsExt;
 
     let (_directory, pm_root) = root(&mutation_settings(0))?;
     fs::create_dir_all(pm_root.join("locks"))?;
     let path = pm_root.join("locks/sample-held.lock");
     fs::write(&path, "{}\n")?;
-    // Share deletion so DeleteFileW can mark the file pending, but keep this
-    // second handle open so the name cannot be reused or read by a contender.
-    // FILE_SHARE_READ | FILE_SHARE_WRITE | FILE_SHARE_DELETE.
-    let held = OpenOptions::new().read(true).share_mode(0x7).open(&path)?;
-    fs::remove_file(&path)?;
+    let held = OpenOptions::new().read(true).share_mode(0).open(&path)?;
     let error = fs::read_to_string(&path)
         .err()
-        .ok_or("pending-delete read succeeded")?;
-    assert!(
-        matches!(
-            error.kind(),
-            ErrorKind::PermissionDenied | ErrorKind::NotFound
-        ),
-        "pending-delete read must refuse access or report a vanished name: {error}"
-    );
-    // The retained handle still identifies the real incumbent, even when the
-    // directory entry is invisible to ordinary opens on this Windows version.
+        .ok_or("exclusive incumbent read succeeded")?;
+    assert_eq!(error.raw_os_error(), Some(32), "{error:?}");
+    assert!(lock_error_is_contention(&path, &error));
+    // Check both native contention codes without accepting other uncategorized
+    // errors or hiding a structural fault at the lock path.
+    let occupied = pm_root.join("locks/directory.lock");
+    fs::create_dir(&occupied)?;
+    for code in [32, 33] {
+        let source = std::io::Error::from_raw_os_error(code);
+        assert!(lock_error_is_contention(&path, &source));
+        assert!(!lock_error_is_contention(&occupied, &source));
+    }
+    assert!(!lock_error_is_contention(
+        &path,
+        &std::io::Error::from_raw_os_error(34)
+    ));
     assert_eq!(held.metadata()?.len(), 3);
     let outcome = acquire_lock_attempt(&pm_root, "sample-held", "load-agent", 1800, false, TS);
     assert!(
         matches!(&outcome, Err(PmRustError::LockConflict { id }) if id == "sample-held"),
-        "pending-delete lock must remain contention: {:?}",
+        "exclusive incumbent lock must remain contention: {:?}",
         outcome.as_ref().err()
     );
     drop(held);
-    assert!(!path.exists());
+    assert_eq!(fs::read_to_string(&path)?, "{}\n");
+    fs::remove_file(&path)?;
     let acquired = acquire_lock_attempt(&pm_root, "sample-held", "load-agent", 1800, false, TS)?;
     drop(acquired);
     Ok(())

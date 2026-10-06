@@ -2,16 +2,24 @@ id: pm-rust-wshr
 title: Investigate Windows sharing-violation incumbent lock classification
 description: "PR #60 CI run 37463670264, Rust windows-latest job 112269223502: a real incumbent lock held through OpenOptionsExt::share_mode(0) refuses reading, but acquire_lock_attempt does not return LockConflict. The classifier accepts AlreadyExists, PermissionDenied and NotFound; sharing violation is a distinct OS error. Investigate contention classification without hiding corrupt-lock or directory faults. Coverage work uses a real pending-delete incumbent to exercise the existing PermissionDenied arm."
 type: Issue
-status: open
+status: in_progress
 priority: 2
 tags[3]: concurrency,rust,windows
 created_at: "2026-10-06T12:35:10.638Z"
-updated_at: "2026-10-06T12:43:59.989Z"
+updated_at: "2026-10-06T13:00:40.503Z"
+assignee: codex-sol
+claim_principal: codex-sol
 author: codex-sol
 acceptance_criteria: Reproduce the returned typed error and raw Windows code with an exclusive second handle; classify genuine sharing contention without weakening structural/corrupt lock errors; validate on Windows and retain complete coverage
 parent: pm-rust-u4al
+comments[2]{created_at,author,text}:
+  "2026-10-06T12:54:32.163Z",codex-sol,"Rust 1.90 Windows decode_error_kind leaves OS errors 32 and 33 uncategorized. The exclusive second-handle fixture therefore needs narrow raw-code contention recognition, while directories and corrupt UTF-8 remain filesystem faults. Pending deletion is unreliable because the current Windows runner allows reuse of the deleted name."
+  "2026-10-06T13:00:40.503Z",codex-sol,"Local registered tests passed (Windows all-targets check and Linux mutation suite). Replaced pending deletion with share_mode(0), assert real read refusal is OS code 32, require LockConflict while held, verify incumbent bytes remain intact, then remove the incumbent and acquire successfully after release. Narrow classifier checks also reject unrelated raw errors and directories."
 files[1]{path,scope}:
   src/mutation.rs,project
+tests[2]{command,scope,provenance{author,created_at,source_kind,source_ref}}:
+  cargo check --target x86_64-pc-windows-gnu --all-targets,project,codex-sol,"2026-10-06T12:55:17.694Z",local_mutation,feat/list-pagination-parity
+  "cargo test --locked --lib mutation::tests",project,codex-sol,"2026-10-06T12:55:18.244Z",local_mutation,feat/list-pagination-parity
 docs[1]{path,scope}:
   tests/support/mutation_unit.rs,project
 body: ""

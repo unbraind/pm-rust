@@ -733,7 +733,7 @@ fn acquire_lock_attempt(
     // it before this read runs.
     let existing_raw = match fs::read_to_string(&path) {
         Ok(raw) => raw,
-        Err(source) if lock_error_is_contention(&path, source.kind()) => {
+        Err(source) if lock_error_is_contention(&path, &source) => {
             return Err(PmRustError::LockConflict { id: id.to_owned() });
         }
         Err(source) => {
@@ -791,6 +791,9 @@ fn acquire_lock_attempt(
 /// - `NotFound` means the lock, or the directory holding it, disappeared
 ///   between two of our own calls. The next attempt recreates the directory and
 ///   retries the create, so this too is a retry rather than a failure.
+/// - Windows `ERROR_SHARING_VIOLATION` (32) and `ERROR_LOCK_VIOLATION` (33)
+///   mean another handle denies access. Rust leaves these errors uncategorized,
+///   so only these exact OS codes are recognized in addition to the kinds above.
 ///
 /// A directory sitting where the lock file belongs is excluded whatever the
 /// platform calls it. That is a structural fault and a permanent one, and the
@@ -804,21 +807,31 @@ fn acquire_lock_attempt(
 /// unwritable reports a lock conflict after the budget rather than a
 /// permissions error. That trade is deliberate -- the common case is
 /// contention, and the rare case still fails.
-fn lock_error_is_contention(path: &Path, kind: ErrorKind) -> bool {
+fn lock_error_is_contention(path: &Path, source: &std::io::Error) -> bool {
     if path.is_dir() {
         return false;
     }
-    matches!(
-        kind,
+    if matches!(
+        source.kind(),
         ErrorKind::AlreadyExists | ErrorKind::PermissionDenied | ErrorKind::NotFound
-    )
+    ) {
+        return true;
+    }
+    #[cfg(windows)]
+    {
+        matches!(source.raw_os_error(), Some(32 | 33))
+    }
+    #[cfg(not(windows))]
+    {
+        false
+    }
 }
 
 /// Creates and initializes a new lock file without replacing another writer.
 fn create_lock_file(path: &Path, raw: &str, id: &str) -> Result<ItemLock, PmRustError> {
     match OpenOptions::new().write(true).create_new(true).open(path) {
         Ok(file) => write_lock_file(file, path, raw),
-        Err(source) if lock_error_is_contention(path, source.kind()) => {
+        Err(source) if lock_error_is_contention(path, &source) => {
             Err(PmRustError::LockConflict { id: id.to_owned() })
         }
         Err(source) => Err(PmRustError::Io {
