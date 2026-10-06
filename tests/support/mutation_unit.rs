@@ -9,6 +9,10 @@ use crate::item::decode_item;
 
 use super::*;
 
+#[cfg(windows)]
+#[path = "windows_fs.rs"]
+mod windows_fs;
+
 const TS: &str = "2026-08-07T10:06:30.183Z";
 
 fn root(settings: &str) -> Result<(TempDir, PathBuf), Box<dyn std::error::Error>> {
@@ -467,7 +471,6 @@ fn missing_and_invalid_settings_return_typed_errors() -> Result<(), Box<dyn std:
 #[allow(clippy::too_many_lines)]
 fn filesystem_failures_are_typed_and_atomic_temps_are_cleaned()
 -> Result<(), Box<dyn std::error::Error>> {
-    #[cfg(unix)]
     assert!(matches!(
         atomic_write(Path::new("/"), "value"),
         Err(PmRustError::InvalidCreateRequest { .. })
@@ -739,14 +742,23 @@ fn create_surfaces_lock_recovery_journal_and_item_stage_failures()
     Ok(())
 }
 
-#[cfg(unix)]
+#[cfg(any(unix, windows))]
 #[test]
 fn non_utf8_atomic_target_names_are_rejected() -> Result<(), Box<dyn std::error::Error>> {
     use std::ffi::OsString;
+    #[cfg(unix)]
     use std::os::unix::ffi::OsStringExt;
+    #[cfg(windows)]
+    use std::os::windows::ffi::OsStringExt;
 
     let directory = tempfile::tempdir()?;
-    let target = directory.path().join(OsString::from_vec(vec![0xff]));
+    #[cfg(unix)]
+    let name = OsString::from_vec(vec![0xff]);
+    #[cfg(windows)]
+    let name = OsString::from_wide(&[0xD800]);
+    let target = directory.path().join(name);
+    fs::write(&target, "original")?;
+    assert!(target.is_file());
     assert!(matches!(
         atomic_write(&target, "value"),
         Err(PmRustError::InvalidCreateRequest { .. })
@@ -1339,19 +1351,65 @@ fn atomic_replace_rejects_parentless_targets() {
     ));
 }
 
-#[cfg(unix)]
+#[cfg(any(unix, windows))]
 #[test]
 /// Covers the non-UTF-8 defensive input-shape failure of the publisher.
 fn atomic_replace_rejects_non_utf8_targets() -> Result<(), Box<dyn std::error::Error>> {
-    use std::ffi::OsStr;
-    use std::os::unix::ffi::OsStrExt;
+    use std::ffi::OsString;
+    #[cfg(unix)]
+    use std::os::unix::ffi::OsStringExt;
+    #[cfg(windows)]
+    use std::os::windows::ffi::OsStringExt;
 
     let directory = tempfile::tempdir()?;
-    let non_utf8 = OsStr::from_bytes(b"sample-\xff.toon");
+    #[cfg(unix)]
+    let non_utf8 = OsString::from_vec(b"sample-\xff.toon".to_vec());
+    #[cfg(windows)]
+    let non_utf8 = OsString::from_wide(&[0xD800]);
+    fs::write(directory.path().join(&non_utf8), "original")?;
     assert!(matches!(
-        atomic_replace(&directory.path().join(non_utf8), "value"),
+        atomic_replace(&directory.path().join(&non_utf8), "value"),
         Err(PmRustError::InvalidCreateRequest { .. })
     ));
+    Ok(())
+}
+
+#[cfg(windows)]
+#[test]
+/// A valid NTFS filename leaves no room for the publisher's temporary suffix.
+fn atomic_replace_reports_windows_temporary_name_overflow() -> Result<(), Box<dyn std::error::Error>>
+{
+    let directory = tempfile::tempdir()?;
+    let target = directory.path().join("x".repeat(240));
+    fs::write(&target, "original")?;
+    let Err(PmRustError::Io { path, .. }) = atomic_replace(&target, "replacement") else {
+        return Err("an oversized temporary filename must fail to open".into());
+    };
+    assert_eq!(path.parent(), target.parent());
+    assert!(path.file_name().ok_or("missing temporary name")?.len() > 255);
+    assert!(path.to_string_lossy().ends_with(".tmp"));
+    assert_eq!(fs::read_to_string(&target)?, "original");
+    Ok(())
+}
+
+#[cfg(windows)]
+#[test]
+/// An exclusive handle prevents removing the existing replacement target.
+fn atomic_replace_reports_windows_exclusive_target_handle() -> Result<(), Box<dyn std::error::Error>>
+{
+    use std::os::windows::fs::OpenOptionsExt;
+
+    let directory = tempfile::tempdir()?;
+    let target = directory.path().join("sample-unit.toon");
+    fs::write(&target, "original")?;
+    let held = OpenOptions::new().read(true).share_mode(0).open(&target)?;
+    assert!(matches!(
+        atomic_replace(&target, "replacement"),
+        Err(PmRustError::Io { path, .. }) if path == target
+    ));
+    drop(held);
+    assert_eq!(fs::read_to_string(&target)?, "original");
+    assert_eq!(fs::read_dir(directory.path())?.count(), 1);
     Ok(())
 }
 
@@ -1463,6 +1521,30 @@ fn locate_item_skips_symbolic_links() -> Result<(), Box<dyn std::error::Error>> 
     Ok(())
 }
 
+#[cfg(windows)]
+#[test]
+/// Real Windows file and directory links cannot introduce duplicate items.
+fn locate_item_skips_windows_symbolic_links() -> Result<(), Box<dyn std::error::Error>> {
+    use std::os::windows::fs::{symlink_dir, symlink_file};
+
+    let (_directory, pm_root) = root(&mutation_settings(0))?;
+    create_item(&pm_root, request())?;
+    let item = pm_root.join("tasks/sample-unit.toon");
+    if !windows_fs::symlink_created(symlink_file(&item, pm_root.join("tasks/linked.toon")))? {
+        return Ok(());
+    }
+    if !windows_fs::symlink_created(symlink_dir(
+        pm_root.join("tasks"),
+        pm_root.join("linked-items"),
+    ))? {
+        return Ok(());
+    }
+    let (found, document) = locate_item(&pm_root, "sample-unit")?;
+    assert_eq!(found, item);
+    assert_eq!(document.metadata.id, "sample-unit");
+    Ok(())
+}
+
 #[test]
 #[cfg(unix)]
 /// Proves the recursive locator skips a non-file, non-directory entry.
@@ -1525,6 +1607,26 @@ fn locate_item_surfaces_an_unreadable_item() -> Result<(), Box<dyn std::error::E
         Err(PmRustError::Io { .. })
     ));
     fs::set_permissions(&item_path, fs::Permissions::from_mode(0o644))?;
+    Ok(())
+}
+
+#[cfg(windows)]
+#[test]
+/// Metadata remains readable while an exclusive handle refuses item reads.
+fn locate_item_reports_windows_exclusive_item_handle() -> Result<(), Box<dyn std::error::Error>> {
+    use std::os::windows::fs::OpenOptionsExt;
+
+    let (_directory, pm_root) = root(&mutation_settings(0))?;
+    create_item(&pm_root, request())?;
+    let item = pm_root.join("tasks/sample-unit.toon");
+    let held = OpenOptions::new().read(true).share_mode(0).open(&item)?;
+    assert!(item.is_file());
+    assert!(matches!(
+        locate_item(&pm_root, "sample-unit"),
+        Err(PmRustError::Io { path, .. }) if path == item
+    ));
+    drop(held);
+    assert!(locate_item(&pm_root, "sample-unit").is_ok());
     Ok(())
 }
 
@@ -2359,6 +2461,27 @@ fn an_unreadable_incumbent_lock_is_contention_rather_than_a_filesystem_error() {
         "an unreadable incumbent lock is contention, got {error:?}",
     );
     drop(directory);
+}
+
+#[cfg(windows)]
+#[test]
+/// A real second handle prevents reading the incumbent after create-new fails.
+fn an_exclusively_held_windows_lock_is_contention() -> Result<(), Box<dyn std::error::Error>> {
+    use std::os::windows::fs::OpenOptionsExt;
+
+    let (_directory, pm_root) = root(&mutation_settings(0))?;
+    fs::create_dir_all(pm_root.join("locks"))?;
+    let path = pm_root.join("locks/sample-held.lock");
+    fs::write(&path, "{}\n")?;
+    let held = OpenOptions::new().read(true).share_mode(0).open(&path)?;
+    assert!(fs::read_to_string(&path).is_err());
+    assert!(matches!(
+        acquire_lock_attempt(&pm_root, "sample-held", "load-agent", 1800, false, TS),
+        Err(PmRustError::LockConflict { id }) if id == "sample-held"
+    ));
+    drop(held);
+    assert_eq!(fs::read_to_string(&path)?, "{}\n");
+    Ok(())
 }
 
 #[test]

@@ -363,18 +363,27 @@ fn cursor_recovery_arguments_preserve_public_flags() {
 }
 
 /// A non-UTF-8 argument is published lossily inside the normal cursor refusal.
-#[cfg(unix)]
+#[cfg(any(unix, windows))]
 #[test]
 fn non_utf8_arguments_publish_the_cursor_refusal_envelope() {
     use std::ffi::OsString;
+    #[cfg(unix)]
     use std::os::unix::ffi::OsStringExt;
+    #[cfg(windows)]
+    use std::os::windows::ffi::OsStringExt;
 
+    #[cfg(unix)]
+    let malformed = OsString::from_vec(vec![0xff]);
+    #[cfg(windows)]
+    let malformed = OsString::from_wide(&[0xD800]);
+    let mut workspace = OsString::from("--workspace=");
+    workspace.push(&malformed);
     let mut after = OsString::from("--after=");
-    after.push(OsString::from_vec(vec![0x66, 0x6f, 0x80]));
+    after.push(&malformed);
     let args = super::published_read_arguments([
         OsString::from("--workspace"),
-        OsString::from_vec(vec![0xff]),
-        OsString::from_vec(b"--workspace=\xff".to_vec()),
+        malformed,
+        workspace,
         OsString::from("list"),
         OsString::from("--json"),
         after,

@@ -6,11 +6,13 @@ status: in_progress
 priority: 2
 tags[3]: conformance,read-parity,rust
 created_at: "2026-10-02T19:11:02.190Z"
-updated_at: "2026-10-06T12:12:31.289Z"
+updated_at: "2026-10-06T12:29:52.475Z"
+assignee: codex-sol
+claim_principal: codex-sol
 author: codex-sol
 acceptance_criteria: Real TS and Rust CLIs match multi-page envelopes and continuation fingerprints on shared fixtures; Stale or mismatched cursors fail consistently; No item loss or repeated rows; Output omission and budget receipts match; Existing gates remain enforced
 parent: pm-rust-u4al
-comments[37]{created_at,author,text}:
+comments[41]{created_at,author,text}:
   "2026-10-02T20:09:16.243Z",codex-sol,"PR #58 full-projection follow-up: published --full additionally emits read_output alias/migration/budget diagnostics, including estimated_tokens. Native --full restores complete metadata with unchanged selection, but these output-policy diagnostics remain outside the current slice and are explicitly documented. Synthetic exact published read_output receipt captured in tests/fixtures/list-full-read-output-2026-10-2.json; original nine envelope comparisons remain exact and unchanged. Include full-projection output policy in this bounded-output/canonical-controls follow-up."
   "2026-10-05T07:13:33.482Z",codex-sol,"Inspect the published 2026.10.5 list contract and existing differential fixtures before implementing native pagination, cursor validation and bounded projection receipts. Preserve every existing release gate; add shared-fixture differential and randomized page-walk evidence."
   "2026-10-05T07:38:18.064Z",codex-sol,"Baseline: all eight existing list differential tests pass with the installed TS CLI 2026.10.5, including nine golden envelopes. Contract discovery: --after follows item identity and collapses subsequent envelope metadata into continuation_contract; it does not bind a snapshot. --output-cursor binds the projected row collection and rejects stale snapshots. Pagination tests will distinguish these contracts instead of claiming producer cursors refuse mutations."
@@ -48,7 +50,11 @@ comments[37]{created_at,author,text}:
   "2026-10-06T12:08:05.703Z",codex-sol,"Coverage diagnostic at 282d5cd confirms the macOS gap is exactly src/mutation.rs lines 644-647 and 908-911: history flush and parent sync error mapping. Added null-device failure cases on Unix and the Windows NUL device to the existing unit tests; both portable additions pass on Linux. No product code or coverage threshold changed. The full local aggregate rerun is still active. Will push these test corrections and verify the final platform matrix."
   "2026-10-06T12:09:08.979Z",codex-sol,"Final implementation receipt: portable mutation error tests pass locally, including both newly linked pm test commands. The full just release-check rerun passed in 232 seconds and still measures 100 percent lines, functions, regions and branches. Finding 4184061254 is fixed native divergence from installed TS 2026.10.6 and pinned TS 2026.10.5; finding 4184061258 is fixed with args_os and lossy argument publication. Regression tests fail on revert. Commits so far: bedc7a3 fixes, 829e3a5 origin/main merge, 62e04c6 macOS fixture correction, 282d5cd coverage diagnostics. pm-rust-poen stays open for legacy fingerprint parity. Implementation work is finished; releasing the claim for orchestrator review while passively monitoring the next pushed CI matrix. No item closed, GitHub issue filed, bot mentioned, or GitHub reply sent."
   "2026-10-06T12:12:29.280Z",codex-sol,"Compatibility check found main branch protection requires the exact status name Release gate aggregate. Preserved that existing name for the Linux matrix entry while naming the macOS and Windows entries separately. Matrix scope, checks, thresholds, test commands and source code are unchanged. This prevents an otherwise green matrix from leaving the required status absent. Releasing the claim after this workflow correction."
-files[18]{path,scope}:
+  "2026-10-06T12:22:14.940Z",codex-sol,"PR #60 Windows aggregate coverage: inspect the failed run, add Windows-native symlink, surrogate-name, filesystem failure and lock-contention fixtures beside Unix tests, then verify Windows compilation and Linux release-check before pushing. Keep all coverage thresholds and reachable error handling intact; at most three CI rounds."
+  "2026-10-06T12:24:56.494Z",codex-sol,"Failed run 37461636884 confirms mutation lines 457,466,556,564-566,604-606,737,1278,1296-1300 and workspace lines 98,176-178,370. main.rs has one missed region, zero missed lines, so show-missing-lines supplies no main line; the OsString argument closure is exercised only by the Unix fixture. Added native surrogate-name cases, exclusive file handles, a real NTFS temporary-name overflow, file/directory symlinks with mandatory CI privilege enforcement, and a verbatim parent-component path."
+  "2026-10-06T12:26:03.681Z",codex-sol,"Windows all-targets check and Rust 1.90 Windows all-targets/all-features Clippy passed. First Linux release-check stopped at the pinned-oracle assertion: globally installed PM CLI is 2026.10.6 but this branch requires 2026.10.5. Installing the exact oracle inside the package worktree and rerunning with explicit PM_NODE_CLI; no package source or thresholds changed."
+  "2026-10-06T12:29:52.475Z",codex-sol,"Local validation passed through pm test: Windows cargo check all-targets; Rust 1.90 Windows Clippy all-targets/all-features with warnings denied; mutation unit tests; read_contract tests; just release-check against the installed 2026.10.5 oracle. Linux measured lines/functions/regions/branches = 100/100/100/100. Dispositions: mutation 457 parentless root; 466 and 556 real surrogate filenames; 564-566 NTFS temporary-name overflow; 604-606 exclusive replacement-target handle; 737 exclusive second lock handle; 1278 file/directory symlinks; 1296-1300 exclusive item handle. workspace 98 verbatim parent-component fixture; 176-178 exclusive item handle; 370 real nested symlinks. main missed region receives Windows OsString surrogate arguments; the original report has no missed main lines. Proceeding with CI round 1."
+files[19]{path,scope}:
   .github/workflows/ci.yml,project
   justfile,project
   src/list_intent.rs,project
@@ -66,8 +72,9 @@ files[18]{path,scope}:
   tests/support/mutation_unit.rs,project
   tests/support/pagination_unit.rs,project
   tests/support/read_output_unit.rs,project
+  tests/support/windows_fs.rs,project
   tests/support/workspace_unit.rs,project
-tests[12]:
+tests[16]:
   - command: PM_RUST_REQUIRE_PUBLISHED_CLI=1 cargo test --locked --test pagination_differential --test list_differential
     scope: project
     timeout_seconds: 600
@@ -152,6 +159,34 @@ tests[12]:
     provenance:
       author: codex-sol
       created_at: "2026-10-06T12:08:10.634Z"
+      source_kind: local_mutation
+      source_ref: feat/list-pagination-parity
+  - command: cargo check --target x86_64-pc-windows-gnu --all-targets
+    scope: project
+    provenance:
+      author: codex-sol
+      created_at: "2026-10-06T12:24:58.147Z"
+      source_kind: local_mutation
+      source_ref: feat/list-pagination-parity
+  - command: cargo +1.90.0 clippy --locked --target x86_64-pc-windows-gnu --all-targets --all-features -- -D warnings
+    scope: project
+    provenance:
+      author: codex-sol
+      created_at: "2026-10-06T12:25:00.825Z"
+      source_kind: local_mutation
+      source_ref: feat/list-pagination-parity
+  - command: "cargo test --locked --lib mutation::tests"
+    scope: project
+    provenance:
+      author: codex-sol
+      created_at: "2026-10-06T12:25:41.864Z"
+      source_kind: local_mutation
+      source_ref: feat/list-pagination-parity
+  - command: cargo test --locked --test read_contract
+    scope: project
+    provenance:
+      author: codex-sol
+      created_at: "2026-10-06T12:25:42.959Z"
       source_kind: local_mutation
       source_ref: feat/list-pagination-parity
 docs[3]:

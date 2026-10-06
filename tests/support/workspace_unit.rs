@@ -40,6 +40,33 @@ fn query_discovery_keeps_resolved_input_spelling() -> Result<(), Box<dyn std::er
     Ok(())
 }
 
+#[cfg(windows)]
+#[test]
+fn verbatim_windows_parent_path_reaches_the_component_fold()
+-> Result<(), Box<dyn std::error::Error>> {
+    let directory = tempfile::tempdir()?;
+    let tracker = directory.path().join(".agents/pm");
+    let nested = directory.path().join("nested");
+    std::fs::create_dir_all(&tracker)?;
+    std::fs::create_dir(&nested)?;
+    std::fs::write(tracker.join("settings.json"), "{}")?;
+    // PathBuf::join normalizes verbatim paths. Append to the OS string so the
+    // real parent component survives absolute() and reaches discovery's fold.
+    let mut spelling = std::fs::canonicalize(&nested)?.into_os_string();
+    spelling.push(r"\..");
+    let parent = PathBuf::from(spelling);
+    let resolved = std::path::absolute(&parent)?;
+    assert!(
+        resolved
+            .components()
+            .any(|c| c == std::path::Component::ParentDir)
+    );
+    let workspace = super::Workspace::discover(&parent)?;
+    assert_eq!(workspace.pm_root(), std::fs::canonicalize(&tracker)?);
+    assert_eq!(workspace.query_pm_root(), std::fs::canonicalize(&tracker)?);
+    Ok(())
+}
+
 #[test]
 fn query_spelling_preserves_windows_aliases_and_unix_physical_roots() {
     let resolved = Path::new("short-name/.agents/pm");

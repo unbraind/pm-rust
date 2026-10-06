@@ -12,6 +12,10 @@ use proptest::prelude::*;
 use serde_json::Value;
 use tempfile::TempDir;
 
+#[cfg(windows)]
+#[path = "support/windows_fs.rs"]
+mod windows_fs;
+
 const ITEM_A: &str = r#"id: demo-a
 title: Alpha
 description: ""
@@ -309,6 +313,34 @@ fn reports_an_unreadable_item_path() -> Result<(), Box<dyn std::error::Error>> {
     Ok(())
 }
 
+#[cfg(windows)]
+#[test]
+fn reports_a_windows_exclusively_held_item_path() -> Result<(), Box<dyn std::error::Error>> {
+    use std::os::windows::fs::OpenOptionsExt;
+
+    let (directory, root) = tracker()?;
+    let path = root.join("tasks/demo-a.toon");
+    let held = fs::OpenOptions::new()
+        .read(true)
+        .share_mode(0)
+        .open(&path)?;
+    let result = Workspace::discover(directory.path())?.read_items();
+    Command::cargo_bin("pm-rust")?
+        .arg("--workspace")
+        .arg(directory.path())
+        .arg("list")
+        .assert()
+        .code(2)
+        .stderr(contains("filesystem operation failed"));
+    assert!(matches!(result, Err(PmRustError::Io { path: failed, .. }) if failed == path));
+    drop(held);
+    assert_eq!(
+        Workspace::discover(directory.path())?.read_items()?.len(),
+        2
+    );
+    Ok(())
+}
+
 #[cfg(unix)]
 #[test]
 fn reports_an_unreadable_nested_item_directory() -> Result<(), Box<dyn std::error::Error>> {
@@ -341,6 +373,33 @@ fn ignores_symlinked_item_directories() -> Result<(), Box<dyn std::error::Error>
     symlink(&external, root.join("tasks/link"))?;
     symlink(&external, root.join("linked-items"))?;
     let _listener = UnixListener::bind(root.join("tasks/read-side.sock"))?;
+    assert_eq!(
+        Workspace::discover(directory.path())?.read_items()?.len(),
+        2
+    );
+    Ok(())
+}
+
+#[cfg(windows)]
+#[test]
+fn ignores_windows_symlinked_item_directories() -> Result<(), Box<dyn std::error::Error>> {
+    use std::os::windows::fs::{symlink_dir, symlink_file};
+
+    let (directory, root) = tracker()?;
+    let external = directory.path().join("external");
+    write(external.join("secret.toon"), ITEM_A)?;
+    if !windows_fs::symlink_created(symlink_dir(&external, root.join("tasks/link")))? {
+        return Ok(());
+    }
+    if !windows_fs::symlink_created(symlink_dir(&external, root.join("linked-items")))? {
+        return Ok(());
+    }
+    if !windows_fs::symlink_created(symlink_file(
+        external.join("secret.toon"),
+        root.join("tasks/linked.toon"),
+    ))? {
+        return Ok(());
+    }
     assert_eq!(
         Workspace::discover(directory.path())?.read_items()?.len(),
         2
