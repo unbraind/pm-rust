@@ -1,0 +1,18 @@
+id: pm-rust-poen
+title: Legacy list cursors without after_index publish the query fingerprint
+description: "Published PM CLI 2026.10.5 sets continuation_contract.fingerprint to opaque_cursor when --after decodes but has no after_index. Native list keeps the real query fingerprint. Reproduced on a 75-item fixture: strip after_index from a producer cursor whose after_index is 68, then list --json --after that cursor. Reference continuation_contract.fingerprint is opaque_cursor; native emits the 24-character query fingerprint. The same gap appears with and without --for triage. With after_index present, the envelopes match. This is separate from triage final-page compaction, which must not rebase a missing after_index from zero."
+type: Issue
+status: open
+priority: 2
+tags[3]: conformance,read-parity,rust
+created_at: "2026-10-06T10:55:34.240Z"
+updated_at: "2026-10-06T11:46:40.176Z"
+author: pi-glm
+acceptance_criteria: "A producer cursor without after_index yields continuation_contract.fingerprint opaque_cursor and byte-identical list envelopes against published PM CLI 2026.10.5, including triage pages; cursors that include after_index stay unchanged."
+parent: pm-rust-u4al
+comments[2]{created_at,author,text}:
+  "2026-10-06T10:58:03.820Z",pi-glm,"Repro for the orchestrator: on a 75-item fixture, list --json --limit 69 --output-budget unbounded, decode next_cursor, remove after_index, and re-encode base64url. list --json --after that cursor --output-budget unbounded. Published PM CLI 2026.10.5 sets continuation_contract.fingerprint to opaque_cursor. Native emits the 24-character query fingerprint. The same split appears with --for triage. Cursors that still contain after_index match byte for byte. Do not treat this as the triage rebase bug; that path now requires after_index and omits an over-budget final page."
+  "2026-10-06T11:46:40.176Z",codex-sol,Continuation review retained this inherited follow-up item. The scoped differential test for finding 4184061254 compares budget omission and continuation metadata; complete envelope equality for legacy cursors remains blocked by this separate fingerprint mismatch.
+files[1]{path,scope}:
+  src/list.rs,project
+body: ""

@@ -102,7 +102,12 @@ pub(crate) fn attach(mut result: Value, options: &ListOptions, budget: usize) ->
     let cursor = raw.and_then(|raw| {
         let bytes =
             base64::Engine::decode(&base64::engine::general_purpose::URL_SAFE_NO_PAD, raw).ok()?;
-        serde_json::from_slice::<Value>(&bytes).ok()
+        let cursor = serde_json::from_slice::<Value>(&bytes).ok()?;
+        // A legacy cursor may omit after_index. Treating the omission as zero
+        // rebases a final page onto the first rows; the published CLI skips
+        // compaction unless the index is present.
+        cursor["after_index"].as_u64()?;
+        Some(cursor)
     });
     if let Some(mut cursor) = cursor {
         let original_count = result["items"].as_array().map_or(0, Vec::len);

@@ -361,3 +361,35 @@ fn cursor_recovery_arguments_preserve_public_flags() {
     let output = super::cursor_error_json("read_output_cursor_stale", "reason", &args);
     assert!(output.get("next_steps").is_none());
 }
+
+/// A non-UTF-8 argument is published lossily inside the normal cursor refusal.
+#[cfg(unix)]
+#[test]
+fn non_utf8_arguments_publish_the_cursor_refusal_envelope() {
+    use std::ffi::OsString;
+    use std::os::unix::ffi::OsStringExt;
+
+    let mut after = OsString::from("--after=");
+    after.push(OsString::from_vec(vec![0x66, 0x6f, 0x80]));
+    let args = super::published_read_arguments([
+        OsString::from("--workspace"),
+        OsString::from_vec(vec![0xff]),
+        OsString::from_vec(b"--workspace=\xff".to_vec()),
+        OsString::from("list"),
+        OsString::from("--json"),
+        after,
+    ]);
+    assert_eq!(args[..2], ["list".to_owned(), "--json".to_owned()]);
+    assert!(args[2].starts_with("--after="));
+    assert!(args[2].contains('\u{FFFD}'));
+    let payload =
+        super::cursor_error_json("invalid_query_cursor", "Query cursor is malformed.", &args);
+    assert_eq!(payload["exit_code"], 2);
+    assert_eq!(payload["code"], "invalid_query_cursor");
+    assert_eq!(payload["refusal"]["exit_code"], 2);
+    assert_eq!(
+        payload["recovery"]["attempted_command"],
+        format!("pm {}", args.join(" "))
+    );
+    assert!(payload["next_steps"].is_array());
+}

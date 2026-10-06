@@ -65,6 +65,14 @@ fn noncontinuable_intent_rows_disclose_infeasible_declaration() {
     assert_eq!(result["context_intent"]["declaration_feasible"], false);
     let result = super::attach(json!({"items":[],"next_cursor":"bad"}), &options, 10000);
     assert_eq!(result["context_intent"]["result_omitted"], false);
+    // Base64 that is not JSON must fail closed inside cursor decode.
+    let result = super::attach(
+        json!({"items":[],"next_cursor":"bm90LWpzb24"}),
+        &options,
+        10000,
+    );
+    assert_eq!(result["context_intent"]["result_omitted"], false);
+    assert!(result.get("budget_exceeded").is_none());
 }
 
 #[test]
@@ -112,6 +120,28 @@ fn final_page_budget_rebases_from_the_source_index() {
             9 + count
         );
     }
+}
+
+/// A legacy final-page cursor without `after_index` must not rebase from zero.
+#[test]
+fn legacy_final_page_without_after_index_does_not_rebase_from_zero() {
+    let cursor =
+        crate::pagination::encode(&json!({"version":1,"fingerprint":"fp","after_id":"preceding"}));
+    let options = ListOptions {
+        intent: Some("triage".to_owned()),
+        after: Some(cursor),
+        ..ListOptions::default()
+    };
+    let source = json!({"items":(0..8).map(|i|json!({"id":format!("demo-{i}"),"title":"x".repeat(240)})).collect::<Vec<_>>(),"count":8,"applied_limit":8,"next_cursor":serde_json::Value::Null});
+    let result = super::attach(source, &options, 700);
+    assert!(result.get("items").is_none());
+    assert!(result.get("next_cursor").is_none());
+    assert_eq!(result["budget_exceeded"]["omitted_result"], true);
+    assert_eq!(result["context_intent"]["result_omitted"], true);
+    assert_ne!(
+        result["context_intent"]["degradation"],
+        "budget_row_compaction"
+    );
 }
 
 /// Intent receipts can omit an infeasible single row or retain an unchanged cursor.

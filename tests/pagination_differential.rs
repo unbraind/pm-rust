@@ -583,6 +583,98 @@ fn output_budget_pages_are_complete_and_byte_identical() -> TestResult {
     Ok(())
 }
 
+/// A legacy final-page cursor without `after_index` must omit, not rebase from zero.
+#[test]
+fn legacy_after_without_after_index_omits_final_triage_page() -> TestResult {
+    use base64::{Engine, engine::general_purpose::URL_SAFE_NO_PAD};
+    let directory = fixture(75, 400)?;
+    let first = compare(
+        directory.path(),
+        &[
+            "--for",
+            "triage",
+            "--token-budget",
+            "100000",
+            "--limit",
+            "69",
+            "--output-budget",
+            "unbounded",
+        ],
+        true,
+    )?;
+    let raw = first["next_cursor"]
+        .as_str()
+        .ok_or("missing final-page cursor")?;
+    let mut cursor: Value = serde_json::from_slice(&URL_SAFE_NO_PAD.decode(raw)?)?;
+    assert!(
+        cursor["after_index"]
+            .as_u64()
+            .is_some_and(|index| index > 0)
+    );
+    cursor
+        .as_object_mut()
+        .ok_or("cursor object")?
+        .shift_remove("after_index");
+    let legacy = URL_SAFE_NO_PAD.encode(cursor.to_string());
+    let flags = [
+        "--for",
+        "triage",
+        "--token-budget",
+        "800",
+        "--full",
+        "--after",
+        legacy.as_str(),
+        "--output-budget",
+        "unbounded",
+    ];
+    let native = Command::new(env!("CARGO_BIN_EXE_pm-rust"))
+        .args(["--workspace", ".", "list", "--timestamp", CLOCK, "--json"])
+        .args(flags)
+        .current_dir(directory.path())
+        .env_remove("PM_PATH")
+        .output()?;
+    assert!(
+        native.status.success(),
+        "native: {}",
+        String::from_utf8_lossy(&native.stderr)
+    );
+    let native_page: Value = serde_json::from_slice(&native.stdout)?;
+    // Reverting the after_index requirement emits compacted rows and a cursor
+    // whose after_index equals the retained count. The reference omits instead.
+    assert!(native_page.get("items").is_none());
+    assert!(native_page["next_cursor"].is_null());
+    assert_eq!(native_page["budget_exceeded"]["omitted_result"], true);
+    assert_eq!(
+        native_page["budget_exceeded"]["reason"],
+        "effective_budget_infeasible"
+    );
+    if directory.path().join("driver.mjs").is_file() {
+        let published = Command::new(
+            std::env::var("PM_NODE_INTERPRETER").unwrap_or_else(|_| "node".to_owned()),
+        )
+        .arg(directory.path().join("driver.mjs"))
+        .args(["list", "--json"])
+        .args(flags)
+        .current_dir(directory.path())
+        .env_remove("PM_PATH")
+        .output()?;
+        assert_eq!(published.status.code(), native.status.code());
+        let published_page: Value = serde_json::from_slice(&published.stdout)?;
+        assert_eq!(
+            published_page["budget_exceeded"],
+            native_page["budget_exceeded"]
+        );
+        assert!(published_page.get("items").is_none());
+        assert!(published_page["next_cursor"].is_null());
+        // Fingerprint spelling is tracked separately; this test pins omission.
+        assert_eq!(
+            published_page["continuation_contract"]["metadata"],
+            "reference"
+        );
+    }
+    Ok(())
+}
+
 /// A projection change on the final producer page must rebase from its original position.
 #[test]
 fn final_intent_page_compacts_without_losing_its_continuation() -> TestResult {

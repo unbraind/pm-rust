@@ -445,7 +445,7 @@ fn main() -> ExitCode {
             if let Some(pm_rust::PmRustError::ReadCursor { code, detail }) =
                 error.downcast_ref::<pm_rust::PmRustError>()
             {
-                let args = published_read_arguments(std::env::args().skip(1));
+                let args = published_read_arguments(std::env::args_os().skip(1));
                 let payload = cursor_error_json(code, detail, &args);
                 // Cursor flags require JSON; a closed diagnostic pipe still exits 2.
                 let _ = write_json_to(&mut std::io::stderr().lock(), &payload);
@@ -458,9 +458,19 @@ fn main() -> ExitCode {
 }
 
 /// Removes native clock and discovery controls from published error recovery arguments.
-fn published_read_arguments(args: impl Iterator<Item = String>) -> Vec<String> {
+///
+/// Callers pass `args_os` so a non-UTF-8 argument cannot panic this refusal
+/// path. Each argument is lossily owned, then published in the normal JSON
+/// envelope with exit code 2.
+fn published_read_arguments<I, S>(args: I) -> Vec<String>
+where
+    I: IntoIterator<Item = S>,
+    S: AsRef<std::ffi::OsStr>,
+{
     let mut arguments = Vec::new();
-    let mut args = args;
+    let mut args = args
+        .into_iter()
+        .map(|arg| arg.as_ref().to_string_lossy().into_owned());
     while let Some(arg) = args.next() {
         if arg == "--timestamp" || arg == "--workspace" {
             args.next();

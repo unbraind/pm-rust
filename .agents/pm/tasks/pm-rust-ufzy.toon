@@ -6,13 +6,13 @@ status: in_progress
 priority: 2
 tags[3]: conformance,read-parity,rust
 created_at: "2026-10-02T19:11:02.190Z"
-updated_at: "2026-10-05T11:56:59.676Z"
-assignee: pi-rust-greptile2
-claim_principal: pi-rust-greptile2
+updated_at: "2026-10-06T11:52:28.696Z"
+assignee: codex-sol
+claim_principal: codex-sol
 author: codex-sol
 acceptance_criteria: Real TS and Rust CLIs match multi-page envelopes and continuation fingerprints on shared fixtures; Stale or mismatched cursors fail consistently; No item loss or repeated rows; Output omission and budget receipts match; Existing gates remain enforced
 parent: pm-rust-u4al
-comments[24]{created_at,author,text}:
+comments[32]{created_at,author,text}:
   "2026-10-02T20:09:16.243Z",codex-sol,"PR #58 full-projection follow-up: published --full additionally emits read_output alias/migration/budget diagnostics, including estimated_tokens. Native --full restores complete metadata with unchanged selection, but these output-policy diagnostics remain outside the current slice and are explicitly documented. Synthetic exact published read_output receipt captured in tests/fixtures/list-full-read-output-2026-10-2.json; original nine envelope comparisons remain exact and unchanged. Include full-projection output policy in this bounded-output/canonical-controls follow-up."
   "2026-10-05T07:13:33.482Z",codex-sol,"Inspect the published 2026.10.5 list contract and existing differential fixtures before implementing native pagination, cursor validation and bounded projection receipts. Preserve every existing release gate; add shared-fixture differential and randomized page-walk evidence."
   "2026-10-05T07:38:18.064Z",codex-sol,"Baseline: all eight existing list differential tests pass with the installed TS CLI 2026.10.5, including nine golden envelopes. Contract discovery: --after follows item identity and collapses subsequent envelope metadata into continuation_contract; it does not bind a snapshot. --output-cursor binds the projected row collection and rejects stale snapshots. Pagination tests will distinguish these contracts instead of claiming producer cursors refuse mutations."
@@ -37,21 +37,32 @@ comments[24]{created_at,author,text}:
   "2026-10-05T11:04:46.424Z",pi-rust-greptile2,"Continuing the head-78068d9 review follow-up and taking over the stale claim. Prior differential evidence is confirmed against the installed TS 2026.10.5: findings 4182703846 and 4182703859 reproduce byte-identically in the published reference (snapshot hashed after the amount cap with stale unchanged replay; producer rebasing uses the capped count after deletion), so they are pinned as reference parity with new differential tests rather than diverging fixes. 4182703871 and 4182703906 are real divergences: shared JS-compatible number formatting (ryu-js) now covers history hashes, snapshot hashes, wire JSON and token estimates, and equals-form native controls are stripped from recovery. Re-verified against the real TS CLI: float values match byte-for-byte (30.0 as 30, 1e20 as 100000000000000000000, 1e-6 as 0.000001). Also confirmed native sorts extra metadata keys while the reference preserves file order — a pre-existing separate divergence that will be filed as a follow-up item, out of this slice."
   "2026-10-05T11:56:54.251Z",pi-rust-greptile2,"Coverage-gate follow-up: the first instrumented run of the JS number-formatting fix reported one uncovered region in the CLI response writer. Root cause: the to_value error region of the generic writer could only be exercised by a synthetic test-only serialization type, and the region summary never counted that record. The response writer now serializes through a shared JavaScript-number formatter (serde_json Serializer with a custom Formatter; pretty layout identical to the reference), which restores the original writer-error topology and removes the to_value intermediate entirely. A wire-bytes equivalence test asserts the writer's output equals the shared renderer plus newline. Instrumented aggregate now reports 100 percent on all four metrics: 3036/3036 lines, 273/273 functions, 4605/4605 regions, 624/624 branches, with all 197 tests passing including the byte-exact differential suite."
   "2026-10-05T11:56:59.676Z",pi-rust-greptile2,"Coverage-gate follow-up: the first instrumented run of the JS number-formatting fix reported one uncovered region in the CLI response writer. The to_value error region of the generic writer could only be exercised by a synthetic test-only serialization type, and the region summary never counted that record. The response writer now serializes through a shared JavaScript-number formatter (a serde_json Serializer with a custom Formatter whose pretty layout matches the reference), which restores the original writer-error topology and removes the to_value intermediate. A wire-bytes equivalence test asserts the writer output equals the shared renderer plus newline. Instrumented aggregate now reports 100 percent on all four metrics: 3036/3036 lines, 273/273 functions, 4605/4605 regions, 624/624 branches, with all 197 tests passing including the byte-exact differential suite."
-files[13]{path,scope}:
+  "2026-10-06T10:45:15.164Z",pi-glm,"Taking over the stale claim from the finished number-formatting slice to handle CodeRabbit findings 4184061254 and 4184061258. Will reproduce the legacy after-cursor final-page triage compaction against the installed TS CLI before deciding whether native diverges, and will make the cursor-refusal argument publisher use args_os so non-UTF-8 arguments cannot panic."
+  "2026-10-06T10:58:03.080Z",pi-glm,"Finding 4184061254 reproduced against published PM CLI 2026.10.5; the installed 2026.10.6 context-intent decoder is identical. A 75-item triage page with limit 69 produced a producer cursor at after_index 68. Stripping after_index and requesting the final page with --for triage --token-budget 800 --full made native compact three rows and write after_index 3. The reference omitted the page with budget_exceeded effective_budget_infeasible and did not rebase. Deleting the rebased identity then resumed at demo-0015 and repeated earlier rows. Native now requires after_index before compaction, matching the reference omission. The unit regression legacy_final_page_without_after_index_does_not_rebase_from_zero fails when that requirement is removed. The differential legacy_after_without_after_index_omits_final_triage_page pins the published omission. No upstream issue: the reference does not rebase from zero. The remaining continuation_contract.fingerprint gap is tracked in pm-rust-poen and is not changed in this slice."
+  "2026-10-06T11:06:12.506Z",pi-glm,"Finding 4184061258: cursor refusals read std::env::args_os and lossily own each argument, so a non-UTF-8 argument cannot panic the JSON refusal. The envelope still exits 2. Unix unit test non_utf8_arguments_publish_the_cursor_refusal_envelope publishes a non-UTF-8 OsString inside that envelope. Process test non_utf8_workspace_argument_refuses_a_bad_cursor_without_panic exits 2; reverting the call site to env::args panics with exit 101 and fails that test. Windows CI does not construct invalid OsStrings. Local just release-check passed after the decode-failure coverage fix: formatting, deny-warning clippy, private and public rustdoc, full suite, 100 percent lines functions regions and branches (3046/3046, 274/274, 4616/4616, 624/624), cargo audit, and pinned changelog check."
+  "2026-10-06T11:45:23.132Z",codex-sol,"Continuation review by codex-sol: inspected all inherited code, tests, documentation and tracker changes; retaining the after_index compaction guard, args_os publisher, Unix regression tests, and separate pm-rust-poen fingerprint follow-up. git pull --ff-only was already current. Will independently reproduce against installed TS CLI, prove regressions fail on revert, run release-check and tracker tests, commit fixes, merge origin/main as required by the continuation, push and monitor PR 60 checks. No GitHub replies or issue filing."
+  "2026-10-06T11:46:39.317Z",codex-sol,"Independent differential reproduction against installed TS CLI 2026.10.6 confirms finding 4184061254 is a native divergence: a 75-row fixture, producer limit 69, stripped after_index, triage token-budget 800 and --full yields native after_index 3 with rows, while TS omits rows with effective_budget_infeasible. Retaining the required-after_index fix, with no upstream issue draft needed. The legacy_final_page_without_after_index_does_not_rebase_from_zero unit test fails against HEAD before the fix (exit 101)."
+  "2026-10-06T11:47:41.871Z",codex-sol,"The existing CI matrix ran functional tests on Linux/macOS/Windows but measured coverage only on Linux. Extended the release-check job to the same three operating systems with Bash shell defaults and fail-fast disabled; no thresholds or test exclusions changed. All platforms must independently pass the existing four-metric 100 percent coverage predicate. Findings regression reverts were restored; env::args caused the process test to observe exit 101 and panic, proving the args_os fix is necessary."
+  "2026-10-06T11:50:04.859Z",codex-sol,"All nine focused linked tests passed. The first aggregate run was interrupted by the linked runner default 120-second timeout during instrumented pagination tests, with no assertion failure. Increased only this linked command timeout to 600 seconds and rerunning it. PM health and validate return ok with existing advisory warnings; no unrelated tracker reconciliation performed."
+  "2026-10-06T11:52:28.696Z",codex-sol,"Local verification complete: all nine focused linked tests passed; pm test pm-rust-ufzy --run --progress --only-index 10 --timeout 600 passed just release-check in 127 seconds against pinned TS CLI 2026.10.5. Coverage is 3046/3046 lines, 274/274 functions, 4616/4616 regions and 624/624 branches, all 100 percent. Formatting, deny-warning clippy, private documentation, full tests, cargo audit and changelog check passed. Independently confirmed the fixed omission receipt matches installed TS 2026.10.6. Both finding regression tests fail on revert. Next: commit, merge origin/main action-pin updates, push, and check remote matrix coverage."
+files[16]{path,scope}:
+  .github/workflows/ci.yml,project
   src/list_intent.rs,project
   src/list.rs,project
   src/main.rs,project
   src/pagination.rs,project
   src/read_output.rs,project
   src/workspace.rs,project
+  tests/cli_dispatch.rs,project
   tests/pagination_differential.rs,project
   tests/read_contract.rs,project
   tests/support/list_intent_unit.rs,project
   tests/support/list_unit.rs,project
+  tests/support/main_unit.rs,project
   tests/support/pagination_unit.rs,project
   tests/support/read_output_unit.rs,project
   tests/support/workspace_unit.rs,project
-tests[5]:
+tests[10]:
   - command: PM_RUST_REQUIRE_PUBLISHED_CLI=1 cargo test --locked --test pagination_differential --test list_differential
     scope: project
     timeout_seconds: 600
@@ -88,12 +99,48 @@ tests[5]:
       created_at: "2026-10-05T11:05:23.592Z"
       source_kind: local_mutation
       source_ref: feat/list-pagination-parity
+  - command: "cargo test --locked --lib list_intent::tests::legacy_final_page_without_after_index_does_not_rebase_from_zero"
+    scope: project
+    provenance:
+      author: pi-glm
+      created_at: "2026-10-06T10:58:34.545Z"
+      source_kind: local_mutation
+      source_ref: feat/list-pagination-parity
+  - command: PM_RUST_REQUIRE_PUBLISHED_CLI=1 cargo test --locked --test pagination_differential legacy_after_without_after_index_omits_final_triage_page
+    scope: project
+    provenance:
+      author: pi-glm
+      created_at: "2026-10-06T10:58:35.578Z"
+      source_kind: local_mutation
+      source_ref: feat/list-pagination-parity
+  - command: cargo test --locked --bin pm-rust non_utf8_arguments_publish_the_cursor_refusal_envelope
+    scope: project
+    provenance:
+      author: pi-glm
+      created_at: "2026-10-06T10:58:36.447Z"
+      source_kind: local_mutation
+      source_ref: feat/list-pagination-parity
+  - command: cargo test --locked --test cli_dispatch non_utf8_workspace_argument_refuses_a_bad_cursor_without_panic
+    scope: project
+    provenance:
+      author: pi-glm
+      created_at: "2026-10-06T10:58:37.197Z"
+      source_kind: local_mutation
+      source_ref: feat/list-pagination-parity
+  - command: just release-check
+    scope: project
+    timeout_seconds: 600
+    provenance:
+      author: codex-sol
+      created_at: "2026-10-06T11:50:03.908Z"
+      source_kind: local_mutation
+      source_ref: feat/list-pagination-parity
 docs[3]:
   - path: docs/CLI_PARITY_2026_10_2.md
     scope: project
   - path: docs/LIST_PAGINATION_2026_10_5.md
     scope: project
-    note: "Review follow-up section for JS number formatting, equals-form recovery stripping, pinned combined-ceiling parity and the metadata key-order boundary"
+    note: Review follow-up for legacy after_index compaction and args_os cursor refusals
   - path: README.md
     scope: project
 body: ""

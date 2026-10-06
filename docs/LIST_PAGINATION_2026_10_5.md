@@ -116,6 +116,27 @@ A pre-existing metadata key-order divergence — native sorts extra metadata
 while the reference preserves `.toon` file order — is tracked in
 [pm-rust-ba8f](https://github.com/unbraind/pm-rust/blob/main/.agents/pm/issues/pm-rust-ba8f.toon).
 
+## Review follow-up on c52418c
+
+A legacy `--after` cursor without `after_index` is accepted by producer paging,
+but triage final-page compaction must not treat the missing index as zero.
+Published PM CLI 2026.10.5 and installed 2026.10.6 skip that compaction and omit
+the over-budget page.
+Native previously rebased from zero (`after_index` equal to the retained count).
+Deleting that delivered identity then resumed near the start of the selection and
+repeated earlier rows. Compaction now requires `after_index`, matching the
+reference omission. `continuation_contract.fingerprint` for the same legacy
+cursor is still the query fingerprint rather than `opaque_cursor`; that separate
+gap is tracked in
+[pm-rust-poen](https://github.com/unbraind/pm-rust/blob/main/.agents/pm/issues/pm-rust-poen.toon).
+
+Cursor refusals read process arguments with `args_os` and lossy conversion, so a
+non-UTF-8 argument cannot panic the JSON refusal path.
+Both regression tests fail when their fixes are reverted: legacy compaction
+emits rows instead of omission, and the non-UTF-8 process exits 101 instead of 2.
+The CI release gate now runs on Linux, macOS and Windows; each runner enforces
+100 percent lines, functions, regions and branches via `just release-check`.
+
 ## Verification receipt
 
 Windows run `37287014816` exposed a native query fingerprint bug: the three
