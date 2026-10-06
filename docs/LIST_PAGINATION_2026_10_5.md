@@ -35,8 +35,10 @@ Producer limits default to the whole matching selection below 10,000 rows and
 estimated tokens. Explicit full projection and no-truncate express complete
 read intent; an explicit canonical budget can still override it. Canonical
 controls take precedence over aliases, with both requests recorded when a
-receipt is necessary. Producer page sizes and projection flags are presentation
-controls and do not change the query fingerprint.
+receipt is necessary. `--limit`, `--offset`, `--full` and `--brief` are presentation
+controls and do not change the query fingerprint; `--no-truncate` and `--for` are
+part of it and must stay constant across a walk (changing either mid-walk refuses
+the cursor as `invalid_query_cursor`).
 
 Canonical output token estimates use the rendered pretty JSON plus its newline,
 measured as `ceil(UTF-8 bytes / 4)`. Intent estimates use compact JSON. Estimates
