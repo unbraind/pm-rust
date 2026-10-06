@@ -6,6 +6,17 @@ use std::path::PathBuf;
 /// Failures returned by the Rust-native read surface.
 #[derive(Debug, thiserror::Error)]
 pub enum PmRustError {
+    /// The requested output budget cannot fit mandatory receipts and one row.
+    #[error("requested output budget is infeasible")]
+    OutputBudgetExceeded,
+    /// A producer or output continuation violates its published cursor contract.
+    #[error("{detail}")]
+    ReadCursor {
+        /// Published machine-readable error code.
+        code: &'static str,
+        /// Published refusal explanation.
+        detail: String,
+    },
     /// A query requests behavior outside the supported native read slice.
     #[error("invalid read request: {reason}")]
     InvalidReadRequest {

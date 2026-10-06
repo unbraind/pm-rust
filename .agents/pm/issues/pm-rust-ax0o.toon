@@ -1,0 +1,19 @@
+id: pm-rust-ax0o
+title: Stabilize the create lock-replacement fixture under parallel load
+description: "During pm-rust-ufzy aggregate validation, the unchanged Linux create_never_removes_a_lock_replaced_by_another_owner test failed once with a missing-file error; an immediate isolated rerun passed. The fixture observes lock-file existence before replacing its owner text, which may race the initial token write. Preserve the lock-ownership assertions while making fixture readiness deterministic; investigate before attributing this observation to production lock handling."
+type: Issue
+status: open
+priority: 2
+tags[3]: concurrency,rust,testing
+created_at: "2026-10-05T08:51:24.281Z"
+updated_at: "2026-10-05T08:54:08.145Z"
+author: codex-sol
+acceptance_criteria: Repeated full-suite and isolated runs under concurrent load pass with the same replacement-owner preservation assertions; Fixture readiness proves the initial owner token is fully written before replacement; Existing four-metric coverage and release gates remain enforced
+parent: pm-rust-u4al
+comments[1]{created_at,author,text}:
+  "2026-10-05T08:54:08.145Z",codex-sol,"The exact isolated test command also passed through pm test --run --progress, and the subsequent complete just release-check passed all 183 tests with all four coverage metrics at 100 percent. No mutation or create test assertions were changed in the pagination implementation. The intermittent observation still needs deterministic fixture investigation."
+files[1]{path,scope}:
+  tests/create_contract.rs,project
+tests[1]{command,scope,timeout_seconds,provenance{author,created_at,source_kind,source_ref}}:
+  cargo test --locked --test create_contract create_never_removes_a_lock_replaced_by_another_owner -- --nocapture,project,600,codex-sol,"2026-10-05T08:51:59.752Z",local_mutation,feat/list-pagination-parity
+body: ""

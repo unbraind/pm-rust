@@ -257,6 +257,46 @@ fn close_dispatch_closes_once_and_refuses_repeats() -> Result<(), Box<dyn std::e
     Ok(())
 }
 
+/// A non-UTF-8 workspace argument must not panic a cursor refusal.
+/// Linux permits these directory names; macOS rejects them before dispatch.
+/// The argument-publisher unit test exercises invalid bytes on every Unix OS.
+#[cfg(target_os = "linux")]
+#[test]
+fn non_utf8_workspace_argument_refuses_a_bad_cursor_without_panic()
+-> Result<(), Box<dyn std::error::Error>> {
+    use std::ffi::OsString;
+    use std::os::unix::ffi::OsStringExt;
+
+    let parent = tempfile::tempdir()?;
+    let mut name = OsString::from("ws-");
+    name.push(OsString::from_vec(vec![0xff, 0xfe]));
+    let workspace = parent.path().join(name);
+    let root = workspace.join(".agents/pm");
+    fs::create_dir_all(&root)?;
+    fs::write(
+        root.join("settings.json"),
+        r#"{"id_prefix":"sample-","item_format":"toon"}"#,
+    )?;
+    let output = Command::new(env!("CARGO_BIN_EXE_pm-rust"))
+        .arg("--workspace")
+        .arg(&workspace)
+        .args(["list", "--json", "--after", "not-a-cursor"])
+        .output()?;
+    let stderr = String::from_utf8_lossy(&output.stderr);
+    assert_eq!(output.status.code(), Some(2), "{stderr}");
+    assert!(!stderr.contains("panicked"), "{stderr}");
+    let payload: serde_json::Value = serde_json::from_str(stderr.trim())?;
+    assert_eq!(payload["code"], "invalid_query_cursor");
+    assert_eq!(payload["exit_code"], 2);
+    assert_eq!(payload["refusal"]["exit_code"], 2);
+    let attempted = payload["recovery"]["attempted_command"]
+        .as_str()
+        .ok_or("missing attempted command")?;
+    assert!(attempted.contains("list"));
+    assert!(!attempted.contains("--workspace"));
+    Ok(())
+}
+
 #[test]
 /// Covers parser-level refusals: unknown commands, missing args, bad workspaces.
 fn parser_refusals_exit_with_diagnostics() -> Result<(), Box<dyn std::error::Error>> {

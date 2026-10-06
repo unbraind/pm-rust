@@ -30,7 +30,7 @@ CHANGELOG_DATE := "2026-08-07"
 # (>=2026.8.3) otherwise changes tracker reads with the latest CLI.
 # A pm-changelog bump must regenerate CHANGELOG.md in the same change.
 PM_CHANGELOG_PKG := "pm-changelog@2026.9.25"
-PM_CLI_PKG := "@unbrained/pm-cli@2026.10.2"
+PM_CLI_PKG := "@unbrained/pm-cli@2026.10.5"
 
 # The item URL base for changelog links.
 ITEM_URL_BASE := "https://github.com/unbraind/pm-rust/blob/main/.agents/pm"
@@ -106,7 +106,11 @@ release-check:
     cargo +1.90.0 clippy --locked --all-targets --all-features -- -D warnings
     RUSTDOCFLAGS='--document-private-items -D missing-docs' cargo +1.90.0 doc --locked --all-features --no-deps
     PM_RUST_REQUIRE_PUBLISHED_CLI=1 cargo +1.90.0 test --locked --all-targets --all-features
+    test ! -e coverage-branch.json || unlink coverage-branch.json
     cargo +nightly-2026-08-06 llvm-cov --locked --branch --all-targets --all-features --json --output-path coverage-branch.json
-    jq -e '.data[0].totals.lines.percent == 100 and .data[0].totals.functions.percent == 100 and .data[0].totals.regions.percent == 100 and .data[0].totals.branches.percent == 100' coverage-branch.json
+    jq '.data[0].totals' coverage-branch.json
+    jq -e '.data[0].totals.lines.percent == 100 and .data[0].totals.functions.percent == 100 and .data[0].totals.regions.percent == 100 and .data[0].totals.branches.percent == 100' coverage-branch.json || \
+      { cargo +nightly-2026-08-06 llvm-cov report --branch --show-missing-lines; \
+        jq '[.data[0] as $data | $data.files[] | select(.summary.regions.notcovered > 0 or .summary.branches.notcovered > 0) as $file | {file: ($file.filename | split("\\") | last | split("/") | last), branches: ($file.branches | map(select(.[4] == 0 or .[5] == 0) | {span: .[0:4], yes: .[4], no: .[5]})), regions: ([$data.functions[] | select(.filenames[0] == $file.filename) | .regions[] | select(.[7] == 0)] | group_by(.[0:4]) | map({span: .[0][0:4], count: (map(.[4]) | add)}) | map(select(.count == 0)))}]' coverage-branch.json; exit 1; }
     cargo audit
     just changelog-check

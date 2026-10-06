@@ -1,4 +1,4 @@
-# CLI parity against PM CLI 2026.10.2
+# CLI parity: original 2026.10.2 slice and 2026.10.5 pagination
 
 Owner: [pm-rust-p0no](https://github.com/unbraind/pm-rust/blob/main/.agents/pm/features/pm-rust-p0no.toon).
 
@@ -7,11 +7,17 @@ an isolated temporary directory. Inventory was captured with
 `npx -y @unbrained/pm-cli@2026.10.2 help --all --json`. This is a vertical
 conformance slice; the version pin does not claim whole-CLI parity.
 
+The later [2026.10.5 pagination slice](LIST_PAGINATION_2026_10_5.md) adds
+`Workspace::list_page`, producer and output continuations, budgets, and triage.
+The original nine golden envelopes remain unchanged. The native CLI now includes
+published full-projection diagnostics and accepts JSON reads with default bounds.
+The table below records the original legacy SDK boundaries.
+
 ## Implemented and divergent native commands
 
 | Native command / SDK operation | Implemented | Remaining differences |
 | --- | --- | --- |
-| `list --json --output-budget unbounded --output-limit unbounded` / `Workspace::list_unbounded` | Complete published JSON envelope; default terminal exclusion; terminal-last/priority ascending/update descending/ID ordering; brief projection; full metadata for `--full`, `--all` or `--status all`; single status/type/ID filters; matching-count total; omission receipt; unknown metadata retained | Canonical default lifecycle registry and lowercase ASCII IDs only. Native `--full` restores fields but omits published `read_output` alias/budget diagnostics. No paging, cursors, automatic budgets, custom field selection, hooks, runtime schemas, CSV filters, or partial-result recovery |
+| `list --json --output-budget unbounded --output-limit unbounded` / `Workspace::list_unbounded` | Complete published JSON envelope; default terminal exclusion; terminal-last/priority ascending/update descending/ID ordering; brief projection; full metadata for `--full`, `--all` or `--status all`; single status/type/ID filters; matching-count total; omission receipt; unknown metadata retained | Canonical default lifecycle registry and lowercase ASCII IDs only. Extra (unknown) metadata keys are emitted in alphabetical order, while the published CLI keeps the `.toon` file order ([pm-rust-ba8f](../.agents/pm/issues/pm-rust-ba8f.toon)). Legacy unbounded SDK methods omit output-policy diagnostics; the newer `list_page` API supplies them. No custom field selection, hooks, runtime schemas, CSV filters, or partial-result recovery |
 | Bare `list` / `Workspace::list` | Existing deterministic native projection, ID order, exact filters | Native priority/parent fields and pre-filter total; includes terminal items; different envelope/order from published defaults |
 | `get` / `Workspace::get` | Validated complete item by ID; unknown fields retained | Flat native document; published entity envelope includes linked data, claim state, child summary, projections and omission receipts |
 | `create` / `Workspace::create` | Explicit ID; TOON and append-only history differential | Native argv/receipt subset; automatic IDs, runtime types, governance, hooks and other fields omitted |
@@ -20,7 +26,7 @@ conformance slice; the version pin does not claim whole-CLI parity.
 | `close` / `Workspace::close` | Immutable closing summary with stored-byte differential | Limited native argv/receipt and lifecycle/governance behavior |
 | Native clap help | Native argument documentation | Published structured `help --all --json` contract absent |
 
-Examples (the explicit unbounded flags are mandatory with `--json`):
+Examples (the explicit unbounded flags opt out of default bounds):
 
 ```bash
 pm-rust --workspace /path/to/project list --json --output-budget unbounded --output-limit unbounded
@@ -57,7 +63,7 @@ The create/update/comment/close/list/get native commands have implementation sli
 help differs and the other roots remain missing. Nested operations do not
 become implemented because one related native alias exists. In particular,
 agent `context`, `search`, `next` (nested/alias task selection), claim/release,
-read pagination, and native history merge/replay/repair remain follow-up work.
+configured context intents, and native history merge/replay/repair remain follow-up work.
 The published root inventory includes deprecated aliases and command families,
 so its count is an inventory measure rather than a readiness percentage.
 

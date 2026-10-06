@@ -6,6 +6,57 @@ use pm_rust::{ItemDocument, ItemFilter, ItemMetadata, ListResult};
 
 use super::{Cli, Command, run, write_json_to};
 
+/// Deliberately failing response proves encoding errors reach the caller.
+struct SerializationFailure;
+
+impl serde::Serialize for SerializationFailure {
+    fn serialize<S: serde::Serializer>(&self, _: S) -> Result<S::Ok, S::Error> {
+        Err(serde::ser::Error::custom("response cannot be encoded"))
+    }
+}
+
+#[test]
+fn response_serialization_errors_are_propagated() {
+    assert!(write_json_to(&mut Vec::new(), &SerializationFailure).is_err());
+}
+
+#[test]
+fn published_recovery_strips_both_native_control_spellings() {
+    for args in [
+        vec![
+            "--workspace",
+            "fixture",
+            "list",
+            "--timestamp",
+            "clock",
+            "--json",
+            "--after",
+            "bad",
+        ],
+        vec![
+            "--workspace=fixture",
+            "list",
+            "--timestamp=clock",
+            "--json",
+            "--after",
+            "bad",
+        ],
+    ] {
+        assert_eq!(
+            super::published_read_arguments(args.into_iter().map(str::to_owned)),
+            ["list", "--json", "--after", "bad"]
+        );
+    }
+    assert_eq!(
+        super::published_read_arguments(
+            ["--workspace-extra=fixture", "--timestamp-extra=clock"]
+                .into_iter()
+                .map(str::to_owned)
+        ),
+        ["--workspace-extra=fixture", "--timestamp-extra=clock"]
+    );
+}
+
 struct NewlineFailure {
     document_complete: bool,
 }
@@ -46,6 +97,39 @@ impl io::Write for FlushFailure {
     fn flush(&mut self) -> io::Result<()> {
         Err(io::Error::new(io::ErrorKind::BrokenPipe, "closed"))
     }
+}
+
+#[test]
+fn wire_bytes_match_the_shared_renderer_and_carry_the_newline()
+-> Result<(), Box<dyn std::error::Error>> {
+    let value = serde_json::json!({
+        "z": [{}, [], null, true, "line\n\"quoted\"", 30.0, 30.5, 1e20, -0.0, 7],
+        "a": 2
+    });
+    let mut bytes = Vec::new();
+    write_json_to(&mut bytes, &value)?;
+    let expected = pm_rust::stringify_json(&value, true);
+    assert_eq!(String::from_utf8(bytes)?, format!("{expected}\n"));
+    assert!(expected.starts_with("{\n  \"z\": [\n    {},\n"));
+    Ok(())
+}
+
+#[test]
+fn refusal_payload_write_errors_are_propagated() {
+    // Cursor refusals print their payload to stderr and ignore write errors:
+    // a closed diagnostic pipe must not change the exit path.
+    let payload = serde_json::json!({"code": "read_output_cursor_stale"});
+    assert!(write_json_to(&mut WriteFailure, &payload).is_err());
+    assert!(
+        write_json_to(
+            &mut NewlineFailure {
+                document_complete: false,
+            },
+            &payload,
+        )
+        .is_err()
+    );
+    assert!(write_json_to(&mut FlushFailure, &payload).is_err());
 }
 
 #[test]
@@ -247,4 +331,74 @@ fn run_dispatches_every_mutation_and_its_error_halves() -> Result<(), Box<dyn st
         .is_err()
     );
     Ok(())
+}
+
+/// Native-only controls are absent from recovery; repeated public flags deduplicate.
+#[test]
+fn cursor_recovery_arguments_preserve_public_flags() {
+    let args = super::published_read_arguments(
+        [
+            "--workspace",
+            "fixture",
+            "list",
+            "--json",
+            "--json",
+            "--timestamp",
+            "fixed",
+            "--after",
+            "cursor",
+        ]
+        .into_iter()
+        .map(str::to_owned),
+    );
+    assert_eq!(args, ["list", "--json", "--json", "--after", "cursor"]);
+    let producer = super::cursor_error_json("invalid_query_cursor", "reason", &args);
+    assert_eq!(
+        producer["recovery"]["provided_fields"],
+        serde_json::json!(["--json", "--after"])
+    );
+    assert!(producer["next_steps"].is_array());
+    let output = super::cursor_error_json("read_output_cursor_stale", "reason", &args);
+    assert!(output.get("next_steps").is_none());
+}
+
+/// A non-UTF-8 argument is published lossily inside the normal cursor refusal.
+#[cfg(any(unix, windows))]
+#[test]
+fn non_utf8_arguments_publish_the_cursor_refusal_envelope() {
+    use std::ffi::OsString;
+    #[cfg(unix)]
+    use std::os::unix::ffi::OsStringExt;
+    #[cfg(windows)]
+    use std::os::windows::ffi::OsStringExt;
+
+    #[cfg(unix)]
+    let malformed = OsString::from_vec(vec![0xff]);
+    #[cfg(windows)]
+    let malformed = OsString::from_wide(&[0xD800]);
+    let mut workspace = OsString::from("--workspace=");
+    workspace.push(&malformed);
+    let mut after = OsString::from("--after=");
+    after.push(&malformed);
+    let args = super::published_read_arguments([
+        OsString::from("--workspace"),
+        malformed,
+        workspace,
+        OsString::from("list"),
+        OsString::from("--json"),
+        after,
+    ]);
+    assert_eq!(args[..2], ["list".to_owned(), "--json".to_owned()]);
+    assert!(args[2].starts_with("--after="));
+    assert!(args[2].contains('\u{FFFD}'));
+    let payload =
+        super::cursor_error_json("invalid_query_cursor", "Query cursor is malformed.", &args);
+    assert_eq!(payload["exit_code"], 2);
+    assert_eq!(payload["code"], "invalid_query_cursor");
+    assert_eq!(payload["refusal"]["exit_code"], 2);
+    assert_eq!(
+        payload["recovery"]["attempted_command"],
+        format!("pm {}", args.join(" "))
+    );
+    assert!(payload["next_steps"].is_array());
 }

@@ -6,8 +6,8 @@ use std::process::ExitCode;
 
 use clap::{Parser, Subcommand, value_parser};
 use pm_rust::{
-    CloseItem, CommentItem, CreateItem, CreateResult, ItemFilter, MutationResult, UpdateItem,
-    Workspace,
+    CloseItem, CommentItem, CreateItem, CreateResult, ItemFilter, ListOptions, MutationResult,
+    UpdateItem, Workspace,
 };
 use serde::Serialize;
 
@@ -25,14 +25,14 @@ struct Cli {
 enum Command {
     /// List stable item projections.
     List {
-        /// Emit the published unbounded-list JSON envelope.
-        #[arg(long, requires_all = ["output_budget", "output_limit"])]
+        /// Emit the published list JSON envelope.
+        #[arg(long)]
         json: bool,
-        /// Explicit cost policy for the compatibility slice.
-        #[arg(long, value_parser = ["unbounded"], requires = "json")]
+        /// Maximum estimated output tokens, or unbounded.
+        #[arg(long, requires = "json")]
         output_budget: Option<String>,
-        /// Explicit amount policy for the compatibility slice.
-        #[arg(long, value_parser = ["unbounded"], requires = "json")]
+        /// Maximum delivered rows, or unbounded.
+        #[arg(long, requires = "json")]
         output_limit: Option<String>,
         /// Include terminal items and return full metadata.
         #[arg(long, requires = "json", conflicts_with = "status")]
@@ -40,6 +40,30 @@ enum Command {
         /// Return complete metadata without changing the selected statuses.
         #[arg(long, requires = "json")]
         full: bool,
+        /// Explicit identity projection.
+        #[arg(long, requires = "json", conflicts_with = "full")]
+        brief: bool,
+        /// Maximum rows in the producer page.
+        #[arg(long, requires = "json")]
+        limit: Option<String>,
+        /// Skip matching rows before producing a page.
+        #[arg(long, requires = "json", conflicts_with = "after")]
+        offset: Option<String>,
+        /// Continue after a producer cursor.
+        #[arg(long, requires = "json")]
+        after: Option<String>,
+        /// Return every matching row after the cursor or offset.
+        #[arg(long, requires = "json")]
+        no_truncate: bool,
+        /// Resume a snapshot-bound output budget continuation.
+        #[arg(long, requires = "json")]
+        output_cursor: Option<String>,
+        /// Apply the built-in triage projection.
+        #[arg(long = "for", requires = "json")]
+        intent: Option<String>,
+        /// Override the intent's token ceiling (at least 256).
+        #[arg(long, requires = "json")]
+        token_budget: Option<String>,
         /// Fixed read timestamp for reproducible compatibility fixtures.
         #[arg(long, requires = "json")]
         timestamp: Option<String>,
@@ -182,7 +206,7 @@ fn write_json_to(
     writer: &mut dyn Write,
     value: &impl Serialize,
 ) -> Result<(), Box<dyn std::error::Error>> {
-    serde_json::to_writer_pretty(&mut *writer, value)?;
+    pm_rust::write_pretty_json(&mut *writer, value)?;
     writer.write_all(b"\n")?;
     writer
         .flush()
@@ -200,8 +224,16 @@ fn run(cli: Cli) -> Result<(), Box<dyn std::error::Error>> {
     match cli.command {
         Command::List {
             json,
-            output_budget: _,
-            output_limit: _,
+            output_budget,
+            output_limit,
+            brief,
+            limit,
+            offset,
+            after,
+            no_truncate,
+            output_cursor,
+            intent,
+            token_budget,
             all,
             full,
             timestamp,
@@ -217,12 +249,28 @@ fn run(cli: Cli) -> Result<(), Box<dyn std::error::Error>> {
             if json {
                 let now = timestamp.unwrap_or_else(pm_rust::current_timestamp);
                 pm_rust::validate_timestamp(&now)?;
-                let result = if full {
-                    workspace.list_unbounded_full(&filters, all, &now)?
-                } else {
-                    workspace.list_unbounded(&filters, all, &now)?
-                };
+                let result = workspace.list_page(
+                    &filters,
+                    &ListOptions {
+                        all,
+                        full,
+                        brief,
+                        limit,
+                        offset,
+                        after,
+                        no_truncate,
+                        output_limit,
+                        output_budget,
+                        output_cursor,
+                        intent,
+                        token_budget,
+                    },
+                    &now,
+                )?;
                 write_json(&result)?;
+                if result.get("output_budget_exceeded").is_some() {
+                    return Err(Box::new(pm_rust::PmRustError::OutputBudgetExceeded));
+                }
             } else {
                 write_json(&workspace.list(filters)?)?;
             }
@@ -388,8 +436,89 @@ fn main() -> ExitCode {
     match run(Cli::parse()) {
         Ok(()) => ExitCode::SUCCESS,
         Err(error) => {
-            eprintln!("pm-rust: {error}");
+            if matches!(
+                error.downcast_ref::<pm_rust::PmRustError>(),
+                Some(pm_rust::PmRustError::OutputBudgetExceeded)
+            ) {
+                return ExitCode::from(2);
+            }
+            if let Some(pm_rust::PmRustError::ReadCursor { code, detail }) =
+                error.downcast_ref::<pm_rust::PmRustError>()
+            {
+                let args = published_read_arguments(std::env::args_os().skip(1));
+                let payload = cursor_error_json(code, detail, &args);
+                // Cursor flags require JSON; a closed diagnostic pipe still exits 2.
+                let _ = write_json_to(&mut std::io::stderr().lock(), &payload);
+            } else {
+                eprintln!("pm-rust: {error}");
+            }
             ExitCode::from(2)
         }
     }
+}
+
+/// Removes native clock and discovery controls from published error recovery arguments.
+///
+/// Callers pass `args_os` so a non-UTF-8 argument cannot panic this refusal
+/// path. Each argument is lossily owned, then published in the normal JSON
+/// envelope with exit code 2.
+fn published_read_arguments<I, S>(args: I) -> Vec<String>
+where
+    I: IntoIterator<Item = S>,
+    S: AsRef<std::ffi::OsStr>,
+{
+    let mut arguments = Vec::new();
+    let mut args = args
+        .into_iter()
+        .map(|arg| arg.as_ref().to_string_lossy().into_owned());
+    while let Some(arg) = args.next() {
+        if arg == "--timestamp" || arg == "--workspace" {
+            args.next();
+        } else if !arg.starts_with("--timestamp=") && !arg.starts_with("--workspace=") {
+            arguments.push(arg);
+        }
+    }
+    arguments
+}
+
+/// Formats the published machine-readable refusal for a rejected list cursor.
+fn cursor_error_json(code: &str, detail: &str, args: &[String]) -> serde_json::Value {
+    let mut provided = Vec::new();
+    for arg in args {
+        if arg.starts_with("--") && !provided.contains(arg) {
+            provided.push(arg.clone());
+        }
+    }
+    let mut payload = serde_json::json!({"code":code,"required":"Adjust command input or tracker state and retry.","recovery":{"attempted_command":format!("pm {}",args.join(" ")),"normalized_args":args,"provided_fields":provided}});
+    if code == "invalid_query_cursor" {
+        payload["next_steps"] = serde_json::json!([
+            "Repeat the original query without --after to obtain a fresh cursor."
+        ]);
+    }
+    for (key, value) in [
+        ("exit_code", serde_json::json!(2)),
+        (
+            "type",
+            serde_json::json!(format!("urn:pm-cli:error:{code}")),
+        ),
+        ("title", serde_json::json!(detail)),
+        ("detail", serde_json::json!(detail)),
+        (
+            "why",
+            serde_json::json!(
+                "pm enforces explicit, deterministic contracts for data and command semantics."
+            ),
+        ),
+        (
+            "examples",
+            serde_json::json!(["pm --help", "pm <command> --help"]),
+        ),
+        (
+            "refusal",
+            serde_json::json!({"surface":"list","exit_code":2}),
+        ),
+    ] {
+        payload[key] = value;
+    }
+    payload
 }

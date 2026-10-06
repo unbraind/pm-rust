@@ -12,6 +12,10 @@ use proptest::prelude::*;
 use serde_json::Value;
 use tempfile::TempDir;
 
+#[cfg(windows)]
+#[path = "support/windows_fs.rs"]
+mod windows_fs;
+
 const ITEM_A: &str = r#"id: demo-a
 title: Alpha
 description: ""
@@ -66,6 +70,7 @@ fn discovers_workspace_tracker_nested_path_and_file() -> Result<(), Box<dyn std:
         directory.path().to_path_buf(),
         nested.clone(),
         nested.join("input.txt"),
+        nested.join(".."),
         root.clone(),
     ] {
         assert_eq!(Workspace::discover(&start)?.pm_root(), root);
@@ -75,6 +80,10 @@ fn discovers_workspace_tracker_nested_path_and_file() -> Result<(), Box<dyn std:
 
 #[test]
 fn discovery_errors_are_typed() -> Result<(), Box<dyn std::error::Error>> {
+    assert!(matches!(
+        Workspace::discover(std::path::Path::new("")),
+        Err(PmRustError::Io { source, .. }) if source.kind() == std::io::ErrorKind::InvalidInput
+    ));
     let directory = tempfile::tempdir()?;
     let missing = directory.path().join("missing");
     assert!(matches!(
@@ -95,6 +104,32 @@ fn discovery_errors_are_typed() -> Result<(), Box<dyn std::error::Error>> {
             Err(PmRustError::TrackerNotFound { .. })
         ));
     }
+    #[cfg(windows)]
+    {
+        // Ordinary Windows paths resolve away `..` in absolute(). A verbatim
+        // spelling retains it through discovery's fold, then Win32 refuses it
+        // at canonicalize. Exercise the library and CLI builds, too.
+        let mut spelling = fs::canonicalize(directory.path())?.into_os_string();
+        spelling.push(r"\..");
+        let parent = PathBuf::from(spelling);
+        assert!(
+            std::path::absolute(&parent)?
+                .components()
+                .any(|component| component == std::path::Component::ParentDir)
+        );
+        assert!(matches!(
+            Workspace::discover(&parent),
+            Err(PmRustError::Io { path, source })
+                if path == parent && source.raw_os_error() == Some(123)
+        ));
+        Command::cargo_bin("pm-rust")?
+            .arg("--workspace")
+            .arg(&parent)
+            .arg("list")
+            .assert()
+            .code(2)
+            .stderr(contains("filesystem operation failed"));
+    }
     Ok(())
 }
 
@@ -109,6 +144,26 @@ fn discovery_rejects_a_symlinked_tracker_root() -> Result<(), Box<dyn std::error
     write(external.join("settings.json"), "{}\n")?;
     fs::create_dir_all(workspace.join(".agents"))?;
     symlink(&external, workspace.join(".agents/pm"))?;
+    assert!(matches!(
+        Workspace::discover(&workspace),
+        Err(PmRustError::TrackerNotFound { .. })
+    ));
+    Ok(())
+}
+
+#[cfg(windows)]
+#[test]
+fn discovery_rejects_a_windows_symlinked_tracker_root() -> Result<(), Box<dyn std::error::Error>> {
+    use std::os::windows::fs::symlink_dir;
+
+    let directory = tempfile::tempdir()?;
+    let workspace = directory.path().join("workspace");
+    let external = directory.path().join("external-tracker");
+    write(external.join("settings.json"), "{}\n")?;
+    fs::create_dir_all(workspace.join(".agents"))?;
+    if !windows_fs::symlink_created(symlink_dir(&external, workspace.join(".agents/pm")))? {
+        return Ok(());
+    }
     assert!(matches!(
         Workspace::discover(&workspace),
         Err(PmRustError::TrackerNotFound { .. })
@@ -304,6 +359,34 @@ fn reports_an_unreadable_item_path() -> Result<(), Box<dyn std::error::Error>> {
     Ok(())
 }
 
+#[cfg(windows)]
+#[test]
+fn reports_a_windows_exclusively_held_item_path() -> Result<(), Box<dyn std::error::Error>> {
+    use std::os::windows::fs::OpenOptionsExt;
+
+    let (directory, root) = tracker()?;
+    let path = root.join("tasks/demo-a.toon");
+    let held = fs::OpenOptions::new()
+        .read(true)
+        .share_mode(0)
+        .open(&path)?;
+    let result = Workspace::discover(directory.path())?.read_items();
+    Command::cargo_bin("pm-rust")?
+        .arg("--workspace")
+        .arg(directory.path())
+        .arg("list")
+        .assert()
+        .code(2)
+        .stderr(contains("filesystem operation failed"));
+    assert!(matches!(result, Err(PmRustError::Io { path: failed, .. }) if failed == path));
+    drop(held);
+    assert_eq!(
+        Workspace::discover(directory.path())?.read_items()?.len(),
+        2
+    );
+    Ok(())
+}
+
 #[cfg(unix)]
 #[test]
 fn reports_an_unreadable_nested_item_directory() -> Result<(), Box<dyn std::error::Error>> {
@@ -325,6 +408,34 @@ fn reports_an_unreadable_nested_item_directory() -> Result<(), Box<dyn std::erro
     Ok(())
 }
 
+#[cfg(windows)]
+#[test]
+fn reports_a_windows_exclusively_held_nested_directory() -> Result<(), Box<dyn std::error::Error>> {
+    let (directory, root) = tracker()?;
+    let nested = root.join("tasks/nested/locked");
+    fs::create_dir_all(&nested)?;
+    let sentinel = nested.join("sentinel.txt");
+    fs::write(&sentinel, "directory enumeration fixture")?;
+    let held = windows_fs::exclusive_directory_handle(&nested)?;
+    assert!(nested.is_dir());
+    let error = fs::read_dir(&nested)
+        .err()
+        .ok_or("exclusively held directory listing succeeded")?;
+    assert_eq!(error.raw_os_error(), Some(32), "{error:?}");
+    let result = Workspace::discover(directory.path())?.read_items();
+    drop(held);
+    assert!(matches!(result, Err(PmRustError::Io { path, .. }) if path == nested));
+    assert_eq!(
+        fs::read_to_string(&sentinel)?,
+        "directory enumeration fixture"
+    );
+    assert_eq!(
+        Workspace::discover(directory.path())?.read_items()?.len(),
+        2
+    );
+    Ok(())
+}
+
 #[cfg(unix)]
 #[test]
 fn ignores_symlinked_item_directories() -> Result<(), Box<dyn std::error::Error>> {
@@ -336,6 +447,33 @@ fn ignores_symlinked_item_directories() -> Result<(), Box<dyn std::error::Error>
     symlink(&external, root.join("tasks/link"))?;
     symlink(&external, root.join("linked-items"))?;
     let _listener = UnixListener::bind(root.join("tasks/read-side.sock"))?;
+    assert_eq!(
+        Workspace::discover(directory.path())?.read_items()?.len(),
+        2
+    );
+    Ok(())
+}
+
+#[cfg(windows)]
+#[test]
+fn ignores_windows_symlinked_item_directories() -> Result<(), Box<dyn std::error::Error>> {
+    use std::os::windows::fs::{symlink_dir, symlink_file};
+
+    let (directory, root) = tracker()?;
+    let external = directory.path().join("external");
+    write(external.join("secret.toon"), ITEM_A)?;
+    if !windows_fs::symlink_created(symlink_dir(&external, root.join("tasks/link")))? {
+        return Ok(());
+    }
+    if !windows_fs::symlink_created(symlink_dir(&external, root.join("linked-items")))? {
+        return Ok(());
+    }
+    if !windows_fs::symlink_created(symlink_file(
+        external.join("secret.toon"),
+        root.join("tasks/linked.toon"),
+    ))? {
+        return Ok(());
+    }
     assert_eq!(
         Workspace::discover(directory.path())?.read_items()?.len(),
         2

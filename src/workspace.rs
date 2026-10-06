@@ -68,9 +68,22 @@ pub struct ListResult {
 }
 
 /// A discovered canonical pm tracker with read-only operations.
-#[derive(Clone, Debug, PartialEq)]
+#[derive(Clone, Debug)]
 pub struct Workspace {
     pm_root: PathBuf,
+    query_pm_root: PathBuf,
+}
+
+/// Two workspaces are equal when they name the same canonical tracker.
+///
+/// `query_pm_root` keeps the spelling a caller discovered through (needed for
+/// Windows query hashing), so it differs for one tracker reached through a
+/// symlinked parent or `/tmp` versus `/private/tmp`; it must not split one
+/// tracker into two unequal values.
+impl PartialEq for Workspace {
+    fn eq(&self, other: &Self) -> bool {
+        self.pm_root == other.pm_root
+    }
 }
 
 impl Workspace {
@@ -85,12 +98,28 @@ impl Workspace {
     /// or [`PmRustError::TrackerNotFound`] when no tracker marker exists.
     pub fn discover(start: &Path) -> Result<Self, PmRustError> {
         let supplied = start;
+        let resolved = std::path::absolute(supplied).map_err(|source| PmRustError::Io {
+            path: supplied.to_path_buf(),
+            source,
+        })?;
+        let mut query_current =
+            resolved
+                .components()
+                .fold(PathBuf::new(), |mut root, component| {
+                    if component == std::path::Component::ParentDir {
+                        root.pop();
+                    } else {
+                        root.push(component.as_os_str());
+                    }
+                    root
+                });
         let mut current = fs::canonicalize(supplied).map_err(|source| PmRustError::Io {
             path: supplied.to_path_buf(),
             source,
         })?;
         if current.is_file() {
             current.pop();
+            query_current.pop();
         }
         let discovery_start = current.clone();
 
@@ -102,17 +131,24 @@ impl Workspace {
                     .and_then(Path::file_name)
                     .is_some_and(|name| name == ".agents")
             {
-                return Ok(Self { pm_root: current });
+                return Ok(Self {
+                    pm_root: current,
+                    query_pm_root: query_current,
+                });
             }
             let candidate = current.join(".agents/pm");
             if !candidate.is_symlink() && candidate.join("settings.json").is_file() {
-                return Ok(Self { pm_root: candidate });
+                return Ok(Self {
+                    pm_root: candidate,
+                    query_pm_root: query_current.join(".agents").join("pm"),
+                });
             }
             if !current.pop() {
                 return Err(PmRustError::TrackerNotFound {
                     start: discovery_start,
                 });
             }
+            query_current.pop();
         }
     }
 
@@ -120,6 +156,11 @@ impl Workspace {
     #[must_use]
     pub fn pm_root(&self) -> &Path {
         &self.pm_root
+    }
+
+    /// Returns the platform's working-directory spelling for published query hashes.
+    pub(crate) fn query_pm_root(&self) -> &Path {
+        query_root_path(&self.query_pm_root, &self.pm_root, cfg!(windows))
     }
 
     /// Reads and validates every stored TOON item, sorted by identifier.
@@ -223,6 +264,25 @@ impl Workspace {
         crate::list::read_unbounded(self, filters, all, true, now)
     }
 
+    /// Returns the published list envelope with paging and bounded output receipts.
+    ///
+    /// Cursors bind the resolved tracker root and selection. Producer cursors
+    /// follow item identity; output cursors additionally bind the row snapshot.
+    /// The caller supplies the read clock, which does not bind either cursor.
+    ///
+    /// # Errors
+    ///
+    /// Fails on unreadable items, unsupported filters, invalid output controls,
+    /// mismatched query cursors, or stale output continuations.
+    pub fn list_page(
+        &self,
+        filters: &ItemFilter,
+        options: &crate::ListOptions,
+        now: &str,
+    ) -> Result<serde_json::Value, PmRustError> {
+        crate::list::read_page(self, filters, options, now)
+    }
+
     /// Reads one item by exact stable identifier.
     ///
     /// # Errors
@@ -287,6 +347,11 @@ impl Workspace {
     }
 }
 
+/// Matches Node's working-directory spelling without expanding Windows aliases.
+fn query_root_path<'a>(resolved: &'a Path, canonical: &'a Path, windows: bool) -> &'a Path {
+    if windows { resolved } else { canonical }
+}
+
 /// Reads every entry in a directory while retaining the path in typed errors.
 pub(crate) fn read_directory(path: &Path) -> Result<Vec<fs::DirEntry>, PmRustError> {
     let entries = fs::read_dir(path).map_err(|source| PmRustError::Io {
@@ -311,7 +376,15 @@ fn collect_directory_entries(
 
 /// Recursively collects regular TOON files without following symbolic links.
 fn collect_toon_paths(path: &Path, paths: &mut Vec<PathBuf>) -> Result<(), PmRustError> {
-    for entry in read_directory(path)? {
+    collect_toon_entries(read_directory(path)?, paths)
+}
+
+/// Processes a directory snapshot, ignoring entries removed before metadata reads.
+fn collect_toon_entries(
+    entries: Vec<fs::DirEntry>,
+    paths: &mut Vec<PathBuf>,
+) -> Result<(), PmRustError> {
+    for entry in entries {
         let entry_path = entry.path();
         if entry_path.is_symlink() {
             continue;

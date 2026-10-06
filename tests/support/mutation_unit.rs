@@ -9,6 +9,14 @@ use crate::item::decode_item;
 
 use super::*;
 
+#[cfg(windows)]
+#[path = "windows_fs.rs"]
+mod windows_fs;
+
+#[cfg(windows)]
+#[path = "windows_acl.rs"]
+mod windows_acl;
+
 const TS: &str = "2026-08-07T10:06:30.183Z";
 
 fn root(settings: &str) -> Result<(TempDir, PathBuf), Box<dyn std::error::Error>> {
@@ -467,7 +475,6 @@ fn missing_and_invalid_settings_return_typed_errors() -> Result<(), Box<dyn std:
 #[allow(clippy::too_many_lines)]
 fn filesystem_failures_are_typed_and_atomic_temps_are_cleaned()
 -> Result<(), Box<dyn std::error::Error>> {
-    #[cfg(unix)]
     assert!(matches!(
         atomic_write(Path::new("/"), "value"),
         Err(PmRustError::InvalidCreateRequest { .. })
@@ -601,6 +608,12 @@ fn parent_directory_sync_reports_real_path_and_sync_failures()
         sync_parent(Path::new("/")),
         Err(PmRustError::InvalidCreateRequest { .. })
     ));
+    // Opening the null device succeeds, but syncing it as a directory fails.
+    // Unlike procfs, this also exercises the sync error on macOS.
+    assert!(matches!(
+        sync_parent(Path::new("/dev/null/target")),
+        Err(PmRustError::Io { path, .. }) if path == Path::new("/dev/null")
+    ));
     #[cfg(target_os = "linux")]
     assert!(matches!(
         sync_parent(Path::new("/proc/target")),
@@ -733,14 +746,26 @@ fn create_surfaces_lock_recovery_journal_and_item_stage_failures()
     Ok(())
 }
 
-#[cfg(unix)]
+#[cfg(any(unix, windows))]
 #[test]
 fn non_utf8_atomic_target_names_are_rejected() -> Result<(), Box<dyn std::error::Error>> {
     use std::ffi::OsString;
+    #[cfg(unix)]
     use std::os::unix::ffi::OsStringExt;
+    #[cfg(windows)]
+    use std::os::windows::ffi::OsStringExt;
 
     let directory = tempfile::tempdir()?;
-    let target = directory.path().join(OsString::from_vec(vec![0xff]));
+    #[cfg(unix)]
+    let name = OsString::from_vec(vec![0xff]);
+    #[cfg(windows)]
+    let name = OsString::from_wide(&[0xD800]);
+    let target = directory.path().join(name);
+    #[cfg(windows)]
+    {
+        fs::write(&target, "original")?;
+        assert!(target.is_file());
+    }
     assert!(matches!(
         atomic_write(&target, "value"),
         Err(PmRustError::InvalidCreateRequest { .. })
@@ -811,6 +836,18 @@ fn append_history_line_surfaces_open_and_write_failures() -> Result<(), Box<dyn 
     fs::create_dir(&occupied)?;
     assert!(matches!(
         append_history_line(&occupied, "{\"op\":\"update\"}\n"),
+        Err(PmRustError::Io { .. })
+    ));
+    // Null devices accept writes but cannot flush durable history. Exercise
+    // that error on each OS instead of relying only on Linux's full device.
+    #[cfg(unix)]
+    assert!(matches!(
+        append_history_line(Path::new("/dev/null"), "line\n"),
+        Err(PmRustError::Io { .. })
+    ));
+    #[cfg(windows)]
+    assert!(matches!(
+        append_history_line(Path::new("NUL"), "line\n"),
         Err(PmRustError::Io { .. })
     ));
     #[cfg(target_os = "linux")]
@@ -1224,6 +1261,57 @@ fn recovery_surfaces_item_replay_publish_failures() -> Result<(), Box<dyn std::e
     Ok(())
 }
 
+#[cfg(windows)]
+#[test]
+fn recovery_roll_forward_refuses_a_read_shared_item_then_retries_idempotently()
+-> Result<(), Box<dyn std::error::Error>> {
+    use std::os::windows::fs::OpenOptionsExt;
+
+    const FILE_SHARE_READ: u32 = 1;
+    let (_directory, pm_root) = root(&mutation_settings(0))?;
+    create_item(&pm_root, request())?;
+    let item_path = pm_root.join("tasks/sample-unit.toon");
+    let history_path = pm_root.join("history/sample-unit.jsonl");
+    let journal_path = pm_root.join("runtime/transactions/update-sample-unit.json");
+    let original_item = fs::read_to_string(&item_path)?;
+    let original_history = fs::read_to_string(&history_path)?;
+    let updated_item = original_item.replace("Unit create", "Recovered title");
+    let history_line = "{\"ts\":\"stub\",\"op\":\"update\"}\n";
+    write_mutation_journal(&pm_root, "update", &updated_item, history_line)?;
+    // Reads still succeed, so recovery reaches replacement of the before-image.
+    let held = OpenOptions::new()
+        .read(true)
+        .share_mode(FILE_SHARE_READ)
+        .open(&item_path)?;
+    let Err(PmRustError::Io { path, source }) = recover_mutation(&pm_root, "update", "sample-unit")
+    else {
+        return Err("read-shared item must refuse recovery replacement".into());
+    };
+    assert_eq!(path, item_path);
+    assert_eq!(source.raw_os_error(), Some(32));
+    assert_eq!(fs::read_to_string(&item_path)?, original_item);
+    assert_eq!(fs::read_to_string(&history_path)?, original_history);
+    assert!(journal_path.is_file());
+    assert_eq!(fs::read_dir(pm_root.join("tasks"))?.count(), 1);
+    drop(held);
+    let expected_paths = (item_path.clone(), history_path.clone());
+    assert_eq!(
+        recover_mutation(&pm_root, "update", "sample-unit")?,
+        expected_paths
+    );
+    assert_eq!(
+        recover_mutation(&pm_root, "update", "sample-unit")?,
+        expected_paths
+    );
+    assert_eq!(fs::read_to_string(&item_path)?, updated_item);
+    assert_eq!(
+        fs::read_to_string(&history_path)?,
+        format!("{original_history}{history_line}")
+    );
+    assert!(!journal_path.exists());
+    Ok(())
+}
+
 #[test]
 /// Covers recovery replay when the history stream cannot be recreated.
 fn recovery_surfaces_history_replay_append_failures() -> Result<(), Box<dyn std::error::Error>> {
@@ -1295,6 +1383,53 @@ fn recovery_surfaces_journal_cleanup_failures() -> Result<(), Box<dyn std::error
     Ok(())
 }
 
+#[cfg(windows)]
+#[test]
+fn recovery_commits_but_retains_a_read_shared_journal_then_retries_idempotently()
+-> Result<(), Box<dyn std::error::Error>> {
+    use std::os::windows::fs::OpenOptionsExt;
+
+    const FILE_SHARE_READ: u32 = 1;
+    let (_directory, pm_root) = root(&mutation_settings(0))?;
+    create_item(&pm_root, request())?;
+    let item_path = pm_root.join("tasks/sample-unit.toon");
+    let history_path = pm_root.join("history/sample-unit.jsonl");
+    let journal_path = pm_root.join("runtime/transactions/update-sample-unit.json");
+    let original_history = fs::read_to_string(&history_path)?;
+    let updated_item = fs::read_to_string(&item_path)?.replace("Unit create", "Recovered title");
+    let history_line = "{\"ts\":\"stub\",\"op\":\"update\"}\n";
+    write_mutation_journal(&pm_root, "update", &updated_item, history_line)?;
+    // Recovery can read the journal and publish both halves, but cannot delete it.
+    let held = OpenOptions::new()
+        .read(true)
+        .share_mode(FILE_SHARE_READ)
+        .open(&journal_path)?;
+    let Err(PmRustError::Io { path, source }) = recover_mutation(&pm_root, "update", "sample-unit")
+    else {
+        return Err("read-shared journal must refuse recovery cleanup".into());
+    };
+    assert_eq!(path, journal_path);
+    assert_eq!(source.raw_os_error(), Some(32));
+    assert!(journal_path.is_file());
+    let committed_history = format!("{original_history}{history_line}");
+    assert_eq!(fs::read_to_string(&item_path)?, updated_item);
+    assert_eq!(fs::read_to_string(&history_path)?, committed_history);
+    drop(held);
+    let expected_paths = (item_path.clone(), history_path.clone());
+    assert_eq!(
+        recover_mutation(&pm_root, "update", "sample-unit")?,
+        expected_paths
+    );
+    assert_eq!(
+        recover_mutation(&pm_root, "update", "sample-unit")?,
+        expected_paths
+    );
+    assert_eq!(fs::read_to_string(&item_path)?, updated_item);
+    assert_eq!(fs::read_to_string(&history_path)?, committed_history);
+    assert!(!journal_path.exists());
+    Ok(())
+}
+
 #[test]
 /// Covers the tracker-relative path fallback for foreign absolute paths.
 fn relative_to_tracker_keeps_paths_outside_the_root_absolute() {
@@ -1321,19 +1456,66 @@ fn atomic_replace_rejects_parentless_targets() {
     ));
 }
 
-#[cfg(unix)]
+#[cfg(any(unix, windows))]
 #[test]
 /// Covers the non-UTF-8 defensive input-shape failure of the publisher.
 fn atomic_replace_rejects_non_utf8_targets() -> Result<(), Box<dyn std::error::Error>> {
-    use std::ffi::OsStr;
-    use std::os::unix::ffi::OsStrExt;
+    use std::ffi::OsString;
+    #[cfg(unix)]
+    use std::os::unix::ffi::OsStringExt;
+    #[cfg(windows)]
+    use std::os::windows::ffi::OsStringExt;
 
     let directory = tempfile::tempdir()?;
-    let non_utf8 = OsStr::from_bytes(b"sample-\xff.toon");
+    #[cfg(unix)]
+    let non_utf8 = OsString::from_vec(b"sample-\xff.toon".to_vec());
+    #[cfg(windows)]
+    let non_utf8 = OsString::from_wide(&[0xD800]);
+    #[cfg(windows)]
+    fs::write(directory.path().join(&non_utf8), "original")?;
     assert!(matches!(
-        atomic_replace(&directory.path().join(non_utf8), "value"),
+        atomic_replace(&directory.path().join(&non_utf8), "value"),
         Err(PmRustError::InvalidCreateRequest { .. })
     ));
+    Ok(())
+}
+
+#[cfg(windows)]
+#[test]
+/// A valid NTFS filename leaves no room for the publisher's temporary suffix.
+fn atomic_replace_reports_windows_temporary_name_overflow() -> Result<(), Box<dyn std::error::Error>>
+{
+    let directory = tempfile::tempdir()?;
+    let target = directory.path().join("x".repeat(240));
+    fs::write(&target, "original")?;
+    let Err(PmRustError::Io { path, .. }) = atomic_replace(&target, "replacement") else {
+        return Err("an oversized temporary filename must fail to open".into());
+    };
+    assert_eq!(path.parent(), target.parent());
+    assert!(path.file_name().ok_or("missing temporary name")?.len() > 255);
+    assert!(path.to_string_lossy().ends_with(".tmp"));
+    assert_eq!(fs::read_to_string(&target)?, "original");
+    Ok(())
+}
+
+#[cfg(windows)]
+#[test]
+/// An exclusive handle prevents removing the existing replacement target.
+fn atomic_replace_reports_windows_exclusive_target_handle() -> Result<(), Box<dyn std::error::Error>>
+{
+    use std::os::windows::fs::OpenOptionsExt;
+
+    let directory = tempfile::tempdir()?;
+    let target = directory.path().join("sample-unit.toon");
+    fs::write(&target, "original")?;
+    let held = OpenOptions::new().read(true).share_mode(0).open(&target)?;
+    assert!(matches!(
+        atomic_replace(&target, "replacement"),
+        Err(PmRustError::Io { path, .. }) if path == target
+    ));
+    drop(held);
+    assert_eq!(fs::read_to_string(&target)?, "original");
+    assert_eq!(fs::read_dir(directory.path())?.count(), 1);
     Ok(())
 }
 
@@ -1445,6 +1627,34 @@ fn locate_item_skips_symbolic_links() -> Result<(), Box<dyn std::error::Error>> 
     Ok(())
 }
 
+#[cfg(windows)]
+#[test]
+/// Real Windows file and directory links cannot introduce duplicate items.
+fn locate_item_skips_windows_symbolic_links() -> Result<(), Box<dyn std::error::Error>> {
+    use std::os::windows::fs::{symlink_dir, symlink_file};
+
+    let (_directory, pm_root) = root(&mutation_settings(0))?;
+    create_item(&pm_root, request())?;
+    let item = pm_root.join("tasks/sample-unit.toon");
+    // The file link carries the item's own filename in a sibling directory, so
+    // a locator that followed file links would find a second candidate.
+    let linked = pm_root.join("tasks/linked");
+    fs::create_dir(&linked)?;
+    if !windows_fs::symlink_created(symlink_file(&item, linked.join("sample-unit.toon")))? {
+        return Ok(());
+    }
+    if !windows_fs::symlink_created(symlink_dir(
+        pm_root.join("tasks"),
+        pm_root.join("linked-items"),
+    ))? {
+        return Ok(());
+    }
+    let (found, document) = locate_item(&pm_root, "sample-unit")?;
+    assert_eq!(found, item);
+    assert_eq!(document.metadata.id, "sample-unit");
+    Ok(())
+}
+
 #[test]
 #[cfg(unix)]
 /// Proves the recursive locator skips a non-file, non-directory entry.
@@ -1490,6 +1700,29 @@ fn locate_item_skips_a_non_file_entry() -> Result<(), Box<dyn std::error::Error>
 }
 
 #[test]
+/// An item moved into a nested directory after enumeration is found at its new
+/// path: the stale top-level entry is skipped rather than reported.
+fn locate_item_follows_an_item_moved_after_enumeration() -> Result<(), Box<dyn std::error::Error>> {
+    let (_directory, pm_root) = root(&mutation_settings(0))?;
+    create_item(&pm_root, request())?;
+    let tasks = pm_root.join("tasks");
+    let vanished = tasks.join("sample-unit.toon");
+    let nested = tasks.join("nested");
+    fs::create_dir(&nested)?;
+    let entries = crate::workspace::read_directory(&tasks)?;
+    assert_eq!(entries.len(), 2);
+    let retained = nested.join("sample-unit.toon");
+    fs::rename(&vanished, &retained)?;
+    assert!(!vanished.is_symlink() && !vanished.is_dir() && !vanished.is_file());
+    let mut found = Vec::new();
+    locate_item_entries(entries, false, "sample-unit", &mut found)?;
+    assert_eq!(found.len(), 1);
+    assert_eq!(found[0].0, retained);
+    assert_eq!(found[0].1.metadata.id, "sample-unit");
+    Ok(())
+}
+
+#[test]
 #[cfg(unix)]
 /// Proves the recursive locator surfaces a typed IO error when a matching
 /// toon entry cannot be read.
@@ -1507,6 +1740,26 @@ fn locate_item_surfaces_an_unreadable_item() -> Result<(), Box<dyn std::error::E
         Err(PmRustError::Io { .. })
     ));
     fs::set_permissions(&item_path, fs::Permissions::from_mode(0o644))?;
+    Ok(())
+}
+
+#[cfg(windows)]
+#[test]
+/// Metadata remains readable while an exclusive handle refuses item reads.
+fn locate_item_reports_windows_exclusive_item_handle() -> Result<(), Box<dyn std::error::Error>> {
+    use std::os::windows::fs::OpenOptionsExt;
+
+    let (_directory, pm_root) = root(&mutation_settings(0))?;
+    create_item(&pm_root, request())?;
+    let item = pm_root.join("tasks/sample-unit.toon");
+    let held = OpenOptions::new().read(true).share_mode(0).open(&item)?;
+    assert!(item.is_file());
+    assert!(matches!(
+        locate_item(&pm_root, "sample-unit"),
+        Err(PmRustError::Io { path, .. }) if path == item
+    ));
+    drop(held);
+    assert!(locate_item(&pm_root, "sample-unit").is_ok());
     Ok(())
 }
 
@@ -2222,6 +2475,53 @@ fn remaining_unix_only_mutation_arms_are_covered_in_the_unit_binary()
     Ok(())
 }
 
+#[cfg(windows)]
+#[test]
+/// Native ACLs and sharing restrictions refuse repair and enumeration independently.
+fn remaining_windows_mutation_arms_report_real_io_errors() -> Result<(), Box<dyn std::error::Error>>
+{
+    let (_directory, recover_root, _item, _history, journal) = completed_transaction()?;
+    write_journal(&recover_root, &journal)?;
+    let history = recover_root.join("history/sample-unit.jsonl");
+    fs::remove_file(&history)?;
+    let history_dir = recover_root.join("history");
+    let mut denied_creation = windows_acl::deny_directory_access(&history_dir, "WD")?;
+    assert!(fs::read_dir(&history_dir).is_ok());
+    let result = recover(&recover_root, "sample-unit");
+    denied_creation.restore()?;
+    assert!(matches!(result, Err(PmRustError::Io { .. })));
+    assert!(!history.exists());
+    assert!(
+        recover_root
+            .join("runtime/transactions/create-sample-unit.json")
+            .is_file()
+    );
+    recover(&recover_root, "sample-unit")?;
+    assert!(history.is_file());
+
+    let (_directory, pm_root) = root(&mutation_settings(0))?;
+    create_item(&pm_root, request())?;
+    let nested = pm_root.join("tasks/locked");
+    fs::create_dir(&nested)?;
+    let sentinel = nested.join("sentinel.txt");
+    fs::write(&sentinel, "directory enumeration fixture")?;
+    let held = windows_fs::exclusive_directory_handle(&nested)?;
+    assert!(nested.is_dir());
+    let error = fs::read_dir(&nested)
+        .err()
+        .ok_or("exclusively held directory listing succeeded")?;
+    assert_eq!(error.raw_os_error(), Some(32), "{error:?}");
+    let result = locate_item(&pm_root, "sample-unit");
+    drop(held);
+    assert!(matches!(result, Err(PmRustError::Io { path, .. }) if path == nested));
+    assert_eq!(
+        fs::read_to_string(&sentinel)?,
+        "directory enumeration fixture"
+    );
+    assert!(locate_item(&pm_root, "sample-unit").is_ok());
+    Ok(())
+}
+
 #[test]
 fn windows_pending_delete_reads_as_lock_contention_not_as_a_fault() {
     // Windows keeps a deleted file in a pending-delete state until every handle
@@ -2241,7 +2541,7 @@ fn windows_pending_delete_reads_as_lock_contention_not_as_a_fault() {
         ErrorKind::NotFound,
     ] {
         assert!(
-            lock_error_is_contention(&absent, kind),
+            lock_error_is_contention(&absent, &std::io::Error::from(kind)),
             "{kind:?} is a way a held or just-released lock presents itself",
         );
     }
@@ -2254,7 +2554,7 @@ fn windows_pending_delete_reads_as_lock_contention_not_as_a_fault() {
         ErrorKind::Unsupported,
     ] {
         assert!(
-            !lock_error_is_contention(&absent, kind),
+            !lock_error_is_contention(&absent, &std::io::Error::from(kind)),
             "{kind:?} is not contention and must not be retried as if it were",
         );
     }
@@ -2273,7 +2573,7 @@ fn windows_pending_delete_reads_as_lock_contention_not_as_a_fault() {
         ErrorKind::NotFound,
     ] {
         assert!(
-            !lock_error_is_contention(&occupied, kind),
+            !lock_error_is_contention(&occupied, &std::io::Error::from(kind)),
             "a directory at the lock path is a fault, not contention ({kind:?})",
         );
     }
@@ -2341,6 +2641,50 @@ fn an_unreadable_incumbent_lock_is_contention_rather_than_a_filesystem_error() {
         "an unreadable incumbent lock is contention, got {error:?}",
     );
     drop(directory);
+}
+
+#[cfg(windows)]
+#[test]
+/// An exclusive second handle refuses incumbent reads until release.
+fn a_windows_exclusive_incumbent_lock_is_contention() -> Result<(), Box<dyn std::error::Error>> {
+    use std::os::windows::fs::OpenOptionsExt;
+
+    let (_directory, pm_root) = root(&mutation_settings(0))?;
+    fs::create_dir_all(pm_root.join("locks"))?;
+    let path = pm_root.join("locks/sample-held.lock");
+    fs::write(&path, "{}\n")?;
+    let held = OpenOptions::new().read(true).share_mode(0).open(&path)?;
+    let error = fs::read_to_string(&path)
+        .err()
+        .ok_or("exclusive incumbent read succeeded")?;
+    assert_eq!(error.raw_os_error(), Some(32), "{error:?}");
+    assert!(lock_error_is_contention(&path, &error));
+    // Check both native contention codes without accepting other uncategorized
+    // errors or hiding a structural fault at the lock path.
+    let occupied = pm_root.join("locks/directory.lock");
+    fs::create_dir(&occupied)?;
+    for code in [32, 33] {
+        let source = std::io::Error::from_raw_os_error(code);
+        assert!(lock_error_is_contention(&path, &source));
+        assert!(!lock_error_is_contention(&occupied, &source));
+    }
+    assert!(!lock_error_is_contention(
+        &path,
+        &std::io::Error::from_raw_os_error(34)
+    ));
+    assert_eq!(held.metadata()?.len(), 3);
+    let outcome = acquire_lock_attempt(&pm_root, "sample-held", "load-agent", 1800, false, TS);
+    assert!(
+        matches!(&outcome, Err(PmRustError::LockConflict { id }) if id == "sample-held"),
+        "exclusive incumbent lock must remain contention: {:?}",
+        outcome.as_ref().err()
+    );
+    drop(held);
+    assert_eq!(fs::read_to_string(&path)?, "{}\n");
+    fs::remove_file(&path)?;
+    let acquired = acquire_lock_attempt(&pm_root, "sample-held", "load-agent", 1800, false, TS)?;
+    drop(acquired);
+    Ok(())
 }
 
 #[test]

@@ -249,17 +249,14 @@ fn hashes_are_stable_and_entry_lines_carry_the_published_epoch() {
 
 #[test]
 fn floats_hash_the_way_json_stringify_renders_them() {
-    // The published CLI hashes `JSON.stringify` output. `serde_json` disagrees
-    // with it about exactly two things, and both change the digest for any item
-    // carrying a float in its metadata: a whole-valued float keeps a `.0`, and an
-    // exponent loses its `+`. Each expectation below is the literal output of
-    // `JSON.stringify(<value>)` in Node.
+    // Literal outputs of JSON.stringify in the real Node reference runtime.
+    // Whole-valued floats, decimal/exponent thresholds and negative zero share
+    // the same renderer across history hashes, snapshot hashes and output bytes.
     for (value, expected) in [
         (json!(30.0), "30"),
-        (json!(-0.0), "-0"),
-        // Exponent form is asserted here precisely because the renderer does not
-        // touch it: these prove serde_json's own output already matches
-        // JSON.stringify, which is why no exponent branch exists.
+        (json!(-0.0), "0"),
+        (json!(1e-6), "0.000001"),
+        (json!(1e20), "100000000000000000000"),
         (json!(1.0e21), "1e+21"),
         (json!(1.0e-7), "1e-7"),
         (json!(1.0e100), "1e+100"),

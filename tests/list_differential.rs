@@ -155,14 +155,11 @@ fn unbounded_list_matches_published_cli_and_golden() -> Result<(), Box<dyn std::
 fn explicit_unbounded_policies_and_live_clock() -> Result<(), Box<dyn std::error::Error>> {
     let fixture = tracker()?;
     for args in [
-        vec!["list", "--json"],
-        vec!["list", "--json", "--output-budget", "unbounded"],
-        vec!["list", "--json", "--output-limit", "unbounded"],
         vec![
             "list",
             "--json",
             "--output-budget",
-            "100",
+            "invalid",
             "--output-limit",
             "unbounded",
         ],
@@ -405,7 +402,11 @@ fn full_restores_fields_without_adding_terminal_items() -> Result<(), Box<dyn st
         String::from_utf8_lossy(&output.stderr)
     );
     let actual: Value = serde_json::from_slice(&output.stdout)?;
-    assert_eq!(actual, expected);
+    let mut expected_with_receipt = expected.clone();
+    expected_with_receipt["read_output"] = serde_json::from_str(include_str!(
+        "fixtures/list-full-read-output-2026-10-2.json"
+    ))?;
+    assert_eq!(actual, expected_with_receipt);
     if let Some((interpreter, driver)) = published_driver(fixture.path())? {
         let output = Command::new(interpreter)
             .arg(driver)
