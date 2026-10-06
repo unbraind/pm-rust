@@ -86,19 +86,37 @@ fn query_spelling_preserves_windows_aliases_and_unix_physical_roots() {
 }
 
 #[test]
-fn removed_directory_entries_are_skipped() -> Result<(), Box<dyn std::error::Error>> {
+fn directory_snapshots_skip_removed_entries_symlinks_and_non_toon_files()
+-> Result<(), Box<dyn std::error::Error>> {
     let directory = tempfile::tempdir()?;
     let vanished = directory.path().join("vanished.toon");
     let retained = directory.path().join("retained.toon");
+    let nested = directory.path().join("nested");
+    let child = nested.join("child.toon");
     std::fs::write(&vanished, "removed before metadata")?;
     std::fs::write(&retained, "retained")?;
+    std::fs::write(directory.path().join("ignored.txt"), "non-item")?;
+    std::fs::create_dir(&nested)?;
+    std::fs::write(&child, "nested item")?;
+    let linked = directory.path().join("linked.toon");
+    #[cfg(unix)]
+    std::os::unix::fs::symlink(&retained, &linked)?;
+    #[cfg(windows)]
+    if let Err(error) = std::os::windows::fs::symlink_file(&retained, &linked) {
+        if error.raw_os_error() == Some(1314) && std::env::var_os("CI").is_none() {
+            eprintln!("skipping Windows symlink fixture off CI: ERROR_PRIVILEGE_NOT_HELD: {error}");
+            return Ok(());
+        }
+        return Err(error.into());
+    }
     let entries = super::read_directory(directory.path())?;
-    assert_eq!(entries.len(), 2);
+    assert_eq!(entries.len(), 5);
     std::fs::remove_file(&vanished)?;
     assert!(!vanished.is_symlink() && !vanished.is_dir() && !vanished.is_file());
     let mut paths = Vec::new();
     super::collect_toon_entries(entries, &mut paths)?;
-    assert_eq!(paths, [retained]);
+    paths.sort();
+    assert_eq!(paths, [child, retained]);
     Ok(())
 }
 

@@ -6,13 +6,13 @@ status: in_progress
 priority: 2
 tags[3]: conformance,read-parity,rust
 created_at: "2026-10-02T19:11:02.190Z"
-updated_at: "2026-10-06T14:41:35.143Z"
+updated_at: "2026-10-06T14:54:19.309Z"
 assignee: codex-sol
 claim_principal: codex-sol
 author: codex-sol
 acceptance_criteria: Real TS and Rust CLIs match multi-page envelopes and continuation fingerprints on shared fixtures; Stale or mismatched cursors fail consistently; No item loss or repeated rows; Output omission and budget receipts match; Existing gates remain enforced
 parent: pm-rust-u4al
-comments[71]{created_at,author,text}:
+comments[73]{created_at,author,text}:
   "2026-10-02T20:09:16.243Z",codex-sol,"PR #58 full-projection follow-up: published --full additionally emits read_output alias/migration/budget diagnostics, including estimated_tokens. Native --full restores complete metadata with unchanged selection, but these output-policy diagnostics remain outside the current slice and are explicitly documented. Synthetic exact published read_output receipt captured in tests/fixtures/list-full-read-output-2026-10-2.json; original nine envelope comparisons remain exact and unchanged. Include full-projection output policy in this bounded-output/canonical-controls follow-up."
   "2026-10-05T07:13:33.482Z",codex-sol,"Inspect the published 2026.10.5 list contract and existing differential fixtures before implementing native pagination, cursor validation and bounded projection receipts. Preserve every existing release gate; add shared-fixture differential and randomized page-walk evidence."
   "2026-10-05T07:38:18.064Z",codex-sol,"Baseline: all eight existing list differential tests pass with the installed TS CLI 2026.10.5, including nine golden envelopes. Contract discovery: --after follows item identity and collapses subsequent envelope metadata into continuation_contract; it does not bind a snapshot. --output-cursor binds the projected row collection and rejects stale snapshots. Pagination tests will distinguish these contracts instead of claiming producer cursors refuse mutations."
@@ -84,6 +84,8 @@ comments[71]{created_at,author,text}:
   "2026-10-06T14:29:51.905Z",codex-sol,"Round 4 local verification passed: just release-check (all four coverage totals exactly 100, full tests, fmt/clippy/docs, audit and changelog); cargo check --target x86_64-pc-windows-gnu --all-targets; cargo clippy --target x86_64-pc-windows-gnu --locked --all-targets --all-features -- -D warnings; pm test selected cross-target check and recovery subset (12 tests). Pushing receipt 77724e2 with recovery fixtures and ungrouped failure-only branch diagnostics for CI round 1 of at most 3."
   "2026-10-06T14:37:33.259Z",codex-sol,"CI round 1 run 37479466196: Linux and macOS aggregates passed; Windows normal tests passed and recovery regions 1220:56-57 plus 1229:31-32 are now covered. Windows aggregate is 100 lines/functions/regions with only one missed branch. Ungrouped diagnostic identifies workspace.rs:97:24-68 (ParentDir fold) with zero true executions in the production library. Extending existing discovery_errors_are_typed integration test with a real verbatim Windows parent path and both library/CLI typed refusal assertions; unit-only coverage did not cover this build instantiation."
   "2026-10-06T14:41:35.143Z",codex-sol,"Round 4 second local release-check passed with 100/100/100/100 coverage, tests, fmt/clippy/docs, audit and changelog. Windows GNU all-target check and deny-warning clippy passed after extending discovery_errors_are_typed; pm test ran the linked discovery command successfully. Pushing CI round 2 to validate workspace ParentDir coverage in production builds."
+  "2026-10-06T14:51:05.197Z",codex-sol,"CI round 2 run 37481110114: Linux/macOS aggregates and all Windows tests passed. Windows coverage remains 100 lines/functions/regions and 623/624 branches. ParentDir production entry is now covered but was not the sole aggregate gap: comparison with Linux indicates collect_toon_entries has all-regular files in the production Windows instance and a partial unit instance. Extending the existing removed-directory-entry test (renamed descriptively) with real symlinks, nested directories and ignored non-TOON files so one unit instance exercises every branch, including is_file false at 382:19-39 after a real removal. Windows symlink privilege failure fails CI and prints a skip reason only off CI. No production or threshold changes."
+  "2026-10-06T14:54:19.309Z",codex-sol,"Third local release-check passed at 100/100/100/100 with full tests, fmt/clippy/docs, audit and changelog. LLVM JSON confirms collect_toon_entries now has 8/8 branch arms covered in both function instances on Linux, including the unit instance previously partial. Windows GNU all-target check and deny-warning clippy passed; linked snapshot fixture passed via pm test. Removed its obsolete linked test name. Pushing CI round 3 (final allowed round); all implementation and tracker changes staged explicitly."
 files[21]{path,scope}:
   .github/workflows/ci.yml,project
   justfile,project
@@ -228,13 +230,6 @@ tests[25]:
       created_at: "2026-10-06T12:55:15.898Z"
       source_kind: local_mutation
       source_ref: feat/list-pagination-parity
-  - command: cargo test --locked --lib removed_directory_entries
-    scope: project
-    provenance:
-      author: codex-sol
-      created_at: "2026-10-06T13:11:36.067Z"
-      source_kind: local_mutation
-      source_ref: feat/list-pagination-parity
   - command: cargo test --locked --test read_contract discovery_rejects_a
     scope: project
     provenance:
@@ -285,6 +280,14 @@ tests[25]:
     provenance:
       author: codex-sol
       created_at: "2026-10-06T14:37:34.566Z"
+      source_kind: local_mutation
+      source_ref: feat/list-pagination-parity
+  - command: "cargo test --locked --lib workspace::tests::directory_snapshots_skip_removed_entries_symlinks_and_non_toon_files"
+    scope: project
+    timeout_seconds: 600
+    provenance:
+      author: codex-sol
+      created_at: "2026-10-06T14:51:05.847Z"
       source_kind: local_mutation
       source_ref: feat/list-pagination-parity
 docs[3]:
