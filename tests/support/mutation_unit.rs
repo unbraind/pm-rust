@@ -2486,7 +2486,16 @@ fn a_windows_pending_delete_incumbent_lock_is_contention() -> Result<(), Box<dyn
     let error = fs::read_to_string(&path)
         .err()
         .ok_or("pending-delete read succeeded")?;
-    assert_eq!(error.kind(), ErrorKind::PermissionDenied);
+    assert!(
+        matches!(
+            error.kind(),
+            ErrorKind::PermissionDenied | ErrorKind::NotFound
+        ),
+        "pending-delete read must refuse access or report a vanished name: {error}"
+    );
+    // The retained handle still identifies the real incumbent, even when the
+    // directory entry is invisible to ordinary opens on this Windows version.
+    assert_eq!(held.metadata()?.len(), 3);
     let outcome = acquire_lock_attempt(&pm_root, "sample-held", "load-agent", 1800, false, TS);
     assert!(
         matches!(&outcome, Err(PmRustError::LockConflict { id }) if id == "sample-held"),
