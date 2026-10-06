@@ -6,13 +6,13 @@ status: in_progress
 priority: 2
 tags[3]: conformance,read-parity,rust
 created_at: "2026-10-02T19:11:02.190Z"
-updated_at: "2026-10-06T11:56:25.325Z"
+updated_at: "2026-10-06T12:01:28.291Z"
 assignee: codex-sol
 claim_principal: codex-sol
 author: codex-sol
 acceptance_criteria: Real TS and Rust CLIs match multi-page envelopes and continuation fingerprints on shared fixtures; Stale or mismatched cursors fail consistently; No item loss or repeated rows; Output omission and budget receipts match; Existing gates remain enforced
 parent: pm-rust-u4al
-comments[33]{created_at,author,text}:
+comments[34]{created_at,author,text}:
   "2026-10-02T20:09:16.243Z",codex-sol,"PR #58 full-projection follow-up: published --full additionally emits read_output alias/migration/budget diagnostics, including estimated_tokens. Native --full restores complete metadata with unchanged selection, but these output-policy diagnostics remain outside the current slice and are explicitly documented. Synthetic exact published read_output receipt captured in tests/fixtures/list-full-read-output-2026-10-2.json; original nine envelope comparisons remain exact and unchanged. Include full-projection output policy in this bounded-output/canonical-controls follow-up."
   "2026-10-05T07:13:33.482Z",codex-sol,"Inspect the published 2026.10.5 list contract and existing differential fixtures before implementing native pagination, cursor validation and bounded projection receipts. Preserve every existing release gate; add shared-fixture differential and randomized page-walk evidence."
   "2026-10-05T07:38:18.064Z",codex-sol,"Baseline: all eight existing list differential tests pass with the installed TS CLI 2026.10.5, including nine golden envelopes. Contract discovery: --after follows item identity and collapses subsequent envelope metadata into continuation_contract; it does not bind a snapshot. --output-cursor binds the projected row collection and rejects stale snapshots. Pagination tests will distinguish these contracts instead of claiming producer cursors refuse mutations."
@@ -46,8 +46,10 @@ comments[33]{created_at,author,text}:
   "2026-10-06T11:50:04.859Z",codex-sol,"All nine focused linked tests passed. The first aggregate run was interrupted by the linked runner default 120-second timeout during instrumented pagination tests, with no assertion failure. Increased only this linked command timeout to 600 seconds and rerunning it. PM health and validate return ok with existing advisory warnings; no unrelated tracker reconciliation performed."
   "2026-10-06T11:52:28.696Z",codex-sol,"Local verification complete: all nine focused linked tests passed; pm test pm-rust-ufzy --run --progress --only-index 10 --timeout 600 passed just release-check in 127 seconds against pinned TS CLI 2026.10.5. Coverage is 3046/3046 lines, 274/274 functions, 4616/4616 regions and 624/624 branches, all 100 percent. Formatting, deny-warning clippy, private documentation, full tests, cargo audit and changelog check passed. Independently confirmed the fixed omission receipt matches installed TS 2026.10.6. Both finding regression tests fail on revert. Next: commit, merge origin/main action-pin updates, push, and check remote matrix coverage."
   "2026-10-06T11:56:25.325Z",codex-sol,"CI follow-up: Linux functional tests and the aggregate release gate passed at 829e3a5. macOS rejected creation of the process-test non-UTF-8 directory with Illegal byte sequence before dispatch. Scoped that filesystem-dependent black-box regression to Linux, where it proves the original panic; the invalid OsString unit test still runs on every Unix platform, including macOS. No production code or coverage threshold changed. Windows gates are still running. Rechecking and pushing this fixture portability correction."
-files[16]{path,scope}:
+  "2026-10-06T12:01:26.377Z",codex-sol,"At 62e04c6, functional CI tests pass on Linux/macOS/Windows and the Linux aggregate gate passes. The newly enabled macOS aggregate fails its 100 percent coverage predicate after all tests pass; its log prints only false, with no uncovered locations. Added totals and missing-line reporting on predicate failure to just release-check, preserving the threshold and exit failure, to diagnose the actual platform gap. Windows aggregate is still running."
+files[17]{path,scope}:
   .github/workflows/ci.yml,project
+  justfile,project
   src/list_intent.rs,project
   src/list.rs,project
   src/main.rs,project

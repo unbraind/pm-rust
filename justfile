@@ -108,6 +108,8 @@ release-check:
     PM_RUST_REQUIRE_PUBLISHED_CLI=1 cargo +1.90.0 test --locked --all-targets --all-features
     test ! -e coverage-branch.json || unlink coverage-branch.json
     cargo +nightly-2026-08-06 llvm-cov --locked --branch --all-targets --all-features --json --output-path coverage-branch.json
-    jq -e '.data[0].totals.lines.percent == 100 and .data[0].totals.functions.percent == 100 and .data[0].totals.regions.percent == 100 and .data[0].totals.branches.percent == 100' coverage-branch.json
+    jq '.data[0].totals' coverage-branch.json
+    jq -e '.data[0].totals.lines.percent == 100 and .data[0].totals.functions.percent == 100 and .data[0].totals.regions.percent == 100 and .data[0].totals.branches.percent == 100' coverage-branch.json || \
+      { cargo +nightly-2026-08-06 llvm-cov report --branch --show-missing-lines; exit 1; }
     cargo audit
     just changelog-check
