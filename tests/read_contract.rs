@@ -388,6 +388,10 @@ fn reports_a_windows_denied_nested_directory_listing() -> Result<(), Box<dyn std
     let (directory, root) = tracker()?;
     let nested = root.join("tasks/nested/locked");
     fs::create_dir_all(&nested)?;
+    // Require enumeration of a real entry, rather than an empty wildcard
+    // search that Windows can satisfy without checking directory-list access.
+    let sentinel = nested.join("sentinel.txt");
+    fs::write(&sentinel, "directory enumeration fixture")?;
     let mut denied = windows_fs::deny_directory_access(&nested, "RD")?;
     assert!(nested.is_dir());
     let error = fs::read_dir(&nested)
@@ -397,6 +401,10 @@ fn reports_a_windows_denied_nested_directory_listing() -> Result<(), Box<dyn std
     let result = Workspace::discover(directory.path())?.read_items();
     denied.restore()?;
     assert!(matches!(result, Err(PmRustError::Io { path, .. }) if path == nested));
+    assert_eq!(
+        fs::read_to_string(&sentinel)?,
+        "directory enumeration fixture"
+    );
     assert_eq!(
         Workspace::discover(directory.path())?.read_items()?.len(),
         2

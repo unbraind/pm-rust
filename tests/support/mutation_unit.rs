@@ -2396,6 +2396,10 @@ fn remaining_windows_mutation_arms_report_real_io_errors() -> Result<(), Box<dyn
     create_item(&pm_root, request())?;
     let nested = pm_root.join("tasks/locked");
     fs::create_dir(&nested)?;
+    // An empty NTFS directory can satisfy a wildcard search without listing
+    // entries. Keep a real entry so the fixture requires directory access.
+    let sentinel = nested.join("sentinel.txt");
+    fs::write(&sentinel, "directory enumeration fixture")?;
     let mut denied = windows_fs::deny_directory_access(&nested, "RD")?;
     assert!(nested.is_dir());
     let error = fs::read_dir(&nested)
@@ -2405,6 +2409,10 @@ fn remaining_windows_mutation_arms_report_real_io_errors() -> Result<(), Box<dyn
     let result = locate_item(&pm_root, "sample-unit");
     denied.restore()?;
     assert!(matches!(result, Err(PmRustError::Io { path, .. }) if path == nested));
+    assert_eq!(
+        fs::read_to_string(&sentinel)?,
+        "directory enumeration fixture"
+    );
     assert!(locate_item(&pm_root, "sample-unit").is_ok());
     Ok(())
 }
