@@ -601,6 +601,12 @@ fn parent_directory_sync_reports_real_path_and_sync_failures()
         sync_parent(Path::new("/")),
         Err(PmRustError::InvalidCreateRequest { .. })
     ));
+    // Opening the null device succeeds, but syncing it as a directory fails.
+    // Unlike procfs, this also exercises the sync error on macOS.
+    assert!(matches!(
+        sync_parent(Path::new("/dev/null/target")),
+        Err(PmRustError::Io { path, .. }) if path == Path::new("/dev/null")
+    ));
     #[cfg(target_os = "linux")]
     assert!(matches!(
         sync_parent(Path::new("/proc/target")),
@@ -811,6 +817,18 @@ fn append_history_line_surfaces_open_and_write_failures() -> Result<(), Box<dyn 
     fs::create_dir(&occupied)?;
     assert!(matches!(
         append_history_line(&occupied, "{\"op\":\"update\"}\n"),
+        Err(PmRustError::Io { .. })
+    ));
+    // Null devices accept writes but cannot flush durable history. Exercise
+    // that error on each OS instead of relying only on Linux's full device.
+    #[cfg(unix)]
+    assert!(matches!(
+        append_history_line(Path::new("/dev/null"), "line\n"),
+        Err(PmRustError::Io { .. })
+    ));
+    #[cfg(windows)]
+    assert!(matches!(
+        append_history_line(Path::new("NUL"), "line\n"),
         Err(PmRustError::Io { .. })
     ));
     #[cfg(target_os = "linux")]

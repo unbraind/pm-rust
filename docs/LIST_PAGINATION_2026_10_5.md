@@ -138,6 +138,10 @@ Both regression tests fail when their fixes are reverted: legacy compaction
 emits rows instead of omission, and the non-UTF-8 process exits 101 instead of 2.
 The CI release gate now runs on Linux, macOS and Windows; each runner enforces
 100 percent lines, functions, regions and branches via `just release-check`.
+The macOS coverage run exposed two existing mutation error paths exercised only
+with Linux devices. Null-device sync failures now cover history flush errors on
+Unix and Windows, and parent-directory sync errors on Unix. The gate reports
+totals and missing lines when any of its unchanged coverage thresholds fail.
 
 ## Verification receipt
 
