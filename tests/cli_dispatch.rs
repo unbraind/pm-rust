@@ -258,7 +258,9 @@ fn close_dispatch_closes_once_and_refuses_repeats() -> Result<(), Box<dyn std::e
 }
 
 /// A non-UTF-8 workspace argument must not panic a cursor refusal.
-#[cfg(unix)]
+/// Linux permits these directory names; macOS rejects them before dispatch.
+/// The argument-publisher unit test exercises invalid bytes on every Unix OS.
+#[cfg(target_os = "linux")]
 #[test]
 fn non_utf8_workspace_argument_refuses_a_bad_cursor_without_panic()
 -> Result<(), Box<dyn std::error::Error>> {

@@ -132,6 +132,8 @@ gap is tracked in
 
 Cursor refusals read process arguments with `args_os` and lossy conversion, so a
 non-UTF-8 argument cannot panic the JSON refusal path.
+The `OsString` unit test runs on all Unix platforms. The process test runs on
+Linux, since macOS rejects non-UTF-8 directory names before CLI dispatch.
 Both regression tests fail when their fixes are reverted: legacy compaction
 emits rows instead of omission, and the non-UTF-8 process exits 101 instead of 2.
 The CI release gate now runs on Linux, macOS and Windows; each runner enforces
