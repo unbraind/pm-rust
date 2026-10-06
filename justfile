@@ -110,6 +110,7 @@ release-check:
     cargo +nightly-2026-08-06 llvm-cov --locked --branch --all-targets --all-features --json --output-path coverage-branch.json
     jq '.data[0].totals' coverage-branch.json
     jq -e '.data[0].totals.lines.percent == 100 and .data[0].totals.functions.percent == 100 and .data[0].totals.regions.percent == 100 and .data[0].totals.branches.percent == 100' coverage-branch.json || \
-      { cargo +nightly-2026-08-06 llvm-cov report --branch --show-missing-lines; exit 1; }
+      { cargo +nightly-2026-08-06 llvm-cov report --branch --show-missing-lines; \
+        jq '[.data[0] as $data | $data.files[] | select(.summary.regions.notcovered > 0 or .summary.branches.notcovered > 0) as $file | {file: ($file.filename | split("\\") | last | split("/") | last), branches: ($file.branches | group_by(.[0:4]) | map({span: .[0][0:4], yes: (map(.[4]) | add), no: (map(.[5]) | add)}) | map(select(.yes == 0 or .no == 0))), regions: ([$data.functions[] | select(.filenames[0] == $file.filename) | .regions[] | select(.[7] == 0)] | group_by(.[0:4]) | map({span: .[0][0:4], count: (map(.[4]) | add)}) | map(select(.count == 0)))}]' coverage-branch.json; exit 1; }
     cargo audit
     just changelog-check

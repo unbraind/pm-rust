@@ -382,6 +382,28 @@ fn reports_an_unreadable_nested_item_directory() -> Result<(), Box<dyn std::erro
     Ok(())
 }
 
+#[cfg(windows)]
+#[test]
+fn reports_a_windows_denied_nested_directory_listing() -> Result<(), Box<dyn std::error::Error>> {
+    let (directory, root) = tracker()?;
+    let nested = root.join("tasks/nested/locked");
+    fs::create_dir_all(&nested)?;
+    let mut denied = windows_fs::deny_directory_access(&nested, "RD")?;
+    assert!(nested.is_dir());
+    let error = fs::read_dir(&nested)
+        .err()
+        .ok_or("denied directory listing succeeded")?;
+    assert_eq!(error.raw_os_error(), Some(5));
+    let result = Workspace::discover(directory.path())?.read_items();
+    denied.restore()?;
+    assert!(matches!(result, Err(PmRustError::Io { path, .. }) if path == nested));
+    assert_eq!(
+        Workspace::discover(directory.path())?.read_items()?.len(),
+        2
+    );
+    Ok(())
+}
+
 #[cfg(unix)]
 #[test]
 fn ignores_symlinked_item_directories() -> Result<(), Box<dyn std::error::Error>> {

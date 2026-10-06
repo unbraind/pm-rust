@@ -2368,6 +2368,47 @@ fn remaining_unix_only_mutation_arms_are_covered_in_the_unit_binary()
     Ok(())
 }
 
+#[cfg(windows)]
+#[test]
+/// Native ACLs refuse history restoration and nested enumeration independently.
+fn remaining_windows_mutation_arms_report_real_io_errors() -> Result<(), Box<dyn std::error::Error>>
+{
+    let (_directory, recover_root, _item, _history, journal) = completed_transaction()?;
+    write_journal(&recover_root, &journal)?;
+    let history = recover_root.join("history/sample-unit.jsonl");
+    fs::remove_file(&history)?;
+    let history_dir = recover_root.join("history");
+    let mut denied_creation = windows_fs::deny_directory_access(&history_dir, "WD")?;
+    assert!(fs::read_dir(&history_dir).is_ok());
+    let result = recover(&recover_root, "sample-unit");
+    denied_creation.restore()?;
+    assert!(matches!(result, Err(PmRustError::Io { .. })));
+    assert!(!history.exists());
+    assert!(
+        recover_root
+            .join("runtime/transactions/create-sample-unit.json")
+            .is_file()
+    );
+    recover(&recover_root, "sample-unit")?;
+    assert!(history.is_file());
+
+    let (_directory, pm_root) = root(&mutation_settings(0))?;
+    create_item(&pm_root, request())?;
+    let nested = pm_root.join("tasks/locked");
+    fs::create_dir(&nested)?;
+    let mut denied = windows_fs::deny_directory_access(&nested, "RD")?;
+    assert!(nested.is_dir());
+    let error = fs::read_dir(&nested)
+        .err()
+        .ok_or("denied directory listing succeeded")?;
+    assert_eq!(error.raw_os_error(), Some(5));
+    let result = locate_item(&pm_root, "sample-unit");
+    denied.restore()?;
+    assert!(matches!(result, Err(PmRustError::Io { path, .. }) if path == nested));
+    assert!(locate_item(&pm_root, "sample-unit").is_ok());
+    Ok(())
+}
+
 #[test]
 fn windows_pending_delete_reads_as_lock_contention_not_as_a_fault() {
     // Windows keeps a deleted file in a pending-delete state until every handle
