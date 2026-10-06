@@ -1,0 +1,14 @@
+id: pm-rust-8qbo
+title: Mirror the upstream output-limit continuation fix once pm-cli 1420 ships
+description: "pm list --limit 50 --output-limit 30 returns 30 rows but next_cursor points after row 49 in the published CLI (2026.10.5 and 2026.10.6), so following it silently skips rows 30-49. pm-rust reproduces this byte-identically and pins it in tests/pagination_differential.rs bounded_receipts_match_bytes. When unbraind/pm-cli#1420 is fixed: bump COMPATIBLE_PM_VERSION, rebase the producer cursor to the last delivered row, and add a page-walk test asserting the union of delivered ids equals the full set."
+type: Task
+status: open
+priority: 1
+tags[3]: pagination,parity,upstream
+created_at: "2026-10-06T18:04:22.824Z"
+updated_at: "2026-10-06T18:04:22.824Z"
+author: claude-orchestrator
+acceptance_criteria: "Following next_cursor after an --output-limit trim delivers every row exactly once, in order, byte-identical to the fixed published CLI"
+files[1]{path,scope}:
+  tests/pagination_differential.rs,project
+body: ""

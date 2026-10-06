@@ -49,6 +49,10 @@ fn change_directory_acl(path: &Path, operation: &str, rule: &str) -> io::Result<
     if output.status.success() {
         Ok(())
     } else {
-        Err(io::Error::other("icacls could not update the fixture ACL"))
+        Err(io::Error::other(format!(
+            "icacls could not update the fixture ACL ({}): {}",
+            output.status,
+            String::from_utf8_lossy(&output.stderr)
+        )))
     }
 }

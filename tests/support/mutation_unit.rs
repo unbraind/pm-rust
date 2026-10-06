@@ -1696,8 +1696,9 @@ fn locate_item_skips_a_non_file_entry() -> Result<(), Box<dyn std::error::Error>
 }
 
 #[test]
-/// A real entry removed after enumeration cannot hide the retained nested item.
-fn locate_item_skips_removed_directory_entries() -> Result<(), Box<dyn std::error::Error>> {
+/// An item moved into a nested directory after enumeration is found at its new
+/// path: the stale top-level entry is skipped rather than reported.
+fn locate_item_follows_an_item_moved_after_enumeration() -> Result<(), Box<dyn std::error::Error>> {
     let (_directory, pm_root) = root(&mutation_settings(0))?;
     create_item(&pm_root, request())?;
     let tasks = pm_root.join("tasks");

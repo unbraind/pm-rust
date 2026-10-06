@@ -439,6 +439,16 @@ fn bounded_receipts_match_bytes() -> TestResult {
         vec!["--output-budget", "1000"],
         vec!["--output-budget", "1500", "--limit", "50"],
         vec!["--output-budget", "1200", "--output-limit", "unbounded"],
+        // Pinned parity with a published-CLI defect: the cursor still points
+        // after the producer page, skipping rows 30-49 (unbraind/pm-cli#1420).
+        vec![
+            "--limit",
+            "50",
+            "--output-limit",
+            "30",
+            "--output-budget",
+            "unbounded",
+        ],
         vec!["--full", "--output-budget", "2000"],
         vec![
             "--no-truncate",
