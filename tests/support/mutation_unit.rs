@@ -1261,6 +1261,57 @@ fn recovery_surfaces_item_replay_publish_failures() -> Result<(), Box<dyn std::e
     Ok(())
 }
 
+#[cfg(windows)]
+#[test]
+fn recovery_roll_forward_refuses_a_read_shared_item_then_retries_idempotently()
+-> Result<(), Box<dyn std::error::Error>> {
+    use std::os::windows::fs::OpenOptionsExt;
+
+    const FILE_SHARE_READ: u32 = 1;
+    let (_directory, pm_root) = root(&mutation_settings(0))?;
+    create_item(&pm_root, request())?;
+    let item_path = pm_root.join("tasks/sample-unit.toon");
+    let history_path = pm_root.join("history/sample-unit.jsonl");
+    let journal_path = pm_root.join("runtime/transactions/update-sample-unit.json");
+    let original_item = fs::read_to_string(&item_path)?;
+    let original_history = fs::read_to_string(&history_path)?;
+    let updated_item = original_item.replace("Unit create", "Recovered title");
+    let history_line = "{\"ts\":\"stub\",\"op\":\"update\"}\n";
+    write_mutation_journal(&pm_root, "update", &updated_item, history_line)?;
+    // Reads still succeed, so recovery reaches replacement of the before-image.
+    let held = OpenOptions::new()
+        .read(true)
+        .share_mode(FILE_SHARE_READ)
+        .open(&item_path)?;
+    let Err(PmRustError::Io { path, source }) = recover_mutation(&pm_root, "update", "sample-unit")
+    else {
+        return Err("read-shared item must refuse recovery replacement".into());
+    };
+    assert_eq!(path, item_path);
+    assert_eq!(source.raw_os_error(), Some(32));
+    assert_eq!(fs::read_to_string(&item_path)?, original_item);
+    assert_eq!(fs::read_to_string(&history_path)?, original_history);
+    assert!(journal_path.is_file());
+    assert_eq!(fs::read_dir(pm_root.join("tasks"))?.count(), 1);
+    drop(held);
+    let expected_paths = (item_path.clone(), history_path.clone());
+    assert_eq!(
+        recover_mutation(&pm_root, "update", "sample-unit")?,
+        expected_paths
+    );
+    assert_eq!(
+        recover_mutation(&pm_root, "update", "sample-unit")?,
+        expected_paths
+    );
+    assert_eq!(fs::read_to_string(&item_path)?, updated_item);
+    assert_eq!(
+        fs::read_to_string(&history_path)?,
+        format!("{original_history}{history_line}")
+    );
+    assert!(!journal_path.exists());
+    Ok(())
+}
+
 #[test]
 /// Covers recovery replay when the history stream cannot be recreated.
 fn recovery_surfaces_history_replay_append_failures() -> Result<(), Box<dyn std::error::Error>> {
@@ -1329,6 +1380,53 @@ fn recovery_surfaces_journal_cleanup_failures() -> Result<(), Box<dyn std::error
         Err(PmRustError::Io { .. })
     ));
     fs::set_permissions(&transactions, fs::Permissions::from_mode(0o755))?;
+    Ok(())
+}
+
+#[cfg(windows)]
+#[test]
+fn recovery_commits_but_retains_a_read_shared_journal_then_retries_idempotently()
+-> Result<(), Box<dyn std::error::Error>> {
+    use std::os::windows::fs::OpenOptionsExt;
+
+    const FILE_SHARE_READ: u32 = 1;
+    let (_directory, pm_root) = root(&mutation_settings(0))?;
+    create_item(&pm_root, request())?;
+    let item_path = pm_root.join("tasks/sample-unit.toon");
+    let history_path = pm_root.join("history/sample-unit.jsonl");
+    let journal_path = pm_root.join("runtime/transactions/update-sample-unit.json");
+    let original_history = fs::read_to_string(&history_path)?;
+    let updated_item = fs::read_to_string(&item_path)?.replace("Unit create", "Recovered title");
+    let history_line = "{\"ts\":\"stub\",\"op\":\"update\"}\n";
+    write_mutation_journal(&pm_root, "update", &updated_item, history_line)?;
+    // Recovery can read the journal and publish both halves, but cannot delete it.
+    let held = OpenOptions::new()
+        .read(true)
+        .share_mode(FILE_SHARE_READ)
+        .open(&journal_path)?;
+    let Err(PmRustError::Io { path, source }) = recover_mutation(&pm_root, "update", "sample-unit")
+    else {
+        return Err("read-shared journal must refuse recovery cleanup".into());
+    };
+    assert_eq!(path, journal_path);
+    assert_eq!(source.raw_os_error(), Some(32));
+    assert!(journal_path.is_file());
+    let committed_history = format!("{original_history}{history_line}");
+    assert_eq!(fs::read_to_string(&item_path)?, updated_item);
+    assert_eq!(fs::read_to_string(&history_path)?, committed_history);
+    drop(held);
+    let expected_paths = (item_path.clone(), history_path.clone());
+    assert_eq!(
+        recover_mutation(&pm_root, "update", "sample-unit")?,
+        expected_paths
+    );
+    assert_eq!(
+        recover_mutation(&pm_root, "update", "sample-unit")?,
+        expected_paths
+    );
+    assert_eq!(fs::read_to_string(&item_path)?, updated_item);
+    assert_eq!(fs::read_to_string(&history_path)?, committed_history);
+    assert!(!journal_path.exists());
     Ok(())
 }
 
