@@ -125,6 +125,26 @@ fn discovery_rejects_a_symlinked_tracker_root() -> Result<(), Box<dyn std::error
     Ok(())
 }
 
+#[cfg(windows)]
+#[test]
+fn discovery_rejects_a_windows_symlinked_tracker_root() -> Result<(), Box<dyn std::error::Error>> {
+    use std::os::windows::fs::symlink_dir;
+
+    let directory = tempfile::tempdir()?;
+    let workspace = directory.path().join("workspace");
+    let external = directory.path().join("external-tracker");
+    write(external.join("settings.json"), "{}\n")?;
+    fs::create_dir_all(workspace.join(".agents"))?;
+    if !windows_fs::symlink_created(symlink_dir(&external, workspace.join(".agents/pm")))? {
+        return Ok(());
+    }
+    assert!(matches!(
+        Workspace::discover(&workspace),
+        Err(PmRustError::TrackerNotFound { .. })
+    ));
+    Ok(())
+}
+
 #[test]
 fn reads_sorts_filters_and_preserves_extension_fields() -> Result<(), Box<dyn std::error::Error>> {
     let (directory, _) = tracker()?;

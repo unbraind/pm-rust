@@ -86,6 +86,23 @@ fn query_spelling_preserves_windows_aliases_and_unix_physical_roots() {
 }
 
 #[test]
+fn removed_directory_entries_are_skipped() -> Result<(), Box<dyn std::error::Error>> {
+    let directory = tempfile::tempdir()?;
+    let vanished = directory.path().join("vanished.toon");
+    let retained = directory.path().join("retained.toon");
+    std::fs::write(&vanished, "removed before metadata")?;
+    std::fs::write(&retained, "retained")?;
+    let entries = super::read_directory(directory.path())?;
+    assert_eq!(entries.len(), 2);
+    std::fs::remove_file(&vanished)?;
+    assert!(!vanished.is_symlink() && !vanished.is_dir() && !vanished.is_file());
+    let mut paths = Vec::new();
+    super::collect_toon_entries(entries, &mut paths)?;
+    assert_eq!(paths, [retained]);
+    Ok(())
+}
+
+#[test]
 fn directory_iteration_errors_retain_the_directory_path() -> Result<(), Box<dyn std::error::Error>>
 {
     let path = Path::new("tracker/items");

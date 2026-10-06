@@ -1594,6 +1594,28 @@ fn locate_item_skips_a_non_file_entry() -> Result<(), Box<dyn std::error::Error>
 }
 
 #[test]
+/// A real entry removed after enumeration cannot hide the retained nested item.
+fn locate_item_skips_removed_directory_entries() -> Result<(), Box<dyn std::error::Error>> {
+    let (_directory, pm_root) = root(&mutation_settings(0))?;
+    create_item(&pm_root, request())?;
+    let tasks = pm_root.join("tasks");
+    let vanished = tasks.join("sample-unit.toon");
+    let nested = tasks.join("nested");
+    fs::create_dir(&nested)?;
+    let entries = crate::workspace::read_directory(&tasks)?;
+    assert_eq!(entries.len(), 2);
+    let retained = nested.join("sample-unit.toon");
+    fs::rename(&vanished, &retained)?;
+    assert!(!vanished.is_symlink() && !vanished.is_dir() && !vanished.is_file());
+    let mut found = Vec::new();
+    locate_item_entries(entries, false, "sample-unit", &mut found)?;
+    assert_eq!(found.len(), 1);
+    assert_eq!(found[0].0, retained);
+    assert_eq!(found[0].1.metadata.id, "sample-unit");
+    Ok(())
+}
+
+#[test]
 #[cfg(unix)]
 /// Proves the recursive locator surfaces a typed IO error when a matching
 /// toon entry cannot be read.

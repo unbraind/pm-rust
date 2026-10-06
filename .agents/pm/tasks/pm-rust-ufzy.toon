@@ -6,13 +6,13 @@ status: in_progress
 priority: 2
 tags[3]: conformance,read-parity,rust
 created_at: "2026-10-02T19:11:02.190Z"
-updated_at: "2026-10-06T13:00:39.469Z"
+updated_at: "2026-10-06T13:19:11.510Z"
 assignee: codex-sol
 claim_principal: codex-sol
 author: codex-sol
 acceptance_criteria: Real TS and Rust CLIs match multi-page envelopes and continuation fingerprints on shared fixtures; Stale or mismatched cursors fail consistently; No item loss or repeated rows; Output omission and budget receipts match; Existing gates remain enforced
 parent: pm-rust-u4al
-comments[51]{created_at,author,text}:
+comments[53]{created_at,author,text}:
   "2026-10-02T20:09:16.243Z",codex-sol,"PR #58 full-projection follow-up: published --full additionally emits read_output alias/migration/budget diagnostics, including estimated_tokens. Native --full restores complete metadata with unchanged selection, but these output-policy diagnostics remain outside the current slice and are explicitly documented. Synthetic exact published read_output receipt captured in tests/fixtures/list-full-read-output-2026-10-2.json; original nine envelope comparisons remain exact and unchanged. Include full-projection output policy in this bounded-output/canonical-controls follow-up."
   "2026-10-05T07:13:33.482Z",codex-sol,"Inspect the published 2026.10.5 list contract and existing differential fixtures before implementing native pagination, cursor validation and bounded projection receipts. Preserve every existing release gate; add shared-fixture differential and randomized page-walk evidence."
   "2026-10-05T07:38:18.064Z",codex-sol,"Baseline: all eight existing list differential tests pass with the installed TS CLI 2026.10.5, including nine golden envelopes. Contract discovery: --after follows item identity and collapses subsequent envelope metadata into continuation_contract; it does not bind a snapshot. --output-cursor binds the projected row collection and rejects stale snapshots. Pagination tests will distinguish these contracts instead of claiming producer cursors refuse mutations."
@@ -64,6 +64,8 @@ comments[51]{created_at,author,text}:
   "2026-10-06T12:55:19.206Z",codex-sol,"The original missing-lines report lists no main.rs line: main.rs has one uncovered region. Existing unpaired-surrogate argument coverage targets its lossy conversion. Workspace read errors and nested symlinks have Windows integration fixtures; verify their execution and complete region coverage in the next CI run."
   "2026-10-06T12:56:24.663Z",codex-sol,Initial local tracker test run refused the installed 2026.10.6 oracle; pagination intentionally requires 2026.10.5. Installed the pinned oracle in ignored build output and rerun with PM_NODE_CLI explicitly selecting it. Windows cross-check and strict Clippy already pass; tracker test execution does not persist captured command output.
   "2026-10-06T13:00:39.469Z",codex-sol,"Local verification passed: all 17 registered tests via pm test with the pinned 2026.10.5 oracle, including just release-check (3049/3049 lines, 274/274 functions, 4617/4617 regions, 624/624 branches), full all-target/all-feature tests, Windows all-targets compilation and strict Clippy. Push the real exclusive-handle fixture and raw 32/33 contention classification for native Windows execution."
+  "2026-10-06T13:11:34.883Z",codex-sol,"CI run 37467487529 at 8cc1adb: Rust ubuntu/macOS/Windows all pass; Linux and macOS aggregates pass. Windows executes the new exclusive lock, item-read, symlink, parent-fold and surrogate argument fixtures: 100 percent lines and functions, main fully covered, but three branches/six regions remain (mutation one branch, workspace two). Missing-lines output has no missing lines. Add Windows tracker-root symlink rejection and real enumerated-entry deletion/move fixtures for metadata skip paths formerly covered only by Unix sockets/FIFOs. Extract snapshot-processing loops unchanged to make the real filesystem race deterministic without timing assumptions."
+  "2026-10-06T13:19:11.510Z",codex-sol,"Second-round local release-check passes at 100/100/100/100 after extracting unchanged snapshot-processing loops: 3063 lines, 276 functions, 4629 regions, 624 branches all covered. Real deletion/move snapshots pass on Linux; Windows all-targets compile and strict Clippy pass. Registered tracker-root discovery filter covers the native Unix or Windows twin on its platform; its corrected portable filter also passed through pm test. Push the additional fixtures for native Windows branch/region verification."
 files[20]{path,scope}:
   .github/workflows/ci.yml,project
   justfile,project
@@ -85,7 +87,7 @@ files[20]{path,scope}:
   tests/support/read_output_unit.rs,project
   tests/support/windows_fs.rs,project
   tests/support/workspace_unit.rs,project
-tests[17]:
+tests[19]:
   - command: PM_RUST_REQUIRE_PUBLISHED_CLI=1 cargo test --locked --test pagination_differential --test list_differential
     scope: project
     timeout_seconds: 600
@@ -205,6 +207,20 @@ tests[17]:
     provenance:
       author: codex-sol
       created_at: "2026-10-06T12:55:15.898Z"
+      source_kind: local_mutation
+      source_ref: feat/list-pagination-parity
+  - command: cargo test --locked --lib removed_directory_entries
+    scope: project
+    provenance:
+      author: codex-sol
+      created_at: "2026-10-06T13:11:36.067Z"
+      source_kind: local_mutation
+      source_ref: feat/list-pagination-parity
+  - command: cargo test --locked --test read_contract discovery_rejects_a
+    scope: project
+    provenance:
+      author: codex-sol
+      created_at: "2026-10-06T13:12:14.714Z"
       source_kind: local_mutation
       source_ref: feat/list-pagination-parity
 docs[3]:

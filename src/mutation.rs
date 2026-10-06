@@ -1281,11 +1281,21 @@ fn locate_item_recursive(
     id: &str,
     found: &mut Vec<(PathBuf, ItemDocument)>,
 ) -> Result<(), PmRustError> {
-    let target = format!("{id}.toon");
     // `read_directory` and `read_optional` map IO failures with `match`, not
     // closures, so they do not spawn per-instantiation closure functions the
     // coverage gate would count as uncovered when the IO always succeeds.
-    for entry in crate::workspace::read_directory(dir)? {
+    locate_item_entries(crate::workspace::read_directory(dir)?, at_root, id, found)
+}
+
+/// Probes a real directory snapshot, skipping entries removed before metadata reads.
+fn locate_item_entries(
+    entries: Vec<fs::DirEntry>,
+    at_root: bool,
+    id: &str,
+    found: &mut Vec<(PathBuf, ItemDocument)>,
+) -> Result<(), PmRustError> {
+    let target = format!("{id}.toon");
+    for entry in entries {
         let entry_path = entry.path();
         if entry_path.is_symlink() {
             continue;

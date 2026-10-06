@@ -364,7 +364,15 @@ fn collect_directory_entries(
 
 /// Recursively collects regular TOON files without following symbolic links.
 fn collect_toon_paths(path: &Path, paths: &mut Vec<PathBuf>) -> Result<(), PmRustError> {
-    for entry in read_directory(path)? {
+    collect_toon_entries(read_directory(path)?, paths)
+}
+
+/// Processes a directory snapshot, ignoring entries removed before metadata reads.
+fn collect_toon_entries(
+    entries: Vec<fs::DirEntry>,
+    paths: &mut Vec<PathBuf>,
+) -> Result<(), PmRustError> {
+    for entry in entries {
         let entry_path = entry.path();
         if entry_path.is_symlink() {
             continue;
