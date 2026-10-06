@@ -1,56 +1,23 @@
 //! Windows fixture policy shared by filesystem fault tests.
 
+use std::fs::{File, OpenOptions};
 use std::io;
-use std::path::{Path, PathBuf};
-use std::process::Command;
+use std::os::windows::fs::OpenOptionsExt;
+use std::path::Path;
 
-/// Restores a temporary directory's access even if its test panics.
-pub(super) struct DeniedDirectoryAccess {
-    path: PathBuf,
-    active: bool,
-}
-
-impl DeniedDirectoryAccess {
-    /// Removes the fixture's deny rule before checking the operation's result.
-    pub(super) fn restore(&mut self) -> io::Result<()> {
-        if self.active {
-            change_directory_acl(&self.path, "/remove:d", "*S-1-1-0")?;
-            self.active = false;
-        }
-        Ok(())
-    }
-}
-
-impl Drop for DeniedDirectoryAccess {
-    fn drop(&mut self) {
-        if let Err(error) = self.restore() {
-            eprintln!("failed to restore Windows directory-listing fixture: {error}");
-        }
-    }
-}
-
-/// Denies a directory right to Everyone using its stable, locale-free SID.
+/// Refuses directory enumeration through a real exclusive Windows handle.
 ///
-/// `RD` denies `FILE_LIST_DIRECTORY`; `WD` denies `FILE_ADD_FILE` without denying reads.
-pub(super) fn deny_directory_access(path: &Path, right: &str) -> io::Result<DeniedDirectoryAccess> {
-    change_directory_acl(path, "/deny", &format!("*S-1-1-0:({right})"))?;
-    Ok(DeniedDirectoryAccess {
-        path: path.to_path_buf(),
-        active: true,
-    })
-}
-
-/// Applies one ACL operation only to the disposable fixture directory.
-fn change_directory_acl(path: &Path, operation: &str, rule: &str) -> io::Result<()> {
-    let output = Command::new("icacls")
-        .arg(path)
-        .args([operation, rule])
-        .output()?;
-    if output.status.success() {
-        Ok(())
-    } else {
-        Err(io::Error::other("icacls could not update the fixture ACL"))
-    }
+/// List-directory access activates sharing checks; share mode zero refuses a
+/// second enumerator. Metadata probes request no data access and remain valid.
+/// Backup semantics is required to open a directory handle.
+pub(super) fn exclusive_directory_handle(path: &Path) -> io::Result<File> {
+    const FILE_LIST_DIRECTORY: u32 = 1;
+    const FILE_FLAG_BACKUP_SEMANTICS: u32 = 0x0200_0000;
+    OpenOptions::new()
+        .access_mode(FILE_LIST_DIRECTORY)
+        .share_mode(0)
+        .custom_flags(FILE_FLAG_BACKUP_SEMANTICS)
+        .open(path)
 }
 
 /// Requires symlinks on CI; permits only a missing local privilege to skip.

@@ -6,13 +6,13 @@ status: in_progress
 priority: 2
 tags[3]: conformance,read-parity,rust
 created_at: "2026-10-02T19:11:02.190Z"
-updated_at: "2026-10-06T13:59:06.343Z"
+updated_at: "2026-10-06T14:13:35.516Z"
 assignee: codex-sol
 claim_principal: codex-sol
 author: codex-sol
 acceptance_criteria: Real TS and Rust CLIs match multi-page envelopes and continuation fingerprints on shared fixtures; Stale or mismatched cursors fail consistently; No item loss or repeated rows; Output omission and budget receipts match; Existing gates remain enforced
 parent: pm-rust-u4al
-comments[62]{created_at,author,text}:
+comments[64]{created_at,author,text}:
   "2026-10-02T20:09:16.243Z",codex-sol,"PR #58 full-projection follow-up: published --full additionally emits read_output alias/migration/budget diagnostics, including estimated_tokens. Native --full restores complete metadata with unchanged selection, but these output-policy diagnostics remain outside the current slice and are explicitly documented. Synthetic exact published read_output receipt captured in tests/fixtures/list-full-read-output-2026-10-2.json; original nine envelope comparisons remain exact and unchanged. Include full-projection output policy in this bounded-output/canonical-controls follow-up."
   "2026-10-05T07:13:33.482Z",codex-sol,"Inspect the published 2026.10.5 list contract and existing differential fixtures before implementing native pagination, cursor validation and bounded projection receipts. Preserve every existing release gate; add shared-fixture differential and randomized page-walk evidence."
   "2026-10-05T07:38:18.064Z",codex-sol,"Baseline: all eight existing list differential tests pass with the installed TS CLI 2026.10.5, including nine golden envelopes. Contract discovery: --after follows item identity and collapses subsequent envelope metadata into continuation_contract; it does not bind a snapshot. --output-cursor binds the projected row collection and rejects stale snapshots. Pagination tests will distinguish these contracts instead of claiming producer cursors refuse mutations."
@@ -75,7 +75,9 @@ comments[62]{created_at,author,text}:
   "2026-10-06T13:52:30.637Z",codex-sol,"All 21 existing registered commands passed through pm test --run --progress with zero skips, including full Linux release-check, Windows compile/strict-Clippy and published-oracle differential suites. Test-result tracking is disabled by project policy, so this comment records the result. Linked and ran the exact missing-lines diagnostic: all Linux source files report zero missed lines, functions, regions and branches."
   "2026-10-06T13:56:24.865Z",codex-sol,"Fresh round 3 measurement run 37473772790: all three Rust jobs and Linux/macOS aggregates pass. Windows aggregate fails before coverage because the empty denied directory unexpectedly permits read_dir; its Rust sibling runner passes, exposing a fixture dependency on Windows empty-directory enumeration. Populate both native denied-listing twins with a real non-item sentinel before applying RD denial; retain mandatory access-denied assertion, ACL restoration and successful post-restore reads."
   "2026-10-06T13:59:06.343Z",codex-sol,"Populated denied-directory fixture validation passes: Windows all-targets check, strict target Clippy and pm test --run --match just-release-check equivalent exact registered command all succeed. Linux remains 3063/3063 lines, 276/276 functions, 4629/4629 regions, 624/624 branches. Push native fixture correction with its paired tracker history for the next round 3 measurement."
-files[20]{path,scope}:
+  "2026-10-06T14:08:12.349Z",codex-sol,"Run 37475182493 still refuses no directory listing after RD denial even with a real sentinel; empty-directory hypothesis is disproved. All Rust jobs and Linux/macOS aggregates pass, Windows aggregate stops in the native listing fixture before coverage. Final resumed attempt replaces only listing ACLs with a genuine FILE_LIST_DIRECTORY handle opened with share_mode(0) and backup semantics. Metadata must remain available and read_dir must yield ERROR_SHARING_VIOLATION (32); after dropping the handle both readers must succeed. Keep the proven WD-denied history repair fixture in a mutation-only helper module to avoid unused shared helper code."
+  "2026-10-06T14:13:35.515Z",codex-sol,"Final native directory-handle candidate passes Windows all-targets compilation and strict Clippy. Its Linux just release-check registered command passed through pm test (exit 0), retaining exact 100/100/100/100; source coverage policy is unchanged. Push the final resumed CI attempt with these test changes and paired tracker history."
+files[21]{path,scope}:
   .github/workflows/ci.yml,project
   justfile,project
   src/list_intent.rs,project
@@ -94,6 +96,7 @@ files[20]{path,scope}:
   tests/support/mutation_unit.rs,project
   tests/support/pagination_unit.rs,project
   tests/support/read_output_unit.rs,project
+  tests/support/windows_acl.rs,project
   tests/support/windows_fs.rs,project
   tests/support/workspace_unit.rs,project
 tests[22]:

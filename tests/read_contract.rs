@@ -384,22 +384,20 @@ fn reports_an_unreadable_nested_item_directory() -> Result<(), Box<dyn std::erro
 
 #[cfg(windows)]
 #[test]
-fn reports_a_windows_denied_nested_directory_listing() -> Result<(), Box<dyn std::error::Error>> {
+fn reports_a_windows_exclusively_held_nested_directory() -> Result<(), Box<dyn std::error::Error>> {
     let (directory, root) = tracker()?;
     let nested = root.join("tasks/nested/locked");
     fs::create_dir_all(&nested)?;
-    // Require enumeration of a real entry, rather than an empty wildcard
-    // search that Windows can satisfy without checking directory-list access.
     let sentinel = nested.join("sentinel.txt");
     fs::write(&sentinel, "directory enumeration fixture")?;
-    let mut denied = windows_fs::deny_directory_access(&nested, "RD")?;
+    let held = windows_fs::exclusive_directory_handle(&nested)?;
     assert!(nested.is_dir());
     let error = fs::read_dir(&nested)
         .err()
-        .ok_or("denied directory listing succeeded")?;
-    assert_eq!(error.raw_os_error(), Some(5));
+        .ok_or("exclusively held directory listing succeeded")?;
+    assert_eq!(error.raw_os_error(), Some(32), "{error:?}");
     let result = Workspace::discover(directory.path())?.read_items();
-    denied.restore()?;
+    drop(held);
     assert!(matches!(result, Err(PmRustError::Io { path, .. }) if path == nested));
     assert_eq!(
         fs::read_to_string(&sentinel)?,

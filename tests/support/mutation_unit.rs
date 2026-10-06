@@ -13,6 +13,10 @@ use super::*;
 #[path = "windows_fs.rs"]
 mod windows_fs;
 
+#[cfg(windows)]
+#[path = "windows_acl.rs"]
+mod windows_acl;
+
 const TS: &str = "2026-08-07T10:06:30.183Z";
 
 fn root(settings: &str) -> Result<(TempDir, PathBuf), Box<dyn std::error::Error>> {
@@ -2370,7 +2374,7 @@ fn remaining_unix_only_mutation_arms_are_covered_in_the_unit_binary()
 
 #[cfg(windows)]
 #[test]
-/// Native ACLs refuse history restoration and nested enumeration independently.
+/// Native ACLs and sharing restrictions refuse repair and enumeration independently.
 fn remaining_windows_mutation_arms_report_real_io_errors() -> Result<(), Box<dyn std::error::Error>>
 {
     let (_directory, recover_root, _item, _history, journal) = completed_transaction()?;
@@ -2378,7 +2382,7 @@ fn remaining_windows_mutation_arms_report_real_io_errors() -> Result<(), Box<dyn
     let history = recover_root.join("history/sample-unit.jsonl");
     fs::remove_file(&history)?;
     let history_dir = recover_root.join("history");
-    let mut denied_creation = windows_fs::deny_directory_access(&history_dir, "WD")?;
+    let mut denied_creation = windows_acl::deny_directory_access(&history_dir, "WD")?;
     assert!(fs::read_dir(&history_dir).is_ok());
     let result = recover(&recover_root, "sample-unit");
     denied_creation.restore()?;
@@ -2396,18 +2400,16 @@ fn remaining_windows_mutation_arms_report_real_io_errors() -> Result<(), Box<dyn
     create_item(&pm_root, request())?;
     let nested = pm_root.join("tasks/locked");
     fs::create_dir(&nested)?;
-    // An empty NTFS directory can satisfy a wildcard search without listing
-    // entries. Keep a real entry so the fixture requires directory access.
     let sentinel = nested.join("sentinel.txt");
     fs::write(&sentinel, "directory enumeration fixture")?;
-    let mut denied = windows_fs::deny_directory_access(&nested, "RD")?;
+    let held = windows_fs::exclusive_directory_handle(&nested)?;
     assert!(nested.is_dir());
     let error = fs::read_dir(&nested)
         .err()
-        .ok_or("denied directory listing succeeded")?;
-    assert_eq!(error.raw_os_error(), Some(5));
+        .ok_or("exclusively held directory listing succeeded")?;
+    assert_eq!(error.raw_os_error(), Some(32), "{error:?}");
     let result = locate_item(&pm_root, "sample-unit");
-    denied.restore()?;
+    drop(held);
     assert!(matches!(result, Err(PmRustError::Io { path, .. }) if path == nested));
     assert_eq!(
         fs::read_to_string(&sentinel)?,
