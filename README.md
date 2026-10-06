@@ -56,7 +56,7 @@ and exact post-document hashes. See
 
 Rust formatting, strict Clippy (deny warnings, pedantic), complete
 private-item rustdoc coverage, a native Rust identity-audit gate, and tests
-run on Linux, macOS, and Windows. Ubuntu additionally gates the dependency
+run on Linux, macOS, and Windows. Each platform also gates the dependency
 audit, generated changelog, strict `pm health`, the `release:check` aggregate
 gate, and 100 percent line, region, function, and branch coverage.
 
