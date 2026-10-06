@@ -1636,7 +1636,11 @@ fn locate_item_skips_windows_symbolic_links() -> Result<(), Box<dyn std::error::
     let (_directory, pm_root) = root(&mutation_settings(0))?;
     create_item(&pm_root, request())?;
     let item = pm_root.join("tasks/sample-unit.toon");
-    if !windows_fs::symlink_created(symlink_file(&item, pm_root.join("tasks/linked.toon")))? {
+    // The file link carries the item's own filename in a sibling directory, so
+    // a locator that followed file links would find a second candidate.
+    let linked = pm_root.join("tasks/linked");
+    fs::create_dir(&linked)?;
+    if !windows_fs::symlink_created(symlink_file(&item, linked.join("sample-unit.toon")))? {
         return Ok(());
     }
     if !windows_fs::symlink_created(symlink_dir(

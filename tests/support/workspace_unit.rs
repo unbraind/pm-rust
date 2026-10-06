@@ -136,3 +136,41 @@ fn directory_iteration_errors_retain_the_directory_path() -> Result<(), Box<dyn 
     assert_eq!(source.to_string(), "iteration failed");
     Ok(())
 }
+
+#[test]
+fn workspace_equality_follows_the_canonical_tracker_not_its_spelling()
+-> Result<(), Box<dyn std::error::Error>> {
+    let directory = tempfile::tempdir()?;
+    let tracker = directory.path().join(".agents").join("pm");
+    let nested = directory.path().join("src").join("nested");
+    std::fs::create_dir_all(&tracker)?;
+    std::fs::create_dir_all(&nested)?;
+    std::fs::write(tracker.join("settings.json"), "{}")?;
+    // The same tracker reached through a `..` detour keeps a different lexical
+    // spelling for query hashing, but it is still the same workspace.
+    let direct = super::Workspace::discover(&nested)?;
+    let detour = super::Workspace::discover(
+        &directory
+            .path()
+            .join("src")
+            .join("..")
+            .join("src")
+            .join("nested"),
+    )?;
+    assert_eq!(direct, detour);
+    // A symlinked parent is the spelling difference that actually survives
+    // discovery (macOS /tmp versus /private/tmp is the everyday case).
+    #[cfg(unix)]
+    {
+        let link = directory.path().join("linked-root");
+        std::os::unix::fs::symlink(directory.path(), &link)?;
+        let through_link = super::Workspace::discover(&link.join("src").join("nested"))?;
+        assert_eq!(direct, through_link);
+    }
+    let other_directory = tempfile::tempdir()?;
+    let other_tracker = other_directory.path().join(".agents").join("pm");
+    std::fs::create_dir_all(&other_tracker)?;
+    std::fs::write(other_tracker.join("settings.json"), "{}")?;
+    assert_ne!(direct, super::Workspace::discover(other_directory.path())?);
+    Ok(())
+}

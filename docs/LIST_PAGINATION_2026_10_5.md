@@ -53,7 +53,12 @@ published producer cursor contains `version`, `fingerprint`, `after_id`, and
 therefore remain readable with `--after`. If the cursor item disappears, the
 published implementation falls back to its stored position. Stable-workspace
 walks have no missing or repeated rows; producer walks across mutations do not
-have that guarantee.
+have that guarantee. One stable-workspace exception is inherited from the published
+CLI: when `--output-limit` trims a `--limit` page, `next_cursor` still points after
+the producer page and following it skips the trimmed rows. Parity is pinned in
+`bounded_receipts_match_bytes`; the fix is tracked upstream as
+[pm-cli#1420](https://github.com/unbraind/pm-cli/issues/1420) and here as
+[pm-rust-8qbo](../.agents/pm/tasks/pm-rust-8qbo.toon).
 
 A budget continuation contains `v`, `c`, `p`, `o`, `n`, and `f`, binding command,
 collection, offset, original row count and a snapshot fingerprint. The parity

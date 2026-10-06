@@ -22,7 +22,11 @@ read flags and remaining gaps.
 | Legacy SDK list methods | Existing native and unbounded envelopes retained |
 
 Parity uses both real CLIs over shared fixtures. Stable page walks preserve every
-item exactly once; `--after` follows the TypeScript contract and accepts workspace
+item exactly once, except when `--output-limit` trims a `--limit` page: the
+published CLI then still advertises the producer cursor, so following it skips the
+trimmed rows. pm-rust keeps byte parity with that defect until it is fixed
+upstream ([pm-cli#1420](https://github.com/unbraind/pm-cli/issues/1420), tracked as
+[pm-rust-8qbo](.agents/pm/tasks/pm-rust-8qbo.toon)); `--after` follows the TypeScript contract and accepts workspace
 mutations, while `--output-cursor` refuses changed row snapshots.
 String compaction that splits a Unicode surrogate pair remains a known gap,
 tracked in [pm-rust-8hkb](https://github.com/unbraind/pm-rust/blob/main/.agents/pm/issues/pm-rust-8hkb.toon).

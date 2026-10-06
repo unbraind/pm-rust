@@ -68,10 +68,22 @@ pub struct ListResult {
 }
 
 /// A discovered canonical pm tracker with read-only operations.
-#[derive(Clone, Debug, PartialEq)]
+#[derive(Clone, Debug)]
 pub struct Workspace {
     pm_root: PathBuf,
     query_pm_root: PathBuf,
+}
+
+/// Two workspaces are equal when they name the same canonical tracker.
+///
+/// `query_pm_root` keeps the spelling a caller discovered through (needed for
+/// Windows query hashing), so it differs for one tracker reached through a
+/// symlinked parent or `/tmp` versus `/private/tmp`; it must not split one
+/// tracker into two unequal values.
+impl PartialEq for Workspace {
+    fn eq(&self, other: &Self) -> bool {
+        self.pm_root == other.pm_root
+    }
 }
 
 impl Workspace {
