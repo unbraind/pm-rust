@@ -30,3 +30,8 @@
 ".agents/pm/extensions/**" -merge
 ".agents/pm/extensions/.managed-extensions.json" merge=pm-json
 # pm-cli:merge-drivers:v2:end
+
+# Generated and hashed text must stay byte-identical on every platform:
+# a Windows checkout with core.autocrlf converts LF to CRLF, and
+# changelog-check then sees every regenerated line as changed (pm-rust-cwlf).
+* text=auto eol=lf
