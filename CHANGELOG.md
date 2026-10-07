@@ -17,7 +17,6 @@
 
 ### Bug Fixes
 
-- Pinned CLI installation fails on unavailable telemetry dependency versions ([pm-rust-otel](https://github.com/unbraind/pm-rust/blob/main/.agents/pm/issues/pm-rust-otel.toon)) _type:Issue; status:closed; P1_
 - Investigate Windows sharing-violation incumbent lock classification ([pm-rust-wshr](https://github.com/unbraind/pm-rust/blob/main/.agents/pm/issues/pm-rust-wshr.toon)) _type:Issue; status:closed; P2_
 - Windows changelog verification rejects text-identical generated output ([pm-rust-cwlf](https://github.com/unbraind/pm-rust/blob/main/.agents/pm/issues/pm-rust-cwlf.toon)) _type:Issue; status:closed; P1_
 - The CodeQL Dependabot group matched no dependency because the pattern lacked a wildcard ([pm-rust-u3ej](https://github.com/unbraind/pm-rust/blob/main/.agents/pm/issues/pm-rust-u3ej.toon)) _type:Issue; status:closed; P2_
@@ -46,7 +45,6 @@
 
 ### Other
 
-- Extend native list parity to pagination and bounded output contracts ([pm-rust-ufzy](https://github.com/unbraind/pm-rust/blob/main/.agents/pm/tasks/pm-rust-ufzy.toon)) _type:Task; status:closed; P2_
 - Auto-merge green Dependabot updates and group the pm toolchain into one daily PR ([pm-rust-p9bu](https://github.com/unbraind/pm-rust/blob/main/.agents/pm/tasks/pm-rust-p9bu.toon)) _type:Task; status:closed; P2_
 - Certify pm CLI 2026.9.17 ([pm-rust-6bwi](https://github.com/unbraind/pm-rust/blob/main/.agents/pm/chores/pm-rust-6bwi.toon)) _type:Chore; status:closed; P1_
 - Release two re-claimed tasks and assert legacy-journal recovery succeeds ([pm-rust-x1u8](https://github.com/unbraind/pm-rust/blob/main/.agents/pm/tasks/pm-rust-x1u8.toon)) _type:Task; status:closed; P2_

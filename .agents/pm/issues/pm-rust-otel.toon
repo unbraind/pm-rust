@@ -2,11 +2,11 @@ id: pm-rust-otel
 title: Pinned CLI installation fails on unavailable telemetry dependency versions
 description: "CI run 37472610207 at 31875f2: all three Rust jobs and all three release aggregates fail during npm install -g @unbrained/pm-cli@2026.10.5. npm ETARGET reports no matching @opentelemetry/resources@2.12.0 or @opentelemetry/sdk-trace@2.12.0. The preceding CI run 37469869069 installed the same oracle successfully. Investigate upstream dependency resolution separately from Windows coverage fixtures."
 type: Issue
-status: closed
+status: canceled
 priority: 1
 tags[2]: ci,dependencies
 created_at: "2026-10-06T13:44:36.578Z"
-updated_at: "2026-10-07T00:24:50.335Z"
+updated_at: "2026-10-07T01:23:01.602Z"
 closed_at: "2026-10-07T00:24:50.319Z"
 completed_at: "2026-10-07T00:24:50.319Z"
 author: codex-sol
