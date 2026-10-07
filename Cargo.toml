@@ -19,7 +19,7 @@ name = "pm-rust"
 path = "src/main.rs"
 
 [dependencies]
-base64 = "0.22.1"
+base64 = "0.23.1"
 clap = { version = "4.5.50", features = ["derive"] }
 ryu-js = "1.0.3"
 serde = { version = "1.0.228", features = ["derive"] }
