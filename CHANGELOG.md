@@ -17,7 +17,6 @@
 
 ### Bug Fixes
 
-- Mirror the upstream output-limit continuation fix once pm-cli 1420 ships ([pm-rust-8qbo](https://github.com/unbraind/pm-rust/blob/main/.agents/pm/tasks/pm-rust-8qbo.toon)) _type:Task; status:closed; P1_
 - Classify Windows sharing violations as lock contention ([pm-rust-wshr](https://github.com/unbraind/pm-rust/blob/main/.agents/pm/issues/pm-rust-wshr.toon)) _type:Issue; status:closed; P2_
 - Windows changelog verification rejects text-identical generated output ([pm-rust-cwlf](https://github.com/unbraind/pm-rust/blob/main/.agents/pm/issues/pm-rust-cwlf.toon)) _type:Issue; status:closed; P1_
 - The CodeQL Dependabot group matched no dependency because the pattern lacked a wildcard ([pm-rust-u3ej](https://github.com/unbraind/pm-rust/blob/main/.agents/pm/issues/pm-rust-u3ej.toon)) _type:Issue; status:closed; P2_
@@ -46,6 +45,7 @@
 
 ### Other
 
+- Resume native output-limit continuations after the last emitted row, matching pm-cli 2026.10.7 ([pm-rust-8qbo](https://github.com/unbraind/pm-rust/blob/main/.agents/pm/tasks/pm-rust-8qbo.toon)) _type:Task; status:closed; P1_
 - Install the published-CLI oracle from a committed lockfile in CI ([pm-rust-rnex](https://github.com/unbraind/pm-rust/blob/main/.agents/pm/tasks/pm-rust-rnex.toon)) _type:Task; status:closed; P1_
 - Auto-merge green Dependabot updates and group the pm toolchain into one daily PR ([pm-rust-p9bu](https://github.com/unbraind/pm-rust/blob/main/.agents/pm/tasks/pm-rust-p9bu.toon)) _type:Task; status:closed; P2_
 - Certify pm CLI 2026.9.17 ([pm-rust-6bwi](https://github.com/unbraind/pm-rust/blob/main/.agents/pm/chores/pm-rust-6bwi.toon)) _type:Chore; status:closed; P1_
