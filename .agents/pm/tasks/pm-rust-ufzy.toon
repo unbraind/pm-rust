@@ -6,10 +6,13 @@ status: in_progress
 priority: 2
 tags[3]: conformance,read-parity,rust
 created_at: "2026-10-02T19:11:02.190Z"
-updated_at: "2026-10-06T20:51:42.503Z"
+updated_at: "2026-10-07T01:23:00.122Z"
 author: codex-sol
 acceptance_criteria: Real TS and Rust CLIs match multi-page envelopes and continuation fingerprints on shared fixtures; Stale or mismatched cursors fail consistently; No item loss or repeated rows; Output omission and budget receipts match; Existing gates remain enforced
 parent: pm-rust-u4al
+dependencies[2]{id,kind,created_at,author,source_kind,author_source}:
+  pm-rust-8qbo,blocked_by,"2026-10-07T01:23:00.022Z",claude-orchestrator,"cli:update:dep",detected
+  pm-rust-poen,blocked_by,"2026-10-07T01:23:00.022Z",claude-orchestrator,"cli:update:dep",detected
 comments[81]{created_at,author,text}:
   "2026-10-02T20:09:16.243Z",codex-sol,"PR #58 full-projection follow-up: published --full additionally emits read_output alias/migration/budget diagnostics, including estimated_tokens. Native --full restores complete metadata with unchanged selection, but these output-policy diagnostics remain outside the current slice and are explicitly documented. Synthetic exact published read_output receipt captured in tests/fixtures/list-full-read-output-2026-10-2.json; original nine envelope comparisons remain exact and unchanged. Include full-projection output policy in this bounded-output/canonical-controls follow-up."
   "2026-10-05T07:13:33.482Z",codex-sol,"Inspect the published 2026.10.5 list contract and existing differential fixtures before implementing native pagination, cursor validation and bounded projection receipts. Preserve every existing release gate; add shared-fixture differential and randomized page-walk evidence."

@@ -2,11 +2,13 @@ id: pm-rust-cwlf
 title: Windows changelog verification rejects text-identical generated output
 description: "After native coverage reached 100/100/100/100 at PR 60 head bfbbf89, Windows release-check fails at just changelog-check. Run 37482885416 emits a whole-file 50-line diff whose deleted and added lines are identical after line-ending normalization. Linux and macOS aggregates pass. Suspect Windows checkout CRLF versus generated LF; raw Windows bytes and checkout configuration still need verification. Preserve byte-level verification and establish deterministic checkout/generation before changing anything."
 type: Issue
-status: open
+status: closed
 priority: 1
 tags[3]: changelog,ci,windows
 created_at: "2026-10-06T15:07:08.749Z"
-updated_at: "2026-10-06T15:08:27.296Z"
+updated_at: "2026-10-07T00:24:49.074Z"
+closed_at: "2026-10-07T00:24:49.059Z"
+completed_at: "2026-10-07T00:24:49.059Z"
 author: codex-sol
 acceptance_criteria: Windows changelog verification and all three release aggregates pass with deterministic line endings and unchanged coverage thresholds.
 parent: pm-rust-u4al
@@ -17,4 +19,5 @@ files[4]{path,scope}:
   CHANGELOG.md,project
   justfile,project
   .github/workflows/ci.yml,project
+close_reason: "Fixed in PR #60 (79fd16e): .gitattributes '* text=auto eol=lf' keeps CHANGELOG.md LF on Windows checkouts; Release gate aggregate windows-latest changelog-check green on every later run."
 body: "Evidence: https://github.com/unbraind/pm-rust/actions/runs/37482885416/job/112335354628 . Coverage succeeds with 3059/3059 lines, 276/276 functions, 4626/4626 regions and 624/624 branches. Cargo audit succeeds; changelog-check then reports CHANGELOG.md out of date and exits 1. All 50 removed and 50 added diff lines are equal after line-ending normalization. The package .gitattributes has merge-driver rules but no explicit LF rule for CHANGELOG.md. Reproduce using the pinned pm-changelog/PM CLI pairing under a Windows checkout, inspect raw bytes and core.autocrlf, and verify a fix on all three platforms. No fourth CI round was run during the coverage task."
