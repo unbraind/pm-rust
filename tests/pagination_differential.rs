@@ -118,9 +118,9 @@ fn compare_controls(
     })?)
 }
 
-/// Published combined ceilings capture a limited snapshot and refuse its replay.
+/// Combined ceilings bind the uncapped snapshot and accept an unchanged replay.
 #[test]
-fn combined_output_ceilings_match_published_stale_replay() -> TestResult {
+fn combined_output_ceilings_replay_the_uncapped_snapshot() -> TestResult {
     let directory = fixture(75, 400)?;
     let flags = ["--output-limit", "50", "--output-budget", "1500"];
     let page = compare(directory.path(), &flags, true)?;
@@ -131,12 +131,12 @@ fn combined_output_ceilings_match_published_stale_replay() -> TestResult {
     );
     assert_eq!(
         page["output_budget_truncation"]["continuations"][0]["total_rows"],
-        50
+        75
     );
     let cursor = page["next_cursor"]
         .as_str()
         .ok_or("missing snapshot cursor")?;
-    let refused = compare(
+    let resumed = compare(
         directory.path(),
         &[
             "--output-limit",
@@ -146,13 +146,15 @@ fn combined_output_ceilings_match_published_stale_replay() -> TestResult {
             "--output-cursor",
             cursor,
         ],
-        false,
+        true,
     )?;
-    assert_eq!(refused["code"], "read_output_cursor_stale");
+    let full = compare(directory.path(), &["--output-budget", "unbounded"], true)?;
+    let retained = page["items"].as_array().ok_or("missing rows")?.len();
+    assert_eq!(resumed["items"][0]["id"], full["items"][retained]["id"]);
     Ok(())
 }
 
-/// Published producer rebasing after both ceilings retains the capped count.
+/// Combined ceilings retain the original producer coordinate after identity deletion.
 #[test]
 fn combined_ceilings_match_published_deleted_identity_fallback() -> TestResult {
     use base64::{Engine, engine::general_purpose::URL_SAFE_NO_PAD};
@@ -175,7 +177,7 @@ fn combined_ceilings_match_published_deleted_identity_fallback() -> TestResult {
         .as_str()
         .ok_or("missing producer cursor")?;
     let envelope: Value = serde_json::from_slice(&URL_SAFE_NO_PAD.decode(cursor)?)?;
-    assert_eq!(envelope["after_index"], 49 - (30 - retained));
+    assert_eq!(envelope["after_index"], retained - 1);
     let id = envelope["after_id"]
         .as_str()
         .ok_or("missing delivered identity")?;
@@ -201,8 +203,7 @@ fn combined_ceilings_match_published_deleted_identity_fallback() -> TestResult {
     let mut ids = (0..75).map(|i| format!("demo-{i:04}")).collect::<Vec<_>>();
     ids.sort_by_key(|id| (id[5..].parse::<usize>().unwrap_or_default() % 5, id.clone()));
     ids.retain(|row| row != id);
-    assert_eq!(next["items"][0]["id"], ids[49 - (30 - retained)]);
-    assert_ne!(next["items"][0]["id"], ids[retained - 1]);
+    assert_eq!(next["items"][0]["id"], ids[retained - 1]);
     Ok(())
 }
 
@@ -439,8 +440,7 @@ fn bounded_receipts_match_bytes() -> TestResult {
         vec!["--output-budget", "1000"],
         vec!["--output-budget", "1500", "--limit", "50"],
         vec!["--output-budget", "1200", "--output-limit", "unbounded"],
-        // Pinned parity with a published-CLI defect: the cursor still points
-        // after the producer page, skipping rows 30-49 (unbraind/pm-cli#1420).
+        // Amount-only trimming rebases to row 29 (unbraind/pm-cli#1420).
         vec![
             "--limit",
             "50",
@@ -568,6 +568,79 @@ proptest! {
         let expected=(0..size).map(|i|format!("demo-{i:04}")).collect::<std::collections::BTreeSet<_>>();
         prop_assert_eq!(seen,expected);
     }
+}
+
+/// Every advertised amount-only producer cursor preserves the full ordered list.
+#[test]
+fn output_limit_producer_pages_are_complete_and_byte_identical() -> TestResult {
+    use base64::{Engine, engine::general_purpose::URL_SAFE_NO_PAD};
+    for size in [90, 70] {
+        let directory = fixture(size, 0)?;
+        let full = compare(directory.path(), &["--output-budget", "unbounded"], true)?;
+        let expected = full["items"]
+            .as_array()
+            .ok_or("missing full rows")?
+            .iter()
+            .map(|row| row["id"].clone())
+            .collect::<Vec<_>>();
+        for budget in ["unbounded", "100000"] {
+            let mut after = None::<String>;
+            let mut delivered = Vec::new();
+            let mut seen = std::collections::BTreeSet::new();
+            for _ in 0..size {
+                let mut flags = vec![
+                    "--limit",
+                    "50",
+                    "--output-limit",
+                    "30",
+                    "--output-budget",
+                    budget,
+                ];
+                if let Some(cursor) = &after {
+                    flags.extend(["--after", cursor]);
+                }
+                let mut page = compare(directory.path(), &flags, true)?;
+                let next = page["next_cursor"].as_str().map(str::to_owned);
+                // The upstream contract deliberately keeps terminal caps partial.
+                // Lift only that cap at the same incoming boundary to exhaust the tail.
+                if next.is_none() && page["has_more"] == true {
+                    flags[3] = "unbounded";
+                    let tail = compare(directory.path(), &flags, true)?;
+                    let capped = page["items"].as_array().ok_or("missing capped tail")?;
+                    assert_eq!(
+                        &tail["items"].as_array().ok_or("missing tail")?[..capped.len()],
+                        capped
+                    );
+                    assert_ne!(tail["has_more"], true);
+                    assert!(tail["next_cursor"].is_null());
+                    page = tail;
+                }
+                let rows = page["items"].as_array().ok_or("missing page rows")?;
+                assert!(!rows.is_empty());
+                if page.get("count").is_some() {
+                    assert_eq!(page["count"], rows.len());
+                }
+                for row in rows {
+                    assert!(
+                        seen.insert(row["id"].as_str().ok_or("missing ID")?.to_owned()),
+                        "duplicate ID"
+                    );
+                    delivered.push(row["id"].clone());
+                }
+                if let Some(raw) = &next {
+                    let cursor: Value = serde_json::from_slice(&URL_SAFE_NO_PAD.decode(raw)?)?;
+                    assert_eq!(cursor["after_index"], delivered.len() - 1);
+                    assert_eq!(cursor["after_id"], delivered[delivered.len() - 1]);
+                } else {
+                    break;
+                }
+                after = next;
+            }
+            assert_eq!(delivered, expected, "missing or reordered IDs");
+            assert_eq!(seen.len(), size);
+        }
+    }
+    Ok(())
 }
 
 /// Walking output-budget continuations retains every row without repetition.

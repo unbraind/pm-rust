@@ -1,14 +1,40 @@
-# List pagination and bounded output against PM CLI 2026.10.5
+# List pagination and bounded output against PM CLI 2026.10.7
 
 Owner: [pm-rust-ufzy](https://github.com/unbraind/pm-rust/blob/main/.agents/pm/tasks/pm-rust-ufzy.toon).
 
-The reference is the real published `@unbrained/pm-cli@2026.10.5` executable.
+The reference is the real published `@unbrained/pm-cli@2026.10.7` executable.
 `tests/pagination_differential.rs` runs both executables on the same synthetic
 tracker with a fixed read clock and compares complete stdout and stderr bytes,
 including key order, token estimates, fingerprints, cursors, and exit codes.
 No response fields are normalized or removed. The original nine 2026.10.2
-unbounded golden envelopes also pass unchanged against 2026.10.5; the existing
+unbounded golden envelopes also pass unchanged against 2026.10.7; the existing
 full-output diagnostic fixture now applies to the native executable too.
+
+## Locked oracle and continuation regression
+
+The shared local and CI oracle is `tests/oracle/package.json` plus its committed
+npm lockfile, pinned to exactly 2026.10.7. Install with
+`npm ci --prefix tests/oracle --ignore-scripts`; the published tarball integrity
+and bundled runtime versions are retained by the lock. Pipeline contracts check
+that both CI matrices select that install, including merge-driver and health
+commands. `just release-check` installs the same oracle and requires it for both
+the ordinary and instrumented parity runs.
+
+```bash
+PM_NODE_CLI=tests/oracle/node_modules/@unbrained/pm-cli PM_RUST_REQUIRE_PUBLISHED_CLI=1 cargo test --locked --test pagination_differential output_limit_producer_pages_are_complete_and_byte_identical -- --exact
+```
+
+The regression walks 90 and 70 items with producer limit 50 and output limit 30,
+under unbounded and nonbinding finite budgets. Every page compares complete
+native and published bytes. It checks decoded cursor coordinates, rejects
+repeated IDs and requires the ordered union to equal the full list. The 70-item
+case also verifies terminal-cap recovery at the original incoming boundary.
+
+Native-only revert proof: removing only the amount-bound `rebase_producer` call
+makes the command above fail with exit 101. Native then advertises
+`after_index: 49`, while the unchanged published oracle advertises `29`.
+Restoring that call passes the same test. The oracle version, lockfile and
+regression test remain unchanged throughout the negative control.
 
 ## Supported controls
 
@@ -55,12 +81,13 @@ published producer cursor contains `version`, `fingerprint`, `after_id`, and
 therefore remain readable with `--after`. If the cursor item disappears, the
 published implementation falls back to its stored position. Stable-workspace
 walks have no missing or repeated rows; producer walks across mutations do not
-have that guarantee. One stable-workspace exception is inherited from the published
-CLI: when `--output-limit` trims a `--limit` page, `next_cursor` still points after
-the producer page and following it skips the trimmed rows. Parity is pinned in
-`bounded_receipts_match_bytes`; the fix is tracked upstream as
-[pm-cli#1420](https://github.com/unbraind/pm-cli/issues/1420) and here as
-[pm-rust-8qbo](../.agents/pm/tasks/pm-rust-8qbo.toon).
+have that guarantee. When `--output-limit` trims a producer page that advertises
+`next_cursor`, the boundary is rebased to the last emitted row. The exact
+`--limit 50 --output-limit 30` walk is tested against the lockfile-installed
+2026.10.7 oracle with both unbounded and nonbinding finite output budgets.
+Explicit terminal caps still return no producer cursor and disclose `has_more`;
+the test lifts the cap at the same incoming boundary to exhaust that tail.
+The ordered union equals the full list and duplicate IDs fail the test.
 
 A budget continuation contains `v`, `c`, `p`, `o`, `n`, and `f`, binding command,
 collection, offset, original row count and a snapshot fingerprint. The parity
@@ -113,12 +140,12 @@ produces byte-identical rows and cross-CLI continuation cursors. Native-only
 `--workspace=` and `--timestamp=` controls are stripped from published recovery
 like their space-separated forms, without consuming the next argument.
 
-Two reviewer findings reproduce byte-identically in the published reference and
-are pinned by differential tests rather than fixed: when both an output limit
-and an output budget remove rows, the reference hashes the amount-capped
-collection and refuses an unchanged replay with `read_output_cursor_stale`;
-and producer rebasing after both ceilings uses the capped delivered count, so
-deleting the last delivered item makes the position fallback skip unread rows.
+The 2026.10.7 continuation mirror removes the earlier defect pins. Original
+producer state and snapshot fingerprints are captured before the amount ceiling;
+budget compaction rebases from that same state. Combined ceilings now accept
+unchanged output-cursor replay, and deletion fallback resumes immediately after
+the last emitted coordinate. These contracts remain byte-exact differential
+checks against the published oracle.
 A pre-existing metadata key-order divergence — native sorts extra metadata
 while the reference preserves `.toon` file order — is tracked in
 [pm-rust-ba8f](https://github.com/unbraind/pm-rust/blob/main/.agents/pm/issues/pm-rust-ba8f.toon).
@@ -127,7 +154,7 @@ while the reference preserves `.toon` file order — is tracked in
 
 A legacy `--after` cursor without `after_index` is accepted by producer paging,
 but triage final-page compaction must not treat the missing index as zero.
-Published PM CLI 2026.10.5 and installed 2026.10.6 skip that compaction and omit
+Published PM CLI 2026.10.7 skips that compaction and omits
 the over-budget page.
 Native previously rebased from zero (`after_index` equal to the retained count).
 Deleting that delivered identity then resumed near the start of the selection and

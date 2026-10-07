@@ -9,6 +9,48 @@ fn envelope(count: usize, width: usize) -> Value {
     json!({"items":(0..count).map(|i|json!({"id":format!("demo-{i:04}"),"title":"x".repeat(width)})).collect::<Vec<_>>(),"count":count,"total":count,"has_more":false,"truncated":false,"next_cursor":null})
 }
 
+/// Amount-only caps advance an advertised boundary while preserving terminal caps.
+#[test]
+fn amount_limit_rebases_only_advertised_producer_boundaries()
+-> Result<(), Box<dyn std::error::Error>> {
+    let incoming = crate::pagination::encode(
+        &json!({"version":1,"fingerprint":"fp","after_id":"previous","after_index":9}),
+    );
+    for budget in ["unbounded", "100000"] {
+        let options = ListOptions {
+            after: Some(incoming.clone()),
+            output_limit: Some("2".to_owned()),
+            output_budget: Some(budget.to_owned()),
+            ..ListOptions::default()
+        };
+        let mut source = envelope(5, 0);
+        source["applied_limit"] = json!(5);
+        source["next_cursor"] = json!(crate::pagination::encode(
+            &json!({"version":1,"fingerprint":"fp","after_id":"demo-0004","after_index":14,"snapshot":"snap"})
+        ));
+        let result = apply(source, &options)?;
+        let cursor = crate::pagination::query(
+            result["next_cursor"]
+                .as_str()
+                .ok_or("missing producer cursor")?,
+            "fp",
+        )?;
+        assert_eq!(cursor["after_index"], 11);
+        assert_eq!(cursor["after_id"], "demo-0001");
+        assert_eq!(cursor["snapshot"], "snap");
+        assert_eq!(result["count"], 2);
+        assert_eq!(result["applied_limit"], 5);
+        assert_eq!(result["read_output"]["within_budget"], true);
+        assert_eq!(result["read_output"]["rows_compacted"], false);
+        assert!(result.get("output_budget_truncation").is_none());
+        let terminal = apply(envelope(5, 0), &options)?;
+        assert!(terminal["next_cursor"].is_null());
+        assert_eq!(terminal["has_more"], true);
+        assert_eq!(terminal["truncated"], true);
+    }
+    Ok(())
+}
+
 #[test]
 fn amount_and_alias_receipts_preserve_requested_dimensions()
 -> Result<(), Box<dyn std::error::Error>> {

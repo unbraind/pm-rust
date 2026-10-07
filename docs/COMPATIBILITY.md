@@ -1,7 +1,7 @@
 # Compatibility contract
 
 The current `pm-rust` slice is a native read-and-mutate compatibility
-implementation for the published `pm` 2026.10.5 workspace format. Read flag boundaries and remaining
+implementation for the published `pm` 2026.10.7 workspace format. Read flag boundaries and remaining
 command gaps are enumerated in [the parity matrix](CLI_PARITY_2026_10_2.md).
 
 ## Supported

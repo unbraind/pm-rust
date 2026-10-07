@@ -23,10 +23,11 @@ pub struct PublishedCli {
     pub entry: PathBuf,
 }
 
-/// Locates the published Node CLI through the environment or common prefixes.
+/// Locates the published Node CLI through the environment, locked oracle or common prefixes.
 ///
 /// `PM_NODE_CLI` may point at the package root or directly at an entry script;
-/// otherwise each directory on `PATH` is probed for a `pm` launcher resolving
+/// otherwise the lockfile-installed oracle is preferred before probing each
+/// directory on `PATH` for a `pm` launcher resolving
 /// inside an `@unbrained/pm-cli` installation. The entry script is validated
 /// before returning so a misconfigured `PM_NODE_CLI` produces an explicit skip
 /// notice rather than a confusing downstream assertion failure.
@@ -86,6 +87,15 @@ pub fn locate_published_cli() -> Option<PublishedCli> {
             });
         }
         return None;
+    }
+    let package_root = PathBuf::from(env!("CARGO_MANIFEST_DIR"))
+        .join("tests/oracle/node_modules/@unbrained/pm-cli");
+    let entry = package_root.join("dist/cli.js");
+    if entry.is_file() {
+        return Some(PublishedCli {
+            package_root,
+            entry,
+        });
     }
     let path_variable = std::env::var("PATH").ok()?;
     for directory in std::env::split_paths(&path_variable) {

@@ -6,12 +6,12 @@ native applications.
 
 The project is pre-release. Its current delivery slice reads workspaces and
 creates, updates, comments on, and closes canonical items against the
-published `pm` 2026.10.5 on-disk contract. Production code, tests, benchmarks,
+published `pm` 2026.10.7 on-disk contract. Production code, tests, benchmarks,
 and build tooling are Rust; the distributed binary does not require Node.js,
 Bun, JavaScript, or TypeScript.
 
 See the [command and storage parity matrix](docs/CLI_PARITY_2026_10_2.md) and
-[2026.10.5 pagination contract](docs/LIST_PAGINATION_2026_10_5.md) for supported
+[2026.10.7 pagination contract](docs/LIST_PAGINATION_2026_10_5.md) for supported
 read flags and remaining gaps.
 
 | Read surface | Native parity |
@@ -21,18 +21,16 @@ read flags and remaining gaps.
 | Triage list | Built-in projection, token-budget ceilings, intent receipts and rebased cursors |
 | Legacy SDK list methods | Existing native and unbounded envelopes retained |
 
-Parity uses both real CLIs over shared fixtures. Stable page walks preserve every
-item exactly once, except when `--output-limit` trims a `--limit` page: the
-published CLI then still advertises the producer cursor, so following it skips the
-trimmed rows. pm-rust keeps byte parity with that defect until it is fixed
-upstream ([pm-cli#1420](https://github.com/unbraind/pm-cli/issues/1420), tracked as
-[pm-rust-8qbo](.agents/pm/tasks/pm-rust-8qbo.toon)); `--after` follows the TypeScript contract and accepts workspace
-mutations, while `--output-cursor` refuses changed row snapshots. When both
-`--output-limit` and `--output-budget` cut rows from one page, the published CLI's
-advertised output cursor is refused as `read_output_cursor_stale` even on an unchanged
-workspace; pm-rust reproduces that byte for byte
-(`combined_output_ceilings_match_published_stale_replay`), so such a page cannot be
-continued with `--output-cursor` ([pm-cli#1411](https://github.com/unbraind/pm-cli/issues/1411)).
+Parity uses both real CLIs over shared fixtures. Every advertised producer cursor
+resumes after the last emitted row, including when `--output-limit` trims a
+`--limit` page ([pm-cli#1420](https://github.com/unbraind/pm-cli/issues/1420),
+[pm-rust-8qbo](.agents/pm/tasks/pm-rust-8qbo.toon)). Explicit terminal output caps
+still disclose withheld rows without inventing a cursor; lift that cap at the
+same incoming boundary to finish the tail. `--after` accepts workspace
+mutations, while `--output-cursor` refuses changed row snapshots. Combined
+amount and budget ceilings bind the original uncapped snapshot, so unchanged
+output-cursor replay works and deleted-identity fallback uses the emitted
+producer position.
 String compaction that splits a Unicode surrogate pair remains a known gap,
 tracked in [pm-rust-8hkb](https://github.com/unbraind/pm-rust/blob/main/.agents/pm/issues/pm-rust-8hkb.toon).
 
@@ -91,7 +89,7 @@ evidence about refs, not about the whole upstream object database.
 
 ### Changelog and release tooling
 
-Since pm-rust has no `package.json`, changelog and release-note targets are
+Since pm-rust has no root `package.json`, changelog and release-note targets are
 exposed via a [`justfile`](justfile):
 
 ```bash
@@ -111,9 +109,24 @@ Work is managed in this repository with the latest `pm` CLI under
 
 ## Development
 
+The published parity oracle is pinned to exactly 2026.10.7 in
+`tests/oracle/package.json` and installed from its committed `package-lock.json`.
+Both local runs and every CI matrix job use `npm ci`; the lock records the
+registry tarball and integrity, including the bundled runtime closure. This
+avoids the transitive range drift described in
+[pm-cli#1417](https://github.com/unbraind/pm-cli/issues/1417).
+Dependabot tracks this manifest; oracle upgrades must also update the native
+compatibility version and tooling contracts. Changelog generation keeps its
+separate exact pm-changelog/CLI pairing.
+
 ```bash
+npm ci --prefix tests/oracle --ignore-scripts
+export PM_NODE_CLI="$PWD/tests/oracle/node_modules/@unbrained/pm-cli"
+export PM_RUST_REQUIRE_PUBLISHED_CLI=1
+cargo test --locked --test pagination_differential
+
 # Run the aggregate release gate (fmt, clippy, docs, tests, coverage, audit, changelog)
-just release-check
+just release-check  # installs the lockfile oracle and selects it by default
 
 # Individual gates
 cargo fmt --all -- --check
@@ -123,7 +136,8 @@ cargo test --locked --all-targets --all-features
 cargo +nightly-2026-08-06 llvm-cov --locked --branch --all-targets --all-features --json --output-path coverage-branch.json
 jq -e '.data[0].totals.lines.percent == 100 and .data[0].totals.functions.percent == 100 and .data[0].totals.regions.percent == 100 and .data[0].totals.branches.percent == 100' coverage-branch.json
 cargo audit
-npm exec --yes --package=@unbrained/pm-cli@2026.10.5 -- pm health --check-only --require-merge-drivers --strict-exit
+node tests/oracle/node_modules/@unbrained/pm-cli/dist/cli.js merge install
+node tests/oracle/node_modules/@unbrained/pm-cli/dist/cli.js health --check-only --require-merge-drivers --strict-exit
 ```
 
 ## License

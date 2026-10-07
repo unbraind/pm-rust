@@ -2,13 +2,28 @@ id: pm-rust-8qbo
 title: Mirror the upstream output-limit continuation fix once pm-cli 1420 ships
 description: "pm list --limit 50 --output-limit 30 returns 30 rows but next_cursor points after row 49 in the published CLI (2026.10.5 and 2026.10.6), so following it silently skips rows 30-49. pm-rust reproduces this byte-identically and pins it in tests/pagination_differential.rs bounded_receipts_match_bytes. When unbraind/pm-cli#1420 is fixed: bump COMPATIBLE_PM_VERSION, rebase the producer cursor to the last delivered row, and add a page-walk test asserting the union of delivered ids equals the full set."
 type: Task
-status: open
+status: in_progress
 priority: 1
 tags[3]: pagination,parity,upstream
 created_at: "2026-10-06T18:04:22.824Z"
-updated_at: "2026-10-06T18:04:22.824Z"
+updated_at: "2026-10-07T16:18:31.687Z"
 author: claude-orchestrator
 acceptance_criteria: "Following next_cursor after an --output-limit trim delivers every row exactly once, in order, byte-identical to the fixed published CLI"
-files[1]{path,scope}:
+comments[5]{created_at,author,text}:
+  "2026-10-07T15:59:41.505Z",codex-sol,"Implement the published 2026.10.7 continuation contract, remove the producer-cursor defect pin, and add an exhaustive differential page walk with a native-only revert proof. Run the complete Linux release gate before review."
+  "2026-10-07T16:04:51.452Z",codex-sol,"Published 2026.10.7 also fixes the shared combined-ceiling state: capture the uncapped snapshot and producer coordinates before amount trimming, then reuse them for budget rebasing and unchanged output-cursor replay. Differential assertions now require the correct snapshot and deleted-identity fallback. Preserve deliberate terminal caps; page walks exhaust them by lifting only the cap at the same incoming boundary."
+  "2026-10-07T16:07:28.954Z",codex-sol,"Native-only revert proof: deleting only the amount-bound call to rebase_producer makes output_limit_producer_pages_are_complete_and_byte_identical fail with exit 101 against the unchanged lockfile-installed 2026.10.7 oracle. Restored the native fix. The fixed walk passed; it checks ordered full-list equality, unique IDs and decoded cursor boundaries under unbounded and nonbinding finite budgets."
+  "2026-10-07T16:13:58.074Z",codex-sol,"The first complete release gate passed formatting, strict Clippy, rustdoc and all ordinary/instrumented tests, then correctly refused 99.84025559105432 percent branches and 99.97848537005164 percent regions. The sole gap was the amount-trim advertised-cursor branch in the library unit run. Added a direct positive test for an offset producer boundary, preserved snapshot fields, delivered counts and deliberate terminal caps under both nonbinding budget forms. Rerunning the unchanged 100 percent coverage gate."
+  "2026-10-07T16:18:30.327Z",codex-sol,"Final Linux release gate passes via pm test --run --progress --match just release-check: cargo fmt, strict Clippy, private-item rustdoc, all-target/all-feature tests with required published parity, nightly llvm-cov, cargo audit and changelog verification. Coverage is 3069/3069 lines, 4648/4648 regions, 278/278 functions and 626/626 branches, all 100 percent. The 14 pagination tests include the complete cursor walk and updated combined-ceiling replay/deletion contracts. Native-only revert remains a proven exit-101 failure. Leave this item in progress for orchestrator verification and release the claim."
+files[4]{path,scope}:
+  src/lib.rs,project
+  src/read_output.rs,project
   tests/pagination_differential.rs,project
+  tests/support/read_output_unit.rs,project
+tests[2]{command,scope,timeout_seconds,provenance{author,created_at,source_kind,source_ref}}:
+  PM_NODE_CLI=tests/oracle/node_modules/@unbrained/pm-cli PM_RUST_REQUIRE_PUBLISHED_CLI=1 cargo test --locked --test pagination_differential,project,300,codex-sol,"2026-10-07T16:05:47.202Z",local_mutation,fix/oracle-2026-10-7
+  just release-check,project,1800,codex-sol,"2026-10-07T16:07:30.351Z",local_mutation,fix/oracle-2026-10-7
+docs[2]{path,scope}:
+  docs/LIST_PAGINATION_2026_10_5.md,project
+  README.md,project
 body: ""

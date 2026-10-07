@@ -938,12 +938,12 @@ fn the_justfile_never_reads_the_wall_clock() -> Result<(), BoxError> {
 fn release_check_demands_the_published_cli() -> Result<(), BoxError> {
     let justfile = read_repo_file("justfile")?;
     let recipe = justfile
-        .split_once("\nrelease-check:")
+        .split_once("\nrelease-check: oracle-install")
         .ok_or("the justfile must define a release-check recipe")?
         .1;
     let body = recipe.split("\n\n").next().unwrap_or(recipe);
     assert!(
-        body.contains("PM_NODE_CLI") && body.contains("command -v pm"),
+        body.contains("PM_NODE_CLI") && body.contains("test -f"),
         "release-check must refuse to run without a published pm CLI, or the differential suites skip and it passes vacuously"
     );
     assert!(
@@ -961,7 +961,7 @@ fn changelog_toolchain_pins_the_sdk_exactly() -> Result<(), BoxError> {
         "the justfile must pin pm-changelog exactly"
     );
     assert!(
-        justfile.contains("PM_CLI_PKG := \"@unbrained/pm-cli@2026.10.5\""),
+        justfile.contains("PM_CLI_PKG := \"@unbrained/pm-cli@2026.10.7\""),
         "the justfile must pin @unbrained/pm-cli exactly; the floating range resolves to latest and truncates tracker reads (pm-rust-yilr)"
     );
     assert!(
@@ -986,7 +986,7 @@ fn changelog_toolchain_pins_the_sdk_exactly() -> Result<(), BoxError> {
                 }
                 assert!(
                     line.contains("--package=pm-changelog@2026.9.25")
-                        && line.contains("--package=@unbrained/pm-cli@2026.10.5"),
+                        && line.contains("--package=@unbrained/pm-cli@2026.10.7"),
                     "{job_name} step '{}' invokes pm-changelog without the fleet's exact package pins (pm-rust-yilr):\n  {line}",
                     step.label
                 );
@@ -1047,65 +1047,80 @@ fn release_workflow_keeps_the_pin_and_the_generation_atomic() -> Result<(), BoxE
     Ok(())
 }
 
-/// pm-rust-1ps2 (health half): CI's pm CLI pin must be a single, current,
-/// deliberately chosen version.
-///
-/// The tracker's history hash chain is only self-consistent within one CLI
-/// generation: `pm health` under an older pinned CLI reported
-/// `history_drift_hash_mismatch` for items written by a newer CLI and failed
-/// the strict gate on valid state. Both ci.yml invocations must therefore
-/// carry the same exact pin, bumped deliberately together with the tooling
-/// that writes tracker state.
+/// CI parity, merge drivers and health must share the committed oracle closure.
 #[test]
 fn ci_pm_cli_pin_is_single_and_current() -> Result<(), BoxError> {
+    let manifest: serde_json::Value =
+        serde_json::from_str(&read_repo_file("tests/oracle/package.json")?)?;
+    let lock: serde_json::Value =
+        serde_json::from_str(&read_repo_file("tests/oracle/package-lock.json")?)?;
+    let version = pm_rust::COMPATIBLE_PM_VERSION;
+    assert_eq!(manifest["private"], true);
+    assert_eq!(manifest["dependencies"]["@unbrained/pm-cli"], version);
+    assert_eq!(lock["lockfileVersion"], 3);
+    assert_eq!(
+        lock["packages"][""]["dependencies"]["@unbrained/pm-cli"],
+        version
+    );
+    let package = &lock["packages"]["node_modules/@unbrained/pm-cli"];
+    assert_eq!(package["version"], version);
+    assert_eq!(
+        package["resolved"],
+        format!("https://registry.npmjs.org/@unbrained/pm-cli/-/pm-cli-{version}.tgz")
+    );
+    assert!(
+        package["integrity"]
+            .as_str()
+            .is_some_and(|value| value.starts_with("sha512-"))
+    );
     let workflow = parse_workflow(".github/workflows/ci.yml")?;
-    let mut pins = Vec::new();
     for (job_name, steps) in workflow_jobs(&workflow)? {
+        let install = step_run(&steps, "Resolve the published CLI package root")?;
+        assert!(
+            install.contains("npm ci --prefix tests/oracle --ignore-scripts"),
+            "{job_name} must install the committed lockfile"
+        );
+        assert!(
+            install.contains("PM_NODE_CLI=$oracle_root")
+                && install.contains(
+                    "require('node:path').resolve('tests/oracle/node_modules/@unbrained/pm-cli')"
+                ),
+            "{job_name} must select the locked oracle"
+        );
         for step in &steps {
-            let Some(run) = step.run.as_deref() else {
-                continue;
-            };
-            for line in logical_lines(run) {
-                if !line.contains("pm-cli@") {
-                    continue;
-                }
-                let version = line
-                    .split("@unbrained/pm-cli@")
-                    .nth(1)
-                    .and_then(|rest| rest.split_whitespace().next())
-                    .ok_or_else(|| format!("unparseable pm-cli pin in {job_name}"))?
-                    .trim_matches('\\')
-                    .to_owned();
-                pins.push((job_name.clone(), step.label.clone(), version));
+            if let Some(run) = &step.run {
+                assert!(
+                    !run.contains("npm install -g")
+                        && !run.contains("npm exec")
+                        && !run.contains("--package=@unbrained/pm-cli"),
+                    "{job_name} must never resolve another oracle"
+                );
+            }
+        }
+        if job_name == "release-check" {
+            for label in [
+                "Install clone-local pm merge drivers",
+                "Verify tracked pm project health",
+            ] {
+                assert!(
+                    step_run(&steps, label)?.starts_with(
+                        "node tests/oracle/node_modules/@unbrained/pm-cli/dist/cli.js "
+                    )
+                );
             }
         }
     }
+    let dependabot: Value = serde_yaml_ng::from_str(&read_repo_file(".github/dependabot.yml")?)?;
     assert!(
-        !pins.is_empty(),
-        "ci.yml declares no @unbrained/pm-cli pin; the health gate would float"
-    );
-    let unique: BTreeSet<&str> = pins.iter().map(|(_, _, v)| v.as_str()).collect();
-    assert_eq!(
-        unique.len(),
-        1,
-        "ci.yml must pin exactly one pm CLI version, found {unique:?}"
-    );
-    let pin = unique
-        .iter()
-        .next()
-        .copied()
-        .ok_or("the single pm CLI pin resolved to nothing")?;
-    let components: Vec<u32> = pin
-        .split('.')
-        .map(str::parse)
-        .collect::<Result<_, _>>()
-        .map_err(|_| format!("invalid pm CLI version: {pin}"))?;
-    let [year, month, day] = components.as_slice() else {
-        return Err(format!("invalid pm CLI version: {pin}").into());
-    };
-    assert!(
-        (*year, *month, *day) >= (2026, 8, 21),
-        "ci.yml pins pm CLI {pin}; versions older than 2026.8.21 reject tracker history written by newer CLIs as drifted (pm-rust-1ps2). Bump this pin deliberately when the writing toolchain moves."
+        dependabot
+            .get("updates")
+            .and_then(Value::as_sequence)
+            .ok_or("missing Dependabot updates")?
+            .iter()
+            .any(
+                |update| update.get("package-ecosystem").and_then(Value::as_str) == Some("npm")
+                    && update.get("directory").and_then(Value::as_str) == Some("/tests/oracle")
+            )
     );
     Ok(())
 }

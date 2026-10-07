@@ -89,9 +89,9 @@ fn collections(value: &Value, pointer: &str, candidates: &mut Vec<(String, usize
     }
 }
 
-/// Captured row snapshot and producer position before compaction begins.
+/// Captured row snapshot and producer position before either ceiling removes rows.
 struct Continuation {
-    /// Original delivered item count before applying the binding token ceiling.
+    /// Selected suffix row count before applying amount or token ceilings.
     count: usize,
     /// Whole row-collection size for output continuation validation.
     total: usize,
@@ -103,6 +103,27 @@ struct Continuation {
     producer: Option<Value>,
     /// Whether the producer cursor was already continuing this page.
     existing: bool,
+}
+
+/// Moves an advertised producer boundary to the last row actually delivered.
+fn rebase_producer(result: &mut Value, state: &Continuation) -> bool {
+    let retained = result["items"].as_array().map_or(0, Vec::len);
+    let rebased = retained < state.count && retained > 0 && state.producer.is_some();
+    if rebased {
+        let cursor = state.producer.clone().unwrap_or_default();
+        let index = usize::try_from(cursor["after_index"].as_u64().unwrap_or_default())
+            .unwrap_or(usize::MAX);
+        let after_index = if state.existing {
+            index - (state.count - retained)
+        } else {
+            index + state.offset + retained
+        };
+        let mut cursor = cursor;
+        cursor["after_id"] = result["items"][retained - 1]["id"].clone();
+        cursor["after_index"] = json!(after_index);
+        result["next_cursor"] = json!(pagination::encode(&cursor));
+    }
+    rebased
 }
 
 /// Refreshes delivery counts, producer positions and budget recovery disclosure.
@@ -123,21 +144,7 @@ fn finalize(
         return;
     }
     let shrunk = retained < state.count;
-    let rebased = shrunk && retained > 0 && state.producer.is_some();
-    if rebased {
-        let cursor = state.producer.clone().unwrap_or_default();
-        let index = usize::try_from(cursor["after_index"].as_u64().unwrap_or_default())
-            .unwrap_or(usize::MAX);
-        let after_index = if state.existing {
-            index - (state.count - retained)
-        } else {
-            index + retained
-        };
-        let mut cursor = cursor;
-        cursor["after_id"] = result["items"][retained - 1]["id"].clone();
-        cursor["after_index"] = json!(after_index);
-        result["next_cursor"] = json!(pagination::encode(&cursor));
-    }
+    let rebased = rebase_producer(result, state);
     let continuation = shrunk.then(|| {
         let offset = state.offset + retained;
         let cursor = pagination::encode(&json!({"v":1,"c":"list","p":"items","o":offset,"n":state.total,"f":state.fingerprint}));
@@ -299,6 +306,7 @@ pub(crate) fn apply(mut result: Value, options: &ListOptions) -> Result<Value, P
                 .collect::<Vec<_>>()
         );
     }
+    let state = capture(&result, options, cursor.as_ref());
     if let Some(limit) = amount
         && result["items"]
             .as_array()
@@ -312,6 +320,9 @@ pub(crate) fn apply(mut result: Value, options: &ListOptions) -> Result<Value, P
             .cloned()
             .collect::<Vec<_>>();
         result["items"] = json!(rows);
+        if state.existing {
+            rebase_producer(&mut result, &state);
+        }
         result["has_more"] = json!(true);
         result["truncated"] = json!(true);
         result["applied_bound"] = json!({"kind":"output_limit","source":"explicit","value":limit});
@@ -324,7 +335,7 @@ pub(crate) fn apply(mut result: Value, options: &ListOptions) -> Result<Value, P
     if let Some(budget) = budget
         && estimate(&result, true) > budget
     {
-        result = compact_budget(result, options, cursor.as_ref(), budget, default_budget);
+        result = compact_budget(result, options, &state, budget, default_budget);
     }
     update(&mut result, "read_output", true);
     if result.get("context_intent").is_some() {
@@ -471,11 +482,10 @@ fn compact_rows(
 fn compact_budget(
     mut result: Value,
     options: &ListOptions,
-    cursor: Option<&Value>,
+    state: &Continuation,
     budget: usize,
     default_budget: bool,
 ) -> Value {
-    let state = capture(&result, options, cursor);
     let hints = result["read_output"]["migration_hints"]
         .as_array()
         .into_iter()
@@ -494,7 +504,7 @@ fn compact_budget(
     let unbounded_amount = options.output_limit.as_deref() == Some("unbounded");
     compact_rows(
         &mut result,
-        &state,
+        state,
         budget,
         source,
         &hints,
