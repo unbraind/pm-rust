@@ -2,11 +2,13 @@ id: pm-rust-ufzy
 title: Extend native list parity to pagination and bounded output contracts
 description: "Follow-up to pm-rust-p0no: current compatibility mode explicitly requires unbounded amount and cost. Implement limits, cursors, continuation fingerprints and output budgeting with full-envelope golden tests against the exact published PM CLI. Keep 100 percent coverage and maintainer publication guard."
 type: Task
-status: in_progress
+status: closed
 priority: 2
 tags[3]: conformance,read-parity,rust
 created_at: "2026-10-02T19:11:02.190Z"
-updated_at: "2026-10-06T20:51:42.503Z"
+updated_at: "2026-10-07T00:24:48.165Z"
+closed_at: "2026-10-07T00:24:48.122Z"
+completed_at: "2026-10-07T00:24:48.122Z"
 author: codex-sol
 acceptance_criteria: Real TS and Rust CLIs match multi-page envelopes and continuation fingerprints on shared fixtures; Stale or mismatched cursors fail consistently; No item loss or repeated rows; Output omission and budget receipts match; Existing gates remain enforced
 parent: pm-rust-u4al
@@ -311,4 +313,5 @@ docs[3]:
     note: Review follow-up for legacy after_index compaction and args_os cursor refusals
   - path: README.md
     scope: project
+close_reason: "Verified by the orchestrator: PR #60 merged as 1b287ef. All six required checks green at 1381100 (Rust and release aggregates on Linux, macOS, Windows at exact 100/100/100/100), Greptile 5/5, final CodeRabbit full review with no findings; differential suites pass against published pm 2026.10.5. Remaining parity gaps tracked as pm-rust-8qbo, pm-rust-poen, pm-rust-8hkb, pm-rust-ba8f; CI oracle lockfile as pm-rust-rnex."
 body: ""
