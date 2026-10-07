@@ -17,7 +17,7 @@
 
 ### Bug Fixes
 
-- Investigate Windows sharing-violation incumbent lock classification ([pm-rust-wshr](https://github.com/unbraind/pm-rust/blob/main/.agents/pm/issues/pm-rust-wshr.toon)) _type:Issue; status:closed; P2_
+- Classify Windows sharing violations as lock contention ([pm-rust-wshr](https://github.com/unbraind/pm-rust/blob/main/.agents/pm/issues/pm-rust-wshr.toon)) _type:Issue; status:closed; P2_
 - Windows changelog verification rejects text-identical generated output ([pm-rust-cwlf](https://github.com/unbraind/pm-rust/blob/main/.agents/pm/issues/pm-rust-cwlf.toon)) _type:Issue; status:closed; P1_
 - The CodeQL Dependabot group matched no dependency because the pattern lacked a wildcard ([pm-rust-u3ej](https://github.com/unbraind/pm-rust/blob/main/.agents/pm/issues/pm-rust-u3ej.toon)) _type:Issue; status:closed; P2_
 - Add the missing Rust CodeQL analysis ([pm-rust-f4sy](https://github.com/unbraind/pm-rust/blob/main/.agents/pm/issues/pm-rust-f4sy.toon)) _type:Issue; status:closed; P2_
