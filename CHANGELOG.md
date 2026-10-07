@@ -4,10 +4,12 @@
 
 ### Features
 
+- Read canonical pm workspaces without a JavaScript runtime ([pm-rust-o2yr](https://github.com/unbraind/pm-rust/blob/main/.agents/pm/features/pm-rust-o2yr.toon)) _type:Feature; status:closed; P1; release:0.1.0-alpha.1_
 - Write the hash_algorithm field on history entries, matching pm CLI 2026.9.11 and later ([pm-rust-hkk3](https://github.com/unbraind/pm-rust/blob/main/.agents/pm/features/pm-rust-hkk3.toon)) _type:Feature; status:closed; P1_
 - Native update, comment, and close mutations ([pm-rust-27qz](https://github.com/unbraind/pm-rust/blob/main/.agents/pm/features/pm-rust-27qz.toon)) _type:Feature; status:closed; P2_
 - Add daily release workflow guarded by PM_RELEASE_APPROVED variable ([pm-rust-mbdp](https://github.com/unbraind/pm-rust/blob/main/.agents/pm/tasks/pm-rust-mbdp.toon)) _type:Task; status:closed; P1_
-- Read canonical pm workspaces without a JavaScript runtime ([pm-rust-o2yr](https://github.com/unbraind/pm-rust/blob/main/.agents/pm/features/pm-rust-o2yr.toon)) _type:Feature; status:closed; P1; release:0.1.0-alpha.1_
+- Absorb pm 2026.8.7 codec and workspace contracts ([pm-rust-yz76](https://github.com/unbraind/pm-rust/blob/main/.agents/pm/features/pm-rust-yz76.toon)) _type:Feature; status:closed; P1; release:0.1.0-alpha.3_
+- Create canonical items with crash-safe native Rust transactions ([pm-rust-5tey](https://github.com/unbraind/pm-rust/blob/main/.agents/pm/features/pm-rust-5tey.toon)) _type:Feature; status:closed; P1; release:0.1.0-alpha.2_
 
 ### Changes
 
@@ -35,6 +37,7 @@
 - A green CI proves nothing about a working copy, because the toolchain is pinned only inside the workflows ([pm-rust-9yfr](https://github.com/unbraind/pm-rust/blob/main/.agents/pm/issues/pm-rust-9yfr.toon)) _type:Issue; status:closed; P2_
 - Digest hex formatting blocked the sha2 0.11 upgrade across every platform ([pm-rust-y12t](https://github.com/unbraind/pm-rust/blob/main/.agents/pm/issues/pm-rust-y12t.toon)) _type:Issue; status:closed; P1_
 - Converge changelog generation and verification on replace mode ([pm-rust-f2nv](https://github.com/unbraind/pm-rust/blob/main/.agents/pm/issues/pm-rust-f2nv.toon)) _type:Issue; status:closed; P2_
+- Remove personal author identity from public Git history ([pm-rust-6q0n](https://github.com/unbraind/pm-rust/blob/main/.agents/pm/issues/pm-rust-6q0n.toon)) _type:Issue; status:closed; P0; release:0.1.0-alpha.2_
 
 ### Security
 
