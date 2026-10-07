@@ -17,3 +17,6 @@ cov_html/
 cov_text.txt
 cov_text_inst.txt
 cov-no-branch.json
+
+# Locked published parity oracle installation
+/tests/oracle/node_modules/

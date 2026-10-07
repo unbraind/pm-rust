@@ -59,8 +59,9 @@ jobs:
         shell: bash
         run: |
           set -euo pipefail
-          npm install -g @unbrained/pm-cli@2026.10.5
-          echo "PM_NODE_CLI=$(npm root -g)/@unbrained/pm-cli" >> "$GITHUB_ENV"
+          npm ci --prefix tests/oracle --ignore-scripts
+          oracle_root=$(node -p "require('node:path').resolve('tests/oracle/node_modules/@unbrained/pm-cli')")
+          echo "PM_NODE_CLI=$oracle_root" >> "$GITHUB_ENV"
       - run: cargo test --locked --all-targets --all-features
         env:
           PM_RUST_REQUIRE_PUBLISHED_CLI: "1"
@@ -124,12 +125,13 @@ jobs:
         shell: bash
         run: |
           set -euo pipefail
-          npm install -g @unbrained/pm-cli@2026.10.5
-          echo "PM_NODE_CLI=$(npm root -g)/@unbrained/pm-cli" >> "$GITHUB_ENV"
+          npm ci --prefix tests/oracle --ignore-scripts
+          oracle_root=$(node -p "require('node:path').resolve('tests/oracle/node_modules/@unbrained/pm-cli')")
+          echo "PM_NODE_CLI=$oracle_root" >> "$GITHUB_ENV"
       - name: Run release:check aggregate gate
         run: just release-check
 
       - name: Install clone-local pm merge drivers
-        run: npm exec --yes --package=@unbrained/pm-cli@2026.10.5 -- pm merge install
+        run: node tests/oracle/node_modules/@unbrained/pm-cli/dist/cli.js merge install
       - name: Verify tracked pm project health
-        run: npm exec --yes --package=@unbrained/pm-cli@2026.10.5 -- pm health --check-only --require-merge-drivers --strict-exit
+        run: node tests/oracle/node_modules/@unbrained/pm-cli/dist/cli.js health --check-only --require-merge-drivers --strict-exit

@@ -19,3 +19,11 @@ updates:
           - "github/codeql-action*"
     labels:
       - dependencies
+
+  - package-ecosystem: npm
+    directory: /tests/oracle
+    schedule:
+      interval: daily
+    open-pull-requests-limit: 5
+    labels:
+      - dependencies

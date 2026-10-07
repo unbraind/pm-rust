@@ -1,0 +1,14 @@
+id: pm-rust-vuwe
+title: Review existing guidance and tracker health advisories
+description: "Strict check-only health under the locked 2026.10.7 CLI passes with three advisory classes: agent_guidance_outdated for AGENTS.md, two stale in-progress items, and 19 legacy claude-code role values outside the current provenance domain. Exact advisory searches found no existing owner. Review guidance against current user rules, reconcile stale ownership with evidence, and decide how to preserve provenance history before any normalization. Follow-up scope discovered while validating pm-rust-8qbo and pm-rust-rnex."
+type: Chore
+status: open
+priority: 3
+tags[3]: follow-up,governance,health
+created_at: "2026-10-07T16:11:15.858Z"
+updated_at: "2026-10-07T16:11:15.858Z"
+author: codex-sol
+acceptance_criteria: "Each advisory has an evidence-backed disposition, user-authored guidance is preserved, and strict health still passes."
+files[1]{path,scope}:
+  AGENTS.md,project
+body: ""

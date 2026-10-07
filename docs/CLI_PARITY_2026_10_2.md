@@ -1,4 +1,4 @@
-# CLI parity: original 2026.10.2 slice and 2026.10.5 pagination
+# CLI parity: original 2026.10.2 slice and 2026.10.7 pagination
 
 Owner: [pm-rust-p0no](https://github.com/unbraind/pm-rust/blob/main/.agents/pm/features/pm-rust-p0no.toon).
 
@@ -7,7 +7,7 @@ an isolated temporary directory. Inventory was captured with
 `npx -y @unbrained/pm-cli@2026.10.2 help --all --json`. This is a vertical
 conformance slice; the version pin does not claim whole-CLI parity.
 
-The later [2026.10.5 pagination slice](LIST_PAGINATION_2026_10_5.md) adds
+The later [2026.10.7 pagination slice](LIST_PAGINATION_2026_10_5.md) adds
 `Workspace::list_page`, producer and output continuations, budgets, and triage.
 The original nine golden envelopes remain unchanged. The native CLI now includes
 published full-projection diagnostics and accepts JSON reads with default bounds.
