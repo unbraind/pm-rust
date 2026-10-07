@@ -102,14 +102,16 @@ pub(crate) fn after(fingerprint: &str, row: &Value, index: usize) -> String {
 
 /// Computes the published sixteen-character row-collection fingerprint.
 pub(crate) fn collection(rows: &Value) -> String {
-    URL_SAFE_NO_PAD.encode(Sha256::digest(
-        stable(&json!({"path":"items","value":rows})).as_bytes(),
-    ))[..16]
-        .to_owned()
+    collection_bytes(stable(&json!({"path":"items","value":rows})).as_bytes())
+}
+
+/// Hashes the exact stable row-collection bytes, including escaped UTF-16 cuts.
+pub(crate) fn collection_bytes(bytes: &[u8]) -> String {
+    URL_SAFE_NO_PAD.encode(Sha256::digest(bytes))[..16].to_owned()
 }
 
 /// Validates an output continuation against the complete requested row collection.
-pub(crate) fn output(raw: &str, rows: &Value) -> Result<Value, PmRustError> {
+pub(crate) fn output(raw: &str, rows: &Value, snapshot: &str) -> Result<Value, PmRustError> {
     let invalid = "The read-output continuation cursor is malformed or unsupported.";
     let code = "read_output_cursor_invalid";
     if raw.len() > 4096 {
@@ -167,7 +169,7 @@ pub(crate) fn output(raw: &str, rows: &Value) -> Result<Value, PmRustError> {
     if cursor["p"] != "items"
         || cursor["n"] != length
         || cursor["o"].as_u64().unwrap_or_default() > length as u64
-        || cursor["f"] != collection(rows)
+        || cursor["f"] != snapshot
     {
         return Err(refusal(
             "read_output_cursor_stale",

@@ -1,6 +1,6 @@
 //! Crash-recoverable Rust-native item mutations.
 
-use std::collections::BTreeMap;
+use serde_json::Map;
 use std::fs::{self, File, OpenOptions};
 use std::io::{ErrorKind, Write};
 use std::path::{Path, PathBuf};
@@ -1390,7 +1390,7 @@ pub(crate) fn create_item(
     if item_path.exists() || history_path.exists() {
         return Err(PmRustError::ItemAlreadyExists { id: request.id });
     }
-    let mut extra = BTreeMap::new();
+    let mut extra = Map::new();
     extra.insert("author".to_owned(), Value::String(request.author.clone()));
     let document = ItemDocument {
         metadata: ItemMetadata {

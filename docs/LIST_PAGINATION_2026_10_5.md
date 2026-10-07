@@ -115,15 +115,12 @@ producer limits/offsets and positive safe decimal integers for canonical bounds.
 Invalid native controls fail closed; the wider TypeScript argument-recovery
 catalog remains outside the slice.
 
-A reproduced Unicode boundary remains tracked in
-[pm-rust-8hkb](https://github.com/unbraind/pm-rust/blob/main/.agents/pm/issues/pm-rust-8hkb.toon):
-when the 240-unit string ceiling splits a surrogate pair, the reference emits
-a lone surrogate escape while the native JSON value replaces it with U+FFFD.
-That case also changes token receipts and is not covered by the parity claim.
-To reproduce, give a synthetic item a title consisting of 239 `x` characters,
-one `😀`, and another 2,000 `x` characters, then compare both executables with
-`list --json --full --output-budget 500`. The reference's compacted title ends
-in `\ud83d…`; the native title ends in `�…`.
+The UTF-16 surrogate-cut and extra-key ordering fixes are implemented in
+[this output parity receipt](OUTPUT_PARITY_2026_10_7.md), with generated real-CLI
+comparisons and independent native-only revert proofs. Split code units are
+escaped in JSON, preserving valid UTF-8 output and exact token receipts.
+`Workspace::list_page` returns `ListOutput`: serialize the envelope itself to
+retain these escapes; its immutable `Value` view uses U+FFFD for unpaired units.
 
 `just changelog-full` regenerates the changelog through the pinned pm-changelog
 flow. It selects closed items, so this still-open task receives its generated
@@ -146,9 +143,9 @@ budget compaction rebases from that same state. Combined ceilings now accept
 unchanged output-cursor replay, and deletion fallback resumes immediately after
 the last emitted coordinate. These contracts remain byte-exact differential
 checks against the published oracle.
-A pre-existing metadata key-order divergence — native sorts extra metadata
-while the reference preserves `.toon` file order — is tracked in
-[pm-rust-ba8f](https://github.com/unbraind/pm-rust/blob/main/.agents/pm/issues/pm-rust-ba8f.toon).
+The earlier metadata key-order divergence is fixed: list projections retain
+unknown fields in `.toon` file order while history hashing and write-back keep
+canonical metadata ordering.
 
 ## Review follow-up on c52418c
 
@@ -196,7 +193,7 @@ Portable drive/UNC regression cases include a fingerprint measured with the
 published SDK. Temporary path-shape diagnostics were removed after diagnosis;
 the byte-comparison harness and Windows test selection remain unchanged.
 
-### Current receipt (head `79fd16e`)
+### Baseline receipt (head `79fd16e`)
 
 [CI run 37484930789](https://github.com/unbraind/pm-rust/actions/runs/37484930789) passed all six
 checks: the Rust jobs and the `just release-check` aggregate on Linux, macOS and Windows. Each
@@ -242,4 +239,4 @@ historical provenance advisories.
 The unchanged lock-replacement fixture failed once during an aggregate run and
 passed both an isolated PM-linked run and the final aggregate retry. Investigation
 is tracked in [pm-rust-ax0o](https://github.com/unbraind/pm-rust/blob/main/.agents/pm/issues/pm-rust-ax0o.toon).
-The draft remains open for the Unicode boundary above and orchestrator verification.
+The original draft awaited the Unicode fix and orchestrator verification. The Unicode fix is now documented in the output parity receipt.

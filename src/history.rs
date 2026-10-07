@@ -289,7 +289,7 @@ impl OrderedDocument {
 }
 
 /// Returns the canonical position rank of one metadata key, if it is known.
-fn canonical_rank(key: &str) -> Option<usize> {
+pub(crate) fn canonical_rank(key: &str) -> Option<usize> {
     CANONICAL_METADATA_KEY_ORDER
         .iter()
         .position(|candidate| *candidate == key)
@@ -327,8 +327,8 @@ pub fn canonical_metadata_pairs(metadata: &ItemMetadata) -> Vec<(String, Value)>
     for (key, value) in &metadata.extra {
         values.push((key.clone(), value.clone()));
     }
-    // A stable sort over `Some(rank)` places every known key at its canonical
-    // position while unknown keys (ranked last) keep their retained order.
+    // Known keys take canonical positions; unknown keys sort lexically for
+    // history hashes and write-back. List projections restore stored order.
     values.sort_by_key(|(key, _)| {
         let rank = canonical_rank(key).map_or(usize::MAX, |value| value);
         (rank, key.clone())

@@ -6,10 +6,35 @@ status: open
 priority: 2
 tags[3]: conformance,read-parity,rust
 created_at: "2026-10-05T11:05:06.690Z"
-updated_at: "2026-10-05T11:05:16.629Z"
+updated_at: "2026-10-07T20:36:18.351Z"
 author: pi-rust-greptile2
 acceptance_criteria: Full-row list output preserves .toon file metadata order byte-identically against published PM CLI 2026.10.5
 parent: pm-rust-u4al
-comments[1]{created_at,author,text,edited_at}:
-  "2026-10-05T11:05:11.691Z",pi-rust-greptile2,"Reproduction evidence from the PR #60 review follow-up: a synthetic task with extra metadata zebra: 1, budget: 30.0, alpha: 2 (in that file order) was read with list --json --full by both real executables. The reference emits zebra/budget/alpha; native emits alpha/budget/zebra. All float values match after the JS number formatting fix, so this is purely a key-order divergence. The float-metadata regression test on the PR #60 branch uses alphabetical fixture keys so the number-formatting slice stays isolated; this issue tracks the ordering fix.","2026-10-05T11:05:16.629Z"
+comments[5]:
+  - created_at: "2026-10-05T11:05:11.691Z"
+    author: pi-rust-greptile2
+    text: "Reproduction evidence from the PR #60 review follow-up: a synthetic task with extra metadata zebra: 1, budget: 30.0, alpha: 2 (in that file order) was read with list --json --full by both real executables. The reference emits zebra/budget/alpha; native emits alpha/budget/zebra. All float values match after the JS number formatting fix, so this is purely a key-order divergence. The float-metadata regression test on the PR #60 branch uses alphabetical fixture keys so the number-formatting slice stays isolated; this issue tracks the ordering fix."
+    edited_at: "2026-10-05T11:05:16.629Z"
+  - created_at: "2026-10-07T19:58:28.996Z"
+    author: codex-sol
+    text: Will preserve stored extension-field insertion order for list projections while verifying history and mutation contracts with the full release gate. Add shuffled-key differential cases and an independent native-fix revert proof.
+  - created_at: "2026-10-07T20:07:57.025Z"
+    author: codex-sol
+    text: "All 24 extra-key permutations match locked 2026.10.7 byte-for-byte under unbounded and finite budgets, including nested keys and numeric metadata. Native-only revert to the sorted canonical list projection fails exit 101 at byte 292: alpha versus zebra. Restoring insertion-order projection passes. Canonical history ordering remains sorted."
+  - created_at: "2026-10-07T20:29:57.692Z"
+    author: codex-sol
+    text: "Strengthened the independent revert proof: restored original BTreeMap metadata decoding and construction, original history implementation, and sorted list projection while retaining the UTF-16 fix and unchanged regression/oracle. The generated order test fails exit 101 at byte 292 (alpha versus zebra). Restored every source file byte-for-byte before final gates."
+  - created_at: "2026-10-07T20:36:15.723Z"
+    author: codex-sol
+    text: "Implementation and local verification complete. PM-linked 24-permutation differential passed. Original BTreeMap decoding/construction and sorted projection revert fails exit 101 with the Unicode fix retained. Restored source passed just release-check: 211 ordinary plus 211 instrumented tests and exact 100 percent lines/functions/regions/branches (3184/290/4775/626). Canonical history ordering remains sorted. Item remains open for orchestrator verification."
+files[5]{path,scope}:
+  src/history.rs,project
+  src/item.rs,project
+  src/list.rs,project
+  src/mutation.rs,project
+  tests/output_parity_differential.rs,project
+tests[1]{command,scope,provenance{author,created_at,source_kind,source_ref}}:
+  PM_NODE_CLI=tests/oracle/node_modules/@unbrained/pm-cli PM_RUST_REQUIRE_PUBLISHED_CLI=1 cargo +1.90.0 test --locked --test output_parity_differential generated_extra_key_permutations_match_locked_oracle -- --exact --nocapture,project,codex-sol,"2026-10-07T20:06:41.865Z",local_mutation,fix/list-output-parity
+docs[1]{path,scope}:
+  docs/OUTPUT_PARITY_2026_10_7.md,project
 body: ""

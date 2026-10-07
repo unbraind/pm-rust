@@ -631,7 +631,7 @@ proptest! {
         body in "[ -~]{0,80}",
         tags in prop::collection::vec("[A-Za-z0-9._/-]{1,12}", 0..5),
     ) {
-        let mut extra = BTreeMap::new();
+        let mut extra = Map::new();
         extra.insert("author".to_owned(), Value::String("property-agent".to_owned()));
         let document = ItemDocument {
             metadata: ItemMetadata {
