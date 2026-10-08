@@ -305,6 +305,27 @@ fn run_dispatches_every_mutation_and_its_error_halves() -> Result<(), Box<dyn st
         message: None,
         force_stale_lock: false,
     }))?;
+    let ownership_args = |author: &str| super::OwnershipArgs {
+        id: "unit-dispatch".to_owned(),
+        author: author.to_owned(),
+        timestamp: Some("2026-08-07T10:06:30.183Z".to_owned()),
+        message: None,
+        force: false,
+        json: true,
+    };
+    assert!(
+        run(cli(Command::Claim {
+            args: ownership_args(" "),
+            if_available: false
+        }))
+        .is_err()
+    );
+    run(cli(Command::Claim {
+        args: ownership_args("unit-agent"),
+        if_available: false,
+    }))?;
+    assert!(run(cli(Command::Release(ownership_args(" ")))).is_err());
+    run(cli(Command::Release(ownership_args("unit-agent"))))?;
     run(cli(Command::Close {
         id: "unit-dispatch".to_owned(),
         reason: "dispatch done".to_owned(),

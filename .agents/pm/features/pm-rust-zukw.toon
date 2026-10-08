@@ -1,0 +1,40 @@
+id: pm-rust-zukw
+title: Implement native claim and release with published CLI parity
+description: "Match locked 2026.10.7 ownership transitions, refusal envelopes, durable history, and concurrent claim arbitration."
+type: Feature
+status: open
+priority: 1
+tags[3]: conformance,ownership,rust
+created_at: "2026-10-07T23:58:19.521Z"
+updated_at: "2026-10-08T00:48:48.233Z"
+author: codex-sol
+parent: pm-rust-u4al
+comments[8]{created_at,author,text}:
+  "2026-10-07T23:58:29.759Z",codex-sol,"Plan: implement native ownership transitions under the existing item lock and journal; compare item/history bytes and refusal envelopes with locked CLI 2026.10.7; verify a two-process race, behavioral revert, and both release-check environments."
+  "2026-10-08T00:06:57.313Z",codex-sol,"Implementation now matches explicit-author claim/release storage and compact JSON receipts. Published probes established preset precedence, repeated claim no-op, empty release maintenance history, strict-policy release refusal, and terminal claim force override. Six simultaneous two-process claim races produced exactly one winner and valid published-verifier history. Final differential rerun and coverage gates remain to verify."
+  "2026-10-08T00:09:31.434Z",codex-sol,"All four live ownership differential tests passed against locked CLI 2026.10.7: exact item/history bytes, complete success/refusal JSON and exit codes, active/stale lock behavior, and six independent two-process races. Behavioral revert replaced both SDK ownership methods with unavailable-command stubs while retaining compiled CLI/test surfaces: all four tests failed at runtime (exit 101), including zero race winners; source was restored afterward."
+  "2026-10-08T00:17:54.672Z",codex-sol,"Initial release-check passed all 214 tests but correctly refused below-100 coverage. Added consumer and unit checks for invalid settings/authors, missing items, lock IO faults, foreign claim diagnostics, skipped claims, and interrupted release history append followed by journal recovery; no coverage exclusions or lowered thresholds."
+  "2026-10-08T00:24:18.759Z",codex-sol,"Coverage refinement now includes terminal force/no-force, strict release refusal, takeover warnings, idempotent claims, in-progress release warnings, and retained closing summaries in the unit build as well as the live oracle build. Receipt dispatch returns its writer result directly, preserving failure propagation. Full thresholds remain unchanged."
+  "2026-10-08T00:29:09.752Z",codex-sol,"Final-source behavioral revert repeated successfully: the unchanged four ownership differential tests compiled and all failed at runtime (exit 101); the existing create/update/comment/close differential passed as a positive control with ownership reverted. Restored source. Coverage refinement now exercises measured bounded lock wait in both consumer and unit builds."
+  "2026-10-08T00:39:17.229Z",codex-sol,"Coverage diagnostics now reach 100 percent for lines, functions, regions, and branches after adding principal-only release and warn-policy ownership cases. Clean release gates and the isolated HOME gate remain to be run."
+  "2026-10-08T00:48:45.840Z",codex-sol,"Implementation verified: both clean just release-check runs passed, including disposable HOME with global/system Git configuration disabled and no Git identity supplied. Each ran 219 tests in ordinary and instrumented passes; all 3367 lines, 290 functions, 5090 regions and 696 branches were covered at 100 percent. Locked CLI 2026.10.7 byte/envelope comparisons and all six independent two-process races passed in every gate. Behavioral revert compiled and failed all four ownership tests; the existing mutation differential passed as positive control. Feature remains open for orchestrator verification; ownership is being released."
+files[11]{path,scope}:
+  src/error.rs,project
+  src/lib.rs,project
+  src/main.rs,project
+  src/mutation.rs,project
+  src/workspace.rs,project
+  tests/claim_release_differential.rs,project
+  tests/conformance_differential.rs,project
+  tests/mutation_contract.rs,project
+  tests/support/main_unit.rs,project
+  tests/support/mutation_differential.rs,project
+  tests/support/mutation_unit.rs,project
+tests[2]{command,scope,provenance{author,created_at,source_kind,source_ref}}:
+  just release-check,project,codex-sol,"2026-10-08T00:07:00.507Z",local_mutation,feat/native-claim-release
+  PM_NODE_CLI=tests/oracle/node_modules/@unbrained/pm-cli PM_RUST_REQUIRE_PUBLISHED_CLI=1 cargo +1.90.0 test --locked --test claim_release_differential,project,codex-sol,"2026-10-08T00:07:00.507Z",local_mutation,feat/native-claim-release
+docs[3]{path,scope}:
+  docs/CLI_PARITY_2026_10_2.md,project
+  docs/OWNERSHIP_PARITY_2026_10_7.md,project
+  README.md,project
+body: ""
