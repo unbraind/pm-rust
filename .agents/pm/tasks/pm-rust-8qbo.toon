@@ -1,12 +1,14 @@
 id: pm-rust-8qbo
-title: Mirror the upstream output-limit continuation fix once pm-cli 1420 ships
+title: "Resume native output-limit continuations after the last emitted row, matching pm-cli 2026.10.7"
 description: "pm list --limit 50 --output-limit 30 returns 30 rows but next_cursor points after row 49 in the published CLI (2026.10.5 and 2026.10.6), so following it silently skips rows 30-49. pm-rust reproduces this byte-identically and pins it in tests/pagination_differential.rs bounded_receipts_match_bytes. When unbraind/pm-cli#1420 is fixed: bump COMPATIBLE_PM_VERSION, rebase the producer cursor to the last delivered row, and add a page-walk test asserting the union of delivered ids equals the full set."
 type: Task
-status: in_progress
+status: closed
 priority: 1
 tags[3]: pagination,parity,upstream
 created_at: "2026-10-06T18:04:22.824Z"
-updated_at: "2026-10-07T16:18:31.687Z"
+updated_at: "2026-10-07T22:08:20.241Z"
+closed_at: "2026-10-07T18:39:14.821Z"
+completed_at: "2026-10-07T18:39:14.821Z"
 author: claude-orchestrator
 acceptance_criteria: "Following next_cursor after an --output-limit trim delivers every row exactly once, in order, byte-identical to the fixed published CLI"
 comments[5]{created_at,author,text}:
@@ -26,4 +28,5 @@ tests[2]{command,scope,timeout_seconds,provenance{author,created_at,source_kind,
 docs[2]{path,scope}:
   docs/LIST_PAGINATION_2026_10_5.md,project
   README.md,project
+close_reason: "Merged in #65 (bb9d404). Native --limit + --output-limit continuations now resume after the last emitted row, mirroring upstream pm-cli#1420 (fixed in 2026.10.7). Orchestrator verification: the two new differential tests (combined_output_ceilings_replay_the_uncapped_snapshot, output_limit_producer_pages_are_complete_and_byte_identical) pass against the locked 2026.10.7 oracle and both fail with only src/read_output.rs reverted; just release-check passed (207 tests, all four 100% coverage gates)."
 body: ""
