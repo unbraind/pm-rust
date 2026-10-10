@@ -12,7 +12,7 @@ use serde::{Deserialize, Serialize, Serializer};
 use serde_json::Value;
 use time::OffsetDateTime;
 use time::format_description::well_known::Rfc3339;
-use toon_format::{ToonError, encode_default};
+use toon_format::{ToonError, encode_default, needs_quoting};
 
 use crate::error::PmRustError;
 use crate::history::{self, EMPTY_DOCUMENT_HASH, OrderedDocument};
@@ -950,14 +950,11 @@ fn normalize_encoded_item(encoded: Result<String, ToonError>) -> Result<String, 
 /// Normalizes Rust encoder output without changing ambiguous scalar semantics.
 fn normalize_item_bytes(encoded: &str) -> Result<String, PmRustError> {
     let mut normalized = String::with_capacity(encoded.len() + 1);
-    // The encoder emits tabular rows one line after their `{...}:` header; the
-    // JavaScript encoder leaves more row scalars unquoted than the Rust one.
+    // Tabular rows follow their `{...}:` header. Preserve canonical scalar
+    // quoting in those rows and in ordinary key/value fields.
     let mut inside_tabular_block = false;
     for line in encoded.lines() {
-        if let Some(prefix) = line.strip_suffix("[0]:") {
-            normalized.push_str(prefix);
-            normalized.push_str(": []");
-        } else if line.starts_with("tags[") {
+        if line.starts_with("tags[") {
             // The Rust encoder already quotes ambiguous array strings correctly.
             normalized.push_str(line);
         } else if inside_tabular_block && line.starts_with([' ', '\t']) {
@@ -986,29 +983,13 @@ fn normalize_item_bytes(encoded: &str) -> Result<String, PmRustError> {
 }
 
 /// Reports whether the JavaScript TOON encoder leaves this scalar unquoted.
-fn safe_unquoted_scalar(value: &str) -> bool {
-    !value.is_empty()
-        && !value.starts_with('-')
-        && !matches!(value, "true" | "false" | "null")
-        && serde_json::from_str::<Value>(value).is_err()
-        && value.bytes().any(|byte| byte.is_ascii_alphanumeric())
-        && value
-            .bytes()
-            .all(|byte| byte.is_ascii_alphanumeric() || b"._/-".contains(&byte))
-        && !decoder_parses_as_number(value)
-}
-
-/// Reports whether the TOON decoder would read this scalar back as a number.
 ///
-/// The Rust decoder accepts lenient numeric spellings such as `0.` or `1.`
-/// that `serde_json` rejects, so the JSON probe alone let ambiguous scalars
-/// through unquoted and broke the canonical round trip (the decoder then read
-/// the description `"0."` back as the integer `0`). Ask the real decoder
-/// instead of duplicating its grammar here.
-fn decoder_parses_as_number(value: &str) -> bool {
-    toon_format::decode_strict::<Value>(&format!("k: {value}"))
-        .ok()
-        .is_some_and(|decoded| decoded.get("k").is_some_and(Value::is_number))
+/// Use the supported quoting API rather than probing the decoder: TOON v4.1
+/// distinguishes numeric-looking strings such as `05` from numeric literals.
+/// The decoder returns a string for `05`, but the encoder must keep its quotes.
+/// Trailing-dot strings such as `0.` are unquoted in the published dialect.
+fn safe_unquoted_scalar(value: &str) -> bool {
+    !needs_quoting(value, ',')
 }
 
 /// Unquotes safe scalars in one tabular row while preserving every other field.

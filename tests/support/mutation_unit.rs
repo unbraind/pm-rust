@@ -79,6 +79,7 @@ fn serde_defaults_match_the_supported_create_and_settings_contract()
     let (_reserved_directory, reserved_root) = root(&settings("sample-", "toon", 1_800))?;
     let document = create_item(&reserved_root, reserved)?.item;
     assert!(canonical_item_bytes(&document)?.contains("title: \"true\"\n"));
+    assert!(canonical_item_bytes(&document)?.contains("tags: []\n"));
     let mut ambiguous_tags = document.clone();
     ambiguous_tags.metadata.tags = ["0", "1.2", "0.", "1.", "false", "null", "true"]
         .map(str::to_owned)
@@ -2180,9 +2181,9 @@ fn normalize_item_bytes_leaves_the_row_path_when_a_block_line_is_unindented()
 /// A quoted tabular field that survives the quote/escape filter but fails the
 /// scalar-safety probe must keep its quotes.
 ///
-/// `"true"` and `"0."` pass the strip-and-filter half (simple quotes, no
-/// escapes) yet must stay quoted: unquoting them would change what the decoder
-/// reads back (`true` becomes boolean, `0.` becomes integer). Without this
+/// `"true"` and `"05"` pass the strip-and-filter half (simple quotes, no
+/// escapes) yet must stay quoted to match canonical encoding: `true` is a
+/// boolean and `05` is numeric-like. Without this
 /// case the guard-false arm of that match is never exercised.
 fn normalize_row_bytes_preserves_quoted_ambiguous_scalars() {
     assert_eq!(
@@ -2191,10 +2192,11 @@ fn normalize_row_bytes_preserves_quoted_ambiguous_scalars() {
         "a quoted boolean-looking field must keep its quotes"
     );
     assert_eq!(
-        normalize_row_bytes("  \"0.\",plain"),
-        "  \"0.\",plain",
-        "a quoted lenient-number field must keep its quotes"
+        normalize_row_bytes("  \"05\",plain"),
+        "  \"05\",plain",
+        "a numeric-like string must keep its quotes even when decoding as a string"
     );
+    assert_eq!(normalize_row_bytes("  \"0.\",plain"), "  0.,plain");
 }
 
 #[test]
