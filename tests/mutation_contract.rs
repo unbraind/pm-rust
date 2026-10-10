@@ -1556,7 +1556,8 @@ fn unreadable_ownership_locks_propagate_diagnostic_io_errors()
     let mut settings: serde_json::Value = serde_json::from_slice(&fs::read(&settings_path)?)?;
     settings["locks"]["wait_ms"] = serde_json::json!(0);
     fs::write(settings_path, serde_json::to_vec(&settings)?)?;
-    let lock = directory.path().join(".agents/pm/locks/sample-conv.lock");
+    // Match the SDK's canonical storage spelling, including Windows prefixes.
+    let lock = workspace.pm_root().join("locks/sample-conv.lock");
     fs::write(&lock, "{}")?;
     #[cfg(unix)]
     fs::set_permissions(&lock, fs::Permissions::from_mode(0o000))?;

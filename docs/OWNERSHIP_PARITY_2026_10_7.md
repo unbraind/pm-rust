@@ -119,7 +119,8 @@ verified separately. Package context links to the companion tracker for session
 [published tracker directory](https://github.com/unbraind/pm-cli-companion/tree/main/.agents/pm);
 the supplied session has no verified item link on companion main.
 
-Correction verification passed through the feature's linked PM tests: the
+At append candidate `1a6d111685209f65023b7e08efd0c5e11af1592a`, local
+correction verification passed through the feature's linked PM tests: the
 diagnostic consumer regression, all four required claim/release differentials,
 Windows GNU all-target/all-feature check and strict Clippy, and both ordinary
 and isolated-HOME `just release-check` runs. Each aggregate ran 219 ordinary
@@ -129,3 +130,14 @@ audit and regenerated changelog verification also passed. The error-swallowing
 revert compiled and failed the diagnostic regression at runtime (exit 101);
 restored source passed. Native Windows coverage remains a separate CI receipt
 for this append-only correction, not a claim made from these Linux results.
+
+That candidate's [Windows run 38022248758](https://github.com/unbraind/pm-rust/actions/runs/38022248758)
+passed the exclusive-handle unit fixture but failed the SDK fixture's exact-path
+assertion. `Workspace::discover` canonicalizes the storage root, while the
+temporary directory can retain a different Windows prefix spelling. The SDK
+fixture now derives its lock path from `Workspace::pm_root()` instead of
+comparing those spellings. This preserves the exact sharing-violation assertion
+and changes no production behavior. The corrected fixture passes the linked
+consumer regression, Windows cross-check and strict target Clippy. The latest
+append's native CI verifies all full aggregate gates independently of the local
+receipts above.
