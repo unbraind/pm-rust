@@ -1,6 +1,6 @@
 //! Built-in triage projection and token-budget receipts.
 
-use crate::{ListOptions, PmRustError, list::integer, read_output};
+use crate::{ListOptions, ListOutput, PmRustError, list::integer, read_output};
 use serde_json::{Value, json};
 
 /// Fields declared by the built-in list triage intent, in presentation order.
@@ -80,21 +80,26 @@ pub(crate) fn project(result: &mut Value) {
 }
 
 /// Attaches intent diagnostics and compacts rows while rebasing producer cursors.
-pub(crate) fn attach(mut result: Value, options: &ListOptions, budget: usize) -> Value {
+pub(crate) fn attach(
+    result: impl Into<ListOutput>,
+    options: &ListOptions,
+    budget: usize,
+) -> ListOutput {
+    let mut result = result.into();
     // Intent selection is measured before the discovery row contract is hidden.
-    result["row_contract"] = json!({"command":"list","row_kind":"collection","row_keys":["items"],"fields":"supported","jq_selector":".row_contract.row_keys[] as $key | getpath($key | split(\".\")) | if type == \"array\" then .[] else if type == \"object\" then to_entries[] else empty end end","toon_encoding":"tabular_when_uniform"});
+    result.value["row_contract"] = json!({"command":"list","row_kind":"collection","row_keys":["items"],"fields":"supported","jq_selector":".row_contract.row_keys[] as $key | getpath($key | split(\".\")) | if type == \"array\" then .[] else if type == \"object\" then to_entries[] else empty end end","toon_encoding":"tabular_when_uniform"});
     let derived = row_limit(budget, options.token_budget.is_some());
     let explicit = options
         .limit
         .as_deref()
         .and_then(|s| s.parse::<usize>().ok())
         .is_some_and(|n| n < derived);
-    result["budget_derived_limit"] = json!(derived);
-    result["context_intent"] = json!({"command":"list","intent":"triage","source":"core","included_field_groups":["identity","governance","ownership","dependencies"],"token_budget":budget,"declared_token_budget":3200,"token_budget_override":i64::try_from(budget).unwrap_or(i64::MAX)-3200,"estimated_tokens":0,"within_budget":true,"degradation":"bounded_fields_and_rows","declaration_feasible":true,"result_omitted":false,"budget_derived_limit":derived,"binding_constraint":if explicit {"explicit_limit"} else {"token_budget"},"limit_reason":if explicit {"The caller supplied a smaller row limit than the budget-derived ceiling."} else {"The selected intent token budget constrains the effective row ceiling."}});
+    result.value["budget_derived_limit"] = json!(derived);
+    result.value["context_intent"] = json!({"command":"list","intent":"triage","source":"core","included_field_groups":["identity","governance","ownership","dependencies"],"token_budget":budget,"declared_token_budget":3200,"token_budget_override":i64::try_from(budget).unwrap_or(i64::MAX)-3200,"estimated_tokens":0,"within_budget":true,"degradation":"bounded_fields_and_rows","declaration_feasible":true,"result_omitted":false,"budget_derived_limit":derived,"binding_constraint":if explicit {"explicit_limit"} else {"token_budget"},"limit_reason":if explicit {"The caller supplied a smaller row limit than the budget-derived ceiling."} else {"The selected intent token budget constrains the effective row ceiling."}});
     read_output::update(&mut result, "context_intent", false);
     if read_output::estimate(&result, false) > budget {
-        read_output::compact_strings(&mut result);
-        result["context_intent"]["degradation"] = json!("recursive_budget_compaction");
+        read_output::compact_strings(&mut result.value, "", &mut result.cuts);
+        result.value["context_intent"]["degradation"] = json!("recursive_budget_compaction");
         read_output::update(&mut result, "context_intent", false);
     }
     let existing = result["next_cursor"].is_string();
@@ -123,13 +128,13 @@ pub(crate) fn attach(mut result: Value, options: &ListOptions, budget: usize) ->
             // Size rows with the renderer the estimate uses: serde writes 1e20 in
             // 4 bytes, JSON.stringify in 21, and the difference changes how many
             // rows a compaction removes.
-            let row_bytes = crate::stringify_json(&result["items"], false).len();
+            let row_bytes = crate::stringify_json(&result.view("/items"), false).len();
             let excess = (measured - budget) * 4;
             let remove = excess
                 .div_ceil(row_bytes.div_ceil(count).max(1))
                 .max(1)
                 .min(count - 1);
-            result["items"] = json!(
+            result.value["items"] = json!(
                 result["items"]
                     .as_array()
                     .into_iter()
@@ -145,38 +150,40 @@ pub(crate) fn attach(mut result: Value, options: &ListOptions, budget: usize) ->
             } else {
                 source_index + retained
             });
-            result["next_cursor"] = json!(crate::pagination::encode(&cursor));
+            result.value["next_cursor"] = json!(crate::pagination::encode(&cursor));
             shrunk = true;
             read_output::update(&mut result, "context_intent", false);
         }
         if shrunk {
-            result["count"] = json!(result["items"].as_array().map_or(0, Vec::len));
+            result.value["count"] = json!(result["items"].as_array().map_or(0, Vec::len));
             if result.get("applied_limit").is_some() {
-                result["applied_limit"] = result["count"].clone();
+                result.value["applied_limit"] = result["count"].clone();
             }
-            result["context_intent"]["degradation"] = json!("budget_row_compaction");
+            result.value["context_intent"]["degradation"] = json!("budget_row_compaction");
             read_output::update(&mut result, "context_intent", false);
         }
     }
     let measured = read_output::estimate(&result, false);
-    result["context_intent"]["declaration_feasible"] = json!(measured <= 3200);
+    result.value["context_intent"]["declaration_feasible"] = json!(measured <= 3200);
     if measured > budget {
-        result["context_intent"]["degradation"] = json!("budget_receipt_only");
-        result["context_intent"]["result_omitted"] = json!(true);
-        result["context_intent"]["within_budget"] = json!(false);
+        result.value["context_intent"]["degradation"] = json!("budget_receipt_only");
+        result.value["context_intent"]["result_omitted"] = json!(true);
+        result.value["context_intent"]["within_budget"] = json!(false);
         let recovery = measured.div_ceil(100) * 100;
-        result = json!({"budget_exceeded":{"omitted_result":true,"reason":if budget==3200 {"declared_budget_infeasible"} else {"effective_budget_infeasible"},"restore_with":format!("pm list --for triage --token-budget {recovery} --limit {derived}")},"context_intent":result["context_intent"]});
+        result = ListOutput::from(
+            json!({"budget_exceeded":{"omitted_result":true,"reason":if budget==3200 {"declared_budget_infeasible"} else {"effective_budget_infeasible"},"restore_with":format!("pm list --for triage --token-budget {recovery} --limit {derived}")},"context_intent":result["context_intent"]}),
+        );
     } else {
         let mut map = result.as_object().cloned().unwrap_or_default();
         map.shift_remove("row_contract");
-        result = Value::Object(map);
+        result.value = Value::Object(map);
         read_output::update(&mut result, "context_intent", false);
     }
     result
 }
 
 /// Reconciles intent and read-output estimates after attaching both receipts.
-pub(crate) fn stabilize(result: &mut Value) {
+pub(crate) fn stabilize(result: &mut ListOutput) {
     for _ in 0..8 {
         let before = (
             result["context_intent"]["estimated_tokens"].clone(),

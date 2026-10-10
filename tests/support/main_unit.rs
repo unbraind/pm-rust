@@ -1,4 +1,4 @@
-use std::collections::BTreeMap;
+use serde_json::Map;
 use std::fs;
 use std::io;
 
@@ -152,7 +152,7 @@ fn trailing_newline_and_flush_errors_are_propagated() {
             created_at: "2026-08-06T00:00:00Z".to_owned(),
             updated_at: "2026-08-06T00:00:00Z".to_owned(),
             parent: None,
-            extra: BTreeMap::new(),
+            extra: Map::new(),
         },
         body: String::new(),
     };

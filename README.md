@@ -31,8 +31,10 @@ mutations, while `--output-cursor` refuses changed row snapshots. Combined
 amount and budget ceilings bind the original uncapped snapshot, so unchanged
 output-cursor replay works and deleted-identity fallback uses the emitted
 producer position.
-String compaction that splits a Unicode surrogate pair remains a known gap,
-tracked in [pm-rust-8hkb](https://github.com/unbraind/pm-rust/blob/main/.agents/pm/issues/pm-rust-8hkb.toon).
+String compaction preserves split UTF-16 code units as escaped JSON, and full
+list projections preserve stored extra metadata key order. Generated differential
+checks and independent revert proofs are documented in
+[the output parity receipt](docs/OUTPUT_PARITY_2026_10_7.md).
 
 ## Current native slice
 

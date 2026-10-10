@@ -6,15 +6,31 @@ status: open
 priority: 2
 tags[3]: conformance,read-parity,rust
 created_at: "2026-10-05T08:17:16.166Z"
-updated_at: "2026-10-05T08:56:51.023Z"
+updated_at: "2026-10-07T20:36:17.707Z"
 author: codex-sol
 acceptance_criteria: Both real CLIs emit byte-identical bounded JSON and token estimates when compaction cuts an astral character at unit 240; SDK serialization preserves the same contract; Existing four-metric 100 percent coverage and documentation gates remain enforced
 parent: pm-rust-u4al
-comments[2]{created_at,author,text}:
+comments[7]{created_at,author,text}:
   "2026-10-05T08:28:50.615Z",codex-sol,"Reproduction evidence: a synthetic single-item title of 239 ASCII x characters, one emoji, and 2000 more x characters was read with list --json --full --output-budget 500 by both real executables. The reference emits an escaped high surrogate at the cut; native serde_json emits a replacement character. In the observed fixture the read-output estimates were 424 versus 423 tokens. The boundary and reproduction are documented in docs/LIST_PAGINATION_2026_10_5.md."
   "2026-10-05T08:56:51.023Z",codex-sol,"The reproduced Unicode boundary is explicitly documented in draft PR https://github.com/unbraind/pm-rust/pull/60 and docs/LIST_PAGINATION_2026_10_5.md. Full parity is not claimed for this case; the issue remains open."
-files[1]{path,scope}:
+  "2026-10-07T19:58:28.234Z",codex-sol,"Working against the locked published 2026.10.7 oracle. Will preserve the escaped high-surrogate JSON code unit at the UTF-16 compaction boundary, while keeping emitted bytes valid UTF-8; add generated differential cases and a native-fix revert proof."
+  "2026-10-07T20:07:56.278Z",codex-sol,"Generated parity passes against locked 2026.10.7: 968 astral placements at offsets 0 through 241, ordinary and triage rendering, exact SDK serialization, literal replacement/escape strings, token receipts, and continuation replay. Native-only revert of surrogate escape capture fails exit 101 at byte 327014: replacement character versus escaped high surrogate. Restored combined suite passes."
+  "2026-10-07T20:17:41.833Z",codex-sol,"The initial release gate rejected three missing branches and one line despite passing all 209 ordinary/instrumented tests. Added an envelope-level cut and row-string slicing test, removed an impossible empty-prefix branch, and made output control processing concrete to avoid duplicate generic coverage branches. Expanded differential replay to start exactly at the split row and covered SDK numeric serialization. Repeated both independent revert proofs: each still fails exit 101; fixes restored."
+  "2026-10-07T20:29:58.326Z",codex-sol,"Serializer fault-injection now covers failing collection headers and entries, malformed internal pointers and raw data. Pretty output uses one writer type across sinks, sharing actual error-handling paths. Focused instrumented serializer totals are 100 percent lines/functions/regions/branches. Final native-only surrogate revert still fails exit 101 at byte 327014; restored source before aggregate verification."
+  "2026-10-07T20:36:14.826Z",codex-sol,"Implementation and local verification complete. just release-check passed all 211 ordinary and 211 instrumented tests, fmt, deny-warning Clippy, public/private rustdoc, dependency audit and changelog verification. Native coverage is exact 100 percent: 3184 lines, 290 functions, 4775 regions, 626 branches. PM-linked Unicode differential command passed; independent native revert fails exit 101. SDK list_page now returns ListOutput; serialize the envelope itself for exact escaped cuts. Item remains open for orchestrator verification."
+files[9]{path,scope}:
+  Cargo.toml,project
+  src/json_output.rs,project
+  src/lib.rs,project
+  src/list_intent.rs,project
+  src/pagination.rs,project
   src/read_output.rs,project
-docs[1]{path,scope}:
+  src/workspace.rs,project
+  tests/output_parity_differential.rs,project
+  tests/support/json_output_unit.rs,project
+tests[1]{command,scope,provenance{author,created_at,source_kind,source_ref}}:
+  PM_NODE_CLI=tests/oracle/node_modules/@unbrained/pm-cli PM_RUST_REQUIRE_PUBLISHED_CLI=1 cargo +1.90.0 test --locked --test output_parity_differential generated_utf16_cut_offsets_match_locked_oracle -- --exact --nocapture,project,codex-sol,"2026-10-07T20:06:41.261Z",local_mutation,fix/list-output-parity
+docs[2]{path,scope}:
   docs/LIST_PAGINATION_2026_10_5.md,project
+  docs/OUTPUT_PARITY_2026_10_7.md,project
 body: ""

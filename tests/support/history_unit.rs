@@ -1,6 +1,6 @@
 //! Unit acceptance for canonical ordering, patching, hashing, and encoding.
 
-use std::collections::BTreeMap;
+use serde_json::Map;
 
 use serde_json::{Value, json};
 
@@ -196,7 +196,7 @@ fn unknown_metadata_keys_sort_after_every_canonical_key() {
         created_at: "2026-08-22T10:00:00.000Z".to_owned(),
         updated_at: "2026-08-22T10:00:00.000Z".to_owned(),
         parent: Some("sample-p".to_owned()),
-        extra: BTreeMap::default(),
+        extra: Map::default(),
     };
     metadata.extra.insert("zz_custom".to_owned(), json!(1));
     metadata.extra.insert("aa_custom".to_owned(), json!(2));
