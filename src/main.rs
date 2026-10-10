@@ -213,7 +213,7 @@ struct OwnershipArgs {
     /// Asserted author and claim principal.
     #[arg(long)]
     author: String,
-    /// Fixed UTC RFC 3339 mutation clock.
+    /// Fixed UTC RFC 3339 mutation clock, no later than the current UTC instant.
     #[arg(long)]
     timestamp: Option<String>,
     /// Optional history message.

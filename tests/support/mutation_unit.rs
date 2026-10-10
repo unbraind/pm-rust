@@ -2749,6 +2749,133 @@ fn a_lock_file_holding_invalid_utf8_is_a_fault_not_contention() {
     drop(directory);
 }
 
+/// Exercises the public SDK while retaining a real, freshly acquired lock guard.
+fn future_ownership_preserves_held_lock(
+    claim: bool,
+    force: bool,
+    governance: &str,
+) -> Result<(), Box<dyn std::error::Error>> {
+    let (_directory, pm_root) = root(&format!(
+        r#"{{"governance":{governance},"locks":{{"ttl_seconds":1800,"wait_ms":0}}}}"#
+    ))?;
+    create_item(&pm_root, request())?;
+    let workspace = crate::Workspace::discover(&pm_root)?;
+    let mut mutation = OwnershipItem {
+        id: "sample-unit".to_owned(),
+        author: "unit-agent".to_owned(),
+        timestamp: Some(TS.to_owned()),
+        message: None,
+        force,
+        if_available: false,
+        provenance_role: None,
+    };
+    if !claim {
+        workspace.claim(&mutation)?;
+    }
+    let lock_settings = LockSettings {
+        use_created_at: true,
+        ..locks(1800)
+    };
+    let held = acquire_lock(
+        workspace.pm_root(),
+        &mutation.id,
+        "live-holder",
+        &lock_settings,
+        false,
+        &now_iso(),
+    )?;
+    let paths = [
+        pm_root.join("tasks/sample-unit.toon"),
+        pm_root.join("history/sample-unit.jsonl"),
+        held.path.clone(),
+    ];
+    let before = [
+        Some(fs::read(&paths[0])?),
+        Some(fs::read(&paths[1])?),
+        Some(fs::read(&paths[2])?),
+    ];
+    mutation.timestamp = Some("9999-12-31T23:59:59.999999999Z".to_owned());
+    let result = if claim {
+        workspace.claim(&mutation)
+    } else {
+        workspace.release(&mutation)
+    };
+    // Inspect every durable artifact while the original guard is still alive.
+    // Reading the lock as an Option also exposes an illicit unlink as a mismatch.
+    let after = paths.each_ref().map(|path| fs::read(path).ok());
+    assert_eq!(after, before, "held-lock bytes changed: {result:?}");
+    assert!(matches!(
+        result,
+        Err(PmRustError::InvalidMutationRequest { reason })
+            if reason == "timestamp must not be in the future"
+    ));
+    mutation.timestamp = Some(TS.to_owned());
+    let blocked = if claim {
+        workspace.claim(&mutation)
+    } else {
+        workspace.release(&mutation)
+    };
+    let Err(PmRustError::OwnershipRefusal { detail, context }) = blocked else {
+        return Err("a historical clock must still respect the held lock".into());
+    };
+    assert_eq!(detail, "Item sample-unit is locked (owner live-holder)");
+    assert_eq!(context["code"], "lock_conflict");
+    assert_eq!(paths.each_ref().map(|path| fs::read(path).ok()), before);
+    drop(held);
+    assert!(
+        !paths[2].exists(),
+        "the original guard must retain its token"
+    );
+    let historical = if claim {
+        workspace.claim(&mutation)?
+    } else {
+        workspace.release(&mutation)?
+    };
+    assert_eq!(historical.changed_field_count, 2);
+    assert_eq!(historical.item.metadata.updated_at, TS);
+    assert!(!paths[2].exists());
+    Ok(())
+}
+
+#[test]
+fn future_ownership_force_claim_preserves_held_lock() -> Result<(), Box<dyn std::error::Error>> {
+    future_ownership_preserves_held_lock(true, true, r#"{"preset":"strict"}"#)
+}
+
+#[test]
+fn future_ownership_force_release_preserves_held_lock() -> Result<(), Box<dyn std::error::Error>> {
+    future_ownership_preserves_held_lock(false, true, r#"{"preset":"strict"}"#)
+}
+
+#[test]
+fn future_ownership_minimal_claim_preserves_held_lock() -> Result<(), Box<dyn std::error::Error>> {
+    future_ownership_preserves_held_lock(true, false, r#"{"preset":"minimal"}"#)
+}
+
+#[test]
+fn future_ownership_minimal_release_preserves_held_lock() -> Result<(), Box<dyn std::error::Error>>
+{
+    future_ownership_preserves_held_lock(false, false, r#"{"preset":"minimal"}"#)
+}
+
+#[test]
+fn future_ownership_custom_claim_preserves_held_lock() -> Result<(), Box<dyn std::error::Error>> {
+    future_ownership_preserves_held_lock(
+        true,
+        false,
+        r#"{"preset":"custom","force_required_for_stale_lock":false}"#,
+    )
+}
+
+#[test]
+fn future_ownership_custom_release_preserves_held_lock() -> Result<(), Box<dyn std::error::Error>> {
+    future_ownership_preserves_held_lock(
+        false,
+        false,
+        r#"{"preset":"custom","force_required_for_stale_lock":false}"#,
+    )
+}
+
 #[test]
 fn ownership_provenance_and_legacy_metadata_are_preserved() -> Result<(), Box<dyn std::error::Error>>
 {

@@ -15,7 +15,11 @@ pm-rust claim sample-item --author fixture-agent --if-available --json
 pm-rust release sample-item --author fixture-agent --json
 ```
 
-Both commands accept `--message`, `--force`, and the fixture-only `--timestamp`.
+Both commands accept `--message`, `--force`, and the native `--timestamp`
+intended for deterministic fixtures. Ownership timestamps must be valid UTC
+RFC 3339 instants no later
+than the real current UTC instant; future values fail before lock acquisition
+or journal recovery.
 An asserted author is also its claim principal. Claim writes `assignee` and
 `claim_principal` under the item lock, then journals the canonical item and
 history event. A repeated same-owner claim adds no history. Release removes
@@ -141,3 +145,94 @@ and changes no production behavior. The corrected fixture passes the linked
 consumer regression, Windows cross-check and strict target Clippy. The latest
 append's native CI verifies all full aggregate gates independently of the local
 receipts above.
+
+## Future ownership timestamp boundary (2026-10-10)
+
+[Review finding 4216462799](https://github.com/unbraind/pm-rust/pull/68#discussion_r4216462799)
+was independently reproduced against `6bf5334f5ef8528d41f42242828ddf956bb659e0`.
+Syntax validation accepted a future timestamp, and both ownership acquisition
+and its diagnostic used that caller clock to calculate lock age. Force or a
+permissive stale-recovery policy could therefore unlink a fresh lock, acquire
+a replacement, and mutate its item while the original `ItemLock` guard remained
+alive. This was a runtime failure, not just a static-analysis conclusion.
+
+This timestamp is a **Rust extension**. The installed published **2026.10.7**
+contract in `dist/sdk/lifecycle/claim.d.ts` defines `ClaimMutationOptions` and
+its alias `ReleaseMutationOptions` without a timestamp field. Their shared
+`GlobalOptions`, in `dist/core/shared/command-types.d.ts`, also has no timestamp.
+The differential driver pins the published recipe and JavaScript clock for
+testing; that mechanism does not establish a public ownership timestamp option.
+No upstream core issue or whole-CLI compatibility claim follows from this bug.
+
+After shared author/syntax validation, ownership compares the parsed instant
+with `time::OffsetDateTime::now_utc()` and returns the existing
+`InvalidMutationRequest` variant with `timestamp must not be in the future`.
+The pinned crate is **time 0.3.55**; its source confirms `now_utc()` returns an
+`OffsetDateTime` and its ordering compares instants. The comparison retains
+fractional precision and adds no clock tolerance. Historical timestamps and
+the automatic current timestamp remain accepted. Other mutation slices retain
+their timestamp contracts. The correction precedes acquisition, stale cleanup,
+and recovery, and changes no ownership policy or ordinary refusal envelope.
+
+Six `future_ownership_*_preserves_held_lock` regressions acquire an actual
+fresh `ItemLock` through production acquisition, retain that guard, and call
+the public SDK's claim or release. They cover explicit force under the strict
+preset, the minimal preset without force, and custom
+`force_required_for_stale_lock=false` without force. Every case snapshots and
+compares **item, history, and lock bytes** while the holder is still alive.
+It then checks the historical-clock lock-conflict envelope, the same unchanged
+bytes, token-preserving guard cleanup, and a successful historical mutation
+after release. The consumer regression additionally verifies SDK and CLI
+future refusals with and without force when no lock exists, and historical
+and automatic-clock success. No lock or clock implementation is mocked.
+
+Fail-on-revert proof: retain the final parser, public types and unchanged
+regressions, remove only the future-instant guard in `ownership_item`, then run:
+
+```sh
+cargo +1.90.0 test --locked --lib future_ownership_
+cargo +1.90.0 test --locked --test mutation_contract future_ownership_
+```
+
+Both commands must compile and fail at runtime: all six held-lock tests detect
+changed durable bytes and the removed lock; the consumer test observes a
+successful mutation instead of the typed refusal. Restore the production file
+byte-for-byte and require both commands to pass. This checks dependency on the
+correction while leaving the implementation of ownership and its normal-clock
+tests available as a positive control.
+
+The boundary prevents caller-driven fast-forwarding of a fresh lock's age.
+Existing TTL expiration and stale recovery still apply; this correction adds
+no lease renewal or process-liveness test for an expired holder. The original
+six two-process races, exact differential clocks, byte comparisons, coverage
+inventory, exclusions and four 100% thresholds remain unchanged. The local and
+native-platform release gates measure their own source denominators; earlier
+Windows diagnostic receipts above belong to their recorded heads.
+
+The shared oracle runner clears its environment to make fixtures reproducible.
+It now sets the published CLI's `DO_NOT_TRACK=1` process opt-out after that clear,
+so synthetic commands cannot enqueue or deliver host telemetry. This changes
+neither the recipe clock nor a compared item, history, success/refusal envelope,
+or race assertion. Tracker and aggregate verification commands also run with
+the opt-out. The first aggregate was stopped after discovering this boundary
+and is not a passing receipt. Earlier invocations were not explicitly isolated
+from host telemetry, so they provide no no-telemetry assurance. Existing
+telemetry data is preserved; no cleanup or production-state rewrite is used to
+claim isolation retroactively.
+
+Final local correction receipts: both PM-linked `just release-check` aggregates
+passed with telemetry opt-outs, including the disposable-HOME run with
+global/system Git configuration disabled. Each ran **226 ordinary and 226
+instrumented tests**, including the four required ownership differentials and
+six process races. Both freshly generated reports cover **3,372/3,372 lines,
+5,098/5,098 regions, 291/291 functions and 698/698 branches**, all **100%**.
+Formatting, strict Clippy, private-item rustdoc, Cargo audit and regenerated
+changelog verification passed. Source and test digests match both receipts.
+
+LLVM reports the ten executable source files; `src/lib.rs` contains declarations
+and re-exports, and `src/error.rs` declares the derived error enum, so they add
+no executable source spans to that report. Tests and dependencies remain
+outside the existing production-source denominator. No coverage configuration,
+threshold, source inventory, or exclusion was changed. Native-platform CI is
+a separate receipt at the pushed head; Windows cross-compilation alone does
+not establish native execution or coverage.

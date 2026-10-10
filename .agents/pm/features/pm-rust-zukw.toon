@@ -6,10 +6,10 @@ status: in_progress
 priority: 1
 tags[3]: conformance,ownership,rust
 created_at: "2026-10-07T23:58:19.521Z"
-updated_at: "2026-10-10T04:00:49.085Z"
+updated_at: "2026-10-10T05:02:04.895Z"
 author: codex-sol
 parent: pm-rust-u4al
-comments[13]{created_at,author,text}:
+comments[20]{created_at,author,text}:
   "2026-10-07T23:58:29.759Z",codex-sol,"Plan: implement native ownership transitions under the existing item lock and journal; compare item/history bytes and refusal envelopes with locked CLI 2026.10.7; verify a two-process race, behavioral revert, and both release-check environments."
   "2026-10-08T00:06:57.313Z",codex-sol,"Implementation now matches explicit-author claim/release storage and compact JSON receipts. Published probes established preset precedence, repeated claim no-op, empty release maintenance history, strict-policy release refusal, and terminal claim force override. Six simultaneous two-process claim races produced exactly one winner and valid published-verifier history. Final differential rerun and coverage gates remain to verify."
   "2026-10-08T00:09:31.434Z",codex-sol,"All four live ownership differential tests passed against locked CLI 2026.10.7: exact item/history bytes, complete success/refusal JSON and exit codes, active/stale lock behavior, and six independent two-process races. Behavioral revert replaced both SDK ownership methods with unavailable-command stubs while retaining compiled CLI/test surfaces: all four tests failed at runtime (exit 101), including zero race winners; source was restored afterward."
@@ -23,6 +23,13 @@ comments[13]{created_at,author,text}:
   "2026-10-10T03:54:38.923Z",codex-sol,"Final test-only correction verified: both ordinary and isolated-HOME just release-check passed, each with 219 ordinary and 219 instrumented tests. Coverage is exactly 3367/3367 lines, 5090/5090 regions, 290/290 functions and 696/696 branches (all 100 percent). Both gates include required locked 2026.10.7 oracle, formatting, strict Clippy, private-item rustdoc, identity audit, Cargo audit and changelog check. PM-linked Windows GNU all-target/all-feature check and strict Clippy also passed. Native Windows execution remains the hosted CI receipt for the append commit. No production source, dependencies, oracle semantics, coverage thresholds or exclusions changed. Releasing ownership without closing; orchestrator verifies."
   "2026-10-10T03:59:41.965Z",codex-sol,"At append head 1a6d111685209f65023b7e08efd0c5e11af1592a, run 38022248758 passes the Windows exclusive-handle unit fixture but the new SDK fixture fails its exact-path assertion. Workspace::discover canonicalizes the storage root, whereas TempDir retains another Windows spelling; the assertion compared those spellings. Correct the fixture lock path to Workspace::pm_root().join(\"locks/sample-conv.lock\") and keep the exact OS error assertion. This is a test expectation correction, not a production error-propagation change. Previous ordinary and isolated-HOME Linux aggregates passed; latest native Windows evidence is still required."
   "2026-10-10T04:00:47.847Z",codex-sol,"Canonical SDK lock-path correction verified by the linked diagnostic consumer regression, Windows GNU all-target/all-feature check and strict target Clippy. Repeated the native-only error-swallowing proof with the corrected fixture: it compiled and failed at runtime (exit 101), then restored source byte-for-byte and the linked positive test passed. Production source, dependencies and locked 2026.10.7 oracle are unchanged from the original feature head. Local full ordinary and isolated-HOME receipts belong to append 1a6d111; the next append requires its own native CI aggregate receipt. Releasing ownership without closing."
+  "2026-10-10T04:17:56.103Z",codex-sol,"Review finding 4216462799 after the preceding agent completed and released the clean PR #68 candidate. Reuse this ownership feature. Verify future timestamp recovery against a real held ItemLock for claim and release under force and permissive no-force policies, reproduce before correcting, preserve durable bytes and historical timestamps, then require full four-metric source coverage and strict release gates. This is the Rust native timestamp extension; no published CLI core defect is claimed. Companion context: pm-cli-website-session-2026-10-10 via the existing published tracker-directory link."
+  "2026-10-10T04:19:56.348Z",codex-sol,"Independent reproduction confirmed finding 4216462799 on the prior source: six real ItemLock SDK regressions compiled and failed at runtime (exit 101), covering claim/release with force, minimal preset without force, and custom force_required_for_stale_lock=false without force. Every case changed durable bytes and removed the active lock while the original guard remained alive. Published ClaimMutationOptions and ReleaseMutationOptions expose no timestamp; this finding belongs to the native extension. Locked time 0.3.55 provides OffsetDateTime::now_utc() and chronological PartialOrd. Add an ownership-only future-instant refusal before acquisition/recovery; preserve historical fixtures and existing concurrency/differential contracts."
+  "2026-10-10T04:25:25.419Z",codex-sol,"Final fail-on-revert proof removed only the ownership future-instant guard: unchanged held-lock regressions compiled and failed 0/6 at runtime; the unchanged SDK/CLI consumer test compiled and failed 0/1 (both exit 101). With that guard absent, all four required published 2026.10.7 ownership differentials still passed, including their six process races and exact historical clocks, establishing a positive control. Restored production source byte-for-byte. Initial restored targeted PM-linked tests passed 6/6 and 1/1; full ordinary and isolated-environment release gates are next."
+  "2026-10-10T04:38:20.908Z",codex-sol,"Stopped the first aggregate before completion: read-only inspection showed the published fixture runner clears process opt-outs and can access the host telemetry queue. This incomplete aggregate is not passing evidence. Add the published DO_NOT_TRACK=1 opt-out after environment clearing, preserving clocks, item/history comparisons and process races; use opt-outs for tracker and release commands as well. Existing host telemetry data is preserved without edits; earlier invocations were not explicitly isolated, so no no-telemetry receipt is claimed for those runs. Restart both full gates on the corrected fixture boundary."
+  "2026-10-10T04:48:50.073Z",codex-sol,"Ordinary PM-linked just release-check passed with explicit telemetry opt-outs: formatting, strict all-target/all-feature Clippy, private-item rustdoc, required published 2026.10.7 tests, genuine source coverage, Cargo audit and changelog verification. Fresh coverage is 3372/3372 lines, 5098/5098 regions, 291/291 functions and 698/698 branches, all 100 percent with unchanged thresholds, inventory and exclusions. Saved source/test digests for final commit verification. The isolated-environment aggregate is running; the interrupted earlier aggregate remains excluded from passing evidence."
+  "2026-10-10T05:01:37.062Z",codex-sol,"Both final-source PM-linked aggregates passed with telemetry opt-outs: ordinary and disposable-HOME/global-system-Git-disabled just release-check. Each ran 226 ordinary and 226 instrumented tests; 904 total passes across both aggregates. Both fresh reports cover 3372/3372 lines, 5098/5098 regions, 291/291 functions and 698/698 branches at 100 percent. Formatting, strict Clippy, private-item rustdoc, required locked oracle, identity audit, Cargo audit and changelog verification all passed. Saved source/test digests match both receipts. Native platform execution remains a separate CI receipt at the pushed head; no core timestamp API defect or whole-CLI parity is claimed."
+  "2026-10-10T05:02:03.551Z",codex-sol,"Final Windows GNU all-target/all-feature check and strict Clippy both passed through PM-linked tests. The ownership correction, six real held-lock regressions, SDK/CLI extension regression, published telemetry process opt-out, and actual boundary/revert documentation are ready for the existing PR #68. All executable source/test bytes match the passing ordinary and isolated aggregates. Release this claim while leaving the feature in progress for orchestrator verification; native CI will verify the committed head separately."
 files[11]{path,scope}:
   src/error.rs,project
   src/lib.rs,project
@@ -35,7 +42,7 @@ files[11]{path,scope}:
   tests/support/main_unit.rs,project
   tests/support/mutation_differential.rs,project
   tests/support/mutation_unit.rs,project
-tests[6]:
+tests[8]:
   - command: just release-check
     scope: project
     provenance:
@@ -82,7 +89,21 @@ tests[6]:
       created_at: "2026-10-10T03:30:33.602Z"
       source_kind: local_mutation
       source_ref: feat/native-claim-release
-docs[6]:
+  - command: cargo +1.90.0 test --locked --lib future_ownership_
+    scope: project
+    provenance:
+      author: codex-sol
+      created_at: "2026-10-10T04:20:02.691Z"
+      source_kind: local_mutation
+      source_ref: feat/native-claim-release
+  - command: cargo +1.90.0 test --locked --test mutation_contract future_ownership_
+    scope: project
+    provenance:
+      author: codex-sol
+      created_at: "2026-10-10T04:22:20.983Z"
+      source_kind: local_mutation
+      source_ref: feat/native-claim-release
+docs[7]:
   - path: docs/CLI_PARITY_2026_10_2.md
     scope: project
   - path: docs/OWNERSHIP_PARITY_2026_10_7.md
@@ -91,6 +112,8 @@ docs[6]:
     scope: project
     note: Companion session pm-cli-website-session-2026-10-10
   - path: "https://github.com/unbraind/pm-rust/pull/68"
+    scope: project
+  - path: "https://github.com/unbraind/pm-rust/pull/68#discussion_r4216462799"
     scope: project
   - path: "https://github.com/unbraind/pm-rust/pull/72"
     scope: project

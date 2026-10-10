@@ -131,6 +131,9 @@ pub fn run_minimal(
             command.env(name, value);
         }
     }
+    // Synthetic oracle invocations must not enqueue or deliver host telemetry.
+    // This is the published CLI's process opt-out, not a replaced service.
+    command.env("DO_NOT_TRACK", "1");
     command.env("FIXED_CLOCK", CLOCK);
     command.args(arguments).output().map_err(Into::into)
 }

@@ -68,7 +68,8 @@ pub struct OwnershipItem {
     pub id: String,
     /// Asserted author; also the claim principal for this slice.
     pub author: String,
-    /// Optional deterministic UTC clock.
+    /// Optional deterministic UTC clock, no later than the current UTC instant.
+    /// Future values are rejected before lock acquisition or journal recovery.
     pub timestamp: Option<String>,
     /// Optional history message.
     pub message: Option<String>,
@@ -1864,6 +1865,12 @@ pub(crate) fn ownership_item(
     let mut settings = read_settings(pm_root)?;
     settings.locks.use_created_at = true;
     let timestamp = validate_mutation_request(&request.author, request.timestamp.as_deref())?;
+    // A fixture clock must never age a live lock into stale-lock recovery.
+    if OffsetDateTime::parse(&timestamp, &Rfc3339)
+        .is_ok_and(|value| value > OffsetDateTime::now_utc())
+    {
+        return Err(invalid_mutation("timestamp must not be in the future"));
+    }
     let operation = if claim { "claim" } else { "release" };
     let lock_started = Instant::now();
     let _lock = match acquire_lock(

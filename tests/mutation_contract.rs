@@ -1481,6 +1481,69 @@ fn a_replayed_journal_forces_the_item_to_be_read_again() -> Result<(), Box<dyn s
 }
 
 #[test]
+/// SDK and CLI reject future clocks even without contention; ordinary clocks work.
+fn future_ownership_timestamps_refuse_for_sdk_and_cli() -> Result<(), Box<dyn std::error::Error>> {
+    use pm_rust::OwnershipItem;
+    let (directory, workspace) = tracker()?;
+    workspace.create(create_request())?;
+    let timestamp = (time::OffsetDateTime::now_utc() + time::Duration::hours(1))
+        .format(&time::format_description::well_known::Rfc3339)?;
+    let mut request = OwnershipItem {
+        id: "sample-conv".to_owned(),
+        author: "fixture-agent".to_owned(),
+        timestamp: Some(timestamp.clone()),
+        message: None,
+        force: false,
+        if_available: false,
+        provenance_role: None,
+    };
+    let before_item = item(directory.path());
+    let before_history = history(directory.path());
+    for force in [false, true] {
+        request.force = force;
+        for operation in ["claim", "release"] {
+            let result = if operation == "claim" {
+                workspace.claim(&request)
+            } else {
+                workspace.release(&request)
+            };
+            assert!(matches!(
+                result,
+                Err(PmRustError::InvalidMutationRequest { reason })
+                    if reason == "timestamp must not be in the future"
+            ));
+            let mut cli = Command::cargo_bin("pm-rust")?;
+            cli.current_dir(directory.path()).args([
+                operation,
+                "sample-conv",
+                "--author=fixture-agent",
+                "--json",
+                &format!("--timestamp={timestamp}"),
+            ]);
+            if force {
+                cli.arg("--force");
+            }
+            cli.assert().failure().stderr(contains(
+                "invalid mutation request: timestamp must not be in the future",
+            ));
+            assert_eq!(item(directory.path()), before_item);
+            assert_eq!(history(directory.path()), before_history);
+            assert!(!workspace.pm_root().join("locks/sample-conv.lock").exists());
+        }
+    }
+    request.timestamp = Some(TIMESTAMP.to_owned());
+    assert_eq!(
+        workspace.claim(&request)?.item.metadata.updated_at,
+        TIMESTAMP
+    );
+    request.timestamp = None;
+    let release = workspace.release(&request)?;
+    assert_eq!(release.changed_field_count, 2);
+    pm_rust::validate_timestamp(&release.item.metadata.updated_at)?;
+    Ok(())
+}
+
+#[test]
 fn ownership_errors_and_journal_recovery_reach_real_consumers()
 -> Result<(), Box<dyn std::error::Error>> {
     use pm_rust::OwnershipItem;
