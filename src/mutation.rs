@@ -61,6 +61,62 @@ pub struct CreateItem {
     pub force_stale_lock: bool,
 }
 
+/// Explicit-author ownership mutation shared by claim and release.
+#[derive(Clone, Debug, Deserialize, PartialEq, Serialize)]
+pub struct OwnershipItem {
+    /// Stable identifier of the existing item.
+    pub id: String,
+    /// Asserted author; also the claim principal for this slice.
+    pub author: String,
+    /// Optional deterministic UTC clock, no later than the current UTC instant.
+    /// Future values are rejected before lock acquisition or journal recovery.
+    pub timestamp: Option<String>,
+    /// Optional history message.
+    pub message: Option<String>,
+    /// Override a foreign owner or terminal claim and recover stale locks.
+    pub force: bool,
+    /// Treat a foreign claim as a successful no-op (claim only).
+    pub if_available: bool,
+    /// Optional argv-derived history role.
+    pub provenance_role: Option<String>,
+}
+
+/// Published compact ownership receipt plus the complete SDK document.
+#[derive(Clone, Debug, PartialEq, Serialize)]
+pub struct OwnershipResult {
+    /// Complete document after the operation.
+    #[serde(skip)]
+    pub item: ItemDocument,
+    /// Canonical identifier.
+    pub id: String,
+    /// Current lifecycle status.
+    pub status: String,
+    /// Number of ownership fields reported changed.
+    pub changed_field_count: usize,
+    /// Published immutable closing summary, when present.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub close_reason: Option<String>,
+    /// Claim holder, including a skipped foreign claim.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub claimed_by: Option<String>,
+    /// Author releasing the ownership.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub released_by: Option<String>,
+    /// Previous owner, or null when absent.
+    pub previous_assignee: Option<String>,
+    /// Whether an override was requested.
+    pub forced: bool,
+    /// Present only for a skipped claim.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub skipped: Option<bool>,
+    /// Published ownership warnings.
+    #[serde(skip_serializing_if = "Vec::is_empty")]
+    pub warnings: Vec<String>,
+    /// Published recovery suggestions.
+    #[serde(skip_serializing_if = "Vec::is_empty")]
+    pub suggestions: Vec<String>,
+}
+
 /// Durable result of a native create transaction.
 #[derive(Clone, Debug, PartialEq, Serialize)]
 pub struct CreateResult {
@@ -191,10 +247,45 @@ struct MutationSettings {
     locks: LockSettings,
     #[serde(default)]
     workflow: WorkflowSettings,
+    #[serde(default)]
+    governance: OwnershipGovernance,
+}
+
+#[derive(Debug, Default, Deserialize)]
+struct OwnershipGovernance {
+    #[serde(default)]
+    preset: String,
+    #[serde(default)]
+    force_required_for_stale_lock: Option<bool>,
+    #[serde(default)]
+    ownership_enforcement: String,
+}
+
+impl OwnershipGovernance {
+    /// Resolves ownership policy using the same preset precedence as published pm.
+    fn policy(&self) -> &str {
+        match self.preset.as_str() {
+            "minimal" => "none",
+            "strict" => "strict",
+            "custom" if !self.ownership_enforcement.is_empty() => &self.ownership_enforcement,
+            _ => "warn",
+        }
+    }
+
+    /// Resolves whether expired lock recovery needs an explicit force override.
+    fn stale_requires_force(&self) -> bool {
+        match self.preset.as_str() {
+            "minimal" => false,
+            "custom" => self.force_required_for_stale_lock.unwrap_or(true),
+            _ => true,
+        }
+    }
 }
 
 #[derive(Debug, Deserialize)]
 struct LockSettings {
+    #[serde(skip)]
+    use_created_at: bool,
     #[serde(default = "default_lock_ttl")]
     ttl_seconds: u64,
     #[serde(default)]
@@ -207,6 +298,7 @@ impl Default for LockSettings {
         Self {
             ttl_seconds: default_lock_ttl(),
             wait_ms: 0,
+            use_created_at: false,
         }
     }
 }
@@ -676,6 +768,7 @@ fn acquire_lock(
             locks.ttl_seconds,
             force_stale,
             timestamp,
+            locks.use_created_at,
         ) {
             Ok(lock) => return Ok(lock),
             Err(PmRustError::LockConflict { .. }) => {}
@@ -690,6 +783,7 @@ fn acquire_lock(
 
 /// Attempts one immediate lock acquisition, optionally reclaiming an expired
 /// unchanged owner.
+#[allow(clippy::too_many_arguments)]
 fn acquire_lock_attempt(
     pm_root: &Path,
     id: &str,
@@ -697,6 +791,7 @@ fn acquire_lock_attempt(
     ttl_seconds: u64,
     force_stale: bool,
     timestamp: &str,
+    use_created_at: bool,
 ) -> Result<ItemLock, PmRustError> {
     let locks = pm_root.join("locks");
     // `if let` instead of `.map_err(..)` avoids a per-instantiation closure
@@ -746,10 +841,14 @@ fn acquire_lock_attempt(
     let modified = fs::metadata(&path)
         .and_then(|metadata| metadata.modified())
         .unwrap_or(UNIX_EPOCH);
-    let stale = SystemTime::now()
-        .duration_since(modified)
-        .unwrap_or_default()
-        > Duration::from_secs(ttl_seconds);
+    let stale = if use_created_at {
+        ownership_lock_stale(&existing_raw, timestamp, ttl_seconds)
+    } else {
+        SystemTime::now()
+            .duration_since(modified)
+            .unwrap_or_default()
+            > Duration::from_secs(ttl_seconds)
+    };
     if !stale || !force_stale {
         return Err(PmRustError::LockConflict { id: id.to_owned() });
     }
@@ -1664,6 +1763,271 @@ pub(crate) fn close_item(
         &item_path,
         &history_path,
     )
+}
+
+/// Extracts canonical string ownership metadata without inventing defaults.
+fn ownership_text(document: &ItemDocument, field: &str) -> String {
+    match document.metadata.extra.get(field) {
+        Some(Value::String(value)) => value.clone(),
+        _ => String::new(),
+    }
+}
+
+/// Builds a typed published refusal with its structured guidance.
+fn ownership_refusal(detail: String, context: Value) -> PmRustError {
+    PmRustError::OwnershipRefusal { detail, context }
+}
+
+/// Describes assignment provenance from the last assignee patch in history.
+fn ownership_phrase(history_path: &Path, assignee: &str) -> Result<String, PmRustError> {
+    let raw = read_optional(history_path)?.unwrap_or_default();
+    for line in raw.lines().rev() {
+        let Ok(entry) = serde_json::from_str::<Value>(line) else {
+            continue;
+        };
+        if let Some(Value::Array(patches)) = entry.get("patch") {
+            for patch in patches {
+                if patch["path"] == "/metadata/assignee" {
+                    return Ok(format!(
+                        "{} {assignee}",
+                        if entry["op"] == "claim" {
+                            "claimed by"
+                        } else {
+                            "assigned to"
+                        }
+                    ));
+                }
+            }
+        }
+    }
+    Ok(format!("assigned to {assignee}"))
+}
+
+/// Uses the published lock payload clock, including malformed-lock expiry.
+fn ownership_lock_stale(raw: &str, timestamp: &str, ttl_seconds: u64) -> bool {
+    let entry: Value = serde_json::from_str(raw).unwrap_or(Value::Null);
+    let created = entry["created_at"].as_str().unwrap_or_default();
+    match OffsetDateTime::parse(created, &Rfc3339) {
+        Ok(created) => {
+            let now =
+                OffsetDateTime::parse(timestamp, &Rfc3339).unwrap_or(OffsetDateTime::UNIX_EPOCH);
+            now.unix_timestamp_nanos() - created.unix_timestamp_nanos()
+                > i128::from(ttl_seconds) * 1_000_000_000
+        }
+        Err(_) => true,
+    }
+}
+
+/// Converts exhausted ownership lock contention to the published conflict.
+fn ownership_lock_refusal(
+    pm_root: &Path,
+    request: &OwnershipItem,
+    settings: &MutationSettings,
+    timestamp: &str,
+    waited_ms: u128,
+) -> Result<PmRustError, PmRustError> {
+    let raw = read_optional(&pm_root.join("locks").join(format!("{}.lock", request.id)))?
+        .unwrap_or_default();
+    if ownership_lock_stale(&raw, timestamp, settings.locks.ttl_seconds) {
+        return Ok(ownership_refusal(
+            format!(
+                "Item {} lock is stale; rerun with --force when supported for this command",
+                request.id
+            ),
+            serde_json::json!({}),
+        ));
+    }
+    let value: Value = serde_json::from_str(&raw).unwrap_or(Value::Null);
+    let owner = value["owner"].as_str().unwrap_or_default();
+    let owner_suffix = if owner.is_empty() {
+        String::new()
+    } else {
+        format!(" (owner {owner})")
+    };
+    let waited = if waited_ms == 0 {
+        String::new()
+    } else {
+        format!(" after waiting {waited_ms}ms")
+    };
+    Ok(ownership_refusal(
+        format!("Item {} is locked{owner_suffix}{waited}", request.id),
+        serde_json::json!({"code":"lock_conflict","recovery":{"retry_after_ms":250}}),
+    ))
+}
+
+/// Executes an atomic ownership test-and-set or ownership release.
+#[allow(clippy::too_many_lines)]
+pub(crate) fn ownership_item(
+    pm_root: &Path,
+    request: &OwnershipItem,
+    claim: bool,
+) -> Result<OwnershipResult, PmRustError> {
+    let mut settings = read_settings(pm_root)?;
+    settings.locks.use_created_at = true;
+    let timestamp = validate_mutation_request(&request.author, request.timestamp.as_deref())?;
+    // A fixture clock must never age a live lock into stale-lock recovery.
+    if OffsetDateTime::parse(&timestamp, &Rfc3339)
+        .is_ok_and(|value| value > OffsetDateTime::now_utc())
+    {
+        return Err(invalid_mutation("timestamp must not be in the future"));
+    }
+    let operation = if claim { "claim" } else { "release" };
+    let lock_started = Instant::now();
+    let _lock = match acquire_lock(
+        pm_root,
+        &request.id,
+        &request.author,
+        &settings.locks,
+        request.force || !settings.governance.stale_requires_force(),
+        &timestamp,
+    ) {
+        Ok(lock) => lock,
+        Err(PmRustError::LockConflict { .. }) => {
+            return Err(ownership_lock_refusal(
+                pm_root,
+                request,
+                &settings,
+                &timestamp,
+                if settings.locks.wait_ms == 0 {
+                    0
+                } else {
+                    lock_started.elapsed().as_millis()
+                },
+            )?);
+        }
+        Err(error) => return Err(error),
+    };
+    let (item_path, history_path, before) = recover_and_locate(pm_root, operation, &request.id)?;
+    let assignee = ownership_text(&before, "assignee");
+    let principal = ownership_text(&before, "claim_principal");
+    let principal = if principal.trim().is_empty() {
+        assignee.as_str()
+    } else {
+        principal.trim()
+    };
+    let previous_assignee = if assignee.trim().is_empty() {
+        None
+    } else {
+        Some(assignee.clone())
+    };
+    let foreign = previous_assignee.is_some() && principal != request.author;
+    let mut document = before.clone();
+    let mut warnings = Vec::new();
+    let mut suggestions = Vec::new();
+    let mut skipped = None;
+    let mut changed = 0;
+    if claim {
+        if matches!(before.metadata.status.as_str(), "closed" | "canceled") && !request.force {
+            return Err(ownership_refusal(
+                format!("Cannot claim terminal item {} without --force", request.id),
+                serde_json::json!({}),
+            ));
+        }
+        if foreign {
+            if request.if_available {
+                skipped = Some(true);
+                warnings.push(format!("claim_skipped_held_by:{assignee}"));
+            } else if !request.force {
+                let phrase = ownership_phrase(&history_path, &assignee)?;
+                return Err(ownership_refusal(
+                    format!(
+                        "Item {} is already {phrase}. Use --force to take over, or --if-available to skip without failing.",
+                        request.id
+                    ),
+                    serde_json::json!({
+                        "code":"already_claimed_by",
+                        "why":"Claim is an atomic test-and-set so parallel agents never proceed believing they own the same item.",
+                        "next_steps":["Run pm next to pick a different unclaimed item.","Re-run with --if-available to treat a held item as a no-op skip.","Re-run with --force only when taking over the item is coordinated."]
+                    }),
+                ));
+            } else {
+                warnings.push(format!("claim_takeover:{assignee}->{}", request.author));
+            }
+        }
+        if skipped.is_none() {
+            for field in ["assignee", "claim_principal"] {
+                let value = Value::String(request.author.clone());
+                if document.metadata.extra.get(field) != Some(&value) {
+                    changed += 1;
+                }
+                document.metadata.extra.insert(field.to_owned(), value);
+            }
+        }
+    } else {
+        if foreign && !request.force && settings.governance.policy() == "strict" {
+            return Err(ownership_refusal(
+                format!(
+                    "Item {} is assigned to {}. Use --force to override.",
+                    request.id,
+                    assignee.trim()
+                ),
+                serde_json::json!({
+                    "code":"ownership_conflict",
+                    "required":"For approved non-owner handoffs, prefer the ownership-release bypass before considering --force.",
+                    "examples":["pm release pm-a1b2 --author \"reviewer\" --force"],
+                    "next_steps":["Use the package-provided ownership-release bypass for handoffs that only clear assignee metadata.","Use --force only when an explicit override is approved for broader ownership conflicts."]
+                }),
+            ));
+        }
+        if !assignee.is_empty() || !ownership_text(&document, "claim_principal").is_empty() {
+            changed = 2;
+            document.metadata.extra.remove("assignee");
+            document.metadata.extra.remove("claim_principal");
+        }
+        if document.metadata.status == "in_progress" {
+            warnings.push("released_unclaimed_in_progress".to_owned());
+            suggestions.push(format!("{} remains in_progress and unclaimed. If work is paused, run pm release {} --pause to move it to open.", request.id, request.id));
+        }
+    }
+    // Claim skips history on no-op; release deliberately records even an empty patch.
+    if !claim || changed > 0 {
+        document.metadata.updated_at.clone_from(&timestamp);
+        document = commit_mutation(
+            pm_root,
+            operation,
+            &before,
+            document,
+            &timestamp,
+            &request.author,
+            request.provenance_role.as_deref(),
+            request.message.as_deref(),
+            &item_path,
+            &history_path,
+        )?
+        .item;
+    }
+    let claimed_by = if claim {
+        Some(if skipped.is_some() {
+            assignee
+        } else {
+            request.author.clone()
+        })
+    } else {
+        None
+    };
+    let released_by = if claim {
+        None
+    } else {
+        Some(request.author.clone())
+    };
+    let close_reason = match document.metadata.extra.get("close_reason") {
+        Some(Value::String(reason)) => Some(reason.clone()),
+        _ => None,
+    };
+    Ok(OwnershipResult {
+        id: document.metadata.id.clone(),
+        status: document.metadata.status.clone(),
+        item: document,
+        close_reason,
+        changed_field_count: changed,
+        claimed_by,
+        released_by,
+        previous_assignee,
+        forced: request.force,
+        skipped,
+        warnings,
+        suggestions,
+    })
 }
 
 /// Expresses one durable path relative to the tracker root.

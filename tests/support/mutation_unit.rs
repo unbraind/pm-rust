@@ -55,6 +55,7 @@ type CompletedTransaction = (TempDir, PathBuf, String, String, MutationJournal);
 /// Builds lock settings without a wait budget for deterministic unit tests.
 const fn locks(ttl_seconds: u64) -> LockSettings {
     LockSettings {
+        use_created_at: false,
         ttl_seconds,
         wait_ms: 0,
     }
@@ -2307,6 +2308,7 @@ fn remaining_portable_mutation_arms_are_covered_in_the_unit_binary()
             "sample-unit",
             "challenger",
             &LockSettings {
+                use_created_at: false,
                 ttl_seconds: 1_800,
                 wait_ms: 40,
             },
@@ -2629,7 +2631,15 @@ fn an_unreadable_incumbent_lock_is_contention_rather_than_a_filesystem_error() {
     let Ok(()) = fs::set_permissions(&path, fs::Permissions::from_mode(0o000)) else {
         unreachable!("the fixture builds");
     };
-    let outcome = acquire_lock_attempt(&pm_root, "sample-held", "load-agent", 1800, false, TS);
+    let outcome = acquire_lock_attempt(
+        &pm_root,
+        "sample-held",
+        "load-agent",
+        1800,
+        false,
+        TS,
+        false,
+    );
     let Ok(()) = fs::set_permissions(&path, fs::Permissions::from_mode(0o600)) else {
         unreachable!("the fixture is restored so the directory can be removed");
     };
@@ -2673,7 +2683,15 @@ fn a_windows_exclusive_incumbent_lock_is_contention() -> Result<(), Box<dyn std:
         &std::io::Error::from_raw_os_error(34)
     ));
     assert_eq!(held.metadata()?.len(), 3);
-    let outcome = acquire_lock_attempt(&pm_root, "sample-held", "load-agent", 1800, false, TS);
+    let outcome = acquire_lock_attempt(
+        &pm_root,
+        "sample-held",
+        "load-agent",
+        1800,
+        false,
+        TS,
+        false,
+    );
     assert!(
         matches!(&outcome, Err(PmRustError::LockConflict { id }) if id == "sample-held"),
         "exclusive incumbent lock must remain contention: {:?}",
@@ -2682,7 +2700,15 @@ fn a_windows_exclusive_incumbent_lock_is_contention() -> Result<(), Box<dyn std:
     drop(held);
     assert_eq!(fs::read_to_string(&path)?, "{}\n");
     fs::remove_file(&path)?;
-    let acquired = acquire_lock_attempt(&pm_root, "sample-held", "load-agent", 1800, false, TS)?;
+    let acquired = acquire_lock_attempt(
+        &pm_root,
+        "sample-held",
+        "load-agent",
+        1800,
+        false,
+        TS,
+        false,
+    )?;
     drop(acquired);
     Ok(())
 }
@@ -2704,7 +2730,15 @@ fn a_lock_file_holding_invalid_utf8_is_a_fault_not_contention() {
     let Ok(()) = fs::write(locks.join("sample-corrupt.lock"), [0xff, 0xfe, 0x00]) else {
         unreachable!("the fixture builds");
     };
-    let outcome = acquire_lock_attempt(&pm_root, "sample-corrupt", "load-agent", 1800, false, TS);
+    let outcome = acquire_lock_attempt(
+        &pm_root,
+        "sample-corrupt",
+        "load-agent",
+        1800,
+        false,
+        TS,
+        false,
+    );
     let Err(error) = outcome else {
         unreachable!("a held lock cannot be acquired");
     };
@@ -2713,4 +2747,466 @@ fn a_lock_file_holding_invalid_utf8_is_a_fault_not_contention() {
         "a corrupt lock file keeps its own diagnostic, got {error:?}",
     );
     drop(directory);
+}
+
+/// Exercises the public SDK while retaining a real, freshly acquired lock guard.
+fn future_ownership_preserves_held_lock(
+    claim: bool,
+    force: bool,
+    governance: &str,
+) -> Result<(), Box<dyn std::error::Error>> {
+    let (_directory, pm_root) = root(&format!(
+        r#"{{"governance":{governance},"locks":{{"ttl_seconds":1800,"wait_ms":0}}}}"#
+    ))?;
+    create_item(&pm_root, request())?;
+    let workspace = crate::Workspace::discover(&pm_root)?;
+    let mut mutation = OwnershipItem {
+        id: "sample-unit".to_owned(),
+        author: "unit-agent".to_owned(),
+        timestamp: Some(TS.to_owned()),
+        message: None,
+        force,
+        if_available: false,
+        provenance_role: None,
+    };
+    if !claim {
+        workspace.claim(&mutation)?;
+    }
+    let lock_settings = LockSettings {
+        use_created_at: true,
+        ..locks(1800)
+    };
+    let held = acquire_lock(
+        workspace.pm_root(),
+        &mutation.id,
+        "live-holder",
+        &lock_settings,
+        false,
+        &now_iso(),
+    )?;
+    let paths = [
+        pm_root.join("tasks/sample-unit.toon"),
+        pm_root.join("history/sample-unit.jsonl"),
+        held.path.clone(),
+    ];
+    let before = [
+        Some(fs::read(&paths[0])?),
+        Some(fs::read(&paths[1])?),
+        Some(fs::read(&paths[2])?),
+    ];
+    mutation.timestamp = Some("9999-12-31T23:59:59.999999999Z".to_owned());
+    let result = if claim {
+        workspace.claim(&mutation)
+    } else {
+        workspace.release(&mutation)
+    };
+    // Inspect every durable artifact while the original guard is still alive.
+    // Reading the lock as an Option also exposes an illicit unlink as a mismatch.
+    let after = paths.each_ref().map(|path| fs::read(path).ok());
+    assert_eq!(after, before, "held-lock bytes changed: {result:?}");
+    assert!(matches!(
+        result,
+        Err(PmRustError::InvalidMutationRequest { reason })
+            if reason == "timestamp must not be in the future"
+    ));
+    mutation.timestamp = Some(TS.to_owned());
+    let blocked = if claim {
+        workspace.claim(&mutation)
+    } else {
+        workspace.release(&mutation)
+    };
+    let Err(PmRustError::OwnershipRefusal { detail, context }) = blocked else {
+        return Err("a historical clock must still respect the held lock".into());
+    };
+    assert_eq!(detail, "Item sample-unit is locked (owner live-holder)");
+    assert_eq!(context["code"], "lock_conflict");
+    assert_eq!(paths.each_ref().map(|path| fs::read(path).ok()), before);
+    drop(held);
+    assert!(
+        !paths[2].exists(),
+        "the original guard must retain its token"
+    );
+    let historical = if claim {
+        workspace.claim(&mutation)?
+    } else {
+        workspace.release(&mutation)?
+    };
+    assert_eq!(historical.changed_field_count, 2);
+    assert_eq!(historical.item.metadata.updated_at, TS);
+    assert!(!paths[2].exists());
+    Ok(())
+}
+
+#[test]
+fn future_ownership_force_claim_preserves_held_lock() -> Result<(), Box<dyn std::error::Error>> {
+    future_ownership_preserves_held_lock(true, true, r#"{"preset":"strict"}"#)
+}
+
+#[test]
+fn future_ownership_force_release_preserves_held_lock() -> Result<(), Box<dyn std::error::Error>> {
+    future_ownership_preserves_held_lock(false, true, r#"{"preset":"strict"}"#)
+}
+
+#[test]
+fn future_ownership_minimal_claim_preserves_held_lock() -> Result<(), Box<dyn std::error::Error>> {
+    future_ownership_preserves_held_lock(true, false, r#"{"preset":"minimal"}"#)
+}
+
+#[test]
+fn future_ownership_minimal_release_preserves_held_lock() -> Result<(), Box<dyn std::error::Error>>
+{
+    future_ownership_preserves_held_lock(false, false, r#"{"preset":"minimal"}"#)
+}
+
+#[test]
+fn future_ownership_custom_claim_preserves_held_lock() -> Result<(), Box<dyn std::error::Error>> {
+    future_ownership_preserves_held_lock(
+        true,
+        false,
+        r#"{"preset":"custom","force_required_for_stale_lock":false}"#,
+    )
+}
+
+#[test]
+fn future_ownership_custom_release_preserves_held_lock() -> Result<(), Box<dyn std::error::Error>> {
+    future_ownership_preserves_held_lock(
+        false,
+        false,
+        r#"{"preset":"custom","force_required_for_stale_lock":false}"#,
+    )
+}
+
+#[test]
+fn ownership_provenance_and_legacy_metadata_are_preserved() -> Result<(), Box<dyn std::error::Error>>
+{
+    let (_directory, pm_root) = root(&settings("sample-", "toon", 1800))?;
+    let mut document = create_item(&pm_root, request())?.item;
+    let history_path = pm_root.join("history/sample-unit.jsonl");
+    let item_path = pm_root.join("tasks/sample-unit.toon");
+    let mutation = OwnershipItem {
+        id: "sample-unit".to_owned(),
+        author: "unit-agent".to_owned(),
+        timestamp: Some(TS.to_owned()),
+        message: None,
+        force: false,
+        if_available: false,
+        provenance_role: None,
+    };
+    assert_eq!(
+        ownership_phrase(&history_path, "other")?,
+        "assigned to other"
+    );
+    for (raw, expected) in [
+        (
+            "invalid\n{}\n{\"patch\":[{\"path\":\"/metadata/title\"}]}\n",
+            "assigned to other",
+        ),
+        (
+            "{\"op\":\"update\",\"patch\":[{\"path\":\"/metadata/assignee\"}]}\n",
+            "assigned to other",
+        ),
+        (
+            "{\"op\":\"claim\",\"patch\":[{\"path\":\"/metadata/assignee\"}]}\n",
+            "claimed by other",
+        ),
+    ] {
+        fs::write(&history_path, raw)?;
+        assert_eq!(ownership_phrase(&history_path, "other")?, expected);
+    }
+    fs::remove_file(&history_path)?;
+    assert_eq!(
+        ownership_phrase(&history_path, "other")?,
+        "assigned to other"
+    );
+    fs::create_dir(&history_path)?;
+    assert!(ownership_phrase(&history_path, "other").is_err());
+    fs::remove_dir(&history_path)?;
+    // A legacy assignment lacks claim_principal. Reclaim adds only that field.
+    document
+        .metadata
+        .extra
+        .insert("assignee".to_owned(), serde_json::json!("unit-agent"));
+    document
+        .metadata
+        .extra
+        .insert("claim_principal".to_owned(), Value::Null);
+    assert_eq!(ownership_text(&document, "claim_principal"), "");
+    fs::write(&item_path, canonical_item_bytes(&document)?)?;
+    let result = ownership_item(&pm_root, &mutation, true)?;
+    assert_eq!(result.changed_field_count, 1);
+    // Principal-only legacy records must also be cleared by release.
+    document.metadata.extra.remove("assignee");
+    document.metadata.extra.insert(
+        "claim_principal".to_owned(),
+        serde_json::json!("unit-agent#instance"),
+    );
+    fs::write(&item_path, canonical_item_bytes(&document)?)?;
+    let result = ownership_item(&pm_root, &mutation, false)?;
+    assert_eq!(result.changed_field_count, 2);
+    assert!(!result.item.metadata.extra.contains_key("claim_principal"));
+    Ok(())
+}
+
+#[test]
+fn ownership_preset_precedence_and_lock_payload_clock() -> Result<(), Box<dyn std::error::Error>> {
+    for (preset, policy, force) in [
+        ("minimal", "none", false),
+        ("strict", "strict", true),
+        ("default", "warn", true),
+        ("custom", "strict", false),
+    ] {
+        let governance = OwnershipGovernance {
+            preset: preset.to_owned(),
+            ownership_enforcement: "strict".to_owned(),
+            force_required_for_stale_lock: Some(false),
+        };
+        assert_eq!(governance.policy(), policy);
+        assert_eq!(governance.stale_requires_force(), force);
+    }
+    let governance = OwnershipGovernance {
+        preset: "custom".to_owned(),
+        ..OwnershipGovernance::default()
+    };
+    assert_eq!(governance.policy(), "warn");
+    assert!(governance.stale_requires_force());
+    assert!(ownership_lock_stale("invalid", TS, 1800));
+    assert!(ownership_lock_stale("{}", TS, 1800));
+    assert!(ownership_lock_stale(
+        r#"{"created_at":"2000-01-01T00:00:00Z"}"#,
+        TS,
+        1800
+    ));
+    assert!(!ownership_lock_stale(
+        &format!(r#"{{"created_at":"{TS}"}}"#),
+        TS,
+        1800
+    ));
+    assert!(!ownership_lock_stale(
+        &format!(r#"{{"created_at":"{TS}"}}"#),
+        "invalid",
+        1800
+    ));
+    let (_directory, pm_root) = root(&settings("sample-", "toon", 1800))?;
+    let request = OwnershipItem {
+        id: "sample-unit".to_owned(),
+        author: "unit-agent".to_owned(),
+        timestamp: Some(TS.to_owned()),
+        message: None,
+        force: false,
+        if_available: false,
+        provenance_role: None,
+    };
+    let mut settings: MutationSettings = read_settings(&pm_root)?;
+    assert!(matches!(
+        ownership_lock_refusal(&pm_root, &request, &settings, TS, 0)?,
+        PmRustError::OwnershipRefusal { .. }
+    ));
+    fs::create_dir_all(pm_root.join("locks"))?;
+    fs::write(
+        pm_root.join("locks/sample-unit.lock"),
+        format!(r#"{{"created_at":"{TS}"}}"#),
+    )?;
+    settings.locks.wait_ms = 25;
+    let error = ownership_lock_refusal(&pm_root, &request, &settings, TS, 25)?;
+    assert!(error.to_string().contains("after waiting 25ms"));
+    fs::write(
+        pm_root.join("locks/sample-unit.lock"),
+        format!(r#"{{"created_at":"{TS}","owner":"unit-holder"}}"#),
+    )?;
+    let error = ownership_lock_refusal(&pm_root, &request, &settings, TS, 0)?;
+    assert!(error.to_string().contains("(owner unit-holder)"));
+
+    Ok(())
+}
+
+#[test]
+/// Structural lock faults and Windows diagnostic read refusals preserve state.
+fn ownership_lock_filesystem_faults_remain_faults() -> Result<(), Box<dyn std::error::Error>> {
+    let (_directory, pm_root) = root(&settings("sample-", "toon", 1800))?;
+    create_item(&pm_root, request())?;
+    fs::create_dir(pm_root.join("locks/sample-unit.lock"))?;
+    let request = OwnershipItem {
+        id: "sample-unit".to_owned(),
+        author: "unit-agent".to_owned(),
+        timestamp: Some(TS.to_owned()),
+        message: None,
+        force: false,
+        if_available: false,
+        provenance_role: None,
+    };
+    assert!(matches!(
+        ownership_item(&pm_root, &request, true),
+        Err(PmRustError::Io { .. })
+    ));
+    #[cfg(windows)]
+    {
+        use std::os::windows::fs::OpenOptionsExt;
+        let lock = pm_root.join("locks/sample-unit.lock");
+        fs::remove_dir(&lock)?;
+        fs::write(&lock, "{}")?;
+        let item = pm_root.join("tasks/sample-unit.toon");
+        let history = pm_root.join("history/sample-unit.jsonl");
+        let before_item = fs::read(&item)?;
+        let before_history = fs::read(&history)?;
+        let held = OpenOptions::new().read(true).share_mode(0).open(&lock)?;
+        let result = ownership_item(&pm_root, &request, true);
+        drop(held);
+        assert!(matches!(
+            result,
+            Err(PmRustError::Io { path, source })
+                if path == lock && source.raw_os_error() == Some(32)
+        ));
+        assert_eq!(fs::read(&item)?, before_item);
+        assert_eq!(fs::read(&history)?, before_history);
+        fs::remove_file(lock)?;
+        assert_eq!(
+            ownership_item(&pm_root, &request, true)?.changed_field_count,
+            2
+        );
+        assert_eq!(fs::read_to_string(history)?.lines().count(), 2);
+    }
+    Ok(())
+}
+
+#[test]
+#[allow(clippy::too_many_lines)]
+fn ownership_refusals_and_interrupted_history_append_remain_recoverable()
+-> Result<(), Box<dyn std::error::Error>> {
+    let (_directory, pm_root) = root(
+        r#"{"governance":{"preset":"custom","ownership_enforcement":"strict"},"locks":{"wait_ms":0}}"#,
+    )?;
+    create_item(&pm_root, request())?;
+    let mut mutation = OwnershipItem {
+        id: "sample-unit".to_owned(),
+        author: "unit-agent".to_owned(),
+        timestamp: Some(TS.to_owned()),
+        message: None,
+        force: false,
+        if_available: false,
+        provenance_role: None,
+    };
+    let settings_path = pm_root.join("settings.json");
+    let settings_bytes = fs::read(&settings_path)?;
+    fs::write(&settings_path, "invalid")?;
+    assert!(ownership_item(&pm_root, &mutation, true).is_err());
+    fs::write(&settings_path, settings_bytes)?;
+    mutation.author = " ".to_owned();
+    assert!(ownership_item(&pm_root, &mutation, true).is_err());
+    mutation.author = "unit-agent".to_owned();
+    mutation.id = "sample-missing".to_owned();
+    assert!(ownership_item(&pm_root, &mutation, true).is_err());
+    mutation.id = "sample-unit".to_owned();
+    let lock_path = pm_root.join("locks/sample-unit.lock");
+    for clock in [TS, "2000-01-01T00:00:00Z"] {
+        fs::write(&lock_path, format!(r#"{{"created_at":"{clock}"}}"#))?;
+        assert!(matches!(
+            ownership_item(&pm_root, &mutation, true),
+            Err(PmRustError::OwnershipRefusal { .. })
+        ));
+    }
+
+    let mut timed_settings: Value = serde_json::from_slice(&fs::read(&settings_path)?)?;
+    timed_settings["locks"]["wait_ms"] = serde_json::json!(25);
+    fs::write(&settings_path, serde_json::to_vec(&timed_settings)?)?;
+    fs::write(&lock_path, format!(r#"{{"created_at":"{TS}"}}"#))?;
+    let error = ownership_item(&pm_root, &mutation, true);
+    assert!(
+        matches!(error, Err(PmRustError::OwnershipRefusal { detail, .. }) if detail.contains("after waiting"))
+    );
+    timed_settings["locks"]["wait_ms"] = serde_json::json!(0);
+    fs::write(&settings_path, serde_json::to_vec(&timed_settings)?)?;
+    fs::write(&lock_path, r#"{"created_at":"2000-01-01T00:00:00Z"}"#)?;
+    mutation.force = true;
+    ownership_item(&pm_root, &mutation, true)?;
+    mutation.force = false;
+    mutation.author = "other-agent".to_owned();
+    mutation.if_available = true;
+    assert_eq!(
+        ownership_item(&pm_root, &mutation, true)?
+            .claimed_by
+            .as_deref(),
+        Some("unit-agent")
+    );
+    mutation.if_available = false;
+    let history_path = pm_root.join("history/sample-unit.jsonl");
+    let history_backup = pm_root.join("history-backup.jsonl");
+    fs::rename(&history_path, &history_backup)?;
+    fs::create_dir(&history_path)?;
+    assert!(matches!(
+        ownership_item(&pm_root, &mutation, true),
+        Err(PmRustError::Io { .. })
+    ));
+    mutation.author = "unit-agent".to_owned();
+    assert!(matches!(
+        ownership_item(&pm_root, &mutation, false),
+        Err(PmRustError::Io { .. })
+    ));
+    let journal = pm_root.join("runtime/transactions/release-sample-unit.json");
+    assert!(journal.exists());
+    fs::remove_dir(&history_path)?;
+    fs::rename(&history_backup, &history_path)?;
+    ownership_item(&pm_root, &mutation, false)?;
+    assert!(!journal.exists());
+    assert_eq!(fs::read_to_string(history_path)?.lines().count(), 4);
+    ownership_item(&pm_root, &mutation, true)?;
+    assert_eq!(
+        ownership_item(&pm_root, &mutation, true)?.changed_field_count,
+        0
+    );
+    mutation.author = "other-agent".to_owned();
+    assert!(matches!(
+        ownership_item(&pm_root, &mutation, true),
+        Err(PmRustError::OwnershipRefusal { .. })
+    ));
+    mutation.force = true;
+    assert_eq!(
+        ownership_item(&pm_root, &mutation, true)?.warnings,
+        ["claim_takeover:unit-agent->other-agent"]
+    );
+    mutation.author = "unit-agent".to_owned();
+    mutation.force = false;
+    assert!(matches!(
+        ownership_item(&pm_root, &mutation, false),
+        Err(PmRustError::OwnershipRefusal { .. })
+    ));
+
+    timed_settings["governance"]["ownership_enforcement"] = serde_json::json!("warn");
+    fs::write(&settings_path, serde_json::to_vec(&timed_settings)?)?;
+    assert_eq!(
+        ownership_item(&pm_root, &mutation, false)?.changed_field_count,
+        2
+    );
+    timed_settings["governance"]["ownership_enforcement"] = serde_json::json!("strict");
+    fs::write(&settings_path, serde_json::to_vec(&timed_settings)?)?;
+    mutation.force = true;
+    ownership_item(&pm_root, &mutation, false)?;
+    let item_path = pm_root.join("tasks/sample-unit.toon");
+    let mut document = decode_item(&item_path, &fs::read_to_string(&item_path)?)?;
+    document.metadata.status = "in_progress".to_owned();
+    document.metadata.extra.insert(
+        "close_reason".to_owned(),
+        serde_json::json!("fixture evidence"),
+    );
+    fs::write(&item_path, canonical_item_bytes(&document)?)?;
+    mutation.force = false;
+    assert_eq!(
+        ownership_item(&pm_root, &mutation, true)?
+            .close_reason
+            .as_deref(),
+        Some("fixture evidence")
+    );
+    assert_eq!(
+        ownership_item(&pm_root, &mutation, false)?.warnings,
+        ["released_unclaimed_in_progress"]
+    );
+    document.metadata.status = "closed".to_owned();
+    fs::write(&item_path, canonical_item_bytes(&document)?)?;
+    assert!(matches!(
+        ownership_item(&pm_root, &mutation, true),
+        Err(PmRustError::OwnershipRefusal { .. })
+    ));
+    mutation.force = true;
+    ownership_item(&pm_root, &mutation, true)?;
+
+    Ok(())
 }

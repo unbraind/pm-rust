@@ -1479,3 +1479,258 @@ fn a_replayed_journal_forces_the_item_to_be_read_again() -> Result<(), Box<dyn s
     );
     Ok(())
 }
+
+#[test]
+/// SDK and CLI reject future clocks even without contention; ordinary clocks work.
+fn future_ownership_timestamps_refuse_for_sdk_and_cli() -> Result<(), Box<dyn std::error::Error>> {
+    use pm_rust::OwnershipItem;
+    let (directory, workspace) = tracker()?;
+    workspace.create(create_request())?;
+    let timestamp = (time::OffsetDateTime::now_utc() + time::Duration::hours(1))
+        .format(&time::format_description::well_known::Rfc3339)?;
+    let mut request = OwnershipItem {
+        id: "sample-conv".to_owned(),
+        author: "fixture-agent".to_owned(),
+        timestamp: Some(timestamp.clone()),
+        message: None,
+        force: false,
+        if_available: false,
+        provenance_role: None,
+    };
+    let before_item = item(directory.path());
+    let before_history = history(directory.path());
+    for force in [false, true] {
+        request.force = force;
+        for operation in ["claim", "release"] {
+            let result = if operation == "claim" {
+                workspace.claim(&request)
+            } else {
+                workspace.release(&request)
+            };
+            assert!(matches!(
+                result,
+                Err(PmRustError::InvalidMutationRequest { reason })
+                    if reason == "timestamp must not be in the future"
+            ));
+            let mut cli = Command::cargo_bin("pm-rust")?;
+            cli.current_dir(directory.path()).args([
+                operation,
+                "sample-conv",
+                "--author=fixture-agent",
+                "--json",
+                &format!("--timestamp={timestamp}"),
+            ]);
+            if force {
+                cli.arg("--force");
+            }
+            cli.assert().failure().stderr(contains(
+                "invalid mutation request: timestamp must not be in the future",
+            ));
+            assert_eq!(item(directory.path()), before_item);
+            assert_eq!(history(directory.path()), before_history);
+            assert!(!workspace.pm_root().join("locks/sample-conv.lock").exists());
+        }
+    }
+    request.timestamp = Some(TIMESTAMP.to_owned());
+    assert_eq!(
+        workspace.claim(&request)?.item.metadata.updated_at,
+        TIMESTAMP
+    );
+    request.timestamp = None;
+    let release = workspace.release(&request)?;
+    assert_eq!(release.changed_field_count, 2);
+    pm_rust::validate_timestamp(&release.item.metadata.updated_at)?;
+    Ok(())
+}
+
+#[test]
+fn ownership_errors_and_journal_recovery_reach_real_consumers()
+-> Result<(), Box<dyn std::error::Error>> {
+    use pm_rust::OwnershipItem;
+    let (directory, workspace) = tracker()?;
+    workspace.create(create_request())?;
+    let mut request = OwnershipItem {
+        id: "sample-conv".to_owned(),
+        author: "fixture-agent".to_owned(),
+        timestamp: Some(TIMESTAMP.to_owned()),
+        message: None,
+        force: false,
+        if_available: false,
+        provenance_role: None,
+    };
+    let root = directory.path().join(".agents/pm");
+    let settings = root.join("settings.json");
+    let settings_bytes = fs::read(&settings)?;
+    fs::write(&settings, "invalid")?;
+    assert!(workspace.claim(&request).is_err());
+    fs::write(settings, settings_bytes)?;
+    request.author = " ".to_owned();
+    assert!(workspace.claim(&request).is_err());
+    request.author = "fixture-agent".to_owned();
+    request.id = "sample-missing".to_owned();
+    assert!(workspace.claim(&request).is_err());
+    request.id = "sample-conv".to_owned();
+    // Structural lock faults propagate as IO failures rather than as a held owner.
+    let lock = root.join("locks/sample-conv.lock");
+    fs::create_dir(&lock)?;
+    assert!(matches!(
+        workspace.claim(&request),
+        Err(PmRustError::Io { .. })
+    ));
+    fs::remove_dir(lock)?;
+    workspace.claim(&request)?;
+    let history = root.join("history/sample-conv.jsonl");
+    let backup = root.join("history-backup.jsonl");
+    fs::rename(&history, &backup)?;
+    fs::create_dir(&history)?;
+    request.author = "other-agent".to_owned();
+    assert!(matches!(
+        workspace.claim(&request),
+        Err(PmRustError::Io { .. })
+    ));
+    request.author = "fixture-agent".to_owned();
+    assert!(matches!(
+        workspace.release(&request),
+        Err(PmRustError::Io { .. })
+    ));
+    let journal = root.join("runtime/transactions/release-sample-conv.json");
+    assert!(journal.exists());
+    fs::remove_dir(&history)?;
+    fs::rename(backup, &history)?;
+    workspace.release(&request)?;
+    assert!(!journal.exists());
+    assert_eq!(fs::read_to_string(history)?.lines().count(), 4);
+    Ok(())
+}
+
+#[cfg(any(unix, windows))]
+#[test]
+/// Diagnostic read errors propagate without committing an ownership mutation.
+fn unreadable_ownership_locks_propagate_diagnostic_io_errors()
+-> Result<(), Box<dyn std::error::Error>> {
+    use pm_rust::OwnershipItem;
+    #[cfg(unix)]
+    use std::os::unix::fs::PermissionsExt;
+    #[cfg(windows)]
+    use std::os::windows::fs::OpenOptionsExt;
+    let (directory, workspace) = tracker()?;
+    workspace.create(create_request())?;
+    let settings_path = directory.path().join(".agents/pm/settings.json");
+    let mut settings: serde_json::Value = serde_json::from_slice(&fs::read(&settings_path)?)?;
+    settings["locks"]["wait_ms"] = serde_json::json!(0);
+    fs::write(settings_path, serde_json::to_vec(&settings)?)?;
+    // Match the SDK's canonical storage spelling, including Windows prefixes.
+    let lock = workspace.pm_root().join("locks/sample-conv.lock");
+    fs::write(&lock, "{}")?;
+    #[cfg(unix)]
+    fs::set_permissions(&lock, fs::Permissions::from_mode(0o000))?;
+    #[cfg(windows)]
+    let held = fs::OpenOptions::new()
+        .read(true)
+        .share_mode(0)
+        .open(&lock)?;
+    let before_item = item(directory.path());
+    let before_history = history(directory.path());
+    let request = OwnershipItem {
+        id: "sample-conv".to_owned(),
+        author: "fixture-agent".to_owned(),
+        timestamp: Some(TIMESTAMP.to_owned()),
+        message: None,
+        force: false,
+        if_available: false,
+        provenance_role: None,
+    };
+    let result = workspace.claim(&request);
+    #[cfg(unix)]
+    fs::set_permissions(&lock, fs::Permissions::from_mode(0o600))?;
+    #[cfg(windows)]
+    drop(held);
+    #[cfg(windows)]
+    assert!(matches!(
+        &result,
+        Err(PmRustError::Io { path, source })
+            if *path == lock && source.raw_os_error() == Some(32)
+    ));
+    assert!(matches!(result, Err(PmRustError::Io { .. })));
+    assert_eq!(item(directory.path()), before_item);
+    assert_eq!(history(directory.path()), before_history);
+    fs::remove_file(lock)?;
+    assert_eq!(workspace.claim(&request)?.changed_field_count, 2);
+    Ok(())
+}
+
+#[test]
+fn bounded_ownership_lock_wait_preserves_ownerless_diagnostics_and_bytes()
+-> Result<(), Box<dyn std::error::Error>> {
+    use pm_rust::OwnershipItem;
+    let (directory, workspace) = tracker()?;
+    workspace.create(create_request())?;
+    let root = directory.path().join(".agents/pm");
+    let settings_path = root.join("settings.json");
+    let mut settings: serde_json::Value = serde_json::from_slice(&fs::read(&settings_path)?)?;
+    settings["locks"]["wait_ms"] = serde_json::json!(25);
+    fs::write(settings_path, serde_json::to_vec(&settings)?)?;
+    fs::write(
+        root.join("locks/sample-conv.lock"),
+        serde_json::to_vec(&serde_json::json!({"created_at":TIMESTAMP}))?,
+    )?;
+    let request = OwnershipItem {
+        id: "sample-conv".to_owned(),
+        author: "fixture-agent".to_owned(),
+        timestamp: Some(TIMESTAMP.to_owned()),
+        message: None,
+        force: false,
+        if_available: false,
+        provenance_role: None,
+    };
+    let before_item = item(directory.path());
+    let before_history = history(directory.path());
+    let started = std::time::Instant::now();
+    let result = workspace.claim(&request);
+    assert!(started.elapsed() >= std::time::Duration::from_millis(25));
+    let Err(PmRustError::OwnershipRefusal { detail, context }) = result else {
+        return Err("held ownership lock must refuse".into());
+    };
+    assert!(detail.starts_with("Item sample-conv is locked after waiting "));
+    assert!(!detail.contains("owner"));
+    assert_eq!(context["code"], "lock_conflict");
+    assert_eq!(item(directory.path()), before_item);
+    assert_eq!(history(directory.path()), before_history);
+    Ok(())
+}
+
+#[test]
+fn ownership_release_clears_a_principal_only_legacy_document()
+-> Result<(), Box<dyn std::error::Error>> {
+    use pm_rust::OwnershipItem;
+    let (directory, workspace) = tracker()?;
+    workspace.create(create_request())?;
+    let mut legacy = workspace.get("sample-conv")?;
+    legacy.metadata.extra.insert(
+        "claim_principal".to_owned(),
+        serde_json::json!("legacy-agent#instance"),
+    );
+    let path = directory.path().join(".agents/pm/tasks/sample-conv.toon");
+    fs::write(path, toon_format::encode_default(&legacy)?)?;
+    let request = OwnershipItem {
+        id: "sample-conv".to_owned(),
+        author: "fixture-agent".to_owned(),
+        timestamp: Some(TIMESTAMP.to_owned()),
+        message: None,
+        force: false,
+        if_available: false,
+        provenance_role: None,
+    };
+    let released = workspace.release(&request)?;
+    assert_eq!(released.changed_field_count, 2);
+    assert!(released.previous_assignee.is_none());
+    assert!(!released.item.metadata.extra.contains_key("claim_principal"));
+    assert!(
+        !workspace
+            .get("sample-conv")?
+            .metadata
+            .extra
+            .contains_key("claim_principal")
+    );
+    Ok(())
+}
