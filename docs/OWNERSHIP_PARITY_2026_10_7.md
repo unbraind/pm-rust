@@ -85,3 +85,47 @@ automatically detected author/session principals, extension ownership bypass,
 semantic attribution state, hooks, custom lifecycle registries, and workflow
 policies. Those are tracked by [pm-rust-rysu](../.agents/pm/features/pm-rust-rysu.toon); passing this slice does not claim
 whole-CLI parity or authorize a package release.
+
+## Windows diagnostic-read regression (2026-10-10)
+
+At candidate `ea29da3aa8265b597595f0ed9a3c95be08da0dbb`, the Windows aggregate
+in [run 37709763894](https://github.com/unbraind/pm-rust/actions/runs/37709763894)
+passed the tests but covered only 3,362/3,363 lines and 5,085/5,087 regions.
+Functions (290/290) and branches (696/696) were complete. The missing regions
+were the diagnostic read error in `ownership_lock_refusal` and its propagation
+through `ownership_item`; acquisition's non-contention error was already covered.
+
+The Unix permission fixture could not exercise that chain on Windows. The
+unit fixture and the SDK consumer regression now hold a real Windows file
+handle with `share_mode(0)`. With lock waiting disabled, acquisition reaches
+the conflict diagnostic, whose read fails with sharing violation (OS error 32).
+Both layers assert that the original I/O error and lock path survive, item and
+history bytes stay unchanged, and claiming succeeds after releasing the handle
+and removing the fixture lock. This correction changes tests and documentation
+only; production ownership code and the **2026.10.7** oracle remain unchanged.
+
+The diagnostic regression also strengthens the Unix fixture with durable-byte
+and retry assertions. Its fail-on-revert proof temporarily swallows the native
+diagnostic read error: the unchanged consumer test must compile and fail at
+runtime because a conflict refusal replaces the original I/O error. Production
+source is restored before verification and commit. Windows execution and exact
+coverage are established by the candidate's native Windows aggregate, rather
+than inferred from the cross-compilation check.
+
+The independent [toon-format repair, PR #72](https://github.com/unbraind/pm-rust/pull/72)
+upgrades the codec and oracle to 2026.10.9. These candidates are deliberately
+verified separately. Package context links to the companion tracker for session
+`pm-cli-website-session-2026-10-10` through its
+[published tracker directory](https://github.com/unbraind/pm-cli-companion/tree/main/.agents/pm);
+the supplied session has no verified item link on companion main.
+
+Correction verification passed through the feature's linked PM tests: the
+diagnostic consumer regression, all four required claim/release differentials,
+Windows GNU all-target/all-feature check and strict Clippy, and both ordinary
+and isolated-HOME `just release-check` runs. Each aggregate ran 219 ordinary
+and 219 instrumented tests and covered all 3,367 lines, 5,090 regions, 290
+functions and 696 branches at 100%. Formatting, private-item rustdoc, dependency
+audit and regenerated changelog verification also passed. The error-swallowing
+revert compiled and failed the diagnostic regression at runtime (exit 101);
+restored source passed. Native Windows coverage remains a separate CI receipt
+for this append-only correction, not a claim made from these Linux results.

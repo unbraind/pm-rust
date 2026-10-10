@@ -1540,12 +1540,16 @@ fn ownership_errors_and_journal_recovery_reach_real_consumers()
     Ok(())
 }
 
-#[cfg(unix)]
+#[cfg(any(unix, windows))]
 #[test]
+/// Diagnostic read errors propagate without committing an ownership mutation.
 fn unreadable_ownership_locks_propagate_diagnostic_io_errors()
 -> Result<(), Box<dyn std::error::Error>> {
     use pm_rust::OwnershipItem;
+    #[cfg(unix)]
     use std::os::unix::fs::PermissionsExt;
+    #[cfg(windows)]
+    use std::os::windows::fs::OpenOptionsExt;
     let (directory, workspace) = tracker()?;
     workspace.create(create_request())?;
     let settings_path = directory.path().join(".agents/pm/settings.json");
@@ -1554,7 +1558,15 @@ fn unreadable_ownership_locks_propagate_diagnostic_io_errors()
     fs::write(settings_path, serde_json::to_vec(&settings)?)?;
     let lock = directory.path().join(".agents/pm/locks/sample-conv.lock");
     fs::write(&lock, "{}")?;
+    #[cfg(unix)]
     fs::set_permissions(&lock, fs::Permissions::from_mode(0o000))?;
+    #[cfg(windows)]
+    let held = fs::OpenOptions::new()
+        .read(true)
+        .share_mode(0)
+        .open(&lock)?;
+    let before_item = item(directory.path());
+    let before_history = history(directory.path());
     let request = OwnershipItem {
         id: "sample-conv".to_owned(),
         author: "fixture-agent".to_owned(),
@@ -1565,8 +1577,21 @@ fn unreadable_ownership_locks_propagate_diagnostic_io_errors()
         provenance_role: None,
     };
     let result = workspace.claim(&request);
-    fs::set_permissions(lock, fs::Permissions::from_mode(0o600))?;
+    #[cfg(unix)]
+    fs::set_permissions(&lock, fs::Permissions::from_mode(0o600))?;
+    #[cfg(windows)]
+    drop(held);
+    #[cfg(windows)]
+    assert!(matches!(
+        &result,
+        Err(PmRustError::Io { path, source })
+            if *path == lock && source.raw_os_error() == Some(32)
+    ));
     assert!(matches!(result, Err(PmRustError::Io { .. })));
+    assert_eq!(item(directory.path()), before_item);
+    assert_eq!(history(directory.path()), before_history);
+    fs::remove_file(lock)?;
+    assert_eq!(workspace.claim(&request)?.changed_field_count, 2);
     Ok(())
 }
 

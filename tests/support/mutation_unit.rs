@@ -2893,6 +2893,7 @@ fn ownership_preset_precedence_and_lock_payload_clock() -> Result<(), Box<dyn st
 }
 
 #[test]
+/// Structural lock faults and Windows diagnostic read refusals preserve state.
 fn ownership_lock_filesystem_faults_remain_faults() -> Result<(), Box<dyn std::error::Error>> {
     let (_directory, pm_root) = root(&settings("sample-", "toon", 1800))?;
     create_item(&pm_root, request())?;
@@ -2910,6 +2911,33 @@ fn ownership_lock_filesystem_faults_remain_faults() -> Result<(), Box<dyn std::e
         ownership_item(&pm_root, &request, true),
         Err(PmRustError::Io { .. })
     ));
+    #[cfg(windows)]
+    {
+        use std::os::windows::fs::OpenOptionsExt;
+        let lock = pm_root.join("locks/sample-unit.lock");
+        fs::remove_dir(&lock)?;
+        fs::write(&lock, "{}")?;
+        let item = pm_root.join("tasks/sample-unit.toon");
+        let history = pm_root.join("history/sample-unit.jsonl");
+        let before_item = fs::read(&item)?;
+        let before_history = fs::read(&history)?;
+        let held = OpenOptions::new().read(true).share_mode(0).open(&lock)?;
+        let result = ownership_item(&pm_root, &request, true);
+        drop(held);
+        assert!(matches!(
+            result,
+            Err(PmRustError::Io { path, source })
+                if path == lock && source.raw_os_error() == Some(32)
+        ));
+        assert_eq!(fs::read(&item)?, before_item);
+        assert_eq!(fs::read(&history)?, before_history);
+        fs::remove_file(lock)?;
+        assert_eq!(
+            ownership_item(&pm_root, &request, true)?.changed_field_count,
+            2
+        );
+        assert_eq!(fs::read_to_string(history)?.lines().count(), 2);
+    }
     Ok(())
 }
 
