@@ -1,0 +1,52 @@
+id: pm-rust-guou
+title: Preserve canonical numeric-string quoting with toon-format 0.6.1
+description: "Dependency PR #70 fails all six Rust gates because strict decoding no longer accepts lenient numeric spellings. Inspect the installed crate API, preserve published TOON scalar semantics, add differential and revert-proof regressions, and certify the latest compatible locked oracle."
+type: Issue
+status: in_progress
+priority: 1
+tags[3]: codec,compatibility,rust
+created_at: "2026-10-10T02:42:35.026Z"
+updated_at: "2026-10-10T03:22:45.142Z"
+author: codex-sol
+acceptance_criteria: Canonical scalar item/history bytes match the locked published CLI; malformed strict reads remain refused; unchanged Rust release and 100 percent coverage gates pass.
+parent: pm-rust-u4al
+comments[10]{created_at,author,text}:
+  "2026-10-10T02:43:03.387Z",codex-sol,"Oriented against the complete package item snapshot and fetched origin/main bcb565d. PR #70 head 67ffa1bc fails at the quoted 0. tabular scalar assertion, rather than compilation. Use the installed 0.6.1 API for the quote-safety probe while keeping document reads strict. Certify published latest 2026.10.9 without changing golden semantics. Companion: https://github.com/unbraind/pm-cli-companion/blob/main/.agents/pm/tasks/pm-cli-website-session-2026-10-10.toon. PR #68 Windows aggregate has two uncovered mutation error regions; assess separately. PR #67 checks pass but reviewer availability is incomplete."
+  "2026-10-10T02:45:38.243Z",codex-sol,"Installed crate source confirms toon-format 0.6.1 uses the normative TOON v4.1 number grammar; non-strict decoding shares that grammar and is not a fix. The supported needs_quoting(value, comma) API separates numeric-like quoting from numeric decoding. Published 2026.10.9 has the same distinction: 05 is quoted, while 0. is unquoted and remains a string. Explicitly update the old 0. unit assumption; new full-byte differential exercises metadata, arrays, tabular cells and history rather than changing oracle expectations. npm latest is 2026.10.9 and Cargo latest is 0.6.1."
+  "2026-10-10T02:46:21.830Z",codex-sol,"New broad scalar differential found an independent pre-existing tag-order mismatch: native ASCII sorting puts +1 before -0 and .5, while the published CLI sorts -0, .5, +1. Keep the codec regression focused on byte-exact numeric tags that share the supported sort order and exercise punctuation-bearing values as scalar/comment fields; record the wider tag normalization gap as a follow-up."
+  "2026-10-10T02:48:30.336Z",codex-sol,"Candidate review: PR #67 exact head f74e30432be57c3af3fc9c2c5c2e6fef835798d4 has six green Rust gates and CodeQL, zero review threads and zero approving reviews. GitHub reports BEHIND under strict base currency. CodeRabbit explicitly skipped automatic review, Sourcery was quota-limited/skipped, Greptile trial expired and cubic is neutral. Green CI does not satisfy exact-head substantive review. Keep open; no bots triggered. Corrected companion reference to the tracker directory because the supplied session item is not on remote main."
+  "2026-10-10T02:52:16.667Z",codex-sol,The PM-linked full mutation differential passes 2/2 against locked 2026.10.9. Native-only revert of the quote-safety implementation compiled successfully and the unchanged numeric_string_quoting_matches_published_item_and_history_bytes test failed at runtime with exit 101 on numeric-looking metadata item bytes. Source restored byte-for-byte. All five additional failing #70 job logs confirm the same unit assertion as Ubuntu. Starting unchanged aggregate gate through PM.
+  "2026-10-10T02:56:14.956Z",codex-sol,Windows GNU all-target/all-feature cross-compilation passes with the locked 0.6.1 dependency and 2026.10.9 oracle contract. Strict PM check-only health and separate validation both pass with existing advisories. The Linux full aggregate is running; native Windows execution remains hosted-CI evidence.
+  "2026-10-10T02:59:27.997Z",codex-sol,"Exact line-number review corrects the #68 diagnosis: 1828 is the diagnostic lock read question-mark; 1889 is the outer propagation of ownership_lock_refusal, not the non-contention acquisition return at 1891. Both missing regions belong to one diagnostic read-error chain. A Windows exclusive read handle first gives acquisition a classified sharing conflict, then gives the diagnostic read a genuine OS error 32; the same call exercises both regions. Invalid UTF-8 fails earlier and is not the minimal fixture needed here."
+  "2026-10-10T03:06:03.855Z",codex-sol,"First full aggregate passed ordinary and instrumented tests but correctly refused coverage: 3057/3059 lines, 4624/4630 regions, 276/276 functions and 616/618 branches. Gaps are the leftover ASCII whitelist closures in safe_unquoted_scalar. TOON v4.1 encoder quoting already uses needs_quoting exactly, so its quoted output cannot reach the old decoder-era ASCII guards. Remove that redundant grammar and let the supported quoting API be the complete rule, matching the inspected published codec. No coverage exclusions or thresholds change."
+  "2026-10-10T03:15:45.223Z",codex-sol,"Second aggregate again passes all 208 tests in both runs but refuses 3051/3053 lines, 4613/4619 regions and 611/612 branches (274/274 functions). Exact missing spans are the obsolete [0]: writer translation at mutation.rs 957-959. The earlier whitelist diagnosis was incomplete: inspecting encode/mod.rs 441-445 confirms 0.6.1 already emits canonical field: []. Remove only the obsolete writer branch, retain the strict reader adapter, and explicitly assert canonical empty-tag bytes. Existing item/history fixtures already measure empty arrays. No thresholds or exclusions change."
+  "2026-10-10T03:22:43.563Z",codex-sol,"Final PM-linked Linux release-check passes with locked 2026.10.9 required in both test runs: 208 ordinary and 208 instrumented tests, formatting, strict Clippy, private-item rustdoc, cargo audit and pinned changelog verification. Exact source coverage: 3050/3050 lines, 4612/4612 regions, 274/274 functions and 610/610 branches. No exclusions or threshold changes. All three registered commands have passed through PM. Both numeric-string native reverts compiled and failed at runtime with exit 101; fixed source restored byte-for-byte. Changelog regeneration is unchanged. Keep in progress for orchestrator verification; release the claim before the separate #68 fixture correction."
+files[11]{path,scope}:
+  .github/workflows/release.yml,project
+  Cargo.lock,project
+  Cargo.toml,project
+  justfile,project
+  src/lib.rs,project
+  src/mutation.rs,project
+  tests/conformance_differential.rs,project
+  tests/oracle/package-lock.json,project
+  tests/oracle/package.json,project
+  tests/release_pipeline_contract.rs,project
+  tests/support/mutation_unit.rs,project
+tests[3]{command,scope,timeout_seconds,provenance{author,created_at,source_kind,source_ref}}:
+  PM_NODE_CLI=tests/oracle/node_modules/@unbrained/pm-cli PM_RUST_REQUIRE_PUBLISHED_CLI=1 cargo test --locked --test conformance_differential,project,300,codex-sol,"2026-10-10T02:47:16.669Z",local_mutation,fix/toon-format-0.6-api-oracle-2026-10-9
+  just release-check,project,1800,codex-sol,"2026-10-10T02:47:18.583Z",local_mutation,fix/toon-format-0.6-api-oracle-2026-10-9
+  cargo check --locked --target x86_64-pc-windows-gnu --all-targets --all-features,project,600,codex-sol,"2026-10-10T02:56:08.377Z",local_mutation,fix/toon-format-0.6-api-oracle-2026-10-9
+docs[5]:
+  - path: docs/COMPATIBILITY.md
+    scope: project
+  - path: docs/TOON_UPGRADE_2026_10_9.md
+    scope: project
+  - path: "https://github.com/unbraind/pm-cli-companion/tree/main/.agents/pm"
+    scope: project
+    note: Companion session pm-cli-website-session-2026-10-10; session item not present on remote main at inspection
+  - path: "https://github.com/unbraind/pm-rust/pull/70"
+    scope: project
+  - path: README.md
+    scope: project
+body: ""

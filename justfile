@@ -30,7 +30,7 @@ CHANGELOG_DATE := "2026-08-07"
 # (>=2026.8.3) otherwise changes tracker reads with the latest CLI.
 # A pm-changelog bump must regenerate CHANGELOG.md in the same change.
 PM_CHANGELOG_PKG := "pm-changelog@2026.9.25"
-PM_CLI_PKG := "@unbrained/pm-cli@2026.10.7"
+PM_CLI_PKG := "@unbrained/pm-cli@2026.10.9"
 
 export PM_NODE_CLI := env_var_or_default("PM_NODE_CLI", justfile_directory() / "tests/oracle/node_modules/@unbrained/pm-cli")
 
