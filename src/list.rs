@@ -100,7 +100,12 @@ pub(crate) fn read_unbounded(
     let items: Vec<Value> = documents.into_iter().map(|document| {
         let metadata = document.metadata;
         if full {
-            Value::Object(canonical_metadata_pairs(&metadata).into_iter().collect())
+            {
+                let mut pairs = canonical_metadata_pairs(&metadata);
+                pairs.retain(|(key, _)| crate::history::canonical_rank(key).is_some());
+                pairs.extend(metadata.extra.into_iter().filter(|(key, _)| crate::history::canonical_rank(key).is_none()));
+                Value::Object(pairs.into_iter().collect())
+            }
         } else {
             json!({"id": metadata.id, "status": metadata.status, "type": metadata.item_type, "title": metadata.title})
         }
@@ -240,7 +245,7 @@ pub(crate) fn read_page(
     filters: &ItemFilter,
     options: &ListOptions,
     now: &str,
-) -> Result<Value, PmRustError> {
+) -> Result<crate::ListOutput, PmRustError> {
     if options.after.is_some() && options.offset.is_some() {
         return Err(PmRustError::InvalidReadRequest {
             reason: "List --after cannot be combined with --offset.".to_owned(),
@@ -291,6 +296,7 @@ pub(crate) fn read_page(
     }
     echo.insert("runtime_filters".to_owned(), json!({}));
     result["filters"] = Value::Object(echo);
+    let mut result = crate::ListOutput::from(result);
     if let Some(budget) = intent_budget {
         result = crate::list_intent::attach(result, &options, budget);
     }
@@ -316,7 +322,7 @@ pub(crate) fn read_page(
             "continuation_contract".to_owned(),
             json!({"fingerprint":fingerprint,"metadata":"reference","restore_with":"omit --after"}),
         );
-        result = Value::Object(map);
+        result.value = Value::Object(map);
     }
     crate::read_output::apply(result, requested)
 }

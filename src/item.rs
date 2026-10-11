@@ -1,6 +1,5 @@
 //! Canonical item-document decoding and stable read projections.
 
-use std::collections::BTreeMap;
 use std::path::Path;
 
 use serde::{Deserialize, Serialize};
@@ -36,9 +35,9 @@ pub struct ItemMetadata {
     /// Optional parent item identifier.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub parent: Option<String>,
-    /// Forward-compatible fields contributed by core or installed packages.
+    /// Forward-compatible fields in stored insertion order.
     #[serde(flatten)]
-    pub extra: BTreeMap<String, Value>,
+    pub extra: serde_json::Map<String, Value>,
 }
 
 /// Fully decoded canonical item document.

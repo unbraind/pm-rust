@@ -97,9 +97,9 @@ fn snapshot_refusals_validate_shape_command_collection_and_offset()
 -> Result<(), Box<dyn std::error::Error>> {
     let rows = json!([{"id":"demo-a"},{"id":"demo-b"}]);
     let valid = continuation(&rows);
-    assert_eq!(output(&encode(&valid), &rows)?, valid);
+    assert_eq!(output(&encode(&valid), &rows, &collection(&rows))?, valid);
     for raw in ["a", "bad", &"a".repeat(4097)] {
-        assert!(output(raw, &rows).is_err());
+        assert!(output(raw, &rows, &collection(&rows)).is_err());
     }
     for (key, value) in [
         ("v", json!(2)),
@@ -121,13 +121,13 @@ fn snapshot_refusals_validate_shape_command_collection_and_offset()
         let mut cursor = valid.clone();
         cursor[key] = value;
         assert!(
-            output(&encode(&cursor), &rows).is_err(),
+            output(&encode(&cursor), &rows, &collection(&rows)).is_err(),
             "accepted {cursor}"
         );
     }
     let mut end = valid.clone();
     end["o"] = json!(2);
-    assert_eq!(output(&encode(&end), &rows)?, end);
-    assert!(output(&encode(&valid), &Value::Null).is_err());
+    assert_eq!(output(&encode(&end), &rows, &collection(&rows))?, end);
+    assert!(output(&encode(&valid), &Value::Null, &collection(&Value::Null)).is_err());
     Ok(())
 }

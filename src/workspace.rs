@@ -269,6 +269,8 @@ impl Workspace {
     /// Cursors bind the resolved tracker root and selection. Producer cursors
     /// follow item identity; output cursors additionally bind the row snapshot.
     /// The caller supplies the read clock, which does not bind either cursor.
+    /// Serialize the returned [`crate::ListOutput`] itself to preserve escaped
+    /// UTF-16 cuts. Its immutable JSON value view uses U+FFFD for split units.
     ///
     /// # Errors
     ///
@@ -279,7 +281,7 @@ impl Workspace {
         filters: &ItemFilter,
         options: &crate::ListOptions,
         now: &str,
-    ) -> Result<serde_json::Value, PmRustError> {
+    ) -> Result<crate::ListOutput, PmRustError> {
         crate::list::read_page(self, filters, options, now)
     }
 

@@ -2,19 +2,69 @@ id: pm-rust-8hkb
 title: Preserve UTF-16 surrogate cuts in bounded JSON list output
 description: "Synthetic 2026.10.5 differential finding from pm-rust-ufzy: a title made from 239 ASCII characters, one astral Unicode character, and a long ASCII suffix crosses the published 240 UTF-16-unit string compaction boundary. The TS CLI emits the lone high surrogate as an escaped JSON code unit; the native serde_json Value representation emits a Unicode replacement character instead. This also changes bounded token receipts. A representation or serialization change is required for full parity at that boundary."
 type: Issue
-status: open
+status: in_progress
 priority: 2
 tags[3]: conformance,read-parity,rust
 created_at: "2026-10-05T08:17:16.166Z"
-updated_at: "2026-10-05T08:56:51.023Z"
+updated_at: "2026-10-11T07:47:29.278Z"
 author: codex-sol
 acceptance_criteria: Both real CLIs emit byte-identical bounded JSON and token estimates when compaction cuts an astral character at unit 240; SDK serialization preserves the same contract; Existing four-metric 100 percent coverage and documentation gates remain enforced
 parent: pm-rust-u4al
-comments[2]{created_at,author,text}:
+comments[15]{created_at,author,text}:
   "2026-10-05T08:28:50.615Z",codex-sol,"Reproduction evidence: a synthetic single-item title of 239 ASCII x characters, one emoji, and 2000 more x characters was read with list --json --full --output-budget 500 by both real executables. The reference emits an escaped high surrogate at the cut; native serde_json emits a replacement character. In the observed fixture the read-output estimates were 424 versus 423 tokens. The boundary and reproduction are documented in docs/LIST_PAGINATION_2026_10_5.md."
   "2026-10-05T08:56:51.023Z",codex-sol,"The reproduced Unicode boundary is explicitly documented in draft PR https://github.com/unbraind/pm-rust/pull/60 and docs/LIST_PAGINATION_2026_10_5.md. Full parity is not claimed for this case; the issue remains open."
-files[1]{path,scope}:
+  "2026-10-07T19:58:28.234Z",codex-sol,"Working against the locked published 2026.10.7 oracle. Will preserve the escaped high-surrogate JSON code unit at the UTF-16 compaction boundary, while keeping emitted bytes valid UTF-8; add generated differential cases and a native-fix revert proof."
+  "2026-10-07T20:07:56.278Z",codex-sol,"Generated parity passes against locked 2026.10.7: 968 astral placements at offsets 0 through 241, ordinary and triage rendering, exact SDK serialization, literal replacement/escape strings, token receipts, and continuation replay. Native-only revert of surrogate escape capture fails exit 101 at byte 327014: replacement character versus escaped high surrogate. Restored combined suite passes."
+  "2026-10-07T20:17:41.833Z",codex-sol,"The initial release gate rejected three missing branches and one line despite passing all 209 ordinary/instrumented tests. Added an envelope-level cut and row-string slicing test, removed an impossible empty-prefix branch, and made output control processing concrete to avoid duplicate generic coverage branches. Expanded differential replay to start exactly at the split row and covered SDK numeric serialization. Repeated both independent revert proofs: each still fails exit 101; fixes restored."
+  "2026-10-07T20:29:58.326Z",codex-sol,"Serializer fault-injection now covers failing collection headers and entries, malformed internal pointers and raw data. Pretty output uses one writer type across sinks, sharing actual error-handling paths. Focused instrumented serializer totals are 100 percent lines/functions/regions/branches. Final native-only surrogate revert still fails exit 101 at byte 327014; restored source before aggregate verification."
+  "2026-10-07T20:36:14.826Z",codex-sol,"Implementation and local verification complete. just release-check passed all 211 ordinary and 211 instrumented tests, fmt, deny-warning Clippy, public/private rustdoc, dependency audit and changelog verification. Native coverage is exact 100 percent: 3184 lines, 290 functions, 4775 regions, 626 branches. PM-linked Unicode differential command passed; independent native revert fails exit 101. SDK list_page now returns ListOutput; serialize the envelope itself for exact escaped cuts. Item remains open for orchestrator verification."
+  "2026-10-11T05:07:18.907Z",codex-sol,"Pulled the remote update merge for PR 67; current main is already an ancestor. All three native Rust jobs and the inspected Linux release aggregate fail at the same obsolete 2026.10.7 assertion before parity runs, while the locked oracle is now 2026.10.9. Update the assertion and validate both generated parity suites with TOON 0.6.1 and main conformance tests."
+  "2026-10-11T05:21:05.734Z",codex-sol,"The version assertion now uses the shared COMPATIBLE_PM_VERSION constant rather than another independent literal, preventing the same stale assertion on future main upgrades. Both retain the locked 2026.10.9 oracle. Main quoting tests and all existing UTF-16 corpus and replay checks are preserved."
+  "2026-10-11T05:31:28.775Z",codex-sol,"The full generated parity suite passes against locked 2026.10.9: 2 tests, 0 failures; 968 astral placements, 24 stored-key permutations, exact SDK serializers, receipts, and continuation replay. Local host contention made this focused run take roughly twelve minutes. Linked aggregate watchdogs allow completion under that contention; CI recipes, assertions, coverage thresholds, and exclusions are unchanged."
+  "2026-10-11T05:35:35.730Z",codex-sol,"Current-main UTF-16 behavioral revert compiled and failed the unchanged generated regression at runtime: 0 passed, 1 failed, exit 101; mismatch byte 327014 is U+FFFD versus escaped high surrogate. Restored production bytes exactly before metadata proof and full gates."
+  "2026-10-11T05:39:55.009Z",codex-sol,"PM runner preflight rejects pm_context_mode=none with workspace_context_mode=source before spawning either aggregate. Corrected links to schema/source, preserving the source worktree, exact CI recipes, and explicit temporary tracker discovery inside regressions. Those setup refusals are not test evidence."
+  "2026-10-11T05:53:00.198Z",codex-sol,"Matching CI runtime for final aggregates: Node 26.7.0, Rust 1.90.0, nightly-2026-08-06 branch instrumentation. Earlier unfinished Node 24 aggregates were stopped and are excluded from passing evidence; completed generated parity and native-only revert proofs remain independent receipts. No source assertions, coverage thresholds, or exclusions changed."
+  "2026-10-11T07:15:22.181Z",codex-sol,"The first complete current-main just release-check passed on Node 26.7.0, including required published-oracle comparisons. Fresh coverage passes the unchanged four thresholds: 3165/3165 lines, 286/286 functions, 4739/4739 regions and 610/610 branches. Cargo audit and pinned changelog verification passed. The linked disposable-HOME aggregate is now running; its result is pending."
+  "2026-10-11T07:47:23.717Z",codex-sol,"Final current-main receipts: both PM-linked ordinary-HOME and disposable-HOME just release-check aggregates passed, each with 212 ordinary and 212 instrumented tests, zero failures or ignored tests. Fresh reports agree at 3165/3165 lines, 286/286 functions, 4739/4739 regions and 610/610 branches, all 100 percent at unchanged thresholds. Formatting, strict Clippy, private-item rustdoc, Cargo audit and pinned changelog verification passed. All 41 gate-input hashes match both receipts. Both generated regressions passed, covering 968 astral placements and 24 metadata permutations. Native-only behavioral reverts each compiled and failed the unchanged test at runtime, then production bytes were restored. All six failed CI jobs had rejected the obsolete 2026.10.7 fixture assertion before comparisons; the shared compatibility constant repairs this. Evidence is updated in docs/OUTPUT_PARITY_2026_10_7.md. Leaving the item in progress for review."
+files[9]{path,scope}:
+  Cargo.toml,project
+  src/json_output.rs,project
+  src/lib.rs,project
+  src/list_intent.rs,project
+  src/pagination.rs,project
   src/read_output.rs,project
-docs[1]{path,scope}:
+  src/workspace.rs,project
+  tests/output_parity_differential.rs,project
+  tests/support/json_output_unit.rs,project
+tests[3]:
+  - command: PM_NODE_CLI=tests/oracle/node_modules/@unbrained/pm-cli PM_RUST_REQUIRE_PUBLISHED_CLI=1 cargo +1.90.0 test --locked --test output_parity_differential generated_utf16_cut_offsets_match_locked_oracle -- --exact --nocapture
+    scope: project
+    provenance:
+      author: codex-sol
+      created_at: "2026-10-07T20:06:41.261Z"
+      source_kind: local_mutation
+      source_ref: fix/list-output-parity
+  - command: just release-check
+    scope: project
+    timeout_seconds: 7200
+    pm_context_mode: schema
+    workspace_context_mode: source
+    provenance:
+      author: codex-sol
+      created_at: "2026-10-11T05:39:32.077Z"
+      source_kind: local_mutation
+      source_ref: fix/list-output-parity
+  - command: "env HOME=$(mktemp -d) RUSTUP_HOME=\"${RUSTUP_HOME:-$HOME/.rustup}\" CARGO_HOME=\"${CARGO_HOME:-$HOME/.cargo}\" GIT_CONFIG_GLOBAL=/dev/null GIT_CONFIG_NOSYSTEM=1 just release-check"
+    scope: project
+    timeout_seconds: 7200
+    pm_context_mode: schema
+    workspace_context_mode: source
+    provenance:
+      author: codex-sol
+      created_at: "2026-10-11T05:39:44.054Z"
+      source_kind: local_mutation
+      source_ref: fix/list-output-parity
+docs[2]{path,scope}:
   docs/LIST_PAGINATION_2026_10_5.md,project
+  docs/OUTPUT_PARITY_2026_10_7.md,project
 body: ""

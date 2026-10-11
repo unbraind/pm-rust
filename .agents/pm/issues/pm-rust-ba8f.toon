@@ -2,14 +2,54 @@ id: pm-rust-ba8f
 title: Preserve .toon extra metadata key order in list output
 description: "Native list output sorts extra metadata keys alphabetically (BTreeMap decoding in the item reader), while published PM CLI 2026.10.5 preserves the .toon file order in --full row projections. Verified byte-level against the installed reference: a task with metadata keys zebra, budget, alpha prints alpha/budget/zebra natively but zebra/budget/alpha in the reference. Existing differential fixtures never use non-alphabetical metadata, so this pre-existing divergence at HEAD is invisible to the current PR #60 suite; the new float-metadata differential test works around it with alphabetical fixture keys. Fixing this requires order-preserving metadata decoding and may affect .toon write-back formatting and history hashes."
 type: Issue
-status: open
+status: in_progress
 priority: 2
 tags[3]: conformance,read-parity,rust
 created_at: "2026-10-05T11:05:06.690Z"
-updated_at: "2026-10-05T11:05:16.629Z"
+updated_at: "2026-10-11T07:48:03.992Z"
 author: pi-rust-greptile2
 acceptance_criteria: Full-row list output preserves .toon file metadata order byte-identically against published PM CLI 2026.10.5
 parent: pm-rust-u4al
-comments[1]{created_at,author,text,edited_at}:
-  "2026-10-05T11:05:11.691Z",pi-rust-greptile2,"Reproduction evidence from the PR #60 review follow-up: a synthetic task with extra metadata zebra: 1, budget: 30.0, alpha: 2 (in that file order) was read with list --json --full by both real executables. The reference emits zebra/budget/alpha; native emits alpha/budget/zebra. All float values match after the JS number formatting fix, so this is purely a key-order divergence. The float-metadata regression test on the PR #60 branch uses alphabetical fixture keys so the number-formatting slice stays isolated; this issue tracks the ordering fix.","2026-10-05T11:05:16.629Z"
+comments[10]:
+  - created_at: "2026-10-05T11:05:11.691Z"
+    author: pi-rust-greptile2
+    text: "Reproduction evidence from the PR #60 review follow-up: a synthetic task with extra metadata zebra: 1, budget: 30.0, alpha: 2 (in that file order) was read with list --json --full by both real executables. The reference emits zebra/budget/alpha; native emits alpha/budget/zebra. All float values match after the JS number formatting fix, so this is purely a key-order divergence. The float-metadata regression test on the PR #60 branch uses alphabetical fixture keys so the number-formatting slice stays isolated; this issue tracks the ordering fix."
+    edited_at: "2026-10-05T11:05:16.629Z"
+  - created_at: "2026-10-07T19:58:28.996Z"
+    author: codex-sol
+    text: Will preserve stored extension-field insertion order for list projections while verifying history and mutation contracts with the full release gate. Add shuffled-key differential cases and an independent native-fix revert proof.
+  - created_at: "2026-10-07T20:07:57.025Z"
+    author: codex-sol
+    text: "All 24 extra-key permutations match locked 2026.10.7 byte-for-byte under unbounded and finite budgets, including nested keys and numeric metadata. Native-only revert to the sorted canonical list projection fails exit 101 at byte 292: alpha versus zebra. Restoring insertion-order projection passes. Canonical history ordering remains sorted."
+  - created_at: "2026-10-07T20:29:57.692Z"
+    author: codex-sol
+    text: "Strengthened the independent revert proof: restored original BTreeMap metadata decoding and construction, original history implementation, and sorted list projection while retaining the UTF-16 fix and unchanged regression/oracle. The generated order test fails exit 101 at byte 292 (alpha versus zebra). Restored every source file byte-for-byte before final gates."
+  - created_at: "2026-10-07T20:36:15.723Z"
+    author: codex-sol
+    text: "Implementation and local verification complete. PM-linked 24-permutation differential passed. Original BTreeMap decoding/construction and sorted projection revert fails exit 101 with the Unicode fix retained. Restored source passed just release-check: 211 ordinary plus 211 instrumented tests and exact 100 percent lines/functions/regions/branches (3184/290/4775/626). Canonical history ordering remains sorted. Item remains open for orchestrator verification."
+  - created_at: "2026-10-11T05:10:10.510Z"
+    author: codex-sol
+    text: Preserve insertion-ordered metadata decoding and list projection while retaining canonical history sorting from main. The generated 24-permutation fixture now alternates numeric-looking titles 05 and 0.; the locked oracle is 2026.10.9. No source behavior or coverage threshold is relaxed.
+  - created_at: "2026-10-11T05:35:47.943Z"
+    author: codex-sol
+    text: "Current-main metadata-order proof reverts only the full-list projection to canonical lexical sorting while retaining the current create path and ordered decoder. It compiles and fails the unchanged permutation regression at runtime: 0 passed, 1 failed, exit 101. An earlier historical map-type attempt did not compile and is excluded from evidence. Restored production bytes exactly; full aggregates follow."
+  - created_at: "2026-10-11T07:37:49.764Z"
+    author: codex-sol
+    text: "The shared current-main output-parity fixture is repaired by reading COMPATIBLE_PM_VERSION instead of an obsolete version literal, and the 24 metadata permutations exercise titles 05 and 0. The first full release aggregate passed all unchanged coverage thresholds. The disposable-HOME ordinary suite also passed; its instrumented suite is active. Final counts will be recorded from the linked run receipt."
+  - created_at: "2026-10-11T07:47:26.738Z"
+    author: codex-sol
+    text: "Final current-main metadata evidence: the item's PM-linked 24-permutation regression passed 1/1 on Node 26.7.0. Both full release aggregates passed 212 ordinary and 212 instrumented tests apiece with unchanged four-metric 100 percent coverage. Numeric-looking titles exercise TOON 0.6.1 quoting. Reverting only lexical sorting in the full-list projection compiled and failed the unchanged metadata regression at byte 280; restored production bytes match both passing aggregates. Canonical history sorting remains intact. The compile-failing historical map-type attempt is excluded from revert proof. The current evidence document records exact counts and denominators. Leaving the item in progress for review."
+  - created_at: "2026-10-11T07:48:03.992Z"
+    author: codex-sol
+    text: "Clarification of the metadata revert description: the negative proof restores lexical sorting only in the full-list projection. It does not remove canonical history sorting. This native-only change compiles and fails the unchanged regression at byte 280; the insertion-order production projection was restored before both passing aggregates."
+files[5]{path,scope}:
+  src/history.rs,project
+  src/item.rs,project
+  src/list.rs,project
+  src/mutation.rs,project
+  tests/output_parity_differential.rs,project
+tests[1]{command,scope,provenance{author,created_at,source_kind,source_ref}}:
+  PM_NODE_CLI=tests/oracle/node_modules/@unbrained/pm-cli PM_RUST_REQUIRE_PUBLISHED_CLI=1 cargo +1.90.0 test --locked --test output_parity_differential generated_extra_key_permutations_match_locked_oracle -- --exact --nocapture,project,codex-sol,"2026-10-07T20:06:41.865Z",local_mutation,fix/list-output-parity
+docs[1]{path,scope}:
+  docs/OUTPUT_PARITY_2026_10_7.md,project
 body: ""

@@ -1,8 +1,13 @@
 //! Bounded delivery, nested collection and receipt-only recovery contracts.
 
-use super::{Continuation, apply, capture, compact_strings, finalize, receipt, retain};
+use super::{Continuation, capture, compact_strings, finalize, receipt, retain};
 use crate::ListOptions;
 use serde_json::{Value, json};
+
+/// Adapts simple unit-test envelopes to the lossless output type.
+fn apply(value: Value, options: &ListOptions) -> Result<crate::ListOutput, crate::PmRustError> {
+    super::apply(value.into(), options)
+}
 
 /// Synthetic envelope with configurable row count and payload size.
 fn envelope(count: usize, width: usize) -> Value {
@@ -241,10 +246,18 @@ fn producer_rebasing_and_disclosure_keep_indices_and_snapshot() {
 #[test]
 fn estimates_and_string_compaction_handle_nested_unicode() {
     let mut value = json!({"rows":["😀".repeat(130),"x".repeat(240),null,3]});
-    assert!(compact_strings(&mut value));
+    assert!(compact_strings(
+        &mut value,
+        "",
+        &mut std::collections::BTreeMap::new()
+    ));
     assert_eq!(value["rows"][0], format!("{}…", "😀".repeat(120)));
-    assert!(!compact_strings(&mut json!([true, null, "short"])));
-    let mut measured = json!({"read_output":{"estimated_tokens":0}});
+    assert!(!compact_strings(
+        &mut json!([true, null, "short"]),
+        "",
+        &mut std::collections::BTreeMap::new()
+    ));
+    let mut measured = crate::ListOutput::from(json!({"read_output":{"estimated_tokens":0}}));
     super::update(&mut measured, "read_output", true);
     assert_eq!(
         measured["read_output"]["estimated_tokens"],

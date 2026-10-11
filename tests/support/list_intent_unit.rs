@@ -77,7 +77,9 @@ fn noncontinuable_intent_rows_disclose_infeasible_declaration() {
 
 #[test]
 fn both_receipts_stabilize_after_projection_changes() {
-    let mut result = json!({"items":[],"context_intent":{"estimated_tokens":0},"read_output":{"estimated_tokens":0}});
+    let mut result = crate::ListOutput::from(
+        json!({"items":[],"context_intent":{"estimated_tokens":0},"read_output":{"estimated_tokens":0}}),
+    );
     super::stabilize(&mut result);
     assert_eq!(
         result["context_intent"]["estimated_tokens"],

@@ -1,10 +1,10 @@
 //! Canonical JSON output ceilings, compaction and continuation receipts.
 
-use crate::{ListOptions, PmRustError, list::bound, pagination};
+use crate::{ListOptions, ListOutput, PmRustError, list::bound, pagination};
 use serde_json::{Value, json};
 
 /// Estimates output tokens using the published UTF-8 byte heuristic.
-pub(crate) fn estimate(value: &Value, pretty: bool) -> usize {
+pub(crate) fn estimate(value: &(impl serde::Serialize + ?Sized), pretty: bool) -> usize {
     let bytes = if pretty {
         crate::stringify_json(value, true).len() + 1
     } else {
@@ -14,32 +14,49 @@ pub(crate) fn estimate(value: &Value, pretty: bool) -> usize {
 }
 
 /// Stabilizes a self-referential receipt estimate after changing output content.
-pub(crate) fn update(result: &mut Value, key: &str, pretty: bool) {
+pub(crate) fn update(result: &mut ListOutput, key: &str, pretty: bool) {
     for _ in 0..8 {
         let measured = estimate(result, pretty);
-        if result[key]["estimated_tokens"] == measured {
+        if result.value[key]["estimated_tokens"] == measured {
             break;
         }
-        result[key]["estimated_tokens"] = json!(measured);
+        result.value[key]["estimated_tokens"] = json!(measured);
     }
 }
 
 /// Recursively compacts long strings using the published 240 UTF-16-unit ceiling.
-pub(crate) fn compact_strings(value: &mut Value) -> bool {
+pub(crate) fn compact_strings(
+    value: &mut Value,
+    pointer: &str,
+    cuts: &mut std::collections::BTreeMap<String, String>,
+) -> bool {
     match value {
         Value::String(text) if text.encode_utf16().count() > 240 => {
-            *text = format!(
-                "{}…",
-                String::from_utf16_lossy(&text.encode_utf16().take(240).collect::<Vec<_>>())
-            );
+            let units = text.encode_utf16().take(240).collect::<Vec<_>>();
+            let last = units[239];
+            if (0xd800..=0xdbff).contains(&last) {
+                let prefix = String::from_utf16_lossy(&units[..239]);
+                let mut raw = crate::stringify_json(&prefix, false);
+                raw.pop();
+                raw = format!("{raw}\\u{last:04x}…\"");
+                cuts.insert(pointer.to_owned(), raw);
+            }
+            *text = format!("{}…", String::from_utf16_lossy(&units));
             true
         }
         Value::Array(rows) => rows
             .iter_mut()
-            .fold(false, |changed, row| compact_strings(row) | changed),
-        Value::Object(map) => map
-            .values_mut()
-            .fold(false, |changed, row| compact_strings(row) | changed),
+            .enumerate()
+            .fold(false, |changed, (index, row)| {
+                compact_strings(row, &format!("{pointer}/{index}"), cuts) | changed
+            }),
+        Value::Object(map) => map.iter_mut().fold(false, |changed, (key, row)| {
+            compact_strings(
+                row,
+                &format!("{pointer}/{}", key.replace('~', "~0").replace('/', "~1")),
+                cuts,
+            ) | changed
+        }),
         _ => false,
     }
 }
@@ -265,7 +282,10 @@ fn receipt(options: &ListOptions, default_budget: bool) -> Value {
 }
 
 /// Applies canonical amount and cost controls and returns full bounded receipts.
-pub(crate) fn apply(mut result: Value, options: &ListOptions) -> Result<Value, PmRustError> {
+pub(crate) fn apply(
+    mut result: ListOutput,
+    options: &ListOptions,
+) -> Result<ListOutput, PmRustError> {
     let amount = bound(options.output_limit.as_deref())?;
     let budget = if options.output_budget.is_some() {
         bound(options.output_budget.as_deref())?
@@ -276,10 +296,11 @@ pub(crate) fn apply(mut result: Value, options: &ListOptions) -> Result<Value, P
     };
     let default_budget = options.output_budget.is_none() && budget.is_some();
     let original_rows = result["items"].clone();
+    let snapshot = result.row_fingerprint();
     let cursor = options
         .output_cursor
         .as_deref()
-        .map(|raw| pagination::output(raw, &original_rows))
+        .map(|raw| pagination::output(raw, &original_rows, &snapshot))
         .transpose()?;
     let amount_binds = amount.is_some_and(|limit| {
         original_rows
@@ -296,7 +317,8 @@ pub(crate) fn apply(mut result: Value, options: &ListOptions) -> Result<Value, P
     if let Some(cursor) = &cursor {
         let offset =
             usize::try_from(cursor["o"].as_u64().unwrap_or_default()).unwrap_or(usize::MAX);
-        result["items"] = json!(
+        result.skip_rows(offset);
+        result.value["items"] = json!(
             original_rows
                 .as_array()
                 .into_iter()
@@ -306,7 +328,10 @@ pub(crate) fn apply(mut result: Value, options: &ListOptions) -> Result<Value, P
                 .collect::<Vec<_>>()
         );
     }
-    let state = capture(&result, options, cursor.as_ref());
+    let mut state = capture(&result, options, cursor.as_ref());
+    if cursor.is_none() {
+        state.fingerprint = snapshot;
+    }
     if let Some(limit) = amount
         && result["items"]
             .as_array()
@@ -319,18 +344,19 @@ pub(crate) fn apply(mut result: Value, options: &ListOptions) -> Result<Value, P
             .take(limit)
             .cloned()
             .collect::<Vec<_>>();
-        result["items"] = json!(rows);
+        result.value["items"] = json!(rows);
         if state.existing {
-            rebase_producer(&mut result, &state);
+            rebase_producer(&mut result.value, &state);
         }
-        result["has_more"] = json!(true);
-        result["truncated"] = json!(true);
-        result["applied_bound"] = json!({"kind":"output_limit","source":"explicit","value":limit});
+        result.value["has_more"] = json!(true);
+        result.value["truncated"] = json!(true);
+        result.value["applied_bound"] =
+            json!({"kind":"output_limit","source":"explicit","value":limit});
     }
     if result.get("count").is_some() {
-        result["count"] = json!(result["items"].as_array().map_or(0, Vec::len));
+        result.value["count"] = json!(result["items"].as_array().map_or(0, Vec::len));
     }
-    result["read_output"] = receipt(options, default_budget);
+    result.value["read_output"] = receipt(options, default_budget);
     update(&mut result, "read_output", true);
     if let Some(budget) = budget
         && estimate(&result, true) > budget
@@ -392,7 +418,7 @@ fn capture(result: &Value, options: &ListOptions, cursor: Option<&Value>) -> Con
 
 /// Chooses the largest row collection and retains its largest feasible prefix.
 fn compact_rows(
-    result: &mut Value,
+    result: &mut ListOutput,
     state: &Continuation,
     budget: usize,
     source: &str,
@@ -402,7 +428,7 @@ fn compact_rows(
 ) {
     for _ in 0..64 {
         finalize(
-            result,
+            &mut result.value,
             state,
             budget,
             source,
@@ -415,7 +441,7 @@ fn compact_rows(
             break;
         }
         let mut candidates = Vec::new();
-        collections(result, "", &mut candidates);
+        collections(&result.value, "", &mut candidates);
         candidates.sort_by(|a, b| b.1.cmp(&a.1).then_with(|| a.0.cmp(&b.0)));
         let Some((pointer, length)) = candidates.first() else {
             break;
@@ -425,7 +451,7 @@ fn compact_rows(
             .and_then(Value::as_array)
             .cloned()
             .unwrap_or_default();
-        result["read_output"]["rows_compacted"] = json!(true);
+        result.value["read_output"]["rows_compacted"] = json!(true);
         let path = pointer[1..]
             .replace('/', ".")
             .replace("~1", "/")
@@ -438,17 +464,17 @@ fn compact_rows(
         // row, so it cannot be selected again in a later iteration.
         paths.push(json!(path));
         paths.sort_by(|a, b| a.as_str().cmp(&b.as_str()));
-        result["read_output"]["compacted_row_paths"] = json!(paths);
-        result["has_more"] = json!(true);
-        result["truncated"] = json!(true);
+        result.value["read_output"]["compacted_row_paths"] = json!(paths);
+        result.value["has_more"] = json!(true);
+        result.value["truncated"] = json!(true);
         let mut low = 1;
         let mut high = length - 1;
         let mut retained = 1;
         while low <= high {
             let middle = usize::midpoint(low, high);
-            retain(result, pointer, &values, middle);
+            retain(&mut result.value, pointer, &values, middle);
             finalize(
-                result,
+                &mut result.value,
                 state,
                 budget,
                 source,
@@ -464,10 +490,10 @@ fn compact_rows(
                 high = middle - 1;
             }
         }
-        retain(result, pointer, &values, retained);
+        retain(&mut result.value, pointer, &values, retained);
     }
     finalize(
-        result,
+        &mut result.value,
         state,
         budget,
         source,
@@ -480,12 +506,12 @@ fn compact_rows(
 
 /// Compacts content and discloses a snapshot-bound continuation or omission.
 fn compact_budget(
-    mut result: Value,
+    mut result: ListOutput,
     options: &ListOptions,
     state: &Continuation,
     budget: usize,
     default_budget: bool,
-) -> Value {
+) -> ListOutput {
     let hints = result["read_output"]["migration_hints"]
         .as_array()
         .into_iter()
@@ -494,8 +520,8 @@ fn compact_budget(
         .map(str::to_owned)
         .collect::<Vec<_>>();
     let measured = estimate(&result, true);
-    let strings_compacted = compact_strings(&mut result);
-    result["read_output"]["strings_compacted"] = json!(strings_compacted);
+    let strings_compacted = compact_strings(&mut result.value, "", &mut result.cuts);
+    result.value["read_output"]["strings_compacted"] = json!(strings_compacted);
     let source = if default_budget {
         "default"
     } else {
@@ -519,7 +545,9 @@ fn compact_budget(
         minimal["within_budget"] = json!(false);
         minimal["result_omitted"] = json!(true);
         minimal["omitted_result_estimated_tokens"] = json!(omitted_estimate);
-        result = json!({"output_budget_exceeded":{"omitted_result":true,"reason":"requested_budget_infeasible","restore_with":"Unbounded","recovery":{"outputBudget":"unbounded"}},"read_output":minimal});
+        result = ListOutput::from(
+            json!({"output_budget_exceeded":{"omitted_result":true,"reason":"requested_budget_infeasible","restore_with":"Unbounded","recovery":{"outputBudget":"unbounded"}},"read_output":minimal}),
+        );
     }
     result
 }

@@ -21,7 +21,7 @@ mod workspace;
 pub use error::PmRustError;
 pub use history::canonical_metadata_pairs;
 pub use item::{ItemDocument, ItemMetadata, ItemSummary};
-pub use json_output::{stringify_json, write_pretty_json};
+pub use json_output::{ListOutput, stringify_json, write_pretty_json};
 pub use list::ListOptions;
 pub use mutation::now_iso as current_timestamp;
 pub use mutation::{
