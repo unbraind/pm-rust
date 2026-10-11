@@ -42,7 +42,7 @@ jobs:
           components: clippy,rustfmt
 
       - name: Install just
-        uses: taiki-e/install-action@e407f7bafb71fd004bc5c2da3032e5470cbb6ef0 # v2
+        uses: taiki-e/install-action@f7e5d7c961414b23f5b25b2da9294395d08513ad # v2
         with:
           # This job runs `just release-check`, which needs the whole gate
           # toolchain — not just `just`. Installing only `just` here made the
@@ -169,7 +169,7 @@ jobs:
             exit 1
           }
           crate_version="$(sed -n 's/^version *= *"\([^"]*\)"/\1/p' Cargo.toml)"
-          npx --yes --package=pm-changelog@2026.9.25 --package=@unbrained/pm-cli@2026.10.7 -- pm-changelog \
+          npx --yes --package=pm-changelog@2026.9.25 --package=@unbrained/pm-cli@2026.10.9 -- pm-changelog \
             --pm-root .agents/pm \
             --pm-arg=--output-budget --pm-arg=unbounded \
             --pm-arg=--output-limit --pm-arg=unbounded \
@@ -185,7 +185,7 @@ jobs:
             --item-ref-style toon \
             --include-metadata \
             --github-step-summary
-          npx --yes --package=pm-changelog@2026.9.25 --package=@unbrained/pm-cli@2026.10.7 -- pm-changelog \
+          npx --yes --package=pm-changelog@2026.9.25 --package=@unbrained/pm-cli@2026.10.9 -- pm-changelog \
             --pm-root .agents/pm \
             --pm-arg=--output-budget --pm-arg=unbounded \
             --pm-arg=--output-limit --pm-arg=unbounded \
@@ -201,7 +201,7 @@ jobs:
             --item-ref-style toon \
             --include-metadata \
             --check
-          npx --yes --package=pm-changelog@2026.9.25 --package=@unbrained/pm-cli@2026.10.7 -- pm-changelog \
+          npx --yes --package=pm-changelog@2026.9.25 --package=@unbrained/pm-cli@2026.10.9 -- pm-changelog \
             --pm-root .agents/pm \
             --pm-arg=--output-budget --pm-arg=unbounded \
             --pm-arg=--output-limit --pm-arg=unbounded \

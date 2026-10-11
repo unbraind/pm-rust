@@ -1,0 +1,17 @@
+id: pm-rust-2ucz
+title: Match published comment ordering at equal timestamps
+description: A synthetic fixed-clock sequence appending comment text 05 by author 00 then text 0. by fixture-agent writes those rows in append order natively but reverse order in published PM CLI 2026.10.9. Compare and implement the actual equal-timestamp ordering contract independently of scalar quoting.
+type: Issue
+status: open
+priority: 2
+tags[2]: compatibility,mutation
+created_at: "2026-10-10T02:49:09.472Z"
+updated_at: "2026-10-10T02:50:53.060Z"
+author: codex-sol
+acceptance_criteria: Two equal-timestamp comment appends match complete item and history bytes against the required published oracle.
+parent: pm-rust-u4al
+files[1]{path,scope}:
+  src/mutation.rs,project
+docs[1]{path,scope}:
+  docs/TOON_UPGRADE_2026_10_9.md,project
+body: ""
