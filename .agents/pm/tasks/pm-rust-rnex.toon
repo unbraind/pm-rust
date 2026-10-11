@@ -2,11 +2,13 @@ id: pm-rust-rnex
 title: Install the published-CLI oracle from a committed lockfile in CI
 description: "CI installs the conformance oracle with npm install -g @unbrained/pm-cli@<pin> and npm exec --package=..., pinning only the top-level package. The CLI ships no shrinkwrap (unbraind/pm-cli#1417), so a partially propagated OpenTelemetry 2.12.0 release failed all six runners in run 37472610207 (pm-rust-otel). Commit tests/oracle/package.json + package-lock.json, install with npm ci --prefix tests/oracle on Linux/macOS/Windows, point PM_NODE_CLI and the merge-driver/health steps at that install, update tests/release_pipeline_contract.rs pins, and let Dependabot (npm, /tests/oracle) bump it. Raised by CodeRabbit on PR #60 (comment 4200300693, zizmor adhoc-packages)."
 type: Task
-status: in_progress
+status: closed
 priority: 1
 tags[3]: ci,reproducibility,upstream
 created_at: "2026-10-06T20:51:26.186Z"
-updated_at: "2026-10-07T16:18:32.425Z"
+updated_at: "2026-10-07T18:39:15.279Z"
+closed_at: "2026-10-07T18:39:14.350Z"
+completed_at: "2026-10-07T18:39:14.350Z"
 author: claude-orchestrator
 acceptance_criteria: Every CI job installs the oracle via npm ci from a committed lockfile; zizmor reports no adhoc-packages; release_pipeline_contract pins the lockfile path; all six checks green
 comments[3]{created_at,author,text}:
@@ -26,4 +28,5 @@ tests[1]{command,scope,timeout_seconds,provenance{author,created_at,source_kind,
   cargo test --locked --test release_pipeline_contract,project,300,codex-sol,"2026-10-07T16:05:48.326Z",local_mutation,fix/oracle-2026-10-7
 docs[1]{path,scope}:
   README.md,project
+close_reason: "Merged in #65 (bb9d404). The published-CLI parity oracle is an exact @unbrained/pm-cli 2026.10.7 dependency in tests/oracle with a committed package-lock.json, installed with npm ci (just oracle-install) by local release checks and CI, so its transitive tree is reproducible (pm-cli#1417). CodeRabbit full review at 6c87a3e: no actionable comments."
 body: ""

@@ -1,0 +1,20 @@
+id: pm-rust-mttg
+title: Match published punctuation-bearing tag normalization order
+description: "A synthetic update with tags +1,-0,.5 exposes a pre-existing ordering divergence: Rust sorts +1,-0,.5 while published PM CLI 2026.10.9 writes -0,.5,+1. This changes canonical item and history bytes independently of the toon-format upgrade. Characterize published tag normalization before changing native sorting."
+type: Issue
+status: open
+priority: 2
+tags[2]: compatibility,mutation
+created_at: "2026-10-10T02:46:34.001Z"
+updated_at: "2026-10-10T02:49:28.166Z"
+author: codex-sol
+acceptance_criteria: A differential update with punctuation-bearing tags matches complete item and history bytes without weakening existing fixture comparisons.
+parent: pm-rust-u4al
+comments[1]{created_at,author,text}:
+  "2026-10-10T02:47:20.128Z",codex-sol,"The same synthetic regression also exposes an independent history patch gap on replacing a two-tag array with eight tags: native replaces the whole tags value while the published CLI emits indexed replace/add operations. Canonical item bytes match for that fixture; complete history bytes do not. Codec regression creates its numeric-looking tag array directly so it exercises canonical encoding without hiding this separately tracked replacement-patch gap."
+files[2]{path,scope}:
+  src/history.rs,project
+  src/mutation.rs,project
+docs[1]{path,scope}:
+  docs/TOON_UPGRADE_2026_10_9.md,project
+body: ""

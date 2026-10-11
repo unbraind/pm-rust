@@ -45,6 +45,8 @@
 
 ### Other
 
+- Resume native output-limit continuations after the last emitted row, matching pm-cli 2026.10.7 ([pm-rust-8qbo](https://github.com/unbraind/pm-rust/blob/main/.agents/pm/tasks/pm-rust-8qbo.toon)) _type:Task; status:closed; P1_
+- Install the published-CLI oracle from a committed lockfile in CI ([pm-rust-rnex](https://github.com/unbraind/pm-rust/blob/main/.agents/pm/tasks/pm-rust-rnex.toon)) _type:Task; status:closed; P1_
 - Auto-merge green Dependabot updates and group the pm toolchain into one daily PR ([pm-rust-p9bu](https://github.com/unbraind/pm-rust/blob/main/.agents/pm/tasks/pm-rust-p9bu.toon)) _type:Task; status:closed; P2_
 - Certify pm CLI 2026.9.17 ([pm-rust-6bwi](https://github.com/unbraind/pm-rust/blob/main/.agents/pm/chores/pm-rust-6bwi.toon)) _type:Chore; status:closed; P1_
 - Release two re-claimed tasks and assert legacy-journal recovery succeeds ([pm-rust-x1u8](https://github.com/unbraind/pm-rust/blob/main/.agents/pm/tasks/pm-rust-x1u8.toon)) _type:Task; status:closed; P2_

@@ -1,4 +1,8 @@
-# Native explicit ownership parity with CLI 2026.10.7
+# Native explicit ownership parity with CLI 2026.10.9
+
+Current integration uses TOON 0.6.1 and the locked 2026.10.9 oracle.
+Original 2026.10.7 receipts remain below; the current-main integration and
+repeated revert proofs are recorded in the final section.
 
 Implemented feature: [pm-rust-zukw](../.agents/pm/features/pm-rust-zukw.toon),
 under [pm-rust-u4al](../.agents/pm/epics/pm-rust-u4al.toon).
@@ -236,3 +240,38 @@ outside the existing production-source denominator. No coverage configuration,
 threshold, source inventory, or exclusion was changed. Native-platform CI is
 a separate receipt at the pushed head; Windows cross-compilation alone does
 not establish native execution or coverage.
+
+## Current main integration (2026.10.9 / TOON 0.6.1)
+
+PR 68 merges current main without rebasing its reviewed commits. README.md is
+the only conflict: retain the native claim/release command list and update the
+published contract to 2026.10.9. The automatic Rust merge retains main's
+`toon_format::needs_quoting` implementation and complete oracle corpus alongside
+ownership transactions and pre-lock future timestamp validation.
+
+The ownership differential now creates title `05`, claims with message `0.`,
+and releases with message `05`. Each operation still compares complete item
+and history bytes against the locked published 2026.10.9 CLI. This extends the
+main scalar/array/tabular quoting corpus through both ownership operations.
+The existing six held-lock regressions and historical-clock positive controls
+remain unchanged.
+
+Repeated native-only revert proofs on this integration: removing only the
+pre-lock guard compiles and fails all six unchanged held-lock tests plus the
+SDK/CLI timestamp test (exit 101 for each command). Restoring the old
+decoder-based quote-safety functions compiles and fails the expanded ownership
+sequence (one test, exit 101). Tests and the 2026.10.9 oracle remain unchanged
+during each proof. Production files are restored byte-for-byte afterward.
+
+Final integration receipts: both `just release-check` aggregates passed on
+Node 26.7.0, Rust 1.90.0 and nightly-2026-08-06 against the locked published
+2026.10.9 oracle. The second aggregate uses a disposable HOME with global and
+system Git configuration disabled. Each passed **227 ordinary and 227
+instrumented tests**, with zero failures or ignored tests. Fresh reports agree
+at **3,353/3,353 lines, 287/287 functions, 5,062/5,062 regions and 682/682
+branches**, all **100%** across the unchanged ten executable source files.
+Formatting, strict Clippy, private-item rustdoc, Cargo audit and pinned
+changelog verification passed. Source, test, manifest and gate-input hashes
+match both receipts. The older counts above describe the original 2026.10.7
+receipts rather than this integration. Native cross-platform CI remains a
+separate receipt at the pushed head.

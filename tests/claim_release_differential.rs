@@ -20,7 +20,7 @@ struct Fixture {
     driver: PathBuf,
 }
 impl Fixture {
-    /// Initializes the fixture with a published create record and chosen policy.
+    /// Initializes a numeric-looking title with a published record and chosen policy.
     fn new(policy: &str) -> Result<Option<Self>, Box<dyn std::error::Error>> {
         let Some(published) = published_cli_or_skip("Ownership differential") else {
             return Ok(None);
@@ -35,7 +35,7 @@ impl Fixture {
                 "--id",
                 "sample-own",
                 "--title",
-                "Ownership fixture",
+                "05",
                 "--type",
                 "Task",
                 "--author",
@@ -168,7 +168,7 @@ fn claim_release_sequences_match_published_bytes_and_envelopes()
                 "--author",
                 "alpha",
                 "--message",
-                "take ownership",
+                "0.",
                 "--json",
             ],
             vec!["claim", "sample-own", "--author", "alpha", "--json"],
@@ -198,7 +198,7 @@ fn claim_release_sequences_match_published_bytes_and_envelopes()
                 "alpha",
                 "--force",
                 "--message",
-                "handoff",
+                "05",
                 "--json",
             ],
             vec!["release", "sample-own", "--author", "alpha", "--json"],

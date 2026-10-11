@@ -1,7 +1,7 @@
 # Compatibility contract
 
 The current `pm-rust` slice is a native read-and-mutate compatibility
-implementation for the published `pm` 2026.10.7 workspace format. Read flag boundaries and remaining
+implementation for the published `pm` 2026.10.9 workspace format. Read flag boundaries and remaining
 command gaps are enumerated in [the parity matrix](CLI_PARITY_2026_10_2.md).
 
 ## Supported
@@ -59,7 +59,18 @@ The fixture is generated under its reproducible workspace clock, simultaneous pr
 every recovery presence state, stale-lock ownership races, closed output pipes,
 and real filesystem failures.
 
-The Rust `toon-format` crate serializes an empty array as `field[0]:`, while the
-canonical JavaScript encoder used by `pm` emits `field: []`. `pm-rust`
-normalizes only that exact syntax before strict decoding; scalar strings that
-contain the same characters are untouched.
+The former Rust `toon-format` 0.5 encoder serialized empty arrays as `field[0]:`;
+0.6.1 already emits the canonical JavaScript `field: []` spelling. The obsolete
+write-side translation is removed. The reader retains its exact empty-array
+dialect adapter before strict decoding; scalar strings containing the same
+characters are untouched.
+
+Scalar quote normalization uses the supported `needs_quoting(value, ',')` API.
+TOON v4.1 distinguishes the encoder's numeric-like grammar from numeric decoding:
+`05` remains a quoted string even though the decoder also accepts it unquoted
+as a string; `0.` is unquoted and stays a string. The previous decoder probe
+depended on 0.5's lenient number parsing and is unsuitable for 0.6.1. Strict
+document decoding remains enforced. The live 2026.10.9 oracle compares complete
+item and history bytes for scalar fields, tag arrays and tabular comment cells;
+the original golden list envelopes and mutation fixtures remain unchanged.
+See [the upgrade and candidate assessment](TOON_UPGRADE_2026_10_9.md).
