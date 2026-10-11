@@ -45,7 +45,7 @@ SDK callers constructing metadata should use `serde_json::Map` for extras.
 
 `tests/output_parity_differential.rs` runs both real executables over a synthetic
 tracker with a fixed clock and the committed lockfile oracle. It checks the
-oracle package version is exactly 2026.10.7. Every comparison checks complete
+oracle package version equals `COMPATIBLE_PM_VERSION`. Every comparison checks complete
 stdout, stderr and exit code without removing or normalizing fields, then
 checks SDK pretty/compact serialization against the same native bytes.
 
