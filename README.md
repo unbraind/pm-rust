@@ -6,7 +6,7 @@ native applications.
 
 The project is pre-release. Its current delivery slice reads workspaces and
 creates, updates, comments on, and closes canonical items against the
-published `pm` 2026.10.7 on-disk contract. Production code, tests, benchmarks,
+published `pm` 2026.10.9 on-disk contract. Production code, tests, benchmarks,
 and build tooling are Rust; the distributed binary does not require Node.js,
 Bun, JavaScript, or TypeScript.
 
@@ -109,7 +109,7 @@ Work is managed in this repository with the latest `pm` CLI under
 
 ## Development
 
-The published parity oracle is pinned to exactly 2026.10.7 in
+The published parity oracle is pinned to exactly 2026.10.9 in
 `tests/oracle/package.json` and installed from its committed `package-lock.json`.
 Both local runs and every CI matrix job use `npm ci`; the lock records the
 registry tarball and integrity, including the bundled runtime closure. This

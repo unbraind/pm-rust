@@ -312,6 +312,87 @@ fn steps() -> Vec<Step> {
 /// Proves the native binary matches the live published CLI byte for byte.
 fn rust_and_published_cli_produce_identical_bytes_over_the_same_sequence()
 -> Result<(), Box<dyn std::error::Error>> {
+    compare_sequence(&steps())
+}
+
+#[test]
+/// Numeric-looking strings retain published quoting, values and history hashes.
+///
+/// Leading zeros require quotes even though the v4.1 decoder returns strings;
+/// trailing-dot strings are unquoted. Exercise scalar, array and tabular cells
+/// through real mutations, comparing every stored byte after every operation.
+fn numeric_string_quoting_matches_published_item_and_history_bytes()
+-> Result<(), Box<dyn std::error::Error>> {
+    let create = &[
+        "create",
+        "--id",
+        "sample-diff",
+        "--title",
+        "Conformance item",
+        "--description",
+        "First desc",
+        "--body",
+        "Original body",
+        "--type",
+        "Task",
+        "--tags",
+        "05,00,0.,1.,1e2,true,null,plain",
+        "--author",
+        "fixture-agent",
+    ];
+    let mut sequence = vec![Step {
+        label: "numeric-looking tag creation",
+        native: create,
+        node: create,
+    }];
+    for (label, arguments) in [
+        (
+            "numeric-looking metadata",
+            &[
+                "update",
+                "sample-diff",
+                "--title",
+                "05",
+                "--description",
+                "00",
+                "--body",
+                "0.",
+                "--author",
+                "fixture-agent",
+            ][..],
+        ),
+        (
+            "numeric-looking tabular comment",
+            &["comment", "sample-diff", "05", "--author", "0."][..],
+        ),
+    ] {
+        sequence.push(Step {
+            label,
+            native: arguments,
+            node: arguments,
+        });
+    }
+    let arguments = &[
+        "update",
+        "sample-diff",
+        "--title",
+        "+1",
+        "--description=-0",
+        "--body",
+        ".5",
+        "--author",
+        "fixture-agent",
+    ];
+    sequence.push(Step {
+        label: "signed numeric-looking scalars",
+        native: arguments,
+        node: arguments,
+    });
+    compare_sequence(&sequence)
+}
+
+/// Executes an unchanged published/native sequence against cloned fixture data.
+fn compare_sequence(sequence: &[Step]) -> Result<(), Box<dyn std::error::Error>> {
     let Some(published) = published_cli_or_skip("The differential conformance suite") else {
         return Ok(());
     };
@@ -342,7 +423,7 @@ fn rust_and_published_cli_produce_identical_bytes_over_the_same_sequence()
         &rust_workspace.path().join(".agents"),
     )?;
 
-    for step in steps() {
+    for step in sequence {
         let mut node_arguments: Vec<String> = vec![driver.to_string_lossy().into_owned()];
         node_arguments.extend(step.node.iter().map(ToString::to_string));
         let node_output = run_minimal(&interpreter, &node_arguments, node_workspace.path())?;
