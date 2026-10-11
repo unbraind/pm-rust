@@ -25,8 +25,8 @@ pub use json_output::{stringify_json, write_pretty_json};
 pub use list::ListOptions;
 pub use mutation::now_iso as current_timestamp;
 pub use mutation::{
-    CloseItem, CommentItem, CreateItem, CreateResult, MutationResult, UpdateItem, default_priority,
-    default_status, validate_timestamp,
+    CloseItem, CommentItem, CreateItem, CreateResult, MutationResult, OwnershipItem,
+    OwnershipResult, UpdateItem, default_priority, default_status, validate_timestamp,
 };
 pub use workspace::{ItemFilter, ListResult, Workspace};
 

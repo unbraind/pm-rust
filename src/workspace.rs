@@ -11,7 +11,7 @@ use crate::item::decode_item;
 use crate::mutation::{close_item, comment_item, create_item, update_item};
 use crate::{
     CloseItem, CommentItem, CreateItem, CreateResult, ItemDocument, ItemSummary, MutationResult,
-    PmRustError, UpdateItem,
+    OwnershipItem, OwnershipResult, PmRustError, UpdateItem,
 };
 
 pub(crate) const NON_ITEM_DIRECTORIES: [&str; 6] = [
@@ -334,6 +334,22 @@ impl Workspace {
     /// error. The item and the comment text must both exist.
     pub fn comment(&self, request: &CommentItem) -> Result<MutationResult, PmRustError> {
         comment_item(&self.pm_root, request)
+    }
+
+    /// Atomically claims an explicit item for an asserted author.
+    ///
+    /// # Errors
+    /// Returns validation, lock, ownership, recovery, or filesystem failures.
+    pub fn claim(&self, request: &OwnershipItem) -> Result<OwnershipResult, PmRustError> {
+        crate::mutation::ownership_item(&self.pm_root, request, true)
+    }
+
+    /// Releases ownership according to the tracker's ownership policy.
+    ///
+    /// # Errors
+    /// Returns validation, lock, ownership, recovery, or filesystem failures.
+    pub fn release(&self, request: &OwnershipItem) -> Result<OwnershipResult, PmRustError> {
+        crate::mutation::ownership_item(&self.pm_root, request, false)
     }
 
     /// Closes one open item with an immutable closing summary.

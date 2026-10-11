@@ -6,6 +6,14 @@ use std::path::PathBuf;
 /// Failures returned by the Rust-native read surface.
 #[derive(Debug, thiserror::Error)]
 pub enum PmRustError {
+    /// Ownership test-and-set or strict release policy refused a mutation.
+    #[error("{detail}")]
+    OwnershipRefusal {
+        /// Published human-readable refusal.
+        detail: String,
+        /// Published structured guidance fields.
+        context: serde_json::Value,
+    },
     /// The requested output budget cannot fit mandatory receipts and one row.
     #[error("requested output budget is infeasible")]
     OutputBudgetExceeded,

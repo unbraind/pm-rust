@@ -24,6 +24,8 @@ The table below records the original legacy SDK boundaries.
 | `update` / `Workspace::update` | Whole-field title/description/status/priority/tags/body replacement; stored-byte differential | Limited flags and receipt; no general lifecycle governance/field operations |
 | `comment` / `Workspace::comment` | Comment append with stored-byte differential | Limited native argv and receipt; published canonical `item comment` family absent |
 | `close` / `Workspace::close` | Immutable closing summary with stored-byte differential | Limited native argv/receipt and lifecycle/governance behavior |
+| `claim <id>` / `Workspace::claim` | Atomic ownership test-and-set; assignee and claim principal; same-owner no-op; foreign-owner refusal or `--if-available` skip; coordinated `--force` takeover; terminal refusal; published item/history bytes and compact JSON receipt | JSON receipts, explicit asserted author and canonical IDs; no `--next`, `--start`, detected session principals, hooks or runtime lifecycle policies. See [ownership evidence](OWNERSHIP_PARITY_2026_10_7.md) |
+| `release <id>` / `Workspace::release` | Clear both ownership fields; published governance preset precedence and strict-owner refusal; `--force`; empty-release maintenance event; in-progress warning; stored-byte and refusal differential | JSON receipts, explicit asserted author and canonical IDs; no `--pause`, extension-provided ownership bypass or semantic session attribution |
 | Native clap help | Native argument documentation | Published structured `help --all --json` contract absent |
 
 Examples (the explicit unbounded flags opt out of default bounds):
@@ -47,7 +49,7 @@ cached with the complete ordering key; alternate formats accepted by
 JavaScript `Date.parse` are outside the slice. Native invalid/duplicate item
 reads fail closed rather than reporting TypeScript's partial completeness.
 
-## Missing published surface
+## Published root inventory
 
 The captured help advertises these 39 roots:
 
@@ -59,10 +61,12 @@ list-draft list-in-progress list-open ops package pause-task plan release restor
 search start-task update upgrade workspace
 ```
 
-The create/update/comment/close/list/get native commands have implementation slices;
-help differs and the other roots remain missing. Nested operations do not
+## Missing published surface
+
+The table above describes the native implementation slices. Structured help
+differs and the other roots remain missing. Nested operations do not
 become implemented because one related native alias exists. In particular,
-agent `context`, `search`, `next` (nested/alias task selection), claim/release,
+agent `context`, `search`, `next` (nested/alias task selection), composed start/pause,
 configured context intents, and native history merge/replay/repair remain follow-up work.
 The published root inventory includes deprecated aliases and command families,
 so its count is an inventory measure rather than a readiness percentage.
