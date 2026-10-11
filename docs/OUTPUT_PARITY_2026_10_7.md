@@ -1,4 +1,8 @@
-# List output parity against the locked 2026.10.7 oracle
+# List output parity against the locked 2026.10.9 oracle
+
+Current integration uses TOON 0.6.1 and the locked 2026.10.9 oracle.
+Original 2026.10.7 receipts remain below; the current-main integration and
+repeated revert proofs are recorded in the final section.
 
 Implemented owner items:
 [pm-rust-8hkb](https://github.com/unbraind/pm-rust/blob/main/.agents/pm/issues/pm-rust-8hkb.toon)
@@ -114,3 +118,41 @@ instrumented run. Measured native source coverage:
 Both PM-linked regression commands passed via `pm test --run --progress`.
 Strict PM health and validation returned success with existing tracker
 advisories; these are separate from source coverage and parity evidence.
+
+## Current main integration (2026.10.9 / TOON 0.6.1)
+
+PR 67 already contains the remote merge of main. No files conflict with current
+main. All three native Rust jobs and all three release aggregates from run
+38113052284 fail at `tests/output_parity_differential.rs` in fixture initialization: the
+manifest assertion expects 2026.10.7 but the locked oracle is 2026.10.9. Neither
+generated parity test reaches its comparisons in those failed jobs.
+
+Bind that assertion to `COMPATIBLE_PM_VERSION` (currently 2026.10.9) so future
+main upgrades share the crate compatibility contract. Preserve lossless UTF-16 output,
+stored metadata order, canonical history sorting, and main's supported quoting
+API. All 24 metadata permutations now alternate titles `05` and `0.` so the
+new decoder grammar is exercised along with nested key order. Main's complete
+quoting differential remains intact. Coverage thresholds and exclusions are
+unchanged.
+
+Both current-main native-only behavioral revert proofs compile and fail their
+unchanged regressions at runtime (one test each, exit 101). Removing only
+surrogate escape capture fails at byte 327014. Restoring canonical lexical
+sorting in only the full-list projection fails stored metadata order while
+retaining the current create path and ordered decoder. An initial historical
+map-type revert did not compile and is excluded from proof evidence. All
+production files are restored byte-for-byte before aggregate gates.
+
+Final integration receipts: both PM-linked `just release-check` aggregates
+passed on Node 26.7.0, Rust 1.90.0 and nightly-2026-08-06 against the locked
+published 2026.10.9 oracle. The second uses a disposable HOME with global and
+system Git configuration disabled. Each passed **212 ordinary and 212
+instrumented tests**, with zero failures or ignored tests. Fresh reports agree
+at **3,165/3,165 lines, 286/286 functions, 4,739/4,739 regions and 610/610
+branches**, all **100%** across the unchanged ten executable source files.
+Formatting, strict Clippy, private-item rustdoc, Cargo audit and pinned
+changelog verification passed. The metadata-order item's own PM-linked
+24-permutation regression also passed **1/1**. Source, test, manifest and gate
+input hashes match the aggregate receipts. The earlier 211-test receipt above
+describes the original 2026.10.7 integration. Native cross-platform CI remains
+a separate receipt at the pushed head.

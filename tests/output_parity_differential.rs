@@ -23,7 +23,7 @@ fn fixture() -> Result<tempfile::TempDir, Box<dyn std::error::Error>> {
     if let Some(published) = published_cli::published_cli_or_skip("output parity differential") {
         let package: Value =
             serde_json::from_slice(&fs::read(published.package_root.join("package.json"))?)?;
-        assert_eq!(package["version"], "2026.10.7");
+        assert_eq!(package["version"], pm_rust::COMPATIBLE_PM_VERSION);
         fs::write(
             directory.path().join("driver.mjs"),
             format!(
@@ -237,7 +237,13 @@ fn generated_extra_key_permutations_match_locked_oracle() -> TestResult {
                     for key in order {
                         writeln!(extras, "{}:\n  z: 30.125\n  a: 0.000001", keys[key])?;
                     }
-                    item(directory.path(), index, "Metadata order", "", &extras)?;
+                    item(
+                        directory.path(),
+                        index,
+                        if index.is_multiple_of(2) { "05" } else { "0." },
+                        "",
+                        &extras,
+                    )?;
                     index += 1;
                 }
             }
