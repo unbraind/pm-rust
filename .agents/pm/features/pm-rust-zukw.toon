@@ -2,13 +2,18 @@ id: pm-rust-zukw
 title: Implement native claim and release with published CLI parity
 description: "Match locked 2026.10.7 ownership transitions, refusal envelopes, durable history, and concurrent claim arbitration."
 type: Feature
-status: in_progress
+status: closed
 priority: 1
 tags[3]: conformance,ownership,rust
 created_at: "2026-10-07T23:58:19.521Z"
-updated_at: "2026-10-11T07:47:26.559Z"
+updated_at: "2026-10-12T00:57:55.003Z"
+closed_at: "2026-10-11T23:30:34.184Z"
+completed_at: "2026-10-11T23:30:34.184Z"
 author: codex-sol
 parent: pm-rust-u4al
+resolution: "Implemented and merged in https://github.com/unbraind/pm-rust/pull/68: native claim and release with published CLI parity and safe timestamp validation"
+expected_result: "Delivered outcome: Implement native claim and release with published CLI parity."
+actual_result: "Merged in https://github.com/unbraind/pm-rust/pull/68 with green required CI checks and a completed CodeRabbit full review with every finding resolved; native claim and release with published CLI parity and safe timestamp validation"
 comments[29]{created_at,author,text}:
   "2026-10-07T23:58:29.759Z",codex-sol,"Plan: implement native ownership transitions under the existing item lock and journal; compare item/history bytes and refusal envelopes with locked CLI 2026.10.7; verify a two-process race, behavioral revert, and both release-check environments."
   "2026-10-08T00:06:57.313Z",codex-sol,"Implementation now matches explicit-author claim/release storage and compact JSON receipts. Published probes established preset precedence, repeated claim no-op, empty release maintenance history, strict-policy release refusal, and terminal claim force override. Six simultaneous two-process claim races produced exactly one winner and valid published-verifier history. Final differential rerun and coverage gates remain to verify."
@@ -128,4 +133,5 @@ docs[7]:
     scope: project
   - path: README.md
     scope: project
+close_reason: "Delivered by https://github.com/unbraind/pm-rust/pull/68 (merged); native claim and release with published CLI parity and safe timestamp validation"
 body: ""
