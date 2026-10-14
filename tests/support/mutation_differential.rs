@@ -75,7 +75,7 @@ try {
       console.log(JSON.stringify(result));
     } else if (process.argv[2] === "__ownership_error") {
       try {
-        await (process.argv[3] === "claim" ? claim : release)(process.argv[4], { author: "alpha" }, { path: process.cwd() });
+        await (process.argv[3] === "claim" ? claim : process.argv[3] === "start" ? startTask : release)(process.argv[4], { author: "alpha" }, { path: process.cwd() });
         console.log(JSON.stringify({ ok: true }));
       } catch (error) {
         console.log(JSON.stringify({ detail: error.message, exit_code: error.exitCode, context: error.context }));

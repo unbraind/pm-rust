@@ -6,10 +6,12 @@ status: in_progress
 priority: 2
 tags[3]: conformance,ownership,rust
 created_at: "2026-10-08T00:07:26.196Z"
-updated_at: "2026-10-14T10:08:51.884Z"
+updated_at: "2026-10-14T10:39:07.584Z"
+assignee: codex-agent
+claim_principal: codex-agent
 author: codex-sol
 parent: pm-rust-u4al
-comments[36]{created_at,author,text}:
+comments[38]{created_at,author,text}:
   "2026-10-08T00:09:50.591Z",codex-sol,"Follow-up boundary from pm-rust-zukw: explicit asserted-author ownership is implemented with CLI 2026.10.7 differential coverage. Selection, composed start/pause operations, detected session principals, extension bypass and semantic attribution remain separate work."
   "2026-10-08T00:48:46.548Z",codex-sol,"Additional documented boundary: the native explicit ownership surface emits compact JSON receipts; alternate published rendering formats remain follow-up work alongside selection, composed lifecycle operations and session attribution."
   "2026-10-13T12:05:52.716Z",codex-agent,"Implement native selection and composed ownership lifecycle using existing mutation transactions; characterize published 2026.10.13 output, session principals, attribution and partial-failure receipts with real scratch trackers. Include adjacent comment and tag ordering parity fixes when shared normalization is involved."
@@ -46,6 +48,8 @@ comments[36]{created_at,author,text}:
   "2026-10-14T09:32:29.512Z",codex-agent,"First clean full branch-coverage run passed 284 tests but failed unchanged thresholds: one untested read_items error-return region and two test-only counter macro regions; lines 4827/4828 and regions 7316/7319, functions/branches 100%. Added a real corrupt-corpus case proving decode errors propagate before session publication and leave session bytes unchanged. Moved only the thread-local counter definition into the existing test harness. Targeted test and both Clippy toolchains pass; repeated final scan revert still fails with 12 versus 1 scans, then restored. Diagnostic ownership-only coverage confirms the new error-return region executes and the counter macro no longer maps into production source. This diagnostic report is not acceptance evidence. Rerun full clean stable/MSRV/coverage gates."
   "2026-10-14T09:53:11.154Z",codex-agent,"Second full rerun again passed 284 tests on both compilers and coverage, and covered the indexing error path. The remaining two missed regions were LLVM mapping artifacts from a cfg(test) statement inside Workspace::read_items: no uncovered source segments were reported. Relocating only the counter definition was insufficient. The production corpus reader now has one identical read_items_impl body, with observation delegated by a test-only public-method wrapper in the existing real-fixture harness. No SDK result is mocked and no coverage exclusion or threshold changed. Targeted scan test and both Clippy toolchains pass; the updated behavioural revert still fails 12 versus 1. A 147-test unit/CLI diagnostic validates the corrected mapping shape; only the upcoming fresh full suite is acceptance evidence."
   "2026-10-14T10:08:50.870Z",codex-agent,"Final acceptance at source head 84cbfc8: stable 1.99, MSRV 1.90 and the clean pinned nightly branch-coverage run each passed 284 all-target/all-feature tests; zero failed, ignored, measured or filtered. Each includes 48 oracle cases across six suites, including 21 ownership cases. Unchanged four-dimensional thresholds all pass: lines 4829/4829, functions 454/454, regions 7318/7318 and branch outcomes 970/970, all 100%. Full just release-check passed including fmt, warnings-denied Clippy, private-item docs, locked oracle install (zero npm vulnerabilities), cargo audit (one existing allowed RUSTSEC-2024-0449 warning) and changelog check. No accumulated diagnostic profiles were used. Linked final scan regression also passed through pm test --run --only-index 7 --progress. Existing history prefixes remain unchanged. Final documentation/receipts follow; no item will be closed. Remaining out-of-scope contracts are pm-rust-sldg and pm-rust-lcap."
+  "2026-10-14T10:32:20.511Z",codex-agent,"Round 2 at head 4e6c004: read both new review threads in full. Verify post-claim semantic publication failures against the locked TypeScript oracle before choosing recovery guidance, then index readiness lookups with deterministic corpus-scan instrumentation. Preserve exact output and existing case/cycle behavior; each accepted fix needs an independent failing behavioural revert. Run the unchanged stable, MSRV and clean nightly coverage release gates; retain append-only history and leave the item open."
+  "2026-10-14T10:38:58.052Z",codex-agent,"Finding 1 rejected for parity: locked 2026.10.14 sdk/lifecycle/claim.js persists ownership then awaits semantic recording inside runClaim; task-composition.js wraps only the later runUpdate in finishComposition. A real stale session-state lock deterministically injects recording failure after durable claim. The new differential pins the exact SDK refusal bytes (exit_code 4, context empty), checks the real CLI detail and absence of persisted-state guidance, and compares complete item/history/session bytes. Native retains its raw LockConflict and open status with durable assignee/principal. Existing stale diagnostic/exit mismatch remains pm-rust-sldg. Applying only the reviewer start_task split and partial_failure mapping compiles but fails the targeted test (0 passed, 1 failed, exit 101); original source restored byte for byte. This is a rejected-proposal proof, not a fix revert."
 files[20]{path,scope}:
   src/collation.rs,project
   src/history.rs,project
@@ -67,7 +71,7 @@ files[20]{path,scope}:
   tests/support/mutation_unit.rs,project
   tests/support/ownership_unit.rs,project
   tests/support/selection_unit.rs,project
-tests[10]:
+tests[11]:
   - command: env PM_RUST_REQUIRE_PUBLISHED_CLI=1 cargo test --test claim_release_differential
     scope: project
     timeout_seconds: 1800
@@ -140,6 +144,13 @@ tests[10]:
     provenance:
       author: codex-agent
       created_at: "2026-10-14T09:24:20.031Z"
+      source_kind: local_mutation
+      source_ref: feat/native-selection-lifecycle
+  - command: PM_RUST_REQUIRE_PUBLISHED_CLI=1 cargo test --locked --test claim_release_differential failed_start_semantic_recording_retains_oracle_claim_error -- --exact
+    scope: project
+    provenance:
+      author: codex-agent
+      created_at: "2026-10-14T10:39:07.403Z"
       source_kind: local_mutation
       source_ref: feat/native-selection-lifecycle
 docs[1]{path,scope}:

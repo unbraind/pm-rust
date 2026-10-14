@@ -210,3 +210,33 @@ All original history streams retain their exact byte prefixes. The item was
 released and remains in progress for orchestrator verification; the two new
 follow-ups remain open. Final delivery changes only documentation and tracker
 receipts beyond the validated source head.
+
+
+## Review round 2: semantic publication failure
+
+The proposed start-task recovery wrapping is rejected for oracle parity.
+Published `sdk/lifecycle/claim.js` saves ownership before awaiting semantic
+attribution, and `sdk/lifecycle/task-composition.js` invokes `runClaim` outside
+`finishComposition`. Only the subsequent status update receives the persisted
+claim message and inspection hint. A semantic-recording failure therefore
+propagates the raw claim error even though ownership is durable.
+
+`failed_start_semantic_recording_retains_oracle_claim_error` injects that failure
+with a real expired session-state lock. It pins the published SDK refusal bytes
+(`exit_code: 4`, empty context), checks the real CLI's `command_failed` detail and
+absence of the inspection hint, and compares complete item/history/session
+bytes. The claim remains saved, the status stays open, and the lock remains.
+The native stale diagnostic and CLI exit still differ from the oracle; that
+existing boundary is tracked in
+[pm-rust-sldg](../.agents/pm/issues/pm-rust-sldg.toon). This regression verifies
+composition and persistence; it does not claim byte-identical lock diagnostics.
+
+Applying only the reviewer proposal to split `start_task` and map semantic
+errors through `partial_failure` compiles and makes this test fail: zero passed,
+one failed, exit 101. Restoring the original source byte for byte makes the test
+pass. Because oracle parity prohibits the proposed behavior, this is a
+rejected-proposal proof rather than a fix revert.
+
+```sh
+PM_RUST_REQUIRE_PUBLISHED_CLI=1 cargo test --locked --test claim_release_differential failed_start_semantic_recording_retains_oracle_claim_error -- --exact
+```

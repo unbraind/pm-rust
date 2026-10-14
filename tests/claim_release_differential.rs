@@ -1440,3 +1440,82 @@ fn ranking_comparison_rejects_exit_stderr_and_session_divergence()
     fixture.compare_bytes()?;
     Ok(())
 }
+
+/// Semantic publication belongs to the claim step, before lifecycle recovery wrapping.
+#[test]
+fn failed_start_semantic_recording_retains_oracle_claim_error()
+-> Result<(), Box<dyn std::error::Error>> {
+    let Some(fixture) = Fixture::new("none")? else {
+        return Ok(());
+    };
+    let lock = serde_json::to_vec(&serde_json::json!({
+        "id":"session-state", "pid":1, "owner":"session-state",
+        "created_at":"2000-01-01T00:00:00.000Z", "ttl_seconds":1800,
+        "token":"stale-session-fixture"
+    }))?;
+    for root in [fixture.node.path(), fixture.rust.path()] {
+        fs::write(root.join(".agents/pm/locks/session-state.lock"), &lock)?;
+    }
+    let oracle = published_run(
+        &fixture.driver,
+        fixture.node.path(),
+        &["__ownership_error", "start", "sample-own"],
+    )?;
+    assert!(oracle.status.success());
+    assert_eq!(oracle.stderr, b"");
+    assert_eq!(oracle.stdout, b"{\"detail\":\"Item session-state lock is stale; rerun with --force when supported for this command\",\"exit_code\":4,\"context\":{}}\n");
+    let workspace = pm_rust::Workspace::discover(fixture.rust.path())?;
+    let request = pm_rust::OwnershipItem {
+        id: "sample-own".to_owned(),
+        author: "alpha".to_owned(),
+        timestamp: Some(CLOCK.to_owned()),
+        message: None,
+        force: false,
+        if_available: false,
+        provenance_role: None,
+    };
+    let cli = published_run(
+        &fixture.driver,
+        fixture.node.path(),
+        &[
+            "claim",
+            "sample-own",
+            "--start",
+            "--author",
+            "alpha",
+            "--json",
+        ],
+    )?;
+    assert_eq!(cli.status.code(), Some(4));
+    assert_eq!(cli.stdout, b"");
+    let envelope: serde_json::Value = serde_json::from_slice(&cli.stderr)?;
+    assert_eq!(
+        envelope["detail"],
+        "Item session-state lock is stale; rerun with --force when supported for this command"
+    );
+    assert_eq!(envelope["code"], "command_failed");
+    assert!(envelope.get("item_id").is_none());
+    assert!(!String::from_utf8(cli.stderr)?.contains("Inspect the persisted state"));
+    // The existing stale-lock diagnostic difference is tracked in pm-rust-sldg.
+    // Preserve the raw claim error instead of inventing lifecycle recovery context.
+    assert!(matches!(
+        workspace.start_task(&request, &pm_rust::OwnershipOptions::default()),
+        Err(pm_rust::PmRustError::LockConflict { id }) if id == "session-state"
+    ));
+    fixture.compare_bytes()?;
+    let item = workspace.get("sample-own")?;
+    assert_eq!(item.metadata.status, "open");
+    assert_eq!(item.metadata.extra["assignee"], "alpha");
+    assert_eq!(item.metadata.extra["claim_principal"], "alpha");
+    let history = fs::read_to_string(workspace.pm_root().join("history/sample-own.jsonl"))?;
+    assert_eq!(history.lines().count(), 2);
+    for root in [fixture.node.path(), fixture.rust.path()] {
+        assert_eq!(
+            fs::read(root.join(".agents/pm/locks/session-state.lock"))?,
+            lock
+        );
+        assert!(!root.join(".agents/pm/runtime/session.json").exists());
+    }
+    fixture.verify()?;
+    Ok(())
+}
