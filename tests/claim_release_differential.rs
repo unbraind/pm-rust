@@ -1371,3 +1371,35 @@ fn sdk_start_if_available_refuses_without_mutation() -> Result<(), Box<dyn std::
     }
     Ok(())
 }
+
+/// Indexing lineage preserves the oracle's ancestor evidence and session bytes.
+#[test]
+fn deep_lineage_session_bytes_match_published() -> Result<(), Box<dyn std::error::Error>> {
+    let Some(fixture) = Fixture::new("strict")? else {
+        return Ok(());
+    };
+    for level in 0..12 {
+        let id = format!("sample-a{level:02}");
+        let parent = format!("sample-a{:02}", level - 1);
+        let mut args = vec![
+            "create",
+            "--id",
+            &id,
+            "--type",
+            "Task",
+            "--title",
+            "Lineage fixture",
+            "--author",
+            "alpha",
+            "--json",
+        ];
+        if level > 0 {
+            args.extend(["--parent", &parent]);
+        }
+        prepare(&fixture, &args)?;
+    }
+    fixture.step(&["claim", "sample-a11", "--author", "alpha", "--json"])?;
+    fixture.step(&["release", "sample-a11", "--author", "alpha", "--json"])?;
+    fixture.verify()?;
+    Ok(())
+}

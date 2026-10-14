@@ -546,3 +546,60 @@ fn external_runtime_schema_precedence_and_errors() -> Result<(), Box<dyn std::er
     ));
     Ok(())
 }
+
+/// A deep lineage costs one corpus read per explicit ownership command.
+#[test]
+fn ownership_lineage_scans_corpus_once() -> Result<(), Box<dyn std::error::Error>> {
+    let directory = tempfile::tempdir()?;
+    let root = directory.path().join(".agents/pm");
+    fs::create_dir_all(root.join("tasks"))?;
+    fs::create_dir_all(root.join("history"))?;
+    fs::write(root.join("settings.json"), "{}")?;
+    for level in 0..52 {
+        let parent = if (1..12).contains(&level) {
+            format!("parent: sample-{:02}\n", level - 1)
+        } else {
+            String::new()
+        };
+        fs::write(
+            root.join(format!("tasks/sample-{level:02}.toon")),
+            format!(
+                "id: sample-{level:02}\ntitle: Work\ndescription: \"\"\ntype: Task\nstatus: open\npriority: 2\ntags: []\ncreated_at: \"2026-08-22T10:00:00.000Z\"\nupdated_at: \"2026-08-22T10:00:00.000Z\"\n{parent}body: \"\"\n"
+            ),
+        )?;
+    }
+    let workspace = Workspace::discover(&root)?;
+    let request = OwnershipItem {
+        id: "sample-11".to_owned(),
+        author: "alpha".to_owned(),
+        timestamp: Some("2026-08-22T10:00:00.000Z".to_owned()),
+        message: None,
+        force: false,
+        if_available: false,
+        provenance_role: None,
+    };
+    let before = crate::workspace::READ_ITEMS_SCANS.get();
+    workspace.claim_with_options(&request, &OwnershipOptions::default())?;
+    assert_eq!(crate::workspace::READ_ITEMS_SCANS.get() - before, 1);
+    let state: Value = serde_json::from_slice(&fs::read(root.join("runtime/session.json"))?)?;
+    let key = format!("author-{}", hex_prefix(b"alpha", 24));
+    let mut evidence = vec!["claim:sample-11".to_owned()];
+    evidence.extend(
+        (0..12)
+            .rev()
+            .map(|level| format!("lineage:sample-{level:02}")),
+    );
+    assert_eq!(
+        state["semantic_attribution"][key]["evidence"],
+        json!(evidence)
+    );
+    let before = crate::workspace::READ_ITEMS_SCANS.get();
+    workspace.release_with_options(&request, &OwnershipOptions::default())?;
+    assert_eq!(crate::workspace::READ_ITEMS_SCANS.get() - before, 1);
+    // An absent ancestor retains the prior lineage walk's termination behavior.
+    fs::remove_file(root.join("tasks/sample-00.toon"))?;
+    let before = crate::workspace::READ_ITEMS_SCANS.get();
+    workspace.claim_with_options(&request, &OwnershipOptions::default())?;
+    assert_eq!(crate::workspace::READ_ITEMS_SCANS.get() - before, 1);
+    Ok(())
+}

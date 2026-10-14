@@ -435,17 +435,23 @@ fn record_semantics(
     } else {
         format!("author-{}", hex_prefix(principal.as_bytes(), 24))
     };
+    let parents: BTreeMap<String, Option<String>> = workspace
+        .read_items()?
+        .into_iter()
+        .map(|item| (item.metadata.id, item.metadata.parent))
+        .collect();
+    let Some(mut current) = parents.get(&request.id).cloned() else {
+        return Err(PmRustError::ItemNotFound {
+            id: request.id.clone(),
+        });
+    };
     let mut lineage = vec![request.id.clone()];
-    let mut current = workspace.get(&request.id)?.metadata.parent;
     while let Some(parent) = current {
         if lineage.contains(&parent) {
             break;
         }
         lineage.push(parent.clone());
-        current = workspace
-            .get(&parent)
-            .ok()
-            .and_then(|item| item.metadata.parent);
+        current = parents.get(&parent).cloned().flatten();
     }
     crate::mutation::mutate_session_state(workspace.pm_root(), |state| {
         let mut attribution = state
