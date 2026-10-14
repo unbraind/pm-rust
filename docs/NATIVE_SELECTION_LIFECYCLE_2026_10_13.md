@@ -240,3 +240,51 @@ rejected-proposal proof rather than a fix revert.
 ```sh
 PM_RUST_REQUIRE_PUBLISHED_CLI=1 cargo test --locked --test claim_release_differential failed_start_semantic_recording_retains_oracle_claim_error -- --exact
 ```
+
+
+## Review round 2: readiness indexing
+
+`CorpusIndex` makes one corpus pass before readiness checks. It indexes ID
+lookups, child edges and inverse `blocks` relationships. Terminal lookups retain
+the former existential behavior when case variants coexist. Descendant edges
+retain Unicode lowercasing; dependency and ID lookups retain ASCII-insensitive
+comparison; completed-container leaf selection retains exact parent comparison.
+Parent-scoped traversal visits indexed child edges and terminates on cycles.
+
+Readiness uses at most two distinct nonterminal witnesses per subtree, propagated
+through parent edges. Two witnesses suffice to distinguish another nonterminal
+item from the candidate itself, including cycles. Each node forwards at most
+two witnesses, avoiding repeated descendant walks for every candidate. Recency
+ranks also use a map instead of scanning the sorted ranking for each item.
+
+`selection::tests::selection_readiness_scans_corpus_once` observes whole passes
+over the actual in-memory slice, retaining real documents and results. Both a
+54-document and a 210-document corpus, with deep parent chains and inverse
+blockers, need exactly two passes: one to build the index and one to filter
+candidates. Readiness lookups never rescan the corpus. The result remains the
+single unblocked leaf. Additional tests cover cycles, self exclusion, terminal
+intermediates, case variants and untrimmed inverse dependency references.
+The depth-12 oracle differential also selects through an uppercase parent
+filter and compares complete output and durable item/history/session bytes.
+
+Reverting only readiness lookup functions to the former scans, retaining the
+same observation and regression, compiles but fails deterministically with
+110 passes versus two: zero passed, one failed, exit 101. Restoring the indexed
+source byte for byte passes. The independent semantic-publication proposal
+proof remains separate.
+
+```sh
+cargo test --locked --lib selection::tests::selection_readiness_scans_corpus_once -- --exact
+PM_RUST_REQUIRE_PUBLISHED_CLI=1 cargo test --locked --test claim_release_differential deep_lineage_session_bytes_match_published -- --exact
+```
+
+
+A separate real-tracker probe confirmed that a single open, self-parented Task
+is excluded as a container by published claim-next (exit 3) but remains
+claimable in native claim-next (exit 0). The original native readiness check
+excludes the root from descendants. This performance change preserves that
+existing behavior; cyclic-container oracle parity is tracked in
+[pm-rust-1ycz](../.agents/pm/issues/pm-rust-1ycz.toon).
+The linked pm runner passed the exact semantic-recording and scan tests at
+indexes 11 and 12. Automatic test-result recording is disabled in this tracker;
+explicit comments retain those receipts.

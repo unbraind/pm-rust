@@ -1,0 +1,19 @@
+id: pm-rust-1ycz
+title: Match published container readiness for cyclic parent graphs
+description: "Round 2 readiness-index review found a pre-existing parity gap. In a real disposable tracker with one open Task whose stored parent equals its own ID, published 2026.10.14 claim --next exits 3 with no_available_next_item; native exits 0 and claims it. Published hasOpenDescendant recognizes the nonterminal node reached through the cycle, while the existing native descendant check explicitly excludes the root. The performance-only indexing change retains prior case and cycle behavior. Repair cyclic-container semantics in separate differential work, including self cycles and mixed terminal/nonterminal cycles, without restoring repeated corpus scans."
+type: Issue
+status: open
+priority: 2
+tags[2]: conformance,selection
+created_at: "2026-10-14T10:44:14.727Z"
+updated_at: "2026-10-14T10:44:40.066Z"
+author: codex-agent
+acceptance_criteria: Real cyclic tracker differentials match published exit/stdout/stderr and durable state; indexing remains bounded and its deterministic scan regression passes
+parent: pm-rust-u4al
+files[3]{path,scope}:
+  src/selection.rs,project
+  tests/claim_release_differential.rs,project
+  tests/support/selection_unit.rs,project
+docs[1]{path,scope}:
+  docs/NATIVE_SELECTION_LIFECYCLE_2026_10_13.md,project
+body: ""

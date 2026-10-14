@@ -1375,6 +1375,15 @@ fn deep_lineage_session_bytes_match_published() -> Result<(), Box<dyn std::error
     }
     fixture.step(&["claim", "sample-a11", "--author", "alpha", "--json"])?;
     fixture.step(&["release", "sample-a11", "--author", "alpha", "--json"])?;
+    fixture.step(&[
+        "claim",
+        "--next",
+        "--parent",
+        "SAMPLE-A00",
+        "--author",
+        "alpha",
+        "--json",
+    ])?;
     fixture.verify()?;
     Ok(())
 }

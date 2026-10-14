@@ -6,12 +6,12 @@ status: in_progress
 priority: 2
 tags[3]: conformance,ownership,rust
 created_at: "2026-10-08T00:07:26.196Z"
-updated_at: "2026-10-14T10:39:07.584Z"
+updated_at: "2026-10-14T10:44:41.904Z"
 assignee: codex-agent
 claim_principal: codex-agent
 author: codex-sol
 parent: pm-rust-u4al
-comments[38]{created_at,author,text}:
+comments[40]{created_at,author,text}:
   "2026-10-08T00:09:50.591Z",codex-sol,"Follow-up boundary from pm-rust-zukw: explicit asserted-author ownership is implemented with CLI 2026.10.7 differential coverage. Selection, composed start/pause operations, detected session principals, extension bypass and semantic attribution remain separate work."
   "2026-10-08T00:48:46.548Z",codex-sol,"Additional documented boundary: the native explicit ownership surface emits compact JSON receipts; alternate published rendering formats remain follow-up work alongside selection, composed lifecycle operations and session attribution."
   "2026-10-13T12:05:52.716Z",codex-agent,"Implement native selection and composed ownership lifecycle using existing mutation transactions; characterize published 2026.10.13 output, session principals, attribution and partial-failure receipts with real scratch trackers. Include adjacent comment and tag ordering parity fixes when shared normalization is involved."
@@ -50,6 +50,8 @@ comments[38]{created_at,author,text}:
   "2026-10-14T10:08:50.870Z",codex-agent,"Final acceptance at source head 84cbfc8: stable 1.99, MSRV 1.90 and the clean pinned nightly branch-coverage run each passed 284 all-target/all-feature tests; zero failed, ignored, measured or filtered. Each includes 48 oracle cases across six suites, including 21 ownership cases. Unchanged four-dimensional thresholds all pass: lines 4829/4829, functions 454/454, regions 7318/7318 and branch outcomes 970/970, all 100%. Full just release-check passed including fmt, warnings-denied Clippy, private-item docs, locked oracle install (zero npm vulnerabilities), cargo audit (one existing allowed RUSTSEC-2024-0449 warning) and changelog check. No accumulated diagnostic profiles were used. Linked final scan regression also passed through pm test --run --only-index 7 --progress. Existing history prefixes remain unchanged. Final documentation/receipts follow; no item will be closed. Remaining out-of-scope contracts are pm-rust-sldg and pm-rust-lcap."
   "2026-10-14T10:32:20.511Z",codex-agent,"Round 2 at head 4e6c004: read both new review threads in full. Verify post-claim semantic publication failures against the locked TypeScript oracle before choosing recovery guidance, then index readiness lookups with deterministic corpus-scan instrumentation. Preserve exact output and existing case/cycle behavior; each accepted fix needs an independent failing behavioural revert. Run the unchanged stable, MSRV and clean nightly coverage release gates; retain append-only history and leave the item open."
   "2026-10-14T10:38:58.052Z",codex-agent,"Finding 1 rejected for parity: locked 2026.10.14 sdk/lifecycle/claim.js persists ownership then awaits semantic recording inside runClaim; task-composition.js wraps only the later runUpdate in finishComposition. A real stale session-state lock deterministically injects recording failure after durable claim. The new differential pins the exact SDK refusal bytes (exit_code 4, context empty), checks the real CLI detail and absence of persisted-state guidance, and compares complete item/history/session bytes. Native retains its raw LockConflict and open status with durable assignee/principal. Existing stale diagnostic/exit mismatch remains pm-rust-sldg. Applying only the reviewer start_task split and partial_failure mapping compiles but fails the targeted test (0 passed, 1 failed, exit 101); original source restored byte for byte. This is a rejected-proposal proof, not a fix revert."
+  "2026-10-14T10:42:16.420Z",codex-agent,"Finding 2 accepted: CorpusIndex builds ID, parent/child and inverse-block lookups once before readiness. Bounded nonterminal-witness propagation removes repeated descendant walks and retains cycles/self exclusion; a recency-rank map also removes per-candidate linear position scans. Existing ASCII versus Unicode and exact-parent comparisons are preserved. Deterministic scan regression over 54 and 210 documents passes with two actual in-memory corpus passes (index plus candidate iteration). Reverting only readiness functions to former scans with observation/tests retained compiles and fails with 110 passes versus 2 (0 passed, 1 failed, exit 101); restored indexed source passes. Deep-lineage selection with uppercase parent filter passes exact oracle streams and item/history/session bytes (1 passed). Unit diagnostic coverage covers every changed selection line, function and region; full clean acceptance is still required."
+  "2026-10-14T10:44:41.903Z",codex-agent,"Positive controls passed through the linked pm runner: exact semantic-publication test (index 11, 1 passed) and exact deterministic readiness scan (index 12, 1 passed). Automatic result recording is disabled in this tracker, so explicit comments retain receipts. Readiness review also reproduced a pre-existing self-parent cycle gap on real trackers: oracle claim-next exit 3 versus native exit 0; the original native root exclusion explains it. Preserve requested cycle behavior in this performance fix and track separate repair as pm-rust-1ycz. No additional agents or bot interactions were used."
 files[20]{path,scope}:
   src/collation.rs,project
   src/history.rs,project
@@ -71,7 +73,7 @@ files[20]{path,scope}:
   tests/support/mutation_unit.rs,project
   tests/support/ownership_unit.rs,project
   tests/support/selection_unit.rs,project
-tests[11]:
+tests[12]:
   - command: env PM_RUST_REQUIRE_PUBLISHED_CLI=1 cargo test --test claim_release_differential
     scope: project
     timeout_seconds: 1800
@@ -151,6 +153,13 @@ tests[11]:
     provenance:
       author: codex-agent
       created_at: "2026-10-14T10:39:07.403Z"
+      source_kind: local_mutation
+      source_ref: feat/native-selection-lifecycle
+  - command: "cargo test --locked --lib selection::tests::selection_readiness_scans_corpus_once -- --exact"
+    scope: project
+    provenance:
+      author: codex-agent
+      created_at: "2026-10-14T10:42:18.411Z"
       source_kind: local_mutation
       source_ref: feat/native-selection-lifecycle
 docs[1]{path,scope}:

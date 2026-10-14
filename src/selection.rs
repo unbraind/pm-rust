@@ -1,8 +1,11 @@
 //! Native actionable candidate selection followed by atomic ownership attempts.
 
 use std::cmp::Ordering;
-use std::collections::{BTreeMap, BTreeSet};
+use std::collections::{BTreeMap, BTreeSet, VecDeque};
 use std::fs;
+
+#[cfg(test)]
+use tests::corpus_items;
 
 use serde_json::{Value, json};
 use time::{OffsetDateTime, format_description::well_known::Rfc3339};
@@ -136,8 +139,124 @@ fn role(item: &ItemDocument, settings: &Value, wanted: &str) -> bool {
     }
 }
 
-/// Collects prerequisite IDs, including inverse blocks relationships.
-fn blockers(item: &ItemDocument, corpus: &[ItemDocument]) -> BTreeSet<String> {
+/// Iterates a whole corpus; tests observe each pass over the actual slice.
+#[cfg(not(test))]
+fn corpus_items(corpus: &[ItemDocument]) -> std::slice::Iter<'_, ItemDocument> {
+    corpus.iter()
+}
+
+/// Shared readiness lookups, retaining each original comparison's case semantics.
+struct CorpusIndex<'a> {
+    /// ASCII-insensitive IDs retain all matching documents for existential lookups.
+    by_id: BTreeMap<String, Vec<&'a ItemDocument>>,
+    /// Unicode-lowercase parent edges match the existing descendant traversal.
+    children: BTreeMap<String, Vec<String>>,
+    /// Inverse dependency targets use ASCII-insensitive, untrimmed comparisons.
+    inverse_blocks: BTreeMap<String, BTreeSet<String>>,
+    /// Leaf selection deliberately retains the existing exact parent comparison.
+    exact_parents: BTreeSet<&'a str>,
+    /// At most two distinct nonterminal witnesses per subtree suffice to exclude self.
+    nonterminal_witnesses: BTreeMap<String, BTreeSet<String>>,
+}
+
+impl<'a> CorpusIndex<'a> {
+    /// Indexes the corpus once, then propagates bounded witnesses through parent edges.
+    fn new(corpus: &'a [ItemDocument], settings: &Value) -> Self {
+        let mut index = Self {
+            by_id: BTreeMap::new(),
+            children: BTreeMap::new(),
+            inverse_blocks: BTreeMap::new(),
+            exact_parents: BTreeSet::new(),
+            nonterminal_witnesses: BTreeMap::new(),
+        };
+        let mut nodes = BTreeSet::new();
+        let mut parents: BTreeMap<String, Vec<String>> = BTreeMap::new();
+        for item in corpus_items(corpus) {
+            let id = item.metadata.id.to_lowercase();
+            nodes.insert(id.clone());
+            index
+                .by_id
+                .entry(item.metadata.id.to_ascii_lowercase())
+                .or_default()
+                .push(item);
+            if let Some(parent) = &item.metadata.parent {
+                let folded_parent = parent.to_lowercase();
+                index
+                    .children
+                    .entry(folded_parent.clone())
+                    .or_default()
+                    .push(id.clone());
+                parents.entry(id).or_default().push(folded_parent);
+                index.exact_parents.insert(parent);
+            }
+            if let Some(dependencies) = item
+                .metadata
+                .extra
+                .get("dependencies")
+                .and_then(Value::as_array)
+            {
+                for dep in dependencies {
+                    if dep["kind"] == "blocks"
+                        && let Some(target) = dep["id"].as_str()
+                    {
+                        index
+                            .inverse_blocks
+                            .entry(target.to_ascii_lowercase())
+                            .or_default()
+                            .insert(item.metadata.id.to_lowercase());
+                    }
+                }
+            }
+        }
+        let mut pending = VecDeque::new();
+        for id in nodes {
+            if index
+                .by_id
+                .get(&id.to_ascii_lowercase())
+                .is_some_and(|items| items.iter().any(|item| !role(item, settings, "terminal")))
+            {
+                pending.push_back((id.clone(), id));
+            }
+        }
+        // Each node forwards at most two witnesses. Cycles terminate and a lone
+        // nonterminal node cannot count itself as its own active descendant.
+        while let Some((id, witness)) = pending.pop_front() {
+            let witnesses = index.nonterminal_witnesses.entry(id.clone()).or_default();
+            if witnesses.len() >= 2 || !witnesses.insert(witness.clone()) {
+                continue;
+            }
+            if let Some(ancestors) = parents.get(&id) {
+                pending.extend(
+                    ancestors
+                        .iter()
+                        .map(|parent| (parent.clone(), witness.clone())),
+                );
+            }
+        }
+        index
+    }
+
+    /// Resolves terminal prerequisites without revisiting the corpus.
+    fn is_terminal(&self, id: &str, settings: &Value) -> bool {
+        self.by_id
+            .get(&id.to_ascii_lowercase())
+            .is_some_and(|items| items.iter().any(|item| role(item, settings, "terminal")))
+    }
+
+    /// Tests for any reachable nonterminal item other than the candidate itself.
+    fn has_active_descendants(&self, id: &str) -> bool {
+        self.nonterminal_witnesses
+            .get(&id.to_lowercase())
+            .is_some_and(|witnesses| {
+                witnesses
+                    .iter()
+                    .any(|witness| !witness.eq_ignore_ascii_case(id))
+            })
+    }
+}
+
+/// Collects prerequisite IDs, including indexed inverse blocks relationships.
+fn blockers(item: &ItemDocument, index: &CorpusIndex<'_>) -> BTreeSet<String> {
     let mut ids = BTreeSet::new();
     let blocked_by = text(item, "blocked_by").trim();
     if !blocked_by.is_empty() && blocked_by != "no-active-blocker" {
@@ -157,46 +276,29 @@ fn blockers(item: &ItemDocument, corpus: &[ItemDocument]) -> BTreeSet<String> {
             }
         }
     }
-    for other in corpus {
-        if other
-            .metadata
-            .extra
-            .get("dependencies")
-            .and_then(Value::as_array)
-            .is_some_and(|deps| {
-                deps.iter().any(|dep| {
-                    dep["kind"] == "blocks"
-                        && dep["id"]
-                            .as_str()
-                            .is_some_and(|id| id.eq_ignore_ascii_case(&item.metadata.id))
-                })
-            })
-        {
-            ids.insert(other.metadata.id.to_lowercase());
-        }
+    if let Some(inverse) = index
+        .inverse_blocks
+        .get(&item.metadata.id.to_ascii_lowercase())
+    {
+        ids.extend(inverse.iter().cloned());
     }
     ids
 }
 
-/// Finds all descendants with a cycle-safe traversal.
-fn descendants(parent: &str, corpus: &[ItemDocument]) -> BTreeSet<String> {
+/// Finds all descendants with an indexed, cycle-safe traversal for parent filters.
+fn descendants(parent: &str, index: &CorpusIndex<'_>) -> BTreeSet<String> {
     let mut ids = BTreeSet::from([parent.to_lowercase()]);
-    loop {
-        let before = ids.len();
-        for item in corpus {
-            if item
-                .metadata
-                .parent
-                .as_ref()
-                .is_some_and(|parent| ids.contains(&parent.to_lowercase()))
-            {
-                ids.insert(item.metadata.id.to_lowercase());
+    let mut pending = vec![parent.to_lowercase()];
+    while let Some(id) = pending.pop() {
+        if let Some(children) = index.children.get(&id) {
+            for child in children {
+                if ids.insert(child.clone()) {
+                    pending.push(child.clone());
+                }
             }
         }
-        if before == ids.len() {
-            return ids;
-        }
     }
+    ids
 }
 
 /// Checks supplied filters independently of readiness and ownership.
@@ -340,23 +442,21 @@ fn candidates(
     request: &OwnershipItem,
     selection: &SelectionOptions,
 ) -> Result<Vec<ItemDocument>, PmRustError> {
+    let index = CorpusIndex::new(corpus, settings);
     let family = if let Some(parent) = &selection.parent {
-        if !corpus
-            .iter()
-            .any(|item| item.metadata.id.eq_ignore_ascii_case(parent))
-        {
+        if !index.by_id.contains_key(&parent.to_ascii_lowercase()) {
             return Err(refusal(
                 &format!("Next --parent item not found: {parent}"),
                 3,
                 json!({}),
             ));
         }
-        Some(descendants(parent, corpus))
+        Some(descendants(parent, &index))
     } else {
         None
     };
     let mut ready = Vec::new();
-    for item in corpus {
+    for item in corpus_items(corpus) {
         if !role(item, settings, "active")
             || !matches(item, selection)
             || family
@@ -369,21 +469,13 @@ fn candidates(
         if !owner.is_empty() && owner != request.author {
             continue;
         }
-        if blockers(item, corpus).iter().any(|id| {
-            !corpus.iter().any(|target| {
-                target.metadata.id.eq_ignore_ascii_case(id) && role(target, settings, "terminal")
-            })
-        }) {
+        if blockers(item, &index)
+            .iter()
+            .any(|id| !index.is_terminal(id, settings))
+        {
             continue;
         }
-        let has_active_children = descendants(&item.metadata.id, corpus).iter().any(|id| {
-            !id.eq_ignore_ascii_case(&item.metadata.id)
-                && corpus.iter().any(|target| {
-                    target.metadata.id.eq_ignore_ascii_case(id)
-                        && !role(target, settings, "terminal")
-                })
-        });
-        if has_active_children && !selection.include_containers {
+        if index.has_active_descendants(&item.metadata.id) && !selection.include_containers {
             continue;
         }
         match item.metadata.item_type.to_lowercase().as_str() {
@@ -395,17 +487,11 @@ fn candidates(
     }
     // Completed containers are considered only when no actionable leaf remains.
     if !selection.include_containers
-        && ready.iter().any(|item| {
-            !corpus
-                .iter()
-                .any(|child| child.metadata.parent.as_deref() == Some(&item.metadata.id))
-        })
+        && ready
+            .iter()
+            .any(|item| !index.exact_parents.contains(item.metadata.id.as_str()))
     {
-        ready.retain(|item| {
-            !corpus
-                .iter()
-                .any(|child| child.metadata.parent.as_deref() == Some(&item.metadata.id))
-        });
+        ready.retain(|item| !index.exact_parents.contains(item.metadata.id.as_str()));
     }
     ready.sort_by(|left, right| baseline(left, right, settings));
     let mut recent: Vec<_> = ready
@@ -418,6 +504,11 @@ fn candidates(
             .cmp(&left.1)
             .then_with(|| crate::collation::compare(&left.0, &right.0))
     });
+    let recent_ranks: BTreeMap<_, _> = recent
+        .into_iter()
+        .enumerate()
+        .map(|(rank, (id, _))| (id, rank))
+        .collect();
     let divisor =
         f64::from(u32::try_from(ready.len().saturating_sub(1).max(1)).unwrap_or(u32::MAX));
     let degrees = graph_degree(&ready);
@@ -443,10 +534,7 @@ fn candidates(
         .enumerate()
         .map(|(index, item)| {
             let owned = text(&item, "assignee").trim() == request.author;
-            let rank = recent
-                .iter()
-                .position(|entry| entry.0 == item.metadata.id)
-                .unwrap_or(0);
+            let rank = recent_ranks.get(&item.metadata.id).copied().unwrap_or(0);
             let risk = match text(&item, "risk") {
                 "critical" | "high" => 1.0,
                 "medium" => 0.5,

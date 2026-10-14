@@ -3,6 +3,17 @@
 use super::*;
 use crate::{CreateItem, ItemMetadata};
 
+thread_local! {
+    /// Counts whole in-memory corpus passes on the current test thread.
+    static CORPUS_SCANS: std::cell::Cell<usize> = const { std::cell::Cell::new(0) };
+}
+
+/// Observes actual corpus iteration without replacing documents or results.
+pub(super) fn corpus_items(corpus: &[ItemDocument]) -> std::slice::Iter<'_, ItemDocument> {
+    CORPUS_SCANS.with(|count| count.set(count.get() + 1));
+    corpus.iter()
+}
+
 const CLOCK: &str = "2026-08-22T10:00:00.000Z";
 
 /// Builds an actionable document for pure filtering and ordering checks.
@@ -129,12 +140,13 @@ fn dependencies_and_descendants_are_cycle_safe() {
         ]),
     );
     let corpus = vec![first.clone(), second];
+    let index = CorpusIndex::new(&corpus, &json!({}));
     assert_eq!(
-        descendants("SAMPLE-A", &corpus),
+        descendants("SAMPLE-A", &index),
         BTreeSet::from(["sample-a".to_owned(), "sample-b".to_owned()])
     );
     assert_eq!(
-        blockers(&first, &corpus),
+        blockers(&first, &index),
         BTreeSet::from([
             "sample-b".to_owned(),
             "sample-c".to_owned(),
@@ -146,7 +158,7 @@ fn dependencies_and_descendants_are_cycle_safe() {
         .extra
         .insert("blocked_by".to_owned(), json!("no-active-blocker"));
     first.metadata.extra.remove("dependencies");
-    assert!(blockers(&first, &[]).is_empty());
+    assert!(blockers(&first, &CorpusIndex::new(&[], &json!({}))).is_empty());
 }
 
 /// Baseline ordering is total across every optional structural sort key.
@@ -482,4 +494,87 @@ fn completed_containers_and_ownership_ranking_remain_actionable()
         2
     );
     Ok(())
+}
+
+/// Readiness indexes once and filters once, independent of corpus size and depth.
+#[test]
+fn selection_readiness_scans_corpus_once() -> Result<(), Box<dyn std::error::Error>> {
+    let (_directory, workspace) = tracker()?;
+    for size in [52, 208] {
+        let mut corpus = Vec::new();
+        for level in 0..size {
+            let mut document = item(&format!("sample-{level:03}"));
+            if level > 0 {
+                document.metadata.parent = Some(format!("sample-{:03}", level - 1));
+            }
+            document.metadata.extra.insert(
+                "dependencies".to_owned(),
+                json!([
+                    {"kind":"blocks", "id":format!("sample-{:03}", (level + 1) % size)}
+                ]),
+            );
+            corpus.push(document);
+        }
+        let mut leaf = item("sample-leaf");
+        leaf.metadata
+            .extra
+            .insert("blocked_by".to_owned(), json!("sample-done"));
+        let mut done = item("sample-done");
+        done.metadata.status = "closed".to_owned();
+        corpus.extend([leaf, done]);
+        let before = CORPUS_SCANS.get();
+        let selected = candidates(
+            &workspace,
+            &corpus,
+            &json!({}),
+            &request(),
+            &SelectionOptions::default(),
+        )?;
+        // One indexing pass and one candidate pass; no readiness lookup scans it.
+        assert_eq!(CORPUS_SCANS.get() - before, 2);
+        assert_eq!(selected.len(), 1);
+        assert_eq!(selected[0].metadata.id, "sample-leaf");
+    }
+    Ok(())
+}
+
+/// Witness propagation preserves self exclusion, terminal intermediates and cycles.
+#[test]
+fn readiness_index_preserves_case_cycles_and_existential_roles() {
+    let mut first = item("sample-a");
+    first.metadata.parent = Some("SAMPLE-B".to_owned());
+    let mut second = item("sample-b");
+    second.metadata.parent = Some("sample-a".to_owned());
+    second.metadata.status = "closed".to_owned();
+    let mut self_cycle = item("sample-self");
+    self_cycle.metadata.parent = Some("sample-self".to_owned());
+    let mut duplicate = item("SAMPLE-A");
+    duplicate.metadata.status = "closed".to_owned();
+    let mut blocker = item("sample-blocker");
+    blocker.metadata.extra.insert(
+        "dependencies".to_owned(),
+        json!([
+            {"kind":"blocks", "id":" SAMPLE-A "}, {"kind":"blocks"},
+            {"kind":"related", "id":"sample-a"}
+        ]),
+    );
+    let corpus = [first, second, self_cycle, duplicate, blocker];
+    let index = CorpusIndex::new(&corpus, &json!({}));
+    assert!(!index.has_active_descendants("sample-a"));
+    assert!(index.has_active_descendants("sample-b"));
+    assert!(!index.has_active_descendants("sample-self"));
+    assert!(index.is_terminal("sample-a", &json!({})));
+    assert!(!index.is_terminal("sample-self", &json!({})));
+    assert!(!index.is_terminal("sample-absent", &json!({})));
+    assert!(blockers(&corpus[0], &index).is_empty());
+    assert!(index.exact_parents.contains("SAMPLE-B"));
+    assert!(!index.exact_parents.contains("sample-b"));
+    // Another nonterminal witness in the cycle makes both ancestors containers.
+    let mut extra = item("sample-extra");
+    extra.metadata.parent = Some("sample-b".to_owned());
+    let mut extended = corpus.to_vec();
+    extended.push(extra);
+    let index = CorpusIndex::new(&extended, &json!({}));
+    assert!(index.has_active_descendants("sample-a"));
+    assert!(index.has_active_descendants("sample-b"));
 }
