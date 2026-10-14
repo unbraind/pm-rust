@@ -628,34 +628,9 @@ fn selection_ranks_ready_work_and_excludes_live_blockers() -> Result<(), Box<dyn
     let args = ["claim", "--next", "--author", "alpha", "--json"];
     let node = published_run(&fixture.driver, fixture.node.path(), &args)?;
     let rust = native_command(fixture.rust.path(), &args).output()?;
-    assert_eq!(
-        String::from_utf8_lossy(&rust.stdout),
-        String::from_utf8_lossy(&node.stdout)
-    );
+    compare_ranking_result(&fixture, &rust, &node)?;
     let receipt: serde_json::Value = serde_json::from_slice(&node.stdout)?;
     assert_eq!(receipt["id"], "sample-urgent");
-    for id in [
-        "sample-own",
-        "sample-urgent",
-        "sample-blocked",
-        "sample-draft",
-    ] {
-        let folder = if id == "sample-blocked" {
-            "issues"
-        } else {
-            "tasks"
-        };
-        for path in [
-            format!(".agents/pm/{folder}/{id}.toon"),
-            format!(".agents/pm/history/{id}.jsonl"),
-        ] {
-            assert_eq!(
-                fs::read(fixture.rust.path().join(&path))?,
-                fs::read(fixture.node.path().join(&path))?,
-                "{path}"
-            );
-        }
-    }
     Ok(())
 }
 
@@ -1401,5 +1376,67 @@ fn deep_lineage_session_bytes_match_published() -> Result<(), Box<dyn std::error
     fixture.step(&["claim", "sample-a11", "--author", "alpha", "--json"])?;
     fixture.step(&["release", "sample-a11", "--author", "alpha", "--json"])?;
     fixture.verify()?;
+    Ok(())
+}
+
+/// Compares every observable ranking outcome and all ownership-derived state.
+fn compare_ranking_result(
+    fixture: &Fixture,
+    native: &Output,
+    oracle: &Output,
+) -> Result<(), Box<dyn std::error::Error>> {
+    assert_eq!(native.status.code(), oracle.status.code());
+    assert_eq!(native.stderr, oracle.stderr);
+    assert_eq!(native.stdout, oracle.stdout);
+    fixture.compare_bytes()
+}
+
+/// Negative controls demonstrate detection of each former ranking blind spot.
+#[test]
+fn ranking_comparison_rejects_exit_stderr_and_session_divergence()
+-> Result<(), Box<dyn std::error::Error>> {
+    use std::panic::{AssertUnwindSafe, catch_unwind};
+
+    let Some(fixture) = Fixture::new("strict")? else {
+        return Ok(());
+    };
+    let args = ["claim", "--next", "--author", "alpha", "--json"];
+    let oracle = published_run(&fixture.driver, fixture.node.path(), &args)?;
+    let native = native_command(fixture.rust.path(), &args).output()?;
+    assert!(oracle.status.success());
+    compare_ranking_result(&fixture, &native, &oracle)?;
+    let mut divergent = native.clone();
+    divergent.status = native_command(fixture.rust.path(), &["invalid-subcommand"])
+        .output()?
+        .status;
+    assert!(!divergent.status.success());
+    assert!(
+        catch_unwind(AssertUnwindSafe(|| compare_ranking_result(
+            &fixture, &divergent, &oracle
+        )))
+        .is_err(),
+        "ranking comparison must reject differing exit codes"
+    );
+    divergent = native.clone();
+    divergent.stderr.extend(b"synthetic divergence");
+    assert!(
+        catch_unwind(AssertUnwindSafe(|| compare_ranking_result(
+            &fixture, &divergent, &oracle
+        )))
+        .is_err(),
+        "ranking comparison must reject differing stderr"
+    );
+    let session = fixture.rust.path().join(".agents/pm/runtime/session.json");
+    let original = fs::read(&session)?;
+    fs::write(&session, "{}")?;
+    let result = catch_unwind(AssertUnwindSafe(|| {
+        compare_ranking_result(&fixture, &native, &oracle)
+    }));
+    fs::write(session, original)?;
+    assert!(
+        result.is_err(),
+        "ranking comparison must reject differing session bytes"
+    );
+    fixture.compare_bytes()?;
     Ok(())
 }

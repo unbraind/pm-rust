@@ -6,12 +6,12 @@ status: in_progress
 priority: 2
 tags[3]: conformance,ownership,rust
 created_at: "2026-10-08T00:07:26.196Z"
-updated_at: "2026-10-14T09:06:50.392Z"
+updated_at: "2026-10-14T09:07:50.600Z"
 assignee: codex-agent
 claim_principal: codex-agent
 author: codex-sol
 parent: pm-rust-u4al
-comments[29]{created_at,author,text}:
+comments[30]{created_at,author,text}:
   "2026-10-08T00:09:50.591Z",codex-sol,"Follow-up boundary from pm-rust-zukw: explicit asserted-author ownership is implemented with CLI 2026.10.7 differential coverage. Selection, composed start/pause operations, detected session principals, extension bypass and semantic attribution remain separate work."
   "2026-10-08T00:48:46.548Z",codex-sol,"Additional documented boundary: the native explicit ownership surface emits compact JSON receipts; alternate published rendering formats remain follow-up work alongside selection, composed lifecycle operations and session attribution."
   "2026-10-13T12:05:52.716Z",codex-agent,"Implement native selection and composed ownership lifecycle using existing mutation transactions; characterize published 2026.10.13 output, session principals, attribution and partial-failure receipts with real scratch trackers. Include adjacent comment and tag ordering parity fixes when shared normalization is involved."
@@ -41,6 +41,7 @@ comments[29]{created_at,author,text}:
   "2026-10-14T09:02:21.700Z",codex-agent,"Finding 2 rejected for oracle parity. Real expired session-state.lock files are retained and claim/release fail in both SDKs even with ownership policy none; durable item/history/session bytes match. Targeted differential: 1 passed. Applying only the reviewer false-to-true recovery proposal fails the test (native succeeds instead of refusing; 1 failed), then restored original policy. No recovery fix exists to revert. Separate existing diagnostic mismatch is tracked in pm-rust-sldg."
   "2026-10-14T09:04:59.153Z",codex-agent,"Finding 3 valid but suggested skipped receipt disagrees with the oracle. Native SDK start_task now rejects if_available before claim with the exact oracle usage detail, exit 2 and guidance. Differential covers none/warn/strict, foreign owner, same owner and absent ID; item/history/session bytes remain unchanged (1 passed). Reverting only the pre-claim guard and rebuilding makes the same test fail because start succeeds for foreign held work (1 failed). Guard restored."
   "2026-10-14T09:06:50.392Z",codex-agent,"Finding 4 valid: record_semantics indexes ID-to-parent once and retains existing missing-item and cycle behavior. A thread-local test-only counter measures real Workspace::read_items calls for claim/release over 52 items and depth 12: exactly one each; missing ancestor still terminates. Unit regression 1 passed, deep-lineage oracle differential 1 passed with exact output/item/history/session bytes. Reverting only indexed lineage traversal to repeated get(), rebuilding, and rerunning the unit regression fails deterministically with 12 scans versus 1 (1 failed). Index restored."
+  "2026-10-14T09:07:50.600Z",codex-agent,"Finding 5 valid: ranking differential now compares process exit codes, raw stdout/stderr, every item/history file and exact runtime/session.json bytes using a shared comparator. Negative-control regression rejects independently changed exit code, stderr and session bytes (1 passed). Reverting only comparator behavior to the former stdout-only assertion, rebuilding and rerunning the targeted test fails because differing exit codes go undetected (1 failed). Full comparator restored."
 files[15]{path,scope}:
   src/collation.rs,project
   src/history.rs,project
@@ -57,7 +58,7 @@ files[15]{path,scope}:
   tests/support/mutation_differential.rs,project
   tests/support/ownership_unit.rs,project
   tests/support/selection_unit.rs,project
-tests[8]:
+tests[9]:
   - command: env PM_RUST_REQUIRE_PUBLISHED_CLI=1 cargo test --test claim_release_differential
     scope: project
     timeout_seconds: 1800
@@ -115,6 +116,13 @@ tests[8]:
     provenance:
       author: codex-agent
       created_at: "2026-10-14T09:06:49.206Z"
+      source_kind: local_mutation
+      source_ref: feat/native-selection-lifecycle
+  - command: PM_RUST_REQUIRE_PUBLISHED_CLI=1 cargo test --locked --test claim_release_differential ranking_comparison_rejects_exit_stderr_and_session_divergence -- --exact
+    scope: project
+    provenance:
+      author: codex-agent
+      created_at: "2026-10-14T09:07:49.658Z"
       source_kind: local_mutation
       source_ref: feat/native-selection-lifecycle
 docs[1]{path,scope}:
