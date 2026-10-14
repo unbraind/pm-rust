@@ -178,7 +178,7 @@ fn reads_sorts_filters_and_preserves_extension_fields() -> Result<(), Box<dyn st
     let items = workspace.read_items()?;
     assert_eq!(items.len(), 2);
     assert_eq!(items[0].metadata.id, "demo-a");
-    assert!(items[0].metadata.tags.is_empty());
+    assert_eq!(items[0].metadata.tags, Vec::<String>::new());
     assert_eq!(items[0].metadata.extra["extension_value"], "retained");
     assert_eq!(items[1].metadata.parent.as_deref(), Some("demo-a"));
 
@@ -194,7 +194,7 @@ fn reads_sorts_filters_and_preserves_extension_fields() -> Result<(), Box<dyn st
         item_type: Some("Task".to_owned()),
         id: None,
     })?;
-    assert!(excluded.items.is_empty());
+    assert_eq!(excluded.items, Vec::<pm_rust::ItemSummary>::new());
     assert_eq!(workspace.get("demo-b")?.body, "");
     assert!(matches!(
         workspace.get("unknown"),
@@ -218,7 +218,7 @@ fn defaults_an_omitted_description_and_preserves_literal_array_text()
         ),
     )?;
     let item = Workspace::discover(directory.path())?.get("demo-a")?;
-    assert!(item.metadata.description.is_empty());
+    assert_eq!(item.metadata.description, "");
     assert_eq!(item.body, "literal: []");
     Ok(())
 }

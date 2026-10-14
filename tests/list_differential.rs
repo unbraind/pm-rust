@@ -117,7 +117,7 @@ fn unbounded_list_matches_published_cli_and_golden() -> Result<(), Box<dyn std::
             assert_eq!(published_value, golden[label], "published golden {label}");
         }
         let mut filters = pm_rust::ItemFilter::default();
-        for pair in flags.chunks_exact(2) {
+        for pair in flags.as_chunks::<2>().0 {
             match pair[0] {
                 "--status" => filters.status = Some(pair[1].to_owned()),
                 "--type" => filters.item_type = Some(pair[1].to_owned()),
@@ -284,7 +284,7 @@ fn invalid_list_timestamps_fail_closed() -> Result<(), Box<dyn std::error::Error
             .env_remove("PM_PATH")
             .output()?;
         assert_eq!(output.status.code(), Some(2), "accepted {timestamp:?}");
-        assert!(output.stdout.is_empty());
+        assert_eq!(output.stdout, Vec::<u8>::new());
         assert!(
             String::from_utf8_lossy(&output.stderr)
                 .contains("timestamp must be a non-empty UTC RFC 3339 value")
@@ -455,7 +455,7 @@ fn full_restores_fields_without_adding_terminal_items() -> Result<(), Box<dyn st
         .env_remove("PM_PATH")
         .output()?;
     assert_eq!(output.status.code(), Some(2));
-    assert!(output.stdout.is_empty());
+    assert_eq!(output.stdout, Vec::<u8>::new());
     assert!(String::from_utf8_lossy(&output.stderr).contains("invalid read request"));
     Ok(())
 }

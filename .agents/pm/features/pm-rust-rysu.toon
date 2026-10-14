@@ -6,12 +6,12 @@ status: in_progress
 priority: 2
 tags[3]: conformance,ownership,rust
 created_at: "2026-10-08T00:07:26.196Z"
-updated_at: "2026-10-14T09:07:50.600Z"
+updated_at: "2026-10-14T09:12:13.451Z"
 assignee: codex-agent
 claim_principal: codex-agent
 author: codex-sol
 parent: pm-rust-u4al
-comments[30]{created_at,author,text}:
+comments[31]{created_at,author,text}:
   "2026-10-08T00:09:50.591Z",codex-sol,"Follow-up boundary from pm-rust-zukw: explicit asserted-author ownership is implemented with CLI 2026.10.7 differential coverage. Selection, composed start/pause operations, detected session principals, extension bypass and semantic attribution remain separate work."
   "2026-10-08T00:48:46.548Z",codex-sol,"Additional documented boundary: the native explicit ownership surface emits compact JSON receipts; alternate published rendering formats remain follow-up work alongside selection, composed lifecycle operations and session attribution."
   "2026-10-13T12:05:52.716Z",codex-agent,"Implement native selection and composed ownership lifecycle using existing mutation transactions; characterize published 2026.10.13 output, session principals, attribution and partial-failure receipts with real scratch trackers. Include adjacent comment and tag ordering parity fixes when shared normalization is involved."
@@ -42,7 +42,8 @@ comments[30]{created_at,author,text}:
   "2026-10-14T09:04:59.153Z",codex-agent,"Finding 3 valid but suggested skipped receipt disagrees with the oracle. Native SDK start_task now rejects if_available before claim with the exact oracle usage detail, exit 2 and guidance. Differential covers none/warn/strict, foreign owner, same owner and absent ID; item/history/session bytes remain unchanged (1 passed). Reverting only the pre-claim guard and rebuilding makes the same test fail because start succeeds for foreign held work (1 failed). Guard restored."
   "2026-10-14T09:06:50.392Z",codex-agent,"Finding 4 valid: record_semantics indexes ID-to-parent once and retains existing missing-item and cycle behavior. A thread-local test-only counter measures real Workspace::read_items calls for claim/release over 52 items and depth 12: exactly one each; missing ancestor still terminates. Unit regression 1 passed, deep-lineage oracle differential 1 passed with exact output/item/history/session bytes. Reverting only indexed lineage traversal to repeated get(), rebuilding, and rerunning the unit regression fails deterministically with 12 scans versus 1 (1 failed). Index restored."
   "2026-10-14T09:07:50.600Z",codex-agent,"Finding 5 valid: ranking differential now compares process exit codes, raw stdout/stderr, every item/history file and exact runtime/session.json bytes using a shared comparator. Negative-control regression rejects independently changed exit code, stderr and session bytes (1 passed). Reverting only comparator behavior to the former stdout-only assertion, rebuilding and rerunning the targeted test fails because differing exit codes go undetected (1 failed). Full comparator restored."
-files[15]{path,scope}:
+  "2026-10-14T09:12:05.554Z",codex-agent,"All four accepted changes have independent failing behavioural reverts. Finding 2 has a failing reviewer-proposal proof because oracle semantics prohibit automatic recovery. Linked ranking negative-control test also passed via pm test --run --only-index 9 --progress. Latest stable 1.99 adds existing-code lints; equivalent unwrap_or, fixed-size chunks and diagnostic empty-value assertions retain behavior and let all-target Clippy pass without lint exemptions. Start complete stable/MSRV and clean branch-coverage gates."
+files[20]{path,scope}:
   src/collation.rs,project
   src/history.rs,project
   src/main.rs,project
@@ -52,10 +53,15 @@ files[15]{path,scope}:
   src/workspace.rs,project
   tests/claim_release_differential.rs,project
   tests/cli_dispatch.rs,project
+  tests/list_differential.rs,project
   tests/ownership_contract.rs,project
+  tests/pagination_differential.rs,project
+  tests/read_contract.rs,project
   tests/support/collation_unit.rs,project
   tests/support/history_unit.rs,project
+  tests/support/json_output_unit.rs,project
   tests/support/mutation_differential.rs,project
+  tests/support/mutation_unit.rs,project
   tests/support/ownership_unit.rs,project
   tests/support/selection_unit.rs,project
 tests[9]:

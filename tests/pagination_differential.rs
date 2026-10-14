@@ -616,7 +616,7 @@ fn output_limit_producer_pages_are_complete_and_byte_identical() -> TestResult {
                     page = tail;
                 }
                 let rows = page["items"].as_array().ok_or("missing page rows")?;
-                assert!(!rows.is_empty());
+                assert_ne!(rows.as_slice(), [] as [serde_json::Value; 0]);
                 if page.get("count").is_some() {
                     assert_eq!(page["count"], rows.len());
                 }

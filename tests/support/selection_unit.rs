@@ -264,7 +264,10 @@ fn ranking_uses_history_activity_and_ready_descendants() -> Result<(), Box<dyn s
         priority: Some(1),
         ..SelectionOptions::default()
     };
-    assert!(candidates(&workspace, &corpus, &json!({}), &request(), &filtered)?.is_empty());
+    assert_eq!(
+        candidates(&workspace, &corpus, &json!({}), &request(), &filtered)?,
+        Vec::<ItemDocument>::new()
+    );
     fs::create_dir_all(workspace.pm_root().join("history"))?;
     fs::write(
         workspace.pm_root().join("history/sample-active.jsonl"),
@@ -465,7 +468,10 @@ fn completed_containers_and_ownership_ranking_remain_actionable()
     let mut gate = item("sample-gate");
     gate.metadata.item_type = "Milestone".to_owned();
     let corpus = [decision, gate];
-    assert!(candidates(&workspace, &corpus, &json!({}), &request(), &options)?.is_empty());
+    assert_eq!(
+        candidates(&workspace, &corpus, &json!({}), &request(), &options)?,
+        Vec::<ItemDocument>::new()
+    );
     let inclusive = SelectionOptions {
         include_decisions: true,
         include_gates: true,

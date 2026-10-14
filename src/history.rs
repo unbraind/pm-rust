@@ -326,7 +326,7 @@ pub fn canonical_metadata_pairs(metadata: &ItemMetadata) -> Vec<(String, Value)>
     // Known keys take canonical positions; unknown keys sort lexically for
     // history hashes and write-back. List projections restore stored order.
     values.sort_by_key(|(key, _)| {
-        let rank = canonical_rank(key).map_or(usize::MAX, |value| value);
+        let rank = canonical_rank(key).unwrap_or(usize::MAX);
         (rank, key.clone())
     });
     values

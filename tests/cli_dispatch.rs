@@ -48,7 +48,7 @@ fn ownership_dispatch_preserves_configuration_and_alias_failures()
             &[command, "sample-missing", "--author", "cli-agent", "--json"],
         )?;
         assert!(!output.status.success());
-        assert!(output.stdout.is_empty());
+        assert_eq!(output.stdout, Vec::<u8>::new());
         assert!(String::from_utf8_lossy(&output.stderr).contains("expected value"));
         assert!(!root.join("locks").exists());
         assert_eq!(fs::read_to_string(root.join("settings.json"))?, "invalid");

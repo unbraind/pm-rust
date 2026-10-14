@@ -237,14 +237,14 @@ fn serde_defaults_match_the_supported_create_and_settings_contract()
     )?;
     assert_eq!(parsed.status, "open");
     assert_eq!(parsed.priority, 2);
-    assert!(parsed.description.is_empty());
-    assert!(parsed.tags.is_empty());
-    assert!(parsed.body.is_empty());
+    assert_eq!(parsed.description, "");
+    assert_eq!(parsed.tags, Vec::<String>::new());
+    assert_eq!(parsed.body, "");
     assert!(parsed.timestamp.is_none());
     assert!(parsed.message.is_none());
     assert!(!parsed.force_stale_lock);
     let settings: MutationSettings = serde_json::from_str("{}")?;
-    assert!(settings.id_prefix.is_empty());
+    assert_eq!(settings.id_prefix, "");
     assert_eq!(settings.item_format, "toon");
     assert_eq!(settings.locks.ttl_seconds, 1_800);
     let (_directory, pm_root) = root("{}")?;
