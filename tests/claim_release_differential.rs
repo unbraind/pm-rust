@@ -1180,3 +1180,64 @@ fn competing_claim_next_processes_select_distinct_items() -> Result<(), Box<dyn 
     }
     Ok(())
 }
+
+/// Node decodes OS environment strings lossily, including known identity values.
+#[cfg(unix)]
+#[test]
+fn non_unicode_environment_matches_published_identity() -> Result<(), Box<dyn std::error::Error>> {
+    use std::ffi::OsString;
+    use std::os::unix::ffi::OsStringExt;
+
+    let Some(fixture) = Fixture::new("strict")? else {
+        return Ok(());
+    };
+    for (key, value) in [
+        (
+            OsString::from_vec(b"UNRELATED_\xff".to_vec()),
+            OsString::from("value"),
+        ),
+        (
+            OsString::from("UNRELATED"),
+            OsString::from_vec(b"value_\xff".to_vec()),
+        ),
+        (
+            OsString::from("PM_AUTHOR"),
+            OsString::from_vec(b"alpha_\xff".to_vec()),
+        ),
+    ] {
+        for action in ["claim", "release"] {
+            let args = [action, "sample-own", "--json"];
+            let mut node = Command::new(
+                std::env::var("PM_NODE_INTERPRETER").unwrap_or_else(|_| "node".to_owned()),
+            );
+            node.env_clear();
+            for name in ["PATH", "HOME"] {
+                if let Some(value) = std::env::var_os(name) {
+                    node.env(name, value);
+                }
+            }
+            let oracle = node
+                .current_dir(fixture.node.path())
+                .env("DO_NOT_TRACK", "1")
+                .env("FIXED_CLOCK", CLOCK)
+                .env(&key, &value)
+                .arg(&fixture.driver)
+                .args(args)
+                .output()?;
+            let native = native_command(fixture.rust.path(), &args)
+                .env(&key, &value)
+                .output()?;
+            assert!(
+                oracle.status.success(),
+                "{}",
+                String::from_utf8_lossy(&oracle.stderr)
+            );
+            assert_eq!(native.status.code(), oracle.status.code());
+            assert_eq!(native.stdout, oracle.stdout);
+            assert_eq!(native.stderr, oracle.stderr);
+            fixture.compare_bytes()?;
+        }
+    }
+    fixture.verify()?;
+    Ok(())
+}

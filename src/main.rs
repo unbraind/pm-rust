@@ -575,7 +575,14 @@ fn ownership_request(
     let identity = AuthorIdentity::resolve(
         args.author.as_deref(),
         settings["author_default"].as_str(),
-        &std::env::vars().collect(),
+        &std::env::vars_os()
+            .map(|(key, value)| {
+                (
+                    key.to_string_lossy().into_owned(),
+                    value.to_string_lossy().into_owned(),
+                )
+            })
+            .collect(),
     );
     let request = OwnershipItem {
         id: args.id.unwrap_or_default(),
