@@ -165,3 +165,12 @@ case covers the actual error behavior; the counter definition belongs to the
 existing test harness. The updated scan regression again failed with only the
 indexing change reverted (12 scans versus one). A targeted diagnostic coverage
 run was used to inspect these corrections; it is not final acceptance evidence.
+
+
+LLVM also merged the conditional observation statement inside `read_items` into
+two unmapped missed regions in the ordinary and test builds. The actual corpus
+reader now uses one identical `read_items_impl` body. The test-only method
+wrapper observes each call and delegates every result to that real production
+reader; no SDK value is mocked. This avoids conditional coverage mapping inside
+the reader and retains the independent 12-versus-one scan revert proof. No
+coverage exclusion or acceptance threshold was added.

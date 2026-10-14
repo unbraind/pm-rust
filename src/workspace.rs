@@ -168,9 +168,13 @@ impl Workspace {
     /// # Errors
     ///
     /// Returns a typed filesystem, document-validation, or duplicate-id error.
+    #[cfg(not(test))]
     pub fn read_items(&self) -> Result<Vec<ItemDocument>, PmRustError> {
-        #[cfg(test)]
-        crate::ownership::tests::READ_ITEMS_SCANS.with(|count| count.set(count.get() + 1));
+        self.read_items_impl()
+    }
+
+    /// Implements the corpus reader identically for ordinary and observed test calls.
+    pub(crate) fn read_items_impl(&self) -> Result<Vec<ItemDocument>, PmRustError> {
         let mut paths = Vec::new();
         for entry in read_directory(&self.pm_root)? {
             let entry_path = entry.path();

@@ -7,6 +7,17 @@ thread_local! {
     pub(crate) static READ_ITEMS_SCANS: std::cell::Cell<usize> = const { std::cell::Cell::new(0) };
 }
 
+impl Workspace {
+    /// Observes real corpus reads, delegating every result to the production reader.
+    ///
+    /// # Errors
+    /// Returns the actual filesystem, decoding and duplicate-ID failures.
+    pub fn read_items(&self) -> Result<Vec<crate::ItemDocument>, PmRustError> {
+        READ_ITEMS_SCANS.with(|count| count.set(count.get() + 1));
+        self.read_items_impl()
+    }
+}
+
 /// Native SDK composition supports explicit identity, default identity and idempotent start.
 #[test]
 fn sdk_lifecycle_succeeds_with_explicit_and_default_identity()
