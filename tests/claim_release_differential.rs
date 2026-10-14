@@ -1298,3 +1298,76 @@ fn stale_session_lock_refusal_matches_published_policy() -> Result<(), Box<dyn s
     fixture.verify()?;
     Ok(())
 }
+
+/// SDK start rejects ifAvailable before claiming, regardless of owner or policy.
+#[test]
+fn sdk_start_if_available_refuses_without_mutation() -> Result<(), Box<dyn std::error::Error>> {
+    for policy in ["none", "warn", "strict"] {
+        let Some(fixture) = Fixture::new(policy)? else {
+            return Ok(());
+        };
+        fixture.step(&["claim", "sample-own", "--author", "alpha", "--json"])?;
+        let workspace = pm_rust::Workspace::discover(fixture.rust.path())?;
+        let paths = [
+            "tasks/sample-own.toon",
+            "history/sample-own.jsonl",
+            "runtime/session.json",
+        ];
+        let before = paths
+            .iter()
+            .map(|path| fs::read(fixture.rust.path().join(".agents/pm").join(path)))
+            .collect::<Result<Vec<_>, _>>()?;
+        for (id, author) in [
+            ("sample-own", "beta"),
+            ("sample-own", "alpha"),
+            ("sample-absent", "beta"),
+        ] {
+            let output = published_run(
+                &fixture.driver,
+                fixture.node.path(),
+                &["__start_if_available", id, author],
+            )?;
+            assert!(output.status.success());
+            let oracle: serde_json::Value = serde_json::from_slice(&output.stdout)?;
+            let request = pm_rust::OwnershipItem {
+                id: id.to_owned(),
+                author: author.to_owned(),
+                timestamp: Some(CLOCK.to_owned()),
+                message: None,
+                force: false,
+                if_available: true,
+                provenance_role: None,
+            };
+            let error = workspace
+                .start_task(&request, &pm_rust::OwnershipOptions::default())
+                .err()
+                .ok_or("SDK start must refuse ifAvailable")?;
+            let pm_rust::PmRustError::CommandRefusal {
+                detail,
+                exit_code,
+                mut context,
+            } = error
+            else {
+                return Err(format!("unexpected native refusal: {error}").into());
+            };
+            assert_eq!(detail, oracle["detail"]);
+            assert_eq!(exit_code, oracle["exit_code"]);
+            let steps = context
+                .as_object_mut()
+                .ok_or("missing native context")?
+                .remove("next_steps")
+                .ok_or("missing native next steps")?;
+            context["nextSteps"] = steps;
+            assert_eq!(context, oracle["context"]);
+            fixture.compare_bytes()?;
+            for (path, bytes) in paths.iter().zip(&before) {
+                assert_eq!(
+                    &fs::read(fixture.rust.path().join(".agents/pm").join(path))?,
+                    bytes
+                );
+            }
+        }
+        fixture.verify()?;
+    }
+    Ok(())
+}

@@ -358,6 +358,16 @@ impl Workspace {
         request: &OwnershipItem,
         options: &OwnershipOptions,
     ) -> Result<Value, PmRustError> {
+        // The published SDK refuses this option before the claim step.
+        if request.if_available {
+            return Err(PmRustError::CommandRefusal {
+                detail:
+                    "--start cannot be combined with --next or --if-available for an explicit item"
+                        .to_owned(),
+                exit_code: 2,
+                context: json!({"code":"invalid_argument_value","required":"Remove --next and --if-available when starting an explicit item.","next_steps":["Remove --next and --if-available, keep the explicit item ID and other supplied arguments, then retry."]}),
+            });
+        }
         let claim = self.claim_with_options(request, options)?;
         let update = with_identity(self.pm_root(), options, || {
             crate::mutation::lifecycle_status(self.pm_root(), request, options, true)
