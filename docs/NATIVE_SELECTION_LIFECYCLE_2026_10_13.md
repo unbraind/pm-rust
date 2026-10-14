@@ -174,3 +174,39 @@ wrapper observes each call and delegates every result to that real production
 reader; no SDK value is mocked. This avoids conditional coverage mapping inside
 the reader and retains the independent 12-versus-one scan revert proof. No
 coverage exclusion or acceptance threshold was added.
+
+
+## Round 1 final acceptance
+
+The final source head is `84cbfc8`. Stable Rust 1.99, MSRV 1.90 and the clean
+`nightly-2026-08-06` coverage build each passed **284 tests**, with zero failed,
+ignored, measured or filtered cases. Each full run includes **48 oracle
+differentials** across six suites, **21** in the ownership suite. Both compiler
+runs passed formatting, warnings-denied all-target/all-feature Clippy and
+private-item documentation checks.
+
+`just release-check` passed in its entirety under an isolated Git identity.
+Its clean branch-coverage report measured all production source at the unchanged
+thresholds:
+
+| Dimension | Covered / total | Percent |
+| --- | ---: | ---: |
+| Lines | 4,829 / 4,829 | 100 |
+| Functions | 454 / 454 | 100 |
+| Regions | 7,318 / 7,318 | 100 |
+| Branch outcomes | 970 / 970 | 100 |
+
+The diagnostic runs were discarded before final acceptance; no diagnostic
+exclusion or accumulated profile was used. The locked npm oracle installation
+reported zero vulnerabilities. `cargo audit` passed with the one pre-existing
+allowed `RUSTSEC-2024-0449` unmaintained-dependency advisory. Full changelog
+regeneration and validation passed. The final scan regression also passed
+through `pm test --run --only-index 7 --progress`.
+
+CI-isolated tracker health passed all ten checks, retaining the three existing
+advisory classes. An unisolated health run found an environment extension-host
+version skew; no environment extension or telemetry configuration was changed.
+All original history streams retain their exact byte prefixes. The item was
+released and remains in progress for orchestrator verification; the two new
+follow-ups remain open. Final delivery changes only documentation and tracker
+receipts beyond the validated source head.
