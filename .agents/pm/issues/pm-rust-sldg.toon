@@ -1,0 +1,12 @@
+id: pm-rust-sldg
+title: Match published stale session-lock refusal diagnostics
+description: "The real stale-session-lock differential confirms that both implementations refuse unforced expired session locks after durable item/history writes. The native SDK returns LockConflict with a generic locked diagnostic, while the published SDK returns PmCliError exit 4 with a stale-lock explanation. Preserve the no-auto-recovery oracle policy while matching the diagnostic and CLI envelope."
+type: Issue
+status: open
+priority: 2
+tags[2]: conformance,ownership
+created_at: "2026-10-14T09:02:55.833Z"
+updated_at: "2026-10-14T09:02:55.833Z"
+author: codex-agent
+parent: pm-rust-u4al
+body: ""

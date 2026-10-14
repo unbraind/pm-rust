@@ -1241,3 +1241,60 @@ fn non_unicode_environment_matches_published_identity() -> Result<(), Box<dyn st
     fixture.verify()?;
     Ok(())
 }
+
+/// The oracle requires force for expired session locks, even under minimal policy.
+#[test]
+fn stale_session_lock_refusal_matches_published_policy() -> Result<(), Box<dyn std::error::Error>> {
+    let Some(fixture) = Fixture::new("none")? else {
+        return Ok(());
+    };
+    let lock = serde_json::to_vec(&serde_json::json!({
+        "id":"session-state", "pid":1, "owner":"session-state",
+        "created_at":"2000-01-01T00:00:00.000Z", "ttl_seconds":1800,
+        "token":"stale-session-fixture"
+    }))?;
+    for root in [fixture.node.path(), fixture.rust.path()] {
+        fs::write(root.join(".agents/pm/locks/session-state.lock"), &lock)?;
+    }
+    let workspace = pm_rust::Workspace::discover(fixture.rust.path())?;
+    let request = pm_rust::OwnershipItem {
+        id: "sample-own".to_owned(),
+        author: "alpha".to_owned(),
+        timestamp: Some(CLOCK.to_owned()),
+        message: None,
+        force: false,
+        if_available: false,
+        provenance_role: Some("implementer".to_owned()),
+    };
+    for action in ["claim", "release"] {
+        let oracle = published_run(
+            &fixture.driver,
+            fixture.node.path(),
+            &["__ownership_error", action, "sample-own"],
+        )?;
+        assert!(oracle.status.success());
+        let refusal: serde_json::Value = serde_json::from_slice(&oracle.stdout)?;
+        assert_eq!(refusal["exit_code"], 4);
+        assert_eq!(
+            refusal["detail"],
+            "Item session-state lock is stale; rerun with --force when supported for this command"
+        );
+        let result = if action == "claim" {
+            workspace.claim_with_options(&request, &pm_rust::OwnershipOptions::default())
+        } else {
+            workspace.release_with_options(&request, &pm_rust::OwnershipOptions::default())
+        };
+        assert!(
+            matches!(result, Err(pm_rust::PmRustError::LockConflict { id }) if id == "session-state")
+        );
+        for root in [fixture.node.path(), fixture.rust.path()] {
+            assert_eq!(
+                fs::read(root.join(".agents/pm/locks/session-state.lock"))?,
+                lock
+            );
+        }
+        fixture.compare_bytes()?;
+    }
+    fixture.verify()?;
+    Ok(())
+}
