@@ -14,12 +14,6 @@ use crate::{
     OwnershipItem, OwnershipResult, PmRustError, UpdateItem,
 };
 
-#[cfg(test)]
-thread_local! {
-    /// Counts actual corpus reads on the test caller's thread.
-    pub(crate) static READ_ITEMS_SCANS: std::cell::Cell<usize> = const { std::cell::Cell::new(0) };
-}
-
 pub(crate) const NON_ITEM_DIRECTORIES: [&str; 6] = [
     "extensions",
     "history",
@@ -176,7 +170,7 @@ impl Workspace {
     /// Returns a typed filesystem, document-validation, or duplicate-id error.
     pub fn read_items(&self) -> Result<Vec<ItemDocument>, PmRustError> {
         #[cfg(test)]
-        READ_ITEMS_SCANS.with(|count| count.set(count.get() + 1));
+        crate::ownership::tests::READ_ITEMS_SCANS.with(|count| count.set(count.get() + 1));
         let mut paths = Vec::new();
         for entry in read_directory(&self.pm_root)? {
             let entry_path = entry.path();

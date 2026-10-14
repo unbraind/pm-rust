@@ -2,6 +2,11 @@
 
 use super::*;
 
+thread_local! {
+    /// Counts actual corpus reads on the test caller's thread.
+    pub(crate) static READ_ITEMS_SCANS: std::cell::Cell<usize> = const { std::cell::Cell::new(0) };
+}
+
 /// Native SDK composition supports explicit identity, default identity and idempotent start.
 #[test]
 fn sdk_lifecycle_succeeds_with_explicit_and_default_identity()
@@ -578,9 +583,9 @@ fn ownership_lineage_scans_corpus_once() -> Result<(), Box<dyn std::error::Error
         if_available: false,
         provenance_role: None,
     };
-    let before = crate::workspace::READ_ITEMS_SCANS.get();
+    let before = READ_ITEMS_SCANS.get();
     workspace.claim_with_options(&request, &OwnershipOptions::default())?;
-    assert_eq!(crate::workspace::READ_ITEMS_SCANS.get() - before, 1);
+    assert_eq!(READ_ITEMS_SCANS.get() - before, 1);
     let state: Value = serde_json::from_slice(&fs::read(root.join("runtime/session.json"))?)?;
     let key = format!("author-{}", hex_prefix(b"alpha", 24));
     let mut evidence = vec!["claim:sample-11".to_owned()];
@@ -593,13 +598,22 @@ fn ownership_lineage_scans_corpus_once() -> Result<(), Box<dyn std::error::Error
         state["semantic_attribution"][key]["evidence"],
         json!(evidence)
     );
-    let before = crate::workspace::READ_ITEMS_SCANS.get();
+    let before = READ_ITEMS_SCANS.get();
     workspace.release_with_options(&request, &OwnershipOptions::default())?;
-    assert_eq!(crate::workspace::READ_ITEMS_SCANS.get() - before, 1);
+    assert_eq!(READ_ITEMS_SCANS.get() - before, 1);
     // An absent ancestor retains the prior lineage walk's termination behavior.
     fs::remove_file(root.join("tasks/sample-00.toon"))?;
-    let before = crate::workspace::READ_ITEMS_SCANS.get();
+    let before = READ_ITEMS_SCANS.get();
     workspace.claim_with_options(&request, &OwnershipOptions::default())?;
-    assert_eq!(crate::workspace::READ_ITEMS_SCANS.get() - before, 1);
+    assert_eq!(READ_ITEMS_SCANS.get() - before, 1);
+    // Failed indexing must propagate the decode error without publishing session state.
+    let session = root.join("runtime/session.json");
+    let before = fs::read(&session)?;
+    fs::write(root.join("tasks/sample-corrupt.toon"), "not a valid item")?;
+    assert!(matches!(
+        record_semantics(&workspace, &request, &OwnershipOptions::default(), true),
+        Err(PmRustError::InvalidItemDocument { .. })
+    ));
+    assert_eq!(fs::read(session)?, before);
     Ok(())
 }

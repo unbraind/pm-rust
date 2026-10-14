@@ -6,12 +6,12 @@ status: in_progress
 priority: 2
 tags[3]: conformance,ownership,rust
 created_at: "2026-10-08T00:07:26.196Z"
-updated_at: "2026-10-14T09:12:13.451Z"
+updated_at: "2026-10-14T09:32:29.512Z"
 assignee: codex-agent
 claim_principal: codex-agent
 author: codex-sol
 parent: pm-rust-u4al
-comments[31]{created_at,author,text}:
+comments[34]{created_at,author,text}:
   "2026-10-08T00:09:50.591Z",codex-sol,"Follow-up boundary from pm-rust-zukw: explicit asserted-author ownership is implemented with CLI 2026.10.7 differential coverage. Selection, composed start/pause operations, detected session principals, extension bypass and semantic attribution remain separate work."
   "2026-10-08T00:48:46.548Z",codex-sol,"Additional documented boundary: the native explicit ownership surface emits compact JSON receipts; alternate published rendering formats remain follow-up work alongside selection, composed lifecycle operations and session attribution."
   "2026-10-13T12:05:52.716Z",codex-agent,"Implement native selection and composed ownership lifecycle using existing mutation transactions; characterize published 2026.10.13 output, session principals, attribution and partial-failure receipts with real scratch trackers. Include adjacent comment and tag ordering parity fixes when shared normalization is involved."
@@ -43,6 +43,9 @@ comments[31]{created_at,author,text}:
   "2026-10-14T09:06:50.392Z",codex-agent,"Finding 4 valid: record_semantics indexes ID-to-parent once and retains existing missing-item and cycle behavior. A thread-local test-only counter measures real Workspace::read_items calls for claim/release over 52 items and depth 12: exactly one each; missing ancestor still terminates. Unit regression 1 passed, deep-lineage oracle differential 1 passed with exact output/item/history/session bytes. Reverting only indexed lineage traversal to repeated get(), rebuilding, and rerunning the unit regression fails deterministically with 12 scans versus 1 (1 failed). Index restored."
   "2026-10-14T09:07:50.600Z",codex-agent,"Finding 5 valid: ranking differential now compares process exit codes, raw stdout/stderr, every item/history file and exact runtime/session.json bytes using a shared comparator. Negative-control regression rejects independently changed exit code, stderr and session bytes (1 passed). Reverting only comparator behavior to the former stdout-only assertion, rebuilding and rerunning the targeted test fails because differing exit codes go undetected (1 failed). Full comparator restored."
   "2026-10-14T09:12:05.554Z",codex-agent,"All four accepted changes have independent failing behavioural reverts. Finding 2 has a failing reviewer-proposal proof because oracle semantics prohibit automatic recovery. Linked ranking negative-control test also passed via pm test --run --only-index 9 --progress. Latest stable 1.99 adds existing-code lints; equivalent unwrap_or, fixed-size chunks and diagnostic empty-value assertions retain behavior and let all-target Clippy pass without lint exemptions. Start complete stable/MSRV and clean branch-coverage gates."
+  "2026-10-14T09:14:27.403Z",codex-agent,"Out-of-scope lineage parity boundary documented in pm-rust-lcap: oracle lineage traversal caps depth at 16 and omits unresolved ancestors. The indexing finding requested unchanged output, so retain current traversal semantics and certify the depth-12 resolved case; deeper and unresolved attribution require separate differential work. Existing stale-session refusal diagnostic gap remains pm-rust-sldg."
+  "2026-10-14T09:24:23.322Z",codex-agent,"Stable Rust 1.99 and MSRV 1.90 each passed 284 full all-target/all-feature tests: zero failed, ignored, measured or filtered. Each includes 48 oracle differentials across six suites and the 21-case ownership suite. Both toolchains passed formatting, warnings-denied Clippy and private-item documentation gates. CI-isolated health passed all 10 checks with the three existing advisory classes; an unisolated run correctly refused an environment pm-github host-version skew (2026.10.14 vs 2026.10.13). No environment extension or telemetry configuration was changed. Clean branch coverage, audit and final changelog checks are still running."
+  "2026-10-14T09:32:29.512Z",codex-agent,"First clean full branch-coverage run passed 284 tests but failed unchanged thresholds: one untested read_items error-return region and two test-only counter macro regions; lines 4827/4828 and regions 7316/7319, functions/branches 100%. Added a real corrupt-corpus case proving decode errors propagate before session publication and leave session bytes unchanged. Moved only the thread-local counter definition into the existing test harness. Targeted test and both Clippy toolchains pass; repeated final scan revert still fails with 12 versus 1 scans, then restored. Diagnostic ownership-only coverage confirms the new error-return region executes and the counter macro no longer maps into production source. This diagnostic report is not acceptance evidence. Rerun full clean stable/MSRV/coverage gates."
 files[20]{path,scope}:
   src/collation.rs,project
   src/history.rs,project
@@ -64,7 +67,7 @@ files[20]{path,scope}:
   tests/support/mutation_unit.rs,project
   tests/support/ownership_unit.rs,project
   tests/support/selection_unit.rs,project
-tests[9]:
+tests[10]:
   - command: env PM_RUST_REQUIRE_PUBLISHED_CLI=1 cargo test --test claim_release_differential
     scope: project
     timeout_seconds: 1800
@@ -129,6 +132,14 @@ tests[9]:
     provenance:
       author: codex-agent
       created_at: "2026-10-14T09:07:49.658Z"
+      source_kind: local_mutation
+      source_ref: feat/native-selection-lifecycle
+  - command: env PM_RUST_REQUIRE_PUBLISHED_CLI=1 CARGO_TARGET_DIR=target/review-stable cargo +stable test --locked --all-targets --all-features
+    scope: project
+    timeout_seconds: 7200
+    provenance:
+      author: codex-agent
+      created_at: "2026-10-14T09:24:20.031Z"
       source_kind: local_mutation
       source_ref: feat/native-selection-lifecycle
 docs[1]{path,scope}:

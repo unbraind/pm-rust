@@ -571,4 +571,4 @@ fn partial_failure(error: PmRustError, id: &str, completed: &str) -> PmRustError
 
 #[cfg(test)]
 #[path = "../tests/support/ownership_unit.rs"]
-mod tests;
+pub(crate) mod tests;
