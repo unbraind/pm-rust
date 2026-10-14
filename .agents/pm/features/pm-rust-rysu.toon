@@ -2,13 +2,18 @@ id: pm-rust-rysu
 title: Extend native ownership to selection and composed lifecycle commands
 description: "Follow up explicit claim/release parity with claim --next, claim --start, release --pause, detected session principals and extension/semantic attribution integration; preserve published compound-operation failure receipts."
 type: Feature
-status: in_progress
+status: closed
 priority: 2
 tags[3]: conformance,ownership,rust
 created_at: "2026-10-08T00:07:26.196Z"
-updated_at: "2026-10-14T11:06:23.143Z"
+updated_at: "2026-10-14T15:25:48.016Z"
+closed_at: "2026-10-14T15:25:47.995Z"
+completed_at: "2026-10-14T15:25:47.995Z"
 author: codex-sol
 parent: pm-rust-u4al
+resolution: Implemented and merged in #77 (93f3ec9).
+expected_result: The change described by this item is on main.
+actual_result: "Merged in #77 as 93f3ec9; checks successful at head 3f72ff4: Analyze Rust, CodeQL, Release gate aggregate, Release gate aggregate macos-latest, Release gate aggregate windows-latest, Rust macos-latest, Rust ubuntu-latest, Rust windows-latest."
 comments[41]{created_at,author,text}:
   "2026-10-08T00:09:50.591Z",codex-sol,"Follow-up boundary from pm-rust-zukw: explicit asserted-author ownership is implemented with CLI 2026.10.7 differential coverage. Selection, composed start/pause operations, detected session principals, extension bypass and semantic attribution remain separate work."
   "2026-10-08T00:48:46.548Z",codex-sol,"Additional documented boundary: the native explicit ownership surface emits compact JSON receipts; alternate published rendering formats remain follow-up work alongside selection, composed lifecycle operations and session attribution."
@@ -163,4 +168,5 @@ tests[12]:
       source_ref: feat/native-selection-lifecycle
 docs[1]{path,scope}:
   docs/NATIVE_SELECTION_LIFECYCLE_2026_10_13.md,project
+close_reason: "Delivered by #77 \"Run selection and composed lifecycle commands natively with oracle-proven parity\" (merged as 93f3ec9). Checks successful at the PR head 3f72ff4: Analyze Rust, CodeQL, Release gate aggregate, Release gate aggregate macos-latest, Release gate aggregate windows-latest, Rust macos-latest, Rust ubuntu-latest, Rust windows-latest."
 body: ""

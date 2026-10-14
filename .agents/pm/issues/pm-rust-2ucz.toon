@@ -2,14 +2,19 @@ id: pm-rust-2ucz
 title: Match published comment ordering at equal timestamps
 description: A synthetic fixed-clock sequence appending comment text 05 by author 00 then text 0. by fixture-agent writes those rows in append order natively but reverse order in published PM CLI 2026.10.9. Compare and implement the actual equal-timestamp ordering contract independently of scalar quoting.
 type: Issue
-status: in_progress
+status: closed
 priority: 2
 tags[2]: compatibility,mutation
 created_at: "2026-10-10T02:49:09.472Z"
-updated_at: "2026-10-14T06:54:43.648Z"
+updated_at: "2026-10-14T15:25:45.176Z"
+closed_at: "2026-10-14T15:25:45.168Z"
+completed_at: "2026-10-14T15:25:45.168Z"
 author: codex-sol
 acceptance_criteria: Two equal-timestamp comment appends match complete item and history bytes against the required published oracle.
 parent: pm-rust-u4al
+resolution: Implemented and merged in #77 (93f3ec9).
+expected_result: The change described by this item is on main.
+actual_result: "Merged in #77 as 93f3ec9; checks successful at head 3f72ff4: Analyze Rust, CodeQL, Release gate aggregate, Release gate aggregate macos-latest, Release gate aggregate windows-latest, Rust macos-latest, Rust ubuntu-latest, Rust windows-latest."
 comments[5]{created_at,author,text}:
   "2026-10-13T12:23:21.317Z",codex-agent,"Published normalization sorts annotation rows by timestamp, then locale text order, then locale author order. Add equal-clock differential regressions with exact item and history bytes."
   "2026-10-13T12:58:08.860Z",codex-agent,The refreshed 2026.10.13 differential passed the equal-timestamp comment sequence with exact item and recursive JSON-patch history bytes. Final gate execution and behavioral revert proof remain pending.
@@ -25,4 +30,5 @@ tests[1]{command,scope,timeout_seconds,provenance{author,created_at,source_kind,
 docs[2]{path,scope}:
   docs/NATIVE_SELECTION_LIFECYCLE_2026_10_13.md,project
   docs/TOON_UPGRADE_2026_10_9.md,project
+close_reason: "Delivered by #77 \"Run selection and composed lifecycle commands natively with oracle-proven parity\" (merged as 93f3ec9). Checks successful at the PR head 3f72ff4: Analyze Rust, CodeQL, Release gate aggregate, Release gate aggregate macos-latest, Release gate aggregate windows-latest, Rust macos-latest, Rust ubuntu-latest, Rust windows-latest."
 body: ""

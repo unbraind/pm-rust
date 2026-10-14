@@ -2,14 +2,19 @@ id: pm-rust-mttg
 title: Match published punctuation-bearing tag normalization order
 description: "A synthetic update with tags +1,-0,.5 exposes a pre-existing ordering divergence: Rust sorts +1,-0,.5 while published PM CLI 2026.10.9 writes -0,.5,+1. This changes canonical item and history bytes independently of the toon-format upgrade. Characterize published tag normalization before changing native sorting."
 type: Issue
-status: in_progress
+status: closed
 priority: 2
 tags[2]: compatibility,mutation
 created_at: "2026-10-10T02:46:34.001Z"
-updated_at: "2026-10-14T06:54:45.458Z"
+updated_at: "2026-10-14T15:25:46.896Z"
+closed_at: "2026-10-14T15:25:46.871Z"
+completed_at: "2026-10-14T15:25:46.871Z"
 author: codex-sol
 acceptance_criteria: A differential update with punctuation-bearing tags matches complete item and history bytes without weakening existing fixture comparisons.
 parent: pm-rust-u4al
+resolution: Implemented and merged in #77 (93f3ec9).
+expected_result: The change described by this item is on main.
+actual_result: "Merged in #77 as 93f3ec9; checks successful at head 3f72ff4: Analyze Rust, CodeQL, Release gate aggregate, Release gate aggregate macos-latest, Release gate aggregate windows-latest, Rust macos-latest, Rust ubuntu-latest, Rust windows-latest."
 comments[5]{created_at,author,text}:
   "2026-10-10T02:47:20.128Z",codex-sol,"The same synthetic regression also exposes an independent history patch gap on replacing a two-tag array with eight tags: native replaces the whole tags value while the published CLI emits indexed replace/add operations. Canonical item bytes match for that fixture; complete history bytes do not. Codec regression creates its numeric-looking tag array directly so it exercises canonical encoding without hiding this separately tracked replacement-patch gap."
   "2026-10-13T12:23:42.385Z",codex-agent,"Use native ICU collation to reproduce published localeCompare ordering for trimmed and deduplicated tags; cover punctuation, mixed case and Unicode against the locked 2026.10.13 oracle."
@@ -26,4 +31,5 @@ tests[1]{command,scope,timeout_seconds,provenance{author,created_at,source_kind,
 docs[2]{path,scope}:
   docs/NATIVE_SELECTION_LIFECYCLE_2026_10_13.md,project
   docs/TOON_UPGRADE_2026_10_9.md,project
+close_reason: "Delivered by #77 \"Run selection and composed lifecycle commands natively with oracle-proven parity\" (merged as 93f3ec9). Checks successful at the PR head 3f72ff4: Analyze Rust, CodeQL, Release gate aggregate, Release gate aggregate macos-latest, Release gate aggregate windows-latest, Rust macos-latest, Rust ubuntu-latest, Rust windows-latest."
 body: ""
