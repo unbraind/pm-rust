@@ -2,16 +2,27 @@ id: pm-rust-2ucz
 title: Match published comment ordering at equal timestamps
 description: A synthetic fixed-clock sequence appending comment text 05 by author 00 then text 0. by fixture-agent writes those rows in append order natively but reverse order in published PM CLI 2026.10.9. Compare and implement the actual equal-timestamp ordering contract independently of scalar quoting.
 type: Issue
-status: open
+status: in_progress
 priority: 2
 tags[2]: compatibility,mutation
 created_at: "2026-10-10T02:49:09.472Z"
-updated_at: "2026-10-10T02:50:53.060Z"
+updated_at: "2026-10-14T06:54:43.648Z"
 author: codex-sol
 acceptance_criteria: Two equal-timestamp comment appends match complete item and history bytes against the required published oracle.
 parent: pm-rust-u4al
-files[1]{path,scope}:
+comments[5]{created_at,author,text}:
+  "2026-10-13T12:23:21.317Z",codex-agent,"Published normalization sorts annotation rows by timestamp, then locale text order, then locale author order. Add equal-clock differential regressions with exact item and history bytes."
+  "2026-10-13T12:58:08.860Z",codex-agent,The refreshed 2026.10.13 differential passed the equal-timestamp comment sequence with exact item and recursive JSON-patch history bytes. Final gate execution and behavioral revert proof remain pending.
+  "2026-10-13T13:15:26.200Z",codex-agent,"Behavioral revert proof passed: replacing only normalize_comments with append-order preservation kept the harness compilable and failed the equal-clock differential at runtime (exit 101, one failing test). Restored the locale tie ordering exactly."
+  "2026-10-14T06:54:04.084Z",codex-agent,"Native ICU English text/author tie ordering matches published 2026.10.14 item and history bytes. The linked exact ordering differential passed through pm test (one passed, zero ignored/filtered). Reverting only equal-time comment ordering compiled and failed that regression at runtime, then restored byte for byte. The unchanged full release gate passed 278 tests on each toolchain with all four measured coverage dimensions at 100 percent. Leaving open for orchestrator verification."
+  "2026-10-14T06:54:15.030Z",codex-agent,"Count correction: the linked exact-name differential run passed one test with 15 other test functions filtered out, as expected for --exact. The preceding comment incorrectly described that targeted run as unfiltered. The full stable and instrumented release-check runs each passed all 278 tests with zero ignored or filtered tests."
+files[3]{path,scope}:
+  src/collation.rs,project
   src/mutation.rs,project
-docs[1]{path,scope}:
+  tests/claim_release_differential.rs,project
+tests[1]{command,scope,timeout_seconds,provenance{author,created_at,source_kind,source_ref}}:
+  env PM_RUST_REQUIRE_PUBLISHED_CLI=1 cargo test --test claim_release_differential equal_timestamp_comments_and_punctuation_tags_match_published_storage -- --exact,project,600,codex-agent,"2026-10-14T05:02:19.169Z",local_mutation,feat/native-selection-lifecycle
+docs[2]{path,scope}:
+  docs/NATIVE_SELECTION_LIFECYCLE_2026_10_13.md,project
   docs/TOON_UPGRADE_2026_10_9.md,project
 body: ""

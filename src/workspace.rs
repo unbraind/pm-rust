@@ -343,7 +343,7 @@ impl Workspace {
     /// # Errors
     /// Returns validation, lock, ownership, recovery, or filesystem failures.
     pub fn claim(&self, request: &OwnershipItem) -> Result<OwnershipResult, PmRustError> {
-        crate::mutation::ownership_item(&self.pm_root, request, true)
+        self.claim_with_options(request, &crate::OwnershipOptions::default())
     }
 
     /// Releases ownership according to the tracker's ownership policy.
@@ -351,7 +351,7 @@ impl Workspace {
     /// # Errors
     /// Returns validation, lock, ownership, recovery, or filesystem failures.
     pub fn release(&self, request: &OwnershipItem) -> Result<OwnershipResult, PmRustError> {
-        crate::mutation::ownership_item(&self.pm_root, request, false)
+        self.release_with_options(request, &crate::OwnershipOptions::default())
     }
 
     /// Closes one open item with an immutable closing summary.

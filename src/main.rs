@@ -6,8 +6,8 @@ use std::process::ExitCode;
 
 use clap::{Parser, Subcommand, value_parser};
 use pm_rust::{
-    CloseItem, CommentItem, CreateItem, CreateResult, ItemFilter, ListOptions, MutationResult,
-    OwnershipItem, UpdateItem, Workspace,
+    AuthorIdentity, CloseItem, CommentItem, CreateItem, CreateResult, ItemFilter, ListOptions,
+    MutationResult, OwnershipItem, OwnershipOptions, SelectionOptions, UpdateItem, Workspace,
 };
 use serde::Serialize;
 
@@ -183,9 +183,32 @@ enum Command {
         /// Skip an item already claimed by another author.
         #[arg(long)]
         if_available: bool,
+        /// Select and atomically claim the next ranked actionable item.
+        #[arg(long)]
+        next: bool,
+        /// Claim first and then move the explicit item to in progress.
+        #[arg(long)]
+        start: bool,
+        /// Selection filters and retry budget.
+        #[command(flatten)]
+        selection: SelectionArgs,
     },
     /// Release the ownership of an explicit item.
-    Release(OwnershipArgs),
+    #[command(mut_arg("id", |arg| arg.required(true)))]
+    Release {
+        /// Common ownership inputs.
+        #[command(flatten)]
+        args: OwnershipArgs,
+        /// Move to open before releasing ownership.
+        #[arg(long)]
+        pause: bool,
+    },
+    /// Claim and start an explicit item.
+    #[command(mut_arg("id", |arg| arg.required(true)))]
+    StartTask(OwnershipArgs),
+    /// Open and release an explicit item.
+    #[command(mut_arg("id", |arg| arg.required(true)))]
+    PauseTask(OwnershipArgs),
     /// Close one open canonical item with an immutable closing summary.
     Close {
         /// Exact stable identifier of the item to close.
@@ -209,10 +232,10 @@ enum Command {
 #[derive(Debug, clap::Args)]
 struct OwnershipArgs {
     /// Stable item identifier.
-    id: String,
+    id: Option<String>,
     /// Asserted author and claim principal.
     #[arg(long)]
-    author: String,
+    author: Option<String>,
     /// Fixed UTC RFC 3339 mutation clock, no later than the current UTC instant.
     #[arg(long)]
     timestamp: Option<String>,
@@ -225,6 +248,44 @@ struct OwnershipArgs {
     /// Emit the published compact JSON receipt.
     #[arg(long)]
     json: bool,
+}
+
+/// Filters shared by native claim-next and its SDK equivalent.
+#[derive(Debug, Default, clap::Args)]
+struct SelectionArgs {
+    /// Exact runtime item type.
+    #[arg(long = "type")]
+    item_type: Option<String>,
+    /// Exact tag.
+    #[arg(long)]
+    tag: Option<String>,
+    /// Exact priority.
+    #[arg(long)]
+    priority: Option<u8>,
+    /// Descendants of this parent.
+    #[arg(long)]
+    parent: Option<String>,
+    /// Exact sprint.
+    #[arg(long)]
+    sprint: Option<String>,
+    /// Exact release.
+    #[arg(long)]
+    release: Option<String>,
+    /// Ownership selection policy.
+    #[arg(long)]
+    assignee_filter: Option<String>,
+    /// Include human decisions.
+    #[arg(long)]
+    include_decisions: bool,
+    /// Include gates.
+    #[arg(long)]
+    include_gates: bool,
+    /// Include active containers.
+    #[arg(long)]
+    include_containers: bool,
+    /// Maximum ranked candidates to attempt.
+    #[arg(long)]
+    max_attempts: Option<usize>,
 }
 
 /// Writes one pretty JSON response to the process standard output stream.
@@ -406,11 +467,79 @@ fn run(cli: Cli) -> Result<(), Box<dyn std::error::Error>> {
                 },
             )?)?;
         }
-        Command::Claim { args, if_available } => {
-            return write_json(&workspace.claim(&ownership_request(args, if_available))?);
+        Command::Claim {
+            args,
+            if_available,
+            next,
+            start,
+            selection,
+        } => {
+            if start && args.id.is_none() {
+                return Err(Box::new(pm_rust::PmRustError::CommandRefusal {
+                    detail: "Specify an item id or pass --next".to_owned(),
+                    exit_code: 2,
+                    context: serde_json::json!({}),
+                }));
+            }
+            if start && (next || if_available) {
+                return Err(Box::new(pm_rust::PmRustError::CommandRefusal {
+                    detail: "--start cannot be combined with --next or --if-available for an explicit item".to_owned(), exit_code: 2,
+                    context: serde_json::json!({"code":"invalid_argument_value","required":"Remove --next and --if-available when starting an explicit item.","next_steps":["Remove --next and --if-available, keep the explicit item ID and other supplied arguments, then retry."]}),
+                }));
+            }
+            if next == args.id.is_some() {
+                return Err(Box::new(pm_rust::PmRustError::CommandRefusal {
+                    detail: if next {
+                        "Specify either an item id or --next, not both"
+                    } else {
+                        "Specify an item id or pass --next"
+                    }
+                    .to_owned(),
+                    exit_code: 2,
+                    context: serde_json::json!({}),
+                }));
+            }
+            let (request, options) = ownership_request(&workspace, args, if_available)?;
+            if next {
+                return write_json(&workspace.claim_next(
+                    &request,
+                    &options,
+                    &SelectionOptions {
+                        item_type: selection.item_type,
+                        tag: selection.tag,
+                        priority: selection.priority,
+                        parent: selection.parent,
+                        sprint: selection.sprint,
+                        release: selection.release,
+                        assignee_filter: selection.assignee_filter,
+                        include_decisions: selection.include_decisions,
+                        include_gates: selection.include_gates,
+                        include_containers: selection.include_containers,
+                        max_attempts: selection.max_attempts,
+                    },
+                )?);
+            }
+            if start {
+                return write_json(&workspace.start_task(&request, &options)?);
+            }
+            return write_json(&workspace.claim_with_options(&request, &options)?);
         }
-        Command::Release(args) => {
-            return write_json(&workspace.release(&ownership_request(args, false))?);
+        Command::Release { args, pause } => {
+            let (request, options) = ownership_request(&workspace, args, false)?;
+            if pause {
+                return write_json(&workspace.pause_task(&request, &options)?);
+            }
+            return write_json(&workspace.release_with_options(&request, &options)?);
+        }
+        Command::StartTask(args) => {
+            let (mut request, options) = ownership_request(&workspace, args, false)?;
+            request.provenance_role = None;
+            return write_json(&workspace.start_task(&request, &options)?);
+        }
+        Command::PauseTask(args) => {
+            let (mut request, options) = ownership_request(&workspace, args, false)?;
+            request.provenance_role = None;
+            return write_json(&workspace.pause_task(&request, &options)?);
         }
         Command::Close {
             id,
@@ -436,16 +565,34 @@ fn run(cli: Cli) -> Result<(), Box<dyn std::error::Error>> {
 }
 
 /// Stamps explicit ownership requests with the published implementer role.
-fn ownership_request(args: OwnershipArgs, if_available: bool) -> OwnershipItem {
-    OwnershipItem {
-        id: args.id,
-        author: args.author,
+fn ownership_request(
+    workspace: &Workspace,
+    args: OwnershipArgs,
+    if_available: bool,
+) -> Result<(OwnershipItem, OwnershipOptions), Box<dyn std::error::Error>> {
+    let settings: serde_json::Value =
+        serde_json::from_slice(&std::fs::read(workspace.pm_root().join("settings.json"))?)?;
+    let identity = AuthorIdentity::resolve(
+        args.author.as_deref(),
+        settings["author_default"].as_str(),
+        &std::env::vars().collect(),
+    );
+    let request = OwnershipItem {
+        id: args.id.unwrap_or_default(),
+        author: identity.author.clone(),
         timestamp: args.timestamp,
         message: args.message,
         force: args.force,
         if_available,
         provenance_role: Some("implementer".to_owned()),
-    }
+    };
+    Ok((
+        request,
+        OwnershipOptions {
+            identity: Some(identity),
+            release_bypass: false,
+        },
+    ))
 }
 
 /// Creates one item, stamping the argv-derived implementer role.
@@ -488,6 +635,19 @@ fn main() -> ExitCode {
     match run(Cli::parse()) {
         Ok(()) => ExitCode::SUCCESS,
         Err(error) => {
+            if let Some(pm_rust::PmRustError::CommandRefusal {
+                detail,
+                exit_code,
+                context,
+            }) = error.downcast_ref::<pm_rust::PmRustError>()
+            {
+                let args = published_read_arguments(std::env::args_os().skip(1));
+                let mut payload = ownership_error_json(detail, context, &args);
+                payload["exit_code"] = serde_json::json!(exit_code);
+                payload["refusal"] = command_refusal_detail(detail, &args, *exit_code);
+                let _ = write_json_to(&mut std::io::stderr().lock(), &payload);
+                return ExitCode::from(*exit_code);
+            }
             if let Some(pm_rust::PmRustError::OwnershipRefusal { detail, context }) =
                 error.downcast_ref::<pm_rust::PmRustError>()
             {
@@ -597,6 +757,18 @@ fn ownership_error_json(
     match context["code"].as_str() {
         Some("ownership_conflict") => {
             payload["title"] = serde_json::json!("Ownership conflict");
+            payload["required"] = serde_json::json!(
+                "Run as the assigned owner, claim the item when appropriate, or use --force only for an approved override."
+            );
+            payload["next_steps"] = serde_json::json!([
+                "Use --force for approved systematic metadata updates performed by leads or maintainers.",
+                "Use --force when correcting known stale metadata after coordinating ownership changes.",
+                "For non-terminal reassignment, prefer \"pm claim <ID>\" before running other mutations."
+            ]);
+            payload["examples"] = serde_json::json!([
+                "pm claim pm-a1b2",
+                "pm update pm-a1b2 --status in_progress --force"
+            ]);
             payload["why"] = serde_json::json!(
                 "Ownership checks prevent accidental concurrent mutations on claimed items and protect against conflicting writes."
             );
@@ -613,19 +785,68 @@ fn ownership_error_json(
         }
         None => {
             payload["title"] = serde_json::json!("Command failed");
-            // The generic published refusal has no explanatory why field.
-            let mut fields = payload.as_object().cloned().unwrap_or_default();
-            fields.remove("why");
-            payload = serde_json::Value::Object(fields);
         }
         _ => {}
     }
-    for key in ["required", "why", "examples", "next_steps"] {
+    for key in ["required", "examples", "next_steps", "title"] {
         if let Some(value) = context.get(key) {
             payload[key] = value.clone();
         }
     }
+    let include_why = context["code"]
+        .as_str()
+        .is_some_and(|code| code != "invalid_argument_value");
+    if include_why && let Some(why) = context.get("why") {
+        payload["why"] = why.clone();
+    }
+    let mut ordered = serde_json::Map::new();
+    for key in [
+        "code",
+        "required",
+        "recovery",
+        "next_steps",
+        "exit_code",
+        "type",
+        "title",
+        "detail",
+        "why",
+        "examples",
+        "refusal",
+    ] {
+        if key == "why" && !include_why {
+            continue;
+        }
+        if let Some(value) = payload.get(key) {
+            ordered.insert(key.to_owned(), value.clone());
+        }
+    }
+    payload = serde_json::Value::Object(ordered);
     payload["exit_code"] = serde_json::json!(4);
-    payload["refusal"] = serde_json::json!({"surface":args[0],"exit_code":4});
+    payload["refusal"] = command_refusal_detail(detail, args, 4);
     payload
+}
+
+/// Formats command-specific rejected flag values in usage refusals.
+fn command_refusal_detail(detail: &str, args: &[String], exit_code: u8) -> serde_json::Value {
+    let surface = detail
+        .split_whitespace()
+        .filter(|word| word.starts_with("--"))
+        .map(|word| word.trim_end_matches([',', '.']))
+        .find(|word| args.iter().any(|arg| arg == word));
+    if let Some(surface) = surface {
+        if detail.contains("not both") {
+            return serde_json::json!({"surface":surface,"exit_code":exit_code});
+        }
+        let rejected = args
+            .iter()
+            .position(|arg| arg == surface)
+            .and_then(|index| args.get(index + 1))
+            // The published extractor omits these shared author/output controls.
+            .filter(|arg| !matches!(arg.as_str(), "--author" | "--json"));
+        if let Some(rejected) = rejected {
+            return serde_json::json!({"surface":surface,"rejected_value":rejected,"exit_code":exit_code});
+        }
+        return serde_json::json!({"surface":surface,"exit_code":exit_code});
+    }
+    serde_json::json!({"surface":args[0],"exit_code":exit_code})
 }

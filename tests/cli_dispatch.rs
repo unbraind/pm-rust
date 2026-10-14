@@ -21,6 +21,49 @@ fn workspace() -> Result<TempDir, Box<dyn std::error::Error>> {
     Ok(directory)
 }
 
+/// Explicit lifecycle commands reject missing IDs before creating any locks.
+#[test]
+fn explicit_lifecycle_commands_require_item_identifiers() -> Result<(), Box<dyn std::error::Error>>
+{
+    let workspace = workspace()?;
+    for command in ["release", "start-task", "pause-task"] {
+        let output = pm_rust(&workspace, &[command, "--author", "cli-agent", "--json"])?;
+        assert_eq!(output.status.code(), Some(2));
+        assert!(String::from_utf8_lossy(&output.stderr).contains("<ID>"));
+        assert!(!workspace.path().join(".agents/pm/locks").exists());
+    }
+    Ok(())
+}
+
+/// Ownership dispatch refuses corrupt configuration and missing alias targets.
+#[test]
+fn ownership_dispatch_preserves_configuration_and_alias_failures()
+-> Result<(), Box<dyn std::error::Error>> {
+    let workspace = workspace()?;
+    let root = workspace.path().join(".agents/pm");
+    fs::write(root.join("settings.json"), "invalid")?;
+    for command in ["claim", "release", "start-task", "pause-task"] {
+        let output = pm_rust(
+            &workspace,
+            &[command, "sample-missing", "--author", "cli-agent", "--json"],
+        )?;
+        assert!(!output.status.success());
+        assert!(output.stdout.is_empty());
+        assert!(String::from_utf8_lossy(&output.stderr).contains("expected value"));
+        assert!(!root.join("locks").exists());
+        assert_eq!(fs::read_to_string(root.join("settings.json"))?, "invalid");
+    }
+    fs::write(root.join("settings.json"), "{}")?;
+    for command in ["start-task", "pause-task"] {
+        expect_err(
+            &workspace,
+            &[command, "sample-missing", "--author", "cli-agent", "--json"],
+            "pm item not found",
+        )?;
+    }
+    Ok(())
+}
+
 /// Runs the binary with arguments inside one fixture workspace.
 fn pm_rust(
     workspace: &TempDir,

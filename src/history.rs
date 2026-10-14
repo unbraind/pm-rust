@@ -122,22 +122,6 @@ pub(crate) struct HistoryPatch {
     pub value: Option<Value>,
 }
 
-/// Agent provenance recorded alongside argv-derived mutation roles.
-#[derive(Clone, Debug, PartialEq, Serialize)]
-pub(crate) struct AgentProvenance<'a> {
-    /// Role inferred from the invoked command name.
-    pub role: ProvenanceRole<'a>,
-}
-
-/// One argv-derived provenance value with its detection source.
-#[derive(Clone, Debug, PartialEq, Serialize)]
-pub(crate) struct ProvenanceRole<'a> {
-    /// Canonical role value, for example `implementer`.
-    pub value: &'a str,
-    /// Always `argv`: the only supported detection source in this slice.
-    pub source: &'static str,
-}
-
 /// One complete history record ready for JSON serialization.
 #[derive(Serialize)]
 pub(crate) struct HistoryEntry<'a> {
@@ -147,11 +131,23 @@ pub(crate) struct HistoryEntry<'a> {
     pub ts: &'a str,
     /// Asserted mutation author.
     pub author: &'a str,
-    /// Author resolution source; `asserted` for every explicit native author.
+    /// Author identity resolution source.
     pub author_source: &'static str,
-    /// Argv-derived provenance, absent when the command maps to no role.
+    /// Detected harness, when available.
     #[serde(skip_serializing_if = "Option::is_none")]
-    pub agent_provenance: Option<AgentProvenance<'a>>,
+    pub agent_harness: Option<String>,
+    /// Detected model, when available.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub agent_model: Option<String>,
+    /// Model detection source.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub agent_model_source: Option<String>,
+    /// Hashed detected session identity.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub agent_instance: Option<String>,
+    /// Available role, topic and other attribution dimensions.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub agent_provenance: Option<Value>,
     /// Canonical mutation operation name.
     pub op: &'static str,
     /// Canonical JSON-patch diff between the before and after documents.
@@ -360,11 +356,9 @@ pub fn history_patch(before: &OrderedDocument, after: &OrderedDocument) -> Vec<H
                 path: format!("/metadata/{key}"),
                 value: None,
             }),
-            Some(updated) if updated != value => patch.push(HistoryPatch {
-                op: "replace",
-                path: format!("/metadata/{key}"),
-                value: Some(updated.clone()),
-            }),
+            Some(updated) if updated != value => {
+                diff_value(value, updated, &format!("/metadata/{key}"), &mut patch);
+            }
             Some(_) => {}
         }
     }
@@ -378,6 +372,70 @@ pub fn history_patch(before: &OrderedDocument, after: &OrderedDocument) -> Vec<H
         }
     }
     patch
+}
+
+/// Diffs existing arrays and objects recursively in published JSON-patch order.
+fn diff_value(before: &Value, after: &Value, pointer: &str, patch: &mut Vec<HistoryPatch>) {
+    match (before, after) {
+        (Value::Array(before), Value::Array(after)) => {
+            for (index, value) in before.iter().enumerate().rev() {
+                let child = format!("{pointer}/{index}");
+                if let Some(updated) = after.get(index) {
+                    if value != updated {
+                        diff_value(value, updated, &child, patch);
+                    }
+                } else {
+                    patch.push(HistoryPatch {
+                        op: "remove",
+                        path: child,
+                        value: None,
+                    });
+                }
+            }
+            for (index, value) in after.iter().enumerate().skip(before.len()) {
+                patch.push(HistoryPatch {
+                    op: "add",
+                    path: format!("{pointer}/{index}"),
+                    value: Some(value.clone()),
+                });
+            }
+        }
+        (Value::Object(before), Value::Object(after)) => {
+            for (key, value) in before.iter().rev() {
+                let child = format!("{pointer}/{}", escape_pointer(key));
+                if let Some(updated) = after.get(key) {
+                    if value != updated {
+                        diff_value(value, updated, &child, patch);
+                    }
+                } else {
+                    patch.push(HistoryPatch {
+                        op: "remove",
+                        path: child,
+                        value: None,
+                    });
+                }
+            }
+            for (key, value) in after {
+                if !before.contains_key(key) {
+                    patch.push(HistoryPatch {
+                        op: "add",
+                        path: format!("{pointer}/{}", escape_pointer(key)),
+                        value: Some(value.clone()),
+                    });
+                }
+            }
+        }
+        _ => patch.push(HistoryPatch {
+            op: "replace",
+            path: pointer.to_owned(),
+            value: Some(after.clone()),
+        }),
+    }
+}
+
+/// Escapes an object key as a portable JSON Pointer path segment.
+fn escape_pointer(key: &str) -> String {
+    key.replace('~', "~0").replace('/', "~1")
 }
 
 /// Lowercase hexadecimal digits, indexed by the nibble they encode.
@@ -508,12 +566,12 @@ pub(crate) fn history_entry<'a>(
         } else {
             "asserted"
         },
-        agent_provenance: provenance_role.map(|role| AgentProvenance {
-            role: ProvenanceRole {
-                value: role,
-                source: "argv",
-            },
-        }),
+        agent_harness: None,
+        agent_model: None,
+        agent_model_source: None,
+        agent_instance: None,
+        agent_provenance: provenance_role
+            .map(|role| serde_json::json!({"role":{"value":role,"source":"argv"}})),
         op,
         patch,
         before_hash,
@@ -524,6 +582,7 @@ pub(crate) fn history_entry<'a>(
         record_hash_version: 1,
         record_hash: String::new(),
     };
+    crate::ownership::stamp_attribution(&mut entry, provenance_role);
     // Every field is a JSON-compatible scalar, collection, or Value; the
     // temporary empty digest is omitted from the canonical hash input.
     let canonical = serde_json::to_value(&entry).unwrap_or_default();

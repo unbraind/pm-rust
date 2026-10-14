@@ -4,9 +4,10 @@
 //! field-update, comment-append, and close transactions, each backed by
 //! per-item locking with a wait budget, durable journaling, recovery, and
 //! canonical `item_hash_version: 3` history compatible with the published
-//! `pm` 2026.10.9 release. Merge operations remain gated on differential
+//! `pm` 2026.10.14 release. Merge operations remain gated on differential
 //! conformance evidence.
 
+mod collation;
 mod error;
 mod history;
 mod item;
@@ -14,8 +15,10 @@ mod json_output;
 mod list;
 mod list_intent;
 mod mutation;
+mod ownership;
 mod pagination;
 mod read_output;
+mod selection;
 mod workspace;
 
 pub use error::PmRustError;
@@ -28,7 +31,8 @@ pub use mutation::{
     CloseItem, CommentItem, CreateItem, CreateResult, MutationResult, OwnershipItem,
     OwnershipResult, UpdateItem, default_priority, default_status, validate_timestamp,
 };
+pub use ownership::{AuthorIdentity, OwnershipOptions, SelectionOptions};
 pub use workspace::{ItemFilter, ListResult, Workspace};
 
 /// Published canonical `pm` release used by this compatibility slice.
-pub const COMPATIBLE_PM_VERSION: &str = "2026.10.9";
+pub const COMPATIBLE_PM_VERSION: &str = "2026.10.14";

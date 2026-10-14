@@ -23,7 +23,7 @@
 # carries a date.
 CHANGELOG_DATE := "2026-08-07"
 
-# The CLI pin tracks the published conformance target independently.
+# The changelog SDK pin is independent of the published parity oracle.
 # pm-changelog stays pinned to the version that generated CHANGELOG.md;
 # changelog-check verifies the committed output with this exact pairing.
 # Pin both packages explicitly because pm-changelog's floating SDK range

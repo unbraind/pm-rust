@@ -6,6 +6,89 @@ use pm_rust::{ItemDocument, ItemFilter, ItemMetadata, ListResult};
 
 use super::{Cli, Command, run, write_json_to};
 
+/// A final rejected flag has no following value to include in its refusal.
+#[test]
+fn flag_only_refusals_do_not_invent_a_rejected_value() {
+    let args = ["claim", "--next"].map(str::to_owned);
+    assert_eq!(
+        super::command_refusal_detail("Invalid --next.", &args, 2),
+        serde_json::json!({"surface":"--next", "exit_code":2})
+    );
+    for control in ["--author", "--json"] {
+        let args = ["claim", "--start", control].map(str::to_owned);
+        assert_eq!(
+            super::command_refusal_detail("Invalid --start.", &args, 2),
+            serde_json::json!({"surface":"--start", "exit_code":2})
+        );
+    }
+}
+
+/// Every ownership dispatcher propagates malformed settings and missing-item faults.
+#[test]
+fn ownership_dispatch_preserves_settings_and_alias_errors() -> Result<(), Box<dyn std::error::Error>>
+{
+    let directory = tempfile::tempdir()?;
+    let root = directory.path().join(".agents/pm");
+    fs::create_dir_all(&root)?;
+    fs::write(root.join("settings.json"), "invalid")?;
+    let args = || super::OwnershipArgs {
+        id: Some("sample-missing".to_owned()),
+        author: Some("fixture-agent".to_owned()),
+        timestamp: None,
+        message: None,
+        force: false,
+        json: true,
+    };
+    for command in [
+        Command::Claim {
+            args: args(),
+            if_available: false,
+            next: false,
+            start: false,
+            selection: super::SelectionArgs::default(),
+        },
+        Command::Release {
+            args: args(),
+            pause: false,
+        },
+        Command::StartTask(args()),
+        Command::PauseTask(args()),
+    ] {
+        assert!(
+            run(Cli {
+                workspace: directory.path().to_path_buf(),
+                command
+            })
+            .is_err()
+        );
+    }
+    fs::write(root.join("settings.json"), "{}")?;
+    for command in [Command::StartTask(args()), Command::PauseTask(args())] {
+        assert!(
+            run(Cli {
+                workspace: directory.path().to_path_buf(),
+                command
+            })
+            .is_err()
+        );
+    }
+    let workspace = pm_rust::Workspace::discover(directory.path())?;
+    fs::remove_file(root.join("settings.json"))?;
+    assert!(super::ownership_request(&workspace, args(), false).is_err());
+    Ok(())
+}
+
+/// Recovery metadata deduplicates repeated flags while retaining argument order.
+#[test]
+fn repeated_flags_are_listed_once_in_refusal_recovery() {
+    let args = ["list", "--json", "--json", "value"].map(str::to_owned);
+    let payload = super::cursor_error_json("invalid_query_cursor", "invalid", &args);
+    assert_eq!(
+        payload["recovery"]["provided_fields"],
+        serde_json::json!(["--json"])
+    );
+}
+
 /// Deliberately failing response proves encoding errors reach the caller.
 struct SerializationFailure;
 
@@ -306,8 +389,15 @@ fn run_dispatches_every_mutation_and_its_error_halves() -> Result<(), Box<dyn st
         force_stale_lock: false,
     }))?;
     let ownership_args = |author: &str| super::OwnershipArgs {
-        id: "unit-dispatch".to_owned(),
-        author: author.to_owned(),
+        id: Some(
+            if author.trim().is_empty() {
+                "unit-missing"
+            } else {
+                "unit-dispatch"
+            }
+            .to_owned(),
+        ),
+        author: Some(author.to_owned()),
         timestamp: Some("2026-08-07T10:06:30.183Z".to_owned()),
         message: None,
         force: false,
@@ -316,16 +406,31 @@ fn run_dispatches_every_mutation_and_its_error_halves() -> Result<(), Box<dyn st
     assert!(
         run(cli(Command::Claim {
             args: ownership_args(" "),
-            if_available: false
+            if_available: false,
+            next: false,
+            start: false,
+            selection: super::SelectionArgs::default(),
         }))
         .is_err()
     );
     run(cli(Command::Claim {
         args: ownership_args("unit-agent"),
         if_available: false,
+        next: false,
+        start: false,
+        selection: super::SelectionArgs::default(),
     }))?;
-    assert!(run(cli(Command::Release(ownership_args(" ")))).is_err());
-    run(cli(Command::Release(ownership_args("unit-agent"))))?;
+    assert!(
+        run(cli(Command::Release {
+            args: ownership_args(" "),
+            pause: false
+        }))
+        .is_err()
+    );
+    run(cli(Command::Release {
+        args: ownership_args("unit-agent"),
+        pause: false,
+    }))?;
     run(cli(Command::Close {
         id: "unit-dispatch".to_owned(),
         reason: "dispatch done".to_owned(),
