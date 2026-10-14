@@ -48,7 +48,7 @@ fn driver_script(sdk: &Path, entry: &Path) -> String {
 // both imports go through `pathToFileURL` so the specifiers are valid on every
 // platform.
 import { pathToFileURL } from "node:url";
-const { runWithWorkspaceRecipe } = await import(pathToFileURL(__SDK_JSON__));
+const { runWithWorkspaceRecipe, release, claim, startTask } = await import(pathToFileURL(__SDK_JSON__));
 
 const fixed = Date.parse(process.env.FIXED_CLOCK);
 class pinnedDate extends Date {
@@ -70,7 +70,26 @@ const recipe = {
 };
 try {
   await runWithWorkspaceRecipe(recipe, async () => {
-    await import(pathToFileURL(__ENTRY_JSON__));
+    if (process.argv[2] === "__release_bypass") {
+      const result = await release(process.argv[3], { author: process.argv[4], ownershipReleaseBypass: true }, { path: process.cwd() });
+      console.log(JSON.stringify(result));
+    } else if (process.argv[2] === "__ownership_error") {
+      try {
+        await (process.argv[3] === "claim" ? claim : process.argv[3] === "start" ? startTask : release)(process.argv[4], { author: "alpha" }, { path: process.cwd() });
+        console.log(JSON.stringify({ ok: true }));
+      } catch (error) {
+        console.log(JSON.stringify({ detail: error.message, exit_code: error.exitCode, context: error.context }));
+      }
+    } else if (process.argv[2] === "__start_if_available") {
+      try {
+        await startTask(process.argv[3], { author: process.argv[4], ifAvailable: true }, { path: process.cwd() });
+        console.log(JSON.stringify({ ok: true }));
+      } catch (error) {
+        console.log(JSON.stringify({ detail: error.message, exit_code: error.exitCode, context: error.context }));
+      }
+    } else {
+      await import(pathToFileURL(__ENTRY_JSON__));
+    }
   });
 } catch (error) {
   if (error && error.name !== "CommanderError") {

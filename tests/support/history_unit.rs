@@ -183,6 +183,41 @@ fn patch_diffs_include_removals_of_dropped_metadata_keys() {
     );
 }
 
+/// Recursive patches retain unchanged siblings and escape JSON Pointer keys.
+#[test]
+fn recursive_patches_preserve_nested_siblings_and_array_indices()
+-> Result<(), Box<dyn std::error::Error>> {
+    let before = ordered(
+        &json!({"custom": {"same": true, "a/b~c": [1, 2, 3], "drop": 9}}),
+        "same",
+    );
+    let after = ordered(
+        &json!({"custom": {"same": true, "a/b~c": [1, 4], "added": [5, 6]}}),
+        "same",
+    );
+    assert_eq!(
+        serde_json::to_value(history_patch(&before, &after))?,
+        json!([
+            {"op":"remove", "path":"/metadata/custom/drop"},
+            {"op":"remove", "path":"/metadata/custom/a~1b~0c/2"},
+            {"op":"replace", "path":"/metadata/custom/a~1b~0c/1", "value":4},
+            {"op":"add", "path":"/metadata/custom/added", "value":[5, 6]}
+        ])
+    );
+    let extended = ordered(
+        &json!({"custom": {"same": true, "a/b~c": [1, 4, 7, 8], "added": [5, 6]}}),
+        "same",
+    );
+    assert_eq!(
+        serde_json::to_value(history_patch(&after, &extended))?,
+        json!([
+            {"op":"add", "path":"/metadata/custom/a~1b~0c/2", "value":7},
+            {"op":"add", "path":"/metadata/custom/a~1b~0c/3", "value":8}
+        ])
+    );
+    Ok(())
+}
+
 #[test]
 fn unknown_metadata_keys_sort_after_every_canonical_key() {
     let mut metadata = crate::item::ItemMetadata {

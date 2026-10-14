@@ -59,7 +59,7 @@ fn lossless_views_keep_cuts_and_javascript_numbers() -> Result<(), Box<dyn std::
     // Invalid internal raw data must surface as an error instead of malformed JSON.
     output.cuts.insert(String::new(), "invalid".to_owned());
     assert!(super::write_pretty_json(&mut Vec::new(), &output).is_err());
-    assert!(stringify_json(&output, true).is_empty());
+    assert_eq!(stringify_json(&output, true), "");
     Ok(())
 }
 

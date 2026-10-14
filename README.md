@@ -6,14 +6,16 @@ native applications.
 
 The project is pre-release. Its current delivery slice reads workspaces and
 creates, updates, comments on, closes, claims, and releases canonical items
-against the published `pm` 2026.10.9 on-disk contract. Production code, tests, benchmarks,
+against the published `pm` 2026.10.14 on-disk contract. Production code, tests, benchmarks,
 and build tooling are Rust; the distributed binary does not require Node.js,
 Bun, JavaScript, or TypeScript.
 
 See the [command and storage parity matrix](docs/CLI_PARITY_2026_10_2.md) and
 [2026.10.7 pagination contract](docs/LIST_PAGINATION_2026_10_5.md) for supported
 read flags and remaining gaps. The [explicit ownership contract](docs/OWNERSHIP_PARITY_2026_10_7.md)
-details claim/release parity and its tested boundaries.
+details claim/release parity and its tested boundaries. The
+[native selection and lifecycle contract](docs/NATIVE_SELECTION_LIFECYCLE_2026_10_13.md)
+covers claim-next, start, pause and session principals.
 
 | Read surface | Native parity |
 | --- | --- |
@@ -114,7 +116,7 @@ Work is managed in this repository with the latest `pm` CLI under
 
 ## Development
 
-The published parity oracle is pinned to exactly 2026.10.9 in
+The published parity oracle is pinned to exactly 2026.10.14 in
 `tests/oracle/package.json` and installed from its committed `package-lock.json`.
 Both local runs and every CI matrix job use `npm ci`; the lock records the
 registry tarball and integrity, including the bundled runtime closure. This

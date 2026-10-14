@@ -168,7 +168,13 @@ impl Workspace {
     /// # Errors
     ///
     /// Returns a typed filesystem, document-validation, or duplicate-id error.
+    #[cfg(not(test))]
     pub fn read_items(&self) -> Result<Vec<ItemDocument>, PmRustError> {
+        self.read_items_impl()
+    }
+
+    /// Implements the corpus reader identically for ordinary and observed test calls.
+    pub(crate) fn read_items_impl(&self) -> Result<Vec<ItemDocument>, PmRustError> {
         let mut paths = Vec::new();
         for entry in read_directory(&self.pm_root)? {
             let entry_path = entry.path();
@@ -343,7 +349,7 @@ impl Workspace {
     /// # Errors
     /// Returns validation, lock, ownership, recovery, or filesystem failures.
     pub fn claim(&self, request: &OwnershipItem) -> Result<OwnershipResult, PmRustError> {
-        crate::mutation::ownership_item(&self.pm_root, request, true)
+        self.claim_with_options(request, &crate::OwnershipOptions::default())
     }
 
     /// Releases ownership according to the tracker's ownership policy.
@@ -351,7 +357,7 @@ impl Workspace {
     /// # Errors
     /// Returns validation, lock, ownership, recovery, or filesystem failures.
     pub fn release(&self, request: &OwnershipItem) -> Result<OwnershipResult, PmRustError> {
-        crate::mutation::ownership_item(&self.pm_root, request, false)
+        self.release_with_options(request, &crate::OwnershipOptions::default())
     }
 
     /// Closes one open item with an immutable closing summary.

@@ -19,6 +19,137 @@ mod windows_acl;
 
 const TS: &str = "2026-08-07T10:06:30.183Z";
 
+/// Lifecycle storage faults stop before mutation or retain a durable recovery journal.
+#[test]
+fn lifecycle_storage_faults_preserve_recovery_evidence() -> Result<(), Box<dyn std::error::Error>> {
+    let (_directory, pm_root) = root("{}")?;
+    create_item(&pm_root, request())?;
+    let mut mutation = OwnershipItem {
+        id: "sample-unit".to_owned(),
+        author: "unit-agent".to_owned(),
+        timestamp: Some(TS.to_owned()),
+        message: None,
+        force: false,
+        if_available: false,
+        provenance_role: None,
+    };
+    let options = crate::OwnershipOptions::default();
+    let settings_path = pm_root.join("settings.json");
+    let item_path = pm_root.join("tasks/sample-unit.toon");
+    let before = fs::read(&item_path)?;
+    fs::write(&settings_path, "invalid")?;
+    assert!(lifecycle_status(&pm_root, &mutation, &options, true).is_err());
+    fs::write(&settings_path, "{}")?;
+    mutation.id = "sample-absent".to_owned();
+    assert!(lifecycle_status(&pm_root, &mutation, &options, true).is_err());
+    mutation.id = "sample-unit".to_owned();
+    fs::write(
+        &settings_path,
+        r#"{"schema":{"files":{"workflows":"missing.json"}}}"#,
+    )?;
+    assert!(matches!(
+        lifecycle_status(&pm_root, &mutation, &options, true),
+        Err(PmRustError::Io { .. })
+    ));
+    assert_eq!(fs::read(&item_path)?, before);
+    fs::write(&settings_path, "{}")?;
+    let history = pm_root.join("history/sample-unit.jsonl");
+    fs::remove_file(&history)?;
+    fs::create_dir(&history)?;
+    assert!(matches!(
+        lifecycle_status(&pm_root, &mutation, &options, true),
+        Err(PmRustError::Io { .. })
+    ));
+    assert_eq!(
+        decode_item(&item_path, &fs::read_to_string(&item_path)?)?
+            .metadata
+            .status,
+        "in_progress"
+    );
+    assert!(
+        pm_root
+            .join("runtime/transactions/update-sample-unit.json")
+            .is_file()
+    );
+    Ok(())
+}
+
+/// Session publication failures never silently undo a completed ownership transaction.
+#[test]
+fn ownership_session_faults_and_contention_preserve_durable_steps()
+-> Result<(), Box<dyn std::error::Error>> {
+    let (_directory, pm_root) = root("{}")?;
+    create_item(&pm_root, request())?;
+    let workspace = crate::Workspace::discover(&pm_root)?;
+    let mut mutation = OwnershipItem {
+        id: "sample-unit".to_owned(),
+        author: "unit-agent".to_owned(),
+        timestamp: Some(TS.to_owned()),
+        message: None,
+        force: false,
+        if_available: false,
+        provenance_role: None,
+    };
+    let options = crate::OwnershipOptions::default();
+    let session = pm_root.join("runtime/session.json");
+    fs::create_dir(&session)?;
+    assert!(matches!(
+        workspace.claim_with_options(&mutation, &options),
+        Err(PmRustError::Io { .. })
+    ));
+    assert_eq!(
+        workspace.get("sample-unit")?.metadata.extra["assignee"],
+        "unit-agent"
+    );
+    mutation.author = "other".to_owned();
+    assert!(matches!(
+        workspace.start_task(&mutation, &options),
+        Err(PmRustError::OwnershipRefusal { .. })
+    ));
+    mutation.author = "unit-agent".to_owned();
+    assert!(matches!(
+        workspace.release_with_options(&mutation, &options),
+        Err(PmRustError::Io { .. })
+    ));
+    assert!(
+        !workspace
+            .get("sample-unit")?
+            .metadata
+            .extra
+            .contains_key("assignee")
+    );
+    fs::remove_dir(&session)?;
+    let locks = LockSettings::default();
+    let guard = acquire_lock(
+        &pm_root,
+        "session-state",
+        "other",
+        &locks,
+        false,
+        &now_iso(),
+    )?;
+    let called = std::cell::Cell::new(false);
+    assert!(matches!(
+        mutate_session_state(&pm_root, |_| called.set(true)),
+        Err(PmRustError::LockConflict { .. })
+    ));
+    assert!(!called.get());
+    drop(guard);
+    mutate_session_state(&pm_root, |state| {
+        state.insert("marker".to_owned(), serde_json::json!("published"));
+    })?;
+    assert_eq!(
+        serde_json::from_slice::<Value>(&fs::read(&session)?)?["marker"],
+        "published"
+    );
+    fs::create_dir(pm_root.join("locks/sample-unit.lock"))?;
+    assert!(matches!(
+        ownership_lock_refusal(&pm_root, &mutation, &read_settings(&pm_root)?, TS, 0),
+        PmRustError::Io { .. }
+    ));
+    Ok(())
+}
+
 fn root(settings: &str) -> Result<(TempDir, PathBuf), Box<dyn std::error::Error>> {
     let directory = tempfile::tempdir()?;
     let pm_root = directory.path().join(".agents/pm");
@@ -106,14 +237,14 @@ fn serde_defaults_match_the_supported_create_and_settings_contract()
     )?;
     assert_eq!(parsed.status, "open");
     assert_eq!(parsed.priority, 2);
-    assert!(parsed.description.is_empty());
-    assert!(parsed.tags.is_empty());
-    assert!(parsed.body.is_empty());
+    assert_eq!(parsed.description, "");
+    assert_eq!(parsed.tags, Vec::<String>::new());
+    assert_eq!(parsed.body, "");
     assert!(parsed.timestamp.is_none());
     assert!(parsed.message.is_none());
     assert!(!parsed.force_stale_lock);
     let settings: MutationSettings = serde_json::from_str("{}")?;
-    assert!(settings.id_prefix.is_empty());
+    assert_eq!(settings.id_prefix, "");
     assert_eq!(settings.item_format, "toon");
     assert_eq!(settings.locks.ttl_seconds, 1_800);
     let (_directory, pm_root) = root("{}")?;
@@ -2949,6 +3080,199 @@ fn ownership_provenance_and_legacy_metadata_are_preserved() -> Result<(), Box<dy
     Ok(())
 }
 
+/// Lifecycle status changes apply ownership policy and clean terminal metadata.
+#[test]
+fn lifecycle_updates_enforce_owners_and_clear_terminal_fields()
+-> Result<(), Box<dyn std::error::Error>> {
+    let (_directory, pm_root) =
+        root(r#"{"governance":{"preset":"custom","ownership_enforcement":"strict"}}"#)?;
+    let mut document = create_item(&pm_root, request())?.item;
+    let path = pm_root.join("tasks/sample-unit.toon");
+    document.metadata.status = "closed".to_owned();
+    document.metadata.extra.extend([
+        ("assignee".to_owned(), serde_json::json!("owner")),
+        ("closed_at".to_owned(), serde_json::json!(TS)),
+        ("close_reason".to_owned(), serde_json::json!("Done")),
+    ]);
+    fs::write(&path, canonical_item_bytes(&document)?)?;
+    let mut mutation = OwnershipItem {
+        id: "sample-unit".to_owned(),
+        author: "other".to_owned(),
+        timestamp: Some(TS.to_owned()),
+        message: None,
+        force: false,
+        if_available: false,
+        provenance_role: None,
+    };
+    let options = crate::OwnershipOptions::default();
+    let before = fs::read(&path)?;
+    assert!(matches!(
+        lifecycle_status(&pm_root, &mutation, &options, true),
+        Err(PmRustError::OwnershipRefusal { .. })
+    ));
+    assert_eq!(fs::read(&path)?, before);
+    mutation.force = true;
+    let receipt = lifecycle_status(&pm_root, &mutation, &options, true)?;
+    assert_eq!(receipt["status"], "in_progress");
+    assert_eq!(receipt["changed_field_count"], 3);
+    let opened = decode_item(&path, &fs::read_to_string(&path)?)?;
+    assert!(!opened.metadata.extra.contains_key("close_reason"));
+    fs::write(
+        pm_root.join("settings.json"),
+        r#"{"governance":{"preset":"custom","ownership_enforcement":"warn"}}"#,
+    )?;
+    mutation.force = false;
+    let receipt = lifecycle_status(&pm_root, &mutation, &options, false)?;
+    assert_eq!(receipt["status"], "open");
+    assert_eq!(
+        receipt["warnings"][0],
+        "ownership_warning:assignee_conflict:sample-unit:owner"
+    );
+    let receipt = lifecycle_status(&pm_root, &mutation, &options, false)?;
+    assert_eq!(receipt["changed_field_count"], 0);
+    fs::write(
+        pm_root.join("settings.json"),
+        r#"{"governance":{"preset":"minimal"}}"#,
+    )?;
+    let receipt = lifecycle_status(&pm_root, &mutation, &options, true)?;
+    assert_eq!(receipt["status"], "in_progress");
+    assert!(receipt.get("warnings").is_none());
+    document.metadata.status = "canceled".to_owned();
+    fs::write(&path, canonical_item_bytes(&document)?)?;
+    mutation.force = true;
+    let receipt = lifecycle_status(&pm_root, &mutation, &options, true)?;
+    assert_eq!(receipt["changed_field_count"], 3);
+    assert!(receipt.get("close_reason").is_none());
+    document.metadata.status = "open".to_owned();
+    fs::write(&path, canonical_item_bytes(&document)?)?;
+    let receipt = lifecycle_status(&pm_root, &mutation, &options, false)?;
+    assert_eq!(receipt["changed_field_count"], 0);
+    assert_eq!(receipt["close_reason"], "Done");
+    Ok(())
+}
+
+/// Invalid clocks and held locks never alter an item before a lifecycle update.
+#[test]
+fn lifecycle_validation_and_lock_faults_preserve_state() -> Result<(), Box<dyn std::error::Error>> {
+    let (_directory, pm_root) = root(r#"{"locks":{"wait_ms":0}}"#)?;
+    create_item(&pm_root, request())?;
+    let before = fs::read(pm_root.join("tasks/sample-unit.toon"))?;
+    let options = crate::OwnershipOptions::default();
+    let mut mutation = OwnershipItem {
+        id: "sample-unit".to_owned(),
+        author: "owner".to_owned(),
+        timestamp: Some("2999-01-01T00:00:00Z".to_owned()),
+        message: None,
+        force: false,
+        if_available: false,
+        provenance_role: None,
+    };
+    assert!(matches!(
+        lifecycle_status(&pm_root, &mutation, &options, true),
+        Err(PmRustError::InvalidMutationRequest { .. })
+    ));
+    mutation.timestamp = Some("invalid".to_owned());
+    assert!(lifecycle_status(&pm_root, &mutation, &options, true).is_err());
+    mutation.timestamp = Some(TS.to_owned());
+    let lock_path = pm_root.join("locks/sample-unit.lock");
+    fs::create_dir_all(pm_root.join("locks"))?;
+    fs::write(
+        &lock_path,
+        serde_json::to_string(&serde_json::json!({"author":"other", "created_at":now_iso()}))?,
+    )?;
+    assert!(matches!(
+        lifecycle_status(&pm_root, &mutation, &options, true),
+        Err(PmRustError::OwnershipRefusal { .. })
+    ));
+    fs::remove_file(&lock_path)?;
+    // A corrupt lock is a filesystem fault, rather than ownership contention.
+    fs::write(&lock_path, [0xff])?;
+    assert!(matches!(
+        lifecycle_status(&pm_root, &mutation, &options, true),
+        Err(PmRustError::Io { .. })
+    ));
+    assert_eq!(fs::read(pm_root.join("tasks/sample-unit.toon"))?, before);
+    Ok(())
+}
+
+/// Custom transitions name the allowed edges when a start is refused.
+#[test]
+fn lifecycle_custom_workflow_reports_allowed_edges() -> Result<(), Box<dyn std::error::Error>> {
+    let (_directory, pm_root) = root(
+        r#"{"governance":{"workflow_enforcement":"strict"},"schema":{"type_workflows":[{"type":"Other"},{"type":"Task","allowed_transitions":[["draft","open"]]}]}}"#,
+    )?;
+    create_item(&pm_root, request())?;
+    let mutation = OwnershipItem {
+        id: "sample-unit".to_owned(),
+        author: "owner".to_owned(),
+        timestamp: Some(TS.to_owned()),
+        message: None,
+        force: false,
+        if_available: false,
+        provenance_role: None,
+    };
+    let error = lifecycle_status(
+        &pm_root,
+        &mutation,
+        &crate::OwnershipOptions::default(),
+        true,
+    );
+    assert!(
+        matches!(error, Err(PmRustError::CommandRefusal {detail, ..}) if detail.contains("draft -> open"))
+    );
+    fs::write(
+        pm_root.join("settings.json"),
+        r#"{"governance":{"workflow_enforcement":"strict"},"schema":{"type_workflows":[{"type":"Task","allowed_transitions":[["open","closed"],["draft","open"],["open","in_progress"]]}]}}"#,
+    )?;
+    assert_eq!(
+        lifecycle_status(
+            &pm_root,
+            &mutation,
+            &crate::OwnershipOptions::default(),
+            true
+        )?["status"],
+        "in_progress"
+    );
+    assert_eq!(
+        lifecycle_status(
+            &pm_root,
+            &mutation,
+            &crate::OwnershipOptions::default(),
+            true
+        )?["changed_field_count"],
+        0
+    );
+    fs::write(
+        pm_root.join("settings.json"),
+        r#"{"governance":{"workflow_enforcement":"strict"},"schema":{"type_workflows":[{"type":"Task","allowed_transitions":[]}]}}"#,
+    )?;
+    assert!(
+        matches!(lifecycle_status(&pm_root, &mutation, &crate::OwnershipOptions::default(), false), Err(PmRustError::CommandRefusal {detail,..}) if detail.contains("(no transitions allowed)"))
+    );
+    for schema in [
+        serde_json::json!({}),
+        serde_json::json!({"type_workflows":[]}),
+        serde_json::json!({"type_workflows":[{"type":"Task"}]}),
+    ] {
+        fs::write(
+            pm_root.join("settings.json"),
+            serde_json::to_vec(
+                &serde_json::json!({"governance":{"workflow_enforcement":"strict"},"schema":schema}),
+            )?,
+        )?;
+        assert_eq!(
+            lifecycle_status(
+                &pm_root,
+                &mutation,
+                &crate::OwnershipOptions::default(),
+                true
+            )?["changed_field_count"],
+            0
+        );
+    }
+    Ok(())
+}
+
 #[test]
 fn ownership_preset_precedence_and_lock_payload_clock() -> Result<(), Box<dyn std::error::Error>> {
     for (preset, policy, force) in [
@@ -3000,7 +3324,7 @@ fn ownership_preset_precedence_and_lock_payload_clock() -> Result<(), Box<dyn st
     };
     let mut settings: MutationSettings = read_settings(&pm_root)?;
     assert!(matches!(
-        ownership_lock_refusal(&pm_root, &request, &settings, TS, 0)?,
+        ownership_lock_refusal(&pm_root, &request, &settings, TS, 0),
         PmRustError::OwnershipRefusal { .. }
     ));
     fs::create_dir_all(pm_root.join("locks"))?;
@@ -3009,13 +3333,13 @@ fn ownership_preset_precedence_and_lock_payload_clock() -> Result<(), Box<dyn st
         format!(r#"{{"created_at":"{TS}"}}"#),
     )?;
     settings.locks.wait_ms = 25;
-    let error = ownership_lock_refusal(&pm_root, &request, &settings, TS, 25)?;
+    let error = ownership_lock_refusal(&pm_root, &request, &settings, TS, 25);
     assert!(error.to_string().contains("after waiting 25ms"));
     fs::write(
         pm_root.join("locks/sample-unit.lock"),
         format!(r#"{{"created_at":"{TS}","owner":"unit-holder"}}"#),
     )?;
-    let error = ownership_lock_refusal(&pm_root, &request, &settings, TS, 0)?;
+    let error = ownership_lock_refusal(&pm_root, &request, &settings, TS, 0);
     assert!(error.to_string().contains("(owner unit-holder)"));
 
     Ok(())
@@ -3209,6 +3533,26 @@ fn ownership_refusals_and_interrupted_history_append_remain_recoverable()
     ));
     mutation.force = true;
     ownership_item(&pm_root, &mutation, true)?;
+
+    // Strict handoffs can clear a foreign claim through the narrow bypass.
+    mutation.author = "handoff-agent".to_owned();
+    mutation.force = false;
+    let bypass = crate::OwnershipOptions {
+        release_bypass: true,
+        ..crate::OwnershipOptions::default()
+    };
+    assert_eq!(
+        ownership_item_with_options(&pm_root, &mutation, false, &bypass)?.changed_field_count,
+        2
+    );
+    mutation.author = "unit-agent".to_owned();
+    mutation.force = true;
+    ownership_item(&pm_root, &mutation, true)?;
+    mutation.author = "handoff-agent".to_owned();
+    assert_eq!(
+        ownership_item(&pm_root, &mutation, false)?.changed_field_count,
+        2
+    );
 
     Ok(())
 }

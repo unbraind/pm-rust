@@ -1,0 +1,14 @@
+id: pm-rust-lcap
+title: Match oracle semantic lineage depth and unresolved ancestor handling
+description: "Existing record_semantics output traverses all ancestors and includes an unresolved parent ID, whereas the pinned oracle sdk/context/semantic-session-attribution.js caps resolveSemanticLineageIds at 16 and stops before recording an unresolved ancestor. The PR 77 round 1 indexing change deliberately preserves existing output; the new differential proves parity for a resolved depth-12 chain. Add separate deep and unresolved lineage differentials before changing the attribution contract."
+type: Issue
+status: open
+priority: 2
+tags[2]: conformance,ownership
+created_at: "2026-10-14T09:14:12.556Z"
+updated_at: "2026-10-14T09:14:24.366Z"
+author: codex-agent
+parent: pm-rust-u4al
+files[1]{path,scope}:
+  src/ownership.rs,project
+body: ""

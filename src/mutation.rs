@@ -96,6 +96,9 @@ pub struct OwnershipResult {
     /// Published immutable closing summary, when present.
     #[serde(skip_serializing_if = "Option::is_none")]
     pub close_reason: Option<String>,
+    /// Published ownership warnings.
+    #[serde(skip_serializing_if = "Vec::is_empty")]
+    pub warnings: Vec<String>,
     /// Claim holder, including a skipped foreign claim.
     #[serde(skip_serializing_if = "Option::is_none")]
     pub claimed_by: Option<String>,
@@ -109,9 +112,6 @@ pub struct OwnershipResult {
     /// Present only for a skipped claim.
     #[serde(skip_serializing_if = "Option::is_none")]
     pub skipped: Option<bool>,
-    /// Published ownership warnings.
-    #[serde(skip_serializing_if = "Vec::is_empty")]
-    pub warnings: Vec<String>,
     /// Published recovery suggestions.
     #[serde(skip_serializing_if = "Vec::is_empty")]
     pub suggestions: Vec<String>,
@@ -1445,8 +1445,7 @@ pub(crate) fn create_item(
 ) -> Result<CreateResult, PmRustError> {
     let settings = read_settings(pm_root)?;
     let folder = validate_request(&request, &settings)?;
-    request.tags.sort();
-    request.tags.dedup();
+    crate::collation::normalize_tags(&mut request.tags);
     // `match` instead of `.unwrap_or_else(now_iso)` avoids a per-instantiation
     // closure function the coverage gate counts separately.
     let timestamp = match request.timestamp.clone() {
@@ -1564,8 +1563,7 @@ pub(crate) fn update_item(
     // The stored document must be read under the lock so no writer ever
     // applies changes to stale bytes.
     if let Some(tags) = &mut request.tags {
-        tags.sort();
-        tags.dedup();
+        crate::collation::normalize_tags(tags);
     }
     let mut document = before_document.clone();
     if request
@@ -1663,6 +1661,7 @@ pub(crate) fn comment_item(
         }
     };
     comments.push(row);
+    crate::collation::normalize_comments(&mut comments);
     document
         .metadata
         .extra
@@ -1806,17 +1805,19 @@ fn ownership_lock_refusal(
     settings: &MutationSettings,
     timestamp: &str,
     waited_ms: u128,
-) -> Result<PmRustError, PmRustError> {
-    let raw = read_optional(&pm_root.join("locks").join(format!("{}.lock", request.id)))?
-        .unwrap_or_default();
+) -> PmRustError {
+    let raw = match read_optional(&pm_root.join("locks").join(format!("{}.lock", request.id))) {
+        Ok(raw) => raw.unwrap_or_default(),
+        Err(error) => return error,
+    };
     if ownership_lock_stale(&raw, timestamp, settings.locks.ttl_seconds) {
-        return Ok(ownership_refusal(
+        return ownership_refusal(
             format!(
                 "Item {} lock is stale; rerun with --force when supported for this command",
                 request.id
             ),
             serde_json::json!({}),
-        ));
+        );
     }
     let value: Value = serde_json::from_str(&raw).unwrap_or(Value::Null);
     let owner = value["owner"].as_str().unwrap_or_default();
@@ -1830,18 +1831,30 @@ fn ownership_lock_refusal(
     } else {
         format!(" after waiting {waited_ms}ms")
     };
-    Ok(ownership_refusal(
+    ownership_refusal(
         format!("Item {} is locked{owner_suffix}{waited}", request.id),
         serde_json::json!({"code":"lock_conflict","recovery":{"retry_after_ms":250}}),
-    ))
+    )
 }
 
 /// Executes an atomic ownership test-and-set or ownership release.
+#[cfg(test)]
 #[allow(clippy::too_many_lines)]
 pub(crate) fn ownership_item(
     pm_root: &Path,
     request: &OwnershipItem,
     claim: bool,
+) -> Result<OwnershipResult, PmRustError> {
+    ownership_item_with_options(pm_root, request, claim, &crate::OwnershipOptions::default())
+}
+
+/// Applies explicit principal and approved release bypass within the ownership lock.
+#[allow(clippy::too_many_lines)]
+pub(crate) fn ownership_item_with_options(
+    pm_root: &Path,
+    request: &OwnershipItem,
+    claim: bool,
+    options: &crate::OwnershipOptions,
 ) -> Result<OwnershipResult, PmRustError> {
     let mut settings = read_settings(pm_root)?;
     settings.locks.use_created_at = true;
@@ -1874,7 +1887,7 @@ pub(crate) fn ownership_item(
                 } else {
                     lock_started.elapsed().as_millis()
                 },
-            )?);
+            ));
         }
         Err(error) => return Err(error),
     };
@@ -1891,7 +1904,13 @@ pub(crate) fn ownership_item(
     } else {
         Some(assignee.clone())
     };
-    let foreign = previous_assignee.is_some() && principal != request.author;
+    let caller_principal = options
+        .identity
+        .as_ref()
+        .map_or(request.author.as_str(), |identity| {
+            identity.principal.as_str()
+        });
+    let foreign = previous_assignee.is_some() && principal != caller_principal;
     let mut document = before.clone();
     let mut warnings = Vec::new();
     let mut suggestions = Vec::new();
@@ -1927,7 +1946,11 @@ pub(crate) fn ownership_item(
         }
         if skipped.is_none() {
             for field in ["assignee", "claim_principal"] {
-                let value = Value::String(request.author.clone());
+                let value = Value::String(if field == "claim_principal" {
+                    caller_principal.to_owned()
+                } else {
+                    request.author.clone()
+                });
                 if document.metadata.extra.get(field) != Some(&value) {
                     changed += 1;
                 }
@@ -1935,7 +1958,11 @@ pub(crate) fn ownership_item(
             }
         }
     } else {
-        if foreign && !request.force && settings.governance.policy() == "strict" {
+        if foreign
+            && !request.force
+            && !options.release_bypass
+            && settings.governance.policy() == "strict"
+        {
             return Err(ownership_refusal(
                 format!(
                     "Item {} is assigned to {}. Use --force to override.",
@@ -2011,6 +2038,188 @@ pub(crate) fn ownership_item(
     })
 }
 
+/// Validates a status transition while retaining unconstrained and no-op workflows.
+fn validate_lifecycle_transition(
+    value: &Value,
+    before: &ItemDocument,
+    status: &str,
+) -> Result<(), PmRustError> {
+    if value["governance"]["workflow_enforcement"] != "strict" {
+        return Ok(());
+    }
+    let Some(rules) = value["schema"]["type_workflows"].as_array() else {
+        return Ok(());
+    };
+    let Some(rule) = rules.iter().find(|rule| {
+        rule["type"]
+            .as_str()
+            .is_some_and(|name| name.eq_ignore_ascii_case(&before.metadata.item_type))
+    }) else {
+        return Ok(());
+    };
+    let Some(transitions) = rule["allowed_transitions"].as_array() else {
+        return Ok(());
+    };
+    if before.metadata.status == status
+        || transitions
+            .iter()
+            .any(|pair| pair[0] == before.metadata.status && pair[1] == status)
+    {
+        return Ok(());
+    }
+    let allowed = if transitions.is_empty() {
+        "(no transitions allowed)".to_owned()
+    } else {
+        transitions
+            .iter()
+            .map(|pair| {
+                format!(
+                    "{} -> {}",
+                    pair[0].as_str().unwrap_or_default(),
+                    pair[1].as_str().unwrap_or_default()
+                )
+            })
+            .collect::<Vec<_>>()
+            .join(", ")
+    };
+    Err(PmRustError::CommandRefusal {
+        detail: format!(
+            "Disallowed transition for type \"{}\": {} -> {status}. Allowed transitions: {allowed}.",
+            before.metadata.item_type, before.metadata.status
+        ),
+        exit_code: 2,
+        context: serde_json::json!({}),
+    })
+}
+
+/// Applies the second start step or the first pause step under an independent lock.
+#[allow(clippy::too_many_lines)]
+pub(crate) fn lifecycle_status(
+    pm_root: &Path,
+    request: &OwnershipItem,
+    options: &crate::OwnershipOptions,
+    start: bool,
+) -> Result<Value, PmRustError> {
+    let mut settings = read_settings(pm_root)?;
+    settings.locks.use_created_at = true;
+    let timestamp = validate_mutation_request(&request.author, request.timestamp.as_deref())?;
+    if OffsetDateTime::parse(&timestamp, &Rfc3339)
+        .is_ok_and(|value| value > OffsetDateTime::now_utc())
+    {
+        return Err(invalid_mutation("timestamp must not be in the future"));
+    }
+    let _lock = acquire_lock(
+        pm_root,
+        &request.id,
+        &request.author,
+        &settings.locks,
+        request.force || !settings.governance.stale_requires_force(),
+        &timestamp,
+    )
+    .map_err(|error| match error {
+        PmRustError::LockConflict { .. } => ownership_refusal(
+            format!("Item {} is locked", request.id),
+            serde_json::json!({"code":"lock_conflict"}),
+        ),
+        other => other,
+    })?;
+    let (item_path, history_path, before) = recover_and_locate(pm_root, "update", &request.id)?;
+    let principal = options
+        .identity
+        .as_ref()
+        .map_or(request.author.as_str(), |identity| {
+            identity.principal.as_str()
+        });
+    let owner = ownership_text(&before, "assignee");
+    let held_principal = ownership_text(&before, "claim_principal");
+    let held_principal = if held_principal.trim().is_empty() {
+        owner.trim()
+    } else {
+        held_principal.trim()
+    };
+    if !owner.trim().is_empty()
+        && held_principal != principal
+        && !request.force
+        && settings.governance.policy() == "strict"
+    {
+        return Err(ownership_refusal(
+            format!(
+                "Item {} is assigned to {}. Use --force to override.",
+                request.id,
+                owner.trim()
+            ),
+            serde_json::json!({"code":"ownership_conflict"}),
+        ));
+    }
+    let ownership_warning = if !owner.trim().is_empty()
+        && held_principal != principal
+        && !request.force
+        && settings.governance.policy() == "warn"
+    {
+        Some(format!(
+            "ownership_warning:assignee_conflict:{}:{}",
+            request.id,
+            owner.trim()
+        ))
+    } else {
+        None
+    };
+    let value = crate::ownership::runtime_settings(pm_root)?;
+    let key = if start {
+        "in_progress_status"
+    } else {
+        "open_status"
+    };
+    let status = value["schema"]["workflow"][key]
+        .as_str()
+        .unwrap_or(if start { "in_progress" } else { "open" });
+    let mut document = before.clone();
+    let mut changed = usize::from(document.metadata.status != status);
+    validate_lifecycle_transition(&value, &before, status)?;
+    if matches!(before.metadata.status.as_str(), "closed" | "canceled") {
+        for key in [
+            "closed_at",
+            "completed_at",
+            "close_reason",
+            "resolution",
+            "expected_result",
+            "actual_result",
+            "fixed_version",
+        ] {
+            if document.metadata.extra.remove(key).is_some() {
+                changed += 1;
+            }
+        }
+    }
+    status.clone_into(&mut document.metadata.status);
+    document.metadata.updated_at.clone_from(&timestamp);
+    let item = if changed == 0 {
+        before
+    } else {
+        commit_mutation(
+            pm_root,
+            "update",
+            &before,
+            document,
+            &timestamp,
+            &request.author,
+            request.provenance_role.as_deref(),
+            request.message.as_deref(),
+            &item_path,
+            &history_path,
+        )?
+        .item
+    };
+    let mut receipt = serde_json::json!({"id":item.metadata.id,"status":item.metadata.status,"changed_field_count":changed});
+    if let Some(reason) = item.metadata.extra.get("close_reason") {
+        receipt["close_reason"] = reason.clone();
+    }
+    if let Some(warning) = ownership_warning {
+        receipt["warnings"] = serde_json::json!([warning]);
+    }
+    Ok(receipt)
+}
+
 /// Expresses one durable path relative to the tracker root.
 ///
 /// Callers hand back paths joined to `pm_root`, so stripping succeeds for every
@@ -2023,6 +2232,33 @@ fn relative_to_tracker(pm_root: &Path, path: &Path) -> PathBuf {
         Ok(relative) => relative.to_path_buf(),
         Err(_) => path.to_path_buf(),
     }
+}
+
+/// Mutates derived session attribution under the shared session-state lock.
+pub(crate) fn mutate_session_state(
+    pm_root: &Path,
+    update: impl FnOnce(&mut serde_json::Map<String, Value>),
+) -> Result<(), PmRustError> {
+    let settings = LockSettings {
+        wait_ms: 3000,
+        use_created_at: true,
+        ..LockSettings::default()
+    };
+    let _lock = acquire_lock(
+        pm_root,
+        "session-state",
+        "session-state",
+        &settings,
+        false,
+        &now_iso(),
+    )?;
+    let path = pm_root.join("runtime/session.json");
+    let mut state = fs::read_to_string(&path)
+        .ok()
+        .and_then(|text| serde_json::from_str::<serde_json::Map<String, Value>>(&text).ok())
+        .unwrap_or_default();
+    update(&mut state);
+    atomic_replace(&path, &crate::stringify_json(&Value::Object(state), false))
 }
 
 /// Journals, writes, and records one completed in-place mutation.

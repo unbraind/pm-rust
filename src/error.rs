@@ -6,6 +6,16 @@ use std::path::PathBuf;
 /// Failures returned by the Rust-native read surface.
 #[derive(Debug, thiserror::Error)]
 pub enum PmRustError {
+    /// Published command failure with a preserved exit code and recovery context.
+    #[error("{detail}")]
+    CommandRefusal {
+        /// Published human-readable refusal.
+        detail: String,
+        /// Published process exit code.
+        exit_code: u8,
+        /// Structured command guidance.
+        context: serde_json::Value,
+    },
     /// Ownership test-and-set or strict release policy refused a mutation.
     #[error("{detail}")]
     OwnershipRefusal {
