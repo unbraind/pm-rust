@@ -1,0 +1,17 @@
+id: pm-rust-2tb9
+title: Validate mutation identifiers before acquiring locks
+description: A synthetic scratch tracker and directory event watcher confirm that claiming an unknown path-bearing identifier creates and removes a transient lock outside the locks directory before item discovery refuses it. Lock acquisition in src/mutation.rs joins the caller identifier before validation. This predates the selection lifecycle slice and applies to the shared mutation boundary.
+type: Issue
+status: open
+priority: 2
+tags[3]: mutation,safety,validation
+created_at: "2026-10-13T13:19:32.970Z"
+updated_at: "2026-10-13T13:23:56.928Z"
+author: codex-agent
+acceptance_criteria: "Reject path separators, absolute identifiers and traversal forms before lock creation; real scratch trackers prove that malformed IDs cause no filesystem writes and valid canonical ownership and mutation IDs retain published parity."
+parent: pm-rust-u4al
+files[1]{path,scope}:
+  src/mutation.rs,project
+docs[1]{path,scope}:
+  docs/NATIVE_SELECTION_LIFECYCLE_2026_10_13.md,project
+body: ""
