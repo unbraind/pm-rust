@@ -288,3 +288,40 @@ existing behavior; cyclic-container oracle parity is tracked in
 The linked pm runner passed the exact semantic-recording and scan tests at
 indexes 11 and 12. Automatic test-result recording is disabled in this tracker;
 explicit comments retain those receipts.
+
+
+## Round 2 final acceptance
+
+Source head `05955df` passed stable Rust 1.99, MSRV 1.90 and the clean pinned
+nightly coverage build: **287 tests per run**, with zero failed, ignored,
+measured or filtered cases. Each includes **49 oracle differentials** across
+six suites, **22** in the ownership suite. Both compiler runs passed formatting,
+all-target/all-feature Clippy with warnings denied and private-item documentation.
+
+The complete unchanged `just release-check` passed through the linked pm runner
+under an isolated Git identity. Coverage was cleaned after the unit diagnostic
+and before the aggregate; no filtered run or accumulated profiles contributed
+to acceptance. The four required production coverage dimensions passed:
+
+| Dimension | Covered / total | Percent |
+| --- | ---: | ---: |
+| Lines | 4,880 / 4,880 | 100 |
+| Functions | 455 / 455 | 100 |
+| Regions | 7,425 / 7,425 | 100 |
+| Branch outcomes | 982 / 982 | 100 |
+
+The locked npm oracle installation reported zero vulnerabilities. `cargo audit`
+passed with one pre-existing allowed unmaintained advisory, `RUSTSEC-2024-0449`.
+Full changelog generation and validation passed. Isolated tracker health passed
+all ten checks with its three existing advisory classes. Original tracker
+history streams retain their exact byte prefixes.
+
+Finding 1's oracle-contract regression and documentation are in `72b5465`;
+finding 2's indexing, scan regression and expanded depth-12 selection differential
+are in `05955df`. The independent rejected-proposal proof and readiness revert
+each compiled and failed one targeted test (exit 101), followed by passing
+restored positive controls. The corresponding pm comments retain exact commands
+and receipts. `pm-rust-sldg` and `pm-rust-1ycz` remain separate open parity work;
+no broader lock-diagnostic or cyclic-container parity is claimed. The item remains
+in progress for orchestrator verification. Final delivery adds only documentation
+and tracker receipts beyond the validated source.
