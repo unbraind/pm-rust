@@ -2,14 +2,19 @@ id: pm-rust-2tb9
 title: Validate mutation identifiers before acquiring locks
 description: A synthetic scratch tracker and directory event watcher confirm that claiming an unknown path-bearing identifier creates and removes a transient lock outside the locks directory before item discovery refuses it. Lock acquisition in src/mutation.rs joins the caller identifier before validation. This predates the selection lifecycle slice and applies to the shared mutation boundary.
 type: Issue
-status: in_progress
+status: closed
 priority: 2
 tags[3]: mutation,safety,validation
 created_at: "2026-10-13T13:19:32.970Z"
-updated_at: "2026-10-15T00:40:04.635Z"
+updated_at: "2026-10-15T03:52:46.166Z"
+closed_at: "2026-10-15T03:52:46.149Z"
+completed_at: "2026-10-15T03:52:46.149Z"
 author: codex-agent
 acceptance_criteria: "Reject path separators, absolute identifiers and traversal forms before lock creation; real scratch trackers prove that malformed IDs cause no filesystem writes and valid canonical ownership and mutation IDs retain published parity."
 parent: pm-rust-u4al
+resolution: "Fixed in pm-rust#81: Validate mutation identifiers before acquiring locks"
+expected_result: "The native implementation matches the pinned PM CLI oracle for: Validate mutation identifiers before acquiring locks"
+actual_result: "The differential oracle tests for this item pass in the merged head on Linux, macOS and Windows, and each fix's regression test fails when reverted (recorded in the item's comments)."
 comments[5]{created_at,author,text}:
   "2026-10-14T20:34:39.760Z",codex-agent,"Implementing the native parity batch against the locked 2026.10.14 oracle. Evidence will compare real disposable trackers, complete output envelopes and durable artifacts, with a behavioral revert proof and unchanged release gates."
   "2026-10-14T21:02:00.256Z",codex-agent,"The Linux kernel directory-event watcher passes for malformed and path-bearing identifiers across ownership and mutation commands on real oracle/native trackers, followed by valid ownership byte comparisons. The shared lock boundary rejects malformed identifiers before creating directories or joining lock paths, so cleanup cannot mask a transient escaped lock."
@@ -24,4 +29,5 @@ tests[1]{command,scope,timeout_seconds,pm_context_mode,workspace_context_mode,pr
 docs[2]{path,scope}:
   docs/NATIVE_PARITY_2026_10_14.md,project
   docs/NATIVE_SELECTION_LIFECYCLE_2026_10_13.md,project
+close_reason: "Delivered by https://github.com/unbraind/pm-rust/pull/81 (merge 0afac780c4b7, head a7e8a4f80810, merged 2026-10-15T02:10:12Z). Required head checks passed: Analyze Rust, CodeQL, Release gate aggregate (ubuntu, macos, windows), Rust ubuntu-latest, macos-latest, windows-latest."
 body: ""

@@ -2,14 +2,19 @@ id: pm-rust-cqk7
 title: Persist native close resolution and completion metadata with oracle parity
 description: "Match all published close metadata flags, validation, canonical history and JSON/TOON envelopes using real disposable tracker differentials."
 type: Feature
-status: in_progress
+status: closed
 priority: 2
 tags[3]: conformance,mutation,rust
 created_at: "2026-10-14T20:34:22.844Z"
-updated_at: "2026-10-15T01:50:26.156Z"
+updated_at: "2026-10-15T03:52:44.198Z"
+closed_at: "2026-10-15T03:52:44.168Z"
+completed_at: "2026-10-15T03:52:44.168Z"
 author: codex-agent
 acceptance_criteria: Every close help field and alias has real oracle differential coverage; regression tests fail on behavioral reversion; unchanged complete Rust gates pass.
 parent: pm-rust-u4al
+resolution: "Fixed in pm-rust#81: Persist native close resolution and completion metadata with oracle parity"
+expected_result: "The native implementation matches the pinned PM CLI oracle for: Persist native close resolution and completion metadata with oracle parity"
+actual_result: "The differential oracle tests for this item pass in the merged head on Linux, macOS and Windows, and each fix's regression test fails when reverted (recorded in the item's comments)."
 comments[10]{created_at,author,text}:
   "2026-10-14T20:34:38.624Z",codex-agent,"Implementing the native parity batch against the locked 2026.10.14 oracle. Evidence will compare real disposable trackers, complete output envelopes and durable artifacts, with a behavioral revert proof and unchanged release gates."
   "2026-10-14T20:55:48.342Z",codex-agent,"Real tracker differentials now prove successful close fields and aliases in JSON and TOON, timestamp overrides and preservation, duplicate fallbacks, explicit forced repeat closure and assignment release. Refusal comparisons include exact recovery command quoting, canonical alias arguments and explicit completion flag/value diagnostics. Additional governance and child validation scenarios and complete coverage gates are in progress."
@@ -30,4 +35,5 @@ tests[1]{command,scope,timeout_seconds,pm_context_mode,workspace_context_mode,pr
   "env PM_NODE_CLI=\"$PWD/tests/oracle/node_modules/@unbrained/pm-cli\" PM_RUST_REQUIRE_PUBLISHED_CLI=1 cargo test --quiet --locked --test close_differential -- --test-threads=8",project,600,schema,source,codex-agent,"2026-10-14T21:53:58.751Z",local_mutation,feat/native-close-fields-and-lock-safety
 docs[1]{path,scope}:
   docs/NATIVE_PARITY_2026_10_14.md,project
+close_reason: "Delivered by https://github.com/unbraind/pm-rust/pull/81 (merge 0afac780c4b7, head a7e8a4f80810, merged 2026-10-15T02:10:12Z). Required head checks passed: Analyze Rust, CodeQL, Release gate aggregate (ubuntu, macos, windows), Rust ubuntu-latest, macos-latest, windows-latest."
 body: ""
