@@ -4,9 +4,9 @@ description: "Add the pinned reusable issue-sync caller and verify the existing 
 type: Chore
 status: in_progress
 priority: 2
-tags: []
+tags[1]: changed
 created_at: "2026-10-15T07:37:36.274Z"
-updated_at: "2026-10-15T08:34:57.786Z"
+updated_at: "2026-10-15T12:28:01.648Z"
 author: codex-agent
 comments[2]{created_at,author,text}:
   "2026-10-15T07:38:15.834Z",codex-agent,Batch 3 uses the prescribed 2026.10.14 fallback because v2026.10.15 is not released. CI already has workflow_dispatch. The exact fallback workflow still assumes root npm dependencies and predates changelog regeneration and CI dispatch from pm-github PR 122; this Rust-only caller needs the later repin before operational use. No root package.json is added. No runtime code changed and no behavioural revert is applicable. Install and use the committed tests/oracle lockfile exactly as CI does.
