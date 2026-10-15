@@ -1830,7 +1830,7 @@ pub fn quote_command_arg(value: &str) -> String {
 }
 
 /// Builds the same evidence recovery tokens using the actual disposable tracker root.
-fn close_recovery(pm_root: &Path, document: &ItemDocument) -> Option<Value> {
+fn close_recovery(display_root: &Path, document: &ItemDocument) -> Option<Value> {
     let missing = missing_close_fields(document);
     if missing.is_empty() {
         return None;
@@ -1841,7 +1841,7 @@ fn close_recovery(pm_root: &Path, document: &ItemDocument) -> Option<Value> {
         .collect();
     let mut args = vec![
         "--pm-path".to_owned(),
-        pm_root.to_string_lossy().into_owned(),
+        display_root.to_string_lossy().into_owned(),
         "update".to_owned(),
         document.metadata.id.clone(),
     ];
@@ -2073,6 +2073,7 @@ fn close_duplicate(
 #[allow(clippy::too_many_lines, clippy::needless_pass_by_value)]
 pub(crate) fn close_item(
     pm_root: &Path,
+    display_root: &Path,
     request: CloseItem,
 ) -> Result<MutationResult, PmRustError> {
     let mut settings = read_settings(pm_root)?;
@@ -2124,7 +2125,7 @@ pub(crate) fn close_item(
         && !request.fields.force
     {
         let mut context = serde_json::json!({});
-        if let Some(recovery) = close_recovery(pm_root, &before) {
+        if let Some(recovery) = close_recovery(display_root, &before) {
             context["recovery"] = recovery;
         }
         return Err(close_refusal(
@@ -2212,7 +2213,7 @@ pub(crate) fn close_item(
             .map(|key| format!("{key} (--{})", key.replace('_', "-")))
             .collect();
         if mode == "strict" {
-            let mut recovery = close_recovery(pm_root, &document).unwrap_or_default();
+            let mut recovery = close_recovery(display_root, &document).unwrap_or_default();
             recovery
                 .as_object_mut()
                 .map(|map| map.shift_remove("suggested_retry_args"));
@@ -2333,7 +2334,7 @@ pub(crate) fn close_item(
     }
     document.metadata.updated_at.clone_from(&timestamp);
     let recovery = if mode == "warn" {
-        close_recovery(pm_root, &document)
+        close_recovery(display_root, &document)
     } else {
         None
     };

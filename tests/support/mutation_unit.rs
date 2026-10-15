@@ -1037,6 +1037,7 @@ fn in_place_mutations_refuse_a_live_lock_within_the_budget()
     assert!(matches!(
         close_item(
             &pm_root,
+            &pm_root,
             CloseItem {
                 id: "sample-unit".to_owned(),
                 reason: "reason".to_owned(),
@@ -1915,6 +1916,7 @@ fn close_surfaces_a_stale_mutation_journal() -> Result<(), Box<dyn std::error::E
     assert!(matches!(
         close_item(
             &pm_root,
+            &pm_root,
             CloseItem {
                 id: "sample-unit".to_owned(),
                 reason: "reason".to_owned(),
@@ -1978,6 +1980,7 @@ fn every_mutation_validates_settings_author_and_existence() -> Result<(), Box<dy
     assert!(matches!(
         close_item(
             &empty_root,
+            &empty_root,
             CloseItem {
                 id: "sample-unit".to_owned(),
                 reason: "reason".to_owned(),
@@ -2013,6 +2016,7 @@ fn every_mutation_validates_settings_author_and_existence() -> Result<(), Box<dy
         assert!(matches!(
             close_item(
                 &populated,
+                &populated,
                 CloseItem {
                     id: "sample-unit".to_owned(),
                     reason: "reason".to_owned(),
@@ -2043,6 +2047,7 @@ fn every_mutation_validates_settings_author_and_existence() -> Result<(), Box<dy
     ));
     assert!(matches!(
         close_item(
+            &populated,
             &populated,
             CloseItem {
                 id: "sample-missing".to_owned(),
@@ -2075,6 +2080,7 @@ fn close_refuses_canceled_and_honors_configured_close_statuses()
     atomic_replace(&pm_root.join("tasks/sample-unit.toon"), &canceled_bytes)?;
     assert!(matches!(
         close_item(
+            &pm_root,
             &pm_root,
             CloseItem {
                 id: "sample-unit".to_owned(),
@@ -2113,6 +2119,7 @@ fn close_refuses_canceled_and_honors_configured_close_statuses()
     )?;
     let closed = close_item(
         &shipped_root,
+        &shipped_root,
         CloseItem {
             id: "sample-unit".to_owned(),
             reason: "shipped to customers".to_owned(),
@@ -2126,6 +2133,7 @@ fn close_refuses_canceled_and_honors_configured_close_statuses()
     assert_eq!(closed.item.metadata.status, "shipped");
     assert!(matches!(
         close_item(
+            &shipped_root,
             &shipped_root,
             CloseItem {
                 id: "sample-unit".to_owned(),
@@ -2543,6 +2551,7 @@ fn remaining_portable_mutation_arms_are_covered_in_the_unit_binary()
     // close_item: an empty closing summary refuses before any locking.
     assert!(matches!(
         close_item(
+            &pm_root,
             &pm_root,
             CloseItem {
                 id: "sample-unit".to_owned(),
@@ -3764,7 +3773,7 @@ fn closure_ownership_and_predecessor_storage() -> Result<(), Box<dyn std::error:
             )?;
             let mut closing = closure_request();
             closing.fields.force = force;
-            let result = close_item(&pm_root, closing);
+            let result = close_item(&pm_root, &pm_root, closing);
             if policy == "strict" && !force {
                 assert!(matches!(result, Err(PmRustError::OwnershipRefusal { .. })));
             } else {
@@ -3794,7 +3803,7 @@ fn closure_ownership_and_predecessor_storage() -> Result<(), Box<dyn std::error:
         .insert("blocked_reason".to_owned(), serde_json::json!("Waiting"));
     document.metadata.extra.insert("dependencies".to_owned(),serde_json::json!([{"kind":"blocked_by","id":"sample-prior"},{"kind":"blocked_by","id":"sample-other"},{"kind":"related","id":"sample-linked"},{"kind":"blocked_by"}]));
     fs::write(path, canonical_item_bytes(&document)?)?;
-    let result = close_item(&pm_root, closure_request())?;
+    let result = close_item(&pm_root, &pm_root, closure_request())?;
     assert!(!result.item.metadata.extra.contains_key("blocked_by"));
     assert!(!result.item.metadata.extra.contains_key("blocked_reason"));
     assert_eq!(
@@ -3869,7 +3878,7 @@ fn closure_sdk_fields_and_evidence_modes() -> Result<(), Box<dyn std::error::Err
             validate_close: Some(mode.to_owned()),
             ..CloseFields::default()
         };
-        let result = close_item(&pm_root, closing)?;
+        let result = close_item(&pm_root, &pm_root, closing)?;
         assert_eq!(result.item.metadata.extra["resolution"], "Fixed");
         assert_eq!(
             result.item.metadata.extra["completed_at"],
@@ -3882,7 +3891,7 @@ fn closure_sdk_fields_and_evidence_modes() -> Result<(), Box<dyn std::error::Err
         create_item(&pm_root, request())?;
         let mut closing = closure_request();
         closing.fields.validate_close = Some(mode.to_owned());
-        let result = close_item(&pm_root, closing);
+        let result = close_item(&pm_root, &pm_root, closing);
         if mode == "strict" {
             assert!(matches!(
                 result,
@@ -3897,7 +3906,7 @@ fn closure_sdk_fields_and_evidence_modes() -> Result<(), Box<dyn std::error::Err
     let mut closing = closure_request();
     closing.reason.clear();
     assert!(
-        !close_item(&pm_root, closing)?
+        !close_item(&pm_root, &pm_root, closing)?
             .item
             .metadata
             .extra
@@ -3957,7 +3966,7 @@ fn closure_sdk_duplicate_children_and_completion() -> Result<(), Box<dyn std::er
             validate_close: Some(mode.to_owned()),
             ..CloseFields::default()
         };
-        let result = close_item(&pm_root, closing);
+        let result = close_item(&pm_root, &pm_root, closing);
         if mode == "strict" {
             assert!(matches!(
                 result,
@@ -3980,7 +3989,7 @@ fn closure_sdk_duplicate_children_and_completion() -> Result<(), Box<dyn std::er
     closing.fields.duplicate_of = Some("sample-target".to_owned());
     closing.fields.validate_close = Some("strict".to_owned());
     closing.fields.resolution = Some("Supplied resolution".to_owned());
-    let result = close_item(&pm_root, closing)?;
+    let result = close_item(&pm_root, &pm_root, closing)?;
     assert_eq!(result.item.metadata.extra["duplicate_of"], "sample-target");
     assert_eq!(
         result.item.metadata.extra["resolution"],
@@ -3989,7 +3998,10 @@ fn closure_sdk_duplicate_children_and_completion() -> Result<(), Box<dyn std::er
     let mut repeated = closure_request();
     repeated.fields.force = true;
     assert_eq!(
-        close_item(&pm_root, repeated)?.item.metadata.extra["completed_at"],
+        close_item(&pm_root, &pm_root, repeated)?
+            .item
+            .metadata
+            .extra["completed_at"],
         result.item.metadata.extra["completed_at"]
     );
     let mut target_doc = target.item;
@@ -4033,7 +4045,7 @@ fn closure_sdk_refusals_preserve_before_images() -> Result<(), Box<dyn std::erro
         let mut request = closure_request();
         request.fields = fields;
         assert!(matches!(
-            close_item(&pm_root, request),
+            close_item(&pm_root, &pm_root, request),
             Err(PmRustError::CommandRefusal { exit_code: 2, .. })
         ));
         assert_eq!(fs::read(pm_root.join(&created.item_path))?, before);
@@ -4052,7 +4064,7 @@ fn closure_sdk_refusals_preserve_before_images() -> Result<(), Box<dyn std::erro
         },
         true,
     )?;
-    let closed = close_item(&pm_root, closure_request())?;
+    let closed = close_item(&pm_root, &pm_root, closure_request())?;
     assert_eq!(closed.item.metadata.status, "closed");
     assert!(!closed.item.metadata.extra.contains_key("assignee"));
     assert!(
@@ -4073,7 +4085,7 @@ fn closure_recovery_failure_preserves_before_image() -> Result<(), Box<dyn std::
     let before = fs::read(pm_root.join(&created.item_path))?;
     let history = fs::read(pm_root.join(&created.history_path))?;
     fs::create_dir(pm_root.join("runtime/transactions/close-sample-unit.json"))?;
-    assert!(close_item(&pm_root, closure_request()).is_err());
+    assert!(close_item(&pm_root, &pm_root, closure_request()).is_err());
     assert_eq!(fs::read(pm_root.join(created.item_path))?, before);
     assert_eq!(fs::read(pm_root.join(created.history_path))?, history);
     Ok(())
@@ -4090,7 +4102,7 @@ fn closure_history_failure_retains_recoverable_commit() -> Result<(), Box<dyn st
     fs::rename(&history_path, &history_backup)?;
     fs::create_dir(&history_path)?;
     assert!(matches!(
-        close_item(&pm_root, closure_request()),
+        close_item(&pm_root, &pm_root, closure_request()),
         Err(PmRustError::Io { .. })
     ));
     let committed = fs::read_to_string(pm_root.join(&created.item_path))?;
@@ -4154,9 +4166,9 @@ fn closure_complete_terminal_and_multiple_children() -> Result<(), Box<dyn std::
         actual_result: Some("Actual".to_owned()),
         ..CloseFields::default()
     };
-    close_item(&pm_root, closing)?;
+    close_item(&pm_root, &pm_root, closing)?;
     assert!(
-        matches!(close_item(&pm_root,closure_request()),Err(PmRustError::CommandRefusal{context,..}) if context.get("recovery").is_none())
+        matches!(close_item(&pm_root,&pm_root,closure_request()),Err(PmRustError::CommandRefusal{context,..}) if context.get("recovery").is_none())
     );
     let (_other, root) = root("{}")?;
     create_item(&root, request())?;
@@ -4169,7 +4181,7 @@ fn closure_complete_terminal_and_multiple_children() -> Result<(), Box<dyn std::
         fs::write(root.join(child.item_path), canonical_item_bytes(&document)?)?;
     }
     assert_eq!(
-        close_item(&root, closure_request())?
+        close_item(&root, &root, closure_request())?
             .close_receipt
             .ok_or("receipt")?["warnings"],
         serde_json::json!(["closed_with_active_children:sample-unit:sample-a,sample-z"])
@@ -4193,7 +4205,7 @@ fn closure_read_failures_preserve_item_bytes() -> Result<(), Box<dyn std::error:
         } else {
             fs::write(pm_root.join("tasks/sample-corrupt.toon"), "invalid")?;
         }
-        assert!(close_item(&pm_root, closure_request()).is_err());
+        assert!(close_item(&pm_root, &pm_root, closure_request()).is_err());
         assert_eq!(fs::read(path)?, before);
     }
     Ok(())
@@ -4209,9 +4221,34 @@ fn closure_noncanonical_root_refuses_discovery() -> Result<(), Box<dyn std::erro
     let created = create_item(&root, request())?;
     let before = fs::read(root.join(&created.item_path))?;
     assert!(matches!(
-        close_item(&root, closure_request()),
+        close_item(&root, &root, closure_request()),
         Err(PmRustError::TrackerNotFound { .. })
     ));
     assert_eq!(fs::read(root.join(created.item_path))?, before);
     Ok(())
+}
+
+/// Recovery hints must spell the caller-visible tracker path (Node's `path.resolve` form on Windows), never the canonical one.
+#[test]
+fn close_recovery_spells_the_display_root_not_the_canonical_root()
+-> Result<(), Box<dyn std::error::Error>> {
+    let (_directory, pm_root) = root("{}")?;
+    create_item(&pm_root, request())?;
+    let mut closing = closure_request();
+    closing.fields.validate_close = Some("strict".to_owned());
+    let display = std::path::Path::new("display-root/.agents/pm");
+    match close_item(&pm_root, display, closing) {
+        Err(PmRustError::CommandRefusal { context, .. }) => {
+            let retry = context
+                .get("recovery")
+                .and_then(|recovery| recovery.get("suggested_retry"))
+                .and_then(serde_json::Value::as_str)
+                .unwrap_or_default()
+                .to_owned();
+            assert!(retry.contains("display-root/.agents/pm"), "{retry}");
+            assert!(!retry.contains(&*pm_root.to_string_lossy()), "{retry}");
+            Ok(())
+        }
+        other => Err(format!("expected a strict close refusal, got {other:?}").into()),
+    }
 }
