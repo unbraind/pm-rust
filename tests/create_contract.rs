@@ -539,7 +539,8 @@ fn replacement_fixture_waits_for_initialized_owner() -> Result<(), Box<dyn std::
         if std::time::Instant::now() >= deadline {
             return Err(format!("replacer never entered FIFO rendezvous: {wait}").into());
         }
-        thread::yield_now();
+        // Back off between /proc reads; the rendezvous itself is still detected by state, not by timing.
+        thread::sleep(std::time::Duration::from_millis(1));
     }
     let before_initialization = fs::read(&lock_path)?;
     fs::write(
