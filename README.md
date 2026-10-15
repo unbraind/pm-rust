@@ -21,8 +21,8 @@ details closure fields, lock refusal, cyclic readiness, lineage and legacy curso
 
 | Read surface | Native parity |
 | --- | --- |
-| JSON list / `Workspace::list_page` | Producer pages, offsets, query fingerprints, continuation envelopes, empty/final pages |
-| Bounded JSON list | Output limits, budget compaction and omission receipts, snapshot continuations and stale refusal |
+| JSON and TOON list / `Workspace::list_page` | Producer pages, offsets, query fingerprints, continuation envelopes, empty/final pages |
+| Bounded JSON and TOON list | Output limits, budget compaction and omission receipts, snapshot continuations and stale refusal |
 | Triage list | Built-in projection, token-budget ceilings, intent receipts and rebased cursors |
 | Legacy SDK list methods | Existing native and unbounded envelopes retained |
 
@@ -47,6 +47,8 @@ checks and independent revert proofs are documented in
 cargo run -- --workspace /path/to/project list --status open
 cargo run -- --workspace /path/to/project list --type Feature
 cargo run -- list --json --limit 20 --output-budget unbounded
+cargo run -- list --limit 20 --tag rust --sort updated --order desc
+cargo run -- list --cursor "$NEXT_CURSOR" --limit 20 --output-budget unbounded
 cargo run -- list --json --for triage --token-budget 1000
 cargo run -- --workspace /path/to/project list --json --output-budget unbounded --output-limit unbounded --all
 cargo run -- --workspace /path/to/project get pm-example
@@ -57,6 +59,16 @@ cargo run -- claim pm-example --author agent --json
 cargo run -- release pm-example --author agent --json
 cargo run -- --workspace /path/to/project close pm-example --reason "Done: shipped" --author agent --resolution "Fixed" --expected-result "Expected" --actual-result "Observed" --validate-close strict --json
 ```
+
+List pagination uses the pinned 2026.10.14 oracle in both JSON and default TOON.
+Parent and tag filters and all six published sort fields run before slicing;
+`--order desc` also reverses the default tie-break ordering. `--cursor` is a
+native alias for the oracle's `--after` spelling. Producer cursors tolerate row
+edits; snapshot-bound `--output-cursor` rejects changed projected rows. TOON
+budgets measure rendered UTF-8 bytes, including table compaction; defaults are
+4,000 tokens for TOON and 6,000 for JSON. See
+[the mixed-status pagination receipt](docs/LIST_PAGINATION_2026_10_15.md) for the 270-item
+walks and negative controls.
 
 The library discovers `.agents/pm` from a workspace, nested directory, file, or
 tracker root; strictly decodes TOON item documents; retains unknown package

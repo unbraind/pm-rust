@@ -13,12 +13,19 @@ The original nine golden envelopes remain unchanged. The native CLI now includes
 published full-projection diagnostics and accepts JSON reads with default bounds.
 The table below records the original legacy SDK boundaries.
 
+The [2026.10.15 extension](LIST_PAGINATION_2026_10_15.md), verified against the
+locked 2026.10.14 oracle, adds default TOON wire parity, parent/tag filters,
+explicit sort/order and a native `--cursor` alias for `--after`. It compares
+270 mixed-status items, complete wire envelopes and mutation refusals. Legacy
+SDK `Workspace::list` and unbounded envelopes retain their historical contract.
+
 ## Implemented and divergent native commands
 
 | Native command / SDK operation | Implemented | Remaining differences |
 | --- | --- | --- |
 | `list --json --output-budget unbounded --output-limit unbounded` / `Workspace::list_unbounded` | Complete published JSON envelope; default terminal exclusion; terminal-last/priority ascending/update descending/ID ordering; brief projection; full metadata for `--full`, `--all` or `--status all`; single status/type/ID filters; matching-count total; omission receipt; unknown metadata retained | Canonical default lifecycle registry and lowercase ASCII IDs only. Extra (unknown) metadata keys retain `.toon` insertion order; canonical history metadata ordering remains separate. Legacy unbounded SDK methods omit output-policy diagnostics; the newer `list_page` API supplies them. No custom field selection, hooks, runtime schemas, CSV filters, or partial-result recovery |
-| Bare `list` / `Workspace::list` | Existing deterministic native projection, ID order, exact filters | Native priority/parent fields and pre-filter total; includes terminal items; different envelope/order from published defaults |
+| `list` / `Workspace::list_page` | Published JSON and default TOON producer pages, output cursors, omission/budget receipts; parent/tag selection and priority/deadline/updated_at/created_at/title/parent sort/order | Built-in lifecycle/hierarchy registry; single status/type/ID selectors; no tree mode, sessions, custom projections or hooks. Native `--cursor` aliases published `--after` |
+| Legacy `Workspace::list` | Existing deterministic native projection, ID order, exact filters | Native priority/parent fields and pre-filter total; includes terminal items; historical SDK envelope |
 | `get` / `Workspace::get` | Validated complete item by ID; unknown fields retained | Flat native document; published entity envelope includes linked data, claim state, child summary, projections and omission receipts |
 | `create` / `Workspace::create` | Explicit ID; TOON and append-only history differential | Native argv/receipt subset; automatic IDs, runtime types, governance, hooks and other fields omitted |
 | `update` / `Workspace::update` | Whole-field title/description/status/priority/tags/body replacement; stored-byte differential | Limited flags and receipt; no general lifecycle governance/field operations |

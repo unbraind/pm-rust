@@ -486,7 +486,14 @@ fn cli_lists_gets_and_reports_failures() -> Result<(), Box<dyn std::error::Error
     let (directory, _) = tracker()?;
     let workspace = directory.path().to_string_lossy();
     let output = Command::cargo_bin("pm-rust")?
-        .args(["--workspace", &workspace, "list", "--status", "open"])
+        .args([
+            "--workspace",
+            &workspace,
+            "list",
+            "--json",
+            "--status",
+            "open",
+        ])
         .output()?;
     assert!(output.status.success());
     let payload: Value = serde_json::from_slice(&output.stdout)?;

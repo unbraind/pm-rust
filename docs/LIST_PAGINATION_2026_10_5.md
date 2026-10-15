@@ -1,5 +1,9 @@
 # List pagination and bounded output against PM CLI 2026.10.7
 
+The [2026.10.15 extension](LIST_PAGINATION_2026_10_15.md) adds TOON, parent/tag
+filters and sort/order against the current locked 2026.10.14 oracle. The receipt
+below describes the original 2026.10.7 delivery.
+
 Owner: [pm-rust-ufzy](https://github.com/unbraind/pm-rust/blob/main/.agents/pm/tasks/pm-rust-ufzy.toon).
 
 The reference is the real published `@unbrained/pm-cli@2026.10.7` executable.

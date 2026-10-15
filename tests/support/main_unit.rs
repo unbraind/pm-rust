@@ -528,7 +528,7 @@ fn non_utf8_arguments_publish_the_cursor_refusal_envelope() {
     assert_eq!(payload["refusal"]["exit_code"], 2);
     assert_eq!(
         payload["recovery"]["attempted_command"],
-        format!("pm {}", args.join(" "))
+        format!("pm list --json {}", pm_rust::quote_command_arg(&args[2]))
     );
     assert!(payload["next_steps"].is_array());
 }
@@ -671,5 +671,55 @@ fn closure_receipt_writer_failure_boundaries() -> Result<(), Box<dyn std::error:
         .is_err()
     );
     writer.flush()?;
+    Ok(())
+}
+
+/// List encodings and cursor diagnostics propagate real writer and flush failures.
+#[test]
+fn list_and_cursor_writers_propagate_io_failures() -> Result<(), Box<dyn std::error::Error>> {
+    let value: pm_rust::ListOutput = serde_json::json!({"items":[],"count":0}).into();
+    for json in [true, false] {
+        super::write_list_to(&mut Vec::new(), &value, json)?;
+        assert!(super::write_list_to(&mut WriteFailure, &value, json).is_err());
+        assert!(super::write_list_to(&mut FlushFailure, &value, json).is_err());
+    }
+    for payload in [
+        serde_json::json!({}),
+        serde_json::json!({"recovery":{"provided_fields":[]}}),
+        super::cursor_error_json(
+            "invalid_query_cursor",
+            "Query cursor is malformed.",
+            &["list".to_owned(), "--after".to_owned(), "%%%".to_owned()],
+        ),
+    ] {
+        let mut bytes = Vec::new();
+        super::write_cursor_refusal_to(&mut bytes, &payload)?;
+        assert!(String::from_utf8(bytes)?.starts_with("Error:"));
+        assert!(super::write_cursor_refusal_to(&mut WriteFailure, &payload).is_err());
+        assert!(super::write_cursor_refusal_to(&mut FlushFailure, &payload).is_err());
+    }
+    // JSON can carry a lossless surrogate cut that the TOON codec must refuse.
+    let directory = tempfile::tempdir()?;
+    let root = directory.path().join(".agents/pm");
+    fs::create_dir_all(root.join("tasks"))?;
+    fs::write(root.join("settings.json"), "{}")?;
+    for index in 0..20 {
+        let item = serde_json::json!({"id":format!("demo-{index:04}"),"title":format!("{}😀{}", "x".repeat(239), "y".repeat(300)),"type":"Task","status":"open","priority":1,"created_at":"2026-10-01T00:00:00.000Z","updated_at":"2026-10-01T00:00:00.000Z"});
+        fs::write(
+            root.join(format!("tasks/demo-{index:04}.toon")),
+            toon_format::encode_default(&item)?,
+        )?;
+    }
+    let workspace = pm_rust::Workspace::discover(directory.path())?;
+    let cut = workspace.list_page(
+        &pm_rust::ItemFilter::default(),
+        &pm_rust::ListOptions {
+            output_budget: Some("1500".to_owned()),
+            ..pm_rust::ListOptions::default()
+        },
+        "clock",
+    )?;
+    assert!(pm_rust::stringify_json(&cut, false).contains("\\ud83d"));
+    assert!(super::write_list_to(&mut Vec::new(), &cut, false).is_err());
     Ok(())
 }

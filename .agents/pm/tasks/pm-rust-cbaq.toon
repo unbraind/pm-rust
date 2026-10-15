@@ -1,0 +1,17 @@
+id: pm-rust-cbaq
+title: Extend native list selection to configured lifecycle and hierarchy registries
+description: "Follow-up to the built-in list pagination slice. Native selection currently uses canonical lifecycle and parent/child relationship kinds. Add configured status buckets, terminal classification and custom hierarchy kinds using real disposable-tracker differentials against the pinned oracle. Preserve page fingerprints and full JSON/TOON envelopes."
+type: Task
+status: open
+priority: 3
+tags[3]: follow-up,read-parity,rust
+created_at: "2026-10-15T11:08:01.726Z"
+updated_at: "2026-10-15T11:33:34.522Z"
+author: codex-agent
+acceptance_criteria: "Configured status and hierarchy definitions produce identical selected rows, sorting, fingerprints and multi-page JSON/TOON envelopes to the pinned oracle; preserve all four 100 percent coverage dimensions"
+parent: pm-rust-ufzy
+comments[1]{created_at,author,text}:
+  "2026-10-15T11:26:11.524Z",codex-agent,Created after duplicate search during pm-rust-ufzy. The delivered pagination slice targets built-in lifecycle and hierarchy registries. This child retains configured-registry selection and cursor conformance as separate follow-up work; no implementation or closure claim.
+docs[1]{path,scope}:
+  docs/LIST_PAGINATION_2026_10_15.md,project
+body: ""

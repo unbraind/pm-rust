@@ -585,3 +585,20 @@ fn candidates(
 #[cfg(test)]
 #[path = "../tests/support/selection_unit.rs"]
 mod tests;
+
+/// Selects built-in active items with unresolved prerequisites or explicit blocked status.
+pub(crate) fn dependency_blocked_ids(corpus: &[ItemDocument]) -> BTreeSet<String> {
+    let settings = json!({});
+    let index = CorpusIndex::new(corpus, &settings);
+    corpus
+        .iter()
+        .filter(|item| {
+            item.metadata.status == "blocked"
+                || (role(item, &settings, "active")
+                    && blockers(item, &index)
+                        .iter()
+                        .any(|id| !index.is_terminal(id, &settings)))
+        })
+        .map(|item| item.metadata.id.clone())
+        .collect()
+}

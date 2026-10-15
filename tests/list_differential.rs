@@ -163,8 +163,6 @@ fn explicit_unbounded_policies_and_live_clock() -> Result<(), Box<dyn std::error
             "--output-limit",
             "unbounded",
         ],
-        vec!["list", "--all"],
-        vec!["list", "--full"],
         vec![
             "list",
             "--json",
