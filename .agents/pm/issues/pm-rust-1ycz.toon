@@ -2,18 +2,27 @@ id: pm-rust-1ycz
 title: Match published container readiness for cyclic parent graphs
 description: "Round 2 readiness-index review found a pre-existing parity gap. In a real disposable tracker with one open Task whose stored parent equals its own ID, published 2026.10.14 claim --next exits 3 with no_available_next_item; native exits 0 and claims it. Published hasOpenDescendant recognizes the nonterminal node reached through the cycle, while the existing native descendant check explicitly excludes the root. The performance-only indexing change retains prior case and cycle behavior. Repair cyclic-container semantics in separate differential work, including self cycles and mixed terminal/nonterminal cycles, without restoring repeated corpus scans."
 type: Issue
-status: open
+status: in_progress
 priority: 2
 tags[2]: conformance,selection
 created_at: "2026-10-14T10:44:14.727Z"
-updated_at: "2026-10-14T10:44:40.066Z"
+updated_at: "2026-10-15T00:40:08.787Z"
 author: codex-agent
 acceptance_criteria: Real cyclic tracker differentials match published exit/stdout/stderr and durable state; indexing remains bounded and its deterministic scan regression passes
 parent: pm-rust-u4al
+comments[5]{created_at,author,text}:
+  "2026-10-14T20:34:41.851Z",codex-agent,"Implementing the native parity batch against the locked 2026.10.14 oracle. Evidence will compare real disposable trackers, complete output envelopes and durable artifacts, with a behavioral revert proof and unchanged release gates."
+  "2026-10-14T20:43:01.763Z",codex-agent,"Regression proof on the unchanged main behavior: cargo test --locked --test claim_release_differential cyclic_parent_readiness_matches_published -- --nocapture failed with native exit 0 versus oracle exit 3 on a self-parent cycle. After the index fix, the same test passes for self cycles, mixed terminal cycles, active cycles and all-terminal cycles. Witnesses now start at parent edges so only cyclic reachability includes the candidate itself; the bounded corpus index remains in use."
+  "2026-10-14T21:33:35.804Z",codex-agent,"Behavioral revert proof: cargo test --locked --test claim_release_differential cyclic_parent_readiness_matches_published -- --exact --nocapture compiled and failed at runtime with exit 101. Restoring the prior readiness functions claims a self-parent item: native exit 0 versus oracle exit 3. The regression test stayed in place, and all source bytes were restored after the check."
+  "2026-10-14T22:40:24.377Z",codex-agent,"The item-linked pinned-oracle command passed through pm test --run --only-last --progress --fail-on-skipped --fail-on-empty-test-run --json: 1 tests passed, zero failures or skips. Test-result tracking is disabled by project policy, so this append-only comment records the observed receipt. The behavioral revert failure is recorded separately."
+  "2026-10-15T00:40:07.758Z",codex-agent,"Final Linux acceptance: just release-check passed at unchanged pins and thresholds in an isolated Git identity environment. Both the ordinary and fresh branch-instrumented suites passed 317 tests across 17 targets, with zero failures or ignored tests. Coverage: 5646/5646 lines, 8630/8630 regions, 522/522 functions and 1194/1194 branches, all 100 percent. Formatting, deny-warnings Clippy, private-item rustdoc, identity audit, locked-oracle differential suites, cargo audit and changelog check passed. Cargo audit retains the inherited allowed RUSTSEC-2024-0449 unmaintained advisory. Per-item behavioral revert proof and linked-test receipts remain recorded separately. Releasing ownership for orchestrator verification; this item remains in progress and is not closed."
 files[3]{path,scope}:
   src/selection.rs,project
   tests/claim_release_differential.rs,project
   tests/support/selection_unit.rs,project
-docs[1]{path,scope}:
+tests[1]{command,scope,timeout_seconds,pm_context_mode,workspace_context_mode,provenance{author,created_at,source_kind,source_ref}}:
+  "env PM_NODE_CLI=\"$PWD/tests/oracle/node_modules/@unbrained/pm-cli\" PM_RUST_REQUIRE_PUBLISHED_CLI=1 cargo test --quiet --locked --test claim_release_differential cyclic_parent_readiness_matches_published -- --exact",project,600,schema,source,codex-agent,"2026-10-14T21:55:11.545Z",local_mutation,feat/native-close-fields-and-lock-safety
+docs[2]{path,scope}:
+  docs/NATIVE_PARITY_2026_10_14.md,project
   docs/NATIVE_SELECTION_LIFECYCLE_2026_10_13.md,project
 body: ""

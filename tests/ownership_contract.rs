@@ -86,7 +86,7 @@ fn session_publication_faults_preserve_completed_ownership() -> TestResult {
     )?;
     fs::write(&lock, &held)?;
     assert!(
-        matches!(workspace.claim(&alpha), Err(PmRustError::LockConflict {id}) if id=="session-state")
+        matches!(workspace.claim(&alpha), Err(PmRustError::CommandRefusal { detail, exit_code:4, .. }) if detail.contains("session-state lock is stale (lock_info_invalid_shape)"))
     );
     assert_eq!(fs::read(&lock)?, held);
     assert_eq!(

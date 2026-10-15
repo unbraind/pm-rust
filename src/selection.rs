@@ -155,7 +155,7 @@ struct CorpusIndex<'a> {
     inverse_blocks: BTreeMap<String, BTreeSet<String>>,
     /// Leaf selection deliberately retains the existing exact parent comparison.
     exact_parents: BTreeSet<&'a str>,
-    /// At most two distinct nonterminal witnesses per subtree suffice to exclude self.
+    /// At most two distinct nonterminal witnesses per descendant graph suffice.
     nonterminal_witnesses: BTreeMap<String, BTreeSet<String>>,
 }
 
@@ -214,12 +214,13 @@ impl<'a> CorpusIndex<'a> {
                 .by_id
                 .get(&id.to_ascii_lowercase())
                 .is_some_and(|items| items.iter().any(|item| !role(item, settings, "terminal")))
+                && let Some(ancestors) = parents.get(&id)
             {
-                pending.push_back((id.clone(), id));
+                pending.extend(ancestors.iter().map(|parent| (parent.clone(), id.clone())));
             }
         }
-        // Each node forwards at most two witnesses. Cycles terminate and a lone
-        // nonterminal node cannot count itself as its own active descendant.
+        // Start at each witness's parents, so a node counts itself only when
+        // reached through a cycle. Each node forwards at most two witnesses.
         while let Some((id, witness)) = pending.pop_front() {
             let witnesses = index.nonterminal_witnesses.entry(id.clone()).or_default();
             if witnesses.len() >= 2 || !witnesses.insert(witness.clone()) {
@@ -243,15 +244,11 @@ impl<'a> CorpusIndex<'a> {
             .is_some_and(|items| items.iter().any(|item| role(item, settings, "terminal")))
     }
 
-    /// Tests for any reachable nonterminal item other than the candidate itself.
+    /// Tests for any nonterminal item reached through at least one parent edge.
     fn has_active_descendants(&self, id: &str) -> bool {
         self.nonterminal_witnesses
             .get(&id.to_lowercase())
-            .is_some_and(|witnesses| {
-                witnesses
-                    .iter()
-                    .any(|witness| !witness.eq_ignore_ascii_case(id))
-            })
+            .is_some_and(|witnesses| !witnesses.is_empty())
     }
 }
 

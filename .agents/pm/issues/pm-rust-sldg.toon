@@ -2,16 +2,26 @@ id: pm-rust-sldg
 title: Match published stale session-lock refusal diagnostics
 description: "The real stale-session-lock differential confirms that both implementations refuse unforced expired session locks after durable item/history writes. The native SDK returns LockConflict with a generic locked diagnostic, while the published SDK returns PmCliError exit 4 with a stale-lock explanation. Preserve the no-auto-recovery oracle policy while matching the diagnostic and CLI envelope."
 type: Issue
-status: open
+status: in_progress
 priority: 2
 tags[2]: conformance,ownership
 created_at: "2026-10-14T09:02:55.833Z"
-updated_at: "2026-10-14T10:39:01.428Z"
+updated_at: "2026-10-15T00:40:06.926Z"
 author: codex-agent
 parent: pm-rust-u4al
-comments[1]{created_at,author,text}:
+comments[6]{created_at,author,text}:
   "2026-10-14T10:39:01.427Z",codex-agent,"Round 2 PR 77 probes also cover start_task semantic publication failure: a stale session-state lock preserves the claim but prevents the lifecycle update. Published SDK propagates the claim error with exit_code 4 and empty context; published CLI uses command_failed and supplies no persisted-claim inspection hint. Native preserves raw LockConflict with the existing differing generic diagnostic/CLI exit. Do not add lifecycle partial_failure wrapping while repairing these diagnostics: the oracle wraps only the subsequent update."
-files[2]{path,scope}:
+  "2026-10-14T20:34:40.897Z",codex-agent,"Implementing the native parity batch against the locked 2026.10.14 oracle. Evidence will compare real disposable trackers, complete output envelopes and durable artifacts, with a behavioral revert proof and unchanged release gates."
+  "2026-10-14T21:01:55.587Z",codex-agent,"The stale session-lock regression now compares complete JSON stderr and exit codes for claim, release, start-task and pause-task. SDK regressions preserve exit 4 with empty context and the exact stale explanation. Item/history writes completed before semantic publication remain durable; no recovery or lifecycle rollback was added."
+  "2026-10-14T21:33:34.839Z",codex-agent,"Behavioral revert proof: cargo test --locked --test claim_release_differential stale_session_lock_json_matches_published_bytes -- --exact --nocapture compiled and failed at runtime with exit 101. Restoring only the original session-state lock function returns native exit 2 instead of oracle exit 4 and loses the oracle-exact JSON refusal. The regression test stayed in place, and all source bytes were restored after the check."
+  "2026-10-14T22:40:16.855Z",codex-agent,"The item-linked pinned-oracle command passed through pm test --run --only-last --progress --fail-on-skipped --fail-on-empty-test-run --json: 1 tests passed, zero failures or skips. Test-result tracking is disabled by project policy, so this append-only comment records the observed receipt. The behavioral revert failure is recorded separately."
+  "2026-10-15T00:40:05.834Z",codex-agent,"Final Linux acceptance: just release-check passed at unchanged pins and thresholds in an isolated Git identity environment. Both the ordinary and fresh branch-instrumented suites passed 317 tests across 17 targets, with zero failures or ignored tests. Coverage: 5646/5646 lines, 8630/8630 regions, 522/522 functions and 1194/1194 branches, all 100 percent. Formatting, deny-warnings Clippy, private-item rustdoc, identity audit, locked-oracle differential suites, cargo audit and changelog check passed. Cargo audit retains the inherited allowed RUSTSEC-2024-0449 unmaintained advisory. Per-item behavioral revert proof and linked-test receipts remain recorded separately. Releasing ownership for orchestrator verification; this item remains in progress and is not closed."
+files[3]{path,scope}:
   src/mutation.rs,project
   tests/claim_release_differential.rs,project
+  tests/ownership_contract.rs,project
+tests[1]{command,scope,timeout_seconds,pm_context_mode,workspace_context_mode,provenance{author,created_at,source_kind,source_ref}}:
+  "env PM_NODE_CLI=\"$PWD/tests/oracle/node_modules/@unbrained/pm-cli\" PM_RUST_REQUIRE_PUBLISHED_CLI=1 cargo test --quiet --locked --test claim_release_differential stale_session_lock_json_matches_published_bytes -- --exact",project,600,schema,source,codex-agent,"2026-10-14T21:54:49.898Z",local_mutation,feat/native-close-fields-and-lock-safety
+docs[1]{path,scope}:
+  docs/NATIVE_PARITY_2026_10_14.md,project
 body: ""

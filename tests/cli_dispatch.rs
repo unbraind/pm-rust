@@ -295,7 +295,7 @@ fn close_dispatch_closes_once_and_refuses_repeats() -> Result<(), Box<dyn std::e
     expect_err(
         &workspace,
         &["close", "sample-cli", "--reason=  ", "--author=cli-agent"],
-        "closing summary",
+        "Close reason text",
     )?;
     Ok(())
 }

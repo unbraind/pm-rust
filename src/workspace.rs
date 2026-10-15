@@ -365,7 +365,7 @@ impl Workspace {
     /// # Errors
     ///
     /// Returns a typed validation, lock, conflict, recovery, or filesystem
-    /// error. Terminal items cannot be closed a second time.
+    /// error. Repeating terminal closure requires an explicit force override.
     pub fn close(&self, request: CloseItem) -> Result<MutationResult, PmRustError> {
         close_item(&self.pm_root, request)
     }

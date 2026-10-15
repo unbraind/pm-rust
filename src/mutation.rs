@@ -199,7 +199,8 @@ pub struct CommentItem {
 pub struct CloseItem {
     /// Exact stable identifier of the item to close.
     pub id: String,
-    /// Required non-empty immutable closing summary.
+    /// Author-controlled closing summary; blank permits a field fallback or disabled policy.
+    #[serde(default)]
     pub reason: String,
     /// Asserted mutation author.
     pub author: String,
@@ -209,14 +210,45 @@ pub struct CloseItem {
     /// Argv-derived provenance role recorded in the history entry.
     #[serde(default)]
     pub provenance_role: Option<String>,
+    /// Published inline closure fields and validation controls.
+    #[serde(default, flatten)]
+    pub fields: CloseFields,
     /// Permit removal of a lock whose filesystem age exceeds the configured TTL.
     #[serde(default)]
     pub force_stale_lock: bool,
 }
 
+/// Optional fields accepted by the published single-item close command.
+#[derive(Clone, Debug, Default, Deserialize, PartialEq, Serialize)]
+pub struct CloseFields {
+    /// Trimmed resolution summary, also a fallback closing reason.
+    pub resolution: Option<String>,
+    /// Trimmed expected outcome.
+    pub expected_result: Option<String>,
+    /// Trimmed observed outcome.
+    pub actual_result: Option<String>,
+    /// Actual completion clock, accepting ISO/date, now or a relative token.
+    pub completed_at: Option<String>,
+    /// Canonical duplicate target, validated before mutation.
+    pub duplicate_of: Option<String>,
+    /// History message, also a fallback closing reason.
+    pub message: Option<String>,
+    /// Closure evidence validation mode, defaulting to tracker governance.
+    pub validate_close: Option<String>,
+    /// Approved ownership or repeat-close override.
+    #[serde(default)]
+    pub force: bool,
+}
+
 /// Durable result of a native update, comment, or close transaction.
 #[derive(Clone, Debug, PartialEq, Serialize)]
 pub struct MutationResult {
+    /// Compact published close receipt, absent on other mutation kinds.
+    #[serde(skip)]
+    pub close_receipt: Option<Value>,
+    /// Published close field names, retained for composition counts.
+    #[serde(skip)]
+    pub close_changed_fields: Vec<String>,
     /// Post-mutation canonical item.
     pub item: ItemDocument,
     /// Item path relative to the tracker root.
@@ -230,6 +262,7 @@ pub struct MutationResult {
 }
 
 /// Serializes a relative result path with platform-independent separators.
+#[inline]
 fn serialize_portable_path<S>(path: &Path, serializer: S) -> Result<S::Ok, S::Error>
 where
     S: Serializer,
@@ -759,6 +792,17 @@ fn acquire_lock(
     force_stale: bool,
     timestamp: &str,
 ) -> Result<ItemLock, PmRustError> {
+    if id.is_empty()
+        || !id
+            .bytes()
+            .all(|byte| byte.is_ascii_alphanumeric() || byte == b'-')
+        || id.starts_with('-')
+        || id.ends_with('-')
+    {
+        return Err(invalid_mutation(
+            "id must use ASCII letters, digits, and interior hyphens",
+        ));
+    }
     let deadline = Instant::now() + Duration::from_millis(locks.wait_ms);
     loop {
         match acquire_lock_attempt(
@@ -1681,39 +1725,548 @@ pub(crate) fn comment_item(
     )
 }
 
-/// Closes one open item with an immutable closing summary.
+/// Creates a published usage or conflict refusal for closure metadata.
+fn close_refusal(detail: String, exit_code: u8, context: Value) -> PmRustError {
+    let context = if exit_code == 2 && detail.starts_with("Invalid ") {
+        let mut guidance = serde_json::json!({"code":"invalid_argument_value","title":"Invalid argument value","required":"Use values that match documented command constraints.","next_steps":["Check allowed values in command help, then rerun with corrected input."],"examples":["pm close --help","pm contracts --command <command> --flags-only --json"]});
+        if let Some(field) = context["field"].as_str() {
+            guidance["flag"] = serde_json::json!(format!("--{field}"));
+            guidance["value"] = context["value"].clone();
+        }
+        guidance
+    } else {
+        context
+    };
+    PmRustError::CommandRefusal {
+        detail,
+        exit_code,
+        context,
+    }
+}
+
+/// Resolves explicit evidence validation, including the oracle's disabled aliases.
+fn close_mode(raw: Option<&str>, settings: &Value) -> Result<String, PmRustError> {
+    let Some(raw) = raw else {
+        let governance = &settings["governance"];
+        return Ok(match governance["preset"].as_str() {
+            Some("strict") => "strict",
+            Some("default") => "warn",
+            Some("custom") => governance["close_validation_default"]
+                .as_str()
+                .unwrap_or("warn"),
+            _ => "off",
+        }
+        .to_owned());
+    };
+    match raw.trim().to_lowercase().as_str() {
+        "" | "warn" => Ok("warn".to_owned()),
+        "off" | "none" | "disabled" => Ok("off".to_owned()),
+        "strict" => Ok("strict".to_owned()),
+        _ => Err(close_refusal(
+            format!(
+                "Invalid --validate-close mode \"{raw}\" (expected \"off\", \"warn\", or \"strict\")"
+            ),
+            2,
+            serde_json::json!({}),
+        )),
+    }
+}
+
+/// Finds missing nonblank closure evidence in canonical field order.
+fn missing_close_fields(document: &ItemDocument) -> Vec<&'static str> {
+    ["resolution", "expected_result", "actual_result"]
+        .into_iter()
+        .filter(|key| ownership_text(document, key).trim().is_empty())
+        .collect()
+}
+
+/// Quotes one command argument with the published platform-specific renderer.
+#[cfg(not(windows))]
+#[must_use]
+pub fn quote_command_arg(value: &str) -> String {
+    if !value.is_empty()
+        && value
+            .bytes()
+            .all(|byte| byte.is_ascii_alphanumeric() || b"_.:/@=-".contains(&byte))
+    {
+        return value.to_owned();
+    }
+    let mut result = String::from("\"");
+    for ch in value.chars() {
+        if matches!(ch, '\"' | '\\' | '$' | '`') {
+            result.push('\\');
+        }
+        result.push(ch);
+    }
+    result.push('\"');
+    result
+}
+
+/// Quotes one command argument using the Windows native command-line grammar.
+#[cfg(windows)]
+#[must_use]
+pub fn quote_command_arg(value: &str) -> String {
+    if !value.is_empty()
+        && value
+            .bytes()
+            .all(|byte| byte.is_ascii_alphanumeric() || b"_.:/\\@=-".contains(&byte))
+    {
+        return value.to_owned();
+    }
+    let mut result = String::from("\"");
+    let mut pending = 0;
+    for ch in value.chars() {
+        if ch == '\\' {
+            pending += 1;
+            continue;
+        }
+        result.push_str(&"\\".repeat(if ch == '\"' { pending * 2 + 1 } else { pending }));
+        result.push(ch);
+        pending = 0;
+    }
+    result.push_str(&"\\".repeat(pending * 2));
+    result.push('\"');
+    result
+}
+
+/// Builds the same evidence recovery tokens using the actual disposable tracker root.
+fn close_recovery(pm_root: &Path, document: &ItemDocument) -> Option<Value> {
+    let missing = missing_close_fields(document);
+    if missing.is_empty() {
+        return None;
+    }
+    let flags: Vec<String> = missing
+        .iter()
+        .map(|key| format!("--{}", key.replace('_', "-")))
+        .collect();
+    let mut args = vec![
+        "--pm-path".to_owned(),
+        pm_root.to_string_lossy().into_owned(),
+        "update".to_owned(),
+        document.metadata.id.clone(),
+    ];
+    for flag in &flags {
+        args.extend([flag.clone(), "<value>".to_owned()]);
+    }
+    let command = format!(
+        "pm {}",
+        args.iter()
+            .map(|arg| quote_command_arg(arg))
+            .collect::<Vec<_>>()
+            .join(" ")
+    );
+    Some(serde_json::json!({"missing":flags,"suggested_retry":command,"suggested_retry_args":args}))
+}
+
+/// Rejects impossible ISO calendar dates with the oracle's field-specific guidance.
+fn close_calendar(raw: &str) -> Result<String, PmRustError> {
+    let value = raw.trim();
+    let date = if let Some(prefix) = value
+        .get(..10)
+        .filter(|prefix| prefix.as_bytes()[4] == b'-' && prefix.as_bytes()[7] == b'-')
+    {
+        Some((
+            prefix.get(..4).unwrap_or_default(),
+            prefix.get(5..7).unwrap_or_default(),
+            prefix.get(8..10).unwrap_or_default(),
+            false,
+        ))
+    } else {
+        value
+            .get(..8)
+            .filter(|prefix| prefix.bytes().all(|byte| byte.is_ascii_digit()))
+            .map(|prefix| {
+                (
+                    prefix.get(..4).unwrap_or_default(),
+                    prefix.get(4..6).unwrap_or_default(),
+                    prefix.get(6..8).unwrap_or_default(),
+                    true,
+                )
+            })
+    };
+    let Some((year, month, day, compact)) = date else {
+        return Ok(value.to_owned());
+    };
+    let (Ok(year), Ok(month_number), Ok(day_number)) =
+        (year.parse::<i32>(), month.parse::<u8>(), day.parse::<u8>())
+    else {
+        return Ok(value.to_owned());
+    };
+    let month_value = time::Month::try_from(month_number).map_err(|_| close_refusal(format!("Invalid completed-at value \"{raw}\". Month \"{month}\" is out of range — use a month between 01 and 12."),2,serde_json::json!({"field":"completed-at","value":raw})))?;
+    let maximum = month_value.length(year);
+    if day_number == 0 || day_number > maximum {
+        return Err(close_refusal(
+            format!(
+                "Invalid completed-at value \"{raw}\". {month_value} {year} has {maximum} days, so day \"{day}\" does not exist. Use a real YYYY-MM-DD calendar date."
+            ),
+            2,
+            serde_json::json!({"field":"completed-at","value":raw}),
+        ));
+    }
+    if compact {
+        Ok(format!(
+            "{year:04}-{month_number:02}-{day_number:02}{}",
+            value.get(8..).unwrap_or_default()
+        ))
+    } else {
+        Ok(value.to_owned())
+    }
+}
+
+/// Applies relative months without overflowing the calendar representation.
+fn close_relative_month(base: OffsetDateTime, amount: i64) -> Option<OffsetDateTime> {
+    let month_index = (i64::from(base.year()) * 12 + i64::from(u8::from(base.month())) - 1)
+        .checked_add(amount)?;
+    let year = i32::try_from(month_index.div_euclid(12)).ok()?;
+    let month =
+        time::Month::January.nth_next(u8::try_from(month_index.rem_euclid(12)).unwrap_or_default());
+    let mut day = base.day();
+    while time::Date::from_calendar_date(year, month, day).is_err() && day > 1 {
+        day -= 1;
+    }
+    time::Date::from_calendar_date(year, month, day)
+        .ok()
+        .map(|date| base.replace_date(date))
+}
+
+/// Distinguishes malformed relative input from the oracle's runtime date overflow.
+fn close_relative_completion(
+    value: &str,
+    base: OffsetDateTime,
+) -> Result<Option<OffsetDateTime>, PmRustError> {
+    let Some(amount) = value
+        .get(..value.len().saturating_sub(1))
+        .and_then(|amount| amount.parse::<i64>().ok())
+    else {
+        return Ok(None);
+    };
+    let parsed = match value.as_bytes().last().map(u8::to_ascii_lowercase) {
+        Some(b'h') => amount
+            .checked_mul(3600)
+            .and_then(|seconds| base.checked_add(time::Duration::seconds(seconds))),
+        Some(b'd') => amount
+            .checked_mul(86400)
+            .and_then(|seconds| base.checked_add(time::Duration::seconds(seconds))),
+        Some(b'w') => amount
+            .checked_mul(604_800)
+            .and_then(|seconds| base.checked_add(time::Duration::seconds(seconds))),
+        Some(b'm') => close_relative_month(base, amount),
+        _ => return Ok(None),
+    };
+    parsed.map(Some).ok_or_else(|| {
+        close_refusal(
+            "Invalid time value".to_owned(),
+            1,
+            serde_json::json!({"code":"unknown_error"}),
+        )
+    })
+}
+
+/// Parses a completion time independently of the tracker close time.
+fn close_completion(raw: &str, timestamp: &str) -> Result<String, PmRustError> {
+    let Ok(base) = OffsetDateTime::parse(timestamp, &Rfc3339) else {
+        return Err(invalid_mutation("invalid closure clock"));
+    };
+    let value = raw.trim();
+    let parsed = if value.eq_ignore_ascii_case("now") {
+        Some(base)
+    } else if value.starts_with(['+', '-']) {
+        close_relative_completion(value, base)?
+    } else {
+        let value = close_calendar(raw)?;
+        OffsetDateTime::parse(&value, &Rfc3339)
+            .ok()
+            .or_else(|| OffsetDateTime::parse(&format!("{value}T00:00:00Z"), &Rfc3339).ok())
+    };
+    let Some(parsed) = parsed else {
+        let guidance = if value.matches(['+', '-']).count() > 1 && value.starts_with(['+', '-']) {
+            "Compound relative expressions like +3d+1h are not supported; use a single relative token (for example +3d) or an ISO/date string."
+        } else {
+            "Use ISO/date string input, \"now\", or relative +6h/-6h/+1d/-1d/+2w/-2w/+6m/-6m."
+        };
+        return Err(close_refusal(
+            format!("Invalid completed-at value \"{raw}\". {guidance}"),
+            2,
+            serde_json::json!({"field":"completed-at","value":raw}),
+        ));
+    };
+    Ok(format!(
+        "{}.{:03}Z",
+        parsed
+            .to_offset(time::UtcOffset::UTC)
+            .format(
+                &time::format_description::parse_borrowed::<2>(
+                    "[year]-[month]-[day]T[hour]:[minute]:[second]"
+                )
+                .unwrap_or_default()
+            )
+            .unwrap_or_default(),
+        parsed.millisecond()
+    ))
+}
+
+/// Validates a duplicate target and follows existing duplicate edges without loops.
+fn close_duplicate(
+    pm_root: &Path,
+    id: &str,
+    target: Option<&str>,
+) -> Result<Option<String>, PmRustError> {
+    let Some(target) = target.map(str::trim).filter(|target| !target.is_empty()) else {
+        return Ok(None);
+    };
+    if target == id {
+        return Err(close_refusal(
+            "An item cannot be closed as a duplicate of itself.".to_owned(),
+            2,
+            serde_json::json!({"code":"duplicate_target_self","why":"--duplicate-of must identify the canonical item that should remain open or already represent the work."}),
+        ));
+    }
+    let target_doc = match locate_item(pm_root, target) {
+        Ok((_, document)) => document,
+        Err(PmRustError::ItemNotFound { .. }) => {
+            return Err(close_refusal(
+                format!(
+                    "Duplicate target \"{target}\" was not found. Create or locate the canonical item first."
+                ),
+                2,
+                serde_json::json!({"code":"duplicate_target_missing","why":"Duplicate closure should point at a real canonical pm item so future dedupe and changelog tooling can trace the relationship.","examples":[format!("pm close {id} \"Duplicate of {target}\" --duplicate-of {target}")],"next_steps":["Run pm search/list to find the canonical item, then retry with --duplicate-of <id>."]}),
+            ));
+        }
+        Err(error) => return Err(error),
+    };
+    let initial = ownership_text(&target_doc, "duplicate_of");
+    let mut current = initial.trim().to_owned();
+    let mut visited = std::collections::BTreeSet::new();
+    while !current.is_empty() {
+        if current == id {
+            return Err(close_refusal(
+                format!(
+                    "Circular duplicate reference detected. Target \"{target}\" points back to \"{id}\"."
+                ),
+                2,
+                serde_json::json!({"code":"duplicate_target_circular","why":"Circular duplicate relationships create loops for dedupe and status propagation tooling.","next_steps":["Choose the existing canonical item, or clear the target duplicate_of metadata before closing this item as a duplicate."]}),
+            ));
+        }
+        if !visited.insert(current.clone()) {
+            break;
+        }
+        current = match locate_item(pm_root, &current) {
+            Ok((_, document)) => ownership_text(&document, "duplicate_of").trim().to_owned(),
+            Err(PmRustError::ItemNotFound { .. }) => String::new(),
+            Err(error) => return Err(error),
+        };
+    }
+    if !initial.trim().is_empty() {
+        return Err(close_refusal(
+            format!(
+                "Duplicate target \"{target}\" is already marked as a duplicate of \"{}\".",
+                initial.trim()
+            ),
+            2,
+            serde_json::json!({"code":"duplicate_target_is_duplicate","why":"Duplicate closure should point directly at the canonical item, not another duplicate.","examples":[format!("pm close {id} \"Duplicate of {}\" --duplicate-of {}",initial.trim(),initial.trim())],"next_steps":["Use the canonical item referenced by duplicate_of as the --duplicate-of target."]}),
+        ));
+    }
+    Ok(Some(target_doc.metadata.id))
+}
+
+/// Closes one item with published metadata, validation, ownership and history semantics.
+#[allow(clippy::too_many_lines, clippy::needless_pass_by_value)]
 pub(crate) fn close_item(
     pm_root: &Path,
     request: CloseItem,
 ) -> Result<MutationResult, PmRustError> {
-    let settings = read_settings(pm_root)?;
+    let mut settings = read_settings(pm_root)?;
     let timestamp = validate_mutation_request(&request.author, request.timestamp.as_deref())?;
-    if request.reason.trim().is_empty() {
-        return Err(invalid_mutation(
-            "a close requires a non-empty closing summary",
+    let value = crate::ownership::runtime_settings(pm_root)?;
+    let duplicate = close_duplicate(pm_root, &request.id, request.fields.duplicate_of.as_deref())?;
+    let duplicate_reason = duplicate.as_ref().map(|id| format!("Duplicate of {id}"));
+    let reason = [
+        Some(request.reason.as_str()),
+        duplicate_reason.as_deref(),
+        request.fields.resolution.as_deref(),
+        request.fields.message.as_deref(),
+    ]
+    .into_iter()
+    .flatten()
+    .map(str::trim)
+    .find(|text| !text.is_empty());
+    if reason.is_none()
+        && value["governance"]["require_close_reason"]
+            .as_bool()
+            .unwrap_or(true)
+    {
+        return Err(close_refusal(
+            "Close reason text is required because governance.require_close_reason is enabled"
+                .to_owned(),
+            2,
+            serde_json::json!({"code":"close_reason_required","required":"Provide an author-controlled closing summary as the reason, message, resolution, or duplicate target.","why":"governance.require_close_reason is enabled, so tools must not invent immutable closure evidence.","examples":["pm close <id> \"Done: <what changed and why>\"","pm close <id> --reason \"<closing summary>\"","pm close <id> -m \"<closing summary>\"","pm close <id> --duplicate-of <canonical-id>"],"next_steps":["Re-run the close operation with a closing summary.","To stop requiring reasons, run: pm config set governance-require-close-reason --policy disabled"]}),
         ));
     }
+    let mode = close_mode(request.fields.validate_close.as_deref(), &value)?;
+    let completed = match &request.fields.completed_at {
+        Some(raw) => close_completion(raw, &timestamp)?,
+        None => timestamp.clone(),
+    };
+    settings.locks.use_created_at = true;
     let _lock = acquire_lock(
         pm_root,
         &request.id,
         &request.author,
         &settings.locks,
-        request.force_stale_lock,
+        request.force_stale_lock
+            || request.fields.force
+            || !settings.governance.stale_requires_force(),
         &timestamp,
     )?;
-    let (item_path, history_path, before_document) =
-        recover_and_locate(pm_root, "close", &request.id)?;
-    if matches!(
-        before_document.metadata.status.as_str(),
-        "closed" | "canceled"
-    ) || before_document.metadata.status == settings.workflow.close_status
+    let (item_path, history_path, before) = recover_and_locate(pm_root, "close", &request.id)?;
+    if (crate::list::terminal(&before.metadata.status)
+        || before.metadata.status == settings.workflow.close_status)
+        && !request.fields.force
     {
-        return Err(invalid_mutation(format!(
-            "item {} is already terminal",
-            request.id
-        )));
+        let mut context = serde_json::json!({});
+        if let Some(recovery) = close_recovery(pm_root, &before) {
+            context["recovery"] = recovery;
+        }
+        return Err(close_refusal(
+            format!(
+                "Item {} is already terminal; use pm update to append acceptance evidence, or --force only for an intentional repeat closure.",
+                request.id
+            ),
+            4,
+            context,
+        ));
     }
-    let mut document = before_document.clone();
+    let owner = ownership_text(&before, "assignee");
+    let principal = ownership_text(&before, "claim_principal");
+    let principal = if principal.is_empty() {
+        owner.as_str()
+    } else {
+        &principal
+    };
+    let mut warnings = Vec::new();
+    if !owner.trim().is_empty() && principal != request.author && !request.fields.force {
+        if settings.governance.policy() == "strict" {
+            return Err(ownership_refusal(
+                format!(
+                    "Item {} is assigned to {}. Use --force to override.",
+                    request.id,
+                    owner.trim()
+                ),
+                serde_json::json!({"code":"ownership_conflict"}),
+            ));
+        }
+        if settings.governance.policy() == "warn" {
+            warnings.push(format!(
+                "ownership_warning:assignee_conflict:{}:{}",
+                request.id,
+                owner.trim()
+            ));
+        }
+    }
+    let mut document = before.clone();
+    let mut inline = Vec::new();
+    for (key, option) in [
+        ("resolution", &request.fields.resolution),
+        ("expected_result", &request.fields.expected_result),
+        ("actual_result", &request.fields.actual_result),
+    ] {
+        if let Some(text) = option
+            .as_deref()
+            .map(str::trim)
+            .filter(|text| !text.is_empty())
+        {
+            document
+                .metadata
+                .extra
+                .insert(key.to_owned(), Value::String(text.to_owned()));
+            inline.push(key);
+        }
+    }
+    let mut fallback = Vec::new();
+    if let Some(target) = &duplicate {
+        document
+            .metadata
+            .extra
+            .insert("duplicate_of".to_owned(), Value::String(target.clone()));
+        for (key, text) in [
+            ("resolution", format!("Duplicate of {target}")),
+            (
+                "expected_result",
+                format!("Canonical item {target} tracks the work."),
+            ),
+            ("actual_result", format!("Closed as duplicate of {target}.")),
+        ] {
+            if ownership_text(&document, key).trim().is_empty() {
+                document
+                    .metadata
+                    .extra
+                    .insert(key.to_owned(), Value::String(text));
+                fallback.push(key);
+            }
+        }
+    }
+    let missing = missing_close_fields(&document);
+    if mode != "off" && !missing.is_empty() {
+        let labels: Vec<String> = missing
+            .iter()
+            .map(|key| format!("{key} (--{})", key.replace('_', "-")))
+            .collect();
+        if mode == "strict" {
+            let mut recovery = close_recovery(pm_root, &document).unwrap_or_default();
+            recovery
+                .as_object_mut()
+                .map(|map| map.shift_remove("suggested_retry_args"));
+            return Err(close_refusal(
+                format!(
+                    "Cannot close item {}: missing {}. Populate fields or use --validate-close warn.",
+                    request.id,
+                    labels.join(", ")
+                ),
+                2,
+                serde_json::json!({"code":"close_validation_missing_fields","recovery":recovery,"next_steps":["Run the suggested pm update, then retry the original pm close invocation.","Use --validate-close warn only when governance permits an evidenced exception."]}),
+            ));
+        }
+        warnings.push(format!(
+            "close_validation_missing_fields:{}:{}",
+            request.id,
+            labels.join(",")
+        ));
+    }
+    let workspace = crate::Workspace::discover(pm_root)?;
+    let mut children: Vec<String> = workspace
+        .read_items()?
+        .into_iter()
+        .filter(|item| {
+            item.metadata.parent.as_deref() == Some(&request.id)
+                && !crate::list::terminal(&item.metadata.status)
+        })
+        .map(|item| item.metadata.id)
+        .collect();
+    children.sort_by(|left, right| crate::collation::compare(left, right));
+    if !children.is_empty() {
+        if mode == "strict" {
+            return Err(close_refusal(
+                format!(
+                    "Cannot close item {}: active child items remain open ({}). Close, cancel, or re-parent them first, or use --validate-close warn.",
+                    request.id,
+                    children.join(", ")
+                ),
+                2,
+                serde_json::json!({}),
+            ));
+        }
+        warnings.push(format!(
+            "{}:{}:{}",
+            if mode == "off" {
+                "closed_with_active_children"
+            } else {
+                "close_validation_active_children"
+            },
+            request.id,
+            children.join(",")
+        ));
+    }
+    let mut changed = vec!["status", "closed_at"];
     document
         .metadata
         .status
@@ -1722,27 +2275,93 @@ pub(crate) fn close_item(
         .metadata
         .extra
         .insert("closed_at".to_owned(), Value::String(timestamp.clone()));
-    document
+    if request.fields.completed_at.is_some()
+        || !document.metadata.extra.contains_key("completed_at")
+    {
+        document
+            .metadata
+            .extra
+            .insert("completed_at".to_owned(), Value::String(completed));
+        changed.push("completed_at");
+    }
+    if let Some(reason) = reason {
+        document
+            .metadata
+            .extra
+            .insert("close_reason".to_owned(), Value::String(reason.to_owned()));
+        changed.push("close_reason");
+    }
+    changed.extend(inline);
+    if duplicate.is_some() {
+        changed.push("duplicate_of");
+        changed.extend(fallback);
+    }
+    if document.metadata.extra.remove("assignee").is_some() {
+        changed.push("assignee");
+    }
+    let previous_blocker = ownership_text(&document, "blocked_by");
+    let mut blockers = Vec::new();
+    if !previous_blocker.trim().is_empty() {
+        blockers.push(previous_blocker.trim().to_owned());
+    }
+    if let Some(deps) = document
         .metadata
         .extra
-        .insert("completed_at".to_owned(), Value::String(timestamp.clone()));
-    document
-        .metadata
-        .extra
-        .insert("close_reason".to_owned(), Value::String(request.reason));
+        .get("dependencies")
+        .and_then(Value::as_array)
+    {
+        for dep in deps {
+            if dep["kind"] == "blocked_by"
+                && let Some(id) = dep["id"].as_str()
+                && !blockers.iter().any(|prior| prior == id)
+            {
+                blockers.push(id.to_owned());
+            }
+        }
+    }
+    for key in ["blocked_by", "blocked_reason"] {
+        if document.metadata.extra.remove(key).is_some() {
+            changed.push(key);
+        }
+    }
+    if !blockers.is_empty() {
+        warnings.push(format!(
+            "closed_preserved_predecessors:{}:{}",
+            request.id,
+            blockers.join(",")
+        ));
+    }
     document.metadata.updated_at.clone_from(&timestamp);
-    commit_mutation(
+    let recovery = if mode == "warn" {
+        close_recovery(pm_root, &document)
+    } else {
+        None
+    };
+    let mut receipt = serde_json::json!({"id":document.metadata.id,"status":document.metadata.status,"changed_field_count":changed.len()});
+    if let Some(reason) = document.metadata.extra.get("close_reason") {
+        receipt["close_reason"] = reason.clone();
+    }
+    if !warnings.is_empty() {
+        receipt["warnings"] = serde_json::json!(warnings);
+    }
+    if let Some(recovery) = recovery {
+        receipt["recovery"] = recovery;
+    }
+    let mut result = commit_mutation(
         pm_root,
         "close",
-        &before_document,
+        &before,
         document,
         &timestamp,
         &request.author,
         request.provenance_role.as_deref(),
-        None,
+        request.fields.message.as_deref(),
         &item_path,
         &history_path,
-    )
+    )?;
+    result.close_changed_fields = changed.into_iter().map(str::to_owned).collect();
+    result.close_receipt = Some(receipt);
+    Ok(result)
 }
 
 /// Extracts canonical string ownership metadata without inventing defaults.
@@ -2234,6 +2853,49 @@ fn relative_to_tracker(pm_root: &Path, path: &Path) -> PathBuf {
     }
 }
 
+/// Preserves I/O and active-lock failures while explaining expired session locks.
+fn session_lock_refusal(
+    pm_root: &Path,
+    error: PmRustError,
+    timestamp: &str,
+    ttl_seconds: u64,
+) -> PmRustError {
+    if !matches!(error, PmRustError::LockConflict { .. }) {
+        return error;
+    }
+    let raw = fs::read_to_string(pm_root.join("locks/session-state.lock")).unwrap_or_default();
+    let warning = match serde_json::from_str::<Value>(&raw) {
+        Err(_) => Some("lock_info_invalid_json"),
+        Ok(value) => {
+            if value["id"].is_string()
+                && value["pid"].is_number()
+                && value["owner"].is_string()
+                && value["created_at"].is_string()
+                && value["ttl_seconds"].is_number()
+                && value.get("token").is_none_or(|token| {
+                    token.as_str().is_some_and(|token| !token.trim().is_empty())
+                })
+            {
+                None
+            } else {
+                Some("lock_info_invalid_shape")
+            }
+        }
+    };
+    if warning.is_some() || ownership_lock_stale(&raw, timestamp, ttl_seconds) {
+        let suffix = warning.map_or_else(String::new, |warning| format!(" ({warning})"));
+        close_refusal(
+            format!(
+                "Item session-state lock is stale{suffix}; rerun with --force when supported for this command"
+            ),
+            4,
+            serde_json::json!({}),
+        )
+    } else {
+        error
+    }
+}
+
 /// Mutates derived session attribution under the shared session-state lock.
 pub(crate) fn mutate_session_state(
     pm_root: &Path,
@@ -2244,14 +2906,25 @@ pub(crate) fn mutate_session_state(
         use_created_at: true,
         ..LockSettings::default()
     };
-    let _lock = acquire_lock(
+    let timestamp = now_iso();
+    let _lock = match acquire_lock(
         pm_root,
         "session-state",
         "session-state",
         &settings,
         false,
-        &now_iso(),
-    )?;
+        &timestamp,
+    ) {
+        Ok(lock) => lock,
+        Err(error) => {
+            return Err(session_lock_refusal(
+                pm_root,
+                error,
+                &timestamp,
+                settings.ttl_seconds,
+            ));
+        }
+    };
     let path = pm_root.join("runtime/session.json");
     let mut state = fs::read_to_string(&path)
         .ok()
@@ -2313,6 +2986,8 @@ fn commit_mutation(
             serde_json::to_string_pretty(&journal).unwrap_or_default()
         );
         let result = MutationResult {
+            close_receipt: None,
+            close_changed_fields: Vec::new(),
             item: document,
             item_path: relative_to_tracker(pm_root, item_path),
             history_path: relative_to_tracker(pm_root, history_path),

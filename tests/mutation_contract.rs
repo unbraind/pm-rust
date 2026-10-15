@@ -292,6 +292,7 @@ fn native_close_matches_the_published_bytes_exactly() -> Result<(), Box<dyn std:
         author: "fixture-agent".to_owned(),
         timestamp: Some(TIMESTAMP.to_owned()),
         provenance_role: Some("implementer".to_owned()),
+        fields: pm_rust::CloseFields::default(),
         force_stale_lock: false,
     })?;
     assert_eq!(
@@ -452,6 +453,7 @@ fn mutation_guards_reject_invalid_requests() -> Result<(), Box<dyn std::error::E
         author: "fixture-agent".to_owned(),
         timestamp: Some(TIMESTAMP.to_owned()),
         provenance_role: None,
+        fields: pm_rust::CloseFields::default(),
         force_stale_lock: false,
     });
     assert!(matches!(
@@ -485,12 +487,10 @@ fn mutation_guards_reject_invalid_requests() -> Result<(), Box<dyn std::error::E
         author: "fixture-agent".to_owned(),
         timestamp: Some(TIMESTAMP.to_owned()),
         provenance_role: None,
+        fields: pm_rust::CloseFields::default(),
         force_stale_lock: false,
     });
-    assert!(matches!(
-        no_reason,
-        Err(PmRustError::InvalidMutationRequest { .. })
-    ));
+    assert!(matches!(no_reason, Err(PmRustError::CommandRefusal { .. })));
 
     let empty_comment = workspace.comment(&CommentItem {
         id: "sample-conv".to_owned(),
@@ -655,6 +655,7 @@ fn a_conflicting_journal_refuses_update_comment_and_close() -> Result<(), Box<dy
         author: "fixture-agent".to_owned(),
         timestamp: Some(TIMESTAMP.to_owned()),
         provenance_role: None,
+        fields: pm_rust::CloseFields::default(),
         force_stale_lock: false,
     });
     assert!(matches!(refused, Err(PmRustError::RecoveryConflict { .. })));
@@ -802,7 +803,7 @@ fn cli_mutations_reject_invalid_inputs() -> Result<(), Box<dyn std::error::Error
         ])
         .assert()
         .code(2)
-        .stderr(contains("invalid mutation request"));
+        .stderr(contains("close_reason_required"));
 
     Ok(())
 }
@@ -818,6 +819,7 @@ fn close_refuses_an_already_terminal_item() -> Result<(), Box<dyn std::error::Er
         author: "fixture-agent".to_owned(),
         timestamp: Some(TIMESTAMP.to_owned()),
         provenance_role: None,
+        fields: pm_rust::CloseFields::default(),
         force_stale_lock: false,
     })?;
     let second = workspace.close(CloseItem {
@@ -826,12 +828,10 @@ fn close_refuses_an_already_terminal_item() -> Result<(), Box<dyn std::error::Er
         author: "fixture-agent".to_owned(),
         timestamp: Some(TIMESTAMP.to_owned()),
         provenance_role: None,
+        fields: pm_rust::CloseFields::default(),
         force_stale_lock: false,
     });
-    assert!(matches!(
-        second,
-        Err(PmRustError::InvalidMutationRequest { .. })
-    ));
+    assert!(matches!(second, Err(PmRustError::CommandRefusal { .. })));
     Ok(())
 }
 

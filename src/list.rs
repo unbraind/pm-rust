@@ -15,7 +15,7 @@ thread_local! {
 }
 
 /// Classifies terminal statuses in the published built-in lifecycle registry.
-fn terminal(status: &str) -> bool {
+pub(crate) fn terminal(status: &str) -> bool {
     matches!(status, "closed" | "canceled")
 }
 
@@ -274,7 +274,8 @@ pub(crate) fn read_page(
         crate::list_intent::project(&mut result);
     }
     let fingerprint = cursor_fingerprint(workspace, filters, &options);
-    result = page_envelope(result, &options, &fingerprint)?;
+    let (page, legacy_cursor) = page_envelope(result, &options, &fingerprint)?;
+    result = page;
     let mut echo = result["filters"].as_object().cloned().unwrap_or_default();
     echo.shift_remove("runtime_filters");
     // The published CLI never echoes the continuation cursor under `filters`;
@@ -301,6 +302,11 @@ pub(crate) fn read_page(
         result = crate::list_intent::attach(result, &options, budget);
     }
     if options.after.is_some() {
+        let continuation_fingerprint = if legacy_cursor {
+            "opaque_cursor"
+        } else {
+            &fingerprint
+        };
         let mut map = result.as_object().cloned().unwrap_or_default();
         for key in [
             "applied_limit",
@@ -320,7 +326,7 @@ pub(crate) fn read_page(
         }
         map.insert(
             "continuation_contract".to_owned(),
-            json!({"fingerprint":fingerprint,"metadata":"reference","restore_with":"omit --after"}),
+            json!({"fingerprint":continuation_fingerprint,"metadata":"reference","restore_with":"omit --after"}),
         );
         result.value = Value::Object(map);
     }
@@ -332,10 +338,12 @@ fn page_envelope(
     mut result: Value,
     options: &ListOptions,
     fingerprint: &str,
-) -> Result<Value, PmRustError> {
+) -> Result<(Value, bool), PmRustError> {
+    let mut legacy_cursor = false;
     let rows = result["items"].as_array().cloned().unwrap_or_default();
     let start = if let Some(raw) = &options.after {
         let cursor = crate::pagination::query(raw, fingerprint)?;
+        legacy_cursor = cursor["after_index"].is_null();
         if let Some(index) = rows.iter().position(|row| row["id"] == cursor["after_id"]) {
             index + 1
         } else if let Some(index) = cursor["after_index"].as_u64() {
@@ -409,5 +417,5 @@ fn page_envelope(
         ordered.insert(key.to_owned(), result[key].clone());
     }
     result = Value::Object(ordered);
-    Ok(result)
+    Ok((result, legacy_cursor))
 }

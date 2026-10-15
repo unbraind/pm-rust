@@ -1,5 +1,10 @@
 # Native selection and ownership lifecycle
 
+The [2026.10.14 native parity batch](NATIVE_PARITY_2026_10_14.md) updates the
+current pre-lock identifier validation, session-lock diagnostics, cyclic
+readiness and semantic lineage boundaries. Dated receipts below describe the
+earlier implementation and review evidence.
+
 This slice extends [pm-rust-rysu](../.agents/pm/features/pm-rust-rysu.toon)
 under [pm-rust-u4al](../.agents/pm/epics/pm-rust-u4al.toon). The independent
 published oracle is locked to `@unbrained/pm-cli` 2026.10.14 after all six

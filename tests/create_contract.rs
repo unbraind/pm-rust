@@ -1,16 +1,17 @@
 //! Black-box and SDK acceptance for native create transactions.
 
-use std::fs;
-use std::process::{Command as ProcessCommand, Stdio};
 #[cfg(target_os = "linux")]
-use std::thread;
-#[cfg(target_os = "linux")]
-use std::time::Duration;
-
 use assert_cmd::Command;
 use pm_rust::{CreateItem, PmRustError, Workspace};
 use predicates::str::contains;
 use serde_json::Value;
+use std::fs;
+#[cfg(target_os = "linux")]
+#[path = "support/published_cli.rs"]
+mod published_cli;
+use std::process::{Command as ProcessCommand, Stdio};
+#[cfg(target_os = "linux")]
+use std::thread;
 use tempfile::TempDir;
 
 const TIMESTAMP: &str = "2026-08-07T10:06:30.183Z";
@@ -313,6 +314,29 @@ fn concurrent_processes_preserve_one_complete_create() -> Result<(), Box<dyn std
     Ok(())
 }
 
+/// Replaces owner bytes only after the recovery reader proves initialization finished.
+#[cfg(target_os = "linux")]
+fn replace_lock_after_recovery_opens(
+    lock_path: &std::path::Path,
+    journal_path: &std::path::Path,
+) -> Result<(), Box<dyn std::error::Error>> {
+    // A FIFO writer opens only once recovery has opened its reader, which
+    // occurs after the owner token was fully written and synced. Hold that
+    // rendezvous open until the replacement bytes are safely installed.
+    let mut journal_writer = fs::OpenOptions::new().write(true).open(journal_path)?;
+    let payload: Value = serde_json::from_slice(&fs::read(lock_path)?)?;
+    assert_eq!(payload["id"], "sample-replaced");
+    assert!(
+        payload["token"]
+            .as_str()
+            .is_some_and(|token| !token.is_empty())
+    );
+    fs::write(lock_path, "replacement owner\n")?;
+    std::io::Write::write_all(&mut journal_writer, b"not json")?;
+    drop(journal_writer);
+    Ok(())
+}
+
 #[cfg(target_os = "linux")]
 #[test]
 fn create_never_removes_a_lock_replaced_by_another_owner() -> Result<(), Box<dyn std::error::Error>>
@@ -329,21 +353,40 @@ fn create_never_removes_a_lock_replaced_by_another_owner() -> Result<(), Box<dyn
     )?;
     let creator = thread::spawn(move || workspace.create(request("sample-replaced")));
     let lock_path = pm_root.join("locks/sample-replaced.lock");
-    for _ in 0..5_000 {
-        if lock_path.exists() {
-            break;
-        }
-        thread::sleep(Duration::from_millis(1));
-    }
-    assert!(lock_path.exists());
-    fs::write(&lock_path, "replacement owner\n")?;
-    fs::write(&journal_path, "not json")?;
+    replace_lock_after_recovery_opens(&lock_path, &journal_path)?;
     assert!(matches!(
         creator.join().map_err(|_| "creator panicked")?,
         Err(PmRustError::RecoveryConflict { .. })
     ));
-    assert_eq!(fs::read_to_string(&lock_path)?, "replacement owner\n");
-    fs::remove_file(lock_path)?;
+    let replacement = fs::read_to_string(&lock_path)?;
+    assert_eq!(replacement, "replacement owner\n");
+    fs::remove_file(&lock_path)?;
+    if let Some(published) = published_cli::published_cli_or_skip("Create replacement differential")
+    {
+        let scratch = tempfile::tempdir()?;
+        let driver = scratch.path().join("lock-replacement.mjs");
+        fs::write(
+            &driver,
+            format!(
+                "import fs from 'node:fs/promises'; import path from 'node:path'; import {{pathToFileURL}} from 'node:url'; const {{acquireLock}} = await import(pathToFileURL({})); const root=process.argv[2]; const release=await acquireLock(root,'sample-replaced',1800,'fixture-agent'); const lock=path.join(root,'locks/sample-replaced.lock'); const initial=JSON.parse(await fs.readFile(lock,'utf8')); if(!initial.token)throw new Error('owner token incomplete'); await fs.writeFile(lock,'replacement owner\\n'); await release(); process.stdout.write(await fs.readFile(lock,'utf8'));",
+                serde_json::to_string(&published.package_root.join("dist/core/lock/lock.js"))?
+            ),
+        )?;
+        let output = std::process::Command::new(
+            std::env::var("PM_NODE_INTERPRETER").unwrap_or_else(|_| "node".to_owned()),
+        )
+        .arg(driver)
+        .arg(&pm_root)
+        .env("DO_NOT_TRACK", "1")
+        .output()?;
+        assert!(
+            output.status.success(),
+            "{}",
+            String::from_utf8_lossy(&output.stderr)
+        );
+        assert_eq!(output.stdout, replacement.as_bytes());
+        fs::remove_file(lock_path)?;
+    }
     Ok(())
 }
 
@@ -460,5 +503,61 @@ fn sdk_create_rejects_invalid_ids_and_fields() -> Result<(), Box<dyn std::error:
         );
     }
 
+    Ok(())
+}
+
+/// A deliberately paused owner exposes existence polling before token initialization.
+#[cfg(target_os = "linux")]
+#[test]
+fn replacement_fixture_waits_for_initialized_owner() -> Result<(), Box<dyn std::error::Error>> {
+    use std::io::Read as _;
+    let (_directory, workspace) = tracker()?;
+    let lock_path = workspace.pm_root().join("sample-delayed.lock");
+    let journal = workspace.pm_root().join("delayed-recovery.fifo");
+    fs::write(&lock_path, "")?;
+    rustix::fs::mkfifoat(
+        rustix::fs::CWD,
+        &journal,
+        rustix::fs::Mode::RUSR | rustix::fs::Mode::WUSR,
+    )?;
+    let (sender, receiver) = std::sync::mpsc::channel();
+    let writer_lock = lock_path.clone();
+    let writer_journal = journal.clone();
+    let replacer = thread::spawn(move || -> Result<(), String> {
+        sender
+            .send(rustix::thread::gettid().as_raw_nonzero().get())
+            .map_err(|error| error.to_string())?;
+        replace_lock_after_recovery_opens(&writer_lock, &writer_journal)
+            .map_err(|error| error.to_string())
+    });
+    let tid = receiver.recv()?;
+    let deadline = std::time::Instant::now() + std::time::Duration::from_secs(10);
+    loop {
+        let wait = fs::read_to_string(format!("/proc/self/task/{tid}/wchan"))?;
+        if matches!(wait.trim(), "wait_for_partner" | "pipe_wait") {
+            break;
+        }
+        if std::time::Instant::now() >= deadline {
+            return Err(format!("replacer never entered FIFO rendezvous: {wait}").into());
+        }
+        thread::yield_now();
+    }
+    let before_initialization = fs::read(&lock_path)?;
+    fs::write(
+        &lock_path,
+        r#"{"id":"sample-replaced","token":"initialized-owner"}"#,
+    )?;
+    let mut bytes = String::new();
+    fs::File::open(&journal)?.read_to_string(&mut bytes)?;
+    replacer
+        .join()
+        .map_err(|_| "replacer panicked")?
+        .map_err(std::io::Error::other)?;
+    assert_eq!(
+        before_initialization, b"",
+        "fixture replaced the lock before its owner initialized it"
+    );
+    assert_eq!(bytes, "not json");
+    assert_eq!(fs::read_to_string(lock_path)?, "replacement owner\n");
     Ok(())
 }

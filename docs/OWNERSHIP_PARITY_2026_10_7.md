@@ -39,8 +39,9 @@ uses its explicit policy with the published default fallback. Force bypasses
 ownership checks and permits stale-lock recovery; it never removes a live lock.
 Timed lock refusals report measured elapsed wait. Ownership lock expiry uses
 the payload creation clock and configured TTL, with
-preset precedence for whether stale recovery requires force. Other mutation
-slices retain their existing filesystem-age lock contract.
+preset precedence for whether stale recovery requires force. Create, update and
+comment retain their filesystem-age lock contract. Closure now uses the payload
+clock as described in the [2026.10.14 contract](NATIVE_PARITY_2026_10_14.md).
 
 `tests/claim_release_differential.rs` compares complete JSON success/refusal
 envelopes and exit codes, and exact item plus history bytes after every step,

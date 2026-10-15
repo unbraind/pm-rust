@@ -210,12 +210,15 @@ enum Command {
     #[command(mut_arg("id", |arg| arg.required(true)))]
     PauseTask(OwnershipArgs),
     /// Close one open canonical item with an immutable closing summary.
+    #[command(args_override_self = true)]
     Close {
         /// Exact stable identifier of the item to close.
         id: String,
-        /// Required non-empty immutable closing summary.
-        #[arg(long)]
-        reason: String,
+        /// Positional closing summary, taking precedence over reason options.
+        text: Option<String>,
+        /// Immutable closing summary.
+        #[arg(long, short = 'r')]
+        reason: Option<String>,
         /// Asserted mutation author.
         #[arg(long)]
         author: String,
@@ -225,7 +228,48 @@ enum Command {
         /// Recover an expired lock before closing.
         #[arg(long)]
         force_stale_lock: bool,
+        /// Published optional close metadata and controls.
+        #[command(flatten)]
+        fields: CloseArgs,
     },
+}
+
+/// Published closure field arguments, including short outcome aliases.
+#[derive(Debug, Default, clap::Args)]
+struct CloseArgs {
+    /// Resolution summary and fallback closing reason.
+    #[arg(long)]
+    resolution: Option<String>,
+    /// Expected closure outcome.
+    #[arg(long, visible_alias = "expected")]
+    expected_result: Option<String>,
+    /// Observed closure outcome.
+    #[arg(long, visible_alias = "actual")]
+    actual_result: Option<String>,
+    /// Alternate reason option; a nonblank canonical reason takes precedence.
+    #[arg(long)]
+    close_reason: Option<String>,
+    /// Completion timestamp, date or relative token.
+    #[arg(long, allow_hyphen_values = true)]
+    completed_at: Option<String>,
+    /// Existing canonical duplicate target.
+    #[arg(long, short = 'd')]
+    duplicate_of: Option<String>,
+    /// History message and fallback closing reason.
+    #[arg(long, short = 'm')]
+    message: Option<String>,
+    /// Closure validation mode; a bare flag selects warn.
+    #[arg(long, num_args = 0..=1, default_missing_value = "warn")]
+    validate_close: Option<String>,
+    /// Approved ownership and repeat-close override.
+    #[arg(long)]
+    force: bool,
+    /// Release ownership after recording the closure.
+    #[arg(long)]
+    release_assignment: bool,
+    /// Emit a compact JSON receipt; otherwise emit TOON.
+    #[arg(long)]
+    json: bool,
 }
 
 /// Arguments shared by explicit ownership commands.
@@ -543,22 +587,122 @@ fn run(cli: Cli) -> Result<(), Box<dyn std::error::Error>> {
         }
         Command::Close {
             id,
+            text,
             reason,
             author,
             timestamp,
             force_stale_lock,
+            fields,
         } => {
-            write_json(&close_payload(
+            let close_author = author.clone();
+            let result = close_payload(
                 &workspace,
                 CloseItem {
                     id,
-                    reason,
+                    reason: text
+                        .filter(|text| !text.is_empty())
+                        .or_else(|| {
+                            reason
+                                .filter(|reason| !reason.trim().is_empty())
+                                .or(fields.close_reason)
+                        })
+                        .unwrap_or_default(),
                     author,
                     timestamp,
                     provenance_role: None,
+                    fields: pm_rust::CloseFields {
+                        resolution: fields.resolution,
+                        expected_result: fields.expected_result,
+                        actual_result: fields.actual_result,
+                        completed_at: fields.completed_at,
+                        duplicate_of: fields.duplicate_of,
+                        message: fields.message.clone(),
+                        validate_close: fields.validate_close,
+                        force: fields.force,
+                    },
                     force_stale_lock,
                 },
-            )?)?;
+            )?;
+            let mut receipt = result.close_receipt.unwrap_or_default();
+            if fields.release_assignment {
+                let release = workspace
+                    .release(&OwnershipItem {
+                        id: result.item.metadata.id.clone(),
+                        author: close_author,
+                        timestamp: Some(result.item.metadata.updated_at.clone()),
+                        message: fields.message,
+                        force: fields.force,
+                        if_available: false,
+                        provenance_role: Some("implementer".to_owned()),
+                    })
+                    .map_err(|error| {
+                        pm_rust::completed_step_failure(error, &result.item.metadata.id, "close")
+                    })?;
+                let mut changed: std::collections::BTreeSet<String> =
+                    result.close_changed_fields.into_iter().collect();
+                if release.changed_field_count > 0 {
+                    changed.extend(["assignee", "claim_principal"].map(str::to_owned));
+                }
+                receipt = serde_json::json!({"id":result.item.metadata.id,"action":"close_task","close":receipt,"release":release,"status":result.item.metadata.status,"changed_field_count":changed.len()});
+            }
+            write_close_receipt(&receipt, fields.json)?;
+        }
+    }
+    Ok(())
+}
+
+/// Writes published compact closure output in the selected wire format.
+fn write_close_receipt(
+    value: &serde_json::Value,
+    json: bool,
+) -> Result<(), Box<dyn std::error::Error>> {
+    write_close_receipt_to(&mut std::io::stdout().lock(), value, json)
+}
+
+/// Writes closure receipts to a caller-provided stream and propagates flush failures.
+fn write_close_receipt_to(
+    writer: &mut dyn Write,
+    value: &serde_json::Value,
+    json: bool,
+) -> Result<(), Box<dyn std::error::Error>> {
+    if json {
+        return write_json_to(writer, value);
+    }
+    write_close_toon(writer, value, "")?;
+    writer.flush()?;
+    Ok(())
+}
+
+/// Renders compact mutation TOON scalars with the oracle's quoted string style.
+fn write_close_toon(
+    writer: &mut dyn Write,
+    value: &serde_json::Value,
+    indent: &str,
+) -> std::io::Result<()> {
+    if let Some(fields) = value.as_object() {
+        for (key, value) in fields {
+            if value.is_null() {
+                continue;
+            }
+            if value.is_object() {
+                writeln!(writer, "{indent}{key}:")?;
+                write_close_toon(writer, value, &format!("{indent}  "))?;
+            } else if value.is_array() {
+                let mut field = serde_json::Map::new();
+                field.insert(key.clone(), value.clone());
+                // JSON values use infallible built-in serde serializers.
+                let encoded = toon_format::encode_default(&serde_json::Value::Object(field))
+                    .unwrap_or_default();
+                for line in encoded.lines() {
+                    writeln!(writer, "{indent}{line}")?;
+                }
+            } else {
+                writeln!(
+                    writer,
+                    "{indent}{key}: {}",
+                    pm_rust::stringify_json(value, false)
+                )?;
+            }
         }
     }
     Ok(())
@@ -649,9 +793,7 @@ fn main() -> ExitCode {
             }) = error.downcast_ref::<pm_rust::PmRustError>()
             {
                 let args = published_read_arguments(std::env::args_os().skip(1));
-                let mut payload = ownership_error_json(detail, context, &args);
-                payload["exit_code"] = serde_json::json!(exit_code);
-                payload["refusal"] = command_refusal_detail(detail, &args, *exit_code);
+                let payload = command_error_json(detail, context, &args, *exit_code);
                 let _ = write_json_to(&mut std::io::stderr().lock(), &payload);
                 return ExitCode::from(*exit_code);
             }
@@ -684,6 +826,26 @@ fn main() -> ExitCode {
     }
 }
 
+/// Preserves ordinary command refusals and the published unhandled-error envelope.
+fn command_error_json(
+    detail: &str,
+    context: &serde_json::Value,
+    args: &[String],
+    exit_code: u8,
+) -> serde_json::Value {
+    if context["code"] == "unknown_error" {
+        return serde_json::json!({"code":"unknown_error","required":"Inspect command input and runtime state, then retry.","exit_code":exit_code,"type":"urn:pm-cli:error:unknown_error","title":"Unhandled error","detail":detail,"why":"Unexpected runtime failures can occur from environment or extension-level issues.","examples":["pm --help","pm health --json"],"refusal":{"surface":"command","exit_code":exit_code}});
+    }
+    let mut payload = ownership_error_json(detail, context, args);
+    payload["exit_code"] = serde_json::json!(exit_code);
+    payload["refusal"] = if args.first().is_some_and(|command| command == "close") {
+        close_error_refusal(detail, &payload, exit_code)
+    } else {
+        command_refusal_detail(detail, args, exit_code)
+    };
+    payload
+}
+
 /// Removes native clock and discovery controls from published error recovery arguments.
 ///
 /// Callers pass `args_os` so a non-UTF-8 argument cannot panic this refusal
@@ -705,6 +867,18 @@ where
             arguments.push(arg);
         }
     }
+    if arguments.first().is_some_and(|command| command == "close") {
+        for arg in &mut arguments {
+            let alias = match arg.as_str() {
+                "--expected" => Some("--expected-result"),
+                "--actual" => Some("--actual-result"),
+                _ => None,
+            };
+            if let Some(alias) = alias {
+                alias.clone_into(arg);
+            }
+        }
+    }
     arguments
 }
 
@@ -717,6 +891,22 @@ fn cursor_error_json(code: &str, detail: &str, args: &[String]) -> serde_json::V
         }
     }
     let mut payload = serde_json::json!({"code":code,"required":"Adjust command input or tracker state and retry.","recovery":{"attempted_command":format!("pm {}",args.join(" ")),"normalized_args":args,"provided_fields":provided}});
+    if args.first().is_some_and(|command| command == "close") {
+        payload["recovery"]["attempted_command"] = serde_json::json!(format!(
+            "pm {}",
+            args.iter()
+                .map(|arg| pm_rust::quote_command_arg(arg))
+                .collect::<Vec<_>>()
+                .join(" ")
+        ));
+        payload["recovery"]["normalized_args"] = serde_json::json!(
+            args.iter()
+                .map(|arg| arg.trim())
+                .filter(|arg| !arg.is_empty())
+                .collect::<Vec<_>>()
+        );
+    }
+
     if code == "invalid_query_cursor" {
         payload["next_steps"] = serde_json::json!([
             "Repeat the original query without --after to obtain a fresh cursor."
@@ -795,6 +985,7 @@ fn ownership_error_json(
         }
         _ => {}
     }
+    apply_close_error_recovery(&mut payload, context, args);
     for key in ["required", "examples", "next_steps", "title"] {
         if let Some(value) = context.get(key) {
             payload[key] = value.clone();
@@ -830,7 +1021,41 @@ fn ownership_error_json(
     payload = serde_json::Value::Object(ordered);
     payload["exit_code"] = serde_json::json!(4);
     payload["refusal"] = command_refusal_detail(detail, args, 4);
+    for key in ["flag", "value"] {
+        if let Some(value) = context.get(key) {
+            payload[key] = value.clone();
+        }
+    }
     payload
+}
+
+/// Adds actionable close recovery fields and the published compact title limit.
+fn apply_close_error_recovery(
+    payload: &mut serde_json::Value,
+    context: &serde_json::Value,
+    args: &[String],
+) {
+    if args.first().is_some_and(|command| command == "close")
+        && let Some(recovery) = context["recovery"].as_object()
+    {
+        for (key, value) in recovery {
+            payload["recovery"][key] = value.clone();
+        }
+    }
+    if payload["title"]
+        .as_str()
+        .is_some_and(|title| title.chars().count() > 120)
+    {
+        payload["title"] = serde_json::json!(format!(
+            "{}...",
+            payload["title"]
+                .as_str()
+                .unwrap_or_default()
+                .chars()
+                .take(117)
+                .collect::<String>()
+        ));
+    }
 }
 
 /// Formats command-specific rejected flag values in usage refusals.
@@ -856,4 +1081,42 @@ fn command_refusal_detail(detail: &str, args: &[String], exit_code: u8) -> serde
         return serde_json::json!({"surface":surface,"exit_code":exit_code});
     }
     serde_json::json!({"surface":args[0],"exit_code":exit_code})
+}
+
+/// Extracts closure refusal flags from prose and recovery evidence in oracle order.
+fn close_error_refusal(
+    detail: &str,
+    payload: &serde_json::Value,
+    exit_code: u8,
+) -> serde_json::Value {
+    let normalized = payload["recovery"]["normalized_args"]
+        .as_array()
+        .cloned()
+        .unwrap_or_default();
+    let args: Vec<&str> = normalized
+        .iter()
+        .filter_map(serde_json::Value::as_str)
+        .collect();
+    let flag = payload["flag"].as_str().or_else(|| {
+        detail
+            .split(|ch: char| !ch.is_ascii_alphanumeric() && ch != '-' && ch != '_')
+            .filter(|word| word.starts_with("--"))
+            .find(|word| args.iter().any(|arg| arg == word))
+    });
+    let surface = flag
+        .or_else(|| payload["recovery"]["missing"][0].as_str())
+        .unwrap_or("close");
+    let mut receipt = serde_json::json!({"surface":surface});
+    if let Some(flag) = flag {
+        let rejected = args
+            .iter()
+            .position(|arg| *arg == flag)
+            .and_then(|index| args.get(index + 1))
+            .filter(|arg| !matches!(**arg, "--json" | "--author"));
+        if let Some(rejected) = rejected {
+            receipt["rejected_value"] = serde_json::json!(rejected);
+        }
+    }
+    receipt["exit_code"] = serde_json::json!(exit_code);
+    receipt
 }

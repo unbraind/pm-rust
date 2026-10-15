@@ -628,3 +628,70 @@ fn ownership_lineage_scans_corpus_once() -> Result<(), Box<dyn std::error::Error
     assert_eq!(fs::read(session)?, before);
     Ok(())
 }
+
+/// The SDK lineage boundary includes only sixteen resolved items in a deeper chain.
+#[test]
+fn semantic_lineage_sdk_depth_cap() -> Result<(), Box<dyn std::error::Error>> {
+    let directory = tempfile::tempdir()?;
+    let root = directory.path().join(".agents/pm");
+    fs::create_dir_all(root.join("tasks"))?;
+    fs::write(root.join("settings.json"), "{}")?;
+    for index in 0..19 {
+        let id = format!("sample-{index:02}");
+        let parent = if index > 0 {
+            format!("parent: sample-{:02}\n", index - 1)
+        } else {
+            String::new()
+        };
+        fs::write(
+            root.join(format!("tasks/{id}.toon")),
+            format!(
+                r#"id: {id}
+title: Lineage
+description: ""
+type: Task
+status: open
+priority: 2
+tags: []
+created_at: "2026-08-22T10:00:00.000Z"
+updated_at: "2026-08-22T10:00:00.000Z"
+{parent}body: ""
+"#
+            ),
+        )?;
+    }
+    let workspace = Workspace::discover(&root)?;
+    record_semantics(
+        &workspace,
+        &OwnershipItem {
+            id: "sample-18".to_owned(),
+            author: "alpha".to_owned(),
+            timestamp: None,
+            message: None,
+            force: false,
+            if_available: false,
+            provenance_role: None,
+        },
+        &OwnershipOptions::default(),
+        true,
+    )?;
+    let state: Value = serde_json::from_slice(&fs::read(root.join("runtime/session.json"))?)?;
+    let evidence = state["semantic_attribution"]
+        .as_object()
+        .ok_or("attribution")?
+        .values()
+        .next()
+        .ok_or("entry")?["evidence"]
+        .as_array()
+        .ok_or("evidence")?;
+    assert_eq!(
+        evidence
+            .iter()
+            .filter(|value| value
+                .as_str()
+                .is_some_and(|value| value.starts_with("lineage:")))
+            .count(),
+        16
+    );
+    Ok(())
+}

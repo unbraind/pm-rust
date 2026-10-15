@@ -1043,6 +1043,7 @@ fn in_place_mutations_refuse_a_live_lock_within_the_budget()
                 author: "unit-agent".to_owned(),
                 timestamp: Some(TS.to_owned()),
                 provenance_role: None,
+                fields: CloseFields::default(),
                 force_stale_lock: false,
             }
         ),
@@ -1920,6 +1921,7 @@ fn close_surfaces_a_stale_mutation_journal() -> Result<(), Box<dyn std::error::E
                 author: "unit-agent".to_owned(),
                 timestamp: Some(TS.to_owned()),
                 provenance_role: None,
+                fields: CloseFields::default(),
                 force_stale_lock: false,
             }
         ),
@@ -1982,6 +1984,7 @@ fn every_mutation_validates_settings_author_and_existence() -> Result<(), Box<dy
                 author: "unit-agent".to_owned(),
                 timestamp: Some(TS.to_owned()),
                 provenance_role: None,
+                fields: CloseFields::default(),
                 force_stale_lock: false,
             }
         ),
@@ -2016,6 +2019,7 @@ fn every_mutation_validates_settings_author_and_existence() -> Result<(), Box<dy
                     author: author.to_owned(),
                     timestamp: Some(TS.to_owned()),
                     provenance_role: None,
+                    fields: CloseFields::default(),
                     force_stale_lock: false,
                 }
             ),
@@ -2046,6 +2050,7 @@ fn every_mutation_validates_settings_author_and_existence() -> Result<(), Box<dy
                 author: "unit-agent".to_owned(),
                 timestamp: Some(TS.to_owned()),
                 provenance_role: None,
+                fields: CloseFields::default(),
                 force_stale_lock: false,
             }
         ),
@@ -2077,10 +2082,11 @@ fn close_refuses_canceled_and_honors_configured_close_statuses()
                 author: "unit-agent".to_owned(),
                 timestamp: Some(TS.to_owned()),
                 provenance_role: None,
+                fields: CloseFields::default(),
                 force_stale_lock: false,
             }
         ),
-        Err(PmRustError::InvalidMutationRequest { .. })
+        Err(PmRustError::CommandRefusal { .. })
     ));
 
     // A configured workflow close status replaces the default and gates
@@ -2113,6 +2119,7 @@ fn close_refuses_canceled_and_honors_configured_close_statuses()
             author: "unit-agent".to_owned(),
             timestamp: Some(TS.to_owned()),
             provenance_role: None,
+            fields: CloseFields::default(),
             force_stale_lock: false,
         },
     )?;
@@ -2126,10 +2133,11 @@ fn close_refuses_canceled_and_honors_configured_close_statuses()
                 author: "unit-agent".to_owned(),
                 timestamp: Some(TS.to_owned()),
                 provenance_role: None,
+                fields: CloseFields::default(),
                 force_stale_lock: false,
             }
         ),
-        Err(PmRustError::InvalidMutationRequest { .. })
+        Err(PmRustError::CommandRefusal { .. })
     ));
     Ok(())
 }
@@ -2542,10 +2550,11 @@ fn remaining_portable_mutation_arms_are_covered_in_the_unit_binary()
                 author: "unit-agent".to_owned(),
                 timestamp: Some(TS.to_owned()),
                 provenance_role: None,
+                fields: CloseFields::default(),
                 force_stale_lock: false,
             }
         ),
-        Err(PmRustError::InvalidMutationRequest { .. })
+        Err(PmRustError::CommandRefusal { .. })
     ));
 
     // comment_item: a scalar `comments` value refuses the append instead of
@@ -3554,5 +3563,655 @@ fn ownership_refusals_and_interrupted_history_append_remain_recoverable()
         2
     );
 
+    Ok(())
+}
+
+/// Completion clocks reject malformed calendars and clamp month-end arithmetic.
+#[test]
+fn closure_completion_and_quote_boundaries() -> Result<(), Box<dyn std::error::Error>> {
+    for (governance, expected) in [
+        (
+            serde_json::json!({"preset":"minimal","close_validation_default":"strict"}),
+            "off",
+        ),
+        (serde_json::json!({"preset":"default"}), "warn"),
+        (serde_json::json!({"preset":"strict"}), "strict"),
+        (serde_json::json!({"preset":"custom"}), "warn"),
+        (
+            serde_json::json!({"preset":"custom","close_validation_default":"off"}),
+            "off",
+        ),
+    ] {
+        assert_eq!(
+            close_mode(None, &serde_json::json!({"governance":governance}))?,
+            expected
+        );
+    }
+    assert_eq!(close_completion("now", TS)?, TS);
+    for (value, expected) in [
+        ("+2h", "2026-08-07T12:06:30.183Z"),
+        ("+1d", "2026-08-08T10:06:30.183Z"),
+        ("-1w", "2026-07-31T10:06:30.183Z"),
+    ] {
+        assert_eq!(close_completion(value, TS)?, expected);
+    }
+    assert_eq!(
+        close_completion("+6m", "2026-08-31T23:30:00Z")?,
+        "2027-02-28T23:30:00.000Z"
+    );
+    assert_eq!(
+        close_completion("-1m", "2026-03-31T00:00:00Z")?,
+        "2026-02-28T00:00:00.000Z"
+    );
+    assert!(close_completion("now", "invalid clock").is_err());
+    for value in [
+        "+1q",
+        "+",
+        "+9223372036854775807h",
+        "+9223372036854775807d",
+        "+9223372036854775807w",
+        "+1200000000m",
+        "+1m",
+    ] {
+        assert!(
+            close_completion(value, "9999-12-31T00:00:00Z").is_err(),
+            "{value}"
+        );
+    }
+    for value in ["2026-00-01", "2026-13-01", "2026-02-30", "2026-02-00"] {
+        assert!(close_calendar(value).is_err());
+    }
+    for (value, normalized) in [
+        ("20260820", "2026-08-20"),
+        ("20260820T12:00:00Z", "2026-08-20T12:00:00Z"),
+        ("2024-02-29", "2024-02-29"),
+        ("text-not-a-date", "text-not-a-date"),
+        ("abcd-xx-yy", "abcd-xx-yy"),
+        ("日付", "日付"),
+    ] {
+        assert_eq!(close_calendar(value)?, normalized);
+    }
+    for value in [
+        "plain",
+        "_./:@=-",
+        "",
+        "space token",
+        "quote\"",
+        "slash\\",
+        "space\\ end",
+        "tail \\",
+        "quoted \\\" value",
+        "$value",
+        "`value`",
+    ] {
+        let rendered = quote_command_arg(value);
+        if matches!(value, "plain" | "_./:@=-") || (cfg!(windows) && value == "slash\\") {
+            assert_eq!(rendered, value);
+        } else {
+            assert!(rendered.starts_with('"') && rendered.ends_with('"'));
+        }
+    }
+    #[cfg(not(windows))]
+    assert_eq!(quote_command_arg("$`\\\""), "\"\\$\\`\\\\\\\"\"");
+    Ok(())
+}
+
+/// Session refusal diagnostics distinguish invalid payloads, expiry and live ownership.
+#[test]
+fn closure_session_lock_shape_diagnostics() -> Result<(), Box<dyn std::error::Error>> {
+    let (_directory, pm_root) = root("{}")?;
+    fs::create_dir_all(pm_root.join("locks"))?;
+    let path = pm_root.join("locks/session-state.lock");
+    let valid = serde_json::json!({"id":"session-state","pid":1,"owner":"alpha","created_at":TS,"ttl_seconds":1800,"token":"owner"});
+    let mut variants = vec![serde_json::json!(null), serde_json::json!([])];
+    for key in ["id", "pid", "owner", "created_at", "ttl_seconds", "token"] {
+        let mut value = valid.clone();
+        value[key] = serde_json::json!(false);
+        variants.push(value);
+    }
+    let mut blank = valid.clone();
+    blank["token"] = serde_json::json!(" ");
+    variants.push(blank);
+    for value in variants {
+        let raw = value.to_string();
+        fs::write(&path, &raw)?;
+        let error = session_lock_refusal(
+            &pm_root,
+            PmRustError::LockConflict {
+                id: "session-state".to_owned(),
+            },
+            TS,
+            1800,
+        );
+        assert!(
+            matches!(error,PmRustError::CommandRefusal{detail,exit_code:4,..} if detail.contains("lock_info_invalid_shape"))
+        );
+        assert_eq!(fs::read_to_string(&path)?, raw);
+    }
+    for raw in ["invalid", ""] {
+        fs::write(&path, raw)?;
+        assert!(
+            matches!(session_lock_refusal(&pm_root,PmRustError::LockConflict{id:"session-state".to_owned()},TS,1800),PmRustError::CommandRefusal{detail,..} if detail.contains("lock_info_invalid_json"))
+        );
+    }
+    fs::write(&path, valid.to_string())?;
+    assert!(matches!(
+        session_lock_refusal(
+            &pm_root,
+            PmRustError::LockConflict {
+                id: "session-state".to_owned()
+            },
+            TS,
+            1800
+        ),
+        PmRustError::LockConflict { .. }
+    ));
+    let mut expired = valid;
+    expired["created_at"] = serde_json::json!("2000-01-01T00:00:00Z");
+    expired
+        .as_object_mut()
+        .ok_or("lock object")?
+        .shift_remove("token");
+    fs::write(&path, expired.to_string())?;
+    assert!(
+        matches!(session_lock_refusal(&pm_root,PmRustError::LockConflict{id:"session-state".to_owned()},TS,1800),PmRustError::CommandRefusal{detail,..} if !detail.contains("lock_info_invalid"))
+    );
+    let io = fs::read_to_string(pm_root.join("missing-file"))
+        .err()
+        .ok_or("missing I/O failure")?;
+    assert!(matches!(
+        session_lock_refusal(&pm_root, PmRustError::Io { path, source: io }, TS, 1800),
+        PmRustError::Io { .. }
+    ));
+    Ok(())
+}
+
+/// Builds a canonical closure request for real SDK storage-policy tests.
+fn closure_request() -> CloseItem {
+    CloseItem {
+        id: "sample-unit".to_owned(),
+        reason: "Done".to_owned(),
+        author: "unit-agent".to_owned(),
+        timestamp: Some(TS.to_owned()),
+        provenance_role: None,
+        force_stale_lock: false,
+        fields: CloseFields::default(),
+    }
+}
+
+/// Closure ownership and predecessor cleanup preserve strict and advisory governance.
+#[test]
+fn closure_ownership_and_predecessor_storage() -> Result<(), Box<dyn std::error::Error>> {
+    for policy in ["none", "warn", "strict"] {
+        for force in [false, true] {
+            let settings = serde_json::json!({"governance":{"preset":"custom","ownership_enforcement":policy,"require_close_reason":true},"item_format":"toon"});
+            let (_directory, pm_root) = root(&settings.to_string())?;
+            create_item(&pm_root, request())?;
+            let owner = OwnershipItem {
+                id: "sample-unit".to_owned(),
+                author: "other-owner".to_owned(),
+                timestamp: Some(TS.to_owned()),
+                message: None,
+                force: false,
+                if_available: false,
+                provenance_role: None,
+            };
+            ownership_item_with_options(
+                &pm_root,
+                &owner,
+                true,
+                &crate::OwnershipOptions::default(),
+            )?;
+            let mut closing = closure_request();
+            closing.fields.force = force;
+            let result = close_item(&pm_root, closing);
+            if policy == "strict" && !force {
+                assert!(matches!(result, Err(PmRustError::OwnershipRefusal { .. })));
+            } else {
+                let receipt = result?.close_receipt.ok_or("receipt")?;
+                assert_eq!(receipt["status"], "closed");
+                if policy == "warn" && !force {
+                    assert!(
+                        receipt["warnings"][0]
+                            .as_str()
+                            .is_some_and(|warning| warning.starts_with("ownership_warning"))
+                    );
+                }
+            }
+        }
+    }
+    let (_directory, pm_root) = root("{}")?;
+    let created = create_item(&pm_root, request())?;
+    let path = pm_root.join(&created.item_path);
+    let mut document = created.item;
+    document
+        .metadata
+        .extra
+        .insert("blocked_by".to_owned(), serde_json::json!("sample-prior"));
+    document
+        .metadata
+        .extra
+        .insert("blocked_reason".to_owned(), serde_json::json!("Waiting"));
+    document.metadata.extra.insert("dependencies".to_owned(),serde_json::json!([{"kind":"blocked_by","id":"sample-prior"},{"kind":"blocked_by","id":"sample-other"},{"kind":"related","id":"sample-linked"},{"kind":"blocked_by"}]));
+    fs::write(path, canonical_item_bytes(&document)?)?;
+    let result = close_item(&pm_root, closure_request())?;
+    assert!(!result.item.metadata.extra.contains_key("blocked_by"));
+    assert!(!result.item.metadata.extra.contains_key("blocked_reason"));
+    assert_eq!(
+        result.item.metadata.extra["dependencies"],
+        document.metadata.extra["dependencies"]
+    );
+    assert_eq!(
+        result.close_receipt.ok_or("receipt")?["warnings"],
+        serde_json::json!(["closed_preserved_predecessors:sample-unit:sample-prior,sample-other"])
+    );
+    Ok(())
+}
+
+/// Duplicate traversal refuses chains and malformed target documents without writes.
+#[test]
+fn closure_duplicate_chain_boundaries() -> Result<(), Box<dyn std::error::Error>> {
+    let (_directory, pm_root) = root("{}")?;
+    create_item(&pm_root, request())?;
+    assert!(matches!(
+        close_duplicate(&pm_root, "sample-unit", Some("sample-unit")),
+        Err(PmRustError::CommandRefusal { context, .. }) if context["code"] == "duplicate_target_self"
+    ));
+    let mut target = request();
+    target.id = "sample-target".to_owned();
+    let created = create_item(&pm_root, target)?;
+    let path = pm_root.join(created.item_path);
+    for duplicate in ["sample-unit", "sample-absent", "sample-target"] {
+        let mut document = created.item.clone();
+        document
+            .metadata
+            .extra
+            .insert("duplicate_of".to_owned(), serde_json::json!(duplicate));
+        fs::write(&path, canonical_item_bytes(&document)?)?;
+        assert!(close_duplicate(&pm_root, "sample-unit", Some("sample-target")).is_err());
+    }
+    fs::write(&path, "invalid document")?;
+    assert!(close_duplicate(&pm_root, "sample-unit", Some("sample-target")).is_err());
+    fs::write(&path, canonical_item_bytes(&created.item)?)?;
+    assert_eq!(close_duplicate(&pm_root, "sample-unit", Some(" "))?, None);
+    assert_eq!(
+        close_duplicate(&pm_root, "sample-unit", Some(" sample-target "))?,
+        Some("sample-target".to_owned())
+    );
+    Ok(())
+}
+
+/// Legacy serialized close requests default new controls and permit resolution reasons.
+#[test]
+fn closure_request_deserialization_defaults() -> Result<(), Box<dyn std::error::Error>> {
+    let closing: CloseItem = serde_json::from_value(
+        serde_json::json!({"id":"sample-unit","author":"unit-agent","resolution":"Fixed"}),
+    )?;
+    assert!(closing.reason.is_empty());
+    assert!(!closing.fields.force);
+    assert_eq!(closing.fields.resolution.as_deref(), Some("Fixed"));
+    Ok(())
+}
+
+/// Full inline closure options are exercised through the SDK on canonical storage.
+#[test]
+fn closure_sdk_fields_and_evidence_modes() -> Result<(), Box<dyn std::error::Error>> {
+    for mode in ["off", "warn", "strict"] {
+        let (_directory, pm_root) = root("{}")?;
+        create_item(&pm_root, request())?;
+        let mut closing = closure_request();
+        closing.fields = CloseFields {
+            resolution: Some(" Fixed ".to_owned()),
+            expected_result: Some("Expected".to_owned()),
+            actual_result: Some("Actual".to_owned()),
+            completed_at: Some("2026-08-03".to_owned()),
+            message: Some("Evidence".to_owned()),
+            validate_close: Some(mode.to_owned()),
+            ..CloseFields::default()
+        };
+        let result = close_item(&pm_root, closing)?;
+        assert_eq!(result.item.metadata.extra["resolution"], "Fixed");
+        assert_eq!(
+            result.item.metadata.extra["completed_at"],
+            "2026-08-03T00:00:00.000Z"
+        );
+        assert!(serde_json::to_value(&result)?["item_path"].is_string());
+    }
+    for mode in ["warn", "strict"] {
+        let (_directory, pm_root) = root("{}")?;
+        create_item(&pm_root, request())?;
+        let mut closing = closure_request();
+        closing.fields.validate_close = Some(mode.to_owned());
+        let result = close_item(&pm_root, closing);
+        if mode == "strict" {
+            assert!(matches!(
+                result,
+                Err(PmRustError::CommandRefusal { exit_code: 2, .. })
+            ));
+        } else {
+            assert!(result?.close_receipt.ok_or("receipt")?["recovery"].is_object());
+        }
+    }
+    let (_directory, pm_root) = root(r#"{"governance":{"require_close_reason":false}}"#)?;
+    create_item(&pm_root, request())?;
+    let mut closing = closure_request();
+    closing.reason.clear();
+    assert!(
+        !close_item(&pm_root, closing)?
+            .item
+            .metadata
+            .extra
+            .contains_key("close_reason")
+    );
+    for mode in [
+        Some(""),
+        Some("none"),
+        Some("disabled"),
+        Some("invalid"),
+        None,
+    ] {
+        let result = close_mode(mode, &serde_json::json!({}));
+        assert_eq!(result.is_err(), mode == Some("invalid"));
+    }
+    for value in [
+        "+9223372036854775807m",
+        "-9223372036854775807m",
+        "not-a-date",
+        "+3d+1h",
+    ] {
+        assert!(close_completion(value, TS).is_err());
+    }
+    for value in [
+        "xxxx-02-01",
+        "2026-xx-01",
+        "2026-01-xx",
+        "x",
+        "abcdefgh",
+        "20260820",
+    ] {
+        let _ = close_calendar(value)?;
+    }
+    Ok(())
+}
+
+/// Duplicate fallback, child validation and preexisting completion evidence remain durable.
+#[test]
+fn closure_sdk_duplicate_children_and_completion() -> Result<(), Box<dyn std::error::Error>> {
+    for mode in ["off", "warn", "strict"] {
+        let (_directory, pm_root) = root("{}")?;
+        create_item(&pm_root, request())?;
+        let mut child = request();
+        child.id = "sample-child".to_owned();
+        let child = create_item(&pm_root, child)?;
+        let mut document = child.item;
+        document.metadata.parent = Some("sample-unit".to_owned());
+        fs::write(
+            pm_root.join(child.item_path),
+            canonical_item_bytes(&document)?,
+        )?;
+        let mut closing = closure_request();
+        closing.fields = CloseFields {
+            resolution: Some("Fixed".to_owned()),
+            expected_result: Some("Expected".to_owned()),
+            actual_result: Some("Actual".to_owned()),
+            validate_close: Some(mode.to_owned()),
+            ..CloseFields::default()
+        };
+        let result = close_item(&pm_root, closing);
+        if mode == "strict" {
+            assert!(matches!(
+                result,
+                Err(PmRustError::CommandRefusal { exit_code: 2, .. })
+            ));
+        } else {
+            assert!(
+                result?.close_receipt.ok_or("receipt")?["warnings"][0]
+                    .as_str()
+                    .is_some_and(|warning| warning.contains("children"))
+            );
+        }
+    }
+    let (_directory, pm_root) = root("{}")?;
+    create_item(&pm_root, request())?;
+    let mut target = request();
+    target.id = "sample-target".to_owned();
+    let target = create_item(&pm_root, target)?;
+    let mut closing = closure_request();
+    closing.fields.duplicate_of = Some("sample-target".to_owned());
+    closing.fields.validate_close = Some("strict".to_owned());
+    closing.fields.resolution = Some("Supplied resolution".to_owned());
+    let result = close_item(&pm_root, closing)?;
+    assert_eq!(result.item.metadata.extra["duplicate_of"], "sample-target");
+    assert_eq!(
+        result.item.metadata.extra["resolution"],
+        "Supplied resolution"
+    );
+    let mut repeated = closure_request();
+    repeated.fields.force = true;
+    assert_eq!(
+        close_item(&pm_root, repeated)?.item.metadata.extra["completed_at"],
+        result.item.metadata.extra["completed_at"]
+    );
+    let mut target_doc = target.item;
+    target_doc.metadata.extra.insert(
+        "duplicate_of".to_owned(),
+        serde_json::json!("sample-corrupt"),
+    );
+    fs::write(
+        pm_root.join(target.item_path),
+        canonical_item_bytes(&target_doc)?,
+    )?;
+    fs::write(pm_root.join("tasks/sample-corrupt.toon"), "invalid")?;
+    assert!(matches!(
+        close_duplicate(&pm_root, "sample-unit", Some("sample-target")),
+        Err(PmRustError::InvalidItemDocument { .. })
+    ));
+    Ok(())
+}
+
+/// SDK refusal propagation leaves item and history bytes unchanged.
+#[test]
+fn closure_sdk_refusals_preserve_before_images() -> Result<(), Box<dyn std::error::Error>> {
+    let (_directory, pm_root) = root("{}")?;
+    let created = create_item(&pm_root, request())?;
+    let before = fs::read(pm_root.join(&created.item_path))?;
+    let history = fs::read(pm_root.join(&created.history_path))?;
+    for fields in [
+        CloseFields {
+            duplicate_of: Some("sample-absent".to_owned()),
+            ..CloseFields::default()
+        },
+        CloseFields {
+            validate_close: Some("invalid".to_owned()),
+            ..CloseFields::default()
+        },
+        CloseFields {
+            completed_at: Some("2026-02-30".to_owned()),
+            ..CloseFields::default()
+        },
+    ] {
+        let mut request = closure_request();
+        request.fields = fields;
+        assert!(matches!(
+            close_item(&pm_root, request),
+            Err(PmRustError::CommandRefusal { exit_code: 2, .. })
+        ));
+        assert_eq!(fs::read(pm_root.join(&created.item_path))?, before);
+        assert_eq!(fs::read(pm_root.join(&created.history_path))?, history);
+    }
+    ownership_item(
+        &pm_root,
+        &OwnershipItem {
+            id: "sample-unit".to_owned(),
+            author: "unit-agent".to_owned(),
+            timestamp: Some(TS.to_owned()),
+            message: None,
+            force: false,
+            if_available: false,
+            provenance_role: None,
+        },
+        true,
+    )?;
+    let closed = close_item(&pm_root, closure_request())?;
+    assert_eq!(closed.item.metadata.status, "closed");
+    assert!(!closed.item.metadata.extra.contains_key("assignee"));
+    assert!(
+        closed
+            .close_receipt
+            .ok_or("receipt")?
+            .get("warnings")
+            .is_none()
+    );
+    Ok(())
+}
+
+/// An unreadable closure recovery journal leaves the before-image and history unchanged.
+#[test]
+fn closure_recovery_failure_preserves_before_image() -> Result<(), Box<dyn std::error::Error>> {
+    let (_directory, pm_root) = root("{}")?;
+    let created = create_item(&pm_root, request())?;
+    let before = fs::read(pm_root.join(&created.item_path))?;
+    let history = fs::read(pm_root.join(&created.history_path))?;
+    fs::create_dir(pm_root.join("runtime/transactions/close-sample-unit.json"))?;
+    assert!(close_item(&pm_root, closure_request()).is_err());
+    assert_eq!(fs::read(pm_root.join(created.item_path))?, before);
+    assert_eq!(fs::read(pm_root.join(created.history_path))?, history);
+    Ok(())
+}
+
+/// Failed history publication retains the closure journal for an idempotent retry.
+#[test]
+fn closure_history_failure_retains_recoverable_commit() -> Result<(), Box<dyn std::error::Error>> {
+    let (_directory, pm_root) = root("{}")?;
+    let created = create_item(&pm_root, request())?;
+    let history_path = pm_root.join(&created.history_path);
+    let history_backup = pm_root.join("history-backup.jsonl");
+    let before_history = fs::read_to_string(&history_path)?;
+    fs::rename(&history_path, &history_backup)?;
+    fs::create_dir(&history_path)?;
+    assert!(matches!(
+        close_item(&pm_root, closure_request()),
+        Err(PmRustError::Io { .. })
+    ));
+    let committed = fs::read_to_string(pm_root.join(&created.item_path))?;
+    assert_eq!(
+        locate_item(&pm_root, "sample-unit")?.1.metadata.status,
+        "closed"
+    );
+    let journal = pm_root.join("runtime/transactions/close-sample-unit.json");
+    assert!(journal.is_file());
+    fs::remove_dir(&history_path)?;
+    fs::rename(&history_backup, &history_path)?;
+    recover_mutation(&pm_root, "close", "sample-unit")?;
+    assert!(!journal.exists());
+    assert_eq!(
+        fs::read_to_string(pm_root.join(created.item_path))?,
+        committed
+    );
+    let recovered = fs::read_to_string(&history_path)?;
+    assert!(recovered.starts_with(&before_history));
+    assert_eq!(recovered.lines().count(), 2);
+    assert_eq!(
+        serde_json::from_str::<Value>(recovered.lines().last().ok_or("close history")?)?["op"],
+        "close"
+    );
+    recover_mutation(&pm_root, "close", "sample-unit")?;
+    assert_eq!(fs::read_to_string(history_path)?, recovered);
+    Ok(())
+}
+
+/// Identifier grammar is enforced before even creating a locks directory.
+#[test]
+fn closure_prelock_identifier_grammar() -> Result<(), Box<dyn std::error::Error>> {
+    let (_directory, pm_root) = root("{}")?;
+    for id in ["", "-leading", "trailing-", "bad/id", "bad id"] {
+        assert!(matches!(
+            acquire_lock(
+                &pm_root,
+                id,
+                "unit-agent",
+                &LockSettings::default(),
+                false,
+                TS
+            ),
+            Err(PmRustError::InvalidMutationRequest { .. })
+        ));
+        assert!(!pm_root.join("locks").exists());
+    }
+    Ok(())
+}
+
+/// Complete terminal evidence needs no recovery, while stored children sort deterministically.
+#[test]
+fn closure_complete_terminal_and_multiple_children() -> Result<(), Box<dyn std::error::Error>> {
+    let (_directory, pm_root) = root("{}")?;
+    create_item(&pm_root, request())?;
+    let mut closing = closure_request();
+    closing.force_stale_lock = true;
+    closing.fields = CloseFields {
+        resolution: Some("Fixed".to_owned()),
+        expected_result: Some("Expected".to_owned()),
+        actual_result: Some("Actual".to_owned()),
+        ..CloseFields::default()
+    };
+    close_item(&pm_root, closing)?;
+    assert!(
+        matches!(close_item(&pm_root,closure_request()),Err(PmRustError::CommandRefusal{context,..}) if context.get("recovery").is_none())
+    );
+    let (_other, root) = root("{}")?;
+    create_item(&root, request())?;
+    for id in ["sample-z", "sample-a"] {
+        let mut child = request();
+        child.id = id.to_owned();
+        let child = create_item(&root, child)?;
+        let mut document = child.item;
+        document.metadata.parent = Some("sample-unit".to_owned());
+        fs::write(root.join(child.item_path), canonical_item_bytes(&document)?)?;
+    }
+    assert_eq!(
+        close_item(&root, closure_request())?
+            .close_receipt
+            .ok_or("receipt")?["warnings"],
+        serde_json::json!(["closed_with_active_children:sample-unit:sample-a,sample-z"])
+    );
+    Ok(())
+}
+
+/// Runtime-schema and corrupt-corpus failures refuse before canonical close publication.
+#[test]
+fn closure_read_failures_preserve_item_bytes() -> Result<(), Box<dyn std::error::Error>> {
+    for corrupt_schema in [true, false] {
+        let (_directory, pm_root) = root("{}")?;
+        let created = create_item(&pm_root, request())?;
+        let path = pm_root.join(&created.item_path);
+        let before = fs::read(&path)?;
+        if corrupt_schema {
+            fs::write(
+                pm_root.join("settings.json"),
+                r#"{"schema":{"files":{"statuses":"missing-statuses.json"}}}"#,
+            )?;
+        } else {
+            fs::write(pm_root.join("tasks/sample-corrupt.toon"), "invalid")?;
+        }
+        assert!(close_item(&pm_root, closure_request()).is_err());
+        assert_eq!(fs::read(path)?, before);
+    }
+    Ok(())
+}
+
+/// A noncanonical tracker marker cannot be used to publish a closure.
+#[test]
+fn closure_noncanonical_root_refuses_discovery() -> Result<(), Box<dyn std::error::Error>> {
+    let directory = tempfile::tempdir()?;
+    let root = directory.path().join("tracker");
+    fs::create_dir(&root)?;
+    fs::write(root.join("settings.json"), "{}")?;
+    let created = create_item(&root, request())?;
+    let before = fs::read(root.join(&created.item_path))?;
+    assert!(matches!(
+        close_item(&root, closure_request()),
+        Err(PmRustError::TrackerNotFound { .. })
+    ));
+    assert_eq!(fs::read(root.join(created.item_path))?, before);
     Ok(())
 }
