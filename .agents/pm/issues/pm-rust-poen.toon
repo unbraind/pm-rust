@@ -2,15 +2,20 @@ id: pm-rust-poen
 title: Legacy list cursors without after_index publish the query fingerprint
 description: "Published PM CLI 2026.10.5 sets continuation_contract.fingerprint to opaque_cursor when --after decodes but has no after_index. Native list keeps the real query fingerprint. Reproduced on a 75-item fixture: strip after_index from a producer cursor whose after_index is 68, then list --json --after that cursor. Reference continuation_contract.fingerprint is opaque_cursor; native emits the 24-character query fingerprint. The same gap appears with and without --for triage. With after_index present, the envelopes match. This is separate from triage final-page compaction, which must not rebase a missing after_index from zero."
 type: Issue
-status: in_progress
+status: closed
 priority: 2
 tags[3]: conformance,read-parity,rust
 created_at: "2026-10-06T10:55:34.240Z"
-updated_at: "2026-10-15T00:40:13.921Z"
+updated_at: "2026-10-15T04:16:57.500Z"
+closed_at: "2026-10-15T03:52:53.770Z"
+completed_at: "2026-10-15T03:52:53.770Z"
 author: pi-glm
 acceptance_criteria: "A producer cursor without after_index yields continuation_contract.fingerprint opaque_cursor and byte-identical list envelopes against published PM CLI 2026.10.5, including triage pages; cursors that include after_index stay unchanged."
 parent: pm-rust-u4al
-comments[7]{created_at,author,text}:
+resolution: "Fixed in pm-rust#81: a legacy list cursor without after_index now makes the native list publish continuation_contract.fingerprint as opaque_cursor, exactly as the pinned PM CLI oracle does. Before the fix the native list kept the real query fingerprint."
+expected_result: "For a legacy cursor without after_index, native pm-rust list output equals the oracle's, including continuation_contract.fingerprint = opaque_cursor."
+actual_result: "The differential oracle tests for this item pass in the merged head on Linux, macOS and Windows, and each fix's regression test fails when reverted (recorded in the item's comments)."
+comments[8]{created_at,author,text}:
   "2026-10-06T10:58:03.820Z",pi-glm,"Repro for the orchestrator: on a 75-item fixture, list --json --limit 69 --output-budget unbounded, decode next_cursor, remove after_index, and re-encode base64url. list --json --after that cursor --output-budget unbounded. Published PM CLI 2026.10.5 sets continuation_contract.fingerprint to opaque_cursor. Native emits the 24-character query fingerprint. The same split appears with --for triage. Cursors that still contain after_index match byte for byte. Do not treat this as the triage rebase bug; that path now requires after_index and omits an over-budget final page."
   "2026-10-06T11:46:40.176Z",codex-sol,Continuation review retained this inherited follow-up item. The scoped differential test for finding 4184061254 compares budget omission and continuation metadata; complete envelope equality for legacy cursors remains blocked by this separate fingerprint mismatch.
   "2026-10-14T20:34:43.937Z",codex-agent,"Implementing the native parity batch against the locked 2026.10.14 oracle. Evidence will compare real disposable trackers, complete output envelopes and durable artifacts, with a behavioral revert proof and unchanged release gates."
@@ -18,6 +23,7 @@ comments[7]{created_at,author,text}:
   "2026-10-14T22:40:38.055Z",codex-agent,"The item-linked pinned-oracle command passed through pm test --run --only-last --progress --fail-on-skipped --fail-on-empty-test-run --json: 1 tests passed, zero failures or skips. Test-result tracking is disabled by project policy, so this append-only comment records the observed receipt. The behavioral revert failure is recorded separately."
   "2026-10-14T23:22:31.029Z",codex-agent,"Final-source behavioral revert refresh: cargo +1.90.0 test --locked --test pagination_differential legacy_cursor_fingerprint_matches_published -- --exact --nocapture compiled and failed at runtime with exit 101. Only the continuation fingerprint expression was reverted, retaining the single validated cursor decode. The unchanged regression detects the oracle divergence; final source bytes were restored."
   "2026-10-15T00:40:12.979Z",codex-agent,"Final Linux acceptance: just release-check passed at unchanged pins and thresholds in an isolated Git identity environment. Both the ordinary and fresh branch-instrumented suites passed 317 tests across 17 targets, with zero failures or ignored tests. Coverage: 5646/5646 lines, 8630/8630 regions, 522/522 functions and 1194/1194 branches, all 100 percent. Formatting, deny-warnings Clippy, private-item rustdoc, identity audit, locked-oracle differential suites, cargo audit and changelog check passed. Cargo audit retains the inherited allowed RUSTSEC-2024-0449 unmaintained advisory. Per-item behavioral revert proof and linked-test receipts remain recorded separately. Releasing ownership for orchestrator verification; this item remains in progress and is not closed."
+  "2026-10-15T04:16:57.500Z",claude-hub,"Correction (append-only): the close event's resolution and expected_result were generated from this issue's defect-shaped title, so they read as if the fix publishes the query fingerprint. The fix does the opposite: a legacy cursor without after_index makes native list publish opaque_cursor, matching the oracle. The fields were corrected by an appended update event; the original close event is retained, because tracker history is append-only by design."
 files[2]{path,scope}:
   src/list.rs,project
   tests/pagination_differential.rs,project
@@ -25,4 +31,5 @@ tests[1]{command,scope,timeout_seconds,pm_context_mode,workspace_context_mode,pr
   "env PM_NODE_CLI=\"$PWD/tests/oracle/node_modules/@unbrained/pm-cli\" PM_RUST_REQUIRE_PUBLISHED_CLI=1 cargo test --quiet --locked --test pagination_differential legacy_cursor_fingerprint_matches_published -- --exact",project,600,schema,source,codex-agent,"2026-10-14T21:55:28.981Z",local_mutation,feat/native-close-fields-and-lock-safety
 docs[1]{path,scope}:
   docs/NATIVE_PARITY_2026_10_14.md,project
+close_reason: "Delivered by https://github.com/unbraind/pm-rust/pull/81 (merge 0afac780c4b7, head a7e8a4f80810, merged 2026-10-15T02:10:12Z). Required head checks passed: Analyze Rust, CodeQL, Release gate aggregate (ubuntu, macos, windows), Rust ubuntu-latest, macos-latest, windows-latest."
 body: ""

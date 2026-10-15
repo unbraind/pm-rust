@@ -2,20 +2,26 @@ id: pm-rust-2tb9
 title: Validate mutation identifiers before acquiring locks
 description: A synthetic scratch tracker and directory event watcher confirm that claiming an unknown path-bearing identifier creates and removes a transient lock outside the locks directory before item discovery refuses it. Lock acquisition in src/mutation.rs joins the caller identifier before validation. This predates the selection lifecycle slice and applies to the shared mutation boundary.
 type: Issue
-status: in_progress
+status: closed
 priority: 2
 tags[3]: mutation,safety,validation
 created_at: "2026-10-13T13:19:32.970Z"
-updated_at: "2026-10-15T00:40:04.635Z"
+updated_at: "2026-10-15T05:18:25.162Z"
+closed_at: "2026-10-15T03:52:46.149Z"
+completed_at: "2026-10-15T03:52:46.149Z"
 author: codex-agent
 acceptance_criteria: "Reject path separators, absolute identifiers and traversal forms before lock creation; real scratch trackers prove that malformed IDs cause no filesystem writes and valid canonical ownership and mutation IDs retain published parity."
 parent: pm-rust-u4al
-comments[5]{created_at,author,text}:
+resolution: "Fixed in pm-rust#81: Validate mutation identifiers before acquiring locks"
+expected_result: "The native implementation matches the pinned PM CLI oracle for: Validate mutation identifiers before acquiring locks"
+actual_result: "Linux only: malformed_mutation_ids_never_create_escaped_locks uses a directory event watcher gated to target_os = linux; it passed in CI on ubuntu-latest and fails when the pre-lock validation is reverted. The cross-platform CI gates of pm-rust#81 (Linux, macOS and Windows) passed separately."
+comments[6]{created_at,author,text}:
   "2026-10-14T20:34:39.760Z",codex-agent,"Implementing the native parity batch against the locked 2026.10.14 oracle. Evidence will compare real disposable trackers, complete output envelopes and durable artifacts, with a behavioral revert proof and unchanged release gates."
   "2026-10-14T21:02:00.256Z",codex-agent,"The Linux kernel directory-event watcher passes for malformed and path-bearing identifiers across ownership and mutation commands on real oracle/native trackers, followed by valid ownership byte comparisons. The shared lock boundary rejects malformed identifiers before creating directories or joining lock paths, so cleanup cannot mask a transient escaped lock."
   "2026-10-14T21:33:33.874Z",codex-agent,"Behavioral revert proof: cargo test --locked --test claim_release_differential malformed_mutation_ids_never_create_escaped_locks -- --exact --nocapture compiled and failed at runtime with exit 101. Removing only the shared pre-lock identifier guard lets the kernel watcher observe transient filesystem writes for malformed identifiers. The regression test stayed in place, and all source bytes were restored after the check."
   "2026-10-14T22:40:08.630Z",codex-agent,"The item-linked pinned-oracle command passed through pm test --run --only-last --progress --fail-on-skipped --fail-on-empty-test-run --json: 1 tests passed, zero failures or skips. Test-result tracking is disabled by project policy, so this append-only comment records the observed receipt. The behavioral revert failure is recorded separately."
   "2026-10-15T00:40:03.579Z",codex-agent,"Final Linux acceptance: just release-check passed at unchanged pins and thresholds in an isolated Git identity environment. Both the ordinary and fresh branch-instrumented suites passed 317 tests across 17 targets, with zero failures or ignored tests. Coverage: 5646/5646 lines, 8630/8630 regions, 522/522 functions and 1194/1194 branches, all 100 percent. Formatting, deny-warnings Clippy, private-item rustdoc, identity audit, locked-oracle differential suites, cargo audit and changelog check passed. Cargo audit retains the inherited allowed RUSTSEC-2024-0449 unmaintained advisory. Per-item behavioral revert proof and linked-test receipts remain recorded separately. Releasing ownership for orchestrator verification; this item remains in progress and is not closed."
+  "2026-10-15T05:18:25.162Z",claude-hub,"Correction (append-only): the close event's actual_result claimed a pass on Linux, macOS and Windows, but this item's regression test is gated to Linux. An appended update now states the Linux-only scope; the original close event is retained because history is append-only."
 files[2]{path,scope}:
   src/mutation.rs,project
   tests/claim_release_differential.rs,project
@@ -24,4 +30,5 @@ tests[1]{command,scope,timeout_seconds,pm_context_mode,workspace_context_mode,pr
 docs[2]{path,scope}:
   docs/NATIVE_PARITY_2026_10_14.md,project
   docs/NATIVE_SELECTION_LIFECYCLE_2026_10_13.md,project
+close_reason: "Delivered by https://github.com/unbraind/pm-rust/pull/81 (merge 0afac780c4b7, head a7e8a4f80810, merged 2026-10-15T02:10:12Z). Required head checks passed: Analyze Rust, CodeQL, Release gate aggregate (ubuntu, macos, windows), Rust ubuntu-latest, macos-latest, windows-latest."
 body: ""

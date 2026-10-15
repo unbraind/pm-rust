@@ -5,6 +5,7 @@
 ### Features
 
 - Read canonical pm workspaces without a JavaScript runtime ([pm-rust-o2yr](https://github.com/unbraind/pm-rust/blob/main/.agents/pm/features/pm-rust-o2yr.toon)) _type:Feature; status:closed; P1; release:0.1.0-alpha.1_
+- Persist native close resolution and completion metadata with oracle parity ([pm-rust-cqk7](https://github.com/unbraind/pm-rust/blob/main/.agents/pm/features/pm-rust-cqk7.toon)) _type:Feature; status:closed; P2_
 - Extend native ownership to selection and composed lifecycle commands ([pm-rust-rysu](https://github.com/unbraind/pm-rust/blob/main/.agents/pm/features/pm-rust-rysu.toon)) _type:Feature; status:closed; P2_
 - Implement native claim and release with published CLI parity ([pm-rust-zukw](https://github.com/unbraind/pm-rust/blob/main/.agents/pm/features/pm-rust-zukw.toon)) _type:Feature; status:closed; P1_
 - Write the hash_algorithm field on history entries, matching pm CLI 2026.9.11 and later ([pm-rust-hkk3](https://github.com/unbraind/pm-rust/blob/main/.agents/pm/features/pm-rust-hkk3.toon)) _type:Feature; status:closed; P1_
@@ -19,6 +20,12 @@
 
 ### Bug Fixes
 
+- Stabilize the create lock-replacement fixture under parallel load ([pm-rust-ax0o](https://github.com/unbraind/pm-rust/blob/main/.agents/pm/issues/pm-rust-ax0o.toon)) _type:Issue; status:closed; P2_
+- Legacy list cursors without after_index publish the query fingerprint ([pm-rust-poen](https://github.com/unbraind/pm-rust/blob/main/.agents/pm/issues/pm-rust-poen.toon)) _type:Issue; status:closed; P2_
+- Match oracle semantic lineage depth and unresolved ancestor handling ([pm-rust-lcap](https://github.com/unbraind/pm-rust/blob/main/.agents/pm/issues/pm-rust-lcap.toon)) _type:Issue; status:closed; P2_
+- Match published container readiness for cyclic parent graphs ([pm-rust-1ycz](https://github.com/unbraind/pm-rust/blob/main/.agents/pm/issues/pm-rust-1ycz.toon)) _type:Issue; status:closed; P2_
+- Match published stale session-lock refusal diagnostics ([pm-rust-sldg](https://github.com/unbraind/pm-rust/blob/main/.agents/pm/issues/pm-rust-sldg.toon)) _type:Issue; status:closed; P2_
+- Validate mutation identifiers before acquiring locks ([pm-rust-2tb9](https://github.com/unbraind/pm-rust/blob/main/.agents/pm/issues/pm-rust-2tb9.toon)) _type:Issue; status:closed; P2_
 - Match published punctuation-bearing tag normalization order ([pm-rust-mttg](https://github.com/unbraind/pm-rust/blob/main/.agents/pm/issues/pm-rust-mttg.toon)) _type:Issue; status:closed; P2_
 - Match published comment ordering at equal timestamps ([pm-rust-2ucz](https://github.com/unbraind/pm-rust/blob/main/.agents/pm/issues/pm-rust-2ucz.toon)) _type:Issue; status:closed; P2_
 - Preserve .toon extra metadata key order in list output ([pm-rust-ba8f](https://github.com/unbraind/pm-rust/blob/main/.agents/pm/issues/pm-rust-ba8f.toon)) _type:Issue; status:closed; P2_

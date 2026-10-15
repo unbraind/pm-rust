@@ -2,14 +2,19 @@ id: pm-rust-1ycz
 title: Match published container readiness for cyclic parent graphs
 description: "Round 2 readiness-index review found a pre-existing parity gap. In a real disposable tracker with one open Task whose stored parent equals its own ID, published 2026.10.14 claim --next exits 3 with no_available_next_item; native exits 0 and claims it. Published hasOpenDescendant recognizes the nonterminal node reached through the cycle, while the existing native descendant check explicitly excludes the root. The performance-only indexing change retains prior case and cycle behavior. Repair cyclic-container semantics in separate differential work, including self cycles and mixed terminal/nonterminal cycles, without restoring repeated corpus scans."
 type: Issue
-status: in_progress
+status: closed
 priority: 2
 tags[2]: conformance,selection
 created_at: "2026-10-14T10:44:14.727Z"
-updated_at: "2026-10-15T00:40:08.787Z"
+updated_at: "2026-10-15T03:52:50.272Z"
+closed_at: "2026-10-15T03:52:50.254Z"
+completed_at: "2026-10-15T03:52:50.254Z"
 author: codex-agent
 acceptance_criteria: Real cyclic tracker differentials match published exit/stdout/stderr and durable state; indexing remains bounded and its deterministic scan regression passes
 parent: pm-rust-u4al
+resolution: "Fixed in pm-rust#81: Match published container readiness for cyclic parent graphs"
+expected_result: "The native implementation matches the pinned PM CLI oracle for: Match published container readiness for cyclic parent graphs"
+actual_result: "The differential oracle tests for this item pass in the merged head on Linux, macOS and Windows, and each fix's regression test fails when reverted (recorded in the item's comments)."
 comments[5]{created_at,author,text}:
   "2026-10-14T20:34:41.851Z",codex-agent,"Implementing the native parity batch against the locked 2026.10.14 oracle. Evidence will compare real disposable trackers, complete output envelopes and durable artifacts, with a behavioral revert proof and unchanged release gates."
   "2026-10-14T20:43:01.763Z",codex-agent,"Regression proof on the unchanged main behavior: cargo test --locked --test claim_release_differential cyclic_parent_readiness_matches_published -- --nocapture failed with native exit 0 versus oracle exit 3 on a self-parent cycle. After the index fix, the same test passes for self cycles, mixed terminal cycles, active cycles and all-terminal cycles. Witnesses now start at parent edges so only cyclic reachability includes the candidate itself; the bounded corpus index remains in use."
@@ -25,4 +30,5 @@ tests[1]{command,scope,timeout_seconds,pm_context_mode,workspace_context_mode,pr
 docs[2]{path,scope}:
   docs/NATIVE_PARITY_2026_10_14.md,project
   docs/NATIVE_SELECTION_LIFECYCLE_2026_10_13.md,project
+close_reason: "Delivered by https://github.com/unbraind/pm-rust/pull/81 (merge 0afac780c4b7, head a7e8a4f80810, merged 2026-10-15T02:10:12Z). Required head checks passed: Analyze Rust, CodeQL, Release gate aggregate (ubuntu, macos, windows), Rust ubuntu-latest, macos-latest, windows-latest."
 body: ""
