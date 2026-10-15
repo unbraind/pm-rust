@@ -1,6 +1,5 @@
 //! Black-box and SDK acceptance for native create transactions.
 
-#[cfg(target_os = "linux")]
 use assert_cmd::Command;
 use pm_rust::{CreateItem, PmRustError, Workspace};
 use predicates::str::contains;
