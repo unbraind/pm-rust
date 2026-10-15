@@ -6,11 +6,12 @@ status: in_progress
 priority: 2
 tags[1]: changed
 created_at: "2026-10-15T07:37:36.274Z"
-updated_at: "2026-10-15T12:28:01.648Z"
+updated_at: "2026-10-15T13:03:44.707Z"
 author: codex-agent
-comments[2]{created_at,author,text}:
+comments[3]{created_at,author,text}:
   "2026-10-15T07:38:15.834Z",codex-agent,Batch 3 uses the prescribed 2026.10.14 fallback because v2026.10.15 is not released. CI already has workflow_dispatch. The exact fallback workflow still assumes root npm dependencies and predates changelog regeneration and CI dispatch from pm-github PR 122; this Rust-only caller needs the later repin before operational use. No root package.json is added. No runtime code changed and no behavioural revert is applicable. Install and use the committed tests/oracle lockfile exactly as CI does.
   "2026-10-15T08:33:12.035Z",codex-agent,"Full isolated just release-check PASS: 318/318 regular tests and 318/318 instrumented tests across 17 suites each, zero failures and ignored cases. Coverage: lines 5647/5647, functions 522/522, regions 8631/8631, branches 1194/1194 (all 100% at unchanged floors). fmt, clippy -D warnings, private-item rustdoc, native identity audit, required published-oracle differentials and canonical changelog check passed. cargo audit exited 0 with its pre-existing allowed unmaintained unsafe-libyaml 0.2.11 warning RUSTSEC-2024-0449; no vulnerability findings were reported. Locked oracle 2026.10.14 was installed exactly as CI does. Isolated oracle health --check-only --require-merge-drivers --strict-exit passes with existing guidance, staleness and provenance advisories. No histories were rewritten."
+  "2026-10-15T13:03:43.939Z",claude-hub,"Final repin recorded: .github/workflows/pm-github-sync.yml now pins unbraind/pm-github@3015930b351a3d9c1c03ee4a26f8404025287df7 (pm-github 2026.10.15) and passes pm-github-version 2026.10.15 with actions: write (commit 07b7891 on this branch). The earlier comment that said a later repin was still needed describes the 2026.10.14 interim state and is historical. The locked oracle stays 2026.10.14; it records the validation oracle, not the caller pin."
 files[2]{path,scope,note}:
   .github/workflows/ci.yml,project,Existing workflow_dispatch confirmed without modification
   .github/workflows/pm-github-sync.yml,project,Pinned gated sync caller
