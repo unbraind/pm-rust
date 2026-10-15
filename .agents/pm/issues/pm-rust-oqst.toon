@@ -1,0 +1,29 @@
+id: pm-rust-oqst
+title: Keep oracle test runs out of Sentry
+description: "GitHub issue https://github.com/unbraind/pm-rust/issues/86: centralize PM_SENTRY_DISABLED=1 and PM_TELEMETRY_SOURCE_CONTEXT=test for every oracle invocation, including CI, just recipes and Rust-spawned drivers; prove the spawned environment with a shim."
+type: Issue
+status: in_progress
+priority: 1
+tags[3]: ci,oracle,telemetry
+created_at: "2026-10-15T21:43:01.955Z"
+updated_at: "2026-10-15T22:21:29.347Z"
+assignee: codex-agent
+claim_principal: codex-agent
+author: codex-agent
+parent: pm-rust-u4al
+comments[5]{created_at,author,text}:
+  "2026-10-15T21:45:14.024Z",codex-agent,"All Rust oracle driver launches, clone-local CI health and merge setup now route through tests/oracle/launch.mts. It applies both test telemetry variables in the final spawned child even after env_clear; a disposable shim asserts the actual child environment, argument boundaries and exit propagation. just recipes also export the same test boundary."
+  "2026-10-15T21:51:28.647Z",codex-agent,"Read-only oracle health passes all 8 checks with merge drivers in a clean HOME and neutral global Git configuration, matching CI. The normal host context reports an unrelated global pm-github 2026.10.15 versus locked host 2026.10.14 skew; no pin or shared extension was changed. Existing guidance, stale-item and provenance advisories are retained."
+  "2026-10-15T21:58:31.024Z",codex-agent,"Behavioural revert proof: removing only PM_SENTRY_DISABLED from the final child environment made cargo test --locked --test oracle_launcher oracle_launcher_sets_child_telemetry_environment -- --exact --nocapture fail with Cargo exit 101 and the shim environment assertion. Independently removing only PM_TELEMETRY_SOURCE_CONTEXT failed identically. Neither control ran the real oracle. Both mutations were restored; the linked positive launcher test passed 1/1."
+  "2026-10-15T22:02:15.706Z",codex-agent,"The final launcher also supports tool descendants: branch-merge Git commands use the shared launcher so the published merge drivers inherit both telemetry variables. The environment shim now checks entry and tool modes with both inherited and cleared parent environments. cargo test --locked --test oracle_launcher --test branch_merge_contract passed 2/2, including the real two-branch merge."
+  "2026-10-15T22:21:29.347Z",codex-agent,Final linked launcher receipt passes 1/1 with all four child-environment modes. Both independent telemetry-variable revert controls still fail at the child shim assertion before any real oracle is imported. Starting the full release aggregate with isolated HOME and neutral global Git settings; no thresholds or package pins changed.
+files[3]{path,scope}:
+  tests/oracle_launcher.rs,project
+  tests/oracle/launch.mts,project
+  tests/support/published_cli.rs,project
+tests[1]{command,scope,provenance{author,created_at,source_kind,source_ref}}:
+  cargo test --locked --test oracle_launcher,project,codex-agent,"2026-10-15T21:47:06.998Z",local_mutation,feat/oracle-quiet-and-registry-selection
+docs[2]{path,scope}:
+  docs/CONFIGURED_LIST_REGISTRIES.md,project
+  "https://github.com/unbraind/pm-rust/issues/86",project
+body: ""

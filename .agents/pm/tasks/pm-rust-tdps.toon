@@ -1,0 +1,14 @@
+id: pm-rust-tdps
+title: Track oracle read refusal for dependency rows without timestamps
+description: "During configured hierarchy differentials, the pinned 2026.10.14 oracle refused an item with several dependencies containing only id and kind: Cannot read properties of undefined (reading localeCompare). Supplying created_at on each dependency makes the real item readable. Keep valid timestamped fixture rows for this slice; independently reproduce and reassess after an oracle update. No upstream issue was filed."
+type: Task
+status: open
+priority: 3
+tags[3]: follow-up,oracle,read-parity
+created_at: "2026-10-15T21:53:41.567Z"
+updated_at: "2026-10-15T21:55:03.989Z"
+author: codex-agent
+parent: pm-rust-u4al
+docs[1]{path,scope}:
+  docs/CONFIGURED_LIST_REGISTRIES.md,project
+body: ""

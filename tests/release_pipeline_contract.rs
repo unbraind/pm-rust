@@ -1102,11 +1102,7 @@ fn ci_pm_cli_pin_is_single_and_current() -> Result<(), BoxError> {
                 "Install clone-local pm merge drivers",
                 "Verify tracked pm project health",
             ] {
-                assert!(
-                    step_run(&steps, label)?.starts_with(
-                        "node tests/oracle/node_modules/@unbrained/pm-cli/dist/cli.js "
-                    )
-                );
+                assert!(step_run(&steps, label)?.starts_with("node tests/oracle/launch.mts "));
             }
         }
     }

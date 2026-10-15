@@ -586,18 +586,28 @@ fn candidates(
 #[path = "../tests/support/selection_unit.rs"]
 mod tests;
 
-/// Selects built-in active items with unresolved prerequisites or explicit blocked status.
-pub(crate) fn dependency_blocked_ids(corpus: &[ItemDocument]) -> BTreeSet<String> {
+/// Selects configured active items with unresolved prerequisites or explicit blocked status.
+pub(crate) fn dependency_blocked_ids(
+    corpus: &[ItemDocument],
+    lifecycle: &crate::list_registry::Lifecycle,
+) -> BTreeSet<String> {
     let settings = json!({});
     let index = CorpusIndex::new(corpus, &settings);
     corpus
         .iter()
         .filter(|item| {
-            item.metadata.status == "blocked"
-                || (role(item, &settings, "active")
-                    && blockers(item, &index)
-                        .iter()
-                        .any(|id| !index.is_terminal(id, &settings)))
+            lifecycle.role(&item.metadata.status, "blocked")
+                || (lifecycle.active_for_blocking(&item.metadata.status)
+                    && blockers(item, &index).iter().any(|id| {
+                        !index
+                            .by_id
+                            .get(&id.to_ascii_lowercase())
+                            .is_some_and(|items| {
+                                items
+                                    .iter()
+                                    .any(|item| lifecycle.terminal(&item.metadata.status))
+                            })
+                    }))
         })
         .map(|item| item.metadata.id.clone())
         .collect()

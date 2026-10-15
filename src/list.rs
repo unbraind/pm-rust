@@ -103,7 +103,15 @@ fn read_selection(
     echo.insert("runtime_filters".to_owned(), json!({}));
     let documents = workspace.read_items()?;
     let warnings = unknown_tags(&documents, options.tag.as_deref());
-    let documents = select_documents(documents, filters, include_terminal, options);
+    let lifecycle = crate::list_registry::Lifecycle::load(workspace.pm_root())?;
+    let documents = select_documents(
+        documents,
+        filters,
+        include_terminal,
+        options,
+        &lifecycle,
+        &lifecycle.hierarchy,
+    );
     let items: Vec<Value> = documents.into_iter().map(|document| {
         let metadata = document.metadata;
         if full {
@@ -160,7 +168,7 @@ mod tests;
 #[allow(clippy::struct_excessive_bools)]
 #[derive(Clone, Debug, Default)]
 pub struct ListOptions {
-    /// Exact parent identity, including built-in hierarchy dependency edges.
+    /// Exact parent identity, including configured hierarchy dependency edges.
     pub parent: Option<String>,
     /// Case-insensitive comma-separated tags, matching any requested tag.
     pub tag: Option<String>,
@@ -236,14 +244,26 @@ fn cursor_fingerprint(
     let variant = options.all || status == Some("all");
     let name = if variant {
         "list-all".to_owned()
-    } else if let Some(status) = status {
+    } else if let Some(
+        status @ ("open" | "in_progress" | "blocked" | "draft" | "closed" | "canceled"),
+    ) = status
+    {
         format!("list-{}", status.replace('_', "-"))
     } else {
         "list".to_owned()
     };
     semantic["projectionCommand"] = json!(name);
-    if status.is_none() && !options.all {
+    if !options.all
+        && !variant
+        && !matches!(
+            status,
+            Some("open" | "in_progress" | "blocked" | "draft" | "closed" | "canceled")
+        )
+    {
         semantic["excludeTerminal"] = json!(true);
+        if let Some(status) = status {
+            semantic["status"] = json!(status);
+        }
     }
     if options.all {
         semantic["all"] = json!(true);
@@ -535,9 +555,10 @@ fn compare_field(
     }
 }
 
-/// Collects scalar parents and the canonical built-in parent/child dependency kinds.
+/// Collects scalar parents and configured hierarchy dependency kinds.
 fn parent_relations(
     documents: &[crate::ItemDocument],
+    hierarchy: &crate::list_registry::Hierarchy,
 ) -> std::collections::BTreeMap<String, std::collections::BTreeSet<String>> {
     let mut parents =
         std::collections::BTreeMap::<String, std::collections::BTreeSet<String>>::new();
@@ -564,13 +585,12 @@ fn parent_relations(
                 .as_str()
                 .filter(|id| identities.contains(&id.trim().to_lowercase()))
             {
-                let (child, parent) = match dependency["kind"].as_str() {
-                    Some("parent" | "child_of" | "epic") => {
-                        (item.id.clone(), id.trim().to_lowercase())
-                    }
-                    Some("child" | "parent_child" | "task") => {
-                        (id.trim().to_lowercase(), item.id.clone())
-                    }
+                let (child, parent) = match dependency["kind"]
+                    .as_str()
+                    .and_then(|kind| hierarchy.source_parent(kind))
+                {
+                    Some(false) => (item.id.clone(), id.trim().to_lowercase()),
+                    Some(true) => (id.trim().to_lowercase(), item.id.clone()),
                     _ => continue,
                 };
                 parents.entry(child).or_default().insert(parent);
@@ -586,9 +606,11 @@ fn select_documents(
     filters: &ItemFilter,
     include_terminal: bool,
     options: &ListOptions,
+    lifecycle: &crate::list_registry::Lifecycle,
+    hierarchy: &crate::list_registry::Hierarchy,
 ) -> Vec<crate::ItemDocument> {
-    let parents = parent_relations(&documents);
-    let blocked = crate::selection::dependency_blocked_ids(&documents);
+    let parents = parent_relations(&documents, hierarchy);
+    let blocked = crate::selection::dependency_blocked_ids(&documents, lifecycle);
     documents.retain(|document| {
         let metadata = &document.metadata;
         let status_matches = if filters.status.as_deref() == Some("blocked") {
@@ -597,8 +619,8 @@ fn select_documents(
             true
         } else {
             filters.status.as_ref().map_or_else(
-                || !terminal(&metadata.status),
-                |status| metadata.status == *status,
+                || !lifecycle.terminal(&metadata.status),
+                |status| lifecycle.matches(&metadata.status, status),
             )
         };
         status_matches
@@ -623,7 +645,7 @@ fn select_documents(
     documents.sort_by_cached_key(|document| {
         let metadata = &document.metadata;
         (
-            terminal(&metadata.status),
+            lifecycle.terminal(&metadata.status),
             metadata.priority,
             Reverse(timestamp_key(&metadata.updated_at)),
             metadata.id.clone(),

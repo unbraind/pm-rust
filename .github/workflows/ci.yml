@@ -6,6 +6,11 @@ on:
     branches: [main]
   workflow_dispatch:
 
+# All published tooling runs in the test telemetry context.
+env:
+  PM_SENTRY_DISABLED: "1"
+  PM_TELEMETRY_SOURCE_CONTEXT: test
+
 permissions:
   contents: read
 
@@ -132,6 +137,6 @@ jobs:
         run: just release-check
 
       - name: Install clone-local pm merge drivers
-        run: node tests/oracle/node_modules/@unbrained/pm-cli/dist/cli.js merge install
+        run: node tests/oracle/launch.mts merge install
       - name: Verify tracked pm project health
-        run: node tests/oracle/node_modules/@unbrained/pm-cli/dist/cli.js health --check-only --require-merge-drivers --strict-exit
+        run: node tests/oracle/launch.mts health --check-only --require-merge-drivers --strict-exit

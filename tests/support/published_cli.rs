@@ -127,3 +127,22 @@ pub fn locate_published_cli() -> Option<PublishedCli> {
     }
     None
 }
+
+/// Builds an oracle process through the shared telemetry-isolating launcher.
+#[allow(dead_code)]
+pub fn oracle_command(interpreter: impl AsRef<std::ffi::OsStr>) -> std::process::Command {
+    let mut command = std::process::Command::new(interpreter);
+    command.arg(Path::new(env!("CARGO_MANIFEST_DIR")).join("tests/oracle/launch.mts"));
+    command.arg("--entry");
+    command
+}
+
+/// Launches a tool whose descendants execute oracle code, such as Git merge drivers.
+#[allow(dead_code)]
+pub fn oracle_tool(program: impl AsRef<std::ffi::OsStr>) -> std::process::Command {
+    let interpreter = std::env::var("PM_NODE_INTERPRETER").unwrap_or_else(|_| "node".to_owned());
+    let mut command = std::process::Command::new(interpreter);
+    command.arg(Path::new(env!("CARGO_MANIFEST_DIR")).join("tests/oracle/launch.mts"));
+    command.arg("--command").arg(program);
+    command
+}
