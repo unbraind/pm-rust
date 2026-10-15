@@ -1,0 +1,21 @@
+id: pm-rust-zmqa
+title: Enable the gated pm-github issue sync
+description: "Add the pinned reusable issue-sync caller and verify the existing CI workflow_dispatch trigger. Related adoption task: pm-github-aiok. Rust-only package: no root package.json and no braces dependency work. Validate just release-check and the locked-oracle strict health check; never trigger sync or change repository settings."
+type: Chore
+status: in_progress
+priority: 2
+tags: []
+created_at: "2026-10-15T07:37:36.274Z"
+updated_at: "2026-10-15T08:34:57.786Z"
+author: codex-agent
+comments[2]{created_at,author,text}:
+  "2026-10-15T07:38:15.834Z",codex-agent,Batch 3 uses the prescribed 2026.10.14 fallback because v2026.10.15 is not released. CI already has workflow_dispatch. The exact fallback workflow still assumes root npm dependencies and predates changelog regeneration and CI dispatch from pm-github PR 122; this Rust-only caller needs the later repin before operational use. No root package.json is added. No runtime code changed and no behavioural revert is applicable. Install and use the committed tests/oracle lockfile exactly as CI does.
+  "2026-10-15T08:33:12.035Z",codex-agent,"Full isolated just release-check PASS: 318/318 regular tests and 318/318 instrumented tests across 17 suites each, zero failures and ignored cases. Coverage: lines 5647/5647, functions 522/522, regions 8631/8631, branches 1194/1194 (all 100% at unchanged floors). fmt, clippy -D warnings, private-item rustdoc, native identity audit, required published-oracle differentials and canonical changelog check passed. cargo audit exited 0 with its pre-existing allowed unmaintained unsafe-libyaml 0.2.11 warning RUSTSEC-2024-0449; no vulnerability findings were reported. Locked oracle 2026.10.14 was installed exactly as CI does. Isolated oracle health --check-only --require-merge-drivers --strict-exit passes with existing guidance, staleness and provenance advisories. No histories were rewritten."
+files[2]{path,scope,note}:
+  .github/workflows/ci.yml,project,Existing workflow_dispatch confirmed without modification
+  .github/workflows/pm-github-sync.yml,project,Pinned gated sync caller
+tests[1]{command,scope,provenance{author,created_at,source_kind,source_ref}}:
+  cargo +1.90.0 fmt --all -- --check,project,codex-agent,"2026-10-15T07:38:27.809Z",local_mutation,chore/gated-issue-sync-and-braces-free-gates
+docs[1]{path,scope,note}:
+  CHANGELOG.md,project,Regenerated after tracker writes
+body: ""
