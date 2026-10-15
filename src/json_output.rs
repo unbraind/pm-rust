@@ -338,3 +338,24 @@ impl Formatter for JsFormatter {
 #[cfg(test)]
 #[path = "../tests/support/json_output_unit.rs"]
 mod tests;
+
+/// Applies JavaScript Number coercion to unsafe integers in read projections only.
+///
+/// Canonical storage and history retain their separate numeric contract.
+pub(crate) fn normalize_read_numbers(value: &mut Value) {
+    match value {
+        Value::Number(number)
+            if number
+                .as_i64()
+                .is_some_and(|number| number < -9_007_199_254_740_991)
+                || number
+                    .as_u64()
+                    .is_some_and(|number| number > 9_007_199_254_740_991) =>
+        {
+            *value = serde_json::json!(number.as_f64());
+        }
+        Value::Array(rows) => rows.iter_mut().for_each(normalize_read_numbers),
+        Value::Object(fields) => fields.values_mut().for_each(normalize_read_numbers),
+        _ => {}
+    }
+}

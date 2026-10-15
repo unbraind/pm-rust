@@ -13,6 +13,26 @@ pub(crate) fn estimate(value: &(impl serde::Serialize + ?Sized), pretty: bool) -
     bytes.div_ceil(4)
 }
 
+/// Measures the exact selected list wire encoding, including its trailing newline.
+fn measure(result: &ListOutput, toon: bool) -> usize {
+    if toon {
+        crate::toon_output::render_output(result).len().div_ceil(4)
+    } else {
+        estimate(result, true)
+    }
+}
+
+/// Stabilizes a receipt in the requested wire encoding.
+fn update_output(result: &mut ListOutput, toon: bool) {
+    for _ in 0..8 {
+        let measured = measure(result, toon);
+        if result.value["read_output"]["estimated_tokens"] == measured {
+            break;
+        }
+        result.value["read_output"]["estimated_tokens"] = json!(measured);
+    }
+}
+
 /// Stabilizes a self-referential receipt estimate after changing output content.
 pub(crate) fn update(result: &mut ListOutput, key: &str, pretty: bool) {
     for _ in 0..8 {
@@ -261,7 +281,7 @@ fn receipt(options: &ListOptions, default_budget: bool) -> Value {
         json!({"contract_version":1,"command":"list","requested_dimensions":dimensions});
     if default_budget {
         receipt["budget_source"] = json!("default");
-        receipt["budget_tokens"] = json!(6000);
+        receipt["budget_tokens"] = json!(if options.toon { 4000 } else { 6000 });
     }
     receipt["precedence"] = json!(["canonical", "legacy", "intent", "default"]);
     if !canonical.is_empty() {
@@ -286,13 +306,16 @@ pub(crate) fn apply(
     mut result: ListOutput,
     options: &ListOptions,
 ) -> Result<ListOutput, PmRustError> {
+    if options.toon {
+        crate::toon_output::validate(&result)?;
+    }
     let amount = bound(options.output_limit.as_deref())?;
     let budget = if options.output_budget.is_some() {
         bound(options.output_budget.as_deref())?
     } else if options.full || options.no_truncate || options.token_budget.is_some() {
         None
     } else {
-        Some(6000)
+        Some(if options.toon { 4000 } else { 6000 })
     };
     let default_budget = options.output_budget.is_none() && budget.is_some();
     let original_rows = result["items"].clone();
@@ -310,7 +333,7 @@ pub(crate) fn apply(
     if cursor.is_none()
         && !amount_binds
         && !(options.full && (options.output_limit.is_some() || options.output_budget.is_some()))
-        && budget.is_none_or(|limit| estimate(&result, true) <= limit)
+        && budget.is_none_or(|limit| measure(&result, options.toon) <= limit)
     {
         return Ok(result);
     }
@@ -357,13 +380,13 @@ pub(crate) fn apply(
         result.value["count"] = json!(result["items"].as_array().map_or(0, Vec::len));
     }
     result.value["read_output"] = receipt(options, default_budget);
-    update(&mut result, "read_output", true);
+    update_output(&mut result, options.toon);
     if let Some(budget) = budget
-        && estimate(&result, true) > budget
+        && measure(&result, options.toon) > budget
     {
-        result = compact_budget(result, options, &state, budget, default_budget);
+        result = compact_budget(result, options, &state, budget, default_budget)?;
     }
-    update(&mut result, "read_output", true);
+    update_output(&mut result, options.toon);
     if result.get("context_intent").is_some() {
         crate::list_intent::stabilize(&mut result);
     }
@@ -424,8 +447,10 @@ fn compact_rows(
     source: &str,
     hints: &[String],
     measured: usize,
-    unbounded_amount: bool,
+    options: &ListOptions,
 ) {
+    let unbounded_amount = options.output_limit.as_deref() == Some("unbounded");
+    let toon = options.toon;
     for _ in 0..64 {
         finalize(
             &mut result.value,
@@ -436,8 +461,8 @@ fn compact_rows(
             measured,
             unbounded_amount,
         );
-        update(result, "read_output", true);
-        if estimate(result, true) <= budget {
+        update_output(result, toon);
+        if measure(result, toon) <= budget {
             break;
         }
         let mut candidates = Vec::new();
@@ -482,8 +507,8 @@ fn compact_rows(
                 measured,
                 unbounded_amount,
             );
-            update(result, "read_output", true);
-            if estimate(result, true) <= budget {
+            update_output(result, toon);
+            if measure(result, toon) <= budget {
                 retained = middle;
                 low = middle + 1;
             } else {
@@ -501,7 +526,7 @@ fn compact_rows(
         measured,
         unbounded_amount,
     );
-    update(result, "read_output", true);
+    update_output(result, toon);
 }
 
 /// Compacts content and discloses a snapshot-bound continuation or omission.
@@ -511,7 +536,7 @@ fn compact_budget(
     state: &Continuation,
     budget: usize,
     default_budget: bool,
-) -> ListOutput {
+) -> Result<ListOutput, PmRustError> {
     let hints = result["read_output"]["migration_hints"]
         .as_array()
         .into_iter()
@@ -519,15 +544,17 @@ fn compact_budget(
         .filter_map(Value::as_str)
         .map(str::to_owned)
         .collect::<Vec<_>>();
-    let measured = estimate(&result, true);
+    let measured = measure(&result, options.toon);
     let strings_compacted = compact_strings(&mut result.value, "", &mut result.cuts);
+    if options.toon {
+        crate::toon_output::validate(&result)?;
+    }
     result.value["read_output"]["strings_compacted"] = json!(strings_compacted);
     let source = if default_budget {
         "default"
     } else {
         "canonical"
     };
-    let unbounded_amount = options.output_limit.as_deref() == Some("unbounded");
     compact_rows(
         &mut result,
         state,
@@ -535,10 +562,10 @@ fn compact_budget(
         source,
         &hints,
         measured,
-        unbounded_amount,
+        options,
     );
-    if estimate(&result, true) > budget {
-        let omitted_estimate = estimate(&result, true);
+    if measure(&result, options.toon) > budget {
+        let omitted_estimate = measure(&result, options.toon);
         let mut minimal = receipt(options, default_budget);
         minimal["legacy_aliases_used"] = json!([]);
         minimal["migration_hints"] = json!([]);
@@ -549,7 +576,7 @@ fn compact_budget(
             json!({"output_budget_exceeded":{"omitted_result":true,"reason":"requested_budget_infeasible","restore_with":"Unbounded","recovery":{"outputBudget":"unbounded"}},"read_output":minimal}),
         );
     }
-    result
+    Ok(result)
 }
 
 #[cfg(test)]

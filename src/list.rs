@@ -39,6 +39,25 @@ pub(crate) fn read_unbounded(
     full_projection: bool,
     now: &str,
 ) -> Result<Value, PmRustError> {
+    read_selection(
+        workspace,
+        filters,
+        all,
+        full_projection,
+        now,
+        &ListOptions::default(),
+    )
+}
+
+/// Selects and orders complete documents before projection and page slicing.
+fn read_selection(
+    workspace: &Workspace,
+    filters: &ItemFilter,
+    all: bool,
+    full_projection: bool,
+    now: &str,
+    options: &ListOptions,
+) -> Result<Value, PmRustError> {
     for value in [&filters.status, &filters.item_type, &filters.id]
         .into_iter()
         .flatten()
@@ -63,46 +82,35 @@ pub(crate) fn read_unbounded(
     } else if let Some(status) = &filters.status {
         echo.insert("status".to_owned(), json!(status));
     }
+    if filters.status.as_deref() == Some("blocked") {
+        echo.insert("status".to_owned(), json!("all"));
+        echo.insert(
+            "blocked_semantics".to_owned(),
+            json!("status_or_dependency"),
+        );
+    }
     if let Some(item_type) = &filters.item_type {
         echo.insert("type".to_owned(), json!(item_type));
     }
     if let Some(id) = &filters.id {
         echo.insert("ids".to_owned(), json!(id));
     }
+    for (key, value) in [("tag", &options.tag), ("parent", &options.parent)] {
+        if let Some(value) = value {
+            echo.insert(key.to_owned(), json!(value));
+        }
+    }
     echo.insert("runtime_filters".to_owned(), json!({}));
-    let mut documents = workspace.read_items()?;
-    documents.retain(|document| {
-        let metadata = &document.metadata;
-        let status_matches = if include_terminal {
-            true
-        } else {
-            filters.status.as_ref().map_or_else(
-                || !terminal(&metadata.status),
-                |status| metadata.status == *status,
-            )
-        };
-        status_matches
-            && filters
-                .item_type
-                .as_ref()
-                .is_none_or(|kind| metadata.item_type.eq_ignore_ascii_case(kind))
-            && filters.id.as_ref().is_none_or(|id| metadata.id == *id)
-    });
-    documents.sort_by_cached_key(|document| {
-        let metadata = &document.metadata;
-        (
-            terminal(&metadata.status),
-            metadata.priority,
-            Reverse(timestamp_key(&metadata.updated_at)),
-            metadata.id.clone(),
-        )
-    });
+    let documents = workspace.read_items()?;
+    let warnings = unknown_tags(&documents, options.tag.as_deref());
+    let documents = select_documents(documents, filters, include_terminal, options);
     let items: Vec<Value> = documents.into_iter().map(|document| {
         let metadata = document.metadata;
         if full {
             {
                 let mut pairs = canonical_metadata_pairs(&metadata);
                 pairs.retain(|(key, _)| crate::history::canonical_rank(key).is_some());
+                pairs.sort_by_key(|(key, _)| read_rank(key));
                 pairs.extend(metadata.extra.into_iter().filter(|(key, _)| crate::history::canonical_rank(key).is_none()));
                 Value::Object(pairs.into_iter().collect())
             }
@@ -120,14 +128,24 @@ pub(crate) fn read_unbounded(
     } else {
         vec![json!({"name":"full_item_fields", "restore_with":"--full"})]
     };
-    Ok(json!({
+    let mut result = json!({
         "items": items, "count": items.len(), "total": items.len(),
         "has_more": false, "truncated": false, "next_cursor": null,
         "completeness": {"status":"complete", "unreadable_item_count":0, "unreadable_directory_count":0},
         "filters": echo, "projection": projection,
-        "sorting": {"sort":"default", "order":"asc"}, "now":now,
+        "sorting": {"sort":options.sort.as_deref().unwrap_or("default"), "order":options.order.as_deref().unwrap_or("asc")}, "now":now,
         "omission_receipt": {"has_omissions":!omissions.is_empty(), "omitted_field_group_count":omissions.len(), "omitted_field_groups":omissions}
-    }))
+    });
+    if !warnings.is_empty() {
+        let omission = result
+            .as_object_mut()
+            .and_then(|fields| fields.shift_remove("omission_receipt"))
+            .unwrap_or_default();
+        result["warnings"] = json!(warnings);
+        result["omission_receipt"] = omission;
+    }
+    crate::json_output::normalize_read_numbers(&mut result);
+    Ok(result)
 }
 
 #[cfg(test)]
@@ -142,6 +160,16 @@ mod tests;
 #[allow(clippy::struct_excessive_bools)]
 #[derive(Clone, Debug, Default)]
 pub struct ListOptions {
+    /// Exact parent identity, including built-in hierarchy dependency edges.
+    pub parent: Option<String>,
+    /// Case-insensitive comma-separated tags, matching any requested tag.
+    pub tag: Option<String>,
+    /// Published field ordering, normalized from its CLI spelling.
+    pub sort: Option<String>,
+    /// Ascending or descending ordering; requires `sort`.
+    pub order: Option<String>,
+    /// Measure and render TOON rather than pretty JSON.
+    pub toon: bool,
     /// Include terminal statuses and use the full default projection.
     pub all: bool,
     /// Explicitly restore complete metadata and disclose legacy alias use.
@@ -201,6 +229,7 @@ fn cursor_fingerprint(
     workspace: &Workspace,
     filters: &ItemFilter,
     options: &ListOptions,
+    requested: &ListOptions,
 ) -> String {
     let mut semantic = json!({"comments":true,"dependencyBlocked":false,"deps":true,"docs":true,"files":true,"learnings":true,"linkedCommand":true,"notes":true,"tests":true,"truncate":!options.no_truncate});
     let status = filters.status.as_deref();
@@ -208,7 +237,7 @@ fn cursor_fingerprint(
     let name = if variant {
         "list-all".to_owned()
     } else if let Some(status) = status {
-        format!("list-{status}")
+        format!("list-{}", status.replace('_', "-"))
     } else {
         "list".to_owned()
     };
@@ -234,8 +263,18 @@ fn cursor_fingerprint(
     if let Some(value) = &options.intent {
         semantic["for"] = json!(value);
     }
+    for (key, value) in [
+        ("parent", &options.parent),
+        ("tag", &options.tag),
+        ("sort", &requested.sort),
+        ("order", &requested.order),
+    ] {
+        if let Some(value) = value {
+            semantic[key] = json!(value);
+        }
+    }
     crate::pagination::fingerprint(
-        &json!({"pmRoot":crate::pagination::query_root(&workspace.query_pm_root().to_string_lossy()), "status":if variant {json!("all")} else {json!(status)}, "options":semantic,"sort":"default","order":"asc","tree":false,"tree_depth":null}),
+        &json!({"pmRoot":crate::pagination::query_root(&workspace.query_pm_root().to_string_lossy()), "status":if variant || status == Some("blocked") {json!("all")} else {json!(status)}, "options":semantic,"sort":options.sort.as_deref().unwrap_or("default"),"order":options.order.as_deref().unwrap_or("asc"),"tree":false,"tree_depth":null}),
     )
 }
 
@@ -258,13 +297,17 @@ pub(crate) fn read_page(
     }
     let requested = options;
     let mut options = options.clone();
+    normalize_ordering(&mut options)?;
     let intent_budget = crate::list_intent::prepare(&mut options)?;
-    let mut result = read_unbounded(
+    let mut result = read_selection(
         workspace,
         filters,
         options.all,
-        options.full || intent_budget.is_some(),
+        options.full
+            || intent_budget.is_some()
+            || matches!(filters.status.as_deref(), Some("draft" | "canceled")),
         now,
+        &options,
     )?;
     if options.brief {
         result["items"] = json!(result["items"].as_array().into_iter().flatten().map(|row| json!({"id":row["id"],"status":row["status"],"type":row["type"],"title":row["title"]})).collect::<Vec<_>>());
@@ -273,7 +316,7 @@ pub(crate) fn read_page(
     } else if intent_budget.is_some() && !options.full {
         crate::list_intent::project(&mut result);
     }
-    let fingerprint = cursor_fingerprint(workspace, filters, &options);
+    let fingerprint = cursor_fingerprint(workspace, filters, &options, requested);
     let (page, legacy_cursor) = page_envelope(result, &options, &fingerprint)?;
     result = page;
     let mut echo = result["filters"].as_object().cloned().unwrap_or_default();
@@ -294,6 +337,13 @@ pub(crate) fn read_page(
     }
     if options.no_truncate {
         echo.insert("no_truncate".to_owned(), json!(true));
+    }
+    if let Some(sort) = &options.sort {
+        echo.insert("sort".to_owned(), json!(sort));
+        echo.insert(
+            "order".to_owned(),
+            json!(options.order.as_deref().unwrap_or("asc")),
+        );
     }
     echo.insert("runtime_filters".to_owned(), json!({}));
     result["filters"] = Value::Object(echo);
@@ -412,10 +462,230 @@ fn page_envelope(
         "projection",
         "sorting",
         "now",
+        "warnings",
         "omission_receipt",
     ] {
-        ordered.insert(key.to_owned(), result[key].clone());
+        if let Some(value) = result.get(key) {
+            ordered.insert(key.to_owned(), value.clone());
+        }
     }
     result = Value::Object(ordered);
     Ok((result, legacy_cursor))
+}
+
+/// Normalizes published sort aliases without changing raw cursor semantic options.
+fn normalize_ordering(options: &mut ListOptions) -> Result<(), PmRustError> {
+    if let Some(sort) = &mut options.sort {
+        *sort = match sort.trim().to_lowercase().as_str() {
+            "updated" | "update" | "modified" => "updated_at".to_owned(),
+            "created" | "create" => "created_at".to_owned(),
+            "priority" | "deadline" | "updated_at" | "created_at" | "title" | "parent" => sort.trim().to_lowercase(),
+            _ => return Err(PmRustError::InvalidReadRequest { reason: "Sort field must be one of priority|deadline|updated_at|created_at|title|parent (aliases: updated->updated_at, created->created_at)".to_owned() }),
+        };
+    }
+    if let Some(order) = &mut options.order {
+        if options.sort.is_none() {
+            return Err(PmRustError::InvalidReadRequest {
+                reason: "List --order requires --sort".to_owned(),
+            });
+        }
+        *order = order.trim().to_lowercase();
+        if !matches!(order.as_str(), "asc" | "desc") {
+            return Err(PmRustError::InvalidReadRequest {
+                reason: "Sort order must be one of asc|desc".to_owned(),
+            });
+        }
+    }
+    Ok(())
+}
+
+/// Orders optional fields after present values in the ascending direction.
+fn nullable(left: Option<&str>, right: Option<&str>, timestamp: bool) -> std::cmp::Ordering {
+    match (left, right) {
+        (Some(left), Some(right)) => {
+            if timestamp {
+                timestamp_key(left).cmp(&timestamp_key(right))
+            } else {
+                crate::collation::compare(left, right)
+            }
+        }
+        (None, None) => std::cmp::Ordering::Equal,
+        (None, Some(_)) => std::cmp::Ordering::Greater,
+        (Some(_), None) => std::cmp::Ordering::Less,
+    }
+}
+
+/// Compares a supported explicit field before the default ordering fallback.
+fn compare_field(
+    left: &crate::ItemMetadata,
+    right: &crate::ItemMetadata,
+    field: &str,
+) -> std::cmp::Ordering {
+    match field {
+        "priority" => left.priority.cmp(&right.priority),
+        "deadline" => nullable(
+            left.extra.get("deadline").and_then(Value::as_str),
+            right.extra.get("deadline").and_then(Value::as_str),
+            true,
+        ),
+        "updated_at" => timestamp_key(&left.updated_at).cmp(&timestamp_key(&right.updated_at)),
+        "created_at" => timestamp_key(&left.created_at).cmp(&timestamp_key(&right.created_at)),
+        "title" => crate::collation::compare(&left.title, &right.title),
+        _ => nullable(left.parent.as_deref(), right.parent.as_deref(), false),
+    }
+}
+
+/// Collects scalar parents and the canonical built-in parent/child dependency kinds.
+fn parent_relations(
+    documents: &[crate::ItemDocument],
+) -> std::collections::BTreeMap<String, std::collections::BTreeSet<String>> {
+    let mut parents =
+        std::collections::BTreeMap::<String, std::collections::BTreeSet<String>>::new();
+    let identities: std::collections::BTreeSet<_> = documents
+        .iter()
+        .map(|document| document.metadata.id.to_lowercase())
+        .collect();
+    for document in documents {
+        let item = &document.metadata;
+        if let Some(parent) = &item.parent {
+            parents
+                .entry(item.id.clone())
+                .or_default()
+                .insert(parent.trim().to_lowercase());
+        }
+        for dependency in item
+            .extra
+            .get("dependencies")
+            .and_then(Value::as_array)
+            .into_iter()
+            .flatten()
+        {
+            if let Some(id) = dependency["id"]
+                .as_str()
+                .filter(|id| identities.contains(&id.trim().to_lowercase()))
+            {
+                let (child, parent) = match dependency["kind"].as_str() {
+                    Some("parent" | "child_of" | "epic") => {
+                        (item.id.clone(), id.trim().to_lowercase())
+                    }
+                    Some("child" | "parent_child" | "task") => {
+                        (id.trim().to_lowercase(), item.id.clone())
+                    }
+                    _ => continue,
+                };
+                parents.entry(child).or_default().insert(parent);
+            }
+        }
+    }
+    parents
+}
+
+/// Applies selection and stable sorting to validated complete item documents.
+fn select_documents(
+    mut documents: Vec<crate::ItemDocument>,
+    filters: &ItemFilter,
+    include_terminal: bool,
+    options: &ListOptions,
+) -> Vec<crate::ItemDocument> {
+    let parents = parent_relations(&documents);
+    let blocked = crate::selection::dependency_blocked_ids(&documents);
+    documents.retain(|document| {
+        let metadata = &document.metadata;
+        let status_matches = if filters.status.as_deref() == Some("blocked") {
+            blocked.contains(&metadata.id)
+        } else if include_terminal {
+            true
+        } else {
+            filters.status.as_ref().map_or_else(
+                || !terminal(&metadata.status),
+                |status| metadata.status == *status,
+            )
+        };
+        status_matches
+            && filters
+                .item_type
+                .as_ref()
+                .is_none_or(|kind| metadata.item_type.eq_ignore_ascii_case(kind))
+            && filters.id.as_ref().is_none_or(|id| metadata.id == *id)
+            && options.tag.as_ref().is_none_or(|raw| {
+                raw.split(',').any(|tag| {
+                    metadata.tags.iter().any(|candidate| {
+                        candidate.trim().to_lowercase() == tag.trim().to_lowercase()
+                    })
+                })
+            })
+            && options.parent.as_ref().is_none_or(|parent| {
+                parents
+                    .get(&metadata.id)
+                    .is_some_and(|ids| ids.contains(&parent.trim().to_lowercase()))
+            })
+    });
+    documents.sort_by_cached_key(|document| {
+        let metadata = &document.metadata;
+        (
+            terminal(&metadata.status),
+            metadata.priority,
+            Reverse(timestamp_key(&metadata.updated_at)),
+            metadata.id.clone(),
+        )
+    });
+    if let Some(field) = &options.sort {
+        // Stable sorting retains the cached default order for equal field values.
+        documents.sort_by(|left, right| compare_field(&left.metadata, &right.metadata, field));
+        if options.order.as_deref() == Some("desc") {
+            documents.reverse();
+        }
+    }
+    documents
+}
+
+/// Discloses requested tags absent from the whole corpus before applying filters.
+fn unknown_tags(documents: &[crate::ItemDocument], raw: Option<&str>) -> Vec<String> {
+    let known: std::collections::BTreeSet<_> = documents
+        .iter()
+        .flat_map(|document| {
+            document
+                .metadata
+                .tags
+                .iter()
+                .map(|tag| tag.trim().to_lowercase())
+        })
+        .collect();
+    let mut unknown = Vec::new();
+    for tag in raw
+        .into_iter()
+        .flat_map(|raw| raw.split(','))
+        .map(|tag| tag.trim().to_lowercase())
+    {
+        if !known.contains(&tag) && !unknown.contains(&tag) {
+            unknown.push(tag);
+        }
+    }
+    if unknown.is_empty() {
+        vec![]
+    } else {
+        vec![format!("unknown_tags:{}", unknown.join(","))]
+    }
+}
+
+/// Keeps read-normalization collection order separate from canonical storage order.
+fn read_rank(key: &str) -> usize {
+    const COLLECTIONS: [&str; 8] = [
+        "dependencies",
+        "comments",
+        "notes",
+        "learnings",
+        "files",
+        "tests",
+        "test_runs",
+        "docs",
+    ];
+    let rank = crate::history::canonical_rank(key).unwrap_or(usize::MAX);
+    if rank <= 11 {
+        rank
+    } else if let Some(index) = COLLECTIONS.iter().position(|candidate| *candidate == key) {
+        12 + index
+    } else {
+        rank.saturating_add(COLLECTIONS.len())
+    }
 }

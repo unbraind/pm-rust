@@ -4,6 +4,7 @@ use pm_rust::{ItemFilter, ListOptions, Workspace};
 use proptest::prelude::*;
 use serde_json::Value;
 use std::{
+    fmt::Write as _,
     fs,
     path::Path,
     process::{Command, Output},
@@ -76,6 +77,27 @@ fn compare_controls(
     expected_success: bool,
     equals_controls: bool,
 ) -> Result<Value, Box<dyn std::error::Error>> {
+    let native = compare_outputs(directory, flags, expected_success, equals_controls)?;
+    Ok(serde_json::from_slice(if native.stdout.is_empty() {
+        &native.stderr
+    } else {
+        &native.stdout
+    })?)
+}
+
+/// Compares bytes without asking Rust's JSON decoder to accept unpaired UTF-16 escapes.
+fn compare_bytes_only(directory: &Path, flags: &[&str], expected_success: bool) -> TestResult {
+    compare_outputs(directory, flags, expected_success, false)?;
+    Ok(())
+}
+
+/// Runs both real CLIs and checks status and unmodified stdout/stderr before decoding.
+fn compare_outputs(
+    directory: &Path,
+    flags: &[&str],
+    expected_success: bool,
+    equals_controls: bool,
+) -> Result<Output, Box<dyn std::error::Error>> {
     let mut native = Command::new(env!("CARGO_BIN_EXE_pm-rust"));
     if equals_controls {
         native.args(["--workspace=.", "list", &format!("--timestamp={CLOCK}")]);
@@ -111,11 +133,7 @@ fn compare_controls(
         );
         assert_bytes(&native, &published, flags);
     }
-    Ok(serde_json::from_slice(if native.stdout.is_empty() {
-        &native.stderr
-    } else {
-        &native.stdout
-    })?)
+    Ok(native)
 }
 
 /// Combined ceilings bind the uncapped snapshot and accept an unchanged replay.
@@ -280,7 +298,7 @@ fn assert_bytes(native: &Output, published: &Output, flags: &[&str]) {
             .unwrap_or(left.len().min(right.len()));
         assert!(
             left == right,
-            "JSON {label} {flags:?} differs at byte {offset}: native {} oracle {}",
+            "wire {label} {flags:?} differs at byte {offset}: native {} oracle {}",
             String::from_utf8_lossy(
                 &left[offset.saturating_sub(100)..left.len().min(offset + 400)]
             ),
@@ -646,10 +664,14 @@ fn output_limit_producer_pages_are_complete_and_byte_identical() -> TestResult {
 /// Walking output-budget continuations retains every row without repetition.
 #[test]
 fn output_budget_pages_are_complete_and_byte_identical() -> TestResult {
-    let directory = fixture(200, 0)?;
-    let mut page = compare(directory.path(), &["--output-budget", "1500"], true)?;
+    let directory = mixed_fixture()?;
+    let mut page = compare(
+        directory.path(),
+        &["--all", "--brief", "--output-budget", "1500"],
+        true,
+    )?;
     let mut seen = std::collections::BTreeSet::new();
-    for _ in 0..200 {
+    for _ in 0..270 {
         for row in page["items"].as_array().ok_or("missing output page rows")? {
             assert!(seen.insert(row["id"].as_str().ok_or("missing row ID")?.to_owned()));
         }
@@ -658,11 +680,18 @@ fn output_budget_pages_are_complete_and_byte_identical() -> TestResult {
         };
         page = compare(
             directory.path(),
-            &["--output-budget", "1500", "--output-cursor", cursor],
+            &[
+                "--all",
+                "--brief",
+                "--output-budget",
+                "1500",
+                "--output-cursor",
+                cursor,
+            ],
             true,
         )?;
     }
-    assert_eq!(seen, (0..200).map(|i| format!("demo-{i:04}")).collect());
+    assert_eq!(seen, (0..270).map(|i| format!("demo-{i:04}")).collect());
     Ok(())
 }
 
@@ -961,5 +990,392 @@ fn legacy_cursor_fingerprint_matches_published() -> TestResult {
             "opaque_cursor"
         );
     }
+    Ok(())
+}
+
+/// Creates 270 items spanning every built-in status, tied orders and hierarchy edges.
+fn mixed_fixture() -> Result<tempfile::TempDir, Box<dyn std::error::Error>> {
+    let directory = fixture(270, 0)?;
+    let statuses = [
+        "draft",
+        "open",
+        "in_progress",
+        "blocked",
+        "closed",
+        "canceled",
+    ];
+    for index in 0..270 {
+        let path = directory
+            .path()
+            .join(format!(".agents/pm/tasks/demo-{index:04}.toon"));
+        let mut text = fs::read_to_string(&path)?;
+        text = text.replace("status: open", &format!("status: {}", statuses[index % 6]));
+        if index % 3 == 0 {
+            text = text.replace("type: Task", "type: Issue");
+        }
+        text = text.replace(
+            "tags: []",
+            &format!(
+                "tags[2]: {},shared",
+                if (index / statuses.len()).is_multiple_of(2) {
+                    "alpha"
+                } else {
+                    "beta"
+                }
+            ),
+        );
+
+        let extras = match index % 4 {
+            0 => "parent: demo-0000\n",
+            1 => "dependencies[1]{id,kind}:\n  demo-0000,parent\n",
+            2 => "parent: demo-0001\n",
+            _ => "",
+        };
+        text.push_str(extras);
+        if index % 12 == 2 {
+            text.push_str("blocked_by: demo-0000\n");
+        }
+        if index == 0 {
+            text.push_str("dependencies[1]{id,kind}:\n  demo-0001,blocks\n");
+        }
+        if index % 3 != 0 {
+            writeln!(
+                text,
+                "deadline: \"2026-10-{:02}T00:00:00.000Z\"",
+                index % 28 + 1
+            )?;
+        }
+        fs::write(path, text)?;
+    }
+    Ok(directory)
+}
+
+/// Compares complete TOON stdout, stderr and exit code, then decodes delivered rows.
+fn compare_toon(directory: &Path, flags: &[&str], success: bool) -> TestResultValue {
+    let native = Command::new(env!("CARGO_BIN_EXE_pm-rust"))
+        .args(["list", "--timestamp", CLOCK])
+        .args(flags)
+        .current_dir(directory)
+        .env_remove("PM_PATH")
+        .output()?;
+    assert_eq!(
+        native.status.success(),
+        success,
+        "{flags:?}: {}",
+        String::from_utf8_lossy(&native.stderr)
+    );
+    if directory.join("driver.mjs").is_file() {
+        let published = Command::new(
+            std::env::var("PM_NODE_INTERPRETER").unwrap_or_else(|_| "node".to_owned()),
+        )
+        .arg(directory.join("driver.mjs"))
+        .arg("list")
+        .args(flags)
+        .current_dir(directory)
+        .env_remove("PM_PATH")
+        .output()?;
+        assert_eq!(
+            native.status.code(),
+            published.status.code(),
+            "{flags:?}: oracle {}",
+            String::from_utf8_lossy(&published.stderr)
+        );
+        assert_bytes(&native, &published, flags);
+    }
+    if !success {
+        return Ok(Value::Null);
+    }
+    Ok(toon_format::decode_default(std::str::from_utf8(
+        &native.stdout,
+    )?)?)
+}
+
+/// Decoded differential output with an owned error channel.
+type TestResultValue = Result<Value, Box<dyn std::error::Error>>;
+
+/// Mixed-status producer walks compare both wire encodings with no skipped or repeated ID.
+#[test]
+fn mixed_status_filtered_walks_match_both_wire_encodings() -> TestResult {
+    let directory = mixed_fixture()?;
+    let mut cases = vec![
+        vec![],
+        vec!["--all", "--brief"],
+        vec!["--type", "Issue"],
+        vec!["--parent", "demo-0000"],
+        vec!["--tag", "ALPHA"],
+        vec![
+            "--status",
+            "in_progress",
+            "--type",
+            "Task",
+            "--parent",
+            "demo-0000",
+            "--tag",
+            "beta",
+        ],
+    ];
+    for status in [
+        "draft",
+        "open",
+        "in_progress",
+        "blocked",
+        "closed",
+        "canceled",
+    ] {
+        cases.insert(0, vec!["--status", status]);
+    }
+    for sort in [
+        "priority",
+        "deadline",
+        "updated_at",
+        "created_at",
+        "title",
+        "parent",
+        "updated",
+        "created",
+    ] {
+        for order in ["asc", "desc"] {
+            cases.push(vec![
+                "--all", "--brief", "--sort", sort, "--order", order, "--tag", "shared",
+            ]);
+        }
+    }
+    cases.insert(0, vec!["--tag", "missing,alpha,missing"]);
+    for selection in cases {
+        let mut full_flags = selection.clone();
+        full_flags.extend([
+            "--output-budget",
+            "unbounded",
+            "--output-limit",
+            "unbounded",
+        ]);
+        let full = compare(directory.path(), &full_flags, true)?;
+        let expected: Vec<_> = full["items"]
+            .as_array()
+            .ok_or("full rows")?
+            .iter()
+            .map(|row| row["id"].clone())
+            .collect();
+        if selection.contains(&"--parent") && selection.contains(&"--status") {
+            assert!(expected.len() > 1, "combined filters must walk actual rows");
+        }
+        let limit = expected.len().div_ceil(2).max(1).to_string();
+        for toon in [false, true] {
+            let mut seen = std::collections::BTreeSet::new();
+            let mut delivered = Vec::new();
+            let mut after = None::<String>;
+            for _ in 0..=270 {
+                let mut flags = selection.clone();
+                flags.extend(["--limit", &limit, "--output-budget", "unbounded"]);
+                if let Some(after) = &after {
+                    flags.extend(["--after", after]);
+                }
+                let page = if toon {
+                    compare_toon(directory.path(), &flags, true)?
+                } else {
+                    compare(directory.path(), &flags, true)?
+                };
+                if let Some(rows) = page["items"].as_array() {
+                    for row in rows {
+                        assert!(seen.insert(row["id"].clone().to_string()), "duplicate row");
+                        delivered.push(row["id"].clone());
+                    }
+                }
+                after = page["next_cursor"].as_str().map(str::to_owned);
+                if after.is_none() {
+                    break;
+                }
+            }
+            assert_eq!(delivered, expected, "{selection:?} toon={toon}");
+        }
+    }
+    Ok(())
+}
+
+/// TOON defaults, budget receipts, infeasible budgets and continuation snapshots match bytes.
+#[test]
+fn toon_budget_envelopes_and_snapshot_walks_match() -> TestResult {
+    let directory = mixed_fixture()?;
+    for flags in [
+        vec![],
+        vec!["--all", "--limit", "7"],
+        vec!["--status", "closed", "--limit", "3"],
+        vec!["--output-budget", "1"],
+        vec!["--output-limit", "3", "--output-budget", "unbounded"],
+        vec!["--full", "--limit", "3", "--output-budget", "2000"],
+        vec!["--for", "triage", "--token-budget", "1000"],
+    ] {
+        compare_toon(directory.path(), &flags, flags != ["--output-budget", "1"])?;
+    }
+    let verbose = fixture(270, 400)?;
+    for flags in [
+        vec![],
+        vec!["--output-budget", "1500"],
+        vec!["--for", "triage", "--token-budget", "1000"],
+        vec!["--output-budget", "1500", "--output-limit", "unbounded"],
+    ] {
+        compare_toon(verbose.path(), &flags, true)?;
+    }
+    for prefix in ["x".repeat(239), format!("a,{}", "x".repeat(237))] {
+        for index in 0..270 {
+            let path = verbose
+                .path()
+                .join(format!(".agents/pm/tasks/demo-{index:04}.toon"));
+            let text = fs::read_to_string(&path)?;
+            let title = serde_json::to_string(&format!("{prefix}😀{}", "y".repeat(300)))?;
+            let mut lines: Vec<_> = text.lines().map(str::to_owned).collect();
+            lines[1] = format!("title: {title}");
+            lines.retain(|line| !line.starts_with("risk:"));
+            lines.push("risk: 1e21".to_owned());
+            lines.retain(|line| !line.starts_with("numeric_payload"));
+            lines.push(
+                "numeric_payload[4]: 9007199254740993,-9007199254740993,18446744073709551615,1.5"
+                    .to_owned(),
+            );
+            fs::write(path, format!("{}\n", lines.join("\n")))?;
+        }
+        compare(
+            verbose.path(),
+            &["--full", "--limit", "3", "--output-budget", "unbounded"],
+            true,
+        )?;
+        compare_bytes_only(verbose.path(), &["--full", "--output-budget", "1500"], true)?;
+        compare_toon(verbose.path(), &["--output-budget", "1500"], false)?;
+        compare_toon(
+            verbose.path(),
+            &["--for", "triage", "--token-budget", "1000"],
+            false,
+        )?;
+        compare_toon(
+            verbose.path(),
+            &["--full", "--limit", "3", "--output-budget", "unbounded"],
+            true,
+        )?;
+    }
+    let full = compare(
+        directory.path(),
+        &["--all", "--brief", "--output-budget", "unbounded"],
+        true,
+    )?;
+    let expected: Vec<_> = full["items"]
+        .as_array()
+        .ok_or("rows")?
+        .iter()
+        .map(|row| row["id"].clone())
+        .collect();
+    let mut delivered = Vec::new();
+    let mut seen = std::collections::BTreeSet::new();
+    let mut cursor = None::<String>;
+    for _ in 0..270 {
+        let mut flags = vec!["--all", "--brief", "--output-budget", "1000"];
+        if let Some(cursor) = &cursor {
+            flags.extend(["--output-cursor", cursor]);
+        }
+        let page = compare_toon(directory.path(), &flags, true)?;
+        for row in page["items"].as_array().ok_or("rows")? {
+            assert!(seen.insert(row["id"].to_string()));
+            delivered.push(row["id"].clone());
+        }
+        cursor = page["next_cursor"].as_str().map(str::to_owned);
+        if cursor.is_none() {
+            break;
+        }
+    }
+    assert_eq!(delivered, expected);
+    Ok(())
+}
+
+/// Query and snapshot refusals preserve complete diagnostic bytes and exit code two.
+#[test]
+fn mixed_tracker_cursor_refusals_and_native_cursor_alias() -> TestResult {
+    use base64::{Engine as _, engine::general_purpose::URL_SAFE_NO_PAD};
+    let directory = mixed_fixture()?;
+    let other = mixed_fixture()?;
+    let first = compare(
+        directory.path(),
+        &["--limit", "53", "--output-budget", "unbounded"],
+        true,
+    )?;
+    let raw = first["next_cursor"].as_str().ok_or("cursor")?;
+    let aliased = Command::new(env!("CARGO_BIN_EXE_pm-rust"))
+        .args([
+            "list",
+            "--json",
+            "--timestamp",
+            CLOCK,
+            "--limit",
+            "53",
+            "--output-budget",
+            "unbounded",
+            "--cursor",
+            raw,
+        ])
+        .current_dir(directory.path())
+        .env_remove("PM_PATH")
+        .output()?;
+    assert!(aliased.status.success());
+    assert_eq!(
+        serde_json::from_slice::<Value>(&aliased.stdout)?,
+        compare(
+            directory.path(),
+            &[
+                "--limit",
+                "53",
+                "--output-budget",
+                "unbounded",
+                "--after",
+                raw
+            ],
+            true
+        )?
+    );
+    compare(other.path(), &["--after", raw], false)?;
+    compare_toon(other.path(), &["--after", raw], false)?;
+    for flags in [
+        vec!["--tag", "alpha"],
+        vec!["--parent", "demo-0000"],
+        vec!["--sort", "priority"],
+        vec!["--status", "closed"],
+        vec!["--type", "Issue"],
+    ] {
+        let mut flags = flags;
+        flags.extend(["--after", raw]);
+        compare(directory.path(), &flags, false)?;
+    }
+    for raw in ["%%%", "a", "e30", "bnVsbA"] {
+        compare_toon(directory.path(), &["--after", raw], false)?;
+        compare(directory.path(), &["--after", raw], false)?;
+    }
+    let mut wrong: Value = serde_json::from_slice(&URL_SAFE_NO_PAD.decode(raw)?)?;
+    wrong["version"] = serde_json::json!(2);
+    compare(
+        directory.path(),
+        &["--after", &URL_SAFE_NO_PAD.encode(wrong.to_string())],
+        false,
+    )?;
+    let first = compare(directory.path(), &["--output-budget", "1500"], true)?;
+    let cursor = first["next_cursor"].as_str().ok_or("snapshot cursor")?;
+    let path = directory.path().join(".agents/pm/tasks/demo-0001.toon");
+    fs::write(
+        &path,
+        fs::read_to_string(&path)?.replace("demo-0001\"", "edited row\""),
+    )?;
+    let refusal = compare(
+        directory.path(),
+        &["--output-budget", "1500", "--output-cursor", cursor],
+        false,
+    )?;
+    assert_eq!(refusal["code"], "read_output_cursor_stale");
+    compare_toon(
+        directory.path(),
+        &["--output-budget", "1500", "--output-cursor", cursor],
+        false,
+    )?;
+    // Identity cursors intentionally tolerate edits, matching the pinned oracle.
+    compare(
+        directory.path(),
+        &["--after", raw, "--output-budget", "unbounded"],
+        true,
+    )?;
     Ok(())
 }

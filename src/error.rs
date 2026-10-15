@@ -6,6 +6,12 @@ use std::path::PathBuf;
 /// Failures returned by the Rust-native read surface.
 #[derive(Debug, thiserror::Error)]
 pub enum PmRustError {
+    /// The pinned TOON codec refuses a split UTF-16 surrogate during budgeting.
+    #[error("{detail}")]
+    ToonEncoding {
+        /// Exact published encoding failure without an error envelope.
+        detail: String,
+    },
     /// Published command failure with a preserved exit code and recovery context.
     #[error("{detail}")]
     CommandRefusal {
