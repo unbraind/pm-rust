@@ -1260,7 +1260,7 @@ fn stale_session_lock_refusal_matches_published_policy() -> Result<(), Box<dyn s
             workspace.release_with_options(&request, &pm_rust::OwnershipOptions::default())
         };
         assert!(
-            matches!(result, Err(pm_rust::PmRustError::LockConflict { id }) if id == "session-state")
+            matches!(result, Err(pm_rust::PmRustError::CommandRefusal { detail, exit_code: 4, context }) if detail == refusal["detail"].as_str().unwrap_or_default() && context == refusal["context"])
         );
         for root in [fixture.node.path(), fixture.rust.path()] {
             assert_eq!(
@@ -1505,11 +1505,10 @@ fn failed_start_semantic_recording_retains_oracle_claim_error()
     assert_eq!(envelope["code"], "command_failed");
     assert!(envelope.get("item_id").is_none());
     assert!(!String::from_utf8(cli.stderr)?.contains("Inspect the persisted state"));
-    // The existing stale-lock diagnostic difference is tracked in pm-rust-sldg.
-    // Preserve the raw claim error instead of inventing lifecycle recovery context.
+    // Preserve the claim error instead of inventing lifecycle recovery context.
     assert!(matches!(
         workspace.start_task(&request, &pm_rust::OwnershipOptions::default()),
-        Err(pm_rust::PmRustError::LockConflict { id }) if id == "session-state"
+        Err(pm_rust::PmRustError::CommandRefusal { detail, exit_code: 4, context }) if detail == envelope["detail"].as_str().unwrap_or_default() && context == serde_json::json!({})
     ));
     fixture.compare_bytes()?;
     let item = workspace.get("sample-own")?;
@@ -1526,5 +1525,197 @@ fn failed_start_semantic_recording_retains_oracle_claim_error()
         assert!(!root.join(".agents/pm/runtime/session.json").exists());
     }
     fixture.verify()?;
+    Ok(())
+}
+
+/// Expired derived-state locks retain exact CLI diagnostics after durable writes.
+#[test]
+fn stale_session_lock_json_matches_published_bytes() -> Result<(), Box<dyn std::error::Error>> {
+    for action in ["claim", "release", "start-task", "pause-task"] {
+        let Some(fixture) = Fixture::new("none")? else {
+            return Ok(());
+        };
+        let lock = r#"{"id":"session-state","pid":1,"token":"session-fixture","ttl_seconds":1800,"created_at":"2000-01-01T00:00:00.000Z","owner":"session-state"}"#;
+        for root in [fixture.node.path(), fixture.rust.path()] {
+            fs::write(root.join(".agents/pm/locks/session-state.lock"), lock)?;
+        }
+        fixture.step(&[action, "sample-own", "--author", "alpha", "--json"])?;
+    }
+    Ok(())
+}
+
+/// Cyclic containers include the active node reached again through a parent cycle.
+#[test]
+fn cyclic_parent_readiness_matches_published() -> Result<(), Box<dyn std::error::Error>> {
+    for statuses in [
+        vec!["open"],
+        vec!["open", "closed"],
+        vec!["open", "open"],
+        vec!["closed", "closed"],
+    ] {
+        let Some(fixture) = Fixture::new("none")? else {
+            return Ok(());
+        };
+        if statuses.len() > 1 {
+            prepare(
+                &fixture,
+                &[
+                    "create",
+                    "--id",
+                    "sample-other",
+                    "--title",
+                    "Cycle",
+                    "--type",
+                    "Task",
+                    "--author",
+                    "alpha",
+                ],
+            )?;
+        }
+        for root in [fixture.node.path(), fixture.rust.path()] {
+            for (index, status) in statuses.iter().enumerate() {
+                let id = if index == 0 {
+                    "sample-own"
+                } else {
+                    "sample-other"
+                };
+                let parent = if statuses.len() == 1 || index == 1 {
+                    "sample-own"
+                } else {
+                    "sample-other"
+                };
+                let path = root.join(format!(".agents/pm/tasks/{id}.toon"));
+                let bytes = fs::read_to_string(&path)?
+                    .replace("status: open", &format!("status: {status}"));
+                fs::write(path, format!("{bytes}parent: {parent}\n"))?;
+            }
+        }
+        fixture.step(&["claim", "--next", "--author", "alpha", "--json"])?;
+        fixture.step(&[
+            "claim",
+            "--next",
+            "--include-containers",
+            "--if-available",
+            "--author",
+            "alpha",
+            "--json",
+        ])?;
+    }
+    Ok(())
+}
+
+/// Semantic lineage stops at sixteen resolved items, missing ancestors and cycles.
+#[test]
+fn lineage_cap_and_unresolved_stop_match_published() -> Result<(), Box<dyn std::error::Error>> {
+    for shape in ["deep", "missing", "cycle"] {
+        let Some(fixture) = Fixture::new("none")? else {
+            return Ok(());
+        };
+        for level in 0..19 {
+            let id = format!("sample-l{level:02}");
+            prepare(
+                &fixture,
+                &[
+                    "create", "--id", &id, "--title", "Lineage", "--type", "Task", "--author",
+                    "alpha",
+                ],
+            )?;
+            for root in [fixture.node.path(), fixture.rust.path()] {
+                let path = root.join(format!(".agents/pm/tasks/{id}.toon"));
+                let parent = if level > 0 {
+                    format!("sample-l{:02}", level - 1)
+                } else if shape == "cycle" {
+                    "sample-l18".to_owned()
+                } else {
+                    "sample-missing".to_owned()
+                };
+                let bytes = fs::read_to_string(&path)?;
+                fs::write(path, format!("{bytes}parent: {parent}\n"))?;
+            }
+        }
+        let id = if shape == "missing" {
+            "sample-l01"
+        } else {
+            "sample-l18"
+        };
+        fixture.step(&["claim", id, "--author", "alpha", "--json"])?;
+        fixture.step(&["release", id, "--author", "alpha", "--json"])?;
+    }
+    Ok(())
+}
+
+/// Kernel directory events detect escaped transient locks even after their removal.
+#[cfg(target_os = "linux")]
+#[test]
+fn malformed_mutation_ids_never_create_escaped_locks() -> Result<(), Box<dyn std::error::Error>> {
+    use rustix::fs::inotify;
+    use std::mem::MaybeUninit;
+    let Some(fixture) = Fixture::new("none")? else {
+        return Ok(());
+    };
+    for root in [fixture.node.path(), fixture.rust.path()] {
+        let watcher =
+            inotify::init(inotify::CreateFlags::NONBLOCK | inotify::CreateFlags::CLOEXEC)?;
+        for path in [
+            root.to_path_buf(),
+            root.join(".agents"),
+            root.join(".agents/pm"),
+            root.join(".agents/pm/locks"),
+        ] {
+            inotify::add_watch(
+                &watcher,
+                path,
+                inotify::WatchFlags::CREATE
+                    | inotify::WatchFlags::DELETE
+                    | inotify::WatchFlags::CLOSE_WRITE
+                    | inotify::WatchFlags::MOVED_TO,
+            )?;
+        }
+        for id in [
+            "../escaped",
+            "../../escaped",
+            "bad/id",
+            r"bad\id",
+            "bad:id",
+            "bad id",
+            ".",
+            "..",
+        ] {
+            for action in [
+                "claim",
+                "release",
+                "start-task",
+                "pause-task",
+                "update",
+                "comments",
+                "close",
+            ] {
+                let mut args = vec![action, id, "--author", "alpha"];
+                match action {
+                    "update" => args.extend(["--title", "Invalid"]),
+                    "comments" => args.push("Invalid"),
+                    "close" => args.extend(["--reason", "Invalid"]),
+                    _ => {}
+                }
+                let output = if root == fixture.node.path() {
+                    published_run(&fixture.driver, root, &args)?
+                } else {
+                    if action == "comments" {
+                        args[0] = "comment";
+                    }
+                    native_command(root, &args).output()?
+                };
+                assert!(!output.status.success(), "accepted {action} {id}");
+            }
+        }
+        let mut buffer = [MaybeUninit::uninit(); 4096];
+        let mut events = inotify::Reader::new(watcher, &mut buffer);
+        assert!(
+            matches!(events.next(), Err(rustix::io::Errno::WOULDBLOCK)),
+            "malformed identifiers produced filesystem mutation events"
+        );
+    }
+    fixture.step(&["claim", "sample-own", "--author", "alpha", "--json"])?;
+    fixture.step(&["release", "sample-own", "--author", "alpha", "--json"])?;
     Ok(())
 }

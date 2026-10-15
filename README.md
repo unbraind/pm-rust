@@ -15,7 +15,9 @@ See the [command and storage parity matrix](docs/CLI_PARITY_2026_10_2.md) and
 read flags and remaining gaps. The [explicit ownership contract](docs/OWNERSHIP_PARITY_2026_10_7.md)
 details claim/release parity and its tested boundaries. The
 [native selection and lifecycle contract](docs/NATIVE_SELECTION_LIFECYCLE_2026_10_13.md)
-covers claim-next, start, pause and session principals.
+covers claim-next, start, pause and session principals. The
+[2026.10.14 closure and safety contract](docs/NATIVE_PARITY_2026_10_14.md)
+details closure fields, lock refusal, cyclic readiness, lineage and legacy cursors.
 
 | Read surface | Native parity |
 | --- | --- |
@@ -53,7 +55,7 @@ cargo run -- --workspace /path/to/project update pm-example --title "Renamed" --
 cargo run -- --workspace /path/to/project comment pm-example "Status note" --author agent
 cargo run -- claim pm-example --author agent --json
 cargo run -- release pm-example --author agent --json
-cargo run -- --workspace /path/to/project close pm-example --reason "Done: shipped" --author agent
+cargo run -- --workspace /path/to/project close pm-example --reason "Done: shipped" --author agent --resolution "Fixed" --expected-result "Expected" --actual-result "Observed" --validate-close strict --json
 ```
 
 The library discovers `.agents/pm` from a workspace, nested directory, file, or

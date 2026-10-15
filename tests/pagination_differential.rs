@@ -934,3 +934,32 @@ fn sdk_controls_refuse_conflicts_and_missing_cursor_items() -> TestResult {
     ));
     Ok(())
 }
+
+/// Legacy producer cursors expose an opaque contract fingerprint on every projection.
+#[test]
+fn legacy_cursor_fingerprint_matches_published() -> TestResult {
+    use base64::{Engine as _, engine::general_purpose::URL_SAFE_NO_PAD};
+    for intent in [false, true] {
+        let directory = fixture(75, 20)?;
+        let mut flags = vec!["--limit", "69", "--output-budget", "unbounded"];
+        if intent {
+            flags.extend(["--for", "triage", "--token-budget", "100000"]);
+        }
+        let first = compare(directory.path(), &flags, true)?;
+        let mut cursor: Value = serde_json::from_slice(
+            &URL_SAFE_NO_PAD.decode(first["next_cursor"].as_str().ok_or("missing cursor")?)?,
+        )?;
+        cursor
+            .as_object_mut()
+            .ok_or("cursor object")?
+            .shift_remove("after_index");
+        let legacy = URL_SAFE_NO_PAD.encode(cursor.to_string());
+        flags.extend(["--after", &legacy]);
+        let page = compare(directory.path(), &flags, true)?;
+        assert_eq!(
+            page["continuation_contract"]["fingerprint"],
+            "opaque_cursor"
+        );
+    }
+    Ok(())
+}

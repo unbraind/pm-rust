@@ -538,7 +538,7 @@ fn selection_readiness_scans_corpus_once() -> Result<(), Box<dyn std::error::Err
     Ok(())
 }
 
-/// Witness propagation preserves self exclusion, terminal intermediates and cycles.
+/// Witness propagation preserves cyclic self inclusion, terminal intermediates and cycles.
 #[test]
 fn readiness_index_preserves_case_cycles_and_existential_roles() {
     let mut first = item("sample-a");
@@ -560,9 +560,9 @@ fn readiness_index_preserves_case_cycles_and_existential_roles() {
     );
     let corpus = [first, second, self_cycle, duplicate, blocker];
     let index = CorpusIndex::new(&corpus, &json!({}));
-    assert!(!index.has_active_descendants("sample-a"));
+    assert!(index.has_active_descendants("sample-a"));
     assert!(index.has_active_descendants("sample-b"));
-    assert!(!index.has_active_descendants("sample-self"));
+    assert!(index.has_active_descendants("sample-self"));
     assert!(index.is_terminal("sample-a", &json!({})));
     assert!(!index.is_terminal("sample-self", &json!({})));
     assert!(!index.is_terminal("sample-absent", &json!({})));

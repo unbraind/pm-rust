@@ -129,7 +129,8 @@ fn page_limits_offsets_and_deleted_item_fallback() -> Result<(), Box<dyn std::er
         .map(|i| json!({"id":format!("demo-{i:05}")}))
         .collect::<Vec<_>>();
     let source = json!({"items":rows,"total":rows.len(),"filters":{},"completeness":{},"projection":{},"sorting":{},"now":"fixed","omission_receipt":{}});
-    let defaults = super::page_envelope(source.clone(), &ListOptions::default(), "fp")?;
+    let (defaults, legacy) = super::page_envelope(source.clone(), &ListOptions::default(), "fp")?;
+    assert!(!legacy);
     assert_eq!(defaults["count"], 20);
     assert_eq!(defaults["applied_limit"], 20);
     for options in [
@@ -143,7 +144,7 @@ fn page_limits_offsets_and_deleted_item_fallback() -> Result<(), Box<dyn std::er
         },
     ] {
         assert_eq!(
-            super::page_envelope(source.clone(), &options, "fp")?["count"],
+            super::page_envelope(source.clone(), &options, "fp")?.0["count"],
             0
         );
     }
@@ -154,7 +155,7 @@ fn page_limits_offsets_and_deleted_item_fallback() -> Result<(), Box<dyn std::er
         ..ListOptions::default()
     };
     assert_eq!(
-        super::page_envelope(source.clone(), &options, "fp")?["items"][0]["id"],
+        super::page_envelope(source.clone(), &options, "fp")?.0["items"][0]["id"],
         "demo-00002"
     );
     let missing = json!({"version":1,"fingerprint":"fp","after_id":"removed"});

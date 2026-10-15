@@ -447,7 +447,7 @@ fn record_semantics(
     };
     let mut lineage = vec![request.id.clone()];
     while let Some(parent) = current {
-        if lineage.contains(&parent) {
+        if lineage.len() >= 16 || lineage.contains(&parent) || !parents.contains_key(&parent) {
             break;
         }
         lineage.push(parent.clone());
@@ -539,7 +539,8 @@ fn workset_topic(ids: &[String]) -> String {
 }
 
 /// Wraps a later failure with evidence that an earlier mutation remains durable.
-fn partial_failure(error: PmRustError, id: &str, completed: &str) -> PmRustError {
+#[must_use]
+pub fn partial_failure(error: PmRustError, id: &str, completed: &str) -> PmRustError {
     let detail = error.to_string();
     let (exit_code, mut context) = match error {
         PmRustError::OwnershipRefusal { context, .. } => (4, context),

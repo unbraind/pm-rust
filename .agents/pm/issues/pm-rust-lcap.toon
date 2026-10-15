@@ -2,13 +2,25 @@ id: pm-rust-lcap
 title: Match oracle semantic lineage depth and unresolved ancestor handling
 description: "Existing record_semantics output traverses all ancestors and includes an unresolved parent ID, whereas the pinned oracle sdk/context/semantic-session-attribution.js caps resolveSemanticLineageIds at 16 and stops before recording an unresolved ancestor. The PR 77 round 1 indexing change deliberately preserves existing output; the new differential proves parity for a resolved depth-12 chain. Add separate deep and unresolved lineage differentials before changing the attribution contract."
 type: Issue
-status: open
+status: in_progress
 priority: 2
 tags[2]: conformance,ownership
 created_at: "2026-10-14T09:14:12.556Z"
-updated_at: "2026-10-14T09:14:24.366Z"
+updated_at: "2026-10-15T00:40:11.531Z"
 author: codex-agent
 parent: pm-rust-u4al
-files[1]{path,scope}:
+comments[6]{created_at,author,text}:
+  "2026-10-14T20:34:43.161Z",codex-agent,"Implementing the native parity batch against the locked 2026.10.14 oracle. Evidence will compare real disposable trackers, complete output envelopes and durable artifacts, with a behavioral revert proof and unchanged release gates."
+  "2026-10-14T21:01:57.465Z",codex-agent,"Added real tracker comparisons for nineteen-level lineage, missing ancestors and cycles. Native attribution now caps resolved lineage at sixteen items and stops before unresolved ancestors. Exact session bytes match the oracle while indexed lookup and its one-corpus-scan regression remain intact."
+  "2026-10-14T21:33:36.666Z",codex-agent,"Behavioral revert proof: cargo test --locked --test claim_release_differential lineage_cap_and_unresolved_stop_match_published -- --exact --nocapture compiled and failed at runtime with exit 101. Restoring only record_semantics traversal emits excess ancestor evidence; exact session bytes differ from the oracle. The regression test stayed in place, and all source bytes were restored after the check."
+  "2026-10-14T22:40:30.701Z",codex-agent,"The item-linked pinned-oracle command passed through pm test --run --only-last --progress --fail-on-skipped --fail-on-empty-test-run --json: 1 tests passed, zero failures or skips. Test-result tracking is disabled by project policy, so this append-only comment records the observed receipt. The behavioral revert failure is recorded separately."
+  "2026-10-14T23:22:29.676Z",codex-agent,"Final-source behavioral revert refresh: cargo +1.90.0 test --locked --test claim_release_differential lineage_cap_and_unresolved_stop_match_published -- --exact --nocapture compiled and failed at runtime with exit 101. Only the record_semantics traversal condition was reverted, retaining the final error and release helpers. The unchanged regression detects the oracle divergence; final source bytes were restored."
+  "2026-10-15T00:40:10.201Z",codex-agent,"Final Linux acceptance: just release-check passed at unchanged pins and thresholds in an isolated Git identity environment. Both the ordinary and fresh branch-instrumented suites passed 317 tests across 17 targets, with zero failures or ignored tests. Coverage: 5646/5646 lines, 8630/8630 regions, 522/522 functions and 1194/1194 branches, all 100 percent. Formatting, deny-warnings Clippy, private-item rustdoc, identity audit, locked-oracle differential suites, cargo audit and changelog check passed. Cargo audit retains the inherited allowed RUSTSEC-2024-0449 unmaintained advisory. Per-item behavioral revert proof and linked-test receipts remain recorded separately. Releasing ownership for orchestrator verification; this item remains in progress and is not closed."
+files[2]{path,scope}:
   src/ownership.rs,project
+  tests/claim_release_differential.rs,project
+tests[1]{command,scope,timeout_seconds,pm_context_mode,workspace_context_mode,provenance{author,created_at,source_kind,source_ref}}:
+  "env PM_NODE_CLI=\"$PWD/tests/oracle/node_modules/@unbrained/pm-cli\" PM_RUST_REQUIRE_PUBLISHED_CLI=1 cargo test --quiet --locked --test claim_release_differential lineage_cap_and_unresolved_stop_match_published -- --exact",project,600,schema,source,codex-agent,"2026-10-14T21:55:21.401Z",local_mutation,feat/native-close-fields-and-lock-safety
+docs[1]{path,scope}:
+  docs/NATIVE_PARITY_2026_10_14.md,project
 body: ""

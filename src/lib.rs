@@ -26,12 +26,14 @@ pub use history::canonical_metadata_pairs;
 pub use item::{ItemDocument, ItemMetadata, ItemSummary};
 pub use json_output::{ListOutput, stringify_json, write_pretty_json};
 pub use list::ListOptions;
-pub use mutation::now_iso as current_timestamp;
 pub use mutation::{
-    CloseItem, CommentItem, CreateItem, CreateResult, MutationResult, OwnershipItem,
+    CloseFields, CloseItem, CommentItem, CreateItem, CreateResult, MutationResult, OwnershipItem,
     OwnershipResult, UpdateItem, default_priority, default_status, validate_timestamp,
 };
-pub use ownership::{AuthorIdentity, OwnershipOptions, SelectionOptions};
+pub use mutation::{now_iso as current_timestamp, quote_command_arg};
+pub use ownership::{
+    AuthorIdentity, OwnershipOptions, SelectionOptions, partial_failure as completed_step_failure,
+};
 pub use workspace::{ItemFilter, ListResult, Workspace};
 
 /// Published canonical `pm` release used by this compatibility slice.

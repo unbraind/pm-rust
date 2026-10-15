@@ -433,7 +433,9 @@ fn run_dispatches_every_mutation_and_its_error_halves() -> Result<(), Box<dyn st
     }))?;
     run(cli(Command::Close {
         id: "unit-dispatch".to_owned(),
-        reason: "dispatch done".to_owned(),
+        text: None,
+        fields: super::CloseArgs::default(),
+        reason: Some("dispatch done".to_owned()),
         author: "unit-agent".to_owned(),
         timestamp: Some("2026-08-07T10:06:30.183Z".to_owned()),
         force_stale_lock: false,
@@ -441,7 +443,9 @@ fn run_dispatches_every_mutation_and_its_error_halves() -> Result<(), Box<dyn st
     assert!(
         run(cli(Command::Close {
             id: "unit-dispatch".to_owned(),
-            reason: "again".to_owned(),
+            text: None,
+            fields: super::CloseArgs::default(),
+            reason: Some("again".to_owned()),
             author: "unit-agent".to_owned(),
             timestamp: Some("2026-08-07T10:06:30.183Z".to_owned()),
             force_stale_lock: false,
@@ -527,4 +531,145 @@ fn non_utf8_arguments_publish_the_cursor_refusal_envelope() {
         format!("pm {}", args.join(" "))
     );
     assert!(payload["next_steps"].is_array());
+}
+
+/// Closure TOON preserves arrays, nested receipts and write failures.
+#[test]
+fn closure_toon_nested_arrays_and_io_errors() -> Result<(), Box<dyn std::error::Error>> {
+    let value = serde_json::json!({"id":"sample-close","previous_assignee":null,"warnings":["first,second"],"recovery":{"missing":["--resolution"]}});
+    let mut bytes = Vec::new();
+    super::write_close_toon(&mut bytes, &value, "")?;
+    assert_eq!(
+        String::from_utf8(bytes)?,
+        "id: \"sample-close\"\nwarnings[1]: \"first,second\"\nrecovery:\n  missing[1]: \"--resolution\"\n"
+    );
+    super::write_close_toon(&mut Vec::new(), &serde_json::json!(null), "")?;
+    for value in [
+        serde_json::json!({"array":["row"]}),
+        serde_json::json!({"nested":{"key":"value"}}),
+        serde_json::json!({"key":"value"}),
+    ] {
+        assert!(super::write_close_toon(&mut WriteFailure, &value, "").is_err());
+    }
+    Ok(())
+}
+
+/// Closure recovery normalizes aliases and quotes complete arguments before projection.
+#[test]
+fn closure_recovery_and_refusal_boundaries() {
+    let detail = "Missing closure evidence. ".repeat(8);
+    let long = super::ownership_error_json(
+        &detail,
+        &serde_json::json!({"code":"close_validation_missing_fields"}),
+        &["close".to_owned(), "sample-close".to_owned()],
+    );
+    assert_eq!(
+        long["title"].as_str().unwrap_or_default().chars().count(),
+        120
+    );
+    assert!(long["title"].as_str().unwrap_or_default().ends_with("..."));
+    assert_eq!(long["detail"], detail);
+    let args = super::published_read_arguments([
+        "close",
+        "sample-close",
+        "--expected",
+        "value",
+        "--actual",
+        " ",
+        "--validate-close",
+        "strict",
+        "--json",
+    ]);
+    assert_eq!(args[2], "--expected-result");
+    assert_eq!(args[4], "--actual-result");
+    let payload = super::ownership_error_json(
+        "Cannot close: missing actual_result (--actual-result).",
+        &serde_json::json!({"code":"close_validation_missing_fields","recovery":{"missing":["--actual-result"],"suggested_retry":"pm update sample-close --actual-result value"}}),
+        &args,
+    );
+    assert_eq!(
+        payload["recovery"]["missing"],
+        serde_json::json!(["--actual-result"])
+    );
+    assert_eq!(
+        super::close_error_refusal(
+            "Cannot close: missing actual_result (--actual-result).",
+            &payload,
+            2
+        ),
+        serde_json::json!({"surface":"--actual-result","rejected_value":"--validate-close","exit_code":2})
+    );
+    for (payload, detail, expected) in [
+        (
+            serde_json::json!({}),
+            "Failure",
+            serde_json::json!({"surface":"close","exit_code":2}),
+        ),
+        (
+            serde_json::json!({"recovery":{"missing":["--resolution"]}}),
+            "Failure",
+            serde_json::json!({"surface":"--resolution","exit_code":2}),
+        ),
+        (
+            serde_json::json!({"recovery":{"normalized_args":["close","--resolution"]}}),
+            "Missing (--resolution).",
+            serde_json::json!({"surface":"--resolution","exit_code":2}),
+        ),
+        (
+            serde_json::json!({"flag":"--completed-at","recovery":{"normalized_args":["close","--completed-at","bad"]}}),
+            "Invalid date",
+            serde_json::json!({"surface":"--completed-at","rejected_value":"bad","exit_code":2}),
+        ),
+    ] {
+        assert_eq!(super::close_error_refusal(detail, &payload, 2), expected);
+    }
+    for next in ["--json", "--author"] {
+        let payload =
+            serde_json::json!({"recovery":{"normalized_args":["close","--resolution",next]}});
+        assert_eq!(
+            super::close_error_refusal("Missing --resolution.", &payload, 2),
+            serde_json::json!({"surface":"--resolution","exit_code":2})
+        );
+    }
+}
+
+struct HeaderOnly {
+    remaining: usize,
+}
+impl io::Write for HeaderOnly {
+    fn write(&mut self, bytes: &[u8]) -> io::Result<usize> {
+        if self.remaining == 0 {
+            return Err(io::ErrorKind::BrokenPipe.into());
+        }
+        let size = bytes.len().min(self.remaining);
+        self.remaining -= size;
+        Ok(size)
+    }
+    fn flush(&mut self) -> io::Result<()> {
+        Ok(())
+    }
+}
+/// Closure output propagates serialization, recursive write and final flush failures.
+#[test]
+fn closure_receipt_writer_failure_boundaries() -> Result<(), Box<dyn std::error::Error>> {
+    use io::Write as _;
+    let value = serde_json::json!({"id":"sample-close"});
+    for json in [true, false] {
+        let mut bytes = Vec::new();
+        super::write_close_receipt_to(&mut bytes, &value, json)?;
+        assert!(!bytes.is_empty());
+        assert!(super::write_close_receipt_to(&mut WriteFailure, &value, json).is_err());
+        assert!(super::write_close_receipt_to(&mut FlushFailure, &value, json).is_err());
+    }
+    let mut writer = HeaderOnly { remaining: 8 };
+    assert!(
+        super::write_close_toon(
+            &mut writer,
+            &serde_json::json!({"nested":{"id":"value"}}),
+            ""
+        )
+        .is_err()
+    );
+    writer.flush()?;
+    Ok(())
 }
