@@ -25,6 +25,11 @@ fn pair_forms_preserve_literal_values() -> TestResult {
             json!({"path":"source:one","scope":"project"}),
         ),
         (
+            "9:artifact.rs",
+            "files",
+            json!({"path":"9:artifact.rs","scope":"project"}),
+        ),
+        (
             "path=\"a,b.rs\",note=comma,continued",
             "files",
             json!({"path":"a,b.rs","scope":"project","note":"comma,continued"}),

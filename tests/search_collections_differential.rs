@@ -196,6 +196,7 @@ fn collection_commands_match_oracle() -> TestResult {
                 "./src/../other.rs",
             ],
             vec!["files", "sample-item", "--add", "src/a.rs"],
+            vec!["files", "sample-item", "--add", "9:artifact.rs"],
             vec!["files", "sample-item", "--add", "path=src/a.rs,note=new"],
             vec![
                 "files",
