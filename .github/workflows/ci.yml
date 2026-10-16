@@ -74,7 +74,8 @@ jobs:
   release-check:
     name: ${{ matrix.gate }}
     runs-on: ${{ matrix.os }}
-    timeout-minutes: 20
+    # Windows needs room for both full test passes plus audit and tracker health.
+    timeout-minutes: ${{ matrix.os == 'windows-latest' && 30 || 20 }}
     strategy:
       fail-fast: false
       matrix:

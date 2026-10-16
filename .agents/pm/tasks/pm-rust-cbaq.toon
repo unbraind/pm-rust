@@ -6,13 +6,13 @@ status: in_progress
 priority: 3
 tags[3]: follow-up,read-parity,rust
 created_at: "2026-10-15T11:08:01.726Z"
-updated_at: "2026-10-16T01:07:39.491Z"
+updated_at: "2026-10-16T01:30:40.226Z"
 assignee: codex-agent
 claim_principal: codex-agent
 author: codex-agent
 acceptance_criteria: "Configured status and hierarchy definitions produce identical selected rows, sorting, fingerprints and multi-page JSON/TOON envelopes to the pinned oracle; preserve all four 100 percent coverage dimensions"
 parent: pm-rust-ufzy
-comments[17]{created_at,author,text}:
+comments[19]{created_at,author,text}:
   "2026-10-15T11:26:11.524Z",codex-agent,Created after duplicate search during pm-rust-ufzy. The delivered pagination slice targets built-in lifecycle and hierarchy registries. This child retains configured-registry selection and cursor conformance as separate follow-up work; no implementation or closure claim.
   "2026-10-15T21:41:38.639Z",codex-agent,"Implement configured lifecycle buckets, terminal ordering and dependency hierarchy selection. Verify byte-exact JSON and TOON pages and continuations with disposable trackers against the locked oracle; record isolated behavioural revert proofs and full release gates."
   "2026-10-15T21:47:35.582Z",codex-agent,"The locked oracle resolves custom hierarchy kinds through extension registration, with no persisted definition format. Native selection reads a declarative schema.relationship_kinds snapshot using the oracle definition fields (kind, aliases, hierarchy, hierarchyDirection). Disposable oracle trackers activate a real schema extension registering those same definitions. No JavaScript is executed by native production code; arbitrary extension activation remains outside this slice."
@@ -30,12 +30,15 @@ comments[17]{created_at,author,text}:
   "2026-10-16T00:16:58.725Z",codex-agent,"Production decision: list registry settings/schema reads now use Workspace::query_pm_root(), as query fingerprints already do. Unix retains physical roots; Windows retains resolved input aliases rather than canonical verbatim/expanded spelling. The exact expected error root is derived independently in the test using absolute() on Windows and canonicalize() on Unix. The test-first checkpoint is 61939c7; its old production call is the Windows behavioral negative control. Running the repository-native just release-check (there is no root package.json) with clean HOME and neutral Git configuration at unchanged coverage thresholds."
   "2026-10-16T00:20:20.651Z",codex-agent,"Windows behavioral function-revert proof: test-first head 61939c7 contains the final exact-path regression test but retains the original list function calling Lifecycle::load(workspace.pm_root()). CI run 38828544829, Rust windows-latest job 116741804433, fails only workflow_fallbacks_and_settings_errors: 161 passed, 1 failed, exit 101. The assertion shows canonical verbatim-prefix and expanded-name output versus resolved 8.3-alias input spelling. This differs from the final implementation by only the registry-root argument in the production list function; restoring query_pm_root() is the fix. Evidence: https://github.com/unbraind/pm-rust/actions/runs/38828544829/job/116741804433 ."
   "2026-10-16T01:07:39.491Z",codex-agent,"Round 1 complete local gate receipt on source commit a6bac79: just release-check passed with clean HOME, GIT_CONFIG_GLOBAL=/dev/null and GIT_CONFIG_NOSYSTEM=1, using the locked published oracle. The Rust-only repository has no root npm/bun release:check script; just release-check is its documented aggregate. Ordinary and instrumented suites each passed 338 tests across 18 targets, zero failed or ignored. Unchanged coverage floors all pass: lines 6412/6412, functions 611/611, regions 9972/9972, branches 1378/1378. Formatting, deny-warning Clippy, private-item rustdoc, identity audit 7/7, cargo audit over 134 dependencies and changelog check pass; the existing allowed unsafe-libyaml unmaintained warning remains. Strict tracker health with required clone-local merge drivers also passes 8/8 using clean HOME and neutral Git configuration, with three existing advisories. The linked focused test was run through pm test --run --only-last --progress and passed 1/1. Unix and Windows negative controls are documented above. Pushing the corrected implementation next; final platform CI remains required."
-files[4]{path,scope}:
+  "2026-10-16T01:29:16.615Z",codex-agent,"Corrected-head CI run 38833447003: all three Rust jobs pass, including the exact workflow error regression on Windows (162/162 library tests). macOS and Ubuntu release aggregates and CodeQL pass. Windows release aggregate job 116757156990 hit its 20-minute job deadline after both full test passes succeeded and coverage passed at lines 6413/6413, functions 611/611, regions 9983/9983, branches 1382/1382; cancellation occurred as cargo audit began. This is missing aggregate evidence, not a pass. Increase only the Windows aggregate time budget to 30 minutes so audit, changelog and strict health can finish; preserve every command and threshold. Rust source remains a6bac79 and retains the complete clean-HOME local gate receipt. Validate the workflow change with the existing release-pipeline contract suite, then push and require a complete new CI run."
+  "2026-10-16T01:30:40.226Z",codex-agent,"Workflow budget validation passes: cargo test --locked --test release_pipeline_contract ran through pm test --run --only-last --progress with 18 passed, zero failed or ignored. The existing contract suite parses both workflows and verifies gate/toolchain/history requirements. GitHub context availability permits matrix in jobs timeout-minutes, so the expression selects 30 minutes only for Windows and retains 20 for the other aggregate runners. Every release-check command and 100 percent threshold is unchanged. Rust production source remains identical to the locally certified a6bac79 tree; only the Windows aggregate job budget and tracker evidence changed after that complete local gate."
+files[5]{path,scope}:
+  .github/workflows/ci.yml,project
   src/list_registry.rs,project
   src/list.rs,project
   tests/pagination_differential.rs,project
   tests/support/list_registry_unit.rs,project
-tests[3]:
+tests[4]:
   - command: cargo test --locked --test pagination_differential configured_
     scope: project
     timeout_seconds: 600
@@ -59,6 +62,13 @@ tests[3]:
     provenance:
       author: codex-agent
       created_at: "2026-10-16T00:15:25.492Z"
+      source_kind: local_mutation
+      source_ref: feat/oracle-quiet-and-registry-selection
+  - command: cargo test --locked --test release_pipeline_contract
+    scope: project
+    provenance:
+      author: codex-agent
+      created_at: "2026-10-16T01:29:22.666Z"
       source_kind: local_mutation
       source_ref: feat/oracle-quiet-and-registry-selection
 docs[2]{path,scope}:
