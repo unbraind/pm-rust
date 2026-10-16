@@ -1,0 +1,20 @@
+id: pm-rust-23ps
+title: Give concurrent claim-next acceptance an explicit writer wait budget
+description: "The aggregate gate observed a valid lock_conflict after 3007ms in the existing two-writer claim-next acceptance test, while the isolated rerun passed. That test expects both writers to succeed but inherits the finite default wait. Configure an explicit fixture wait budget for both replay trackers; retain the two competing writers, distinct-item assertions, serial oracle replay and every gate threshold."
+type: Chore
+status: in_progress
+priority: 3
+tags[2]: concurrency,conformance
+created_at: "2026-10-16T19:18:28.721Z"
+updated_at: "2026-10-16T21:40:25.191Z"
+author: codex-agent
+parent: pm-rust-u4al
+comments[3]{created_at,author,text}:
+  "2026-10-16T19:20:30.044Z",codex-agent,"Observed one aggregate failure: beta received lock_conflict after waiting 3007ms for alpha. The isolated regression passed with the same source. Both replay trackers now declare locks.wait_ms=30000 for this two-success acceptance scenario. Competing native processes, distinct identities, session ordering and exact serial oracle artifact checks remain in place; production defaults and all gate thresholds are unchanged."
+  "2026-10-16T20:10:28.532Z",codex-agent,The linked isolated competing-writer acceptance passed after explicitly configuring the fixture wait budget. The aggregate gate will rerun every original assertion on this source; no production locking behavior changed.
+  "2026-10-16T21:40:24.231Z",codex-agent,"The fixture-only 30-second wait budget passes isolated linked pm test execution and the final clean aggregate gate: 374 normal tests and 374 instrumented tests, with all four unchanged coverage floors at 100 percent. The competing workers, distinct-item assertions, session ordering and exact serial oracle replay remain intact. Production wait defaults remain unchanged. This Chore remains in progress; its claim is released for review."
+files[1]{path,scope}:
+  tests/claim_release_differential.rs,project
+tests[1]{command,scope,timeout_seconds,provenance{author,created_at,source_kind,source_ref}}:
+  cargo +1.90.0 test --locked --test claim_release_differential competing_claim_next_processes_select_distinct_items -- --exact,project,120,codex-agent,"2026-10-16T19:20:26.685Z",local_mutation,feat/native-search-and-collections
+body: ""

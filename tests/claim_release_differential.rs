@@ -1087,6 +1087,13 @@ fn competing_claim_next_processes_select_distinct_items() -> Result<(), Box<dyn 
             "--json",
         ],
     )?;
+    // Both writers are expected to succeed even when runner I/O exceeds the default wait.
+    for root in [fixture.node.path(), fixture.rust.path()] {
+        let path = root.join(".agents/pm/settings.json");
+        let mut settings: serde_json::Value = serde_json::from_slice(&fs::read(&path)?)?;
+        settings["locks"]["wait_ms"] = serde_json::json!(30_000);
+        fs::write(path, serde_json::to_vec_pretty(&settings)?)?;
+    }
     let barrier = Arc::new(Barrier::new(3));
     let workers: Vec<_> = ["alpha", "beta"]
         .into_iter()
