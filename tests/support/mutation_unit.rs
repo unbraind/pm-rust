@@ -346,6 +346,72 @@ fn validation_rejects_every_unsupported_request_shape() -> Result<(), Box<dyn st
     Ok(())
 }
 
+/// A publication gate excludes contenders before initialization and permits abandoned recovery.
+#[test]
+fn initialization_gate_protects_a_lock_before_its_payload_is_published()
+-> Result<(), Box<dyn std::error::Error>> {
+    let (_directory, pm_root) = root(&settings("sample-", "toon", 1_800))?;
+    fs::create_dir_all(pm_root.join("locks"))?;
+    let gate = pm_root.join("locks/sample-initializing.lock.stale-cleanup");
+    fs::create_dir(&gate)?;
+    let lock_settings = LockSettings {
+        use_created_at: true,
+        ..locks(1_800)
+    };
+    assert!(matches!(
+        acquire_lock(
+            &pm_root,
+            "sample-initializing",
+            "contender",
+            &lock_settings,
+            true,
+            TS
+        ),
+        Err(PmRustError::LockConflict { .. })
+    ));
+    assert!(!pm_root.join("locks/sample-initializing.lock").exists());
+    fs::remove_dir(&gate)?;
+    let guard = acquire_lock(
+        &pm_root,
+        "sample-initializing",
+        "initializer",
+        &lock_settings,
+        true,
+        TS,
+    )?;
+    assert!(matches!(
+        acquire_lock(
+            &pm_root,
+            "sample-initializing",
+            "contender",
+            &lock_settings,
+            true,
+            TS
+        ),
+        Err(PmRustError::LockConflict { .. })
+    ));
+    drop(guard);
+    fs::create_dir(&gate)?;
+    thread::sleep(Duration::from_millis(2));
+    drop(acquire_lock(
+        &pm_root,
+        "sample-initializing",
+        "recovered",
+        &LockSettings {
+            use_created_at: true,
+            ..locks(0)
+        },
+        true,
+        TS,
+    )?);
+    assert!(!gate.exists());
+    assert!(matches!(
+        acquire_lock_attempt(&pm_root, "invalid\0id", "fixture", 1_800, true, TS, true),
+        Err(PmRustError::Io { .. })
+    ));
+    Ok(())
+}
+
 #[test]
 fn lock_conflicts_and_forced_stale_cleanup_preserve_the_current_owner()
 -> Result<(), Box<dyn std::error::Error>> {

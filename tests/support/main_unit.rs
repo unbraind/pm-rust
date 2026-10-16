@@ -6,6 +6,235 @@ use pm_rust::{ItemDocument, ItemFilter, ItemMetadata, ListResult};
 
 use super::{Cli, Command, run, write_json_to};
 
+/// New command dispatchers persist real collections and propagate read/mutation failures.
+#[test]
+fn search_and_collection_dispatch_boundaries() -> Result<(), Box<dyn std::error::Error>> {
+    use clap::Parser as _;
+    let directory = tempfile::tempdir()?;
+    let root = directory.path().join(".agents/pm");
+    fs::create_dir_all(root.join("tasks"))?;
+    fs::write(root.join("settings.json"), "{}")?;
+    fs::create_dir(root.join("history"))?;
+    let item = serde_json::json!({"id":"sample-a","title":"Rust search","type":"Task","status":"open","priority":1,"created_at":"2026-08-22T10:00:00.000Z","updated_at":"2026-08-22T10:00:00.000Z"});
+    fs::write(
+        root.join("tasks/sample-a.toon"),
+        toon_format::encode_default(&item)?,
+    )?;
+    for flags in [
+        vec!["search", "rust", "--json"],
+        vec!["search", "rust"],
+        vec!["files", "sample-a", "--json"],
+        vec!["docs", "sample-a"],
+        vec!["test", "sample-a", "--list"],
+        vec![
+            "files",
+            "sample-a",
+            "--add",
+            "src/lib.rs",
+            "--author",
+            "fixture",
+        ],
+        vec![
+            "docs",
+            "sample-a",
+            "--add",
+            "README.md",
+            "--author",
+            "fixture",
+        ],
+        vec![
+            "test",
+            "sample-a",
+            "--add",
+            "command=cargo test",
+            "--author",
+            "fixture",
+        ],
+    ] {
+        let mut args = vec![
+            "pm-rust",
+            "--workspace",
+            directory.path().to_str().ok_or("invalid path")?,
+        ];
+        args.extend(flags);
+        run(Cli::try_parse_from(args)?)?;
+    }
+    for flags in [
+        vec!["search", "rust", "--output-budget", "1"],
+        vec!["search", "rust", "--after", "!"],
+        vec!["files", "missing"],
+        vec!["docs", "missing"],
+        vec!["test", "missing"],
+    ] {
+        let mut args = vec![
+            "pm-rust",
+            "--workspace",
+            directory.path().to_str().ok_or("invalid path")?,
+        ];
+        args.extend(flags);
+        assert!(run(Cli::try_parse_from(args)?).is_err());
+    }
+    let workspace = pm_rust::Workspace::discover(directory.path())?;
+    assert_eq!(
+        workspace.get("sample-a")?.metadata.extra["files"][0]["path"],
+        "src/lib.rs"
+    );
+    let page = workspace.search("rust", &pm_rust::SearchOptions::default())?;
+    assert!(super::write_search_to(&mut WriteFailure, &page, true).is_err());
+    let unavailable = fs::canonicalize(directory.path().join("absent-cwd"));
+    assert!(
+        super::run_collection_with_cwd(
+            &workspace,
+            "files",
+            super::CollectionArgs {
+                id: "sample-a".to_owned(),
+                ..super::CollectionArgs::default()
+            },
+            unavailable
+        )
+        .is_err()
+    );
+    fs::write(root.join("settings.json"), "invalid")?;
+    assert!(
+        super::run_collection(
+            &workspace,
+            "files",
+            super::CollectionArgs {
+                id: "sample-a".to_owned(),
+                ..super::CollectionArgs::default()
+            }
+        )
+        .is_err()
+    );
+    fs::remove_file(root.join("settings.json"))?;
+    assert!(super::run_collection(&workspace, "files", super::CollectionArgs::default()).is_err());
+    Ok(())
+}
+
+/// Search usage refusals distinguish values, required inputs and output-control namespaces.
+#[test]
+fn search_error_value_and_output_control_guidance() {
+    let strings = |args: &[&str]| args.iter().map(|arg| (*arg).to_owned()).collect::<Vec<_>>();
+    for (flag, detail, surface) in [
+        (
+            "--limit",
+            "--limit must be a non-negative number",
+            "--limit",
+        ),
+        (
+            "--tag",
+            "--tag requires at least one non-empty value",
+            "--tag",
+        ),
+        (
+            "--output-budget",
+            "--output-budget must be a positive integer or unbounded.",
+            "search",
+        ),
+        (
+            "--output-limit",
+            "--output-limit must be a positive integer or unbounded.",
+            "search",
+        ),
+    ] {
+        let args = strings(&["search", " q ", flag, "invalid"]);
+        let payload = super::command_error_json(detail, &serde_json::json!({}), &args, 2);
+        assert_eq!(payload["code"], "invalid_argument_value");
+        assert_eq!(payload["refusal"]["surface"], surface);
+        assert_eq!(payload["recovery"]["normalized_args"][1], "q");
+        assert!(payload["next_steps"][0].is_string());
+    }
+}
+
+/// Structured errors retain closed-domain guidance, command namespaces and omitted values.
+#[test]
+fn collection_and_search_error_guidance_edges() -> Result<(), Box<dyn std::error::Error>> {
+    let strings = |args: &[&str]| args.iter().map(|arg| (*arg).to_owned()).collect::<Vec<_>>();
+    for args in [
+        strings(&["search", "q", "--type", "Unknown"]),
+        strings(&["search", "q", "--json"]),
+        strings(&["search", "q", "--type"]),
+    ] {
+        let context = serde_json::json!({"code":"invalid_argument_value","recovery":{"allowed_values":["Task"]},"examples":["pm search <query> --help"],"next_steps":["Retry"]});
+        let payload = super::command_error_json("--type must be Task", &context, &args, 2);
+        assert_eq!(
+            payload["recovery"]["allowed_values"],
+            serde_json::json!(["Task"])
+        );
+        let mut bytes = Vec::new();
+        super::write_cursor_refusal_to(&mut bytes, &payload)?;
+        assert!(String::from_utf8(bytes)?.contains("allowed_values: Task"));
+    }
+    for (detail, context, args) in [
+        (
+            "Search query must not be empty",
+            serde_json::json!({}),
+            strings(&["search", ""]),
+        ),
+        (
+            "Invalid --tag value",
+            serde_json::json!({}),
+            strings(&["search", "q", "--tag", ""]),
+        ),
+        (
+            "Other",
+            serde_json::json!({"examples":["pm search <query> --help"]}),
+            strings(&["search", "q"]),
+        ),
+        (
+            "Other",
+            serde_json::json!({"examples": "custom"}),
+            strings(&["search", "q"]),
+        ),
+        (
+            "Other",
+            serde_json::json!({"examples": [null, "custom"]}),
+            strings(&["search", "q"]),
+        ),
+        (
+            "Item missing not found",
+            serde_json::json!({}),
+            strings(&["item", "files", "missing"]),
+        ),
+        (
+            "Item missing not found",
+            serde_json::json!({"next_steps":["Hint"]}),
+            strings(&["item", "docs", "missing"]),
+        ),
+        (
+            "--add requires path",
+            serde_json::json!({}),
+            strings(&["item", "files", "sample-a", "--add", "scope=x"]),
+        ),
+        (
+            "Invalid scope",
+            serde_json::json!({}),
+            strings(&["item", "test", "sample-a"]),
+        ),
+        (
+            "Other",
+            serde_json::json!({"code":"custom"}),
+            strings(&["item", "files", "sample-a"]),
+        ),
+        (
+            "Commander does not recognize option --remove-index for this command path.",
+            serde_json::json!({"code":"unknown_option","flag":"--remove-index","value":"--remove-index","recovery":{"candidate_commands":["item test"],"candidate_commands_total":1,"option_scope":"declared_elsewhere"}}),
+            strings(&["item", "files", "sample-a", "--remove-index", "1"]),
+        ),
+    ] {
+        let payload = super::command_error_json(detail, &context, &args, 2);
+        assert_eq!(payload["exit_code"], 2);
+        super::write_cursor_refusal_to(&mut Vec::new(), &payload)?;
+    }
+    for recovery in [
+        serde_json::json!({"allowed_values":"custom","candidate_commands":{}}),
+        serde_json::json!({"allowed_values":[null,"Task"]}),
+    ] {
+        super::write_cursor_refusal_to(&mut Vec::new(), &serde_json::json!({"recovery":recovery}))?;
+    }
+    Ok(())
+}
+
 /// A final rejected flag has no following value to include in its refusal.
 #[test]
 fn flag_only_refusals_do_not_invent_a_rejected_value() {

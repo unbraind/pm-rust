@@ -16,6 +16,10 @@ command gaps are enumerated in [the parity matrix](CLI_PARITY_2026_10_2.md).
 - recursive item folders, stable ID sorting, and exact ID/status/type filters;
 - conflict-marker, duplicate-ID, malformed-document, and missing-item failures;
 - deterministic JSON for full-item and list projections.
+- compact native keyword search with weighted ranking, selection and bounded
+  JSON/TOON continuations;
+- native file, document and linked-test collection lists and transactional
+  additions/removals with canonical history and no-op preservation;
 - explicit-ID creation for every canonical built-in item type;
 - in-place field updates, comment appends, and closes that write the same
   canonical TOON item bytes and `item_hash_version: 3` history records as

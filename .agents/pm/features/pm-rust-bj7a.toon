@@ -1,0 +1,44 @@
+id: pm-rust-bj7a
+title: Implement native keyword search with pinned oracle parity
+description: "Match keyword search ranking, filters, JSON and TOON pages, bounded output and refusals against the locked published oracle on real disposable trackers."
+type: Feature
+status: in_progress
+priority: 2
+tags[3]: conformance,rust,search
+created_at: "2026-10-16T16:59:45.140Z"
+updated_at: "2026-10-16T21:40:21.244Z"
+author: codex-agent
+parent: pm-rust-u4al
+comments[12]{created_at,author,text}:
+  "2026-10-16T17:00:03.554Z",codex-agent,"Plan: characterize the locked keyword search implementation, reuse native pagination and output controls, and compare full CLI bytes over real small and large trackers. Keep the oracle pin unchanged and record function-level behavioral revert proofs before the full release gate."
+  "2026-10-16T17:09:01.674Z",codex-agent,"Implemented weighted keyword scoring and shared bounded-read delivery. Initial real-tracker comparisons passed literal token, Unicode, punctuation and basic filters; negative controls exposed the zero-limit empty-envelope branch and the exact semantic option set used in producer fingerprints. Both are corrected for the next differential run."
+  "2026-10-16T17:34:08.226Z",codex-agent,"Exact bounded-search snapshot replay and changed-row refusal passed. Corpus expansion found that source normalization drops plan steps lacking required order and timestamps; the native corpus now applies that validity boundary. Added direct SDK tests for every searchable field, configured type aliases, Unicode whitespace, ranking thresholds and producer cursor fallback."
+  "2026-10-16T17:48:24.580Z",codex-agent,"Behavioral negative control for the new scoring function: replacing only score with an absent-result body made cargo +1.90.0 test --locked --lib search::tests::corpus_fields_and_weight_configuration -- --exact fail on matching-count 0 versus 3 (exit 101). Restored the exact source bytes; the complete library suite passed 169 tests. The current focused instrumented differential run passed all 6 tests, including real 12/220-item trackers, snapshot replay/stale refusal, typed errors, collection bytes, provenance and concurrency."
+  "2026-10-16T18:23:26.121Z",codex-agent,Expanded typed output-control refusals now pass in JSON and TOON. The default linked-test runner ceiling of 120 seconds was too short for the full corpus matrix under concurrent gate load; linked evidence now declares a 600-second timeout. An interrupted comparison during oracle reinstallation is excluded from acceptance; the stable installed oracle is being used for the full gate and rerun.
+  "2026-10-16T18:28:55.427Z",codex-agent,"Linked evidence passed: pm test pm-rust-bj7a --run --progress executed cargo +1.90.0 test --locked --test search_collections_differential search_matches_oracle successfully (exit 0; real 12/220-item corpora, both encodings, producer controls and continuation). The 600-second declared ceiling accommodates the full matrix under gate load. Numeric zero, fractional, radix and very large finite producer limits now match the locked oracle."
+  "2026-10-16T18:33:30.971Z",codex-agent,"The linked search rerun passed all four independent size/encoding tests after splitting the matrix for normal runner parallelism. Scenarios are unchanged. Added SDK failure-boundary assertions for invalid settings, unreadable lifecycle schema and malformed item data; these must remain errors rather than successful empty pages."
+  "2026-10-16T18:52:46.571Z",codex-agent,"The first full instrumented run passed all 362 tests but correctly failed the unchanged coverage floor on uncovered SDK and I/O error paths. Added real-tracker SDK transactions, unavailable source-context execution, malformed recovery guidance, and fallible output/directory boundaries. Fresh focused coverage confirms complete search source coverage; full acceptance is being rerun with the final static source and the CI Node major."
+  "2026-10-16T19:55:27.177Z",codex-agent,"Tightened ECMAScript query tokenization so NEXT LINE stays literal, and removed the arbitrary u128 ceiling from radix producer limits using exact binary rounding. Both small-corpus encoding comparisons pass with the new cases. Focused coverage measures 100 percent lines/functions/regions/branches for search; the full final gate remains pending."
+  "2026-10-16T20:10:27.731Z",codex-agent,"Final linked search evidence passed all four size/encoding suites on Node 26, including literal NEXT LINE and arbitrary-length finite radix limits. Behavioral revert of only the token split inside Workspace::search to split_whitespace made optional_and_malformed_search_rows fail (exit 101); the restored implementation passes the exact oracle matrix. Both search and bounded identity-probe modules measure all four coverage dimensions at 100 percent in focused runs."
+  "2026-10-16T20:32:10.900Z",codex-agent,"The final full run passed all 372 tests in both normal and instrumented phases. The unchanged coverage gate identified four search-error classification branches; focused guidance assertions now cover numeric limits, required tag values and both output controls. Production behavior is unchanged. A fresh full release gate will verify the added evidence."
+  "2026-10-16T21:40:19.990Z",codex-agent,"Final clean release-check PASS on the fixed source tree: 374 normal tests and 374 instrumented tests; lines 8802/8802, functions 852/852, regions 13744/13744 and branches 2132/2132. Fmt, deny-warnings clippy, private rustdoc, identity audit, required pinned-oracle differentials, cargo audit and changelog check all pass at unchanged thresholds. The four search suites passed through linked pm test execution. Behavioral scoring and literal-tokenization revert proofs are recorded above. Claims are released for review; this Feature remains in progress. Platform CI is the next delivery gate."
+files[11]{path,scope}:
+  src/lib.rs,project
+  src/list_registry.rs,project
+  src/list.rs,project
+  src/main.rs,project
+  src/pagination.rs,project
+  src/read_output.rs,project
+  src/search.rs,project
+  tests/search_collections_differential.rs,project
+  tests/support/main_unit.rs,project
+  tests/support/read_output_unit.rs,project
+  tests/support/search_unit.rs,project
+tests[1]{command,scope,timeout_seconds,provenance{author,created_at,source_kind,source_ref}}:
+  cargo +1.90.0 test --locked --test search_collections_differential search_matches_oracle,project,600,codex-agent,"2026-10-16T18:23:20.436Z",local_mutation,feat/native-search-and-collections
+docs[4]{path,scope}:
+  docs/CLI_PARITY_2026_10_2.md,project
+  docs/COMPATIBILITY.md,project
+  docs/NATIVE_SEARCH_COLLECTIONS.md,project
+  README.md,project
+body: ""

@@ -1,0 +1,95 @@
+# Native keyword search and item collections
+
+The oracle remains the published package locked by `tests/oracle/package.json`
+and `tests/oracle/package-lock.json`. Features
+[pm-rust-bj7a](../.agents/pm/features/pm-rust-bj7a.toon) and
+[pm-rust-unih](../.agents/pm/features/pm-rust-unih.toon) belong to
+[pm-rust-u4al](../.agents/pm/epics/pm-rust-u4al.toon).
+
+## Keyword search
+
+`search <query...>` joins positional arguments with spaces and emits compact
+hits in default TOON or `--json`. Selection supports `--type`, `--status` and
+`--tag`; `--limit` bounds the ranked producer page. Search includes terminal
+items unless a status filter excludes them. It searches title, description,
+tags, status, body, comment/note/learning text, reminder/event text, dependency
+identities and kinds, and plan text. Linked file and document paths are outside
+the default keyword corpus.
+
+Queries retain punctuation. Whitespace-separated literal tokens match
+substrings, while exact title words use the oracle's ASCII alphanumeric word
+tokenizer. Repeated occurrences contribute repeatedly. Multi-token queries add
+the all-term coverage and normalized phrase bonuses. Exact full IDs and short
+IDs use their dedicated scores. The oracle's configured search weights and
+score threshold apply before ranking. Ties resolve by terminal status, priority,
+newest update instant and locale-aware ID order.
+
+`--after` resumes a producer page and discloses reference metadata;
+`--output-budget`, `--output-limit` and `--output-cursor` share the existing native
+read-output engine. Snapshot continuations reject changed rows, while producer
+continuations retain the oracle's identity/index boundary behavior. Full,
+semantic/hybrid, linked-content and execution-oriented search options are outside
+this compact keyword command slice.
+
+## Item collections
+
+The SDK exposes `Workspace::collection` with `CollectionOptions`; the CLI exposes
+`files <id>`, `docs <id>` and `test <id>`. Without mutation flags they list the
+stored collection. Repeated `--add` inputs accept bare values or structured
+`path=...` / `command=...` pairs. Structured CSV supports quoted and escaped
+commas and Markdown key/value lines. Files/docs accept scope and note metadata;
+tests also accept a path alongside the executable command. A bare path does not
+create an executable test. Documentation references also accept Markdown links.
+
+Files/docs deduplicate by path and scope, update supplied notes, and sort by path
+and scope. Files additionally support `--append-stable`. Test identity includes
+command, path, scope and context modes; duplicate additions preserve the original
+entry. Test additions carry author, clock and available branch provenance.
+
+Collection mutations carry resolved agent attribution before computing record
+hashes. `CollectionOptions::identity` supplies SDK attribution; the CLI reuses
+native identity resolution and session principals. Same-session detected claims
+are accepted and foreign sessions receive the oracle's refusal.
+`AuthorIdentity::for_collections` also resolves optional local session metadata:
+Codex discovery visits at most 512 entries across four directory levels and
+reads at most four MiB; Claude discovery checks at most 512 project directories
+and reads at most one MiB. These probes use local files and the `AI_AGENT`
+version label. Resolver outcomes and environment overrides match history bytes
+without network or subprocess access.
+
+| Command | Exact value removal | Index removal | Missing selector |
+| --- | --- | --- | --- |
+| files / docs | Bare path or `path=...`, across scopes | Not an oracle artifact selector | Successful unchanged receipt |
+| test | Bare command/path or explicit `command=...` / `path=...` | `--remove-index`, 1-based | Typed `linked_test_remove_no_match`, exit 3 |
+
+Artifact mutations cannot add and remove the same normalized path in one batch.
+No-op edits preserve both item and history bytes. Empty resulting collections
+are omitted from storage. Changes use the existing per-item lock, latest locked
+document, synced atomic replacement, recovery journal, canonical patch order,
+document hashes and record hashes. Claims and explicit force overrides follow
+the existing native governance policy.
+
+## Evidence
+
+`tests/search_collections_differential.rs` runs both real CLIs against disposable
+trackers and compares complete stdout, stderr and exit codes. Search fixtures
+contain 12 and 220 items, varied lifecycle states, priorities, timestamps,
+Unicode, punctuation, phrase-like queries and no-result cases. Collection
+fixtures replay identical before-images at the same path and compare every
+authoritative item and append-only history byte.
+Synthetic agent sessions cover explicit/detected identities, supplied and inferred
+role/topic values, source metadata, disabled probes and resolver outcomes.
+
+With the same configured 5-second lock wait, eight concurrent native pairs and
+one concurrent oracle pair preserve their additions.
+Each resulting history must contain both events with matching adjacent hashes,
+and all durable artifacts must equal serial oracle replay in the observed
+commit order. Parser and storage-boundary tests also exercise no-ops, malformed
+selectors and durable recovery after a history publication failure.
+Lock acquisition holds the cleanup gate while publishing the initial payload,
+matching the oracle and preventing minimal-governance stale recovery from
+stealing an initializing writer's lock. A deterministic real-filesystem
+regression in `tests/support/mutation_unit.rs` protects that publication boundary.
+
+Feature comments contain the behavioral negative controls and final gate
+receipts. Platform CI results are separate from local Linux validation.

@@ -860,44 +860,13 @@ fn acquire_lock_attempt(
         // This concrete structure has no fallible custom serializers.
         serde_json::to_string_pretty(&payload).unwrap_or_default()
     );
-    match create_lock_file(&path, &raw, id) {
-        Ok(lock) => return Ok(lock),
-        Err(PmRustError::LockConflict { .. }) => {}
-        Err(error) => return Err(error),
-    }
-    // `match` instead of `.map_err(..)` avoids a per-instantiation closure
-    // function the coverage gate counts separately.
-    // The same pending-delete window applies to reading the incumbent lock: the
-    // create above failed because a lock was there, and the holder may release
-    // it before this read runs.
-    let existing_raw = match fs::read_to_string(&path) {
-        Ok(raw) => raw,
-        Err(source) if lock_error_is_contention(&path, &source) => {
-            return Err(PmRustError::LockConflict { id: id.to_owned() });
-        }
-        Err(source) => {
-            return Err(PmRustError::Io {
-                path: path.clone(),
-                source,
-            });
-        }
-    };
-    let modified = fs::metadata(&path)
-        .and_then(|metadata| metadata.modified())
-        .unwrap_or(UNIX_EPOCH);
-    let stale = if use_created_at {
-        ownership_lock_stale(&existing_raw, timestamp, ttl_seconds)
-    } else {
-        SystemTime::now()
-            .duration_since(modified)
-            .unwrap_or_default()
-            > Duration::from_secs(ttl_seconds)
-    };
-    if !stale || !force_stale {
-        return Err(PmRustError::LockConflict { id: id.to_owned() });
-    }
+    // Initialization and stale reclamation share one gate, so an unpublished
+    // payload can never be mistaken for an expired incumbent.
     let gate = locks.join(format!("{id}.lock.stale-cleanup"));
-    if fs::create_dir(&gate).is_err() {
+    if let Err(source) = fs::create_dir(&gate) {
+        if !lock_contention_error(&source) {
+            return Err(PmRustError::Io { path: gate, source });
+        }
         let abandoned = fs::metadata(&gate)
             .and_then(|metadata| metadata.modified())
             .ok()
@@ -913,9 +882,66 @@ fn acquire_lock_attempt(
             return Err(PmRustError::LockConflict { id: id.to_owned() });
         }
     }
-    let cleanup_result = remove_stale_lock(&path, &existing_raw, id);
+    let result = create_or_reclaim_lock(
+        &path,
+        &raw,
+        id,
+        ttl_seconds,
+        force_stale,
+        timestamp,
+        use_created_at,
+    );
     let _ = fs::remove_dir(&gate);
-    cleanup_result.and_then(|()| create_lock_file(&path, &raw, id))
+    result
+}
+
+/// Initializes or replaces one lock while its publication gate is held.
+fn create_or_reclaim_lock(
+    path: &Path,
+    raw: &str,
+    id: &str,
+    ttl_seconds: u64,
+    force_stale: bool,
+    timestamp: &str,
+    use_created_at: bool,
+) -> Result<ItemLock, PmRustError> {
+    match create_lock_file(path, raw, id) {
+        Ok(lock) => return Ok(lock),
+        Err(PmRustError::LockConflict { .. }) => {}
+        Err(error) => return Err(error),
+    }
+    // `match` instead of `.map_err(..)` avoids a per-instantiation closure
+    // function the coverage gate counts separately.
+    // The same pending-delete window applies to reading the incumbent lock: the
+    // create above failed because a lock was there, and the holder may release
+    // it before this read runs.
+    let existing_raw = match fs::read_to_string(path) {
+        Ok(raw) => raw,
+        Err(source) if lock_error_is_contention(path, &source) => {
+            return Err(PmRustError::LockConflict { id: id.to_owned() });
+        }
+        Err(source) => {
+            return Err(PmRustError::Io {
+                path: path.to_path_buf(),
+                source,
+            });
+        }
+    };
+    let modified = fs::metadata(path)
+        .and_then(|metadata| metadata.modified())
+        .unwrap_or(UNIX_EPOCH);
+    let stale = if use_created_at {
+        ownership_lock_stale(&existing_raw, timestamp, ttl_seconds)
+    } else {
+        SystemTime::now()
+            .duration_since(modified)
+            .unwrap_or_default()
+            > Duration::from_secs(ttl_seconds)
+    };
+    if !stale || !force_stale {
+        return Err(PmRustError::LockConflict { id: id.to_owned() });
+    }
+    remove_stale_lock(path, &existing_raw, id).and_then(|()| create_lock_file(path, raw, id))
 }
 
 /// Decides whether a lock-path filesystem error means contention or a fault.
@@ -954,6 +980,11 @@ fn lock_error_is_contention(path: &Path, source: &std::io::Error) -> bool {
     if path.is_dir() {
         return false;
     }
+    lock_contention_error(source)
+}
+
+/// Recognizes transient creation errors shared by lock files and publication gates.
+fn lock_contention_error(source: &std::io::Error) -> bool {
     if matches!(
         source.kind(),
         ErrorKind::AlreadyExists | ErrorKind::PermissionDenied | ErrorKind::NotFound
@@ -2457,7 +2488,154 @@ fn ownership_lock_refusal(
     )
 }
 
-/// Executes an atomic ownership test-and-set or ownership release.
+/// Applies a collection edit under the same lock, recovery and history boundary as other writes.
+#[allow(clippy::too_many_lines)]
+pub(crate) fn collection_item(
+    pm_root: &Path,
+    id: &str,
+    key: &str,
+    options: &crate::CollectionOptions,
+    mut edit: crate::collections::Edit,
+) -> Result<(ItemDocument, bool, usize), PmRustError> {
+    let mut settings = read_settings(pm_root)?;
+    let timestamp = validate_mutation_request(&options.author, options.timestamp.as_deref())?;
+    settings.locks.use_created_at = true;
+    let request = OwnershipItem {
+        id: id.to_owned(),
+        author: options.author.clone(),
+        timestamp: options.timestamp.clone(),
+        message: options.message.clone(),
+        force: options.force,
+        if_available: false,
+        provenance_role: None,
+    };
+    let started = Instant::now();
+    let _lock = acquire_lock(
+        pm_root,
+        id,
+        &options.author,
+        &settings.locks,
+        options.force || !settings.governance.stale_requires_force(),
+        &timestamp,
+    )
+    .map_err(|error| match error {
+        PmRustError::LockConflict { .. } => ownership_lock_refusal(
+            pm_root,
+            &request,
+            &settings,
+            &timestamp,
+            if settings.locks.wait_ms == 0 {
+                0
+            } else {
+                started.elapsed().as_millis()
+            },
+        ),
+        error => error,
+    })?;
+    let operation = match key {
+        "files" => "files_add",
+        "docs" => "docs_add",
+        _ if edit.adds.is_empty() => "tests_remove",
+        _ => "tests_add",
+    };
+    let (item_path, history_path, before) =
+        recover_and_locate(pm_root, operation, id).map_err(|error| match error {
+            PmRustError::ItemNotFound { .. } => crate::collections::missing(pm_root, id),
+            error => error,
+        })?;
+    let owner = ownership_text(&before, "assignee");
+    let principal = ownership_text(&before, "claim_principal");
+    let caller_principal = options
+        .identity
+        .as_ref()
+        .map_or(options.author.as_str(), |identity| {
+            identity.principal.as_str()
+        });
+    if !owner.trim().is_empty()
+        && (if principal.is_empty() {
+            &owner
+        } else {
+            &principal
+        }) != caller_principal
+        && !options.force
+        && settings.governance.policy() == "strict"
+    {
+        return Err(ownership_refusal(
+            format!(
+                "Item {id} is assigned to {}. Use --force to override.",
+                owner.trim()
+            ),
+            serde_json::json!({"code":"ownership_conflict"}),
+        ));
+    }
+    for add in &mut edit.adds {
+        if key == "tests" {
+            add["provenance"] = serde_json::json!({"author":options.author,"created_at":timestamp,"source_kind":"local_mutation"});
+            if let Some(source) = crate::collections::source_ref() {
+                add["provenance"]["source_ref"] = serde_json::json!(source);
+            }
+            if let Some(note) = add.as_object_mut().and_then(|map| map.shift_remove("note")) {
+                add["note"] = note;
+            }
+        } else if let Some(note) = options
+            .note
+            .as_deref()
+            .map(str::trim)
+            .filter(|s| !s.is_empty())
+            && add.get("note").is_none()
+        {
+            add["note"] = serde_json::json!(note);
+        }
+    }
+    let current = before
+        .metadata
+        .extra
+        .get(key)
+        .and_then(Value::as_array)
+        .cloned()
+        .unwrap_or_default();
+    let (rows, removed) = crate::collections::merge(
+        key,
+        &current,
+        &edit,
+        key == "files" && options.append_stable,
+    );
+    if key == "tests" && (!edit.removes.is_empty() || !edit.indices.is_empty()) && removed == 0 {
+        return Err(crate::collections::refusal(
+            "No linked tests matched the requested removal selector",
+            3,
+            serde_json::json!({"code":"linked_test_remove_no_match","unmatched":edit.removes.iter().map(|(kind,value)|format!("{kind}={value}")).chain(edit.indices.iter().map(|i|format!("index={i}"))).collect::<Vec<_>>(),"required":"List linked tests and retry with an exact command/path or a current 1-based --remove-index.","examples":[format!("pm test {id} --list"),format!("pm test {id} --remove-index 1")]}),
+        ));
+    }
+    if current == rows {
+        return Ok((before, false, removed));
+    }
+    let mut document = before.clone();
+    if rows.is_empty() {
+        document.metadata.extra.remove(key);
+    } else {
+        document
+            .metadata
+            .extra
+            .insert(key.to_owned(), Value::Array(rows));
+    }
+    document.metadata.updated_at.clone_from(&timestamp);
+    let result = commit_mutation(
+        pm_root,
+        operation,
+        &before,
+        document,
+        &timestamp,
+        &options.author,
+        None,
+        options.message.as_deref(),
+        &item_path,
+        &history_path,
+    )?;
+    Ok((result.item, true, removed))
+}
+
+/// Executes asserted ownership transactions for the SDK contract tests.
 #[cfg(test)]
 #[allow(clippy::too_many_lines)]
 pub(crate) fn ownership_item(

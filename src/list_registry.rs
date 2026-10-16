@@ -81,6 +81,11 @@ impl Lifecycle {
         self.aliases.get(&normalized).cloned().unwrap_or(normalized)
     }
 
+    /// Recognizes a configured status token or alias for strict search filters.
+    pub(crate) fn known(&self, status: &str) -> bool {
+        self.definitions.contains_key(&self.canonical(status))
+    }
+
     /// Tests a runtime role without treating an unknown status as built-in.
     pub(crate) fn role(&self, status: &str, role: &str) -> bool {
         self.definitions
