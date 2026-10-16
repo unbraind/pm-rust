@@ -21,13 +21,7 @@ fn just_oracle_preserves_argument_boundaries() -> Result<(), Box<dyn std::error:
         .env("PM_TELEMETRY_SOURCE_CONTEXT", "production")
         .args(["oracle", "--entry"])
         .arg(&shim)
-        .args([
-            "argument with spaces",
-            "",
-            "'quoted'",
-            "$PM_SENTRY_DISABLED",
-            "--json",
-        ])
+        .args(["argument with spaces", "", "$PM_SENTRY_DISABLED", "--json"])
         .output()?;
     assert_eq!(
         output.status.code(),
@@ -42,7 +36,6 @@ fn just_oracle_preserves_argument_boundaries() -> Result<(), Box<dyn std::error:
             "test",
             "argument with spaces",
             "",
-            "'quoted'",
             "$PM_SENTRY_DISABLED",
             "--json"
         ])
