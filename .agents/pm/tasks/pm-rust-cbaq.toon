@@ -6,13 +6,13 @@ status: in_progress
 priority: 3
 tags[3]: follow-up,read-parity,rust
 created_at: "2026-10-15T11:08:01.726Z"
-updated_at: "2026-10-16T00:15:56.408Z"
+updated_at: "2026-10-16T00:20:20.651Z"
 assignee: codex-agent
 claim_principal: codex-agent
 author: codex-agent
 acceptance_criteria: "Configured status and hierarchy definitions produce identical selected rows, sorting, fingerprints and multi-page JSON/TOON envelopes to the pinned oracle; preserve all four 100 percent coverage dimensions"
 parent: pm-rust-ufzy
-comments[14]{created_at,author,text}:
+comments[16]{created_at,author,text}:
   "2026-10-15T11:26:11.524Z",codex-agent,Created after duplicate search during pm-rust-ufzy. The delivered pagination slice targets built-in lifecycle and hierarchy registries. This child retains configured-registry selection and cursor conformance as separate follow-up work; no implementation or closure claim.
   "2026-10-15T21:41:38.639Z",codex-agent,"Implement configured lifecycle buckets, terminal ordering and dependency hierarchy selection. Verify byte-exact JSON and TOON pages and continuations with disposable trackers against the locked oracle; record isolated behavioural revert proofs and full release gates."
   "2026-10-15T21:47:35.582Z",codex-agent,"The locked oracle resolves custom hierarchy kinds through extension registration, with no persisted definition format. Native selection reads a declarative schema.relationship_kinds snapshot using the oracle definition fields (kind, aliases, hierarchy, hierarchyDirection). Disposable oracle trackers activate a real schema extension registering those same definitions. No JavaScript is executed by native production code; arbitrary extension activation remains outside this slice."
@@ -27,6 +27,8 @@ comments[14]{created_at,author,text}:
   "2026-10-16T00:14:41.229Z",codex-agent,"Round 1: inspected CI run 38826941351. macOS and Windows both fail only workflow_fallbacks_and_settings_errors at the exact workflow-directory I/O path assertion. Main is already an ancestor of this branch. Registry reads use canonical pm_root; query spelling is physical on Unix and caller-resolved on Windows. Align registry reads and exact-path tests with that established platform contract; audit all new PR path assertions and rerun the full aggregate plus platform CI."
   "2026-10-16T00:15:29.016Z",codex-agent,"Path assertion audit: the workflow-directory assertion is the only new raw filesystem-path equality in this PR. It now independently derives absolute input spelling on Windows and canonical physical spelling on Unix, matching the workspace tests, and still requires typed Io for that exact workflow path. A test-first CI checkpoint will retain the old list registry call to prove the Windows production defect before restoring the corrected function. No arbitrary-Io relaxation."
   "2026-10-16T00:15:56.408Z",codex-agent,"Unix spelling negative control: cargo test --locked --lib list_registry::tests::workflow_fallbacks_and_settings_errors -- --exact was rebuilt with only the original test function restored and a symlink-spelled temporary root. It failed at the original path equality (0 passed, 1 failed, exit 101). Restoring the platform-aware assertion under the same symlink root passed 1/1. This reproduces the macOS physical-root mismatch on Linux without changing production or weakening error identity. Windows function-revert proof will use the unchanged production list function in the test-first CI checkpoint."
+  "2026-10-16T00:16:58.725Z",codex-agent,"Production decision: list registry settings/schema reads now use Workspace::query_pm_root(), as query fingerprints already do. Unix retains physical roots; Windows retains resolved input aliases rather than canonical verbatim/expanded spelling. The exact expected error root is derived independently in the test using absolute() on Windows and canonicalize() on Unix. The test-first checkpoint is 61939c7; its old production call is the Windows behavioral negative control. Running the repository-native just release-check (there is no root package.json) with clean HOME and neutral Git configuration at unchanged coverage thresholds."
+  "2026-10-16T00:20:20.651Z",codex-agent,"Windows behavioral function-revert proof: test-first head 61939c7 contains the final exact-path regression test but retains the original list function calling Lifecycle::load(workspace.pm_root()). CI run 38828544829, Rust windows-latest job 116741804433, fails only workflow_fallbacks_and_settings_errors: 161 passed, 1 failed, exit 101. The assertion shows canonical verbatim-prefix and expanded-name output versus resolved 8.3-alias input spelling. This differs from the final implementation by only the registry-root argument in the production list function; restoring query_pm_root() is the fix. Evidence: https://github.com/unbraind/pm-rust/actions/runs/38828544829/job/116741804433 ."
 files[4]{path,scope}:
   src/list_registry.rs,project
   src/list.rs,project

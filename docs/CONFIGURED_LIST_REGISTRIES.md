@@ -7,7 +7,10 @@ Native list selection resolves lifecycle definitions from `settings.json` under
 whose values override inline settings. Native reads model those defaults in
 memory without creating files. Persist custom workflow definitions in the
 configured schema files to override the scaffold. The default status registry
-applies when no statuses are supplied.
+applies when no statuses are supplied. Registry reads and their I/O errors follow
+workspace query-root spelling: physical roots on Unix and the resolved caller
+spelling on Windows, preserving aliases without adding a canonical verbatim
+prefix. Tests compare the exact configured file path under that platform root.
 
 `--status open` selects active statuses except the configured in-progress status;
 `--status in_progress` selects that configured status. Ordinary list reads exclude

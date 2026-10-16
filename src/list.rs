@@ -103,7 +103,7 @@ fn read_selection(
     echo.insert("runtime_filters".to_owned(), json!({}));
     let documents = workspace.read_items()?;
     let warnings = unknown_tags(&documents, options.tag.as_deref());
-    let lifecycle = crate::list_registry::Lifecycle::load(workspace.pm_root())?;
+    let lifecycle = crate::list_registry::Lifecycle::load(workspace.query_pm_root())?;
     let documents = select_documents(
         documents,
         filters,
