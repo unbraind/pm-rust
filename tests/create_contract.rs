@@ -371,7 +371,7 @@ fn create_never_removes_a_lock_replaced_by_another_owner() -> Result<(), Box<dyn
                 serde_json::to_string(&published.package_root.join("dist/core/lock/lock.js"))?
             ),
         )?;
-        let output = std::process::Command::new(
+        let output = published_cli::oracle_command(
             std::env::var("PM_NODE_INTERPRETER").unwrap_or_else(|_| "node".to_owned()),
         )
         .arg(driver)

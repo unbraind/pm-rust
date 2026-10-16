@@ -61,6 +61,8 @@ cargo run -- --workspace /path/to/project close pm-example --reason "Done: shipp
 ```
 
 List pagination uses the pinned 2026.10.14 oracle in both JSON and default TOON.
+Configured lifecycle roles and declarative custom hierarchy kinds are resolved
+before selection; see [configured list registries](docs/CONFIGURED_LIST_REGISTRIES.md).
 Parent and tag filters and all six published sort fields run before slicing;
 `--order desc` also reverses the default tie-break ordering. `--cursor` is a
 native alias for the oracle's `--after` spelling. Producer cursors tolerate row

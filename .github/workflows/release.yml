@@ -5,6 +5,11 @@ on:
     - cron: "23 3 * * *"
   workflow_dispatch:
 
+# All published tooling runs in the test telemetry context.
+env:
+  PM_SENTRY_DISABLED: "1"
+  PM_TELEMETRY_SOURCE_CONTEXT: test
+
 permissions:
   contents: write
   pull-requests: write

@@ -20,7 +20,7 @@ use published_cli::published_cli_or_skip;
 
 /// Runs one git command and fails loudly when it exits nonzero.
 fn run_git(repository: &Path, arguments: &[&str]) -> Result<String, Box<dyn std::error::Error>> {
-    let output = Command::new("git")
+    let output = published_cli::oracle_tool("git")
         .current_dir(repository)
         .args(arguments)
         .env("GIT_AUTHOR_NAME", "branch-test")
@@ -98,7 +98,7 @@ fn branch_merge_preserves_mutations_from_both_sides() -> Result<(), Box<dyn std:
 
     // Install the published clone-local merge drivers into this repository.
     let installer = published.package_root.join("dist/cli.js");
-    let merge_install = Command::new(&node_interpreter)
+    let merge_install = published_cli::oracle_command(&node_interpreter)
         .current_dir(repository.path())
         .args([installer.to_string_lossy().as_ref(), "merge", "install"])
         .output()?;

@@ -117,7 +117,7 @@ fn compare_outputs(
         String::from_utf8_lossy(&native.stderr)
     );
     if directory.join("driver.mjs").is_file() {
-        let published = Command::new(
+        let published = published_cli::oracle_command(
             std::env::var("PM_NODE_INTERPRETER").unwrap_or_else(|_| "node".to_owned()),
         )
         .arg(directory.join("driver.mjs"))
@@ -813,7 +813,7 @@ fn legacy_after_without_after_index_omits_final_triage_page() -> TestResult {
         "effective_budget_infeasible"
     );
     if directory.path().join("driver.mjs").is_file() {
-        let published = Command::new(
+        let published = published_cli::oracle_command(
             std::env::var("PM_NODE_INTERPRETER").unwrap_or_else(|_| "node".to_owned()),
         )
         .arg(directory.path().join("driver.mjs"))
@@ -1065,7 +1065,7 @@ fn compare_toon(directory: &Path, flags: &[&str], success: bool) -> TestResultVa
         String::from_utf8_lossy(&native.stderr)
     );
     if directory.join("driver.mjs").is_file() {
-        let published = Command::new(
+        let published = published_cli::oracle_command(
             std::env::var("PM_NODE_INTERPRETER").unwrap_or_else(|_| "node".to_owned()),
         )
         .arg(directory.join("driver.mjs"))
@@ -1377,5 +1377,406 @@ fn mixed_tracker_cursor_refusals_and_native_cursor_alias() -> TestResult {
         &["--after", raw, "--output-budget", "unbounded"],
         true,
     )?;
+    Ok(())
+}
+
+/// Changes real tracker settings without replacing the oracle or native data layer.
+fn configured_fixture(
+    configuration: usize,
+) -> Result<tempfile::TempDir, Box<dyn std::error::Error>> {
+    let directory = fixture(12, 600)?;
+    let root = directory.path().join(".agents/pm");
+    let mut settings: Value = serde_json::from_slice(&fs::read(root.join("settings.json"))?)?;
+    let statuses = serde_json::json!([
+        {"id":"draft","roles":["draft"]},
+        {"id":"queued","roles":["active","default_open"]},
+        {"id":"ready","roles":["active"]},
+        {"id":"working","roles":["active"]},
+        {"id":"waiting","roles":["blocked"]},
+        {"id":"shipped","roles":["terminal_done","default_close"]},
+        {"id":"abandoned","roles":["terminal_canceled","default_cancel"]},
+        {"id":"archived","roles":["terminal"]}
+    ]);
+    let progress = if configuration == 1 {
+        "ready"
+    } else {
+        "working"
+    };
+    settings["schema"]["workflow"] = serde_json::json!({"open_status":"queued","in_progress_status":progress,"blocked_status":"waiting","close_status":"shipped","canceled_status":"abandoned","draft_status":"draft"});
+    settings["schema"]["statuses"] = statuses.clone();
+    // Real schema files prevent the oracle's first-read scaffold from installing
+    // default workflow overrides over the inline custom configuration.
+    fs::create_dir_all(root.join("schema"))?;
+    fs::write(
+        root.join("schema/statuses.json"),
+        serde_json::json!({"statuses":statuses}).to_string(),
+    )?;
+    fs::write(
+        root.join("schema/workflows.json"),
+        serde_json::json!({"workflow":settings["schema"]["workflow"]}).to_string(),
+    )?;
+    if configuration == 2 {
+        // Optional schema files extend embedded definitions; workflow files overlay fields.
+        fs::create_dir_all(root.join("schema"))?;
+        settings["schema"]["statuses"] = serde_json::json!([{"id":"queued","roles":["active"]}]);
+        fs::write(
+            root.join("schema/statuses.json"),
+            serde_json::json!({"statuses":statuses}).to_string(),
+        )?;
+        fs::write(
+            root.join("schema/workflows.json"),
+            serde_json::json!({"workflow":{"in_progress_status":progress}}).to_string(),
+        )?;
+    }
+    fs::write(root.join("settings.json"), settings.to_string())?;
+    let states = [
+        "queued",
+        "ready",
+        "working",
+        "waiting",
+        "shipped",
+        "abandoned",
+        "archived",
+        "draft",
+        "open",
+    ];
+    for index in 0..12 {
+        let path = root.join(format!("tasks/demo-{index:04}.toon"));
+        let mut text = fs::read_to_string(&path)?.replace(
+            "status: open",
+            &format!(
+                "status: {}",
+                if index == 10 {
+                    "shipped"
+                } else {
+                    states[index % states.len()]
+                }
+            ),
+        );
+        match index % 9 {
+            0 => text.push_str("blocked_by: demo-0004\n"), // custom terminal resolves it
+            1 => text.push_str("blocked_by: demo-0002\n"), // configured active is blocked
+            2 => text.push_str("blocked_by: absent\n"),
+            _ => {}
+        }
+        fs::write(path, text)?;
+    }
+    Ok(directory)
+}
+
+/// Walks both encodings for one independent configured lifecycle tracker.
+fn lifecycle_pages(configuration: usize) -> TestResult {
+    let directory = configured_fixture(configuration)?;
+    for toon in [false, true] {
+        let run = |flags: &[&str]| {
+            if toon {
+                compare_toon(directory.path(), flags, true)
+            } else {
+                compare(directory.path(), flags, true)
+            }
+        };
+        for selection in [
+            vec!["--status", "shipped"],
+            vec![],
+            vec!["--all"],
+            vec!["--status", "open"],
+            vec!["--status", "in_progress"],
+            vec!["--status", "blocked"],
+        ] {
+            let mut cursor: Option<String> = None;
+            let mut delivered = Vec::new();
+            loop {
+                let mut flags = selection.clone();
+                flags.extend([
+                    "--limit",
+                    if selection == ["--status", "shipped"] {
+                        "1"
+                    } else {
+                        "2"
+                    },
+                    "--output-budget",
+                    "unbounded",
+                ]);
+                if let Some(ref after) = cursor {
+                    flags.extend(["--after", after]);
+                }
+                let page = run(&flags)?;
+                delivered.extend(
+                    page["items"]
+                        .as_array()
+                        .map_or(&[][..], Vec::as_slice)
+                        .iter()
+                        .map(|item| item["id"].clone()),
+                );
+                cursor = page["next_cursor"].as_str().map(str::to_owned);
+                if cursor.is_none() {
+                    break;
+                }
+                assert!(delivered.len() < 40);
+            }
+            assert!(
+                !delivered.is_empty(),
+                "configuration={configuration} toon={toon} selection={selection:?}"
+            );
+            let mut flags = selection.clone();
+            flags.extend([
+                "--output-limit",
+                "unbounded",
+                "--output-budget",
+                "unbounded",
+            ]);
+            let full = run(&flags)?;
+            assert_eq!(
+                delivered,
+                full["items"]
+                    .as_array()
+                    .map_or(&[][..], Vec::as_slice)
+                    .iter()
+                    .map(|item| item["id"].clone())
+                    .collect::<Vec<_>>()
+            );
+            let mut flags = selection.clone();
+            flags.extend(["--full", "--output-budget", "1000"]);
+            let page = run(&flags)?;
+            if let Some(cursor) = page["next_cursor"].as_str() {
+                flags.extend(["--output-cursor", cursor]);
+                run(&flags)?;
+            }
+        }
+    }
+    Ok(())
+}
+
+/// Custom active and terminal roles match complete producer and budget envelopes.
+#[test]
+fn configured_lifecycle_pages_match_oracle() -> TestResult {
+    lifecycle_pages(0)
+}
+
+/// Changing the progress bucket changes selection without changing cursor semantics.
+#[test]
+fn configured_progress_bucket_pages_match_oracle() -> TestResult {
+    lifecycle_pages(1)
+}
+
+/// External registry files override embedded definitions in both encodings.
+#[test]
+fn configured_schema_file_pages_match_oracle() -> TestResult {
+    lifecycle_pages(2)
+}
+
+/// Creates a tracker with a real oracle extension and matching declarative kinds.
+fn hierarchy_fixture(source_parent: bool) -> Result<tempfile::TempDir, Box<dyn std::error::Error>> {
+    let directory = configured_fixture(0)?;
+    let root = directory.path().join(".agents/pm");
+    let mut settings: Value = serde_json::from_slice(&fs::read(root.join("settings.json"))?)?;
+    let definitions = serde_json::json!([{
+        "kind":"custom_parent", "direction":"directed", "traversal":"hierarchy",
+        "hierarchy":true, "hierarchyDirection":if source_parent {"source_parent"} else {"target_parent"},
+        "ordering":false,"outgoing":"many","incoming":"many","lifecycle":"persistent",
+        "aliases":["group_member"],"compatibilityVersion":1,"allowSelf":false
+    }]);
+    settings["schema"]["relationship_kinds"] = definitions.clone();
+    settings["extensions"]["enabled"] = serde_json::json!(["fixture-hierarchy"]);
+    fs::write(root.join("settings.json"), settings.to_string())?;
+    let extension = root.join("extensions/fixture-hierarchy");
+    fs::create_dir_all(&extension)?;
+    fs::write(extension.join("manifest.json"), serde_json::json!({"name":"fixture-hierarchy","version":"1.0.0","entry":"index.mjs","priority":100,"capabilities":["schema"]}).to_string())?;
+    fs::write(
+        extension.join("index.mjs"),
+        format!("export function activate(api){{api.registerRelationshipKinds({definitions});}}"),
+    )?;
+    for index in 1..10 {
+        let path = root.join(format!("tasks/demo-{index:04}.toon"));
+        let kind = if index % 2 == 0 {
+            "custom_parent"
+        } else {
+            "group_member"
+        };
+        if source_parent {
+            let parent = root.join("tasks/demo-0000.toon");
+            let mut text = fs::read_to_string(&parent)?;
+            if index == 1 {
+                text.push_str("dependencies[9]{id,kind,created_at}:\n");
+            }
+            writeln!(
+                text,
+                "  demo-{index:04},{kind},\"2026-09-01T00:00:00.000Z\""
+            )?;
+            fs::write(parent, text)?;
+        } else {
+            let mut text = fs::read_to_string(&path)?;
+            writeln!(
+                text,
+                "dependencies[1]{{id,kind,created_at}}:\n  demo-0000,{kind},\"2026-09-01T00:00:00.000Z\""
+            )?;
+            fs::write(path, text)?;
+        }
+    }
+    Ok(directory)
+}
+
+/// Registers real oracle extension kinds and supplies their native declarative snapshot.
+#[test]
+fn configured_hierarchy_pages_match_oracle() -> TestResult {
+    for source_parent in [false, true] {
+        let directory = hierarchy_fixture(source_parent)?;
+        for toon in [false, true] {
+            let run = |flags: &[&str]| {
+                if toon {
+                    compare_toon(directory.path(), flags, true)
+                } else {
+                    compare(directory.path(), flags, true)
+                }
+            };
+            let mut after: Option<String> = None;
+            let mut delivered = 0;
+            loop {
+                let mut flags = vec![
+                    "--all",
+                    "--parent",
+                    "demo-0000",
+                    "--limit",
+                    "2",
+                    "--output-budget",
+                    "unbounded",
+                ];
+                if let Some(ref cursor) = after {
+                    flags.extend(["--after", cursor]);
+                }
+                let page = run(&flags)?;
+                delivered += page["items"].as_array().ok_or("missing items")?.len();
+                after = page["next_cursor"].as_str().map(str::to_owned);
+                if after.is_none() {
+                    break;
+                }
+                assert!(delivered < 10);
+            }
+            assert_eq!(delivered, 9);
+            let page = run(&["--all", "--parent", "demo-0000", "--output-budget", "900"])?;
+            let cursor = page["next_cursor"].as_str().ok_or_else(|| {
+                format!("missing custom hierarchy snapshot (toon={toon}): {page}")
+            })?;
+            run(&[
+                "--all",
+                "--parent",
+                "demo-0000",
+                "--output-budget",
+                "900",
+                "--output-cursor",
+                cursor,
+            ])?;
+        }
+    }
+    Ok(())
+}
+
+/// Small pages isolate lifecycle, dependency, hierarchy and semantic-cursor regressions.
+#[test]
+fn configured_registry_selection_regressions() -> TestResult {
+    let directory = configured_fixture(0)?;
+    for flags in [
+        vec!["--status", "shipped"],
+        vec!["--status", "open"],
+        vec![],
+        vec!["--all"],
+        vec!["--status", "blocked"],
+    ] {
+        let mut flags = flags;
+        flags.extend(["--limit", "1", "--output-budget", "unbounded"]);
+        compare(directory.path(), &flags, true)?;
+    }
+    let directory = hierarchy_fixture(false)?;
+    compare(
+        directory.path(),
+        &[
+            "--all",
+            "--parent",
+            "demo-0000",
+            "--limit",
+            "1",
+            "--output-budget",
+            "unbounded",
+        ],
+        true,
+    )?;
+    Ok(())
+}
+
+/// Missing schema files use the oracle's first-read scaffold defaults without native writes.
+#[test]
+fn configured_missing_scaffold_matches_first_oracle_read() -> TestResult {
+    let directory = configured_fixture(0)?;
+    let schema = directory.path().join(".agents/pm/schema");
+    fs::remove_dir_all(&schema)?;
+    let native = Command::new(env!("CARGO_BIN_EXE_pm-rust"))
+        .args([
+            "list",
+            "--status",
+            "in_progress",
+            "--json",
+            "--timestamp",
+            CLOCK,
+            "--output-budget",
+            "unbounded",
+        ])
+        .current_dir(directory.path())
+        .env_remove("PM_PATH")
+        .output()?;
+    assert!(native.status.success());
+    assert!(!schema.exists(), "native list must remain read-only");
+    compare(
+        directory.path(),
+        &["--status", "in_progress", "--output-budget", "unbounded"],
+        true,
+    )?;
+    compare_toon(
+        directory.path(),
+        &["--status", "in_progress", "--output-budget", "unbounded"],
+        true,
+    )?;
+    Ok(())
+}
+
+/// A registry without active roles uses workflow open for dependency-blocked candidates.
+#[test]
+fn configured_no_active_role_blockers_match_oracle() -> TestResult {
+    let directory = configured_fixture(0)?;
+    let root = directory.path().join(".agents/pm");
+    let mut schema: Value = serde_json::from_slice(&fs::read(root.join("schema/statuses.json"))?)?;
+    for status in schema["statuses"]
+        .as_array_mut()
+        .ok_or("missing statuses")?
+    {
+        status["roles"] = serde_json::json!(
+            status["roles"]
+                .as_array()
+                .ok_or("missing roles")?
+                .iter()
+                .filter(|role| *role != "active")
+                .cloned()
+                .collect::<Vec<_>>()
+        );
+    }
+    let mut settings: Value = serde_json::from_slice(&fs::read(root.join("settings.json"))?)?;
+    settings["schema"]["statuses"] = schema["statuses"].clone();
+    fs::write(root.join("settings.json"), settings.to_string())?;
+    fs::write(root.join("schema/statuses.json"), schema.to_string())?;
+    let path = root.join("tasks/demo-0000.toon");
+    fs::write(
+        &path,
+        fs::read_to_string(&path)?.replace("blocked_by: demo-0004", "blocked_by: absent"),
+    )?;
+    let flags = [
+        "--status",
+        "blocked",
+        "--limit",
+        "1",
+        "--output-budget",
+        "unbounded",
+    ];
+    let page = compare(directory.path(), &flags, true)?;
+    assert_eq!(page["items"][0]["id"], "demo-0000");
+    compare_toon(directory.path(), &flags, true)?;
     Ok(())
 }

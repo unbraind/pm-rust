@@ -101,7 +101,7 @@ fn unbounded_list_matches_published_cli_and_golden() -> Result<(), Box<dyn std::
             "unbounded",
         ];
         if let Some((interpreter, driver)) = &published {
-            let output = Command::new(interpreter)
+            let output = published_cli::oracle_command(interpreter)
                 .arg(driver)
                 .args(args)
                 .args(&flags)
@@ -406,7 +406,7 @@ fn full_restores_fields_without_adding_terminal_items() -> Result<(), Box<dyn st
     ))?;
     assert_eq!(actual, expected_with_receipt);
     if let Some((interpreter, driver)) = published_driver(fixture.path())? {
-        let output = Command::new(interpreter)
+        let output = published_cli::oracle_command(interpreter)
             .arg(driver)
             .args([
                 "list",

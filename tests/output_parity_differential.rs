@@ -94,7 +94,7 @@ fn compare(
     );
     let native_text = std::str::from_utf8(&native.stdout)?;
     if directory.join("driver.mjs").is_file() {
-        let oracle = Command::new(
+        let oracle = published_cli::oracle_command(
             std::env::var("PM_NODE_INTERPRETER").unwrap_or_else(|_| "node".to_owned()),
         )
         .arg(directory.join("driver.mjs"))

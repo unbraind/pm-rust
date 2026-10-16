@@ -14,6 +14,7 @@ mod item;
 mod json_output;
 mod list;
 mod list_intent;
+mod list_registry;
 mod mutation;
 mod ownership;
 mod pagination;
