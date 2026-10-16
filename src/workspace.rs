@@ -230,7 +230,7 @@ impl Workspace {
 
     /// Returns the published PM CLI 2026.10.2 unbounded-list JSON envelope.
     ///
-    /// Uses the default lifecycle registry: closed and canceled are terminal.
+    /// Uses the tracker lifecycle registry, with built-in roles as defaults.
     /// Default reads exclude terminal items and project id/status/type/title;
     /// `all` or status `all` includes them and projects complete metadata.
     /// Ordering is terminal-last, priority ascending, update time descending,

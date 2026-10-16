@@ -2,7 +2,6 @@
 use super::published_cli::PublishedCli;
 use std::fs;
 use std::path::{Path, PathBuf};
-use std::process::Command;
 const CLOCK: &str = "2026-08-22T10:00:00.000Z";
 /// Encodes one path as a JSON string literal.
 ///
@@ -123,7 +122,7 @@ pub fn run_minimal(
     arguments: &[String],
     working_directory: &Path,
 ) -> Result<std::process::Output, Box<dyn std::error::Error>> {
-    let mut command = Command::new(program);
+    let mut command = super::published_cli::oracle_command(program);
     command.current_dir(working_directory);
     command.env_clear();
     // The clear is deliberate - the point is a reproducible environment - but a

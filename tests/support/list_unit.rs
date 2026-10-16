@@ -393,7 +393,10 @@ fn parent_index_supports_inverse_edges_and_dangling_targets()
             json!({"dependencies":[{"id":"demo-root","kind":"child_of"}]}),
         )?,
     ];
-    let parents = super::parent_relations(&corpus);
+    let parents = super::parent_relations(
+        &corpus,
+        &crate::list_registry::Hierarchy::new(&serde_json::Value::Null),
+    );
     assert_eq!(parents["demo-leaf"], ["demo-root".to_owned()].into());
     assert_eq!(parents["demo-other"], ["demo-root".to_owned()].into());
     assert!(!parents.contains_key("ghost"));
