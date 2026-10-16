@@ -127,7 +127,7 @@ fn list_and_get_dispatch_over_real_processes() -> Result<(), Box<dyn std::error:
     let output = pm_rust(&workspace, &["list"])?;
     assert!(output.status.success());
     assert!(
-        String::from_utf8_lossy(&output.stdout).contains("\"count\": 0"),
+        String::from_utf8_lossy(&output.stdout).contains("count: 0"),
         "empty list projection missing"
     );
     seed_item(&workspace)?;
@@ -375,5 +375,23 @@ fn parser_refusals_exit_with_diagnostics() -> Result<(), Box<dyn std::error::Err
     // item-not-found. The no-tracker case is covered by the absolute
     // `--workspace` invocation above.
     expect_err(&workspace, &["get", "sample-missing"], "pm item not found")?;
+    for controls in [
+        vec!["--status", "open,closed"],
+        vec!["--type", "Task,Issue"],
+        vec!["--sort", "invalid"],
+        vec!["--order", "desc"],
+        vec!["--sort", "title", "--order", "sideways"],
+        vec!["--output-limit", "bad"],
+        vec!["--output-budget", "bad"],
+    ] {
+        for json in [false, true] {
+            let mut args = vec!["list"];
+            if json {
+                args.push("--json");
+            }
+            args.extend(&controls);
+            expect_err(&workspace, &args, "invalid read request")?;
+        }
+    }
     Ok(())
 }

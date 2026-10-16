@@ -1,0 +1,16 @@
+id: pm-rust-373x
+title: Investigate literal apostrophe loss in Windows just oracle arguments
+description: "Windows CI on PR 87 head 29fc92c observed that a literal apostrophe-delimited argument reached the just oracle echo shim without its apostrophes. The requested spaced argument, spaced shim path, empty argument, literal shell variable, enforced telemetry environment and exit code were preserved. Investigate the Windows just and shell argument path independently; do not weaken the spaced-argument regression. Evidence: https://github.com/unbraind/pm-rust/actions/runs/38845436645/job/116794774913 . No root cause is asserted yet."
+type: Task
+status: open
+priority: 3
+tags[3]: follow-up,oracle,windows
+created_at: "2026-10-16T03:32:25.832Z"
+updated_at: "2026-10-16T03:32:56.238Z"
+author: codex-agent
+parent: pm-rust-oqst
+files[1]{path,scope}:
+  tests/oracle_launcher.rs,project
+docs[1]{path,scope}:
+  "https://github.com/unbraind/pm-rust/actions/runs/38845436645/job/116794774913",project
+body: ""

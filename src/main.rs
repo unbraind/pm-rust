@@ -29,43 +29,43 @@ enum Command {
         #[arg(long)]
         json: bool,
         /// Maximum estimated output tokens, or unbounded.
-        #[arg(long, requires = "json")]
+        #[arg(long)]
         output_budget: Option<String>,
         /// Maximum delivered rows, or unbounded.
-        #[arg(long, requires = "json")]
+        #[arg(long)]
         output_limit: Option<String>,
         /// Include terminal items and return full metadata.
-        #[arg(long, requires = "json", conflicts_with = "status")]
+        #[arg(long, conflicts_with = "status")]
         all: bool,
         /// Return complete metadata without changing the selected statuses.
-        #[arg(long, requires = "json")]
+        #[arg(long)]
         full: bool,
         /// Explicit identity projection.
-        #[arg(long, requires = "json", conflicts_with = "full")]
+        #[arg(long, conflicts_with = "full")]
         brief: bool,
         /// Maximum rows in the producer page.
-        #[arg(long, requires = "json")]
+        #[arg(long)]
         limit: Option<String>,
         /// Skip matching rows before producing a page.
-        #[arg(long, requires = "json", conflicts_with = "after")]
+        #[arg(long, conflicts_with = "after")]
         offset: Option<String>,
-        /// Continue after a producer cursor.
-        #[arg(long, requires = "json")]
+        /// Continue after a producer cursor (`--cursor` is a native alias).
+        #[arg(long, alias = "cursor")]
         after: Option<String>,
         /// Return every matching row after the cursor or offset.
-        #[arg(long, requires = "json")]
+        #[arg(long)]
         no_truncate: bool,
         /// Resume a snapshot-bound output budget continuation.
-        #[arg(long, requires = "json")]
+        #[arg(long)]
         output_cursor: Option<String>,
         /// Apply the built-in triage projection.
-        #[arg(long = "for", requires = "json")]
+        #[arg(long = "for")]
         intent: Option<String>,
         /// Override the intent's token ceiling (at least 256).
-        #[arg(long, requires = "json")]
+        #[arg(long)]
         token_budget: Option<String>,
         /// Fixed read timestamp for reproducible compatibility fixtures.
-        #[arg(long, requires = "json")]
+        #[arg(long)]
         timestamp: Option<String>,
         /// Exact lifecycle status.
         #[arg(long)]
@@ -73,6 +73,18 @@ enum Command {
         /// Exact item type, compared case-insensitively.
         #[arg(long = "type")]
         item_type: Option<String>,
+        /// Exact parent identity.
+        #[arg(long)]
+        parent: Option<String>,
+        /// Comma-separated tag selection.
+        #[arg(long)]
+        tag: Option<String>,
+        /// Sort field, including published timestamp aliases.
+        #[arg(long)]
+        sort: Option<String>,
+        /// Sort direction.
+        #[arg(long)]
+        order: Option<String>,
         /// Exact stable item identifier.
         #[arg(long, alias = "ids")]
         id: Option<String>,
@@ -378,18 +390,27 @@ fn run(cli: Cli) -> Result<(), Box<dyn std::error::Error>> {
             status,
             item_type,
             id,
+            parent,
+            tag,
+            sort,
+            order,
         } => {
             let filters = ItemFilter {
                 status,
                 item_type,
                 id,
             };
-            if json {
+            {
                 let now = timestamp.unwrap_or_else(pm_rust::current_timestamp);
                 pm_rust::validate_timestamp(&now)?;
                 let result = workspace.list_page(
                     &filters,
                     &ListOptions {
+                        parent,
+                        tag,
+                        sort,
+                        order,
+                        toon: !json,
                         all,
                         full,
                         brief,
@@ -405,12 +426,10 @@ fn run(cli: Cli) -> Result<(), Box<dyn std::error::Error>> {
                     },
                     &now,
                 )?;
-                write_json(&result)?;
+                write_list_to(&mut std::io::stdout().lock(), &result, json)?;
                 if result.get("output_budget_exceeded").is_some() {
                     return Err(Box::new(pm_rust::PmRustError::OutputBudgetExceeded));
                 }
-            } else {
-                write_json(&workspace.list(filters)?)?;
             }
         }
         Command::Get { id } => write_json(&workspace.get(&id)?)?,
@@ -786,6 +805,12 @@ fn main() -> ExitCode {
     match run(Cli::parse()) {
         Ok(()) => ExitCode::SUCCESS,
         Err(error) => {
+            if let Some(pm_rust::PmRustError::ToonEncoding { detail }) =
+                error.downcast_ref::<pm_rust::PmRustError>()
+            {
+                eprintln!("{detail}");
+                return ExitCode::from(1);
+            }
             if let Some(pm_rust::PmRustError::CommandRefusal {
                 detail,
                 exit_code,
@@ -816,8 +841,12 @@ fn main() -> ExitCode {
             {
                 let args = published_read_arguments(std::env::args_os().skip(1));
                 let payload = cursor_error_json(code, detail, &args);
-                // Cursor flags require JSON; a closed diagnostic pipe still exits 2.
-                let _ = write_json_to(&mut std::io::stderr().lock(), &payload);
+                let mut stderr = std::io::stderr().lock();
+                let _ = if args.iter().any(|arg| arg == "--json") {
+                    write_json_to(&mut stderr, &payload)
+                } else {
+                    write_cursor_refusal_to(&mut stderr, &payload)
+                };
             } else {
                 eprintln!("pm-rust: {error}");
             }
@@ -890,7 +919,7 @@ fn cursor_error_json(code: &str, detail: &str, args: &[String]) -> serde_json::V
             provided.push(arg.clone());
         }
     }
-    let mut payload = serde_json::json!({"code":code,"required":"Adjust command input or tracker state and retry.","recovery":{"attempted_command":format!("pm {}",args.join(" ")),"normalized_args":args,"provided_fields":provided}});
+    let mut payload = serde_json::json!({"code":code,"required":"Adjust command input or tracker state and retry.","recovery":{"attempted_command":format!("pm {}",args.iter().map(|arg| pm_rust::quote_command_arg(arg)).collect::<Vec<_>>().join(" ")),"normalized_args":args,"provided_fields":provided}});
     if args.first().is_some_and(|command| command == "close") {
         payload["recovery"]["attempted_command"] = serde_json::json!(format!(
             "pm {}",
@@ -1119,4 +1148,63 @@ fn close_error_refusal(
     }
     receipt["exit_code"] = serde_json::json!(exit_code);
     receipt
+}
+
+/// Writes list output in the same encoding used for its budget measurement.
+fn write_list_to(
+    writer: &mut dyn Write,
+    result: &pm_rust::ListOutput,
+    json: bool,
+) -> Result<(), Box<dyn std::error::Error>> {
+    if json {
+        return write_json_to(writer, result);
+    }
+    writer.write_all(pm_rust::stringify_toon(result)?.as_bytes())?;
+    writer.flush()?;
+    Ok(())
+}
+
+/// Writes the published human-readable cursor diagnostic when JSON was not requested.
+fn write_cursor_refusal_to(
+    writer: &mut dyn Write,
+    payload: &serde_json::Value,
+) -> Result<(), Box<dyn std::error::Error>> {
+    let attempted = payload["recovery"]["normalized_args"]
+        .as_array()
+        .into_iter()
+        .flatten()
+        .filter_map(serde_json::Value::as_str)
+        .map(pm_rust::quote_command_arg)
+        .collect::<Vec<_>>()
+        .join(" ");
+    let mut parts = vec![format!(
+        "Error: {}\n\nWhat is required:\n  {}",
+        payload["title"].as_str().unwrap_or_default(),
+        payload["required"].as_str().unwrap_or_default()
+    )];
+    if let Some(steps) = payload["next_steps"].as_array() {
+        parts.push("\nNext steps:".to_owned());
+        parts.extend(
+            steps
+                .iter()
+                .map(|step| format!("  - {}", step.as_str().unwrap_or_default())),
+        );
+    }
+    parts.push(format!("\nWhat happened:\n  {}\n\nWhy:\n  {}\n\nExamples:\n  - pm --help\n  - pm <command> --help\n\nRecovery bundle:\n  attempted_command: pm {attempted}", payload["detail"].as_str().unwrap_or_default(), payload["why"].as_str().unwrap_or_default()));
+    if let Some(fields) = payload["recovery"]["provided_fields"]
+        .as_array()
+        .filter(|fields| !fields.is_empty())
+    {
+        parts.push(format!(
+            "  provided_fields: {}",
+            fields
+                .iter()
+                .filter_map(serde_json::Value::as_str)
+                .collect::<Vec<_>>()
+                .join(", ")
+        ));
+    }
+    writer.write_all(format!("{}\n", parts.join("\n")).as_bytes())?;
+    writer.flush()?;
+    Ok(())
 }

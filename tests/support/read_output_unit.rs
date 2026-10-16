@@ -137,6 +137,7 @@ fn amount_and_alias_receipts_preserve_requested_dimensions()
         )?["read_output"]
             .is_object()
     );
+    assert_toon_budget_contract()?;
     Ok(())
 }
 
@@ -384,5 +385,38 @@ fn output_policy_audits_cover_requested_controls_and_absent_counts()
         result["output_budget_truncation"]["overridden_dimensions"],
         json!(["amount"])
     );
+    Ok(())
+}
+
+/// Checks default TOON ceilings and both pre-existing and newly introduced string cuts.
+fn assert_toon_budget_contract() -> Result<(), Box<dyn std::error::Error>> {
+    let toon = apply(
+        envelope(200, 400),
+        &ListOptions {
+            toon: true,
+            ..ListOptions::default()
+        },
+    )?;
+    assert_eq!(toon["read_output"]["budget_tokens"], 4000);
+    assert_eq!(toon["read_output"]["within_budget"], true);
+    assert_eq!(toon["has_more"], true);
+    let options = ListOptions {
+        toon: true,
+        ..ListOptions::default()
+    };
+    let title = format!("{}😀{}", "x".repeat(239), "y".repeat(300));
+    let mut cut: crate::ListOutput = envelope(1, 0).into();
+    cut.value["items"][0]["title"] = json!(title);
+    compact_strings(&mut cut.value, "", &mut cut.cuts);
+    assert!(matches!(
+        super::apply(cut, &options),
+        Err(crate::PmRustError::ToonEncoding { .. })
+    ));
+    let mut original = envelope(200, 400);
+    original["items"][0]["title"] = json!(title);
+    assert!(matches!(
+        apply(original, &options),
+        Err(crate::PmRustError::ToonEncoding { .. })
+    ));
     Ok(())
 }

@@ -225,7 +225,7 @@ pub(crate) fn runtime_settings(pm_root: &Path) -> Result<Value, PmRustError> {
 }
 
 /// Reads one schema object with errors attributed to its actual file.
-fn read_json(path: &Path) -> Result<Value, PmRustError> {
+pub(crate) fn read_json(path: &Path) -> Result<Value, PmRustError> {
     let bytes = match fs::read(path) {
         Ok(bytes) => bytes,
         Err(source) => {

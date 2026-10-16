@@ -14,11 +14,13 @@ mod item;
 mod json_output;
 mod list;
 mod list_intent;
+mod list_registry;
 mod mutation;
 mod ownership;
 mod pagination;
 mod read_output;
 mod selection;
+mod toon_output;
 mod workspace;
 
 pub use error::PmRustError;
@@ -34,6 +36,7 @@ pub use mutation::{now_iso as current_timestamp, quote_command_arg};
 pub use ownership::{
     AuthorIdentity, OwnershipOptions, SelectionOptions, partial_failure as completed_step_failure,
 };
+pub use toon_output::stringify_toon;
 pub use workspace::{ItemFilter, ListResult, Workspace};
 
 /// Published canonical `pm` release used by this compatibility slice.

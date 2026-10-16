@@ -317,3 +317,230 @@ fn sdk_projection_and_intent_preserve_rows() -> Result<(), Box<dyn std::error::E
     );
     Ok(())
 }
+
+/// Published ordering aliases normalize without accepting unsupported fields or directions.
+#[test]
+fn ordering_controls_normalize_and_refuse_invalid_requests()
+-> Result<(), Box<dyn std::error::Error>> {
+    use crate::ListOptions;
+    let directory = tempfile::tempdir()?;
+    let root = directory.path().join(".agents/pm");
+    fs::create_dir_all(&root)?;
+    fs::write(root.join("settings.json"), "{}")?;
+    let workspace = Workspace::discover(directory.path())?;
+
+    for (raw, expected) in [
+        (" UPDATED ", "updated_at"),
+        ("modified", "updated_at"),
+        ("update", "updated_at"),
+        ("create", "created_at"),
+        (" CREATED ", "created_at"),
+        ("title", "title"),
+    ] {
+        let mut options = ListOptions {
+            sort: Some(raw.to_owned()),
+            order: Some(" DESC ".to_owned()),
+            ..ListOptions::default()
+        };
+        super::normalize_ordering(&mut options)?;
+        assert_eq!(options.sort.as_deref(), Some(expected));
+        assert_eq!(options.order.as_deref(), Some("desc"));
+    }
+    for (sort, order) in [
+        (Some("unknown"), None),
+        (None, Some("desc")),
+        (Some("title"), Some("sideways")),
+    ] {
+        let mut options = ListOptions {
+            sort: sort.map(str::to_owned),
+            order: order.map(str::to_owned),
+            ..ListOptions::default()
+        };
+        assert!(matches!(
+            super::normalize_ordering(&mut options),
+            Err(PmRustError::InvalidReadRequest { .. })
+        ));
+        assert!(matches!(
+            workspace.list_page(&ItemFilter::default(), &options, "clock"),
+            Err(PmRustError::InvalidReadRequest { .. })
+        ));
+    }
+    Ok(())
+}
+
+/// Hierarchy selection honors inverse aliases and ignores unresolved/non-hierarchy edges.
+#[test]
+fn parent_index_supports_inverse_edges_and_dangling_targets()
+-> Result<(), Box<dyn std::error::Error>> {
+    use serde_json::json;
+    let document = |id: &str,
+                    extra: serde_json::Value|
+     -> Result<crate::ItemDocument, serde_json::Error> {
+        let mut value = json!({"id":id,"title":id,"type":"Task","status":"open","priority":1,"created_at":"clock","updated_at":"clock"});
+        if let (Some(fields), Some(extra)) = (value.as_object_mut(), extra.as_object()) {
+            fields.extend(extra.clone());
+        }
+        serde_json::from_value(value)
+    };
+    let corpus = vec![
+        document(
+            "demo-root",
+            json!({"dependencies":[{"id":"demo-leaf","kind":"child"},{"id":"ghost","kind":"child"},{"kind":"child"},{"id":"demo-other","kind":"related"}]}),
+        )?,
+        document("demo-leaf", json!({}))?,
+        document(
+            "demo-other",
+            json!({"dependencies":[{"id":"demo-root","kind":"child_of"}]}),
+        )?,
+    ];
+    let parents = super::parent_relations(
+        &corpus,
+        &crate::list_registry::Hierarchy::new(&serde_json::Value::Null),
+    );
+    assert_eq!(parents["demo-leaf"], ["demo-root".to_owned()].into());
+    assert_eq!(parents["demo-other"], ["demo-root".to_owned()].into());
+    assert!(!parents.contains_key("ghost"));
+    assert_sdk_list_selection(corpus)?;
+    Ok(())
+}
+
+/// Exercises the public SDK over a real tracker with filters and nullable sort fields.
+fn assert_sdk_list_selection(
+    corpus: Vec<crate::ItemDocument>,
+) -> Result<(), Box<dyn std::error::Error>> {
+    use crate::ListOptions;
+    use serde_json::json;
+    let directory = sdk_selection_tracker(corpus)?;
+    let workspace = Workspace::discover(directory.path())?;
+    for sort in [
+        "priority",
+        "deadline",
+        "updated_at",
+        "created_at",
+        "title",
+        "parent",
+    ] {
+        for order in ["asc", "desc"] {
+            let result = workspace.list_page(
+                &ItemFilter::default(),
+                &ListOptions {
+                    sort: Some(sort.to_owned()),
+                    order: Some(order.to_owned()),
+                    full: true,
+                    output_budget: Some("unbounded".to_owned()),
+                    ..ListOptions::default()
+                },
+                "clock",
+            )?;
+            assert_eq!(result["count"], 4);
+            assert_eq!(result["sorting"], json!({"sort":sort,"order":order}));
+        }
+    }
+    let filtered = workspace.list_page(
+        &ItemFilter::default(),
+        &ListOptions {
+            tag: Some("alpha".to_owned()),
+            parent: Some("demo-root".to_owned()),
+            sort: Some("title".to_owned()),
+            order: Some("desc".to_owned()),
+            ..ListOptions::default()
+        },
+        "clock",
+    )?;
+    assert_eq!(
+        filtered["items"]
+            .as_array()
+            .map(|rows| rows.iter().map(|row| row["id"].clone()).collect::<Vec<_>>()),
+        Some(vec![json!("demo-other"), json!("demo-leaf")])
+    );
+    let missing = workspace.list_page(
+        &ItemFilter::default(),
+        &ListOptions {
+            tag: Some("missing,alpha,missing".to_owned()),
+            ..ListOptions::default()
+        },
+        "clock",
+    )?;
+    assert_eq!(missing["warnings"], json!(["unknown_tags:missing"]));
+    for status in ["blocked", "draft", "canceled"] {
+        let result = workspace.list_page(
+            &ItemFilter {
+                status: Some(status.to_owned()),
+                ..ItemFilter::default()
+            },
+            &ListOptions::default(),
+            "clock",
+        )?;
+        if status == "blocked" {
+            assert_eq!(result["count"], 2);
+        } else {
+            assert_eq!(result["projection"]["mode"], "full");
+        }
+    }
+    assert!(
+        workspace
+            .list_page(
+                &ItemFilter {
+                    status: Some("open,closed".to_owned()),
+                    ..ItemFilter::default()
+                },
+                &ListOptions::default(),
+                "clock"
+            )
+            .is_err()
+    );
+    Ok(())
+}
+
+/// Materializes canonical selection fixtures while retaining separate malformed-edge checks.
+fn sdk_selection_tracker(
+    mut corpus: Vec<crate::ItemDocument>,
+) -> Result<tempfile::TempDir, Box<dyn std::error::Error>> {
+    use serde_json::json;
+    let directory = tempfile::tempdir()?;
+    let root = directory.path().join(".agents/pm");
+    fs::create_dir_all(root.join("tasks"))?;
+    fs::write(root.join("settings.json"), "{}")?;
+    corpus[0].metadata.status = "blocked".to_owned();
+    corpus[0]
+        .metadata
+        .extra
+        .insert("deadline".to_owned(), json!("2026-10-01T00:00:00.000Z"));
+    corpus[1]
+        .metadata
+        .extra
+        .insert("blocked_by".to_owned(), json!("demo-root"));
+    corpus[2].metadata.parent = Some("demo-root".to_owned());
+    corpus[2]
+        .metadata
+        .extra
+        .insert("deadline".to_owned(), json!("2026-10-02T00:00:00.000Z"));
+    let mut fourth = corpus[2].clone();
+    fourth.metadata.id = "demo-fourth".to_owned();
+    fourth.metadata.title = "demo-fourth".to_owned();
+    corpus.push(fourth);
+    for (index, item) in corpus.iter_mut().enumerate() {
+        item.metadata.tags = vec![
+            if index == 0 || index == 3 {
+                "beta"
+            } else {
+                "alpha"
+            }
+            .to_owned(),
+        ];
+        // Malformed and dangling edges are exercised by the pure index boundary above.
+        if let Some(deps) = item
+            .metadata
+            .extra
+            .get_mut("dependencies")
+            .and_then(serde_json::Value::as_array_mut)
+        {
+            deps.retain(|dep| dep["id"].as_str().is_some_and(|id| id != "ghost"));
+        }
+        fs::write(
+            root.join(format!("tasks/{}.toon", item.metadata.id)),
+            toon_format::encode_default(item)?,
+        )?;
+    }
+    Ok(directory)
+}

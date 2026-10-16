@@ -776,7 +776,7 @@ fn detected_sessions_and_asserted_overrides_match_published_history()
         let mut native = native_command(fixture.rust.path(), &args);
         let interpreter =
             std::env::var("PM_NODE_INTERPRETER").unwrap_or_else(|_| "node".to_owned());
-        let mut oracle = Command::new(interpreter);
+        let mut oracle = published_cli::oracle_command(interpreter);
         oracle
             .env_clear()
             .env("PATH", std::env::var("PATH")?)
@@ -1182,7 +1182,7 @@ fn non_unicode_environment_matches_published_identity() -> Result<(), Box<dyn st
     ] {
         for action in ["claim", "release"] {
             let args = [action, "sample-own", "--json"];
-            let mut node = Command::new(
+            let mut node = published_cli::oracle_command(
                 std::env::var("PM_NODE_INTERPRETER").unwrap_or_else(|_| "node".to_owned()),
             );
             node.env_clear();

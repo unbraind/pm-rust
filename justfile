@@ -32,11 +32,19 @@ CHANGELOG_DATE := "2026-08-07"
 PM_CHANGELOG_PKG := "pm-changelog@2026.9.25"
 PM_CLI_PKG := "@unbrained/pm-cli@2026.10.9"
 
+export PM_SENTRY_DISABLED := "1"
+export PM_TELEMETRY_SOURCE_CONTEXT := "test"
+
 export PM_NODE_CLI := env_var_or_default("PM_NODE_CLI", justfile_directory() / "tests/oracle/node_modules/@unbrained/pm-cli")
 
 # Install the shared local and CI parity oracle without resolving new versions.
 oracle-install:
     npm ci --prefix tests/oracle --ignore-scripts
+
+# Run the locked oracle through its shared test-environment launcher.
+[positional-arguments]
+oracle *args:
+    node tests/oracle/launch.mts "$@"
 
 # The item URL base for changelog links.
 ITEM_URL_BASE := "https://github.com/unbraind/pm-rust/blob/main/.agents/pm"
