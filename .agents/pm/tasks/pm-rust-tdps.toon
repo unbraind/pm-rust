@@ -1,14 +1,18 @@
 id: pm-rust-tdps
 title: Track oracle read refusal for dependency rows without timestamps
-description: "During configured hierarchy differentials, the pinned 2026.10.14 oracle refused an item with several dependencies containing only id and kind: Cannot read properties of undefined (reading localeCompare). Supplying created_at on each dependency makes the real item readable. Keep valid timestamped fixture rows for this slice; independently reproduce and reassess after an oracle update. No upstream issue was filed."
+description: "During configured hierarchy differentials, the pinned 2026.10.14 oracle refused an item with several dependencies containing only id and kind: Cannot read properties of undefined (reading localeCompare). Supplying created_at on each dependency makes the real item readable. The orchestrator filed https://github.com/unbraind/pm-cli/issues/1482 and reproduced the defect on pm 2026.10.15. Keep valid timestamped fixture rows for this slice; reassess after an oracle update."
 type: Task
 status: open
 priority: 3
 tags[3]: follow-up,oracle,read-parity
 created_at: "2026-10-15T21:53:41.567Z"
-updated_at: "2026-10-15T21:55:03.989Z"
+updated_at: "2026-10-16T03:24:22.640Z"
 author: codex-agent
 parent: pm-rust-u4al
-docs[1]{path,scope}:
+comments[2]{created_at,author,text}:
+  "2026-10-16T02:46:53.200Z",codex-agent,"Upstream tracking correction: the orchestrator filed https://github.com/unbraind/pm-cli/issues/1482. Its pm 2026.10.15 reproduction shows that two or more dependency rows without created_at crash pm get with Cannot read properties of undefined (reading localeCompare); one row is readable, and pm validate is silent. This records the supplied upstream reproduction and supersedes the stale no-issue statement without rewriting history."
+  "2026-10-16T03:24:17.437Z",codex-agent,"Round 2 metadata correction is complete: the description and docs link now reference pm-cli issue 1482, and the supplied 2026.10.15 reproduction facts are recorded above. All pre-existing history bytes remain intact. Restoring this upstream follow-up to open and releasing ownership; no item is closed and the oracle pin is unchanged."
+docs[2]{path,scope}:
   docs/CONFIGURED_LIST_REGISTRIES.md,project
+  "https://github.com/unbraind/pm-cli/issues/1482",project
 body: ""

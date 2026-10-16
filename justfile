@@ -42,8 +42,9 @@ oracle-install:
     npm ci --prefix tests/oracle --ignore-scripts
 
 # Run the locked oracle through its shared test-environment launcher.
+[positional-arguments]
 oracle *args:
-    node tests/oracle/launch.mts {{args}}
+    node tests/oracle/launch.mts "$@"
 
 # The item URL base for changelog links.
 ITEM_URL_BASE := "https://github.com/unbraind/pm-rust/blob/main/.agents/pm"
