@@ -125,9 +125,18 @@ fn workflow_fallbacks_and_settings_errors() -> Result<(), Box<dyn std::error::Er
         &crate::ListOptions::default(),
         "2026-10-02T10:00:00.000Z",
     );
-    assert!(
-        matches!(result, Err(PmRustError::Io {path,..}) if path == root.join("workflow-directory"))
-    );
+    // Match discovery's contract independently: Windows keeps resolved aliases,
+    // while Unix uses the physical root (including macOS temp-root symlinks).
+    let expected_root = if cfg!(windows) {
+        std::path::absolute(&root)?
+    } else {
+        fs::canonicalize(&root)?
+    };
+    let Err(PmRustError::Io { path, source }) = result else {
+        return Err("workflow directory must return a typed I/O error".into());
+    };
+    assert_eq!(path, expected_root.join("workflow-directory"));
+    assert_ne!(source.kind(), std::io::ErrorKind::NotFound);
     Ok(())
 }
 
