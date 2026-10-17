@@ -1126,24 +1126,46 @@ fn search_error_json(
         }
     }
     if let Some(domain) = context["recovery"].get("allowed_values") {
-        result["refusal"] = serde_json::json!({"surface":"--type","rejected_value":args.iter().position(|arg|arg=="--type").and_then(|i|args.get(i+1)),"legal_domain":domain,"exit_code":exit_code});
-        let mut retry = args.to_vec();
-        if let Some(index) = retry.iter().position(|arg| arg == "--type")
-            && let Some(value) = retry.get_mut(index + 1)
-        {
-            domain[0].as_str().unwrap_or_default().clone_into(value);
+        let rejected = args.iter().enumerate().find_map(|(index, arg)| {
+            arg.strip_prefix("--type=").or_else(|| {
+                (arg == "--type")
+                    .then(|| args.get(index + 1).map(String::as_str))
+                    .flatten()
+            })
+        });
+        result["refusal"] = serde_json::json!({"surface":"--type","rejected_value":rejected,"legal_domain":domain,"exit_code":exit_code});
+        // The pinned oracle extracts equals-form values, but emits a corrected
+        // retry only for the separate-token spelling. Preserve its exact bytes.
+        if let Some(index) = args.iter().position(|arg| arg == "--type") {
+            let mut retry = args.to_vec();
+            if let Some(value) = retry.get_mut(index + 1) {
+                domain[0].as_str().unwrap_or_default().clone_into(value);
+            }
+            result["examples"] = serde_json::json!([
+                format!(
+                    "pm {}",
+                    retry
+                        .iter()
+                        .map(|arg| pm_rust::quote_command_arg(arg))
+                        .collect::<Vec<_>>()
+                        .join(" ")
+                ),
+                "pm search --help"
+            ]);
+        } else {
+            result["examples"] = serde_json::json!([
+                "pm search --help",
+                "pm contracts --command <command> --flags-only --json"
+            ]);
         }
-        result["examples"] = serde_json::json!([
-            format!(
-                "pm {}",
-                retry
-                    .iter()
-                    .map(|arg| pm_rust::quote_command_arg(arg))
-                    .collect::<Vec<_>>()
-                    .join(" ")
-            ),
-            "pm search --help"
-        ]);
+        let provided = result["recovery"]["provided_fields"]
+            .as_array()
+            .into_iter()
+            .flatten()
+            .filter_map(serde_json::Value::as_str)
+            .map(|flag| flag.split('=').next().unwrap_or_default())
+            .collect::<Vec<_>>();
+        result["recovery"]["provided_fields"] = serde_json::json!(provided);
     }
     if let Ok(Cli {
         command: Command::Search { query, .. },

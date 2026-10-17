@@ -1330,6 +1330,36 @@ fn reordered_refusal_arguments_match_oracle() -> TestResult {
     Ok(())
 }
 
+/// Closed-domain recovery preserves exact output for both type flag spellings.
+#[test]
+fn search_type_spellings_match_oracle() -> TestResult {
+    let Some(published) = published_cli::published_cli_or_skip("type spellings") else {
+        return Ok(());
+    };
+    let scratch = tempfile::tempdir()?;
+    let driver = write_driver(scratch.path(), &published)?;
+    let tracker = tempfile::tempdir()?;
+    assert!(
+        oracle(&driver, tracker.path(), &["init", "sample-", "--defaults"])?
+            .status
+            .success()
+    );
+    for json_flag in [vec![], vec!["--json"]] {
+        for mut args in [
+            vec!["search", "rust", "--type", "Unknown"],
+            vec!["search", "rust", "--type=Unknown"],
+            vec!["search", "--type", "Unknown", "rust", "search"],
+            vec!["search", "--type=Unknown", "rust", "search"],
+        ] {
+            args.extend(&json_flag);
+            let expected = oracle(&driver, tracker.path(), &args)?;
+            assert_eq!(expected.status.code(), Some(2));
+            output(&expected, &native(tracker.path(), &args, false)?, &args);
+        }
+    }
+    Ok(())
+}
+
 /// Every history-writing CLI mutation retains bounded synthetic probe evidence and exact hashes.
 #[test]
 #[allow(clippy::too_many_lines)]

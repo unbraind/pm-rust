@@ -6,10 +6,10 @@ status: in_progress
 priority: 2
 tags[3]: conformance,rust,search
 created_at: "2026-10-16T16:59:45.140Z"
-updated_at: "2026-10-17T01:53:28.683Z"
+updated_at: "2026-10-17T04:48:10.619Z"
 author: codex-agent
 parent: pm-rust-u4al
-comments[16]{created_at,author,text}:
+comments[21]{created_at,author,text}:
   "2026-10-16T17:00:03.554Z",codex-agent,"Plan: characterize the locked keyword search implementation, reuse native pagination and output controls, and compare full CLI bytes over real small and large trackers. Keep the oracle pin unchanged and record function-level behavioral revert proofs before the full release gate."
   "2026-10-16T17:09:01.674Z",codex-agent,"Implemented weighted keyword scoring and shared bounded-read delivery. Initial real-tracker comparisons passed literal token, Unicode, punctuation and basic filters; negative controls exposed the zero-limit empty-envelope branch and the exact semantic option set used in producer fingerprints. Both are corrected for the next differential run."
   "2026-10-16T17:34:08.226Z",codex-agent,"Exact bounded-search snapshot replay and changed-row refusal passed. Corpus expansion found that source normalization drops plan steps lacking required order and timestamps; the native corpus now applies that validity boundary. Added direct SDK tests for every searchable field, configured type aliases, Unicode whitespace, ranking thresholds and producer cursor fallback."
@@ -26,6 +26,11 @@ comments[16]{created_at,author,text}:
   "2026-10-16T23:08:15.342Z",codex-agent,Out-of-scope empty-tag refusal metadata mismatch tracked in pm-rust-bu9t. The current fixes preserve the existing published oracle pin; no dependency bump or history rewrite.
   "2026-10-16T23:09:36.064Z",codex-agent,"Behavioral revert proofs (each exited 101 with 0 passed, 1 failed; tests unchanged): cargo +1.90.0 test --locked --bin pm-rust tests::search_examples_use_parsed_query -- --exact fails with only search_error_json restored to the pre-fix function (wrong flag/first-token recovery query); cargo +1.90.0 test --locked --test search_collections_differential reordered_refusal_arguments_match_oracle -- --exact fails with only collection_error_json restored (rejected_value/value contain --author instead of sample-missing). Fixed function bytes restored afterward."
   "2026-10-17T01:53:18.784Z",codex-agent,"Round 1 final local gate PASS: just release-check on Node v26.12.0 with isolated HOME and Git configuration passes 379 normal and 379 instrumented tests. Coverage is exactly 8818/8818 lines, 860/860 functions, 13795/13795 regions and 2138/2138 branches. Fmt, strict clippy, private rustdoc, identity audit, pinned-oracle differentials, cargo audit and changelog verification pass at unchanged repository thresholds. Behavioral revert proofs for parsed-query recovery and reordered missing-ID refusals are recorded above. Known separate empty-tag metadata mismatch remains open as pm-rust-bu9t. Preparing the push and per-thread receipts; CI is the next gate."
+  "2026-10-17T02:42:41.784Z",codex-agent,"Round 2: checking both type flag spellings against the pinned oracle before changing closed-domain recovery; adding byte-for-byte differential coverage and a behavioral revert proof."
+  "2026-10-17T02:46:03.479Z",codex-agent,"Oracle 2026.10.14 confirms equals-form rejected_value is Unknown and provided_fields uses --type, but examples intentionally remain generic help/contracts commands. The new differential test failed on the original formatter. Matching those exact bytes rather than adopting the suggested equals-form retry."
+  "2026-10-17T02:50:09.071Z",codex-agent,"Behavioral revert proof: restoring only search_error_json to the head version makes search_type_spellings_match_oracle fail (exit 101, 0 passed, 1 failed) on equals-form stderr. The test covers both spellings, flag positions, multiword queries, and text/JSON bytes. Fixed implementation restored."
+  "2026-10-17T04:29:22.992Z",codex-agent,"Aggregate retry normal pass complete: 381 tests passed, including exact recovery parity for both type spellings in text and JSON. Final-source instrumented pass is running. Updated-source documentation and strict Linux/Windows cross-target clippy pass."
+  "2026-10-17T04:48:08.965Z",codex-agent,"Round 2 final local release-check PASS: 381 normal plus 381 instrumented tests on Node 26.12.0 with isolated HOME/Git configuration. Required Linux source coverage is 8887/8887 lines, 867/867 functions, 13890/13890 regions and 2144/2144 branches. Fmt, strict clippy, private rustdoc, oracle differentials, identity audit, dependency audit and changelog check pass at unchanged thresholds. Final search_error_json-only revert fails the spelling differential (0 passed, 1 failed, exit 101); fixed bytes restored and pinned pm test runner passes. Preparing the commit/push and review replies; final-head CI remains the next gate."
 files[11]{path,scope}:
   src/lib.rs,project
   src/list_registry.rs,project
@@ -38,7 +43,7 @@ files[11]{path,scope}:
   tests/support/main_unit.rs,project
   tests/support/read_output_unit.rs,project
   tests/support/search_unit.rs,project
-tests[2]:
+tests[3]:
   - command: cargo +1.90.0 test --locked --test search_collections_differential search_matches_oracle
     scope: project
     timeout_seconds: 600
@@ -54,6 +59,16 @@ tests[2]:
       created_at: "2026-10-16T23:06:49.824Z"
       source_kind: local_mutation
       source_ref: feat/native-search-and-collections
+  - command: env PM_RUST_REQUIRE_PUBLISHED_CLI=1 cargo +1.90.0 test --locked --test search_collections_differential search_type_spellings_match_oracle -- --exact
+    scope: project
+    timeout_seconds: 600
+    provenance:
+      author: codex-agent
+      created_at: "2026-10-17T02:46:35.414Z"
+      source_kind: local_mutation
+      source_ref: feat/native-search-and-collections
+    updated_by: codex-agent
+    updated_at: "2026-10-17T02:48:57.020Z"
 docs[5]{path,scope}:
   docs/CLI_PARITY_2026_10_2.md,project
   docs/COMPATIBILITY.md,project

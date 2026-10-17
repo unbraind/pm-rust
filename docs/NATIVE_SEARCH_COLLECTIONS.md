@@ -32,6 +32,10 @@ continuations retain the oracle's identity/index boundary behavior. Full,
 semantic/hybrid, linked-content and execution-oriented search options are outside
 this compact keyword command slice.
 
+Both `--type value` and `--type=value` refusals preserve the oracle's exact
+rejected value and flag names. The pinned oracle gives a corrected retry only
+for the separate-token spelling; equals-form refusals keep generic help examples.
+
 ## Item collections
 
 The SDK exposes `Workspace::collection` with `CollectionOptions`; the CLI exposes
@@ -99,6 +103,18 @@ Lock acquisition holds the cleanup gate while publishing the initial payload,
 matching the oracle and preventing minimal-governance stale recovery from
 stealing an initializing writer's lock. A deterministic real-filesystem
 regression in `tests/support/mutation_unit.rs` protects that publication boundary.
+
+A permanent per-item advisory lease serializes native cleanup-gate creation,
+reclamation and release. Normal release explicitly unlocks before closing the
+descriptor, so an inherited child descriptor cannot prolong a completed lease.
+The kernel releases the lease after a crash. Stale
+reclamation checks the observed directory identity under that lease (device/inode
+on Unix and a retained native file handle on Windows), then moves
+that directory to a unique tombstone; deletion never targets a replacement at
+the shared pathname. A controlled two-thread regression replaces the gate after
+observation and verifies that the fresh gate survives. The published oracle uses
+owner tokens on release but removes expired gates by pathname; mixed-runtime
+concurrent gate reclamation is outside this native-writer guarantee.
 
 Review regressions cover flags before IDs and query tokens, joined query
 recovery examples, future timestamps with live locks and unlocked oracle writes,

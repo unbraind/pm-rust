@@ -6,10 +6,10 @@ status: in_progress
 priority: 2
 tags[3]: collections,conformance,rust
 created_at: "2026-10-16T16:59:46.171Z"
-updated_at: "2026-10-17T01:53:31.410Z"
+updated_at: "2026-10-17T04:50:36.387Z"
 author: codex-agent
 parent: pm-rust-u4al
-comments[25]{created_at,author,text}:
+comments[39]{created_at,author,text}:
   "2026-10-16T17:00:05.045Z",codex-agent,"Plan: route collection edits through the existing per-item lock and journal, compare complete item and append-only history bytes at a fixed clock, and prove two concurrent writers preserve accepted additions. Match collection parsing, compact receipts and typed refusals."
   "2026-10-16T17:09:05.338Z",codex-agent,"Implemented collection list and transactional add/remove paths. The first differential run exposed optional artifact note visitation in canonical history patch ordering; item hashes already agreed, but patch order and record hashes differed. Added the missing normalized-row ordering behavior before continuing exact artifact comparisons."
   "2026-10-16T17:27:18.718Z",codex-agent,"Concurrency differential passed for native and oracle writers: both additions survive, adjacent document hashes chain, and complete item/history artifacts equal serial oracle replay in observed commit order. Expanded parser checks now include Markdown pairs, quoted commas, command aliases and documentation references. Oracle artifact collections have path selectors only; linked tests additionally expose 1-based indices."
@@ -35,7 +35,23 @@ comments[25]{created_at,author,text}:
   "2026-10-17T00:05:58.807Z",codex-agent,"Aggregate reached mutation_contract and exposed the same host-harness leakage in a CLI-versus-SDK golden-history fixture. Extract the runtime-only environment helper into tests/support/process_environment.rs and reuse it for mutation_contract CLI commands, close differential and mutation differential. The previously failing cli_mutations_drive_the_same_native_transactions now passes. Run the remaining aggregate suites as preflight before the next full gate; no production behavior changes."
   "2026-10-17T00:29:27.686Z",codex-agent,"Preflight PASS after shared environment isolation: mutation_contract 29/29; remaining suites 64/64 (oracle_launcher 2, output parity 2, ownership contract 4, pagination 25, read contract 13, release pipeline 18). Focused instrumented lib/bin run passes 202/202; parsed-query guard branches and future-clock guard both directions are covered. Full aggregate is still required and is now restarting on the unchanged production source. The newly linked aggregate timeout is 7200 seconds for this shared-host pace; repository gate thresholds and test budgets are unchanged."
   "2026-10-17T01:53:23.947Z",codex-agent,"Round 1 final local gate PASS: just release-check exits 0 with 379 normal + 379 instrumented tests; lines 8818/8818, functions 860/860, regions 13795/13795, branches 2138/2138. Audit retains its existing allowed unsafe-libyaml maintenance warning. Finding 9 extra portability proof: the built differential binary ran collection_agent_attribution_matches_oracle --exact and collection_local_probe_history_matches_oracle --exact with PATH containing git but no node and PM_NODE_INTERPRETER set to Node v26.12.0; each executes one test and passes. Future-clock and attribution revert proofs plus the nonexistent child-filter negative control are recorded above. All ten findings are fixed; future history timestamps retain unlocked oracle parity while lock evaluation is capped at wall time. Claims are being released for orchestrator verification; no items are closed."
-files[18]{path,scope}:
+  "2026-10-17T02:42:48.287Z",codex-agent,"Round 2: inspecting pinned oracle gate identity checks and replacing stale gate removal with identity-checked reclamation; adding a controlled concurrency regression and behavioral revert proof."
+  "2026-10-17T02:46:15.305Z",codex-agent,"Pinned oracle releases gates by owner token but stale cleanup still removes by pathname after age/process checks. Rust now claims a nested directory, rechecks observed filesystem identity while replacement is blocked, and renames the claimed gate to a unique tombstone before cleanup. No fresh shared-path gate is deleted."
+  "2026-10-17T02:47:55.004Z",codex-agent,"Refined the reclamation guard to a permanent per-item advisory lease file. Rust 1.90 supports File::try_lock; the kernel releases it on crash, avoiding an abandoned nested claim. All native gate creation/reclamation/release runs under this lease. The identity check and tombstone removal remain, and the regression also verifies contention with a held lease."
+  "2026-10-17T02:50:11.114Z",codex-agent,"Behavioral revert proof: reverting only reclaim_stale_gate to the original pathname remove_dir behavior makes stale_gate_reclamation_preserves_a_concurrent_replacement fail (exit 101, 0 passed, 1 failed): stale observer reclaimed a replacement gate, and the concurrent owner detects its fresh gate was deleted. Fixed implementation restored."
+  "2026-10-17T02:52:53.661Z",codex-agent,"Final safety review also preserves nonempty gates in place, including ownership evidence written by another runtime. The concurrency regression checks fresh replacement identity, active advisory lease contention, missing identity, and nonempty-gate preservation. The documented serialization guarantee covers native writers; the pinned oracle does not participate in the native advisory lease."
+  "2026-10-17T03:21:24.732Z",codex-agent,"The aggregate gate exposed an introduced advisory-lease release race: repeated mutation-suite runs reproduced transient LockConflict between sequential requests while other threads spawned children. Added GateLease Drop to explicitly unlock before closing, because a briefly inherited file description can outlive its parent descriptor. The existing gate regression now retains a cloned description while a successor acquires the lease. Focused gate tests and the mutation suite pass; repeated complete mutation runs and an explicit-unlock negative control are next."
+  "2026-10-17T03:22:51.495Z",codex-agent,"Explicit lease release verification: 30 consecutive complete mutation_contract suite runs passed (870 tests) after GateLease unlock-before-close. The same suite reproduced the old transient LockConflict on runs 15 and 4 during diagnosis. Focused initialization/replacement gate tests pass (2/2). Running the inherited-description negative control and targeted coverage preflight before the aggregate retry."
+  "2026-10-17T03:23:14.035Z",codex-agent,"The explicit-unlock behavioral negative control also fails deterministically: reverting only GateLease Drop to close-without-unlock makes stale_gate_reclamation_preserves_a_concurrent_replacement fail with LockConflict while the inherited description remains alive (exit 101, 0 passed, 1 failed). Restored the fixed Drop afterward."
+  "2026-10-17T03:31:15.014Z",codex-agent,"Final targeted instrumentation passes 183 library tests, 20 CLI unit tests, and the 1 exact type-spelling differential. Edited source spans have no uncovered regions or branches. Re-ran both gate negative controls against the final Result-based helper: pathname-only reclamation deletes the concurrent fresh gate; close-without-unlock leaves the inherited-description lease held. Each fails 0 passed/1 failed with exit 101; fixed source restored. Strict clippy passes. Aggregate retry now runs on frozen source."
+  "2026-10-17T04:21:01.788Z",codex-agent,"Platform review replaced the approximate Windows creation-time comparison with a retained same-file Handle. GateObservation reads age and native identity coherently, while Unix retains its device/inode check. Added a Windows regression setup that forces the fresh replacement to have the old gate creation time before identity comparison. The dependency is Windows-only; the lock adds same-file 1.0.6 and winapi-util 0.1.11 without updating existing packages or the oracle. Linux gate tests (2/2) and strict clippy pass. The aggregate continues through search/collection parity, and its instrumented pass will exercise the final observation wrapper."
+  "2026-10-17T04:27:33.514Z",codex-agent,"Windows cross-target strict clippy PASS: cargo +1.90.0 clippy --locked --target x86_64-pc-windows-gnu --all-targets --all-features -- -D warnings. Linux gate tests and clippy also pass after the observation wrapper. Cargo audit passes with only the existing allowed unsafe-libyaml advisory; no warning for the added Windows dependencies. Native Windows execution and its equal-creation-time regression remain for final-head CI."
+  "2026-10-17T04:29:26.856Z",codex-agent,"Aggregate retry normal pass complete: 381 tests passed, including mutation_contract, process concurrency, serial-oracle collection replay, and both gate regressions. Final-source instrumented pass is running with the native Windows identity dependency and observation wrapper; source hashes are frozen. Updated private documentation and Linux/Windows cross-target strict clippy pass."
+  "2026-10-17T04:48:09.878Z",codex-agent,"Round 2 final local release-check PASS: 381 normal plus 381 instrumented tests, with 100 percent of 8887 lines, 867 functions, 13890 regions and 2144 branches. Windows cross-target strict clippy and updated private documentation also pass. Refreshed final helper-only and unlock-only reverts each fail the concurrency regression (0 passed, 1 failed, exit 101); restored source hashes exactly match the gated bytes and pinned pm test runner passes. Audit retains only the pre-existing allowed unsafe-libyaml warning. Native-writer serialization and the mixed-runtime boundary are documented. Preparing push/replies and final-head three-OS CI; leaving closure to the orchestrator."
+  "2026-10-17T04:50:36.387Z",codex-agent,"Final tracker verification: isolated CI-style strict health with required merge drivers passes. Existing guidance/provenance/staleness advisories remain unchanged. Ordinary host health additionally sees a global extension version mismatch; isolating user configuration removes that environmental failure without changing the pinned SDK, global installation or historical records. Changelog is regenerated and verified after tracker writes; claims are released for orchestrator verification."
+files[20]{path,scope}:
+  Cargo.lock,project
+  Cargo.toml,project
   src/collections.rs,project
   src/history.rs,project
   src/identity_probes.rs,project
@@ -54,7 +70,7 @@ files[18]{path,scope}:
   tests/support/mutation_differential.rs,project
   tests/support/mutation_unit.rs,project
   tests/support/process_environment.rs,project
-tests[3]:
+tests[4]:
   - command: cargo +1.90.0 test --locked --test search_collections_differential collection
     scope: project
     timeout_seconds: 600
@@ -81,6 +97,16 @@ tests[3]:
       source_ref: feat/native-search-and-collections
     updated_by: codex-agent
     updated_at: "2026-10-17T00:08:14.473Z"
+  - command: "cargo +1.90.0 test --locked --lib mutation::tests::stale_gate_reclamation_preserves_a_concurrent_replacement -- --exact"
+    scope: project
+    timeout_seconds: 120
+    provenance:
+      author: codex-agent
+      created_at: "2026-10-17T02:46:45.890Z"
+      source_kind: local_mutation
+      source_ref: feat/native-search-and-collections
+    updated_by: codex-agent
+    updated_at: "2026-10-17T02:49:02.444Z"
 docs[5]{path,scope}:
   docs/CLI_PARITY_2026_10_2.md,project
   docs/COMPATIBILITY.md,project

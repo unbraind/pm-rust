@@ -366,6 +366,40 @@ struct ItemLock {
     raw: String,
 }
 
+/// Releases a kernel gate lease independently of inherited file descriptors.
+struct GateLease(File);
+
+impl Drop for GateLease {
+    /// Unlocks before close so a forked child cannot prolong a completed lease.
+    fn drop(&mut self) {
+        let _ = self.0.unlock();
+    }
+}
+
+/// Retains the metadata and native identity of one observed gate instance.
+struct GateObservation {
+    metadata: fs::Metadata,
+    #[cfg(windows)]
+    identity: same_file::Handle,
+}
+
+impl GateObservation {
+    /// Reads age and identity from the same open directory handle on Windows.
+    fn read(path: &Path) -> std::io::Result<Self> {
+        #[cfg(windows)]
+        let identity = same_file::Handle::from_path(path)?;
+        #[cfg(windows)]
+        let metadata = identity.as_file().metadata()?;
+        #[cfg(not(windows))]
+        let metadata = fs::metadata(path)?;
+        Ok(Self {
+            metadata,
+            #[cfg(windows)]
+            identity,
+        })
+    }
+}
+
 impl Drop for ItemLock {
     /// Removes the lock only when its ownership token is still unchanged.
     fn drop(&mut self) {
@@ -863,19 +897,42 @@ fn acquire_lock_attempt(
     // Initialization and stale reclamation share one gate, so an unpublished
     // payload can never be mistaken for an expired incumbent.
     let gate = locks.join(format!("{id}.lock.stale-cleanup"));
+    // Keep this file permanently: unlinking it would split the advisory lock
+    // across two inodes. The kernel releases the lease if a writer crashes.
+    let lease_path = gate.with_extension("gate-lease");
+    let lease = match OpenOptions::new()
+        .read(true)
+        .write(true)
+        .create(true)
+        .truncate(false)
+        .open(&lease_path)
+    {
+        Ok(file) => file,
+        Err(source) => {
+            return Err(PmRustError::Io {
+                path: lease_path,
+                source,
+            });
+        }
+    };
+    if lease.try_lock().is_err() {
+        return Err(PmRustError::LockConflict { id: id.to_owned() });
+    }
+    let _lease = GateLease(lease);
     if let Err(source) = fs::create_dir(&gate) {
         if !lock_contention_error(&source) {
             return Err(PmRustError::Io { path: gate, source });
         }
-        let abandoned = fs::metadata(&gate)
-            .and_then(|metadata| metadata.modified())
-            .ok()
+        let observed = GateObservation::read(&gate).ok();
+        let abandoned = observed
+            .as_ref()
+            .and_then(|observed| observed.metadata.modified().ok())
             .and_then(|modified| SystemTime::now().duration_since(modified).ok())
             .is_some_and(|age| age > Duration::from_secs(ttl_seconds));
         if !abandoned {
             return Err(PmRustError::LockConflict { id: id.to_owned() });
         }
-        if fs::remove_dir(&gate)
+        if reclaim_stale_gate(&gate, observed.as_ref())
             .and_then(|()| fs::create_dir(&gate))
             .is_err()
         {
@@ -893,6 +950,44 @@ fn acquire_lock_attempt(
     );
     let _ = fs::remove_dir(&gate);
     result
+}
+
+/// Reclaims only the observed directory while the caller holds the gate lease.
+///
+/// The advisory lease serializes native gate creation, reclamation and release,
+/// closing the gap between the identity check and rename. Cleanup touches only
+/// the unique tombstone; it never removes a replacement at the shared pathname.
+fn reclaim_stale_gate(gate: &Path, observed: Option<&GateObservation>) -> std::io::Result<()> {
+    let unchanged = match (observed, GateObservation::read(gate)) {
+        (Some(observed), Ok(current)) => same_gate_identity(observed, &current),
+        _ => false,
+    };
+    if !unchanged {
+        return Err(std::io::Error::from(ErrorKind::WouldBlock));
+    }
+    if fs::read_dir(gate)?.next().is_some() {
+        return Err(std::io::Error::from(ErrorKind::DirectoryNotEmpty));
+    }
+    let tombstone = gate.with_file_name(format!(".reclaimed-gate-{}", unique_token()));
+    fs::rename(gate, &tombstone).and_then(|()| fs::remove_dir(&tombstone))
+}
+
+/// Compares directory identity independently of its modification timestamp.
+fn same_gate_identity(observed: &GateObservation, current: &GateObservation) -> bool {
+    #[cfg(unix)]
+    {
+        use std::os::unix::fs::MetadataExt;
+        (observed.metadata.dev(), observed.metadata.ino())
+            == (current.metadata.dev(), current.metadata.ino())
+    }
+    #[cfg(windows)]
+    {
+        observed.identity == current.identity
+    }
+    #[cfg(not(any(unix, windows)))]
+    {
+        false
+    }
 }
 
 /// Initializes or replaces one lock while its publication gate is held.
