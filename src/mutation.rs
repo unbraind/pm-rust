@@ -387,16 +387,19 @@ impl GateObservation {
     /// Reads age and identity from the same open directory handle on Windows.
     fn read(path: &Path) -> std::io::Result<Self> {
         #[cfg(windows)]
-        let identity = same_file::Handle::from_path(path)?;
-        #[cfg(windows)]
-        let metadata = identity.as_file().metadata()?;
+        {
+            same_file::Handle::from_path(path).and_then(|identity| {
+                identity
+                    .as_file()
+                    .metadata()
+                    .map(|metadata| Self { metadata, identity })
+            })
+        }
         #[cfg(not(windows))]
-        let metadata = fs::metadata(path)?;
-        Ok(Self {
-            metadata,
-            #[cfg(windows)]
-            identity,
-        })
+        {
+            let metadata = fs::metadata(path)?;
+            Ok(Self { metadata })
+        }
     }
 }
 

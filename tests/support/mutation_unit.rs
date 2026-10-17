@@ -409,13 +409,25 @@ fn initialization_gate_protects_a_lock_before_its_payload_is_published()
         acquire_lock_attempt(&pm_root, "invalid\0id", "fixture", 1_800, true, TS, true),
         Err(PmRustError::Io { .. })
     ));
-    #[cfg(unix)]
+    #[cfg(any(unix, windows))]
     {
-        // The lease filename fits, but the longer gate filename exceeds NAME_MAX.
+        // Canonicalization supplies a verbatim Windows path, so only the
+        // component limit applies: the lease fits, but the longer gate does not.
+        let long_root = pm_root.canonicalize()?;
+        let long_id = "x".repeat(237);
+        let gate_path = long_root
+            .join("locks")
+            .join(format!("{long_id}.lock.stale-cleanup"));
         assert!(matches!(
-            acquire_lock_attempt(&pm_root, &"x".repeat(237), "fixture", 1_800, true, TS, true),
-            Err(PmRustError::Io { .. })
+            acquire_lock_attempt(&long_root, &long_id, "fixture", 1_800, true, TS, true),
+            Err(PmRustError::Io { path, .. }) if path == gate_path
         ));
+        assert!(
+            long_root
+                .join("locks")
+                .join(format!("{long_id}.lock.gate-lease"))
+                .is_file()
+        );
     }
     Ok(())
 }

@@ -6,10 +6,10 @@ status: in_progress
 priority: 2
 tags[3]: conformance,rust,search
 created_at: "2026-10-16T16:59:45.140Z"
-updated_at: "2026-10-17T04:48:10.619Z"
+updated_at: "2026-10-17T05:42:06.824Z"
 author: codex-agent
 parent: pm-rust-u4al
-comments[21]{created_at,author,text}:
+comments[22]{created_at,author,text}:
   "2026-10-16T17:00:03.554Z",codex-agent,"Plan: characterize the locked keyword search implementation, reuse native pagination and output controls, and compare full CLI bytes over real small and large trackers. Keep the oracle pin unchanged and record function-level behavioral revert proofs before the full release gate."
   "2026-10-16T17:09:01.674Z",codex-agent,"Implemented weighted keyword scoring and shared bounded-read delivery. Initial real-tracker comparisons passed literal token, Unicode, punctuation and basic filters; negative controls exposed the zero-limit empty-envelope branch and the exact semantic option set used in producer fingerprints. Both are corrected for the next differential run."
   "2026-10-16T17:34:08.226Z",codex-agent,"Exact bounded-search snapshot replay and changed-row refusal passed. Corpus expansion found that source normalization drops plan steps lacking required order and timestamps; the native corpus now applies that validity boundary. Added direct SDK tests for every searchable field, configured type aliases, Unicode whitespace, ranking thresholds and producer cursor fallback."
@@ -31,6 +31,7 @@ comments[21]{created_at,author,text}:
   "2026-10-17T02:50:09.071Z",codex-agent,"Behavioral revert proof: restoring only search_error_json to the head version makes search_type_spellings_match_oracle fail (exit 101, 0 passed, 1 failed) on equals-form stderr. The test covers both spellings, flag positions, multiword queries, and text/JSON bytes. Fixed implementation restored."
   "2026-10-17T04:29:22.992Z",codex-agent,"Aggregate retry normal pass complete: 381 tests passed, including exact recovery parity for both type spellings in text and JSON. Final-source instrumented pass is running. Updated-source documentation and strict Linux/Windows cross-target clippy pass."
   "2026-10-17T04:48:08.965Z",codex-agent,"Round 2 final local release-check PASS: 381 normal plus 381 instrumented tests on Node 26.12.0 with isolated HOME/Git configuration. Required Linux source coverage is 8887/8887 lines, 867/867 functions, 13890/13890 regions and 2144/2144 branches. Fmt, strict clippy, private rustdoc, oracle differentials, identity audit, dependency audit and changelog check pass at unchanged thresholds. Final search_error_json-only revert fails the spelling differential (0 passed, 1 failed, exit 101); fixed bytes restored and pinned pm test runner passes. Preparing the commit/push and review replies; final-head CI remains the next gate."
+  "2026-10-17T05:42:06.824Z",codex-agent,"After the Windows gate coverage correction, repeated just release-check again passes 381 normal plus 381 instrumented tests, including both type spellings. Required Linux coverage is 8883/8883 lines, 867/867 functions, 13890/13890 regions and 2144/2144 branches. Search implementation and its behavioral revert proof are unchanged. Fresh final-head CI follows the correction push."
 files[11]{path,scope}:
   src/lib.rs,project
   src/list_registry.rs,project
