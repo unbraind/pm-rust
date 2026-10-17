@@ -1,0 +1,12 @@
+id: pm-rust-4jq3
+title: Match text ownership refusals for direct claim and release commands
+description: Direct claim without --json emits JSON in the native CLI but human-readable Lock conflict guidance in oracle 2026.10.14. Reproduced with a fresh initialization gate and unpublished item lock payload. Add separate text and JSON differential coverage for direct ownership commands; preserve item subcommand formatting.
+type: Task
+status: open
+priority: 3
+tags[3]: conformance,follow-up,read-parity
+created_at: "2026-10-17T10:54:26.984Z"
+updated_at: "2026-10-17T10:54:26.984Z"
+author: codex-agent
+parent: pm-rust-u4al
+body: ""

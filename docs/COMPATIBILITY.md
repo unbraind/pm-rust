@@ -16,6 +16,10 @@ command gaps are enumerated in [the parity matrix](CLI_PARITY_2026_10_2.md).
 - recursive item folders, stable ID sorting, and exact ID/status/type filters;
 - conflict-marker, duplicate-ID, malformed-document, and missing-item failures;
 - deterministic JSON for full-item and list projections.
+- compact native keyword search with weighted ranking, selection and bounded
+  JSON/TOON continuations;
+- native file, document and linked-test collection lists and transactional
+  additions/removals with canonical history and no-op preservation;
 - explicit-ID creation for every canonical built-in item type;
 - in-place field updates, comment appends, and closes that write the same
   canonical TOON item bytes and `item_hash_version: 3` history records as
@@ -34,9 +38,11 @@ command gaps are enumerated in [the parity matrix](CLI_PARITY_2026_10_2.md).
 ## Deliberately unsupported
 
 Item deletion, item moves between type folders, lifecycle workflow validation
-beyond terminal-status refusal on close, harness/model identity detection
-(the native slice records asserted authors and argv-derived roles only), and
-general history replay are not exposed. Close requires a non-empty closing
+beyond terminal-status refusal on close, and general history replay are not
+exposed. Identity attribution includes asserted/configured authors,
+environment-detected harnesses and the bounded Codex/Claude local probes
+described in [the search and collections contract](NATIVE_SEARCH_COLLECTIONS.md).
+Close requires a non-empty closing
 summary because the published default governance policy does. Update accepts
 only whole-field replacements of title, description, status, priority, tags,
 and body. Adding a command

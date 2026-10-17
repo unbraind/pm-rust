@@ -111,7 +111,18 @@ pub(crate) fn collection_bytes(bytes: &[u8]) -> String {
 }
 
 /// Validates an output continuation against the complete requested row collection.
+#[cfg(test)]
 pub(crate) fn output(raw: &str, rows: &Value, snapshot: &str) -> Result<Value, PmRustError> {
+    output_command(raw, rows, snapshot, "list")
+}
+
+/// Validates a snapshot continuation for its owning read command.
+pub(crate) fn output_command(
+    raw: &str,
+    rows: &Value,
+    snapshot: &str,
+    command: &str,
+) -> Result<Value, PmRustError> {
     let invalid = "The read-output continuation cursor is malformed or unsupported.";
     let code = "read_output_cursor_invalid";
     if raw.len() > 4096 {
@@ -156,11 +167,11 @@ pub(crate) fn output(raw: &str, rows: &Value, snapshot: &str) -> Result<Value, P
     {
         return Err(refusal(code, invalid));
     }
-    if cursor["c"] != "list" {
+    if cursor["c"] != command {
         return Err(refusal(
             "read_output_cursor_command_mismatch",
             format!(
-                "The read-output cursor belongs to {}, not list.",
+                "The read-output cursor belongs to {}, not {command}.",
                 cursor["c"].as_str().unwrap_or_default()
             ),
         ));

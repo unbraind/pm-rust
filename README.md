@@ -50,6 +50,14 @@ cargo run -- list --json --limit 20 --output-budget unbounded
 cargo run -- list --limit 20 --tag rust --sort updated --order desc
 cargo run -- list --cursor "$NEXT_CURSOR" --limit 20 --output-budget unbounded
 cargo run -- list --json --for triage --token-budget 1000
+cargo run -- search "native search" --limit 20 --json
+cargo run -- search "Unicode café" --type Feature --status open --tag rust
+cargo run -- search "native" --after "$NEXT_CURSOR" --output-budget unbounded
+cargo run -- files pm-example --add path=src/lib.rs,note=Implementation --author agent
+cargo run -- docs pm-example --add path=README.md --author agent
+cargo run -- test pm-example --add 'command=cargo test,path=tests/example.rs' --author agent
+cargo run -- files pm-example
+cargo run -- test pm-example --remove-index 1 --author agent --json
 cargo run -- --workspace /path/to/project list --json --output-budget unbounded --output-limit unbounded --all
 cargo run -- --workspace /path/to/project get pm-example
 cargo run -- --workspace /path/to/project create --id pm-example --title "Native item" --type Task --author agent
@@ -79,6 +87,15 @@ projections. Create uses explicit IDs, per-item ownership locks, synced
 same-directory atomic writes, a durable recovery journal, canonical history,
 and exact post-document hashes. See
 [the compatibility contract](docs/COMPATIBILITY.md).
+
+Keyword search and the item `files`, `docs`, and `test` collection commands are
+native. Search ranks weighted literal occurrences across item text, including
+comments, notes, learnings, reminders, events, dependencies and plans; exact IDs,
+title words, phrases and all-term coverage carry the oracle's bonuses. Collection
+edits read the current item under its writer lock, skip no-ops, and append
+canonical history through the existing recovery journal. See the
+[search and collections contract](docs/NATIVE_SEARCH_COLLECTIONS.md) for tested
+flags, selectors, refusal differences and concurrency evidence.
 
 Rust formatting, strict Clippy (deny warnings, pedantic), complete
 private-item rustdoc coverage, a native Rust identity-audit gate, and tests

@@ -296,7 +296,9 @@ fn compare_sequence(sequence: &[Step]) -> Result<(), Box<dyn std::error::Error>>
             vec![format!("--workspace={}", rust_workspace.path().display())];
         rust_arguments.extend(step.native.iter().map(ToString::to_string));
         rust_arguments.push(format!("--timestamp={CLOCK}"));
-        let rust_output = Command::new(env!("CARGO_BIN_EXE_pm-rust"))
+        let mut command = Command::new(env!("CARGO_BIN_EXE_pm-rust"));
+        mutation_differential::isolate_environment(&mut command);
+        let rust_output = command
             .args(&rust_arguments)
             .current_dir(rust_workspace.path())
             .output()?;

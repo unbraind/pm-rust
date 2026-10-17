@@ -20,7 +20,7 @@ pub(crate) fn terminal(status: &str) -> bool {
 }
 
 /// Builds an ascending timestamp key with invalid values below valid instants.
-fn timestamp_key(value: &str) -> (Option<i128>, String) {
+pub(crate) fn timestamp_key(value: &str) -> (Option<i128>, String) {
     #[cfg(test)]
     TIMESTAMP_PARSES.with(|counter| counter.set(counter.get().map(|count| count + 1)));
     (

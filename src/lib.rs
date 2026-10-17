@@ -8,8 +8,10 @@
 //! conformance evidence.
 
 mod collation;
+mod collections;
 mod error;
 mod history;
+mod identity_probes;
 mod item;
 mod json_output;
 mod list;
@@ -19,10 +21,12 @@ mod mutation;
 mod ownership;
 mod pagination;
 mod read_output;
+mod search;
 mod selection;
 mod toon_output;
 mod workspace;
 
+pub use collections::CollectionOptions;
 pub use error::PmRustError;
 pub use history::canonical_metadata_pairs;
 pub use item::{ItemDocument, ItemMetadata, ItemSummary};
@@ -36,6 +40,7 @@ pub use mutation::{now_iso as current_timestamp, quote_command_arg};
 pub use ownership::{
     AuthorIdentity, OwnershipOptions, SelectionOptions, partial_failure as completed_step_failure,
 };
+pub use search::SearchOptions;
 pub use toon_output::stringify_toon;
 pub use workspace::{ItemFilter, ListResult, Workspace};
 

@@ -346,6 +346,194 @@ fn validation_rejects_every_unsupported_request_shape() -> Result<(), Box<dyn st
     Ok(())
 }
 
+/// A publication gate excludes contenders before initialization and permits abandoned recovery.
+#[test]
+fn initialization_gate_protects_a_lock_before_its_payload_is_published()
+-> Result<(), Box<dyn std::error::Error>> {
+    let (_directory, pm_root) = root(&settings("sample-", "toon", 1_800))?;
+    fs::create_dir_all(pm_root.join("locks"))?;
+    let gate = pm_root.join("locks/sample-initializing.lock.stale-cleanup");
+    fs::create_dir(&gate)?;
+    let lock_settings = LockSettings {
+        use_created_at: true,
+        ..locks(1_800)
+    };
+    assert!(matches!(
+        acquire_lock(
+            &pm_root,
+            "sample-initializing",
+            "contender",
+            &lock_settings,
+            true,
+            TS
+        ),
+        Err(PmRustError::LockConflict { .. })
+    ));
+    assert!(!pm_root.join("locks/sample-initializing.lock").exists());
+    fs::remove_dir(&gate)?;
+    let guard = acquire_lock(
+        &pm_root,
+        "sample-initializing",
+        "initializer",
+        &lock_settings,
+        true,
+        TS,
+    )?;
+    assert!(matches!(
+        acquire_lock(
+            &pm_root,
+            "sample-initializing",
+            "contender",
+            &lock_settings,
+            true,
+            TS
+        ),
+        Err(PmRustError::LockConflict { .. })
+    ));
+    drop(guard);
+    fs::create_dir(&gate)?;
+    thread::sleep(Duration::from_millis(2));
+    drop(acquire_lock(
+        &pm_root,
+        "sample-initializing",
+        "recovered",
+        &LockSettings {
+            use_created_at: true,
+            ..locks(0)
+        },
+        true,
+        TS,
+    )?);
+    assert!(!gate.exists());
+    assert!(matches!(
+        acquire_lock_attempt(&pm_root, "invalid\0id", "fixture", 1_800, true, TS, true),
+        Err(PmRustError::Io { .. })
+    ));
+    #[cfg(any(unix, windows))]
+    {
+        // Canonicalization supplies a verbatim Windows path, so only the
+        // component limit applies: the lease fits, but the longer gate does not.
+        let long_root = pm_root.canonicalize()?;
+        let long_id = "x".repeat(237);
+        let gate_path = long_root
+            .join("locks")
+            .join(format!("{long_id}.lock.stale-cleanup"));
+        assert!(matches!(
+            acquire_lock_attempt(&long_root, &long_id, "fixture", 1_800, true, TS, true),
+            Err(PmRustError::Io { path, .. }) if path == gate_path
+        ));
+        assert!(
+            long_root
+                .join("locks")
+                .join(format!("{long_id}.lock.gate-lease"))
+                .is_file()
+        );
+    }
+    Ok(())
+}
+
+/// A paused stale observer cannot reclaim the gate installed by another writer.
+#[test]
+fn stale_gate_reclamation_preserves_a_concurrent_replacement()
+-> Result<(), Box<dyn std::error::Error>> {
+    let (_directory, pm_root) = root("{}")?;
+    fs::create_dir_all(pm_root.join("locks"))?;
+    let gate = pm_root.join("locks/sample-race.lock.stale-cleanup");
+    fs::create_dir(&gate)?;
+    thread::sleep(Duration::from_millis(2));
+    let observed = GateObservation::read(&gate)?;
+    let (ready_tx, ready_rx) = std::sync::mpsc::channel();
+    let (finish_tx, finish_rx) = std::sync::mpsc::channel();
+    thread::scope(|scope| -> Result<(), Box<dyn std::error::Error>> {
+        let writer_gate = &gate;
+        let replacement = scope.spawn(move || -> std::io::Result<()> {
+            // Keep the old inode allocated so identity cannot be reused.
+            fs::rename(writer_gate, writer_gate.with_extension("old"))?;
+            fs::create_dir(writer_gate)?;
+            #[cfg(windows)]
+            {
+                let status = std::process::Command::new("powershell.exe")
+                    .args([
+                        "-NoProfile", "-NonInteractive", "-Command",
+                        "[IO.Directory]::SetCreationTimeUtc($env:PM_TEST_GATE_CURRENT, [IO.Directory]::GetCreationTimeUtc($env:PM_TEST_GATE_OLD))",
+                    ])
+                    .env("PM_TEST_GATE_CURRENT", writer_gate)
+                    .env("PM_TEST_GATE_OLD", writer_gate.with_extension("old"))
+                    .status()?;
+                assert!(status.success(), "could not set the replacement creation time");
+            }
+            ready_tx.send(()).map_err(std::io::Error::other)?;
+            finish_rx.recv().map_err(std::io::Error::other)?;
+            assert!(
+                writer_gate.is_dir(),
+                "stale observer deleted the fresh owner's gate"
+            );
+            Ok(())
+        });
+        ready_rx.recv()?;
+        #[cfg(windows)]
+        assert_eq!(
+            observed.metadata.created()?,
+            GateObservation::read(&gate)?.metadata.created()?
+        );
+        let reclaimed = reclaim_stale_gate(&gate, Some(&observed));
+        finish_tx.send(())?;
+        assert!(
+            reclaimed.is_err(),
+            "stale observer reclaimed a replacement gate"
+        );
+        replacement
+            .join()
+            .map_err(|_| "replacement writer panicked")??;
+        Ok(())
+    })?;
+    // Missing identities and a kernel lease held by another writer fail closed.
+    assert!(reclaim_stale_gate(&gate, None).is_err());
+    let lease = File::options()
+        .read(true)
+        .write(true)
+        .create(true)
+        .truncate(false)
+        .open(gate.with_extension("gate-lease"))?;
+    lease.try_lock()?;
+    assert!(matches!(
+        acquire_lock_attempt(&pm_root, "sample-race", "contender", 0, true, TS, true),
+        Err(PmRustError::LockConflict { .. })
+    ));
+    assert!(gate.is_dir());
+    // A child forked by another thread may inherit this open file description
+    // until exec. Explicit unlock must free the lease while that clone lives.
+    let inherited = lease.try_clone()?;
+    drop(GateLease(lease));
+    drop(acquire_lock_attempt(
+        &pm_root,
+        "sample-race",
+        "successor",
+        0,
+        true,
+        TS,
+        true,
+    )?);
+    drop(inherited);
+    fs::create_dir(&gate)?;
+    // A nonempty gate can contain another runtime's ownership evidence.
+    fs::write(gate.join("retained"), "evidence")?;
+    assert!(reclaim_stale_gate(&gate, Some(&GateObservation::read(&gate)?)).is_err());
+    assert_eq!(fs::read_to_string(gate.join("retained"))?, "evidence");
+    let not_directory = pm_root.join("locks/not-a-directory");
+    fs::write(&not_directory, "retained")?;
+    assert!(
+        reclaim_stale_gate(
+            &not_directory,
+            Some(&GateObservation::read(&not_directory)?)
+        )
+        .is_err()
+    );
+    assert_eq!(fs::read_to_string(&not_directory)?, "retained");
+    assert!(GateObservation::read(&pm_root.join("missing-gate")).is_err());
+    Ok(())
+}
+
 #[test]
 fn lock_conflicts_and_forced_stale_cleanup_preserve_the_current_owner()
 -> Result<(), Box<dyn std::error::Error>> {
@@ -4251,4 +4439,143 @@ fn close_recovery_spells_the_display_root_not_the_canonical_root()
         }
         other => Err(format!("expected a strict close refusal, got {other:?}").into()),
     }
+}
+
+/// Future collection fixture clocks cannot remove another writer's live lock.
+#[test]
+fn future_collection_preserves_held_lock() -> Result<(), Box<dyn std::error::Error>> {
+    for (key, add) in [
+        ("files", "src/a.rs"),
+        ("docs", "README.md"),
+        ("tests", "command=cargo test"),
+    ] {
+        let (directory, pm_root) = root(
+            r#"{"governance":{"preset":"minimal"},"locks":{"ttl_seconds":1800,"wait_ms":0}}"#,
+        )?;
+        create_item(&pm_root, request())?;
+        let workspace = crate::Workspace::discover(&pm_root)?;
+        let held = acquire_lock(
+            &pm_root,
+            "sample-unit",
+            "live-holder",
+            &LockSettings {
+                use_created_at: true,
+                ..locks(1800)
+            },
+            false,
+            &now_iso(),
+        )?;
+        let paths = [
+            pm_root.join("tasks/sample-unit.toon"),
+            pm_root.join("history/sample-unit.jsonl"),
+            held.path.clone(),
+        ];
+        let before = paths.each_ref().map(|path| fs::read(path).ok());
+        for force in [false, true] {
+            let result = workspace.collection(
+                "sample-unit",
+                key,
+                &crate::CollectionOptions {
+                    author: "unit-agent".to_owned(),
+                    timestamp: Some("9999-12-31T23:59:59.999Z".to_owned()),
+                    add: vec![add.to_owned()],
+                    force,
+                    ..crate::CollectionOptions::default()
+                },
+                directory.path(),
+            );
+            assert_eq!(
+                paths.each_ref().map(|path| fs::read(path).ok()),
+                before,
+                "held-lock bytes changed: {result:?}"
+            );
+            assert!(
+                matches!(result, Err(PmRustError::OwnershipRefusal { context, .. }) if context["code"] == "lock_conflict")
+            );
+        }
+        drop(held);
+        assert!(!paths[2].exists());
+    }
+    Ok(())
+}
+
+/// Lease errors retain their exact path and underlying OS or filesystem diagnostic.
+#[test]
+fn gate_lease_errors_preserve_io_diagnostics() {
+    let path = PathBuf::from("locks/sample-unit.lock.gate-lease");
+    for source in [
+        std::io::Error::from(ErrorKind::Unsupported),
+        std::io::Error::from(ErrorKind::PermissionDenied),
+        std::io::Error::from_raw_os_error(37),
+    ] {
+        let kind = source.kind();
+        let os_code = source.raw_os_error();
+        let message = source.to_string();
+        let error = gate_lease_error(fs::TryLockError::Error(source), path.clone(), "sample-unit");
+        let PmRustError::Io {
+            path: actual,
+            source,
+        } = error
+        else {
+            assert!(
+                matches!(error, PmRustError::Io { .. }),
+                "a lease I/O failure was reported as contention: {error}"
+            );
+            return;
+        };
+        assert_eq!(actual, path);
+        assert_eq!(source.kind(), kind);
+        assert_eq!(source.raw_os_error(), os_code);
+        assert_eq!(source.to_string(), message);
+    }
+    assert!(
+        matches!(gate_lease_error(fs::TryLockError::WouldBlock, path, "sample-unit"),
+        PmRustError::LockConflict { id } if id == "sample-unit")
+    );
+}
+
+/// Unpublished lock payloads stay busy, while nonempty malformed payloads remain stale.
+#[test]
+fn unpublished_lock_payloads_are_not_stale() -> Result<(), Box<dyn std::error::Error>> {
+    let (_directory, pm_root) = root("{}")?;
+    let request = OwnershipItem {
+        id: "sample-unit".to_owned(),
+        author: "unit-agent".to_owned(),
+        timestamp: Some(TS.to_owned()),
+        message: None,
+        force: false,
+        if_available: false,
+        provenance_role: None,
+    };
+    let settings = read_settings(&pm_root)?;
+    fs::create_dir_all(pm_root.join("locks"))?;
+    for raw in [
+        None,
+        Some(""),
+        Some(" \n\t"),
+        Some("invalid"),
+        Some("{}"),
+        Some(r#"{"created_at":"2000-01-01T00:00:00Z"}"#),
+    ] {
+        if let Some(raw) = raw {
+            fs::write(pm_root.join("locks/sample-unit.lock"), raw)?;
+        }
+        let error = ownership_lock_refusal(&pm_root, &request, &settings, TS, 0);
+        let PmRustError::OwnershipRefusal {
+            detail, context, ..
+        } = error
+        else {
+            return Err(format!("unexpected lock refusal: {error}").into());
+        };
+        if raw.is_none_or(|value| value.trim().is_empty()) {
+            assert_eq!(detail, "Item sample-unit is locked");
+            assert_eq!(
+                context,
+                serde_json::json!({"code":"lock_conflict","recovery":{"retry_after_ms":250}})
+            );
+        } else {
+            assert!(detail.contains("lock is stale"));
+        }
+    }
+    Ok(())
 }

@@ -161,6 +161,9 @@ pub(crate) struct HistoryEntry<'a> {
     /// Optional free-form history message.
     #[serde(skip_serializing_if = "Option::is_none")]
     pub message: Option<&'a str>,
+    /// Resolver outcomes accompanying agent-attributed collection mutations.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub context: Option<Value>,
     /// Whether the event advances working context or records maintenance.
     pub event_class: &'static str,
     /// Version of the canonical immutable-record integrity contract.
@@ -401,6 +404,18 @@ fn diff_value(before: &Value, after: &Value, pointer: &str, patch: &mut Vec<Hist
             }
         }
         (Value::Object(before), Value::Object(after)) => {
+            // Normalized artifact rows retain an undefined `note` property in
+            // JavaScript. Its reverse-key visit precedes path replacements.
+            if (pointer.starts_with("/metadata/files/") || pointer.starts_with("/metadata/docs/"))
+                && !before.contains_key("note")
+                && let Some(note) = after.get("note")
+            {
+                patch.push(HistoryPatch {
+                    op: "add",
+                    path: format!("{pointer}/note"),
+                    value: Some(note.clone()),
+                });
+            }
             for (key, value) in before.iter().rev() {
                 let child = format!("{pointer}/{}", escape_pointer(key));
                 if let Some(updated) = after.get(key) {
@@ -417,6 +432,12 @@ fn diff_value(before: &Value, after: &Value, pointer: &str, patch: &mut Vec<Hist
             }
             for (key, value) in after {
                 if !before.contains_key(key) {
+                    if key == "note"
+                        && (pointer.starts_with("/metadata/files/")
+                            || pointer.starts_with("/metadata/docs/"))
+                    {
+                        continue;
+                    }
                     patch.push(HistoryPatch {
                         op: "add",
                         path: format!("{pointer}/{}", escape_pointer(key)),
@@ -578,6 +599,7 @@ pub(crate) fn history_entry<'a>(
         after_hash,
         item_hash_version: ITEM_HASH_VERSION,
         message,
+        context: None,
         event_class,
         record_hash_version: 1,
         record_hash: String::new(),
