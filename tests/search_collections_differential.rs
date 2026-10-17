@@ -1568,3 +1568,73 @@ fn future_collection_timestamps_match_unlocked_oracle() -> TestResult {
     }
     Ok(())
 }
+
+/// Status CSV normalization matches the oracle for all-status and individual tokens.
+#[test]
+fn search_status_csv_matches_oracle() -> TestResult {
+    let Some(published) = published_cli::published_cli_or_skip("search status CSV") else {
+        return Ok(());
+    };
+    let scratch = tempfile::tempdir()?;
+    let driver = write_driver(scratch.path(), &published)?;
+    let tracker = tempfile::tempdir()?;
+    assert!(
+        oracle(&driver, tracker.path(), &["init", "sample-", "--defaults"])?
+            .status
+            .success()
+    );
+    for status in ["open", "closed", "canceled"] {
+        let id = format!("sample-{status}");
+        let created = oracle(
+            &driver,
+            tracker.path(),
+            &[
+                "create",
+                "--id",
+                &id,
+                "--title",
+                "Rust fixture",
+                "--type",
+                "Task",
+                "--status",
+                status,
+                "--author",
+                "alpha",
+                "--close-reason",
+                "Synthetic search fixture",
+            ],
+        )?;
+        assert!(
+            created.status.success(),
+            "{}",
+            String::from_utf8_lossy(&created.stderr)
+        );
+    }
+    for status in [
+        "all,",
+        " all , ",
+        ",,AlL,,",
+        "",
+        ", ,",
+        " closed, ",
+        " open, ,closed,",
+        "all,closed",
+        "all,all",
+    ] {
+        for json_output in [false, true] {
+            let mut args = vec!["search", "rust", "--status", status];
+            if json_output {
+                args.push("--json");
+            }
+            let expected = oracle(&driver, tracker.path(), &args)?;
+            if json_output && ["all,", " all , ", ",,AlL,,", "", ", ,"].contains(&status) {
+                assert_eq!(
+                    serde_json::from_slice::<Value>(&expected.stdout)?["count"],
+                    3
+                );
+            }
+            output(&expected, &native(tracker.path(), &args, false)?, &args);
+        }
+    }
+    Ok(())
+}

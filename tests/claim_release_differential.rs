@@ -181,21 +181,7 @@ fn published_run(
 /// Builds a native process over the same fixed-clock inputs.
 fn native_command(root: &Path, args: &[&str]) -> Command {
     let mut command = Command::new(env!("CARGO_BIN_EXE_pm-rust"));
-    command.env_clear();
-    for name in [
-        "PATH",
-        "HOME",
-        "SystemRoot",
-        "SystemDrive",
-        "TEMP",
-        "TMP",
-        // Preserve instrumentation across the otherwise isolated native process.
-        "LLVM_PROFILE_FILE",
-    ] {
-        if let Ok(value) = std::env::var(name) {
-            command.env(name, value);
-        }
-    }
+    mutation_differential::isolate_environment(&mut command);
     command.env("DO_NOT_TRACK", "1");
     command
         .arg("--workspace")
@@ -314,6 +300,13 @@ fn two_process_claim_race_has_one_winner_and_published_refusal()
         let Some(fixture) = Fixture::new("strict")? else {
             return Ok(());
         };
+        // The loser must wait for publication to observe the committed claim.
+        for root in [fixture.node.path(), fixture.rust.path()] {
+            let path = root.join(".agents/pm/settings.json");
+            let mut settings: serde_json::Value = serde_json::from_slice(&fs::read(&path)?)?;
+            settings["locks"]["wait_ms"] = serde_json::json!(30_000);
+            fs::write(path, serde_json::to_vec_pretty(&settings)?)?;
+        }
         let barrier = Arc::new(Barrier::new(3));
         let mut workers = Vec::new();
         for author in ["alpha", "beta"] {
@@ -1724,5 +1717,47 @@ fn malformed_mutation_ids_never_create_escaped_locks() -> Result<(), Box<dyn std
     }
     fixture.step(&["claim", "sample-own", "--author", "alpha", "--json"])?;
     fixture.step(&["release", "sample-own", "--author", "alpha", "--json"])?;
+    Ok(())
+}
+
+/// An incumbent gate without a published payload produces the exact oracle conflict.
+#[test]
+fn unpublished_lock_payload_refusals_match_oracle() -> Result<(), Box<dyn std::error::Error>> {
+    let Some(fixture) = Fixture::new("strict")? else {
+        return Ok(());
+    };
+    for root in [fixture.node.path(), fixture.rust.path()] {
+        let path = root.join(".agents/pm/settings.json");
+        let mut settings: serde_json::Value = serde_json::from_slice(&fs::read(&path)?)?;
+        settings["locks"]["wait_ms"] = serde_json::json!(0);
+        fs::write(path, serde_json::to_vec_pretty(&settings)?)?;
+        fs::create_dir(root.join(".agents/pm/locks/sample-own.lock.stale-cleanup"))?;
+    }
+    let lease = fs::File::options()
+        .read(true)
+        .write(true)
+        .create(true)
+        .truncate(false)
+        .open(
+            fixture
+                .rust
+                .path()
+                .join(".agents/pm/locks/sample-own.lock.gate-lease"),
+        )?;
+    lease.try_lock()?;
+    for payload in [None, Some(""), Some(" \n\t")] {
+        for root in [fixture.node.path(), fixture.rust.path()] {
+            let path = root.join(".agents/pm/locks/sample-own.lock");
+            if let Some(raw) = payload {
+                fs::write(path, raw)?;
+            }
+        }
+        let args = ["claim", "sample-own", "--author", "alpha", "--json"];
+        let expected = published_run(&fixture.driver, fixture.node.path(), &args)?;
+        assert!(!expected.status.success());
+        assert!(String::from_utf8_lossy(&expected.stderr).contains("is locked"));
+        fixture.step(&args)?;
+    }
+    fs::File::unlock(&lease)?;
     Ok(())
 }

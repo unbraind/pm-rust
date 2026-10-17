@@ -918,8 +918,8 @@ fn acquire_lock_attempt(
             });
         }
     };
-    if lease.try_lock().is_err() {
-        return Err(PmRustError::LockConflict { id: id.to_owned() });
+    if let Err(error) = lease.try_lock() {
+        return Err(gate_lease_error(error, lease_path, id));
     }
     let _lease = GateLease(lease);
     if let Err(source) = fs::create_dir(&gate) {
@@ -953,6 +953,14 @@ fn acquire_lock_attempt(
     );
     let _ = fs::remove_dir(&gate);
     result
+}
+
+/// Preserves gate-lease filesystem failures while classifying only a busy lease as contention.
+fn gate_lease_error(error: fs::TryLockError, path: PathBuf, id: &str) -> PmRustError {
+    match error {
+        fs::TryLockError::WouldBlock => PmRustError::LockConflict { id: id.to_owned() },
+        fs::TryLockError::Error(source) => PmRustError::Io { path, source },
+    }
 }
 
 /// Reclaims only the observed directory while the caller holds the gate lease.
@@ -2559,7 +2567,7 @@ fn ownership_lock_refusal(
         Ok(raw) => raw.unwrap_or_default(),
         Err(error) => return error,
     };
-    if ownership_lock_stale(&raw, timestamp, settings.locks.ttl_seconds) {
+    if !raw.trim().is_empty() && ownership_lock_stale(&raw, timestamp, settings.locks.ttl_seconds) {
         return ownership_refusal(
             format!(
                 "Item {} lock is stale; rerun with --force when supported for this command",

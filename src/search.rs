@@ -507,13 +507,14 @@ impl Workspace {
                 json!({}),
             ));
         }
-        if let Some(raw) = &options.status {
-            let statuses: Vec<_> = raw
-                .split(',')
+        let status_tokens = options.status.as_ref().map(|raw| {
+            raw.split(',')
                 .map(str::trim)
                 .filter(|s| !s.is_empty())
-                .collect();
-            for status in &statuses {
+                .collect::<Vec<_>>()
+        });
+        if let Some(statuses) = &status_tokens {
+            for status in statuses {
                 if status.eq_ignore_ascii_case("all") {
                     if statuses.len() > 1 {
                         return Err(crate::collections::refusal(
@@ -533,20 +534,20 @@ impl Workspace {
                 }
             }
         }
+        let all_statuses = status_tokens
+            .as_ref()
+            .is_some_and(|statuses| statuses.len() == 1 && statuses[0].eq_ignore_ascii_case("all"));
         let mut selected = 0;
         let mut hits = self
             .read_items()?
             .into_iter()
             .filter(|document| {
                 let item = &document.metadata;
-                (options
-                    .status
-                    .as_ref()
-                    .is_some_and(|raw| raw.trim().eq_ignore_ascii_case("all"))
-                    || options.status.as_ref().is_none_or(|raw| {
-                        raw.split(',').all(|s| s.trim().is_empty())
-                            || raw.split(',').any(|s| {
-                                lifecycle.canonical(s) == lifecycle.canonical(&item.status)
+                (all_statuses
+                    || status_tokens.as_ref().is_none_or(|statuses| {
+                        statuses.is_empty()
+                            || statuses.iter().any(|status| {
+                                lifecycle.canonical(status) == lifecycle.canonical(&item.status)
                             })
                     }))
                     && type_filter
@@ -603,6 +604,9 @@ impl Workspace {
                 semantic[key] = json!(value);
                 filters[key] = json!(value);
             }
+        }
+        if all_statuses {
+            filters["status"] = json!("all");
         }
         let fingerprint=crate::history::sha256_digest(format!("search\0{}",crate::pagination::stable(&json!({"pmRoot":crate::pagination::query_root(&self.query_pm_root().to_string_lossy()),"query":query.trim_matches(whitespace),"mode":"keyword","options":semantic}))).as_bytes())[..24].to_owned();
         let mut legacy = false;

@@ -4498,3 +4498,84 @@ fn future_collection_preserves_held_lock() -> Result<(), Box<dyn std::error::Err
     }
     Ok(())
 }
+
+/// Lease errors retain their exact path and underlying OS or filesystem diagnostic.
+#[test]
+fn gate_lease_errors_preserve_io_diagnostics() {
+    let path = PathBuf::from("locks/sample-unit.lock.gate-lease");
+    for source in [
+        std::io::Error::from(ErrorKind::Unsupported),
+        std::io::Error::from(ErrorKind::PermissionDenied),
+        std::io::Error::from_raw_os_error(37),
+    ] {
+        let kind = source.kind();
+        let os_code = source.raw_os_error();
+        let message = source.to_string();
+        let error = gate_lease_error(fs::TryLockError::Error(source), path.clone(), "sample-unit");
+        let PmRustError::Io {
+            path: actual,
+            source,
+        } = error
+        else {
+            assert!(
+                matches!(error, PmRustError::Io { .. }),
+                "a lease I/O failure was reported as contention: {error}"
+            );
+            return;
+        };
+        assert_eq!(actual, path);
+        assert_eq!(source.kind(), kind);
+        assert_eq!(source.raw_os_error(), os_code);
+        assert_eq!(source.to_string(), message);
+    }
+    assert!(
+        matches!(gate_lease_error(fs::TryLockError::WouldBlock, path, "sample-unit"),
+        PmRustError::LockConflict { id } if id == "sample-unit")
+    );
+}
+
+/// Unpublished lock payloads stay busy, while nonempty malformed payloads remain stale.
+#[test]
+fn unpublished_lock_payloads_are_not_stale() -> Result<(), Box<dyn std::error::Error>> {
+    let (_directory, pm_root) = root("{}")?;
+    let request = OwnershipItem {
+        id: "sample-unit".to_owned(),
+        author: "unit-agent".to_owned(),
+        timestamp: Some(TS.to_owned()),
+        message: None,
+        force: false,
+        if_available: false,
+        provenance_role: None,
+    };
+    let settings = read_settings(&pm_root)?;
+    fs::create_dir_all(pm_root.join("locks"))?;
+    for raw in [
+        None,
+        Some(""),
+        Some(" \n\t"),
+        Some("invalid"),
+        Some("{}"),
+        Some(r#"{"created_at":"2000-01-01T00:00:00Z"}"#),
+    ] {
+        if let Some(raw) = raw {
+            fs::write(pm_root.join("locks/sample-unit.lock"), raw)?;
+        }
+        let error = ownership_lock_refusal(&pm_root, &request, &settings, TS, 0);
+        let PmRustError::OwnershipRefusal {
+            detail, context, ..
+        } = error
+        else {
+            return Err(format!("unexpected lock refusal: {error}").into());
+        };
+        if raw.is_none_or(|value| value.trim().is_empty()) {
+            assert_eq!(detail, "Item sample-unit is locked");
+            assert_eq!(
+                context,
+                serde_json::json!({"code":"lock_conflict","recovery":{"retry_after_ms":250}})
+            );
+        } else {
+            assert!(detail.contains("lock is stale"));
+        }
+    }
+    Ok(())
+}

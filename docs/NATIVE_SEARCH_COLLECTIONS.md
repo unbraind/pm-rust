@@ -11,7 +11,10 @@ and `tests/oracle/package-lock.json`. Features
 `search <query...>` joins positional arguments with spaces and emits compact
 hits in default TOON or `--json`. Selection supports `--type`, `--status` and
 `--tag`; `--limit` bounds the ranked producer page. Search includes terminal
-items unless a status filter excludes them. It searches title, description,
+items unless a status filter excludes them. Status CSV values share one trimmed,
+nonempty token sequence for validation and filtering. A sole case-insensitive
+`all` token, including `all,`, selects every status and is echoed as `all`;
+cursor fingerprints retain the raw option. It searches title, description,
 tags, status, body, comment/note/learning text, reminder/event text, dependency
 identities and kinds, and plan text. Linked file and document paths are outside
 the default keyword corpus.
@@ -107,7 +110,10 @@ regression in `tests/support/mutation_unit.rs` protects that publication boundar
 A permanent per-item advisory lease serializes native cleanup-gate creation,
 reclamation and release. Normal release explicitly unlocks before closing the
 descriptor, so an inherited child descriptor cannot prolong a completed lease.
-The kernel releases the lease after a crash. Stale
+The kernel releases the lease after a crash. Only a busy advisory lease is
+contention; other lease failures retain the lease path and underlying I/O error.
+Missing or whitespace-only unpublished lock payloads report lock conflicts,
+while nonempty malformed payloads retain stale-lock handling. Stale
 reclamation checks the observed directory identity under that lease (device/inode
 on Unix and a retained native file handle on Windows), then moves
 that directory to a unique tombstone; deletion never targets a replacement at

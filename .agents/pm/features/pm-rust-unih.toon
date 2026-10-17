@@ -6,10 +6,10 @@ status: in_progress
 priority: 2
 tags[3]: collections,conformance,rust
 created_at: "2026-10-16T16:59:46.171Z"
-updated_at: "2026-10-17T05:42:07.750Z"
+updated_at: "2026-10-17T12:59:06.974Z"
 author: codex-agent
 parent: pm-rust-u4al
-comments[41]{created_at,author,text}:
+comments[49]{created_at,author,text}:
   "2026-10-16T17:00:05.045Z",codex-agent,"Plan: route collection edits through the existing per-item lock and journal, compare complete item and append-only history bytes at a fixed clock, and prove two concurrent writers preserve accepted additions. Match collection parsing, compact receipts and typed refusals."
   "2026-10-16T17:09:05.338Z",codex-agent,"Implemented collection list and transactional add/remove paths. The first differential run exposed optional artifact note visitation in canonical history patch ordering; item hashes already agreed, but patch order and record hashes differed. Added the missing normalized-row ordering behavior before continuing exact artifact comparisons."
   "2026-10-16T17:27:18.718Z",codex-agent,"Concurrency differential passed for native and oracle writers: both additions survive, adjacent document hashes chain, and complete item/history artifacts equal serial oracle replay in observed commit order. Expanded parser checks now include Markdown pairs, quoted commas, command aliases and documentation references. Oracle artifact collections have path selectors only; linked tests additionally expose 1-based indices."
@@ -51,7 +51,15 @@ comments[41]{created_at,author,text}:
   "2026-10-17T04:50:36.387Z",codex-agent,"Final tracker verification: isolated CI-style strict health with required merge drivers passes. Existing guidance/provenance/staleness advisories remain unchanged. Ordinary host health additionally sees a global extension version mismatch; isolating user configuration removes that environmental failure without changing the pinned SDK, global installation or historical records. Changelog is regenerated and verified after tracker writes; claims are released for orchestrator verification."
   "2026-10-17T05:14:18.613Z",codex-agent,"Final-head CI found Windows coverage gaps after functional tests passed: the gate-creation non-contention IO return was not exercised because the filename-boundary fixture was Unix-only, and the already-open handle metadata read retained an unexecuted question-mark conversion region. Windows measured 8887/8888 lines, 867/867 functions, 13898/13900 regions and 2147/2148 branches. Extending the real filename-component boundary to Windows with an exact error-path assertion, and forwarding metadata results through Result combinators. Coverage thresholds remain unchanged."
   "2026-10-17T05:42:05.750Z",codex-agent,"Windows CI coverage correction is locally verified. The filename fixture now runs on Windows as well as Unix, uses a canonical path to isolate the component limit, asserts the exact gate IO path, and confirms the shorter lease file exists. Metadata results retain their original errors through Result chaining. Focused gate tests and Windows cross-target strict clippy pass. Repeated just release-check passes 381 normal plus 381 instrumented tests; required Linux coverage is 8883/8883 lines, 867/867 functions, 13890/13890 regions and 2144/2144 branches at unchanged thresholds. Pinned pm runs both gate tests successfully. Preparing the correction push and fresh three-OS CI."
-files[20]{path,scope}:
+  "2026-10-17T10:48:33.525Z",codex-agent,"Round 3: distinguish advisory lease contention from filesystem errors and check transient unpublished lock payload refusals against the locked oracle. Add regression coverage with behavioral revert proofs while retaining malformed nonempty payload expiry and immutable history."
+  "2026-10-17T10:52:15.479Z",codex-agent,"Pinned tracker writes now use the installed oracle package 2026.10.14. The separate changelog SDK pin 2026.10.9 was initially mistaken for the tracker pin; those append-only writes are retained. No history records are rewritten. Fresh-gate oracle probes confirm missing, empty and whitespace payloads report lock_conflict. Native advisory lease errors have no equivalent oracle syscall because the published implementation uses directory gates; existing published code preserves acquisition failures separately from contention."
+  "2026-10-17T10:55:30.039Z",codex-agent,"Separate pre-existing text-format gap is tracked as pm-rust-4jq3 after duplicate search: direct claim without --json emits JSON natively while the oracle emits text guidance. The new lock behavioral differential uses the established JSON envelope contract and compares all bytes and durable artifacts. Missing, empty and whitespace payloads are covered with a real held advisory lease; malformed nonempty payloads remain stale in the unit regression."
+  "2026-10-17T10:57:44.905Z",codex-agent,"Behavioral negative controls passed: changing only gate_lease_error back to classifying every error as LockConflict fails mutation::tests::gate_lease_errors_preserve_io_diagnostics; removing only the nonempty guard in ownership_lock_refusal fails mutation::tests::unpublished_lock_payloads_are_not_stale. Each exact cargo +1.90.0 test --locked --lib command exited 101 with 0 passed and 1 failed. Fixed source bytes were restored exactly after each control. The JSON ownership differential passes for missing, empty and whitespace payloads under a real held lease."
+  "2026-10-17T11:01:38.338Z",codex-agent,"History verification FAIL: before_hash_mismatch at entry 74, the first new claim written with the changelog-only SDK 2026.10.9. That older parser normalized away linked-test updater metadata before hashing. Original 73-entry history prefix is unchanged; current item matches latest after_hash. Later writes use repo-pinned 2026.10.14. Preserve every append-only record. Default strict health passes with history_drift skipped, so tracker integrity remains a separate unresolved issue."
+  "2026-10-17T11:30:08.689Z",codex-agent,"First aggregate stopped in the existing claim race: 26 ownership tests passed and one valid lock_conflict after 3018ms did not match its serial already_claimed_by expectation. The new unpublished-payload differential passed in that run. Reused pm-rust-23ps for a fixture-only explicit 30-second writer wait on both replay trackers; all original race, byte and verifier assertions remain. Coverage was not reached in the failed aggregate; a complete rerun follows the focused race check. Tracker hash discontinuity is separately tracked in pm-rust-b4yl."
+  "2026-10-17T12:11:10.796Z",codex-agent,"Full normal retry PASS: 385 tests, including all 27 ownership differentials, all 25 pagination differentials and all 17 search/collections differentials. The explicit 30-second race fixture retains its exact one-winner/loser envelope, durable-byte and oracle history assertions. New lease diagnostics, unpublished-payload and status-CSV regressions pass. Instrumented full-suite coverage validation is now running; no coverage or final aggregate claim is made yet."
+  "2026-10-17T12:59:00.932Z",codex-agent,"Round 3 final local release-check PASS: 385 normal and 385 instrumented tests; 8892/8892 lines, 868/868 functions, 13907/13907 regions and 2150/2150 branches at unchanged thresholds. Lease I/O diagnostics and unpublished-payload regressions pass with behavioral revert proofs; exact JSON oracle output and durable artifacts agree. All six claim races pass after the fixture-only wait correction in pm-rust-23ps. Strict fmt/clippy/private docs, identity, oracle, dependency and changelog gates pass. The existing allowed unsafe-libyaml maintenance warning is unchanged. Releasing the claim before push and final-head CI. Tracker hash discontinuity at entry 74 remains open as pm-rust-b4yl; direct ownership text formatting is pm-rust-4jq3. No original history was rewritten."
+files[21]{path,scope}:
   Cargo.lock,project
   Cargo.toml,project
   src/collections.rs,project
@@ -61,6 +69,7 @@ files[20]{path,scope}:
   src/main.rs,project
   src/mutation.rs,project
   src/ownership.rs,project
+  tests/claim_release_differential.rs,project
   tests/close_differential.rs,project
   tests/conformance_differential.rs,project
   tests/mutation_contract.rs,project
@@ -72,43 +81,13 @@ files[20]{path,scope}:
   tests/support/mutation_differential.rs,project
   tests/support/mutation_unit.rs,project
   tests/support/process_environment.rs,project
-tests[4]:
-  - command: cargo +1.90.0 test --locked --test search_collections_differential collection
-    scope: project
-    timeout_seconds: 600
-    provenance:
-      author: codex-agent
-      created_at: "2026-10-16T18:23:24.384Z"
-      source_kind: local_mutation
-      source_ref: feat/native-search-and-collections
-  - command: "cargo +1.90.0 test --locked --lib mutation::tests::initialization_gate_protects_a_lock_before_its_payload_is_published -- --exact"
-    scope: project
-    timeout_seconds: 120
-    provenance:
-      author: codex-agent
-      created_at: "2026-10-16T21:04:30.358Z"
-      source_kind: local_mutation
-      source_ref: feat/native-search-and-collections
-  - command: just release-check
-    scope: project
-    timeout_seconds: 7200
-    provenance:
-      author: codex-agent
-      created_at: "2026-10-16T23:06:53.278Z"
-      source_kind: local_mutation
-      source_ref: feat/native-search-and-collections
-    updated_by: codex-agent
-    updated_at: "2026-10-17T00:08:14.473Z"
-  - command: "cargo +1.90.0 test --locked --lib mutation::tests::stale_gate_reclamation_preserves_a_concurrent_replacement -- --exact"
-    scope: project
-    timeout_seconds: 120
-    provenance:
-      author: codex-agent
-      created_at: "2026-10-17T02:46:45.890Z"
-      source_kind: local_mutation
-      source_ref: feat/native-search-and-collections
-    updated_by: codex-agent
-    updated_at: "2026-10-17T02:49:02.444Z"
+tests[6]{command,scope,timeout_seconds,provenance{author,created_at,source_kind,source_ref}}:
+  cargo +1.90.0 test --locked --test search_collections_differential collection,project,600,codex-agent,"2026-10-16T18:23:24.384Z",local_mutation,feat/native-search-and-collections
+  "cargo +1.90.0 test --locked --lib mutation::tests::initialization_gate_protects_a_lock_before_its_payload_is_published -- --exact",project,120,codex-agent,"2026-10-16T21:04:30.358Z",local_mutation,feat/native-search-and-collections
+  just release-check,project,7200,codex-agent,"2026-10-16T23:06:53.278Z",local_mutation,feat/native-search-and-collections
+  "cargo +1.90.0 test --locked --lib mutation::tests::stale_gate_reclamation_preserves_a_concurrent_replacement -- --exact",project,120,codex-agent,"2026-10-17T02:46:45.890Z",local_mutation,feat/native-search-and-collections
+  "cargo +1.90.0 test --locked --lib mutation::tests::gate_lease_errors_preserve_io_diagnostics -- --exact",project,120,codex-agent,"2026-10-17T10:55:22.079Z",local_mutation,feat/native-search-and-collections
+  env PM_RUST_REQUIRE_PUBLISHED_CLI=1 cargo +1.90.0 test --locked --test claim_release_differential unpublished_lock_payload_refusals_match_oracle -- --exact,project,600,codex-agent,"2026-10-17T10:55:35.996Z",local_mutation,feat/native-search-and-collections
 docs[5]{path,scope}:
   docs/CLI_PARITY_2026_10_2.md,project
   docs/COMPATIBILITY.md,project
