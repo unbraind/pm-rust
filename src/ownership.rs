@@ -31,7 +31,7 @@ pub struct AuthorIdentity {
     pub instance: Option<String>,
     /// Available provenance dimensions and their detection sources.
     pub provenance: serde_json::Map<String, Value>,
-    /// Bounded local resolver outcomes retained in collection history.
+    /// Bounded local resolver outcomes retained in mutation history.
     pub resolver_outcomes: serde_json::Map<String, Value>,
 }
 
@@ -161,7 +161,7 @@ impl AuthorIdentity {
         }
     }
 
-    /// Resolves bounded local model/version probes for collection history attribution.
+    /// Resolves bounded local model/version probes for mutation history attribution.
     #[must_use]
     pub fn for_collections(mut self, env: &BTreeMap<String, String>) -> Self {
         crate::identity_probes::enrich(&mut self, env);
@@ -169,7 +169,7 @@ impl AuthorIdentity {
     }
 
     /// Executes a synchronous mutation with scoped attribution, restoring on unwind.
-    pub(crate) fn with<T>(&self, operation: impl FnOnce() -> T) -> T {
+    pub fn with<T>(&self, operation: impl FnOnce() -> T) -> T {
         let previous = ATTRIBUTION.with(|slot| slot.replace(Some(self.clone())));
         let _restore = RestoreAttribution(previous);
         operation()
@@ -284,9 +284,7 @@ pub(crate) fn stamp_attribution(entry: &mut crate::history::HistoryEntry<'_>, ro
             } else {
                 Some(Value::Object(provenance))
             };
-            if ["files_add", "docs_add", "tests_add", "tests_remove"].contains(&entry.op)
-                && !identity.resolver_outcomes.is_empty()
-            {
+            if !identity.resolver_outcomes.is_empty() {
                 entry.context =
                     Some(json!({"agent_provenance_outcomes":identity.resolver_outcomes}));
             }

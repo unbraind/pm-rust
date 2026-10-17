@@ -14,6 +14,16 @@ use pm_rust::{CloseItem, CommentItem, CreateItem, PmRustError, UpdateItem, Works
 use predicates::str::contains;
 use tempfile::TempDir;
 
+#[path = "support/process_environment.rs"]
+mod process_environment;
+
+/// Builds a native CLI without inheriting a host agent's attribution signals.
+fn native_command() -> Command {
+    let mut command = std::process::Command::new(env!("CARGO_BIN_EXE_pm-rust"));
+    process_environment::isolate_environment(&mut command);
+    Command::from_std(command)
+}
+
 const TIMESTAMP: &str = "2026-08-22T10:00:00.000Z";
 
 /// Canonical item bytes recorded after the recorded create step.
@@ -316,7 +326,7 @@ fn native_close_matches_the_published_bytes_exactly() -> Result<(), Box<dyn std:
 fn cli_mutations_drive_the_same_native_transactions() -> Result<(), Box<dyn std::error::Error>> {
     let (directory, _workspace) = tracker()?;
     let workspace_arg = format!("--workspace={}", directory.path().display());
-    Command::cargo_bin("pm-rust")?
+    native_command()
         .args([
             workspace_arg.as_str(),
             "create",
@@ -339,7 +349,7 @@ fn cli_mutations_drive_the_same_native_transactions() -> Result<(), Box<dyn std:
         ])
         .assert()
         .success();
-    Command::cargo_bin("pm-rust")?
+    native_command()
         .args([
             workspace_arg.as_str(),
             "update",
@@ -357,7 +367,7 @@ fn cli_mutations_drive_the_same_native_transactions() -> Result<(), Box<dyn std:
         ])
         .assert()
         .success();
-    Command::cargo_bin("pm-rust")?
+    native_command()
         .args([
             workspace_arg.as_str(),
             "comment",
@@ -372,7 +382,7 @@ fn cli_mutations_drive_the_same_native_transactions() -> Result<(), Box<dyn std:
         ])
         .assert()
         .success();
-    Command::cargo_bin("pm-rust")?
+    native_command()
         .args([
             workspace_arg.as_str(),
             "update",
@@ -386,7 +396,7 @@ fn cli_mutations_drive_the_same_native_transactions() -> Result<(), Box<dyn std:
         ])
         .assert()
         .success();
-    Command::cargo_bin("pm-rust")?
+    native_command()
         .args([
             workspace_arg.as_str(),
             "close",
@@ -717,7 +727,7 @@ fn cli_mutations_report_a_closed_stdout_pipe() -> Result<(), Box<dyn std::error:
 fn cli_mutations_reject_invalid_inputs() -> Result<(), Box<dyn std::error::Error>> {
     let (directory, _workspace) = tracker()?;
     let workspace_arg = format!("--workspace={}", directory.path().display());
-    Command::cargo_bin("pm-rust")?
+    native_command()
         .args([
             workspace_arg.as_str(),
             "create",
@@ -738,7 +748,7 @@ fn cli_mutations_reject_invalid_inputs() -> Result<(), Box<dyn std::error::Error
         .success();
 
     // A blank author is refused.
-    Command::cargo_bin("pm-rust")?
+    native_command()
         .args([
             workspace_arg.as_str(),
             "update",
@@ -755,7 +765,7 @@ fn cli_mutations_reject_invalid_inputs() -> Result<(), Box<dyn std::error::Error
         .stderr(contains("invalid mutation request"));
 
     // A bad timestamp is refused.
-    Command::cargo_bin("pm-rust")?
+    native_command()
         .args([
             workspace_arg.as_str(),
             "update",
@@ -772,7 +782,7 @@ fn cli_mutations_reject_invalid_inputs() -> Result<(), Box<dyn std::error::Error
         .stderr(contains("invalid mutation request"));
 
     // A blank title is refused.
-    Command::cargo_bin("pm-rust")?
+    native_command()
         .args([
             workspace_arg.as_str(),
             "update",
@@ -789,7 +799,7 @@ fn cli_mutations_reject_invalid_inputs() -> Result<(), Box<dyn std::error::Error
         .stderr(contains("invalid mutation request"));
 
     // A blank close reason is refused.
-    Command::cargo_bin("pm-rust")?
+    native_command()
         .args([
             workspace_arg.as_str(),
             "close",
@@ -1512,7 +1522,7 @@ fn future_ownership_timestamps_refuse_for_sdk_and_cli() -> Result<(), Box<dyn st
                 Err(PmRustError::InvalidMutationRequest { reason })
                     if reason == "timestamp must not be in the future"
             ));
-            let mut cli = Command::cargo_bin("pm-rust")?;
+            let mut cli = native_command();
             cli.current_dir(directory.path()).args([
                 operation,
                 "sample-conv",

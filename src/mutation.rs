@@ -2500,6 +2500,15 @@ pub(crate) fn collection_item(
     let mut settings = read_settings(pm_root)?;
     let timestamp = validate_mutation_request(&options.author, options.timestamp.as_deref())?;
     settings.locks.use_created_at = true;
+    // Preserve fixture timestamps in history, but never let them age a live lock.
+    let wall_clock = now_iso();
+    let lock_clock = if OffsetDateTime::parse(&timestamp, &Rfc3339)
+        .is_ok_and(|value| value > OffsetDateTime::now_utc())
+    {
+        &wall_clock
+    } else {
+        &timestamp
+    };
     let request = OwnershipItem {
         id: id.to_owned(),
         author: options.author.clone(),
@@ -2516,14 +2525,14 @@ pub(crate) fn collection_item(
         &options.author,
         &settings.locks,
         options.force || !settings.governance.stale_requires_force(),
-        &timestamp,
+        lock_clock,
     )
     .map_err(|error| match error {
         PmRustError::LockConflict { .. } => ownership_lock_refusal(
             pm_root,
             &request,
             &settings,
-            &timestamp,
+            lock_clock,
             if settings.locks.wait_ms == 0 {
                 0
             } else {
@@ -2568,10 +2577,15 @@ pub(crate) fn collection_item(
             serde_json::json!({"code":"ownership_conflict"}),
         ));
     }
+    let source = if key == "tests" && !edit.adds.is_empty() {
+        crate::collections::source_ref()
+    } else {
+        None
+    };
     for add in &mut edit.adds {
         if key == "tests" {
             add["provenance"] = serde_json::json!({"author":options.author,"created_at":timestamp,"source_kind":"local_mutation"});
-            if let Some(source) = crate::collections::source_ref() {
+            if let Some(source) = &source {
                 add["provenance"]["source_ref"] = serde_json::json!(source);
             }
             if let Some(note) = add.as_object_mut().and_then(|map| map.shift_remove("note")) {

@@ -952,3 +952,24 @@ fn list_and_cursor_writers_propagate_io_failures() -> Result<(), Box<dyn std::er
     assert!(super::write_list_to(&mut Vec::new(), &cut, false).is_err());
     Ok(())
 }
+
+/// Recovery placeholders use the parsed query after flags and join every positional token.
+#[test]
+fn search_examples_use_parsed_query() {
+    for args in [
+        vec!["search", "--type", "Unknown", "rust", "search"],
+        vec!["search", "rust", "search", "--type", "Unknown"],
+    ] {
+        let args = args.into_iter().map(str::to_owned).collect::<Vec<_>>();
+        let payload = super::search_error_json(
+            "Invalid type",
+            &serde_json::json!({"code":"custom","examples":["pm search <query> --type Task --json"]}),
+            &args,
+            2,
+        );
+        assert_eq!(
+            payload["examples"][0],
+            "pm search \"rust search\" --type Task --json"
+        );
+    }
+}

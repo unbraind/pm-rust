@@ -1,4 +1,4 @@
-//! Bounded, read-only local agent metadata used by collection history.
+//! Bounded, read-only local agent metadata used by mutation history.
 use crate::AuthorIdentity;
 use serde_json::{Value, json};
 use std::{

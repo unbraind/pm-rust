@@ -347,8 +347,16 @@ fn collection_commands_match_oracle() -> TestResult {
                     &tracker.path().join(".agents/pm"),
                 )
             });
-            if !matches!(comparison, Ok(Ok(()))) {
-                mismatches += 1;
+            match comparison {
+                Ok(Ok(())) => {}
+                Ok(Err(error)) => {
+                    eprintln!("{args:?}: artifact mismatch: {error}");
+                    mismatches += 1;
+                }
+                Err(_) => {
+                    eprintln!("{args:?}: output or artifact comparison panicked");
+                    mismatches += 1;
+                }
             }
         }
     }
@@ -753,6 +761,11 @@ fn search_output_cursor_replays_and_refuses_stale_rows() -> TestResult {
             &path,
             before.replace("description: fixture", "description: Changed"),
         )?;
+        output(
+            &oracle(&driver, tracker.path(), &replay)?,
+            &native(tracker.path(), &replay, false)?,
+            &replay,
+        );
         // Description is outside compact projection; a changed title invalidates the snapshot.
         fs::write(&path, before.replace("title: Rust", "title: Rust changed"))?;
         output(
@@ -1082,7 +1095,9 @@ fn collection_agent_attribution_matches_oracle() -> TestResult {
                 .env_remove("PM_AGENT_TOPIC");
         }
         let oracle_command = |args: &[&str], environment: &Command| {
-            let mut command = published_cli::oracle_command("node");
+            let mut command = published_cli::oracle_command(
+                std::env::var("PM_NODE_INTERPRETER").unwrap_or_else(|_| "node".to_owned()),
+            );
             command
                 .env_clear()
                 .current_dir(tracker.path())
@@ -1249,7 +1264,9 @@ fn collection_local_probe_history_matches_oracle() -> TestResult {
                 "fixture-alias",
             );
         }
-        let mut expected = published_cli::oracle_command("node");
+        let mut expected = published_cli::oracle_command(
+            std::env::var("PM_NODE_INTERPRETER").unwrap_or_else(|_| "node".to_owned()),
+        );
         expected
             .env_clear()
             .current_dir(tracker.path())
@@ -1274,6 +1291,246 @@ fn collection_local_probe_history_matches_oracle() -> TestResult {
             &tracker.path().join(".agents"),
         )?;
         output(&expected, &actual.output()?, &args);
+        artifacts(
+            &after.path().join(".agents/pm"),
+            &tracker.path().join(".agents/pm"),
+        )?;
+    }
+    Ok(())
+}
+
+/// Flag placement and multiword queries preserve the oracle's refusal bytes.
+#[test]
+fn reordered_refusal_arguments_match_oracle() -> TestResult {
+    let Some(published) = published_cli::published_cli_or_skip("reordered refusals") else {
+        return Ok(());
+    };
+    let scratch = tempfile::tempdir()?;
+    let driver = write_driver(scratch.path(), &published)?;
+    let tracker = tempfile::tempdir()?;
+    assert!(
+        oracle(&driver, tracker.path(), &["init", "sample-", "--defaults"])?
+            .status
+            .success()
+    );
+    for args in [
+        vec!["search", "--type", "Unknown", "rust", "search", "--json"],
+        vec!["search", "--type", "task", "rust", "search", "--json"],
+        vec!["search", "rust", "search", "--type", "task", "--json"],
+        vec!["files", "--author", "alpha", "sample-missing", "--json"],
+        vec!["docs", "--author", "alpha", "sample-missing", "--json"],
+        vec!["test", "--author", "alpha", "sample-missing", "--json"],
+    ] {
+        output(
+            &oracle(&driver, tracker.path(), &args)?,
+            &native(tracker.path(), &args, false)?,
+            &args,
+        );
+    }
+    Ok(())
+}
+
+/// Every history-writing CLI mutation retains bounded synthetic probe evidence and exact hashes.
+#[test]
+#[allow(clippy::too_many_lines)]
+fn mutation_probe_history_matches_oracle() -> TestResult {
+    let Some(published) = published_cli::published_cli_or_skip("mutation probes") else {
+        return Ok(());
+    };
+    let scratch = tempfile::tempdir()?;
+    let driver = write_driver(scratch.path(), &published)?;
+    let tracker = tempfile::tempdir()?;
+    for args in [
+        vec!["init", "sample-", "--defaults"],
+        vec![
+            "create",
+            "--id",
+            "sample-item",
+            "--title",
+            "Probe fixture",
+            "--type",
+            "Task",
+            "--author",
+            "alpha",
+        ],
+    ] {
+        assert!(oracle(&driver, tracker.path(), &args)?.status.success());
+    }
+    let snapshot = tempfile::tempdir()?;
+    copy_directory(
+        &tracker.path().join(".agents"),
+        &snapshot.path().join(".agents"),
+    )?;
+    for mut args in [
+        vec![
+            "create",
+            "--id",
+            "sample-other",
+            "--title",
+            "New fixture",
+            "--type",
+            "Task",
+        ],
+        vec!["update", "sample-item", "--title", "Changed fixture"],
+        vec!["comment", "sample-item", "Probe comment"],
+        vec!["claim", "sample-item"],
+        vec!["release", "sample-item"],
+        vec!["close", "sample-item", "Completed"],
+        vec!["close", "sample-item", "Completed", "--release-assignment"],
+    ] {
+        fs::remove_dir_all(tracker.path().join(".agents"))?;
+        copy_directory(
+            &snapshot.path().join(".agents"),
+            &tracker.path().join(".agents"),
+        )?;
+        if args[0] == "release" || args.contains(&"--release-assignment") {
+            assert!(
+                oracle(
+                    &driver,
+                    tracker.path(),
+                    &["claim", "sample-item", "--author", "alpha"]
+                )?
+                .status
+                .success()
+            );
+        }
+        args.extend(["--author", "alpha"]);
+        let home = tempfile::tempdir()?;
+        let path = home
+            .path()
+            .join(".codex/sessions/year/rollout-fixture-session.jsonl");
+        fs::create_dir_all(path.parent().ok_or("session parent")?)?;
+        fs::write(
+            path,
+            "{\"type\":\"turn_context\",\"payload\":{\"model\":\"fixture-model\",\"effort\":\"high\"}}\n",
+        )?;
+        let mut actual = native_command(tracker.path(), &args, true);
+        actual
+            .env("HOME", home.path())
+            .env("USERPROFILE", home.path())
+            .env("CODEX_THREAD_ID", "fixture-session");
+        let before = tempfile::tempdir()?;
+        copy_directory(
+            &tracker.path().join(".agents"),
+            &before.path().join(".agents"),
+        )?;
+        let mut expected = published_cli::oracle_command(
+            std::env::var("PM_NODE_INTERPRETER").unwrap_or_else(|_| "node".to_owned()),
+        );
+        expected
+            .env_clear()
+            .current_dir(tracker.path())
+            .arg(&driver)
+            .args(&args)
+            .env("FIXED_CLOCK", CLOCK)
+            .env("DO_NOT_TRACK", "1");
+        for (key, value) in actual.get_envs() {
+            if let Some(value) = value {
+                expected.env(key, value);
+            }
+        }
+        let expected = expected.output()?;
+        assert!(
+            expected.status.success(),
+            "{args:?}: {}",
+            String::from_utf8_lossy(&expected.stderr)
+        );
+        let after = tempfile::tempdir()?;
+        copy_directory(
+            &tracker.path().join(".agents"),
+            &after.path().join(".agents"),
+        )?;
+        fs::remove_dir_all(tracker.path().join(".agents"))?;
+        copy_directory(
+            &before.path().join(".agents"),
+            &tracker.path().join(".agents"),
+        )?;
+        let actual = actual.output()?;
+        assert!(
+            actual.status.success(),
+            "{args:?}: {}",
+            String::from_utf8_lossy(&actual.stderr)
+        );
+        artifacts(
+            &after.path().join(".agents/pm"),
+            &tracker.path().join(".agents/pm"),
+        )?;
+    }
+    Ok(())
+}
+
+/// The oracle accepts future recipe timestamps for unlocked collection writes.
+#[test]
+fn future_collection_timestamps_match_unlocked_oracle() -> TestResult {
+    const FUTURE: &str = "9999-12-31T23:59:59.999Z";
+    let Some(published) = published_cli::published_cli_or_skip("future collection clocks") else {
+        return Ok(());
+    };
+    let scratch = tempfile::tempdir()?;
+    let driver = write_driver(scratch.path(), &published)?;
+    let tracker = tempfile::tempdir()?;
+    for args in [
+        vec!["init", "sample-", "--defaults"],
+        vec![
+            "create",
+            "--id",
+            "sample-item",
+            "--title",
+            "Clock fixture",
+            "--type",
+            "Task",
+            "--author",
+            "alpha",
+        ],
+    ] {
+        assert!(oracle(&driver, tracker.path(), &args)?.status.success());
+    }
+    fs::write(
+        &driver,
+        fs::read_to_string(&driver)?.replace("process.env.FIXED_CLOCK", &format!("\"{FUTURE}\"")),
+    )?;
+    for (command, add) in [
+        ("files", "src/a.rs"),
+        ("docs", "README.md"),
+        ("test", "command=cargo test"),
+    ] {
+        let args = [
+            command,
+            "sample-item",
+            "--add",
+            add,
+            "--author",
+            "alpha",
+            "--json",
+        ];
+        let before = tempfile::tempdir()?;
+        copy_directory(
+            &tracker.path().join(".agents"),
+            &before.path().join(".agents"),
+        )?;
+        let expected = oracle(&driver, tracker.path(), &args)?;
+        assert!(
+            expected.status.success(),
+            "{}",
+            String::from_utf8_lossy(&expected.stderr)
+        );
+        let after = tempfile::tempdir()?;
+        copy_directory(
+            &tracker.path().join(".agents"),
+            &after.path().join(".agents"),
+        )?;
+        fs::remove_dir_all(tracker.path().join(".agents"))?;
+        copy_directory(
+            &before.path().join(".agents"),
+            &tracker.path().join(".agents"),
+        )?;
+        output(
+            &expected,
+            &native_command(tracker.path(), &args, false)
+                .args(["--timestamp", FUTURE])
+                .output()?,
+            &args,
+        );
         artifacts(
             &after.path().join(".agents/pm"),
             &tracker.path().join(".agents/pm"),

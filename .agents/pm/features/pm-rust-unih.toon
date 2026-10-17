@@ -6,10 +6,10 @@ status: in_progress
 priority: 2
 tags[3]: collections,conformance,rust
 created_at: "2026-10-16T16:59:46.171Z"
-updated_at: "2026-10-16T22:03:23.061Z"
+updated_at: "2026-10-17T01:53:31.410Z"
 author: codex-agent
 parent: pm-rust-u4al
-comments[14]{created_at,author,text}:
+comments[25]{created_at,author,text}:
   "2026-10-16T17:00:05.045Z",codex-agent,"Plan: route collection edits through the existing per-item lock and journal, compare complete item and append-only history bytes at a fixed clock, and prove two concurrent writers preserve accepted additions. Match collection parsing, compact receipts and typed refusals."
   "2026-10-16T17:09:05.338Z",codex-agent,"Implemented collection list and transactional add/remove paths. The first differential run exposed optional artifact note visitation in canonical history patch ordering; item hashes already agreed, but patch order and record hashes differed. Added the missing normalized-row ordering behavior before continuing exact artifact comparisons."
   "2026-10-16T17:27:18.718Z",codex-agent,"Concurrency differential passed for native and oracle writers: both additions survive, adjacent document hashes chain, and complete item/history artifacts equal serial oracle replay in observed commit order. Expanded parser checks now include Markdown pairs, quoted commas, command aliases and documentation references. Oracle artifact collections have path selectors only; linked tests additionally expose 1-based indices."
@@ -24,7 +24,18 @@ comments[14]{created_at,author,text}:
   "2026-10-16T21:40:22.393Z",codex-agent,"Final clean release-check PASS: 374 normal and 374 instrumented tests, all four source coverage dimensions exactly 100 percent (8802 lines, 852 functions, 13744 regions, 2132 branches). All 12 search/collection differential suites pass in both phases, including eight concurrent native pairs and one concurrent oracle pair with complete serial artifact replay. Merge, optional-note ordering, attribution, local-probe and lock-initialization behavioral revert proofs are recorded above. Linked collection evidence also passed (six differential suites plus the initialization regression). Audit retains only the existing allowed unsafe-libyaml maintenance warning. Feature remains in progress for review; claims are released and platform CI follows."
   "2026-10-16T22:00:24.468Z",codex-agent,"PR platform run: all three standalone OS jobs pass, and the macOS aggregate passes. The Windows aggregate passes every test and has 100 percent lines/functions/regions, but branch coverage is 2135/2136. The remaining branch is the fallback colon-reference classification in src/collections.rs:234 because absolute drive paths satisfy the first condition on Windows. Adding a real project-relative numeric-colon reference to parser and oracle fixtures covers that distinct classification without changing production behavior or any floor."
   "2026-10-16T22:03:21.675Z",codex-agent,"Windows coverage follow-up validation: fmt, deny-warnings clippy, the pair-form parser unit test and linked pm test execution all pass. The latter includes six differential suites and the deterministic initialization regression; the new numeric-colon reference is compared in both JSON and TOON with complete item/history artifacts. Production source bytes are unchanged from the passing 374-test local aggregate. The first platform run finished with five of six OS jobs passing; the single Windows branch-floor gap is the only failure. The test fixture correction now receives a fresh full three-OS run. Claim released for review; Feature remains in progress."
-files[13]{path,scope}:
+  "2026-10-16T23:02:45.349Z",codex-agent,"Round 1 PR 91: reviewing all ten unresolved findings; preserve pinned oracle bytes, prove behavioral regressions by reverting only fixes, then run release-check and three-platform CI. Main merged before changes."
+  "2026-10-16T23:05:08.604Z",codex-agent,"Finding 3: preserve future fixture timestamps in collection history but cap the lock evaluation clock at wall time; test live held-lock bytes for files/docs/tests with and without force. Oracle acceptance of future unlocked writes is covered separately. Finding 5: synthetic codex-session probe test compares complete mutation item/history artifacts before choosing the attribution change."
+  "2026-10-16T23:08:10.807Z",codex-agent,"Oracle evidence: future_collection_timestamps_match_unlocked_oracle passes for files/docs/test with year-9999 recipe timestamps and exact output/item/history bytes. mutation_probe_history_matches_oracle failed before the provenance fix on create history (missing agent harness/model/outcomes and a different record_hash), then passed across create/update/comment/claim/release with synthetic session files. Expanded coverage now also checks close."
+  "2026-10-16T23:09:37.575Z",codex-agent,"Behavioral revert proofs (each exited 101 with 0 passed, 1 failed; tests unchanged): cargo +1.90.0 test --locked --lib mutation::tests::future_collection_preserves_held_lock -- --exact fails when only the collection lock-clock fix is removed (held-lock/durable bytes change). cargo +1.90.0 test --locked --test search_collections_differential mutation_probe_history_matches_oracle -- --exact fails when only stamp_attribution is restored to the collection-only filter (create history loses resolver context and record hash diverges). Child-filter negative control: cargo +1.90.0 test --locked --lib collections::tests::sdk_collection_without_source_context -- --exact fails when only its child filter is changed to a nonexistent test. All fixed source bytes restored."
+  "2026-10-16T23:19:17.119Z",codex-agent,"First aggregate run exposed a pre-existing environment asymmetry in close differential fixtures: native processes inherited host harness signals while run_minimal cleared them on the oracle side. Share runtime-only environment isolation for close and mutation conformance; retain LLVM_PROFILE_FILE for native coverage. The synthetic probe test continues to provide identical explicit harness environments on both sides. Full gate will be rerun after focused validation."
+  "2026-10-16T23:27:25.594Z",codex-agent,"Focused validation after fixture isolation PASS: cargo +1.90.0 test --locked --test close_differential --test conformance_differential --test search_collections_differential: 6 close + 2 mutation conformance + 15 search/collections tests passed. This includes unlocked future-clock oracle bytes, held-lock safety in the library suite, synthetic probe history for create/update/comment/claim/release/close, reordered refusals, cursor description replay and child-process source context. Restarting aggregate gate with Node 26 and isolated HOME/Git configuration."
+  "2026-10-16T23:29:25.533Z",codex-agent,"Expanded finding 5 oracle proof to close --release-assignment: the test failed on the release record when that step lacked scoped identity (different attribution/context/record_hash), then passed after scoping the release transaction. cargo +1.90.0 test --locked --test search_collections_differential mutation_probe_history_matches_oracle -- --exact passes all seven mutation scenarios on configured Node 26. Production source is fixed for the fresh aggregate run."
+  "2026-10-16T23:44:07.863Z",codex-agent,"The linked aggregate runner has a 40-minute budget, which is too tight for the observed shared-host differential-test pace. Restart the unchanged just release-check directly with the same clean HOME/Git and Node 26 environment so the normal and instrumented passes can finish without wrapper timeout. The linked search regression already passed through pm test --run --progress; aggregate results will be recorded here."
+  "2026-10-17T00:05:58.807Z",codex-agent,"Aggregate reached mutation_contract and exposed the same host-harness leakage in a CLI-versus-SDK golden-history fixture. Extract the runtime-only environment helper into tests/support/process_environment.rs and reuse it for mutation_contract CLI commands, close differential and mutation differential. The previously failing cli_mutations_drive_the_same_native_transactions now passes. Run the remaining aggregate suites as preflight before the next full gate; no production behavior changes."
+  "2026-10-17T00:29:27.686Z",codex-agent,"Preflight PASS after shared environment isolation: mutation_contract 29/29; remaining suites 64/64 (oracle_launcher 2, output parity 2, ownership contract 4, pagination 25, read contract 13, release pipeline 18). Focused instrumented lib/bin run passes 202/202; parsed-query guard branches and future-clock guard both directions are covered. Full aggregate is still required and is now restarting on the unchanged production source. The newly linked aggregate timeout is 7200 seconds for this shared-host pace; repository gate thresholds and test budgets are unchanged."
+  "2026-10-17T01:53:23.947Z",codex-agent,"Round 1 final local gate PASS: just release-check exits 0 with 379 normal + 379 instrumented tests; lines 8818/8818, functions 860/860, regions 13795/13795, branches 2138/2138. Audit retains its existing allowed unsafe-libyaml maintenance warning. Finding 9 extra portability proof: the built differential binary ran collection_agent_attribution_matches_oracle --exact and collection_local_probe_history_matches_oracle --exact with PATH containing git but no node and PM_NODE_INTERPRETER set to Node v26.12.0; each executes one test and passes. Future-clock and attribution revert proofs plus the nonexistent child-filter negative control are recorded above. All ten findings are fixed; future history timestamps retain unlocked oracle parity while lock evaluation is capped at wall time. Claims are being released for orchestrator verification; no items are closed."
+files[18]{path,scope}:
   src/collections.rs,project
   src/history.rs,project
   src/identity_probes.rs,project
@@ -32,18 +43,48 @@ files[13]{path,scope}:
   src/main.rs,project
   src/mutation.rs,project
   src/ownership.rs,project
+  tests/close_differential.rs,project
+  tests/conformance_differential.rs,project
+  tests/mutation_contract.rs,project
   tests/search_collections_differential.rs,project
   tests/support/collections_unit.rs,project
   tests/support/history_unit.rs,project
   tests/support/identity_probes_unit.rs,project
   tests/support/main_unit.rs,project
+  tests/support/mutation_differential.rs,project
   tests/support/mutation_unit.rs,project
-tests[2]{command,scope,timeout_seconds,provenance{author,created_at,source_kind,source_ref}}:
-  cargo +1.90.0 test --locked --test search_collections_differential collection,project,600,codex-agent,"2026-10-16T18:23:24.384Z",local_mutation,feat/native-search-and-collections
-  "cargo +1.90.0 test --locked --lib mutation::tests::initialization_gate_protects_a_lock_before_its_payload_is_published -- --exact",project,120,codex-agent,"2026-10-16T21:04:30.358Z",local_mutation,feat/native-search-and-collections
-docs[4]{path,scope}:
+  tests/support/process_environment.rs,project
+tests[3]:
+  - command: cargo +1.90.0 test --locked --test search_collections_differential collection
+    scope: project
+    timeout_seconds: 600
+    provenance:
+      author: codex-agent
+      created_at: "2026-10-16T18:23:24.384Z"
+      source_kind: local_mutation
+      source_ref: feat/native-search-and-collections
+  - command: "cargo +1.90.0 test --locked --lib mutation::tests::initialization_gate_protects_a_lock_before_its_payload_is_published -- --exact"
+    scope: project
+    timeout_seconds: 120
+    provenance:
+      author: codex-agent
+      created_at: "2026-10-16T21:04:30.358Z"
+      source_kind: local_mutation
+      source_ref: feat/native-search-and-collections
+  - command: just release-check
+    scope: project
+    timeout_seconds: 7200
+    provenance:
+      author: codex-agent
+      created_at: "2026-10-16T23:06:53.278Z"
+      source_kind: local_mutation
+      source_ref: feat/native-search-and-collections
+    updated_by: codex-agent
+    updated_at: "2026-10-17T00:08:14.473Z"
+docs[5]{path,scope}:
   docs/CLI_PARITY_2026_10_2.md,project
   docs/COMPATIBILITY.md,project
   docs/NATIVE_SEARCH_COLLECTIONS.md,project
+  "https://github.com/unbraind/pm-rust/pull/91",project
   README.md,project
 body: ""

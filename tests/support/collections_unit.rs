@@ -814,6 +814,11 @@ fn sdk_collection_without_source_context() -> TestResult {
             "{}",
             String::from_utf8_lossy(&output.stdout)
         );
+        assert!(
+            String::from_utf8_lossy(&output.stdout).contains("test result: ok. 1 passed;"),
+            "child filter did not execute exactly one test: {}",
+            String::from_utf8_lossy(&output.stdout)
+        );
         return Ok(());
     }
     let (directory, workspace) = tracker()?;

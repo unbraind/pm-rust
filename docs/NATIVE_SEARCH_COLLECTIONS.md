@@ -18,7 +18,8 @@ the default keyword corpus.
 
 Queries retain punctuation. Whitespace-separated literal tokens match
 substrings, while exact title words use the oracle's ASCII alphanumeric word
-tokenizer. Repeated occurrences contribute repeatedly. Multi-token queries add
+tokenizer. Each corpus field is lowercased once per document and reused for token and
+phrase scoring. Repeated occurrences contribute repeatedly. Multi-token queries add
 the all-term coverage and normalized phrase bonuses. Exact full IDs and short
 IDs use their dedicated scores. The oracle's configured search weights and
 score threshold apply before ranking. Ties resolve by terminal status, priority,
@@ -44,17 +45,20 @@ create an executable test. Documentation references also accept Markdown links.
 Files/docs deduplicate by path and scope, update supplied notes, and sort by path
 and scope. Files additionally support `--append-stable`. Test identity includes
 command, path, scope and context modes; duplicate additions preserve the original
-entry. Test additions carry author, clock and available branch provenance.
+entry. Test additions carry author, clock and available branch provenance, resolved
+once for the transaction.
 
-Collection mutations carry resolved agent attribution before computing record
-hashes. `CollectionOptions::identity` supplies SDK attribution; the CLI reuses
+CLI create, update, comment, claim, release, close and collection mutations carry
+resolved agent attribution and probe outcomes before computing record hashes,
+including the release step of `close --release-assignment`. `CollectionOptions::identity` supplies SDK attribution; the CLI reuses
 native identity resolution and session principals. Same-session detected claims
 are accepted and foreign sessions receive the oracle's refusal.
 `AuthorIdentity::for_collections` also resolves optional local session metadata:
 Codex discovery visits at most 512 entries across four directory levels and
 reads at most four MiB; Claude discovery checks at most 512 project directories
 and reads at most one MiB. These probes use local files and the `AI_AGENT`
-version label. Resolver outcomes and environment overrides match history bytes
+version label. `AuthorIdentity::with` scopes synchronous SDK mutations and restores
+the previous identity afterward. Resolver outcomes and environment overrides match history bytes
 without network or subprocess access.
 
 | Command | Exact value removal | Index removal | Missing selector |
@@ -67,7 +71,10 @@ No-op edits preserve both item and history bytes. Empty resulting collections
 are omitted from storage. Changes use the existing per-item lock, latest locked
 document, synced atomic replacement, recovery journal, canonical patch order,
 document hashes and record hashes. Claims and explicit force overrides follow
-the existing native governance policy.
+the existing native governance policy. Future fixture timestamps remain valid
+for collection history, matching the oracle; lock acquisition and refusal
+classification cap that clock at wall time so a fixture cannot reclaim a live
+writer's lock.
 
 ## Evidence
 
@@ -77,6 +84,8 @@ contain 12 and 220 items, varied lifecycle states, priorities, timestamps,
 Unicode, punctuation, phrase-like queries and no-result cases. Collection
 fixtures replay identical before-images at the same path and compare every
 authoritative item and append-only history byte.
+Golden CLI-versus-SDK fixtures and ordinary oracle differentials share runtime-only
+child environments, so host harness signals cannot change their history records.
 Synthetic agent sessions cover explicit/detected identities, supplied and inferred
 role/topic values, source metadata, disabled probes and resolver outcomes.
 
@@ -90,6 +99,11 @@ Lock acquisition holds the cleanup gate while publishing the initial payload,
 matching the oracle and preventing minimal-governance stale recovery from
 stealing an initializing writer's lock. A deterministic real-filesystem
 regression in `tests/support/mutation_unit.rs` protects that publication boundary.
+
+Review regressions cover flags before IDs and query tokens, joined query
+recovery examples, future timestamps with live locks and unlocked oracle writes,
+probe attribution across non-collection mutations, description-only cursor
+replay, configured oracle interpreters, and exactly one executed child test.
 
 Feature comments contain the behavioral negative controls and final gate
 receipts. Platform CI results are separate from local Linux validation.

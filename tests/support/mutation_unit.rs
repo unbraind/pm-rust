@@ -4318,3 +4318,61 @@ fn close_recovery_spells_the_display_root_not_the_canonical_root()
         other => Err(format!("expected a strict close refusal, got {other:?}").into()),
     }
 }
+
+/// Future collection fixture clocks cannot remove another writer's live lock.
+#[test]
+fn future_collection_preserves_held_lock() -> Result<(), Box<dyn std::error::Error>> {
+    for (key, add) in [
+        ("files", "src/a.rs"),
+        ("docs", "README.md"),
+        ("tests", "command=cargo test"),
+    ] {
+        let (directory, pm_root) = root(
+            r#"{"governance":{"preset":"minimal"},"locks":{"ttl_seconds":1800,"wait_ms":0}}"#,
+        )?;
+        create_item(&pm_root, request())?;
+        let workspace = crate::Workspace::discover(&pm_root)?;
+        let held = acquire_lock(
+            &pm_root,
+            "sample-unit",
+            "live-holder",
+            &LockSettings {
+                use_created_at: true,
+                ..locks(1800)
+            },
+            false,
+            &now_iso(),
+        )?;
+        let paths = [
+            pm_root.join("tasks/sample-unit.toon"),
+            pm_root.join("history/sample-unit.jsonl"),
+            held.path.clone(),
+        ];
+        let before = paths.each_ref().map(|path| fs::read(path).ok());
+        for force in [false, true] {
+            let result = workspace.collection(
+                "sample-unit",
+                key,
+                &crate::CollectionOptions {
+                    author: "unit-agent".to_owned(),
+                    timestamp: Some("9999-12-31T23:59:59.999Z".to_owned()),
+                    add: vec![add.to_owned()],
+                    force,
+                    ..crate::CollectionOptions::default()
+                },
+                directory.path(),
+            );
+            assert_eq!(
+                paths.each_ref().map(|path| fs::read(path).ok()),
+                before,
+                "held-lock bytes changed: {result:?}"
+            );
+            assert!(
+                matches!(result, Err(PmRustError::OwnershipRefusal { context, .. }) if context["code"] == "lock_conflict")
+            );
+        }
+        drop(held);
+        assert!(!paths[2].exists());
+    }
+    Ok(())
+}

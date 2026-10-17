@@ -759,15 +759,17 @@ fn run(cli: Cli) -> Result<(), Box<dyn std::error::Error>> {
             )?;
             let mut receipt = result.close_receipt.unwrap_or_default();
             if fields.release_assignment {
-                let release = workspace
-                    .release(&OwnershipItem {
-                        id: result.item.metadata.id.clone(),
-                        author: close_author,
-                        timestamp: Some(result.item.metadata.updated_at.clone()),
-                        message: fields.message,
-                        force: fields.force,
-                        if_available: false,
-                        provenance_role: Some("implementer".to_owned()),
+                let release = mutation_identity(Some(&close_author), None)
+                    .with(|| {
+                        workspace.release(&OwnershipItem {
+                            id: result.item.metadata.id.clone(),
+                            author: close_author,
+                            timestamp: Some(result.item.metadata.updated_at.clone()),
+                            message: fields.message,
+                            force: fields.force,
+                            if_available: false,
+                            provenance_role: Some("implementer".to_owned()),
+                        })
                     })
                     .map_err(|error| {
                         pm_rust::completed_step_failure(error, &result.item.metadata.id, "close")
@@ -804,20 +806,7 @@ fn run_collection_with_cwd(
     let settings: serde_json::Value = serde_json::from_str(&std::fs::read_to_string(
         workspace.pm_root().join("settings.json"),
     )?)?;
-    let environment = std::env::vars_os()
-        .map(|(key, value)| {
-            (
-                key.to_string_lossy().into_owned(),
-                value.to_string_lossy().into_owned(),
-            )
-        })
-        .collect();
-    let identity = AuthorIdentity::resolve(
-        args.author.as_deref(),
-        settings["author_default"].as_str(),
-        &environment,
-    )
-    .for_collections(&environment);
+    let identity = mutation_identity(args.author.as_deref(), settings["author_default"].as_str());
     let result = workspace.collection(
         &args.id,
         key,
@@ -912,6 +901,19 @@ fn write_close_toon(
     Ok(())
 }
 
+/// Resolves bounded provenance once at the CLI mutation boundary.
+fn mutation_identity(author: Option<&str>, configured: Option<&str>) -> AuthorIdentity {
+    let environment = std::env::vars_os()
+        .map(|(key, value)| {
+            (
+                key.to_string_lossy().into_owned(),
+                value.to_string_lossy().into_owned(),
+            )
+        })
+        .collect();
+    AuthorIdentity::resolve(author, configured, &environment).for_collections(&environment)
+}
+
 /// Stamps explicit ownership requests with the published implementer role.
 fn ownership_request(
     workspace: &Workspace,
@@ -920,18 +922,7 @@ fn ownership_request(
 ) -> Result<(OwnershipItem, OwnershipOptions), Box<dyn std::error::Error>> {
     let settings: serde_json::Value =
         serde_json::from_slice(&std::fs::read(workspace.pm_root().join("settings.json"))?)?;
-    let identity = AuthorIdentity::resolve(
-        args.author.as_deref(),
-        settings["author_default"].as_str(),
-        &std::env::vars_os()
-            .map(|(key, value)| {
-                (
-                    key.to_string_lossy().into_owned(),
-                    value.to_string_lossy().into_owned(),
-                )
-            })
-            .collect(),
-    );
+    let identity = mutation_identity(args.author.as_deref(), settings["author_default"].as_str());
     let request = OwnershipItem {
         id: args.id.unwrap_or_default(),
         author: identity.author.clone(),
@@ -956,7 +947,9 @@ fn create_payload(
     mut request: CreateItem,
 ) -> Result<CreateResult, Box<dyn std::error::Error>> {
     request.provenance_role = Some("implementer".to_owned());
-    workspace.create(request).map_err(Into::into)
+    mutation_identity(Some(&request.author), None)
+        .with(|| workspace.create(request))
+        .map_err(Into::into)
 }
 
 /// Applies one field update, stamping the argv-derived implementer role.
@@ -965,7 +958,9 @@ fn update_payload(
     mut request: UpdateItem,
 ) -> Result<MutationResult, Box<dyn std::error::Error>> {
     request.provenance_role = Some("implementer".to_owned());
-    workspace.update(request).map_err(Into::into)
+    mutation_identity(Some(&request.author), None)
+        .with(|| workspace.update(request))
+        .map_err(Into::into)
 }
 
 /// Appends one comment without an argv-derived role.
@@ -973,7 +968,9 @@ fn comment_payload(
     workspace: &Workspace,
     request: &CommentItem,
 ) -> Result<MutationResult, Box<dyn std::error::Error>> {
-    workspace.comment(request).map_err(Into::into)
+    mutation_identity(Some(&request.author), None)
+        .with(|| workspace.comment(request))
+        .map_err(Into::into)
 }
 
 /// Closes one item, stamping the argv-derived implementer role.
@@ -982,7 +979,9 @@ fn close_payload(
     mut request: CloseItem,
 ) -> Result<MutationResult, Box<dyn std::error::Error>> {
     request.provenance_role = Some("implementer".to_owned());
-    workspace.close(request).map_err(Into::into)
+    mutation_identity(Some(&request.author), None)
+        .with(|| workspace.close(request))
+        .map_err(Into::into)
 }
 
 /// Parses the command line and maps success or failure to the process exit code.
@@ -1146,13 +1145,17 @@ fn search_error_json(
             "pm search --help"
         ]);
     }
-    if let Some(examples) = result["examples"].as_array_mut() {
+    if let Ok(Cli {
+        command: Command::Search { query, .. },
+        ..
+    }) = Cli::try_parse_from(std::iter::once("pm-rust".to_owned()).chain(args.iter().cloned()))
+        && let Some(examples) = result["examples"].as_array_mut()
+    {
         for example in examples {
             if let Some(text) = example.as_str() {
-                *example = serde_json::json!(text.replace(
-                    "<query>",
-                    &pm_rust::quote_command_arg(args.get(1).map_or("", String::as_str))
-                ));
+                *example = serde_json::json!(
+                    text.replace("<query>", &pm_rust::quote_command_arg(&query.join(" ")))
+                );
             }
         }
     }
@@ -1235,10 +1238,11 @@ fn collection_error_json(
     result["exit_code"] = serde_json::json!(exit_code);
     result["refusal"] = command_refusal_detail(detail, &args[1..], exit_code);
     if missing {
+        let id = &detail["Item ".len()..detail.len() - " not found".len()];
         result["refusal"] =
-            serde_json::json!({"surface":"id","rejected_value":args[2],"exit_code":exit_code});
+            serde_json::json!({"surface":"id","rejected_value":id,"exit_code":exit_code});
         result["flag"] = serde_json::json!("id");
-        result["value"] = serde_json::json!(args[2]);
+        result["value"] = serde_json::json!(id);
     }
     if context["code"] == "unknown_option" {
         result.as_object_mut().map(|map| map.shift_remove("why"));

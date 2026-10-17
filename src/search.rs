@@ -22,8 +22,12 @@ mod tests;
 
 /// Normalizes JavaScript search phrases without stripping punctuation.
 fn phrase(raw: &str) -> String {
-    raw.to_lowercase()
-        .split(whitespace)
+    collapse_whitespace(&raw.to_lowercase())
+}
+
+/// Collapses oracle whitespace without lowercasing an already prepared corpus field again.
+fn collapse_whitespace(raw: &str) -> String {
+    raw.split(whitespace)
         .filter(|s| !s.is_empty())
         .collect::<Vec<_>>()
         .join(" ")
@@ -359,6 +363,7 @@ fn score(document: ItemDocument, tokens: &[&str], query: &str, settings: &Value)
         ),
         ("plan", plan(item), 1.0),
     ];
+    let corpus = corpus.map(|(name, text, weight)| (name, text.to_lowercase(), weight));
     let weight = |key: &str, default: f64| {
         settings["search"]["tuning"][key]
             .as_f64()
@@ -368,7 +373,7 @@ fn score(document: ItemDocument, tokens: &[&str], query: &str, settings: &Value)
     let mut score = 0.0;
     let mut fields = std::collections::BTreeSet::new();
     let mut matched = std::collections::BTreeSet::new();
-    let title = item.title.to_lowercase();
+    let title = &corpus[0].1;
     let words: Vec<_> = title
         .split(|c: char| !c.is_ascii_alphanumeric())
         .filter(|s| !s.is_empty())
@@ -381,7 +386,7 @@ fn score(document: ItemDocument, tokens: &[&str], query: &str, settings: &Value)
             matched.insert(*token);
         }
         for (name, text, default) in &corpus {
-            let count = text.to_lowercase().matches(token).count();
+            let count = text.matches(token).count();
             if count > 0 {
                 score += json!(count).as_f64().unwrap_or_default()
                     * weight(
@@ -398,12 +403,12 @@ fn score(document: ItemDocument, tokens: &[&str], query: &str, settings: &Value)
         score += 40.0;
     }
     if tokens.len() >= 2 {
-        if phrase(&item.title) == query {
+        if collapse_whitespace(title) == query {
             score += 120.0;
             fields.insert("title".to_owned());
         }
         for (name, text, default) in &corpus {
-            let count = phrase(text).matches(query).count();
+            let count = collapse_whitespace(text).matches(query).count();
             if count > 0 {
                 score += json!(count).as_f64().unwrap_or_default()
                     * weight(
