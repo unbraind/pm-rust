@@ -1630,7 +1630,10 @@ fn recovery_roll_forward_refuses_a_read_shared_item_then_retries_idempotently()
         return Err("read-shared item must refuse recovery replacement".into());
     };
     assert_eq!(path, item_path);
-    assert_eq!(source.raw_os_error(), Some(32));
+    // Replacement rename reports ERROR_ACCESS_DENIED for the read-only shared
+    // handle; the removed pre-delete previously reported a sharing violation.
+    assert_eq!(source.kind(), std::io::ErrorKind::PermissionDenied);
+    assert_eq!(source.raw_os_error(), Some(5));
     assert_eq!(fs::read_to_string(&item_path)?, original_item);
     assert_eq!(fs::read_to_string(&history_path)?, original_history);
     assert!(journal_path.is_file());
