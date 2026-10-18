@@ -373,6 +373,7 @@ fn streamed_queries_refuse_unlistable_nested_directory() -> Result<(), Box<dyn s
     let root = directory.path().join(".agents/pm");
     let locked = root.join("tasks/nested/locked");
     std::fs::create_dir_all(&locked)?;
+    let locked = std::fs::canonicalize(locked)?;
     std::fs::write(root.join("settings.json"), "{}")?;
     let workspace = super::Workspace::discover(directory.path())?;
     #[cfg(unix)]
