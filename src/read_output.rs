@@ -464,28 +464,15 @@ fn capture(result: &Value, options: &ListOptions, cursor: Option<&Value>) -> Con
     }
 }
 
-/// Chooses the largest row collection and retains its largest feasible prefix.
-fn compact_rows(
+/// Retains feasible collection prefixes while the caller refreshes its command-specific receipts.
+fn compact_collections(
     result: &mut ListOutput,
-    state: &Continuation,
+    toon: bool,
     budget: usize,
-    source: &str,
-    hints: &[String],
-    measured: usize,
-    options: &ListOptions,
+    mut finalize: impl FnMut(&mut Value),
 ) {
-    let unbounded_amount = options.output_limit.as_deref() == Some("unbounded");
-    let toon = options.toon;
     for _ in 0..64 {
-        finalize(
-            &mut result.value,
-            state,
-            budget,
-            source,
-            hints,
-            measured,
-            unbounded_amount,
-        );
+        finalize(&mut result.value);
         update_output(result, toon);
         if measure(result, toon) <= budget {
             break;
@@ -523,15 +510,7 @@ fn compact_rows(
         while low <= high {
             let middle = usize::midpoint(low, high);
             retain(&mut result.value, pointer, &values, middle);
-            finalize(
-                &mut result.value,
-                state,
-                budget,
-                source,
-                hints,
-                measured,
-                unbounded_amount,
-            );
+            finalize(&mut result.value);
             update_output(result, toon);
             if measure(result, toon) <= budget {
                 retained = middle;
@@ -542,6 +521,31 @@ fn compact_rows(
         }
         retain(&mut result.value, pointer, &values, retained);
     }
+}
+
+/// Chooses the largest row collection and retains its largest feasible prefix.
+fn compact_rows(
+    result: &mut ListOutput,
+    state: &Continuation,
+    budget: usize,
+    source: &str,
+    hints: &[String],
+    measured: usize,
+    options: &ListOptions,
+) {
+    let unbounded_amount = options.output_limit.as_deref() == Some("unbounded");
+    let toon = options.toon;
+    compact_collections(result, toon, budget, |value| {
+        finalize(
+            value,
+            state,
+            budget,
+            source,
+            hints,
+            measured,
+            unbounded_amount,
+        );
+    });
     finalize(
         &mut result.value,
         state,
@@ -799,71 +803,9 @@ pub(crate) fn apply_orientation(
     if measured > budget {
         let changed = compact_strings(&mut result.value, "", &mut result.cuts);
         result.value["read_output"]["strings_compacted"] = json!(changed);
-        for _ in 0..64 {
-            finalize_orientation(
-                &mut result.value,
-                &states,
-                budget,
-                source,
-                &hints,
-                measured,
-                command,
-            );
-            update_output(&mut result, options.toon);
-            if measure(&result, options.toon) <= budget {
-                break;
-            }
-            let mut candidates = Vec::new();
-            collections(&result.value, "", &mut candidates);
-            candidates.sort_by(|a, b| b.1.cmp(&a.1).then_with(|| a.0.cmp(&b.0)));
-            let Some((pointer, length)) = candidates.first() else {
-                break;
-            };
-            let values = result
-                .pointer(pointer)
-                .and_then(Value::as_array)
-                .cloned()
-                .unwrap_or_default();
-            result.value["read_output"]["rows_compacted"] = json!(true);
-            let mut paths = result["read_output"]["compacted_row_paths"]
-                .as_array()
-                .cloned()
-                .unwrap_or_default();
-            paths.push(json!(
-                pointer[1..]
-                    .replace('/', ".")
-                    .replace("~1", "/")
-                    .replace("~0", "~")
-            ));
-            paths.sort_by(|a, b| a.as_str().cmp(&b.as_str()));
-            result.value["read_output"]["compacted_row_paths"] = json!(paths);
-            result.value["has_more"] = json!(true);
-            result.value["truncated"] = json!(true);
-            let mut low = 1;
-            let mut high = length - 1;
-            let mut retained = 1;
-            while low <= high {
-                let middle = usize::midpoint(low, high);
-                retain(&mut result.value, pointer, &values, middle);
-                finalize_orientation(
-                    &mut result.value,
-                    &states,
-                    budget,
-                    source,
-                    &hints,
-                    measured,
-                    command,
-                );
-                update_output(&mut result, options.toon);
-                if measure(&result, options.toon) <= budget {
-                    retained = middle;
-                    low = middle + 1;
-                } else {
-                    high = middle - 1;
-                }
-            }
-            retain(&mut result.value, pointer, &values, retained);
-        }
+        compact_collections(&mut result, options.toon, budget, |value| {
+            finalize_orientation(value, &states, budget, source, &hints, measured, command);
+        });
         update_output(&mut result, options.toon);
         if measure(&result, options.toon) > budget {
             let omitted = measure(&result, options.toon);

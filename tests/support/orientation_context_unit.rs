@@ -42,12 +42,13 @@ fn custom_progress_receipts_use_active_summary_counts() -> Result<(), Box<dyn st
     let path = workspace.pm_root().join("tasks/sample-progress.toon");
     fs::write(&path, toon_format::encode_default(&row)?)?;
     let before = fs::read(&path)?;
-    let result = workspace.context(
+    let result = workspace.context_with_global(
         &ContextOptions {
             no_extension_health: true,
             ..Default::default()
         },
         NOW,
+        None,
     )?;
     assert_eq!(result["summary"]["open"], 0);
     assert_eq!(result["summary"]["in_progress"], 0);
@@ -60,12 +61,13 @@ fn custom_progress_receipts_use_active_summary_counts() -> Result<(), Box<dyn st
     let mut settings: Value = serde_json::from_slice(&fs::read(&settings_path)?)?;
     settings["schema"]["statuses"][0]["roles"] = json!(["active"]);
     fs::write(settings_path, settings.to_string())?;
-    let active = workspace.context(
+    let active = workspace.context_with_global(
         &ContextOptions {
             no_extension_health: true,
             ..Default::default()
         },
         NOW,
+        None,
     )?;
     assert_eq!(active["summary"]["in_progress"], 1);
     assert_eq!(active["summary"]["returned_focus"]["in_progress"], 1);
@@ -73,6 +75,47 @@ fn custom_progress_receipts_use_active_summary_counts() -> Result<(), Box<dyn st
     assert_eq!(fs::read(path)?, before);
     Ok(())
 }
+/// Explicit roots isolate SDK fixtures while retaining global scorer refusals and diagnostics.
+#[test]
+fn context_explicit_global_root() -> Result<(), Box<dyn std::error::Error>> {
+    let (_root, workspace, _) = workspace()?;
+    let global = tempfile::tempdir()?;
+    let extension = global.path().join("extensions/scorer");
+    fs::create_dir_all(&extension)?;
+    let manifest = extension.join("manifest.json");
+    fs::write(
+        &manifest,
+        json!({"name":"synthetic-scorer","version":"1.0.0","contributions":{"service_overrides":["context_relevance"]}}).to_string(),
+    )?;
+    assert!(context_state_boundary(&workspace, &[], None).is_ok());
+    assert!(context_state_boundary(&workspace, &[], Some(global.path().to_path_buf())).is_err());
+    for no_extension_health in [false, true] {
+        let options = ContextOptions {
+            no_extension_health,
+            ..Default::default()
+        };
+        assert!(workspace.context_with_global(&options, NOW, None).is_ok());
+        assert!(
+            workspace
+                .context_with_global(&options, NOW, Some(global.path().to_path_buf()))
+                .is_err()
+        );
+    }
+    fs::write(
+        &manifest,
+        json!({"name":"synthetic-scorer","version":"1.0.0"}).to_string(),
+    )?;
+    let output = workspace.context_with_global(
+        &ContextOptions::default(),
+        NOW,
+        Some(global.path().to_path_buf()),
+    )?;
+    assert_eq!(output["extension_health"]["total"], 1);
+    let without_global = workspace.context_with_global(&ContextOptions::default(), NOW, None)?;
+    assert!(without_global.get("extension_health").is_none());
+    Ok(())
+}
+
 /// Structural ordering handles every lifecycle bucket and optional tiebreak.
 #[test]
 fn structural_and_signal_ordering() -> Result<(), Box<dyn std::error::Error>> {
@@ -285,7 +328,10 @@ fn context_api_boundaries() -> Result<(), Box<dyn std::error::Error>> {
             ..Default::default()
         },
     ] {
-        assert_eq!(workspace.context(&options, NOW)?["depth"], "brief");
+        assert_eq!(
+            workspace.context_with_global(&options, NOW, None)?["depth"],
+            "brief"
+        );
     }
     for (depth, limit, budget) in [
         ("bad", None, None),
@@ -297,7 +343,7 @@ fn context_api_boundaries() -> Result<(), Box<dyn std::error::Error>> {
     ] {
         assert!(
             workspace
-                .context(
+                .context_with_global(
                     &ContextOptions {
                         depth: Some(depth.to_owned()),
                         limit: limit.map(ToString::to_string),
@@ -305,7 +351,8 @@ fn context_api_boundaries() -> Result<(), Box<dyn std::error::Error>> {
                         no_extension_health: true,
                         ..Default::default()
                     },
-                    NOW
+                    NOW,
+                    None
                 )
                 .is_err()
         );
@@ -316,12 +363,13 @@ fn context_api_boundaries() -> Result<(), Box<dyn std::error::Error>> {
         workspace.pm_root().join("tasks/sample-blocked.toon"),
         toon_format::encode_default(&blocked)?,
     )?;
-    let result = workspace.context(
+    let result = workspace.context_with_global(
         &ContextOptions {
             no_extension_health: true,
             ..Default::default()
         },
         NOW,
+        None,
     )?;
     assert_eq!(result["blocked_fallback"].as_array().map(Vec::len), Some(1));
     assert_eq!(result["summary"]["returned_focus"]["blocked"], 1);
@@ -332,12 +380,13 @@ fn context_api_boundaries() -> Result<(), Box<dyn std::error::Error>> {
     )?;
     assert!(
         workspace
-            .context(
+            .context_with_global(
                 &ContextOptions {
                     no_extension_health: true,
                     ..Default::default()
                 },
-                NOW
+                NOW,
+                None
             )
             .is_ok()
     );
@@ -346,7 +395,11 @@ fn context_api_boundaries() -> Result<(), Box<dyn std::error::Error>> {
         workspace.pm_root().join("tasks/sample-blocked.toon"),
         toon_format::encode_default(&blocked)?,
     )?;
-    assert!(workspace.context(&ContextOptions::default(), NOW).is_err());
+    assert!(
+        workspace
+            .context_with_global(&ContextOptions::default(), NOW, None)
+            .is_err()
+    );
     fs::remove_file(workspace.pm_root().join("tasks/sample-blocked.toon"))?;
     Ok(())
 }
@@ -369,11 +422,11 @@ fn context_cache_and_extension_boundaries() -> Result<(), Box<dyn std::error::Er
         ),
     ] {
         fs::write(runtime.join(name), serde_json::to_vec(&value)?)?;
-        assert!(context_state_boundary(&workspace, &[]).is_err());
+        assert!(context_state_boundary(&workspace, &[], None).is_err());
         fs::remove_file(runtime.join(name))?;
     }
     fs::write(runtime.join("context-signals-context.json"), "not JSON")?;
-    assert!(context_state_boundary(&workspace, &[]).is_err());
+    assert!(context_state_boundary(&workspace, &[], None).is_err());
     fs::remove_file(runtime.join("context-signals-context.json"))?;
     let extensions = workspace.pm_root().join("extensions");
     fs::create_dir_all(extensions.join("good"))?;
@@ -396,7 +449,7 @@ fn context_cache_and_extension_boundaries() -> Result<(), Box<dyn std::error::Er
         )?;
         std::os::unix::fs::symlink(outside, extensions.join("linked"))?;
     }
-    assert!(context_state_boundary(&workspace, &[]).is_ok());
+    assert!(context_state_boundary(&workspace, &[], None).is_ok());
     Ok(())
 }
 
@@ -493,12 +546,13 @@ fn inherited_tags_and_extension_context() -> Result<(), Box<dyn std::error::Erro
             toon_format::encode_default(row)?,
         )?;
     }
-    let fitting = workspace.context(
+    let fitting = workspace.context_with_global(
         &ContextOptions {
             limit: Some("10".to_owned()),
             ..Default::default()
         },
         NOW,
+        None,
     )?;
     assert!(fitting.get("next_cursor").is_none());
     assert!(fitting.get("extension_health").is_none());
@@ -509,15 +563,16 @@ fn inherited_tags_and_extension_context() -> Result<(), Box<dyn std::error::Erro
         r#"{"name":"fixture","version":"1.0.0","entry":"entry.js"}"#,
     )?;
     fs::write(extension.join("entry.js"), "export {};")?;
-    let result = workspace.context(&ContextOptions::default(), NOW)?;
+    let result = workspace.context_with_global(&ContextOptions::default(), NOW, None)?;
     assert_eq!(result["low_level"][0]["tags_inherited"], "sample-parent");
     assert!(result["extension_health"]["packages"].is_array());
-    let limited = workspace.context(
+    let limited = workspace.context_with_global(
         &ContextOptions {
             limit: Some("1".to_owned()),
             ..Default::default()
         },
         NOW,
+        None,
     )?;
     assert!(limited["next_cursor"].is_string());
     fs::write(
@@ -525,7 +580,7 @@ fn inherited_tags_and_extension_context() -> Result<(), Box<dyn std::error::Erro
         r#"{"name":"fixture","version":"1.0.0","entry":"entry.js","priority":1}"#,
     )?;
     let error = workspace
-        .context(&ContextOptions::default(), NOW)
+        .context_with_global(&ContextOptions::default(), NOW, None)
         .err()
         .ok_or("expected extension refusal")?;
     assert!(
@@ -538,7 +593,7 @@ fn inherited_tags_and_extension_context() -> Result<(), Box<dyn std::error::Erro
         toon_format::encode_default(&child)?,
     )?;
     let error = workspace
-        .context(&ContextOptions::default(), NOW)
+        .context_with_global(&ContextOptions::default(), NOW, None)
         .err()
         .ok_or("expected deferred timezone refusal")?;
     assert!(
@@ -704,14 +759,14 @@ fn context_snapshot_cursor_boundary() -> Result<(), Box<dyn std::error::Error>> 
         runtime.join("context-signals-context.json"),
         serde_json::to_vec(&snapshot)?,
     )?;
-    assert!(context_state_boundary(&workspace, &[]).is_ok());
+    assert!(context_state_boundary(&workspace, &[], None).is_ok());
     for cursor in ["one", "two"] {
         fs::write(
             runtime.join("metadata-cache-manifest.json"),
             serde_json::to_vec(&json!({"source_cursor":cursor}))?,
         )?;
         assert_eq!(
-            context_state_boundary(&workspace, &[]).is_ok(),
+            context_state_boundary(&workspace, &[], None).is_ok(),
             cursor == "one"
         );
     }
@@ -791,12 +846,13 @@ fn configured_roles_and_extension_cap() -> Result<(), Box<dyn std::error::Error>
     assert_eq!(health["packages"].as_array().map(Vec::len), Some(20));
     assert!(
         workspace
-            .context(
+            .context_with_global(
                 &ContextOptions {
                     no_extension_health: true,
                     ..Default::default()
                 },
-                NOW
+                NOW,
+                None
             )?
             .get("extension_health")
             .is_none()
@@ -817,12 +873,13 @@ fn context_large_workspace_boundary() -> Result<(), Box<dyn std::error::Error>> 
     }
     assert!(
         workspace
-            .context(
+            .context_with_global(
                 &ContextOptions {
                     no_extension_health: true,
                     ..Default::default()
                 },
-                NOW
+                NOW,
+                None
             )
             .is_err()
     );
@@ -848,15 +905,16 @@ fn distinct_tags_and_agenda_only() -> Result<(), Box<dyn std::error::Error>> {
             toon_format::encode_default(row)?,
         )?;
     }
-    let result = workspace.context(
+    let result = workspace.context_with_global(
         &ContextOptions {
             no_extension_health: true,
             ..Default::default()
         },
         NOW,
+        None,
     )?;
     assert_eq!(result["low_level"][0]["tags"], json!(["child"]));
-    let limited = workspace.context(
+    let limited = workspace.context_with_global(
         &ContextOptions {
             no_tags: true,
             no_extension_health: true,
@@ -866,6 +924,7 @@ fn distinct_tags_and_agenda_only() -> Result<(), Box<dyn std::error::Error>> {
             ..Default::default()
         },
         NOW,
+        None,
     )?;
     assert!(limited["low_level"][0].get("tags").is_none());
     assert!(limited["next_cursor"].is_string());
@@ -876,12 +935,13 @@ fn distinct_tags_and_agenda_only() -> Result<(), Box<dyn std::error::Error>> {
         workspace.pm_root().join("tasks/sample-child.toon"),
         toon_format::encode_default(&child)?,
     )?;
-    let result = workspace.context(
+    let result = workspace.context_with_global(
         &ContextOptions {
             no_extension_health: true,
             ..Default::default()
         },
         NOW,
+        None,
     )?;
     assert_eq!(result["agenda"]["summary"]["events"], 1);
     assert!(result.get("suggestions").is_none());
@@ -890,7 +950,11 @@ fn distinct_tags_and_agenda_only() -> Result<(), Box<dyn std::error::Error>> {
         workspace.pm_root().join("tasks/sample-child.toon"),
         toon_format::encode_default(&child)?,
     )?;
-    assert!(workspace.context(&ContextOptions::default(), NOW).is_err());
+    assert!(
+        workspace
+            .context_with_global(&ContextOptions::default(), NOW, None)
+            .is_err()
+    );
     Ok(())
 }
 
@@ -899,16 +963,28 @@ fn distinct_tags_and_agenda_only() -> Result<(), Box<dyn std::error::Error>> {
 fn context_storage_failure_propagation() -> Result<(), Box<dyn std::error::Error>> {
     let (_root, workspace, _) = workspace()?;
     fs::write(workspace.pm_root().join("settings.json"), "invalid")?;
-    assert!(workspace.context(&ContextOptions::default(), NOW).is_err());
+    assert!(
+        workspace
+            .context_with_global(&ContextOptions::default(), NOW, None)
+            .is_err()
+    );
     fs::write(workspace.pm_root().join("settings.json"), "{}")?;
     fs::write(
         workspace.pm_root().join("tasks/invalid.toon"),
         "invalid item",
     )?;
-    assert!(workspace.context(&ContextOptions::default(), NOW).is_err());
+    assert!(
+        workspace
+            .context_with_global(&ContextOptions::default(), NOW, None)
+            .is_err()
+    );
     fs::remove_file(workspace.pm_root().join("tasks/invalid.toon"))?;
     fs::create_dir_all(workspace.pm_root().join("schema/statuses.json"))?;
-    assert!(workspace.context(&ContextOptions::default(), NOW).is_err());
+    assert!(
+        workspace
+            .context_with_global(&ContextOptions::default(), NOW, None)
+            .is_err()
+    );
     fs::remove_dir(workspace.pm_root().join("schema/statuses.json"))?;
     fs::write(
         workspace.pm_root().join("tasks/sample-one.toon"),
@@ -918,7 +994,11 @@ fn context_storage_failure_propagation() -> Result<(), Box<dyn std::error::Error
         workspace.pm_root().join("history/sample-one.jsonl"),
         "{broken}",
     )?;
-    assert!(workspace.context(&ContextOptions::default(), NOW).is_err());
+    assert!(
+        workspace
+            .context_with_global(&ContextOptions::default(), NOW, None)
+            .is_err()
+    );
     fs::remove_file(workspace.pm_root().join("history/sample-one.jsonl"))?;
     fs::create_dir_all(workspace.pm_root().join("runtime"))?;
     fs::write(
@@ -927,7 +1007,11 @@ fn context_storage_failure_propagation() -> Result<(), Box<dyn std::error::Error
             .join("runtime/context-signals-context.json"),
         r#"{"format_version":3,"signal_set_version":1,"items":[]}"#,
     )?;
-    assert!(workspace.context(&ContextOptions::default(), NOW).is_err());
+    assert!(
+        workspace
+            .context_with_global(&ContextOptions::default(), NOW, None)
+            .is_err()
+    );
     Ok(())
 }
 
@@ -1006,16 +1090,17 @@ fn extension_health_refusal_boundary() -> Result<(), Box<dyn std::error::Error>>
     )?;
     assert!(
         workspace
-            .context(
+            .context_with_global(
                 &ContextOptions {
                     no_extension_health: true,
                     ..Default::default()
                 },
-                NOW
+                NOW,
+                None
             )
             .is_err()
     );
     fs::write(path.join("manifest.json"), "{broken}")?;
-    assert!(context_state_boundary(&workspace, &[]).is_ok());
+    assert!(context_state_boundary(&workspace, &[], None).is_ok());
     Ok(())
 }

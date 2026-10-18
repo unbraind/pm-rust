@@ -56,6 +56,84 @@ fn history_invalid_filename_matches_oracle() -> TestResult {
     Ok(())
 }
 
+/// The oracle preserves dangling display spellings in graphs but normalizes summary identities.
+#[test]
+fn deps_mixed_case_dangling_matches_oracle() -> TestResult {
+    let Some(published) = published_cli::published_cli_or_skip("mixed-case dependency identities")
+    else {
+        return Ok(());
+    };
+    let scratch = tempfile::tempdir()?;
+    let driver = orientation_driver(scratch.path(), &published)?;
+    let root = tempfile::tempdir()?;
+    assert!(
+        oracle(&driver, root.path(), &["init", "sample-", "--defaults"])?
+            .status
+            .success()
+    );
+    let mut start = item("sample-root", "Task", "open", 1);
+    start["dependencies"] = json!([
+        {"id":"sample-left","kind":"related","created_at":CLOCK},
+        {"id":"sample-right","kind":"related","created_at":CLOCK},
+        {"id":"SAMPLE-LEFT","kind":"related","created_at":CLOCK}
+    ]);
+    let mut left = item("sample-left", "Task", "open", 2);
+    left["dependencies"] = json!([{"id":"sample-Missing","kind":"related","created_at":CLOCK}]);
+    let mut right = item("sample-right", "Task", "open", 3);
+    right["dependencies"] = json!([{"id":"SAMPLE-MISSING","kind":"related","created_at":CLOCK}]);
+    fixture(root.path(), &[start, left, right])?;
+    let before: Vec<_> = ["sample-root", "sample-left", "sample-right"]
+        .iter()
+        .map(|id| fs::read(root.path().join(format!(".agents/pm/tasks/{id}.toon"))))
+        .collect::<Result<_, _>>()?;
+    for format in ["tree", "graph"] {
+        for summary in [false, true] {
+            for encoding in [vec![], vec!["--json"]] {
+                for bounds in [
+                    vec![],
+                    vec!["--max-depth", "1"],
+                    vec!["--node-limit", "4"],
+                    vec!["--edge-limit", "2"],
+                ] {
+                    let mut args = vec!["deps", "sample-root", "--format", format];
+                    args.push(if summary { "--summary" } else { "--full" });
+                    args.extend(&encoding);
+                    args.extend(&bounds);
+                    let expected = oracle(&driver, root.path(), &args)?;
+                    assert!(expected.status.success());
+                    compare(&expected, &native(root.path(), &args)?, &args);
+                    if !encoding.is_empty() && bounds.is_empty() {
+                        let output: Value = serde_json::from_slice(&expected.stdout)?;
+                        assert_eq!(output["missing_count"], if summary { 1 } else { 2 });
+                        assert_eq!(output["node_count"], if summary { 4 } else { 5 });
+                        if !summary && format == "graph" {
+                            assert_eq!(
+                                output["graph"]["missing_ids"].as_array().map(Vec::len),
+                                Some(2)
+                            );
+                            assert_eq!(output["graph"]["edges"].as_array().map(Vec::len), Some(4));
+                        }
+                    }
+                }
+            }
+        }
+    }
+    for (id, bytes) in ["sample-root", "sample-left", "sample-right"]
+        .iter()
+        .zip(before)
+    {
+        assert_eq!(
+            fs::read(root.path().join(format!(".agents/pm/tasks/{id}.toon")))?,
+            bytes
+        );
+        assert_eq!(
+            fs::read(root.path().join(format!(".agents/pm/history/{id}.jsonl")))?,
+            b""
+        );
+    }
+    Ok(())
+}
+
 /// Dependency reads retain the pinned oracle's dangling no-active-blocker scalar receipt.
 #[test]
 fn deps_no_active_blocker_matches_oracle() -> TestResult {

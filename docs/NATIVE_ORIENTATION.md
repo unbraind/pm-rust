@@ -118,6 +118,39 @@ Deferred work is tracked in
 
 ## Evidence
 
+The fourth review isolates context unit fixtures from ambient global extensions.
+The public SDK captures the global root once, and an internal explicit-root entry
+passes the same root to the scorer boundary and extension diagnostics. Fixtures
+pass `None` or a synthetic root without mutating the process environment. A
+synthetic global scorer is still refused with extension health enabled or omitted;
+a minimal static manifest contributes diagnostics only when its root is supplied.
+Restoring only the boundary's ambient-root lookup fails the new regression under
+a synthetic global scorer. All 238 library tests pass with that scorer present.
+
+The mixed-case dependency review retains the pinned oracle's behavior. Summary
+counts normalize dangling identities, while full graph/tree counts preserve
+separate display spellings from different holders. A fixture with two spellings
+reports one missing node in summary and two in full output. Its 32 comparisons
+cover tree/graph, summary/full, JSON/TOON, depth and node/edge limits; stored bytes
+stay unchanged. Applying the suggested normalized graph keys fails this fixture
+against the real oracle. Normalizing the projection here would break the parity
+contract, so that suggestion is declined with the differential evidence.
+
+List/search and orientation row compaction now share collection selection, path
+receipts and prefix binary search. Both existing finalizers and their numeric
+semantics are retained. This is a behavior-preserving extraction: reverting it
+preserves output but restores duplication. At jscpd 4.0.5's unchanged defaults
+(5 lines, 50 tokens), `src/read_output.rs` has zero clones with `--threshold 0`;
+the preceding file fails that check with two clones and 26 duplicated lines.
+Existing bounded-output unit and oracle comparisons validate both callers.
+The clean fourth-review Linux gate passes 464 normal and 464 instrumented tests
+across 20 suites each, with no failures or ignored tests. Coverage is
+11,701/11,701 lines, 19,167/19,167 regions, 1,180/1,180 functions and
+2,826/2,826 branches, all 100% at unchanged thresholds. The five PM-linked
+commands separately pass 312 tests. Final-head platform and fresh-clone receipts
+are recorded in the PR; the inherited full-health boundary below remains.
+
+
 The second full review adds parser refusal checks for unknown short options,
 unknown long options with values, and extra positional arguments after allowed
 flags, across all three commands and both encodings. The rejected token comes

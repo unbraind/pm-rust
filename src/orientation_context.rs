@@ -820,8 +820,12 @@ fn agenda(
     )
 }
 /// Refuses unsupported mutable ranking state instead of silently ignoring it.
-fn context_state_boundary(workspace: &Workspace, corpus: &[Value]) -> Result<(), PmRustError> {
-    for root in extension_health_global()
+fn context_state_boundary(
+    workspace: &Workspace,
+    corpus: &[Value],
+    global: Option<std::path::PathBuf>,
+) -> Result<(), PmRustError> {
+    for root in global
         .into_iter()
         .chain(std::iter::once(workspace.pm_root().to_path_buf()))
     {
@@ -984,8 +988,18 @@ impl Workspace {
     ///
     /// # Errors
     /// Returns numeric, unsupported-depth, item or history read errors.
-    #[allow(clippy::too_many_lines)]
     pub fn context(&self, options: &ContextOptions, now: &str) -> Result<ListOutput, PmRustError> {
+        self.context_with_global(options, now, extension_health_global())
+    }
+
+    /// Renders context using one captured global extension root for every boundary and diagnostic.
+    #[allow(clippy::too_many_lines)]
+    pub(crate) fn context_with_global(
+        &self,
+        options: &ContextOptions,
+        now: &str,
+        global: Option<std::path::PathBuf>,
+    ) -> Result<ListOutput, PmRustError> {
         let settings = crate::ownership::runtime_settings(self.pm_root())?;
         let depth = options
             .depth
@@ -1108,7 +1122,7 @@ impl Workspace {
             .collect();
         let identity =
             crate::AuthorIdentity::resolve(None, settings["author_default"].as_str(), &env);
-        context_state_boundary(self, &items)?;
+        context_state_boundary(self, &items, global.clone())?;
         let affinity = affinity(self, &identity, now);
         let ranking = ranked(self, &items, now, &lifecycle, &identity.author, &affinity)?;
         let active: Vec<_> = ranking
@@ -1281,7 +1295,7 @@ impl Workspace {
             }
         }
         if !options.no_extension_health
-            && let Some(health) = extension_health(self, &settings, extension_health_global())?
+            && let Some(health) = extension_health(self, &settings, global)?
         {
             result["extension_health"] = health;
         }

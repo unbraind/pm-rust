@@ -712,12 +712,13 @@ fn context_reads_one_captured_corpus() -> Result<(), Box<dyn std::error::Error>>
     }
     let workspace = Workspace::discover(directory.path())?;
     let before = READ_ITEMS_SCANS.get();
-    let output = workspace.context(
+    let output = workspace.context_with_global(
         &crate::ContextOptions {
             no_extension_health: true,
             ..Default::default()
         },
         "2026-08-22T10:00:00.000Z",
+        None,
     )?;
     assert_eq!(READ_ITEMS_SCANS.get() - before, 1);
     assert_eq!(output["summary"]["total_items"], 2);
