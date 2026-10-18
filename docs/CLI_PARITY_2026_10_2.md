@@ -27,6 +27,8 @@ SDK `Workspace::list` and unbounded envelopes retain their historical contract.
 | `list` / `Workspace::list_page` | Published JSON and default TOON producer pages, output cursors, omission/budget receipts; parent/tag selection and priority/deadline/updated_at/created_at/title/parent sort/order | Built-in lifecycle/hierarchy registry; single status/type/ID selectors; no tree mode, sessions, custom projections or hooks. Native `--cursor` aliases published `--after` |
 | Legacy `Workspace::list` | Existing deterministic native projection, ID order, exact filters | Native priority/parent fields and pre-filter total; includes terminal items; historical SDK envelope |
 | `get` / `Workspace::get` | Validated complete item by ID; unknown fields retained | Flat native document; published entity envelope includes linked data, claim state, child summary, projections and omission receipts |
+| `search` / `Workspace::search` | Compact keyword JSON/TOON, weighted corpus ranking, type/status/tag filters, limits, producer and output cursors, bounded-output receipts | Compact keyword slice; advanced modes, linked content, custom projections and hooks remain outside it. See [search contract](NATIVE_SEARCH_COLLECTIONS.md) |
+| `files`, `docs`, `test` / `Workspace::collection` | Collection lists, repeated bare/structured adds, exact removals, linked-test indices, canonical item/history bytes and serialized writers | Item collections with canonical IDs; lookup/discovery/globs/migrations and linked-test execution remain outside this slice. See [collection contract](NATIVE_SEARCH_COLLECTIONS.md) |
 | `create` / `Workspace::create` | Explicit ID; TOON and append-only history differential | Native argv/receipt subset; automatic IDs, runtime types, governance, hooks and other fields omitted |
 | `update` / `Workspace::update` | Whole-field title/description/status/priority/tags/body replacement; stored-byte differential | Limited flags and receipt; no general lifecycle governance/field operations |
 | `comment` / `Workspace::comment` | Comment append with stored-byte differential | Limited native argv and receipt; published canonical `item comment` family absent |
@@ -73,7 +75,7 @@ search start-task update upgrade workspace
 The table above describes the native implementation slices. Structured help
 differs and the other roots remain missing. Nested operations do not
 become implemented because one related native alias exists. In particular,
-agent `context`, `search`, `next` (nested/alias task selection), composed start/pause,
+agent `context`, advanced search modes, `next` (nested/alias task selection), composed start/pause,
 configured context intents, and native history merge/replay/repair remain follow-up work.
 The published root inventory includes deprecated aliases and command families,
 so its count is an inventory measure rather than a readiness percentage.

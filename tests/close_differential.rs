@@ -123,7 +123,9 @@ fn compare_close(setup: &[Vec<&str>], fields: &[&str]) -> TestResult {
         &snapshot.path().join(".agents"),
         &tracker.path().join(".agents"),
     )?;
-    let actual = Command::new(env!("CARGO_BIN_EXE_pm-rust"))
+    let mut command = Command::new(env!("CARGO_BIN_EXE_pm-rust"));
+    mutation_differential::isolate_environment(&mut command);
+    let actual = command
         .current_dir(tracker.path())
         .env_remove("PM_PATH")
         .env("DO_NOT_TRACK", "1")

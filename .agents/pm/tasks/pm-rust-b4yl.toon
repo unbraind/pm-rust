@@ -1,0 +1,12 @@
+id: pm-rust-b4yl
+title: Investigate tracker hash discontinuity after older SDK normalization
+description: "The first Round 3 claim writes used the changelog-only SDK 2026.10.9 instead of the repo-pinned oracle 2026.10.14. That parser dropped linked-test updater metadata before hashing: history verification now reports before_hash_mismatch at entry 44 for pm-rust-bj7a and entry 74 for pm-rust-unih. All original history prefixes are byte-identical and current items match latest after_hash values. Subsequent writes use the pinned oracle. Preserve append-only records; investigate a forward-compatible migration or verifier strategy without re-anchoring or rewriting history. Default strict health skips history_drift, so its pass must not be described as history integrity."
+type: Task
+status: open
+priority: 1
+tags[3]: conformance,follow-up,history
+created_at: "2026-10-17T11:01:24.761Z"
+updated_at: "2026-10-17T11:01:24.761Z"
+author: codex-agent
+parent: pm-rust-u4al
+body: ""

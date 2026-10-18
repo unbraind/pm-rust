@@ -1,0 +1,12 @@
+id: pm-rust-bu9t
+title: Match empty tag refusal metadata when flags precede a multiword query
+description: "Observed during PR 91 review: search --tag \"\" rust search --json differs from the pinned oracle. Native refusal omits rejected_value while oracle reports rust after normalization. Reproduce with real disposable trackers and add differential coverage in a separate change."
+type: Task
+status: open
+priority: 3
+tags: []
+created_at: "2026-10-16T23:07:02.108Z"
+updated_at: "2026-10-16T23:07:02.108Z"
+author: codex-agent
+parent: pm-rust-bj7a
+body: ""

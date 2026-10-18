@@ -2,6 +2,9 @@
 use super::published_cli::PublishedCli;
 use std::fs;
 use std::path::{Path, PathBuf};
+#[path = "process_environment.rs"]
+mod process_environment;
+pub use process_environment::isolate_environment;
 const CLOCK: &str = "2026-08-22T10:00:00.000Z";
 /// Encodes one path as a JSON string literal.
 ///
@@ -124,31 +127,7 @@ pub fn run_minimal(
 ) -> Result<std::process::Output, Box<dyn std::error::Error>> {
     let mut command = super::published_cli::oracle_command(program);
     command.current_dir(working_directory);
-    command.env_clear();
-    // The clear is deliberate - the point is a reproducible environment - but a
-    // few variables are load-bearing for the interpreter itself rather than for
-    // the program under test. On Windows, node.exe fails to start without
-    // SystemRoot, so clearing it breaks the launch before the published CLI
-    // ever runs. Restore those from the parent, then apply the deterministic
-    // overrides on top so they still win.
-    for name in [
-        "PATH",
-        "HOME",
-        "SystemRoot",
-        "SystemDrive",
-        "windir",
-        "TEMP",
-        "TMP",
-        "USERPROFILE",
-        "COMSPEC",
-        "PATHEXT",
-        "NUMBER_OF_PROCESSORS",
-        "PROCESSOR_ARCHITECTURE",
-    ] {
-        if let Ok(value) = std::env::var(name) {
-            command.env(name, value);
-        }
-    }
+    isolate_environment(&mut command);
     // Synthetic oracle invocations must not enqueue or deliver host telemetry.
     // This is the published CLI's process opt-out, not a replaced service.
     command.env("DO_NOT_TRACK", "1");

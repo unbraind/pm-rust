@@ -128,6 +128,8 @@ fn collections(value: &Value, pointer: &str, candidates: &mut Vec<(String, usize
 
 /// Captured row snapshot and producer position before either ceiling removes rows.
 struct Continuation {
+    /// Read command owning the output cursor and receipt.
+    command: &'static str,
     /// Selected suffix row count before applying amount or token ceilings.
     count: usize,
     /// Whole row-collection size for output continuation validation.
@@ -184,7 +186,7 @@ fn finalize(
     let rebased = rebase_producer(result, state);
     let continuation = shrunk.then(|| {
         let offset = state.offset + retained;
-        let cursor = pagination::encode(&json!({"v":1,"c":"list","p":"items","o":offset,"n":state.total,"f":state.fingerprint}));
+        let cursor = pagination::encode(&json!({"v":1,"c":state.command,"p":"items","o":offset,"n":state.total,"f":state.fingerprint}));
         json!({"path":"items","cursor":cursor,"retained_rows":retained,"remaining_rows":state.total-offset,"total_rows":state.total})
     });
     let mut migration = vec![format!(
@@ -232,7 +234,13 @@ fn finalize(
 }
 
 /// Builds the dimension receipt from explicitly requested canonical and alias flags.
+#[cfg(test)]
 fn receipt(options: &ListOptions, default_budget: bool) -> Value {
+    receipt_for(options, default_budget, "list")
+}
+
+/// Builds a receipt for a supported read command.
+fn receipt_for(options: &ListOptions, default_budget: bool, command: &str) -> Value {
     let mut dimensions = Vec::new();
     let mut canonical = Vec::new();
     let mut aliases = Vec::new();
@@ -278,7 +286,7 @@ fn receipt(options: &ListOptions, default_budget: bool) -> Value {
         ));
     }
     let mut receipt =
-        json!({"contract_version":1,"command":"list","requested_dimensions":dimensions});
+        json!({"contract_version":1,"command":command,"requested_dimensions":dimensions});
     if default_budget {
         receipt["budget_source"] = json!("default");
         receipt["budget_tokens"] = json!(if options.toon { 4000 } else { 6000 });
@@ -302,9 +310,15 @@ fn receipt(options: &ListOptions, default_budget: bool) -> Value {
 }
 
 /// Applies canonical amount and cost controls and returns full bounded receipts.
-pub(crate) fn apply(
+pub(crate) fn apply(result: ListOutput, options: &ListOptions) -> Result<ListOutput, PmRustError> {
+    apply_command(result, options, "list")
+}
+
+/// Applies the shared read-output contract with command-specific cursor ownership.
+pub(crate) fn apply_command(
     mut result: ListOutput,
     options: &ListOptions,
+    command: &'static str,
 ) -> Result<ListOutput, PmRustError> {
     if options.toon {
         crate::toon_output::validate(&result)?;
@@ -323,7 +337,7 @@ pub(crate) fn apply(
     let cursor = options
         .output_cursor
         .as_deref()
-        .map(|raw| pagination::output(raw, &original_rows, &snapshot))
+        .map(|raw| pagination::output_command(raw, &original_rows, &snapshot, command))
         .transpose()?;
     let amount_binds = amount.is_some_and(|limit| {
         original_rows
@@ -352,6 +366,7 @@ pub(crate) fn apply(
         );
     }
     let mut state = capture(&result, options, cursor.as_ref());
+    state.command = command;
     if cursor.is_none() {
         state.fingerprint = snapshot;
     }
@@ -379,7 +394,7 @@ pub(crate) fn apply(
     if result.get("count").is_some() {
         result.value["count"] = json!(result["items"].as_array().map_or(0, Vec::len));
     }
-    result.value["read_output"] = receipt(options, default_budget);
+    result.value["read_output"] = receipt_for(options, default_budget, command);
     update_output(&mut result, options.toon);
     if let Some(budget) = budget
         && measure(&result, options.toon) > budget
@@ -420,6 +435,7 @@ fn capture(result: &Value, options: &ListOptions, cursor: Option<&Value>) -> Con
             Some(cursor)
         });
     Continuation {
+        command: "list",
         count: rows.as_array().map_or(0, Vec::len),
         total: cursor.map_or_else(
             || rows.as_array().map_or(0, Vec::len),
@@ -566,7 +582,7 @@ fn compact_budget(
     );
     if measure(&result, options.toon) > budget {
         let omitted_estimate = measure(&result, options.toon);
-        let mut minimal = receipt(options, default_budget);
+        let mut minimal = receipt_for(options, default_budget, state.command);
         minimal["legacy_aliases_used"] = json!([]);
         minimal["migration_hints"] = json!([]);
         minimal["within_budget"] = json!(false);

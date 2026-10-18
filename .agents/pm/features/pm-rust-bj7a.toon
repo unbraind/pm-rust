@@ -1,0 +1,92 @@
+id: pm-rust-bj7a
+title: Implement native keyword search with pinned oracle parity
+description: "Match keyword search ranking, filters, JSON and TOON pages, bounded output and refusals against the locked published oracle on real disposable trackers."
+type: Feature
+status: in_progress
+priority: 2
+tags[3]: conformance,rust,search
+created_at: "2026-10-16T16:59:45.140Z"
+updated_at: "2026-10-17T12:59:05.119Z"
+author: codex-agent
+parent: pm-rust-u4al
+comments[29]{created_at,author,text}:
+  "2026-10-16T17:00:03.554Z",codex-agent,"Plan: characterize the locked keyword search implementation, reuse native pagination and output controls, and compare full CLI bytes over real small and large trackers. Keep the oracle pin unchanged and record function-level behavioral revert proofs before the full release gate."
+  "2026-10-16T17:09:01.674Z",codex-agent,"Implemented weighted keyword scoring and shared bounded-read delivery. Initial real-tracker comparisons passed literal token, Unicode, punctuation and basic filters; negative controls exposed the zero-limit empty-envelope branch and the exact semantic option set used in producer fingerprints. Both are corrected for the next differential run."
+  "2026-10-16T17:34:08.226Z",codex-agent,"Exact bounded-search snapshot replay and changed-row refusal passed. Corpus expansion found that source normalization drops plan steps lacking required order and timestamps; the native corpus now applies that validity boundary. Added direct SDK tests for every searchable field, configured type aliases, Unicode whitespace, ranking thresholds and producer cursor fallback."
+  "2026-10-16T17:48:24.580Z",codex-agent,"Behavioral negative control for the new scoring function: replacing only score with an absent-result body made cargo +1.90.0 test --locked --lib search::tests::corpus_fields_and_weight_configuration -- --exact fail on matching-count 0 versus 3 (exit 101). Restored the exact source bytes; the complete library suite passed 169 tests. The current focused instrumented differential run passed all 6 tests, including real 12/220-item trackers, snapshot replay/stale refusal, typed errors, collection bytes, provenance and concurrency."
+  "2026-10-16T18:23:26.121Z",codex-agent,Expanded typed output-control refusals now pass in JSON and TOON. The default linked-test runner ceiling of 120 seconds was too short for the full corpus matrix under concurrent gate load; linked evidence now declares a 600-second timeout. An interrupted comparison during oracle reinstallation is excluded from acceptance; the stable installed oracle is being used for the full gate and rerun.
+  "2026-10-16T18:28:55.427Z",codex-agent,"Linked evidence passed: pm test pm-rust-bj7a --run --progress executed cargo +1.90.0 test --locked --test search_collections_differential search_matches_oracle successfully (exit 0; real 12/220-item corpora, both encodings, producer controls and continuation). The 600-second declared ceiling accommodates the full matrix under gate load. Numeric zero, fractional, radix and very large finite producer limits now match the locked oracle."
+  "2026-10-16T18:33:30.971Z",codex-agent,"The linked search rerun passed all four independent size/encoding tests after splitting the matrix for normal runner parallelism. Scenarios are unchanged. Added SDK failure-boundary assertions for invalid settings, unreadable lifecycle schema and malformed item data; these must remain errors rather than successful empty pages."
+  "2026-10-16T18:52:46.571Z",codex-agent,"The first full instrumented run passed all 362 tests but correctly failed the unchanged coverage floor on uncovered SDK and I/O error paths. Added real-tracker SDK transactions, unavailable source-context execution, malformed recovery guidance, and fallible output/directory boundaries. Fresh focused coverage confirms complete search source coverage; full acceptance is being rerun with the final static source and the CI Node major."
+  "2026-10-16T19:55:27.177Z",codex-agent,"Tightened ECMAScript query tokenization so NEXT LINE stays literal, and removed the arbitrary u128 ceiling from radix producer limits using exact binary rounding. Both small-corpus encoding comparisons pass with the new cases. Focused coverage measures 100 percent lines/functions/regions/branches for search; the full final gate remains pending."
+  "2026-10-16T20:10:27.731Z",codex-agent,"Final linked search evidence passed all four size/encoding suites on Node 26, including literal NEXT LINE and arbitrary-length finite radix limits. Behavioral revert of only the token split inside Workspace::search to split_whitespace made optional_and_malformed_search_rows fail (exit 101); the restored implementation passes the exact oracle matrix. Both search and bounded identity-probe modules measure all four coverage dimensions at 100 percent in focused runs."
+  "2026-10-16T20:32:10.900Z",codex-agent,"The final full run passed all 372 tests in both normal and instrumented phases. The unchanged coverage gate identified four search-error classification branches; focused guidance assertions now cover numeric limits, required tag values and both output controls. Production behavior is unchanged. A fresh full release gate will verify the added evidence."
+  "2026-10-16T21:40:19.990Z",codex-agent,"Final clean release-check PASS on the fixed source tree: 374 normal tests and 374 instrumented tests; lines 8802/8802, functions 852/852, regions 13744/13744 and branches 2132/2132. Fmt, deny-warnings clippy, private rustdoc, identity audit, required pinned-oracle differentials, cargo audit and changelog check all pass at unchanged thresholds. The four search suites passed through linked pm test execution. Behavioral scoring and literal-tokenization revert proofs are recorded above. Claims are released for review; this Feature remains in progress. Platform CI is the next delivery gate."
+  "2026-10-16T23:05:06.183Z",codex-agent,"Findings 1, 2, 4, 6-10 implemented with parsed query recovery, detail-derived IDs, once-per-transaction source refs, once-per-document lowercase corpus, diagnostic scenario errors, description cursor replay, configured interpreters and exact child test execution. New differential and unit regressions are being validated."
+  "2026-10-16T23:08:15.342Z",codex-agent,Out-of-scope empty-tag refusal metadata mismatch tracked in pm-rust-bu9t. The current fixes preserve the existing published oracle pin; no dependency bump or history rewrite.
+  "2026-10-16T23:09:36.064Z",codex-agent,"Behavioral revert proofs (each exited 101 with 0 passed, 1 failed; tests unchanged): cargo +1.90.0 test --locked --bin pm-rust tests::search_examples_use_parsed_query -- --exact fails with only search_error_json restored to the pre-fix function (wrong flag/first-token recovery query); cargo +1.90.0 test --locked --test search_collections_differential reordered_refusal_arguments_match_oracle -- --exact fails with only collection_error_json restored (rejected_value/value contain --author instead of sample-missing). Fixed function bytes restored afterward."
+  "2026-10-17T01:53:18.784Z",codex-agent,"Round 1 final local gate PASS: just release-check on Node v26.12.0 with isolated HOME and Git configuration passes 379 normal and 379 instrumented tests. Coverage is exactly 8818/8818 lines, 860/860 functions, 13795/13795 regions and 2138/2138 branches. Fmt, strict clippy, private rustdoc, identity audit, pinned-oracle differentials, cargo audit and changelog verification pass at unchanged repository thresholds. Behavioral revert proofs for parsed-query recovery and reordered missing-ID refusals are recorded above. Known separate empty-tag metadata mismatch remains open as pm-rust-bu9t. Preparing the push and per-thread receipts; CI is the next gate."
+  "2026-10-17T02:42:41.784Z",codex-agent,"Round 2: checking both type flag spellings against the pinned oracle before changing closed-domain recovery; adding byte-for-byte differential coverage and a behavioral revert proof."
+  "2026-10-17T02:46:03.479Z",codex-agent,"Oracle 2026.10.14 confirms equals-form rejected_value is Unknown and provided_fields uses --type, but examples intentionally remain generic help/contracts commands. The new differential test failed on the original formatter. Matching those exact bytes rather than adopting the suggested equals-form retry."
+  "2026-10-17T02:50:09.071Z",codex-agent,"Behavioral revert proof: restoring only search_error_json to the head version makes search_type_spellings_match_oracle fail (exit 101, 0 passed, 1 failed) on equals-form stderr. The test covers both spellings, flag positions, multiword queries, and text/JSON bytes. Fixed implementation restored."
+  "2026-10-17T04:29:22.992Z",codex-agent,"Aggregate retry normal pass complete: 381 tests passed, including exact recovery parity for both type spellings in text and JSON. Final-source instrumented pass is running. Updated-source documentation and strict Linux/Windows cross-target clippy pass."
+  "2026-10-17T04:48:08.965Z",codex-agent,"Round 2 final local release-check PASS: 381 normal plus 381 instrumented tests on Node 26.12.0 with isolated HOME/Git configuration. Required Linux source coverage is 8887/8887 lines, 867/867 functions, 13890/13890 regions and 2144/2144 branches. Fmt, strict clippy, private rustdoc, oracle differentials, identity audit, dependency audit and changelog check pass at unchanged thresholds. Final search_error_json-only revert fails the spelling differential (0 passed, 1 failed, exit 101); fixed bytes restored and pinned pm test runner passes. Preparing the commit/push and review replies; final-head CI remains the next gate."
+  "2026-10-17T05:42:06.824Z",codex-agent,"After the Windows gate coverage correction, repeated just release-check again passes 381 normal plus 381 instrumented tests, including both type spellings. Required Linux coverage is 8883/8883 lines, 867/867 functions, 13890/13890 regions and 2144/2144 branches. Search implementation and its behavioral revert proof are unchanged. Fresh final-head CI follows the correction push."
+  "2026-10-17T10:48:21.688Z",codex-agent,"Round 3: read all three unresolved review threads and both outside-diff notes. Checking status CSV edge cases against the locked oracle before changing filtering; adding exact byte comparisons and behavioral revert evidence. Compatibility identity wording and the shared ownership subprocess environment will also be corrected."
+  "2026-10-17T10:51:57.137Z",codex-agent,"Oracle characterization: a sole case-insensitive all token is recognized after removing empty CSV fields, and the compact filter echo becomes all while cursor semantics retain the raw option. The regression compares JSON and TOON for padded all, empty CSV, individual statuses and invalid combinations. The prior search test fixture needed canonical oracle-created items; the revised fixture uses the published create command."
+  "2026-10-17T10:57:53.654Z",codex-agent,"search_status_csv_matches_oracle passes the full JSON/TOON matrix: all followed by a comma, surrounding whitespace, mixed case and repeated empty fields, empty CSV, padded individual/multiple statuses, and invalid all combinations. Full stdout/stderr/exit bytes match oracle 2026.10.14 over three real lifecycle states. The filter echo is canonical all and raw fingerprint semantics are retained."
+  "2026-10-17T10:59:13.101Z",codex-agent,"Behavioral revert proof: restoring only Workspace::search to the pre-fix source makes cargo +1.90.0 test --locked --test search_collections_differential search_status_csv_matches_oracle -- --exact fail on all, with 0 native rows versus 3 oracle rows and the wrong compact filter echo (exit 101; 0 passed, 1 failed). Exact fixed source bytes restored. Both outside-diff notes are accepted: compatibility documentation now describes bounded identity detection and the ownership suite uses the shared runtime environment helper."
+  "2026-10-17T11:01:25.777Z",codex-agent,"History verification FAIL: before_hash_mismatch at entry 44, the first new claim written with the changelog-only SDK 2026.10.9. That older parser normalized away linked-test updater metadata before hashing. Original 43-entry history prefix is unchanged; current item matches latest after_hash. Later writes use repo-pinned 2026.10.14. No historical records will be rewritten or re-anchored. Default strict health passes but explicitly skips history_drift; this is not a history-integrity pass."
+  "2026-10-17T11:30:13.364Z",codex-agent,All new focused and linked regressions pass. The first aggregate stopped at a pre-existing claim-race fixture whose default 3-second budget expired during publication under storage load. pm-rust-23ps tracks the explicit fixture budget correction; production behavior and all coverage thresholds stay fixed. A complete release gate rerun follows the focused concurrency acceptance. History verification remains separately failed as tracked in pm-rust-b4yl.
+  "2026-10-17T12:58:58.395Z",codex-agent,"Round 3 final local release-check PASS: 385 normal and 385 instrumented tests on Node 26.12.0 with isolated HOME/Git configuration. Required source coverage is 8892/8892 lines, 868/868 functions, 13907/13907 regions and 2150/2150 branches. Fmt, strict clippy, private rustdoc, identity audit, required pinned-oracle differentials, dependency audit and changelog verification pass at unchanged thresholds. Status CSV byte parity and its search-only revert failure are recorded above. Both outside-diff notes are accepted and corrected. Releasing the claim for orchestrator verification; push and final-head three-OS CI follow. Tracker history verification remains failed at entry 44, tracked in pm-rust-b4yl; no history was rewritten."
+files[11]{path,scope}:
+  src/lib.rs,project
+  src/list_registry.rs,project
+  src/list.rs,project
+  src/main.rs,project
+  src/pagination.rs,project
+  src/read_output.rs,project
+  src/search.rs,project
+  tests/search_collections_differential.rs,project
+  tests/support/main_unit.rs,project
+  tests/support/read_output_unit.rs,project
+  tests/support/search_unit.rs,project
+tests[4]:
+  - command: cargo +1.90.0 test --locked --test search_collections_differential search_matches_oracle
+    scope: project
+    timeout_seconds: 600
+    provenance:
+      author: codex-agent
+      created_at: "2026-10-16T18:23:20.436Z"
+      source_kind: local_mutation
+      source_ref: feat/native-search-and-collections
+  - command: cargo +1.90.0 test --locked --bin pm-rust search_examples_use_parsed_query
+    scope: project
+    provenance:
+      author: codex-agent
+      created_at: "2026-10-16T23:06:49.824Z"
+      source_kind: local_mutation
+      source_ref: feat/native-search-and-collections
+  - command: env PM_RUST_REQUIRE_PUBLISHED_CLI=1 cargo +1.90.0 test --locked --test search_collections_differential search_type_spellings_match_oracle -- --exact
+    scope: project
+    timeout_seconds: 600
+    provenance:
+      author: codex-agent
+      created_at: "2026-10-17T02:46:35.414Z"
+      source_kind: local_mutation
+      source_ref: feat/native-search-and-collections
+  - command: env PM_RUST_REQUIRE_PUBLISHED_CLI=1 cargo +1.90.0 test --locked --test search_collections_differential search_status_csv_matches_oracle -- --exact
+    scope: project
+    timeout_seconds: 600
+    provenance:
+      author: codex-agent
+      created_at: "2026-10-17T10:55:09.124Z"
+      source_kind: local_mutation
+      source_ref: feat/native-search-and-collections
+docs[5]{path,scope}:
+  docs/CLI_PARITY_2026_10_2.md,project
+  docs/COMPATIBILITY.md,project
+  docs/NATIVE_SEARCH_COLLECTIONS.md,project
+  "https://github.com/unbraind/pm-rust/pull/91",project
+  README.md,project
+body: ""

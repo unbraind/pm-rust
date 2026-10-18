@@ -179,6 +179,7 @@ fn nested_compaction_discloses_noncontinuable_rows_and_recovery_budget()
 fn producer_rebasing_and_disclosure_keep_indices_and_snapshot() {
     let producer = json!({"version":1,"fingerprint":"fp","after_id":"demo-0000","after_index":0});
     let state = Continuation {
+        command: "list",
         count: 3,
         total: 3,
         offset: 0,
@@ -313,6 +314,7 @@ fn multiple_collections_and_resumed_budgets_preserve_receipts()
         false,
     );
     let state = Continuation {
+        command: "list",
         count: 3,
         total: 3,
         offset: 0,

@@ -6,9 +6,12 @@ status: open
 priority: 3
 tags[3]: follow-up,governance,health
 created_at: "2026-10-07T16:11:15.858Z"
-updated_at: "2026-10-07T16:11:15.858Z"
+updated_at: "2026-10-16T18:35:07.833Z"
 author: codex-sol
 acceptance_criteria: "Each advisory has an evidence-backed disposition, user-authored guidance is preserved, and strict health still passes."
+comments[2]{created_at,author,text}:
+  "2026-10-16T18:25:44.860Z",codex-agent,"Reconfirmed during pm-rust-bj7a and pm-rust-unih: the locked 2026.10.14 oracle reports strict check-only health success with required merge drivers under a clean HOME. Existing guidance, stale-work and 19 legacy role-value advisories remain. A normal host HOME also loads an unrelated newer global extension and reports extension version skew; that global state is excluded from the clean CI acceptance. No provenance history was rewritten."
+  "2026-10-16T18:35:07.833Z",codex-agent,"Dependency audit also retains the previously recorded unsafe-libyaml 0.2.11 maintenance warning RUSTSEC-2024-0449. cargo audit exits 0 with one allowed warning. Existing references are present in pm-rust-ufzy, pm-rust-cbaq and pm-rust-rysu; no dependency pin or audit threshold changed in the search/collection work. Keep any dependency migration separate from command parity."
 files[1]{path,scope}:
   AGENTS.md,project
 body: ""

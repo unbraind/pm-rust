@@ -9,6 +9,54 @@ use crate::history::{
     history_entry, history_line, history_patch, javascript_number,
 };
 
+/// Artifact note additions precede replacements, matching normalized oracle row keys.
+#[test]
+fn artifact_optional_note_patch_order_matches_oracle() {
+    for key in ["docs", "files", "other"] {
+        let before = OrderedDocument {
+            metadata: vec![(
+                key.to_owned(),
+                json!([{"path":"README.md","scope":"project"}]),
+            )],
+            body: String::new(),
+        };
+        let after = OrderedDocument {
+            metadata: vec![(
+                key.to_owned(),
+                json!([{"path":"docs/guide.md","scope":"project","note":"Guide"}]),
+            )],
+            body: String::new(),
+        };
+        let note = HistoryPatch {
+            op: "add",
+            path: format!("/metadata/{key}/0/note"),
+            value: Some(json!("Guide")),
+        };
+        let path = HistoryPatch {
+            op: "replace",
+            path: format!("/metadata/{key}/0/path"),
+            value: Some(json!("docs/guide.md")),
+        };
+        assert_eq!(
+            history_patch(&before, &after),
+            if key == "other" {
+                vec![path, note]
+            } else {
+                vec![note, path]
+            }
+        );
+        let without_note = OrderedDocument {
+            metadata: vec![(
+                key.to_owned(),
+                json!([{"path":"docs/guide.md","scope":"project"}]),
+            )],
+            body: String::new(),
+        };
+        assert_eq!(history_patch(&before, &without_note).len(), 1);
+        assert_eq!(history_patch(&after, &without_note)[0].op, "remove");
+    }
+}
+
 /// The published classifier retains unknown work while distinguishing bookkeeping updates.
 #[test]
 fn event_classification_preserves_work_and_recognizes_maintenance() {

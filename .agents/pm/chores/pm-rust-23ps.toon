@@ -1,0 +1,24 @@
+id: pm-rust-23ps
+title: Give concurrent claim acceptance explicit writer wait budgets
+description: "The aggregate gate observed a valid lock_conflict after 3007ms in the existing two-writer claim-next acceptance test, while the isolated rerun passed. That test expects both writers to succeed but inherits the finite default wait. Configure an explicit fixture wait budget for both replay trackers; retain the two competing writers, distinct-item assertions, serial oracle replay and every gate threshold."
+type: Chore
+status: in_progress
+priority: 3
+tags[2]: concurrency,conformance
+created_at: "2026-10-16T19:18:28.721Z"
+updated_at: "2026-10-17T12:59:08.586Z"
+author: codex-agent
+parent: pm-rust-u4al
+comments[6]{created_at,author,text}:
+  "2026-10-16T19:20:30.044Z",codex-agent,"Observed one aggregate failure: beta received lock_conflict after waiting 3007ms for alpha. The isolated regression passed with the same source. Both replay trackers now declare locks.wait_ms=30000 for this two-success acceptance scenario. Competing native processes, distinct identities, session ordering and exact serial oracle artifact checks remain in place; production defaults and all gate thresholds are unchanged."
+  "2026-10-16T20:10:28.532Z",codex-agent,The linked isolated competing-writer acceptance passed after explicitly configuring the fixture wait budget. The aggregate gate will rerun every original assertion on this source; no production locking behavior changed.
+  "2026-10-16T21:40:24.231Z",codex-agent,"The fixture-only 30-second wait budget passes isolated linked pm test execution and the final clean aggregate gate: 374 normal tests and 374 instrumented tests, with all four unchanged coverage floors at 100 percent. The competing workers, distinct-item assertions, session ordering and exact serial oracle replay remain intact. Production wait defaults remain unchanged. This Chore remains in progress; its claim is released for review."
+  "2026-10-17T11:28:25.546Z",codex-agent,"Round 3 aggregate failure: two_process_claim_race_has_one_winner_and_published_refusal produced one winner and a valid lock_conflict after 3018ms, while its serial oracle replay expected already_claimed_by. The original 3-second fixture budget expires under loaded storage before the winner releases its lock. Configure locks.wait_ms=30000 on both replay trackers, matching the neighboring claim-next acceptance fixture. Keep all six races, exact loser envelope comparison, one-winner assertion, durable-byte comparison and history verification. Production defaults and coverage thresholds remain unchanged."
+  "2026-10-17T11:31:26.371Z",codex-agent,"Focused six-race acceptance PASS through pm test --run --only-last --progress: exactly one test passed, exercising all six competing writer pairs with the explicit fixture wait. Exact loser envelopes, one successful claim, durable item/history bytes and oracle history verification pass. Preparing a full release-check rerun on the corrected fixture."
+  "2026-10-17T12:59:03.548Z",codex-agent,"Final corrected-source aggregate PASS: just release-check passes 385 normal plus 385 instrumented tests, including all six races in both phases. Coverage stays 100 percent for 8892 lines, 868 functions, 13907 regions and 2150 branches. Explicit fixture waits preserve all one-winner, exact loser-envelope, durable-byte and oracle history checks. No production wait default changed. Releasing the claim for orchestrator verification; final-head three-OS CI follows the push."
+files[1]{path,scope}:
+  tests/claim_release_differential.rs,project
+tests[2]{command,scope,timeout_seconds,provenance{author,created_at,source_kind,source_ref}}:
+  cargo +1.90.0 test --locked --test claim_release_differential competing_claim_next_processes_select_distinct_items -- --exact,project,120,codex-agent,"2026-10-16T19:20:26.685Z",local_mutation,feat/native-search-and-collections
+  env PM_RUST_REQUIRE_PUBLISHED_CLI=1 cargo +1.90.0 test --locked --test claim_release_differential two_process_claim_race_has_one_winner_and_published_refusal -- --exact,project,600,codex-agent,"2026-10-17T11:28:30.071Z",local_mutation,feat/native-search-and-collections
+body: ""
