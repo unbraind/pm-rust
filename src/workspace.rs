@@ -251,7 +251,7 @@ impl Workspace {
         crate::ownership::tests::READ_ITEMS_SCANS.with(|count| count.set(count.get() + 1));
         let mut paths = self.lookup_paths(None)?;
         paths.sort_by(|a, b| a.file_stem().cmp(&b.file_stem()).then_with(|| a.cmp(b)));
-        #[cfg(windows)]
+        #[cfg(any(windows, target_os = "macos"))]
         {
             // Bound both raw-content memory and thread creation. Decoding remains
             // ordered on the caller, preserving first-error and cursor semantics.
@@ -260,7 +260,7 @@ impl Workspace {
                 .into_iter()
                 .flat_map(|batch| read_parallel_batch(&batch)))
         }
-        #[cfg(not(windows))]
+        #[cfg(not(any(windows, target_os = "macos")))]
         {
             Ok(paths.into_iter().map(|path| {
                 let content = read_item_text(&path)?;
@@ -453,11 +453,11 @@ impl Workspace {
     }
 }
 
-/// Reads at most 256 Windows files with four workers and preserves listing order.
+/// Reads at most 256 files with four workers and preserves listing order.
 ///
-/// Overlaps Windows file-open latency without retaining every raw document.
+/// Overlaps file-open latency without retaining every raw document.
 /// Keep prefetch separate from decoding; direct get never uses it.
-#[cfg(windows)]
+#[cfg(any(windows, target_os = "macos"))]
 fn read_parallel_batch(batch: &[PathBuf]) -> Vec<ItemSource> {
     let mut groups: [Vec<ItemSource>; 4] = std::array::from_fn(|_| Vec::new());
     std::thread::scope(|scope| {

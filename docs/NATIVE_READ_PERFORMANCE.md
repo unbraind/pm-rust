@@ -25,7 +25,7 @@ the source refuse. Selected fields still pass through the strict TOON decoder.
 A projection does not claim validation of omitted collection payloads; complete
 reads and `get` continue to validate complete authoritative documents.
 
-Item contents are decoded one at a time. Windows overlaps filesystem reads with
+Item contents are decoded one at a time. macOS and Windows overlap filesystem reads with
 four scoped workers and at most 256 raw documents per batch, preserving listing
 and refusal order. Direct `get` bypasses this prefetch. Context caches update/deadline/history-recency
 sort keys and parses its captured read clock once, avoiding timestamp parsing
@@ -127,3 +127,12 @@ Reverting only the two context ordering/scoring functions to their pre-cache
 implementation made `context_timestamp_parse_work_is_linear` fail: 346 timestamp
 parses exceeded its 282-parse bound for 50 items. Restoring the implementation
 passed. The single-item lookup revert separately failed both lookup regressions.
+
+The later macOS read path uses the same bounded prefetch as Windows to reduce
+file-open variance. The latency fixture and all p95 ceilings remain unchanged.
+The final PR checks certify this platform-specific follow-up; the receipt above
+retains its original measured source identity.
+
+A release rebuild after the macOS follow-up produced the identical Linux binary
+SHA-256 `4f9ac7345f1303cc9967ce0856efdbce0665553956e7dad81a2596c650e54ed5`.
+The Linux public-tracker timing and open-count samples therefore apply unchanged.
