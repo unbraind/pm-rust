@@ -25,7 +25,7 @@ the source refuse. Selected fields still pass through the strict TOON decoder.
 A projection does not claim validation of omitted collection payloads; complete
 reads and `get` continue to validate complete authoritative documents.
 
-Item contents are decoded one at a time. macOS and Windows overlap filesystem reads with
+Each worker decodes one item at a time. macOS and Windows overlap filesystem reads with
 four scoped workers and at most 256 documents per batch. List/context workers
 read and decode projections; the caller retains listing order for duplicate checks
 and refusals. Search workers prefetch raw contents before serial scoring. Direct `get` bypasses this prefetch. Context caches update/deadline/history-recency
@@ -88,15 +88,17 @@ round and rotate command order. Filesystem caches are warm.
 
 | Command | Before | Native | Pinned Node oracle |
 | --- | ---: | ---: | ---: |
-| `get pm-02c4` | 1779.3 / 3062.6 | 25.0 / 54.0 | 1618.1 / 3520.0 |
-| `list --limit 20` | 1296.7 / 2573.5 | 542.9 / 874.4 | 1832.7 / 5633.2 |
-| `context --limit 10` | 2217.2 / 4137.2 | 2098.2 / 2997.6 | 4691.3 / 12387.8 |
-| `search history --limit 10` | 2715.2 / 9344.4 | 2194.8 / 3532.2 | 4218.2 / 6000.2 |
+| `get pm-02c4` | 1779.3 / 3062.6 | 22.9 / 54.9 | 1662.3 / 4461.0 |
+| `list --limit 20` | 1296.7 / 2573.5 | 585.2 / 1449.0 | 2083.9 / 3853.0 |
+| `context --limit 10` | 2217.2 / 4137.2 | 1847.5 / 4816.2 | 4788.9 / 11232.3 |
+| `search history --limit 10` | 2715.2 / 9344.4 | 2307.5 / 5318.2 | 4667.9 / 8703.9 |
 
-Native source: `1095e6a6428497248b4c15e3ed718c5903fa2e17`; baseline: `368697864187e347ed17c5a1e7dfc00284cf4e26`.
-Comparison window: 2026-10-18T19:11:53Z to 2026-10-18T19:21:21Z.
-Inherited nice: 15; sampled one-minute load: 27.34–40.40.
-The real-copy run includes its stored history and shared-host scheduling. CI
+Native source: `3c7e7010955e07d3bc68997aa8b9d2ef0d1146d8`; baseline: `368697864187e347ed17c5a1e7dfc00284cf4e26`.
+Comparison window: 2026-10-18T20:22:53Z to 2026-10-18T20:33:06Z.
+Inherited nice: 15; sampled one-minute load: 27.35–37.69.
+Focused coverage compilation overlapped the early comparison rounds. The
+real-copy run includes stored history and shared-host scheduling, so individual
+p95 results can regress against the separately captured baseline. CI
 independently measures the generated fixture on each OS.
 
 [360 raw samples](benchmarks/native-read-performance-2026-10-18.csv) and the
@@ -110,19 +112,19 @@ Linux `strace` on the captured copy measured **2,991 → 1 item-file opens**,
 
 ## Generated-fixture CI latency receipt
 
-Measured at `1095e6a6428497248b4c15e3ed718c5903fa2e17` in [CI](https://github.com/unbraind/pm-rust/actions/runs/39157442452).
+Measured at `3c7e7010955e07d3bc68997aa8b9d2ef0d1146d8` in [CI](https://github.com/unbraind/pm-rust/actions/runs/39163033065).
 All three OS jobs also passed both portable lookup/open-count regressions.
 
 | OS | get p95 | list p95 | context p95 |
 | --- | ---: | ---: | ---: |
-| Linux | 4.1 | 45.0 | 85.0 |
-| macOS | 15.6 | 101.4 | 168.8 |
-| Windows | 15.8 | 86.0 | 141.9 |
+| Linux | 5.7 | 59.1 | 107.6 |
+| macOS | 17.0 | 81.5 | 110.2 |
+| Windows | 22.0 | 128.0 | 191.7 |
 
 Required ceilings remain **50 / 150 / 250 ms**, respectively. Each cell has
 30 fresh release processes. The [CI sample receipt](benchmarks/native-read-ci-2026-10-18.json)
 retains every sample. Earlier Windows failures were fixed through bounded
-filesystem prefetch and query-work reductions; no ceiling or fixture was relaxed.
+bounded read-and-project workers and query-work reductions; no ceiling or fixture was relaxed.
 
 Reverting only the two context ordering/scoring functions to their pre-cache
 implementation made `context_timestamp_parse_work_is_linear` fail: 346 timestamp

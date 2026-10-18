@@ -398,6 +398,7 @@ fn streamed_queries_refuse_unlistable_nested_directory() -> Result<(), Box<dyn s
         .custom_flags(0x0200_0000)
         .open(&locked)?;
     let results = [
+        workspace.read_items().map(|_| ()),
         workspace.list(crate::ItemFilter::default()).map(|_| ()),
         workspace
             .list_page(

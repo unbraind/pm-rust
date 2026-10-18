@@ -196,6 +196,10 @@ fn sdk_page_contract_refusals_and_status_fingerprints() -> Result<(), Box<dyn st
     let workspace = Workspace::discover(directory.path())?;
     for options in [
         ListOptions {
+            limit: Some("bad".to_owned()),
+            ..ListOptions::default()
+        },
+        ListOptions {
             full: true,
             brief: true,
             ..ListOptions::default()

@@ -6,21 +6,21 @@
   "source_changed_since_capture": true,
   "manifest_sha256": "cf767ec7939c3b5a5b0c177e35112043805ab27ab8bec5e95d0eef56e5438d52",
   "baseline_head": "368697864187e347ed17c5a1e7dfc00284cf4e26",
-  "native_head": "1095e6a6428497248b4c15e3ed718c5903fa2e17",
-  "native_binary_sha256": "4f9ac7345f1303cc9967ce0856efdbce0665553956e7dad81a2596c650e54ed5",
+  "native_head": "3c7e7010955e07d3bc68997aa8b9d2ef0d1146d8",
+  "native_binary_sha256": "bc76c47d7c42f0a8a3a940d168b6f3f8a4945c37344a5416a413e2852d487a12",
   "baseline_binary_sha256": "f8b27ebb3bdac61e311f95cf128ec362e2e09d53134f7309f50ac23dd30332c6",
   "oracle_version": "2026.10.14",
   "node": "v24.19.0",
-  "start_utc": "2026-10-18T19:11:53Z",
-  "end_utc": "2026-10-18T19:21:21Z",
+  "start_utc": "2026-10-18T20:22:53Z",
+  "end_utc": "2026-10-18T20:33:06Z",
   "samples": 360,
   "baseline_phase": "preceding 30-run baseline phase on the same immutable copy",
   "comparison_phase": "native and oracle alternate runtime order each round; command order rotates; 30 rounds",
   "processes": "cold",
   "filesystem_cache": "warm",
   "load_1_min_range": [
-    27.33984375,
-    40.40283203125
+    27.3544921875,
+    37.68798828125
   ],
   "effective_nice": 15,
   "open_counts": {
@@ -47,15 +47,15 @@
       "command": "get",
       "runtime": "native",
       "runs": 30,
-      "p50_ms": 25.015071,
-      "p95_ms": 53.98499
+      "p50_ms": 22.945521499999998,
+      "p95_ms": 54.867504
     },
     {
       "command": "get",
       "runtime": "oracle",
       "runs": 30,
-      "p50_ms": 1618.0667335,
-      "p95_ms": 3519.980249
+      "p50_ms": 1662.348003,
+      "p95_ms": 4461.041989
     },
     {
       "command": "list",
@@ -68,15 +68,15 @@
       "command": "list",
       "runtime": "native",
       "runs": 30,
-      "p50_ms": 542.8586554999999,
-      "p95_ms": 874.39621
+      "p50_ms": 585.1565155000001,
+      "p95_ms": 1448.99605
     },
     {
       "command": "list",
       "runtime": "oracle",
       "runs": 30,
-      "p50_ms": 1832.7029674999999,
-      "p95_ms": 5633.152697
+      "p50_ms": 2083.928907,
+      "p95_ms": 3853.04405
     },
     {
       "command": "context",
@@ -89,15 +89,15 @@
       "command": "context",
       "runtime": "native",
       "runs": 30,
-      "p50_ms": 2098.187587,
-      "p95_ms": 2997.592332
+      "p50_ms": 1847.4509170000001,
+      "p95_ms": 4816.2069
     },
     {
       "command": "context",
       "runtime": "oracle",
       "runs": 30,
-      "p50_ms": 4691.2544495,
-      "p95_ms": 12387.816186
+      "p50_ms": 4788.944905,
+      "p95_ms": 11232.33032
     },
     {
       "command": "search",
@@ -110,15 +110,16 @@
       "command": "search",
       "runtime": "native",
       "runs": 30,
-      "p50_ms": 2194.804302,
-      "p95_ms": 3532.215396
+      "p50_ms": 2307.464264,
+      "p95_ms": 5318.205259
     },
     {
       "command": "search",
       "runtime": "oracle",
       "runs": 30,
-      "p50_ms": 4218.183435499999,
-      "p95_ms": 6000.186758
+      "p50_ms": 4667.899535500001,
+      "p95_ms": 8703.87377
     }
-  ]
+  ],
+  "overlapping_work": "focused coverage compilation overlapped early comparison rounds"
 }

@@ -681,6 +681,17 @@ fn sdk_streaming_sorts_filters_and_preserves_total() -> Result<(), Box<dyn std::
     )?;
     assert_eq!(page["count"], 1);
     assert_eq!(page["items"][0]["id"], "demo-b");
+    assert!(matches!(
+        workspace.list_page(
+            &ItemFilter::default(),
+            &pm_rust::ListOptions {
+                limit: Some("bad".to_owned()),
+                ..Default::default()
+            },
+            "2026-08-22T10:00:00.000Z",
+        ),
+        Err(PmRustError::InvalidReadRequest { .. })
+    ));
     Ok(())
 }
 
