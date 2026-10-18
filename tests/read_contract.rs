@@ -61,6 +61,39 @@ fn tracker() -> Result<(TempDir, PathBuf), Box<dyn std::error::Error>> {
     Ok((directory, fs::canonicalize(root)?))
 }
 
+/// Every public read refuses a listing fault instead of fabricating an empty selection.
+fn queries_refuse_broken_storage(workspace: &Workspace) -> Result<(), Box<dyn std::error::Error>> {
+    let results = [
+        workspace.get("demo-a").map(|_| ()),
+        workspace.list(ItemFilter::default()).map(|_| ()),
+        workspace
+            .list_page(
+                &ItemFilter::default(),
+                &pm_rust::ListOptions::default(),
+                "2026-08-22T10:00:00.000Z",
+            )
+            .map(|_| ()),
+        workspace
+            .context(
+                &pm_rust::ContextOptions {
+                    no_extension_health: true,
+                    ..Default::default()
+                },
+                "2026-08-22T10:00:00.000Z",
+            )
+            .map(|_| ()),
+        workspace
+            .search("needle", &pm_rust::SearchOptions::default())
+            .map(|_| ()),
+    ];
+    for result in results {
+        if !matches!(result, Err(PmRustError::Io { .. })) {
+            return Err("query did not preserve the real listing refusal".into());
+        }
+    }
+    Ok(())
+}
+
 #[test]
 fn discovers_workspace_tracker_nested_path_and_file() -> Result<(), Box<dyn std::error::Error>> {
     let (directory, root) = tracker()?;
@@ -399,8 +432,11 @@ fn reports_an_unreadable_nested_item_directory() -> Result<(), Box<dyn std::erro
     let path = root.join("tasks/nested/locked");
     fs::create_dir_all(&path)?;
     fs::set_permissions(&path, fs::Permissions::from_mode(0o000))?;
-    let result = Workspace::discover(directory.path())?.read_items();
+    let workspace = Workspace::discover(directory.path())?;
+    let result = workspace.read_items();
+    let queries = queries_refuse_broken_storage(&workspace);
     fs::set_permissions(&path, fs::Permissions::from_mode(0o700))?;
+    queries?;
     assert!(matches!(
         result,
         Err(PmRustError::Io { path: failed, .. }) if failed == path
@@ -422,7 +458,9 @@ fn reports_a_windows_exclusively_held_nested_directory() -> Result<(), Box<dyn s
         .err()
         .ok_or("exclusively held directory listing succeeded")?;
     assert_eq!(error.raw_os_error(), Some(32), "{error:?}");
-    let result = Workspace::discover(directory.path())?.read_items();
+    let workspace = Workspace::discover(directory.path())?;
+    let result = workspace.read_items();
+    queries_refuse_broken_storage(&workspace)?;
     drop(held);
     assert!(matches!(result, Err(PmRustError::Io { path, .. }) if path == nested));
     assert_eq!(

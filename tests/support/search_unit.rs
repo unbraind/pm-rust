@@ -430,3 +430,31 @@ fn bounded_search_retains_total_and_best_rows() -> TestResult {
     assert_eq!(bounded["has_more"], true);
     Ok(())
 }
+
+/// Metadata filters skip unrelated payloads but selected keyword sources still strictly decode.
+#[test]
+fn filtered_search_strictly_decodes_selected_payloads() -> TestResult {
+    let directory = tempfile::tempdir()?;
+    let root = directory.path().join(".agents/pm");
+    fs::create_dir_all(root.join("tasks"))?;
+    fs::write(root.join("settings.json"), "{}")?;
+    fs::write(
+        root.join("tasks/sample-one.toon"),
+        "id: sample-one\ntitle: Needle\ntype: Task\nstatus: open\npriority: 1\ncreated_at: date\nupdated_at: date\nextra_invalid[2]: value\n",
+    )?;
+    let workspace = Workspace::discover(directory.path())?;
+    let selected = SearchOptions {
+        status: Some("open".to_owned()),
+        ..Default::default()
+    };
+    assert!(matches!(
+        workspace.search("needle", &selected),
+        Err(PmRustError::InvalidItemDocument { .. })
+    ));
+    let excluded = SearchOptions {
+        status: Some("closed".to_owned()),
+        ..Default::default()
+    };
+    assert_eq!(workspace.search("needle", &excluded)?["count"], 0);
+    Ok(())
+}

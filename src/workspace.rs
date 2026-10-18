@@ -23,6 +23,9 @@ pub(crate) const NON_ITEM_DIRECTORIES: [&str; 6] = [
     "search",
 ];
 
+/// One owned file source or its authoritative filesystem refusal.
+type ItemSource = Result<(PathBuf, String), PmRustError>;
+
 /// Exact filters supported by the first read-only list contract.
 #[derive(Clone, Debug, Default, PartialEq, Serialize)]
 pub struct ItemFilter {
@@ -213,11 +216,15 @@ impl Workspace {
     /// Lists regular filenames, optionally selecting one ID, without per-item metadata calls.
     fn lookup_paths(&self, id: Option<&str>) -> Result<Vec<PathBuf>, PmRustError> {
         let mut found = Vec::new();
-        for entry in read_directory(&self.pm_root)? {
-            let path = entry.path();
-            let kind = listing_type(&path, entry.file_type())?;
+        for (path, kind) in listing_entries(&self.pm_root)? {
             if kind.is_dir()
-                && !NON_ITEM_DIRECTORIES.contains(&entry.file_name().to_string_lossy().as_ref())
+                && !NON_ITEM_DIRECTORIES.contains(
+                    &path
+                        .file_name()
+                        .unwrap_or_default()
+                        .to_string_lossy()
+                        .as_ref(),
+                )
             {
                 collect_lookup_paths(&path, id, &mut found)?;
             }
@@ -239,17 +246,27 @@ impl Workspace {
     }
 
     /// Opens sources one at a time, allowing metadata filters before payload decoding.
-    pub(crate) fn item_sources(
-        &self,
-    ) -> Result<impl Iterator<Item = Result<(PathBuf, String), PmRustError>>, PmRustError> {
+    pub(crate) fn item_sources(&self) -> Result<impl Iterator<Item = ItemSource>, PmRustError> {
         #[cfg(test)]
         crate::ownership::tests::READ_ITEMS_SCANS.with(|count| count.set(count.get() + 1));
         let mut paths = self.lookup_paths(None)?;
         paths.sort_by(|a, b| a.file_stem().cmp(&b.file_stem()).then_with(|| a.cmp(b)));
-        Ok(paths.into_iter().map(|path| {
-            let content = read_item_text(&path)?;
-            Ok((path, content))
-        }))
+        #[cfg(windows)]
+        {
+            // Bound both raw-content memory and thread creation. Decoding remains
+            // ordered on the caller, preserving first-error and cursor semantics.
+            let batches: Vec<_> = paths.chunks(256).map(<[PathBuf]>::to_vec).collect();
+            Ok(batches
+                .into_iter()
+                .flat_map(|batch| read_parallel_batch(&batch)))
+        }
+        #[cfg(not(windows))]
+        {
+            Ok(paths.into_iter().map(|path| {
+                let content = read_item_text(&path)?;
+                Ok((path, content))
+            }))
+        }
     }
 
     /// Lists stable item projections using exact filters.
@@ -436,6 +453,25 @@ impl Workspace {
     }
 }
 
+/// Reads at most 256 Windows files with four workers and preserves listing order.
+///
+/// Overlaps Windows file-open latency without retaining every raw document.
+/// Keep prefetch separate from decoding; direct get never uses it.
+#[cfg(windows)]
+fn read_parallel_batch(batch: &[PathBuf]) -> Vec<ItemSource> {
+    let mut groups: [Vec<ItemSource>; 4] = std::array::from_fn(|_| Vec::new());
+    std::thread::scope(|scope| {
+        for (paths, rows) in batch.chunks(64).zip(groups.iter_mut()) {
+            scope.spawn(move || {
+                for path in paths {
+                    rows.push(read_item_text(path).map(|content| (path.clone(), content)));
+                }
+            });
+        }
+    });
+    groups.into_iter().flatten().collect()
+}
+
 /// Decodes one projection and rejects repeated authoritative identities while streaming.
 pub(crate) fn decode_unique(
     path: &Path,
@@ -507,15 +543,24 @@ fn listing_type(
     })
 }
 
+/// Captures paths and cached entry types through one fallible listing boundary.
+fn listing_entries(path: &Path) -> Result<Vec<(PathBuf, fs::FileType)>, PmRustError> {
+    read_directory(path)?
+        .into_iter()
+        .map(|entry| {
+            let path = entry.path();
+            listing_type(&path, entry.file_type()).map(|kind| (path, kind))
+        })
+        .collect()
+}
+
 /// Recurses actual type directories, ignoring symbolic links and unrelated filenames.
 fn collect_lookup_paths(
     path: &Path,
     id: Option<&str>,
     paths: &mut Vec<PathBuf>,
 ) -> Result<(), PmRustError> {
-    for entry in read_directory(path)? {
-        let entry_path = entry.path();
-        let kind = listing_type(&entry_path, entry.file_type())?;
+    for (entry_path, kind) in listing_entries(path)? {
         if kind.is_dir() {
             collect_lookup_paths(&entry_path, id, paths)?;
         } else if kind.is_file()

@@ -266,13 +266,71 @@ fn streamed_items_refuse_duplicate_ids() -> Result<(), Box<dyn std::error::Error
     std::fs::create_dir_all(tracker.join("tasks"))?;
     std::fs::write(tracker.join("settings.json"), "{}")?;
     let content = "id: same\ntitle: Example\ntype: Task\nstatus: open\npriority: 1\ncreated_at: date\nupdated_at: date\n";
-    for name in ["first", "second"] {
-        std::fs::write(tracker.join(format!("tasks/{name}.toon")), content)?;
+    std::fs::create_dir_all(tracker.join("custom"))?;
+    for folder in ["tasks", "custom"] {
+        std::fs::write(tracker.join(format!("{folder}/same.toon")), content)?;
     }
     let workspace = super::Workspace::discover(directory.path())?;
     let items = workspace
         .stream_items(crate::read_projection::Projection::List)?
         .collect::<Result<Vec<_>, _>>();
     assert!(matches!(items, Err(PmRustError::DuplicateItemId { .. })));
+    Ok(())
+}
+
+/// Summary streaming preserves sorting, totals, cross-item filters and raw read failures.
+#[test]
+fn sdk_streamed_summary_selection_and_read_failures() -> Result<(), Box<dyn std::error::Error>> {
+    let directory = tempfile::tempdir()?;
+    let root = directory.path().join(".agents/pm");
+    std::fs::create_dir_all(root.join("tasks"))?;
+    std::fs::write(root.join("settings.json"), "{}")?;
+    for id in ["sample-one", "sample-two"] {
+        std::fs::write(
+            root.join(format!("tasks/{id}.toon")),
+            format!(
+                "id: {id}\ntitle: Needle\ntype: Task\nstatus: open\npriority: 1\ntags[1]: alpha\ncreated_at: date\nupdated_at: date\n"
+            ),
+        )?;
+    }
+    let workspace = super::Workspace::discover(directory.path())?;
+    let summary = workspace.list(crate::ItemFilter::default())?;
+    assert_eq!(summary.total, 2);
+    let excluded = workspace.list(crate::ItemFilter {
+        status: Some("closed".to_owned()),
+        ..Default::default()
+    })?;
+    assert!(excluded.items.is_empty());
+    assert_eq!(excluded.total, 2);
+    assert_eq!(
+        summary
+            .items
+            .iter()
+            .map(|row| row.id.as_str())
+            .collect::<Vec<_>>(),
+        ["sample-one", "sample-two"]
+    );
+    let filters = crate::ItemFilter {
+        id: Some("sample-one".to_owned()),
+        ..Default::default()
+    };
+    let page = workspace.list_page(
+        &filters,
+        &crate::ListOptions {
+            tag: Some("alpha".to_owned()),
+            ..Default::default()
+        },
+        "2026-08-22T10:00:00.000Z",
+    )?;
+    assert_eq!(page["count"], 1);
+    std::fs::write(root.join("tasks/sample-one.toon"), [0xff])?;
+    assert!(matches!(
+        workspace.list(crate::ItemFilter::default()),
+        Err(PmRustError::Io { .. })
+    ));
+    assert!(matches!(
+        workspace.search("needle", &crate::SearchOptions::default()),
+        Err(PmRustError::Io { .. })
+    ));
     Ok(())
 }
