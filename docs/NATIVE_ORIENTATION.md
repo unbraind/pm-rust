@@ -130,6 +130,11 @@ Extension discovery has a real oracle fixture for the minimal manifest and
 explicit refusal/omission coverage for richer manifests.
 Real-process history acceptance also covers strict verification success and
 closed output pipes without changing the stored history.
+Parser refusals and help preserve Clap's output streams and 0/2 statuses while
+returning through `main` for normal process teardown. Six before/after parser
+responses retain identical bytes. The preceding Windows aggregate exercised
+the immediate-exit refusal successfully but could not retain its coverage;
+the normal-return path permits finalization without conditional coverage code.
 
 The complete 2,991-item public tracker copy also passed a clock-pinned context
 comparison: 11,839 JSON bytes and 7,219 default TOON bytes matched exactly,
@@ -172,22 +177,19 @@ above pins clocks.
 
 | Command | Native p50 | Native p95 | Oracle p50 | Oracle p95 |
 | --- | ---: | ---: | ---: | ---: |
-| `context --limit 10` | 7407.5 | 22255.9 | 10985.6 | 23250.5 |
-| `list --status open --limit 20` | 4807.6 | 14220.8 | 4000.8 | 9672.2 |
-| `search history --limit 10` | 6153.1 | 15781.2 | 10507.0 | 23424.3 |
-| `get <id>` | 4405.4 | 12667.1 | 3715.0 | 8957.4 |
+| `context --limit 10` | 2592.8 | 5831.6 | 3355.3 | 8429.7 |
+| `list --status open --limit 20` | 2116.0 | 4653.3 | 1269.9 | 3516.6 |
+| `search history --limit 10` | 2200.0 | 4775.4 | 4177.7 | 8293.2 |
+| `get <id>` | 1864.8 | 3713.8 | 1118.5 | 2862.6 |
 
 Hardware: four logical CPUs, Intel Core i5-7400, shared Linux host. The harness
 ran under `nice -n 0`, retaining the inherited effective nice 15. Concurrent
 package validation remained active. Start load averages (1/5/15 minutes):
-44.51/38.77/29.71; end: 22.05/24.19/27.87. The sampled one-minute range was
-20.07–44.97. Measurement ran from 06:42:14 to 07:13:11 UTC.
-Native used `cargo build --locked --release` with Rust 1.90.0; the initial
-build source was `fe76d4b58c2e8a5398440c4d960e73cea759c612`. Production files
-remain identical at measurement checkout `d33215b6658898c994b2a523673d0d083ca37f37`;
-a rebuild preserved the measured binary's exact SHA-256. Later changes are
-acceptance fixtures and evidence. The oracle was the locked 2026.10.14 package
-on Node v24.19.0. Agent home, global state and author were
+18.65/12.19/14.54; end: 21.37/18.95/16.86. The sampled one-minute range was
+13.84–25.64. Measurement ran from 07:56:21 to 08:06:32 UTC.
+Native used `cargo build --locked --release` with Rust 1.90.0, source
+`309df2e95c201a9804e903572301fbecee0e4908`. The oracle was the locked
+2026.10.14 package on Node v24.19.0. Agent home, global state and author were
 isolated. The binary fingerprint stayed constant throughout the run.
 
 Native context and search have lower measured p50/p95. List and get are slower
@@ -196,3 +198,34 @@ than the oracle's warm indexed reads; selective lookup/index work is tracked in
 shared-host contention. The complete [sample CSV](benchmarks/native-orientation-2026-10-18.csv)
 and [summary, load and integrity receipt](benchmarks/native-orientation-2026-10-18.json)
 retain the underlying measurements.
+
+
+## Acceptance receipt
+
+At implementation head `309df2e95c201a9804e903572301fbecee0e4908`, the isolated
+Linux `RUST_TEST_THREADS=8 just release-check` passed: 449 normal tests and
+449 branch-instrumented tests, 20 suites per run, zero failures and zero ignored
+tests. The updated CLI boundary suite also passed 11 tests independently.
+Fmt, pedantic Clippy with warnings denied, private-item rustdoc, identity audit,
+security audit and the changelog check passed at unchanged thresholds.
+
+| Coverage dimension | Covered / measured | Percent |
+| --- | ---: | ---: |
+| Lines | 11,656 / 11,656 | 100% |
+| Regions | 19,104 / 19,104 | 100% |
+| Functions | 1,170 / 1,170 | 100% |
+| Branches | 2,830 / 2,830 | 100% |
+
+Strict read-only project health passed all eight checks with four advisory
+findings retained. The linked `pm test` execution passed all 12 orientation
+differentials. Project policy disables automatic test-result tracking, so its
+persistent result receipt is an item comment rather than an automatic run row.
+CI normal test counts are Linux 449, macOS 445 and Windows 441, with zero
+failures or ignored tests. All three platform aggregates passed the same four
+100% coverage dimensions; security checks passed. Platform counts differ with
+conditional filesystem and process tests.
+
+The [machine-readable gate receipt](benchmarks/native-orientation-gates-2026-10-18.json)
+records the measured source scope, platform counts and the preceding Windows
+parser-exit regression. Six behavioral revert controls are recorded in the
+feature comments. Release automation remains disabled.

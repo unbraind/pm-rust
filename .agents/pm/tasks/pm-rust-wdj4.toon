@@ -1,12 +1,12 @@
 id: pm-rust-wdj4
 title: Reduce native list and get latency on large indexed trackers
-description: "The final 30-run cold-process receipt on a complete 2991-item public tracker copy measured native list p50 4807.6 ms versus oracle 4000.8 ms, and native get p50 4405.4 ms versus oracle 3715.0 ms. This is a heavily contended shared 4-CPU host with effective nice 15, warm filesystem and oracle derived caches; 1-minute load ranged 20.07 to 44.97. The earlier lower-load 22f7fd0 receipt also showed slower native list/get. Investigate selective lookup or validated derived indexes without weakening authoritative read correctness, concurrency or parity. Retain this optimization as a separate follow-up to the orientation command slice."
+description: "The final parser-cleanup release receipt on a complete 2991-item public tracker copy measured 30 cold processes per command/runtime: native list p50 2116.0 ms versus oracle 1269.9 ms, and native get p50 1864.8 ms versus oracle 1118.5 ms. This is a shared 4-CPU host with effective nice 15, warm filesystem and oracle derived caches; sampled 1-minute load ranged 13.84 to 25.64. Earlier completed receipts also showed slower native list/get. Investigate selective lookup or validated derived indexes without weakening authoritative read correctness, concurrency or parity. Keep this optimization separate from the orientation command slice."
 type: Task
 status: open
 priority: 3
 tags[3]: follow-up,performance,rust
 created_at: "2026-10-18T06:28:16.861Z"
-updated_at: "2026-10-18T07:16:17.227Z"
+updated_at: "2026-10-18T08:13:21.820Z"
 author: codex-agent
 acceptance_criteria: "Measure the same 30-run commands and retain byte parity, storage integrity and all coverage dimensions."
 parent: pm-rust-u4al

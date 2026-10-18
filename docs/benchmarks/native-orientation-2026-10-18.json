@@ -1,81 +1,81 @@
 {
-  "source_commit": "d33215b6658898c994b2a523673d0d083ca37f37",
+  "source_commit": "309df2e95c201a9804e903572301fbecee0e4908",
   "oracle_version": "2026.10.14",
   "node_version": "v24.19.0",
-  "start_utc": "2026-10-18T06:42:14Z",
-  "end_utc": "2026-10-18T07:13:11Z",
+  "start_utc": "2026-10-18T07:56:21Z",
+  "end_utc": "2026-10-18T08:06:32Z",
   "items": 2991,
   "cpus": 4,
   "nice": 15,
   "start_loadavg": [
-    44.51171875,
-    38.77099609375,
-    29.71484375
+    18.6513671875,
+    12.18798828125,
+    14.5390625
   ],
   "end_loadavg": [
-    22.04833984375,
-    24.18505859375,
-    27.86767578125
+    21.36962890625,
+    18.947265625,
+    16.8623046875
   ],
-  "min_1m_load": 20.0712890625,
-  "max_1m_load": 44.966796875,
-  "native_sha256": "e0328e4750cc0347d09f3dd2d89255a4e02c0b4d2a79cf7a0d059a078dc10876",
+  "min_1m_load": 13.84375,
+  "max_1m_load": 25.6396484375,
+  "native_sha256": "01732ddadf6f6d0f25efe74b5b8eabb12d8b571437d0095b9f4fc6212ed05447",
   "summary": [
     {
       "command": "context --limit 10",
       "oracle": {
         "n": 30,
-        "p50_ms": 10985.6207895,
-        "p95_ms": 23250.528477
+        "p50_ms": 3355.258011,
+        "p95_ms": 8429.695888
       },
       "native": {
         "n": 30,
-        "p50_ms": 7407.5250315,
-        "p95_ms": 22255.910097
+        "p50_ms": 2592.823644,
+        "p95_ms": 5831.575741
       }
     },
     {
       "command": "list --status open --limit 20",
       "oracle": {
         "n": 30,
-        "p50_ms": 4000.772844,
-        "p95_ms": 9672.221596
+        "p50_ms": 1269.904353,
+        "p95_ms": 3516.589368
       },
       "native": {
         "n": 30,
-        "p50_ms": 4807.599748000001,
-        "p95_ms": 14220.805341
+        "p50_ms": 2115.9972815,
+        "p95_ms": 4653.335324
       }
     },
     {
       "command": "search history --limit 10",
       "oracle": {
         "n": 30,
-        "p50_ms": 10507.0317505,
-        "p95_ms": 23424.257282
+        "p50_ms": 4177.6537714999995,
+        "p95_ms": 8293.189541
       },
       "native": {
         "n": 30,
-        "p50_ms": 6153.130306,
-        "p95_ms": 15781.247582
+        "p50_ms": 2199.9622925000003,
+        "p95_ms": 4775.421138
       }
     },
     {
       "command": "get <id>",
       "oracle": {
         "n": 30,
-        "p50_ms": 3714.9751845,
-        "p95_ms": 8957.419266
+        "p50_ms": 1118.5170444999999,
+        "p95_ms": 2862.579207
       },
       "native": {
         "n": 30,
-        "p50_ms": 4405.362814,
-        "p95_ms": 12667.07632
+        "p50_ms": 1864.7840930000002,
+        "p95_ms": 3713.801021
       }
     }
   ],
-  "initial_release_build_commit": "fe76d4b58c2e8a5398440c4d960e73cea759c612",
-  "production_source_verified": "No changes in src, Cargo.toml or Cargo.lock since the initial release build; rebuilding the current production source preserves the measured binary SHA-256.",
+  "initial_release_build_commit": "309df2e95c201a9804e903572301fbecee0e4908",
+  "production_source_verified": "The measured release binary SHA-256 remained constant throughout the run.",
   "cpu_model": "Intel Core i5-7400",
   "process_method": "30 fresh processes per command/runtime; alternating runtime order; warm filesystem and oracle derived caches; perf_counter_ns wall clock; p50 median; p95 nearest rank (29th of 30)",
   "shared_host_activity": "Concurrent package validation remained active.",
@@ -83,7 +83,7 @@
     "checked_files": 6004,
     "original_changed_files": 0,
     "copy_changed_authoritative_files": 0,
-    "verified_at_utc": "2026-10-18T07:14:58Z"
+    "verified_at_utc": "2026-10-18T08:09:17Z"
   },
   "samples": "native-orientation-2026-10-18.csv"
 }

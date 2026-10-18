@@ -1,0 +1,197 @@
+{
+  "implementation_head": "309df2e95c201a9804e903572301fbecee0e4908",
+  "oracle_version": "2026.10.14",
+  "local_platform": "Linux",
+  "command": "RUST_TEST_THREADS=8 just release-check",
+  "environment": "Isolated home and Git global/system configuration; Rust 1.90.0 and nightly-2026-08-06.",
+  "stable_tests": {
+    "suites": 20,
+    "passed": 449,
+    "failed": 0,
+    "ignored": 0
+  },
+  "instrumented_tests": {
+    "suites": 20,
+    "passed": 449,
+    "failed": 0,
+    "ignored": 0
+  },
+  "updated_cli_boundary_run": {
+    "command": "cargo test --locked --test cli_dispatch",
+    "passed": 11,
+    "failed": 0
+  },
+  "pm_linked_orientation": {
+    "command": "pm test pm-rust-xb3s --run --progress",
+    "underlying_command": "cargo test --locked --test orientation_differential",
+    "passed": 12,
+    "failed": 0,
+    "evidence_recording": "Project policy tracking_disabled; result persisted in item comments."
+  },
+  "coverage": {
+    "lines": {
+      "count": 11656,
+      "covered": 11656,
+      "percent": 100
+    },
+    "regions": {
+      "count": 19104,
+      "covered": 19104,
+      "notcovered": 0,
+      "percent": 100
+    },
+    "functions": {
+      "count": 1170,
+      "covered": 1170,
+      "percent": 100
+    },
+    "branches": {
+      "count": 2830,
+      "covered": 2830,
+      "notcovered": 0,
+      "percent": 100
+    }
+  },
+  "coverage_source_files": [
+    "src/collation.rs",
+    "src/collections.rs",
+    "src/history.rs",
+    "src/identity_probes.rs",
+    "src/item.rs",
+    "src/json_output.rs",
+    "src/list.rs",
+    "src/list_intent.rs",
+    "src/list_registry.rs",
+    "src/main.rs",
+    "src/mutation.rs",
+    "src/orientation.rs",
+    "src/orientation_context.rs",
+    "src/orientation_deps.rs",
+    "src/ownership.rs",
+    "src/pagination.rs",
+    "src/read_output.rs",
+    "src/search.rs",
+    "src/selection.rs",
+    "src/toon_output.rs",
+    "src/workspace.rs"
+  ],
+  "health": {
+    "command": "pm health --check-only --require-merge-drivers --strict-exit --json",
+    "ok": true,
+    "check_count": 8,
+    "warning_count": 4,
+    "advisory_count": 4,
+    "checked_after_claim_release": true
+  },
+  "ci_test_counts": {
+    "linux": 449,
+    "macos": 445,
+    "windows": 441
+  },
+  "revert_controls": 6,
+  "release_automation": "Unchanged; disabled.",
+  "ci_coverage": {
+    "linux": {
+      "lines": {
+        "count": 11656,
+        "covered": 11656,
+        "percent": 100
+      },
+      "regions": {
+        "count": 19104,
+        "covered": 19104,
+        "notcovered": 0,
+        "percent": 100
+      },
+      "functions": {
+        "count": 1170,
+        "covered": 1170,
+        "percent": 100
+      },
+      "branches": {
+        "count": 2830,
+        "covered": 2830,
+        "notcovered": 0,
+        "percent": 100
+      }
+    },
+    "mac": {
+      "lines": {
+        "count": 11656,
+        "covered": 11656,
+        "percent": 100
+      },
+      "regions": {
+        "count": 19104,
+        "covered": 19104,
+        "notcovered": 0,
+        "percent": 100
+      },
+      "functions": {
+        "count": 1170,
+        "covered": 1170,
+        "percent": 100
+      },
+      "branches": {
+        "count": 2830,
+        "covered": 2830,
+        "notcovered": 0,
+        "percent": 100
+      }
+    },
+    "windows": {
+      "lines": {
+        "count": 11655,
+        "covered": 11655,
+        "percent": 100
+      },
+      "regions": {
+        "count": 19105,
+        "covered": 19105,
+        "notcovered": 0,
+        "percent": 100
+      },
+      "functions": {
+        "count": 1171,
+        "covered": 1171,
+        "percent": 100
+      },
+      "branches": {
+        "count": 2832,
+        "covered": 2832,
+        "notcovered": 0,
+        "percent": 100
+      }
+    }
+  },
+  "ci_test_results": {
+    "linux": {
+      "passed": 449,
+      "failed": 0,
+      "ignored": 0,
+      "suites": 20
+    },
+    "mac": {
+      "passed": 445,
+      "failed": 0,
+      "ignored": 0,
+      "suites": 20
+    },
+    "windows": {
+      "passed": 441,
+      "failed": 0,
+      "ignored": 0,
+      "suites": 20
+    }
+  },
+  "implementation_ci": "https://github.com/unbraind/pm-rust/commit/309df2e95c201a9804e903572301fbecee0e4908/checks",
+  "parser_cleanup_ci_comparison": {
+    "negative_head": "6687ef98582ea1be6ac4a94a63ff4e7ee4555c1c",
+    "negative_windows_missing_lines": 2,
+    "negative_windows_missing_regions": 3,
+    "negative_windows_missing_branches": 2,
+    "positive_head": "309df2e95c201a9804e903572301fbecee0e4908",
+    "positive_windows_four_dimensions_percent": 100,
+    "parser_before_after_byte_identical_cases": 6
+  }
+}
