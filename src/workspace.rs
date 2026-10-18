@@ -260,7 +260,7 @@ impl Workspace {
     pub fn list(&self, filters: ItemFilter) -> Result<ListResult, PmRustError> {
         let mut total = 0;
         let mut items = Vec::new();
-        for document in self.stream_items(crate::read_projection::Projection::List)? {
+        for document in self.stream_items(crate::read_projection::Projection::Summary)? {
             let document = document?;
             total += 1;
             if filters.matches(&document) {

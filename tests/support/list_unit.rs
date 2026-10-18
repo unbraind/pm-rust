@@ -608,3 +608,38 @@ fn exact_id_selection_avoids_unrelated_payloads() -> Result<(), Box<dyn std::err
     );
     Ok(())
 }
+
+/// Brief context parses update/history sort timestamps once per item, rather than per comparison.
+#[test]
+fn context_timestamp_parse_work_is_linear() -> Result<(), Box<dyn std::error::Error>> {
+    let directory = tempfile::tempdir()?;
+    let root = directory.path().join(".agents/pm");
+    fs::create_dir_all(root.join("tasks"))?;
+    fs::write(root.join("settings.json"), "{}")?;
+    for index in 0..50 {
+        let id = format!("sample-{index:03}");
+        let item = serde_json::json!({"id":id,"title":id,"type":"Task","status":"open","priority":1,"created_at":"2026-08-22T10:00:00.000Z","updated_at":"2026-08-22T10:00:00.000Z"});
+        fs::write(
+            root.join(format!("tasks/{id}.toon")),
+            toon_format::encode_default(&item)?,
+        )?;
+    }
+    let workspace = Workspace::discover(directory.path())?;
+    super::TIMESTAMP_PARSES.set(Some(0));
+    let result = workspace.context_with_global(
+        &crate::ContextOptions {
+            limit: Some("10".to_owned()),
+            no_extension_health: true,
+            ..Default::default()
+        },
+        "2026-08-22T10:00:00.000Z",
+        None,
+    );
+    let parses = super::TIMESTAMP_PARSES.replace(None).unwrap_or_default();
+    assert_eq!(result?["summary"]["total_items"], 50);
+    assert!(
+        parses <= 5 * 50 + 32,
+        "{parses} timestamp parses for 50 items"
+    );
+    Ok(())
+}

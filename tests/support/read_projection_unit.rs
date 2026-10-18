@@ -9,6 +9,8 @@ fn projections_keep_required_fields_and_context_counts() -> Result<(), Box<dyn s
     let path = Path::new("tasks/sample-one.toon");
     let full = decode(path, &content, Projection::Full)?;
     let list = decode(path, &content, Projection::List)?;
+    let summary = decode(path, &content, Projection::Summary)?;
+    assert!(!summary.metadata.extra.contains_key("dependencies"));
     let brief = decode(path, &content, Projection::Context)?;
     assert_eq!(full.body, "long body");
     assert!(list.body.is_empty());

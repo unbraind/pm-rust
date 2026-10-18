@@ -595,7 +595,7 @@ impl Workspace {
         let mut hits = Vec::new();
         let filtered = status_tokens.is_some() || type_filter.is_some() || options.tag.is_some();
         let projection = if filtered {
-            crate::read_projection::Projection::List
+            crate::read_projection::Projection::Summary
         } else {
             crate::read_projection::Projection::Full
         };

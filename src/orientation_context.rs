@@ -283,10 +283,17 @@ fn ranked(
 ) -> Result<Vec<(Value, f64)>, PmRustError> {
     let mut recent: Vec<_> = items
         .iter()
-        .map(|item| Ok((text(item, "id"), recency(workspace, item)?)))
+        .map(|item| {
+            Ok((
+                text(item, "id"),
+                crate::list::timestamp_key(&recency(workspace, item)?),
+            ))
+        })
         .collect::<Result<_, PmRustError>>()?;
-    recent
-        .sort_by(|a, b| date_compare(&b.1, &a.1).then_with(|| crate::collation::compare(a.0, b.0)));
+    recent.sort_by(|a, b| {
+        b.1.cmp(&a.1)
+            .then_with(|| crate::collation::compare(a.0, b.0))
+    });
     let recency: BTreeMap<_, _> = recent
         .iter()
         .enumerate()
@@ -325,6 +332,7 @@ fn ranked(
     let max_activity = number(activities.iter().copied().max().unwrap_or(0).max(1));
     let denominator = number(items.len().saturating_sub(1).max(1));
     let mut scored = Vec::new();
+    let now_key = crate::list::timestamp_key(now).0;
     for (index, item) in items.iter().enumerate() {
         let assigned = !author.trim().is_empty()
             && text(item, "assignee")
@@ -332,9 +340,8 @@ fn ranked(
                 .eq_ignore_ascii_case(author.trim());
         let priority = item["priority"].as_f64().unwrap_or(0.0);
         let deadline = crate::list::timestamp_key(text(item, "deadline")).0;
-        let now = crate::list::timestamp_key(now).0;
         #[allow(clippy::cast_precision_loss)]
-        let pressure = deadline.zip(now).map_or(0.0, |(deadline, now)| {
+        let pressure = deadline.zip(now_key).map_or(0.0, |(deadline, now)| {
             let days = (deadline - now) as f64 / 86_400_000.0;
             if days <= 0.0 {
                 1.0
@@ -1105,15 +1112,26 @@ impl Workspace {
             .filter(|item| !lifecycle.terminal(text(item, "status")))
             .cloned()
             .collect();
-        items.sort_by(|a, b| {
+        let mut keyed: Vec<_> = items
+            .drain(..)
+            .map(|item| {
+                let absent = item["deadline"].is_null();
+                let deadline =
+                    (!absent).then(|| crate::list::timestamp_key(text(&item, "deadline")));
+                let updated = crate::list::timestamp_key(text(&item, "updated_at"));
+                (item, (absent, deadline), updated)
+            })
+            .collect();
+        keyed.sort_by(|(a, a_deadline, a_updated), (b, b_deadline, b_updated)| {
             status_rank(a, &lifecycle)
                 .cmp(&status_rank(b, &lifecycle))
                 .then_with(|| optional(&a["priority"], &b["priority"], false))
                 .then_with(|| optional(&a["order"], &b["order"], false))
-                .then_with(|| optional(&a["deadline"], &b["deadline"], true))
-                .then_with(|| date_compare(text(b, "updated_at"), text(a, "updated_at")))
+                .then_with(|| a_deadline.cmp(b_deadline))
+                .then_with(|| b_updated.cmp(a_updated))
                 .then_with(|| crate::collation::compare(text(a, "id"), text(b, "id")))
         });
+        items = keyed.into_iter().map(|(item, _, _)| item).collect();
         let env = std::env::vars_os()
             .map(|(key, value)| {
                 (

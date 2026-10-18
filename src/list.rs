@@ -104,13 +104,15 @@ fn read_selection(
     echo.insert("runtime_filters".to_owned(), json!({}));
     let projection = if full && !options.brief {
         crate::read_projection::Projection::Full
-    } else {
+    } else if filters.status.as_deref() == Some("blocked") || options.parent.is_some() {
         crate::read_projection::Projection::List
+    } else {
+        crate::read_projection::Projection::Summary
     };
     let documents = query_documents(workspace, projection, filters, options)?;
     let warnings = unknown_tags(&documents, options.tag.as_deref());
     let lifecycle = crate::list_registry::Lifecycle::load(workspace.query_pm_root())?;
-    let documents = select_documents(
+    let mut documents = select_documents(
         documents,
         filters,
         include_terminal,
@@ -118,6 +120,16 @@ fn read_selection(
         &lifecycle,
         &lifecycle.hierarchy,
     );
+    let total = documents.len();
+    // First-page bounds can discard unreturned documents before JSON projection.
+    // Global sort/filter metadata is still complete, including the total count.
+    if !options.no_truncate
+        && options.after.is_none()
+        && options.offset.is_none()
+        && let Some(limit) = &options.limit
+    {
+        documents.truncate(integer(limit, 0)?);
+    }
     let items: Vec<Value> = documents.into_iter().map(|document| {
         let metadata = document.metadata;
         if full {
@@ -143,7 +155,7 @@ fn read_selection(
         vec![json!({"name":"full_item_fields", "restore_with":"--full"})]
     };
     let mut result = json!({
-        "items": items, "count": items.len(), "total": items.len(),
+        "items": items, "count": items.len(), "total": total,
         "has_more": false, "truncated": false, "next_cursor": null,
         "completeness": {"status":"complete", "unreadable_item_count":0, "unreadable_directory_count":0},
         "filters": echo, "projection": projection,
@@ -615,8 +627,16 @@ fn select_documents(
     lifecycle: &crate::list_registry::Lifecycle,
     hierarchy: &crate::list_registry::Hierarchy,
 ) -> Vec<crate::ItemDocument> {
-    let parents = parent_relations(&documents, hierarchy);
-    let blocked = crate::selection::dependency_blocked_ids(&documents, lifecycle);
+    let parents = if options.parent.is_some() {
+        parent_relations(&documents, hierarchy)
+    } else {
+        std::collections::BTreeMap::new()
+    };
+    let blocked = if filters.status.as_deref() == Some("blocked") {
+        crate::selection::dependency_blocked_ids(&documents, lifecycle)
+    } else {
+        std::collections::BTreeSet::new()
+    };
     documents.retain(|document| {
         let metadata = &document.metadata;
         let status_matches = if filters.status.as_deref() == Some("blocked") {
@@ -690,6 +710,9 @@ fn query_documents(
 
 /// Discloses requested tags absent from the whole corpus before applying filters.
 fn unknown_tags(documents: &[crate::ItemDocument], raw: Option<&str>) -> Vec<String> {
+    let Some(raw) = raw else {
+        return vec![];
+    };
     let known: std::collections::BTreeSet<_> = documents
         .iter()
         .flat_map(|document| {
@@ -701,11 +724,7 @@ fn unknown_tags(documents: &[crate::ItemDocument], raw: Option<&str>) -> Vec<Str
         })
         .collect();
     let mut unknown = Vec::new();
-    for tag in raw
-        .into_iter()
-        .flat_map(|raw| raw.split(','))
-        .map(|tag| tag.trim().to_lowercase())
-    {
+    for tag in raw.split(',').map(|tag| tag.trim().to_lowercase()) {
         if !known.contains(&tag) && !unknown.contains(&tag) {
             unknown.push(tag);
         }

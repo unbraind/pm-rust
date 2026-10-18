@@ -8,8 +8,10 @@ use crate::{ItemDocument, PmRustError};
 pub(crate) enum Projection {
     /// Full metadata, collections and body.
     Full,
-    /// List selection, hierarchy, sort keys and the identity projection.
+    /// List selection including hierarchy and dependency-blocking inputs.
     List,
+    /// Scalar list/search filters, sorting and identity output without relationship payloads.
+    Summary,
     /// Brief context ranking, agenda and collection sizes.
     Context,
 }
@@ -67,46 +69,13 @@ pub(crate) fn decode(
                     continue;
                 }
             }
-            retain = if projection == Projection::List {
-                matches!(
-                    key,
-                    "id" | "title"
-                        | "type"
-                        | "status"
-                        | "priority"
-                        | "tags"
-                        | "created_at"
-                        | "updated_at"
-                        | "parent"
-                        | "dependencies"
-                        | "blocked_by"
-                        | "deadline"
-                )
-            } else {
-                matches!(
-                    key,
-                    "id" | "title"
-                        | "type"
-                        | "status"
-                        | "priority"
-                        | "tags"
-                        | "created_at"
-                        | "updated_at"
-                        | "parent"
-                        | "dependencies"
-                        | "blocked_by"
-                        | "deadline"
-                        | "order"
-                        | "assignee"
-                        | "risk"
-                        | "release"
-                        | "comments"
-                        | "notes"
-                        | "learnings"
-                        | "test_runs"
-                        | "reminders"
-                        | "events"
-                )
+            retain = match key {
+                "id" | "title" | "type" | "status" | "priority" | "tags" | "created_at"
+                | "updated_at" | "parent" | "deadline" => true,
+                "dependencies" | "blocked_by" => projection != Projection::Summary,
+                "order" | "assignee" | "risk" | "release" | "comments" | "notes" | "learnings"
+                | "test_runs" | "reminders" | "events" => projection == Projection::Context,
+                _ => false,
             };
         }
         if retain {
