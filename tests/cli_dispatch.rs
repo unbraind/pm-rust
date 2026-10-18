@@ -76,6 +76,109 @@ fn pm_rust(
         .output()?)
 }
 
+/// Parser refusals identify the rejected short option or extra positional token.
+#[test]
+fn orientation_refusals_name_the_rejected_argument() -> Result<(), Box<dyn std::error::Error>> {
+    let workspace = workspace()?;
+    for (command, positional) in [
+        ("context", vec![]),
+        ("history", vec!["sample-a"]),
+        ("deps", vec!["sample-a"]),
+    ] {
+        for rejected in ["-v", "extra", "--bogus=value"] {
+            for json in [false, true] {
+                let mut args = vec![command];
+                args.extend(&positional);
+                // This allowed option must never be reported as the rejected token.
+                args.extend(["--limit", "1"].into_iter().filter(|_| command != "deps"));
+                if json {
+                    args.push("--json");
+                }
+                args.push(rejected);
+                let output = pm_rust(&workspace, &args)?;
+                let stderr = String::from_utf8(output.stderr)?;
+                let token = rejected.split('=').next().unwrap_or_default();
+                assert_eq!(output.status.code(), Some(2), "{args:?}: {stderr}");
+                assert!(output.stdout.is_empty());
+                assert!(
+                    stderr.contains(&format!("Native {command} does not support {token};")),
+                    "{args:?}: {stderr}"
+                );
+                if json {
+                    let payload: serde_json::Value = serde_json::from_str(&stderr)?;
+                    assert_eq!(payload["code"], "unsupported_native_option");
+                    assert_eq!(payload["flag"], token);
+                    assert_eq!(payload["value"], token);
+                    assert_eq!(payload["refusal"]["exit_code"], 2);
+                }
+            }
+        }
+    }
+    assert!(!workspace.path().join(".agents/pm/locks").exists());
+    Ok(())
+}
+
+/// Invalid history names have identical refusals regardless of an escaped file's existence.
+#[test]
+fn history_invalid_id_refuses_before_filesystem_lookup() -> Result<(), Box<dyn std::error::Error>> {
+    let workspace = workspace()?;
+    let root = workspace.path().join(".agents/pm");
+    fs::create_dir_all(root.join("history"))?;
+    let outside = workspace.path().join(".agents/outside-x.jsonl");
+    for json in [false, true] {
+        let mut args = vec!["history", "../../outside-x"];
+        if json {
+            args.push("--json");
+        }
+        let missing = pm_rust(&workspace, &args)?;
+        fs::write(&outside, "outside bytes must never be read\n")?;
+        let existing = pm_rust(&workspace, &args)?;
+        assert_eq!(missing.status.code(), Some(2));
+        assert_eq!(existing.status.code(), Some(2));
+        assert!(missing.stdout.is_empty());
+        assert!(existing.stdout.is_empty());
+        assert_eq!(missing.stderr, existing.stderr);
+        assert!(
+            String::from_utf8(missing.stderr)?
+                .contains("Invalid history item id: expected a single filename.")
+        );
+        assert_eq!(fs::read(&outside)?, b"outside bytes must never be read\n");
+        fs::remove_file(&outside)?;
+    }
+    assert!(!root.join("locks").exists());
+    Ok(())
+}
+
+/// Orientation words in other commands retain the selected command's Clap refusal.
+#[test]
+fn orientation_values_do_not_reclassify_unrelated_commands()
+-> Result<(), Box<dyn std::error::Error>> {
+    let workspace = workspace()?;
+    for (arguments, control) in [
+        (
+            vec!["search", "history", "--bogus"],
+            vec!["search", "fixture", "--bogus"],
+        ),
+        (
+            vec!["create", "--title", "deps", "--bogus"],
+            vec!["create", "--title", "fixture", "--bogus"],
+        ),
+        (
+            vec!["get", "context", "--bogus"],
+            vec!["get", "fixture", "--bogus"],
+        ),
+    ] {
+        let expected = pm_rust(&workspace, &control)?;
+        let actual = pm_rust(&workspace, &arguments)?;
+        assert_eq!(actual.status.code(), Some(2));
+        assert!(actual.stdout.is_empty());
+        assert_eq!(actual.stderr, expected.stderr, "{arguments:?}");
+        assert!(!String::from_utf8_lossy(&actual.stderr).contains("unsupported_native_option"));
+    }
+    assert!(!workspace.path().join(".agents/pm/locks").exists());
+    Ok(())
+}
+
 /// Runs the binary expecting success.
 fn expect_ok(workspace: &TempDir, arguments: &[&str]) -> Result<(), Box<dyn std::error::Error>> {
     let output = pm_rust(workspace, arguments)?;
@@ -120,6 +223,43 @@ fn seed_item(workspace: &TempDir) -> Result<(), Box<dyn std::error::Error>> {
     )
 }
 
+/// Verified history succeeds strictly and propagates a reader closing its output pipe.
+#[test]
+fn history_strict_success_and_closed_pipe() -> Result<(), Box<dyn std::error::Error>> {
+    use std::process::Stdio;
+    let workspace = workspace()?;
+    seed_item(&workspace)?;
+    expect_ok(
+        &workspace,
+        &[
+            "history",
+            "sample-cli",
+            "--verify",
+            "--strict-exit",
+            "--json",
+        ],
+    )?;
+    let path = workspace.path().join(".agents/pm/history/sample-cli.jsonl");
+    let mut entry: serde_json::Value = serde_json::from_str(fs::read_to_string(&path)?.trim())?;
+    entry["author"] = serde_json::json!("fixture".repeat(100_000));
+    fs::write(&path, format!("{}\n", serde_json::to_string(&entry)?))?;
+    let before = fs::read(&path)?;
+    // Confirm the edited stream loads before isolating the closed-pipe failure.
+    expect_ok(&workspace, &["history", "sample-cli", "--full", "--json"])?;
+    let mut child = Command::new(env!("CARGO_BIN_EXE_pm-rust"))
+        .current_dir(workspace.path())
+        .args(["--workspace=.", "history", "sample-cli", "--full", "--json"])
+        .stdout(Stdio::piped())
+        .stderr(Stdio::piped())
+        .spawn()?;
+    drop(child.stdout.take());
+    let output = child.wait_with_output()?;
+    assert_eq!(output.status.code(), Some(2));
+    assert!(!output.stderr.is_empty());
+    assert_eq!(fs::read(path)?, before);
+    Ok(())
+}
+
 #[test]
 /// Covers the read commands over stored items and their failure paths.
 fn list_and_get_dispatch_over_real_processes() -> Result<(), Box<dyn std::error::Error>> {
@@ -135,6 +275,23 @@ fn list_and_get_dispatch_over_real_processes() -> Result<(), Box<dyn std::error:
     assert!(String::from_utf8_lossy(&output.stdout).contains("sample-cli"));
     let output = pm_rust(&workspace, &["get", "sample-cli"])?;
     assert!(String::from_utf8_lossy(&output.stdout).contains("Dispatch target"));
+    let unknown = pm_rust(&workspace, &["list", "--native-boundary-probe"])?;
+    assert_eq!(unknown.status.code(), Some(2));
+    assert!(unknown.stdout.is_empty());
+    assert!(
+        String::from_utf8_lossy(&unknown.stderr)
+            .contains("unexpected argument '--native-boundary-probe'")
+    );
+    for args in [
+        &["--help"][..],
+        &["--version"][..],
+        &["context", "--help"][..],
+    ] {
+        let output = pm_rust(&workspace, args)?;
+        assert!(output.status.success());
+        assert!(!output.stdout.is_empty());
+        assert!(output.stderr.is_empty());
+    }
     expect_err(&workspace, &["get", "sample-missing"], "pm item not found")?;
     Ok(())
 }

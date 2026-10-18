@@ -6,6 +6,9 @@ use std::path::PathBuf;
 /// Failures returned by the Rust-native read surface.
 #[derive(Debug, thiserror::Error)]
 pub enum PmRustError {
+    /// A rendered integrity report failed the requested strict exit gate.
+    #[error("history verification failed")]
+    HistoryVerificationFailed,
     /// The pinned TOON codec refuses a split UTF-16 surrogate during budgeting.
     #[error("{detail}")]
     ToonEncoding {

@@ -1148,6 +1148,25 @@ fn atomic_replace_surfaces_stage_and_publish_failures() -> Result<(), Box<dyn st
     Ok(())
 }
 
+/// Failed publication preserves existing bytes, and success replaces without a prior unlink.
+#[test]
+fn replacement_failure_preserves_existing_target() -> Result<(), Box<dyn std::error::Error>> {
+    let directory = tempfile::tempdir()?;
+    let target = directory.path().join("item.toon");
+    let staged = directory.path().join("staged.tmp");
+    fs::write(&target, "original")?;
+    assert!(matches!(
+        publish_replacement(&staged, &target),
+        Err(PmRustError::Io { path, .. }) if path == target
+    ));
+    assert_eq!(fs::read_to_string(&target)?, "original");
+    fs::write(&staged, "replacement")?;
+    publish_replacement(&staged, &target)?;
+    assert_eq!(fs::read_to_string(&target)?, "replacement");
+    assert!(!staged.exists());
+    Ok(())
+}
+
 #[test]
 /// Covers history-append open and write failures as typed errors.
 fn append_history_line_surfaces_open_and_write_failures() -> Result<(), Box<dyn std::error::Error>>
@@ -1611,7 +1630,10 @@ fn recovery_roll_forward_refuses_a_read_shared_item_then_retries_idempotently()
         return Err("read-shared item must refuse recovery replacement".into());
     };
     assert_eq!(path, item_path);
-    assert_eq!(source.raw_os_error(), Some(32));
+    // Replacement rename reports ERROR_ACCESS_DENIED for the read-only shared
+    // handle; the removed pre-delete previously reported a sharing violation.
+    assert_eq!(source.kind(), std::io::ErrorKind::PermissionDenied);
+    assert_eq!(source.raw_os_error(), Some(5));
     assert_eq!(fs::read_to_string(&item_path)?, original_item);
     assert_eq!(fs::read_to_string(&history_path)?, original_history);
     assert!(journal_path.is_file());
@@ -1823,7 +1845,7 @@ fn atomic_replace_reports_windows_temporary_name_overflow() -> Result<(), Box<dy
 
 #[cfg(windows)]
 #[test]
-/// An exclusive handle prevents removing the existing replacement target.
+/// An exclusive handle prevents replacing the existing target.
 fn atomic_replace_reports_windows_exclusive_target_handle() -> Result<(), Box<dyn std::error::Error>>
 {
     use std::os::windows::fs::OpenOptionsExt;

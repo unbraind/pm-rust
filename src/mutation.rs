@@ -757,17 +757,9 @@ fn stage_temporary(mut file: File, temporary: &Path, contents: &str) -> Result<(
 
 /// Atomically moves staged bytes onto their durable target path.
 fn publish_replacement(temporary: &Path, path: &Path) -> Result<(), PmRustError> {
-    #[cfg(not(unix))]
-    {
-        // Windows cannot rename onto an existing target. The per-item lock and
-        // the recovery journal cover the removal window between the two calls.
-        if path.is_file() {
-            fs::remove_file(path).map_err(|source| PmRustError::Io {
-                path: path.to_path_buf(),
-                source,
-            })?;
-        }
-    }
+    // std::fs::rename replaces existing files on both Unix and Windows.
+    // Unlinking first exposes an absent item to lock-free readers and loses
+    // the destination if publication fails. Keep the destination until rename.
     // `if let` instead of `.map_err(..)` avoids a per-instantiation closure
     // function the coverage gate counts separately.
     if let Err(source) = fs::rename(temporary, path) {

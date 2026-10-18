@@ -18,6 +18,9 @@ mod list;
 mod list_intent;
 mod list_registry;
 mod mutation;
+mod orientation;
+mod orientation_context;
+mod orientation_deps;
 mod ownership;
 mod pagination;
 mod read_output;
@@ -37,6 +40,7 @@ pub use mutation::{
     OwnershipResult, UpdateItem, default_priority, default_status, validate_timestamp,
 };
 pub use mutation::{now_iso as current_timestamp, quote_command_arg};
+pub use orientation::{ContextOptions, DepsOptions, HistoryOptions};
 pub use ownership::{
     AuthorIdentity, OwnershipOptions, SelectionOptions, partial_failure as completed_step_failure,
 };

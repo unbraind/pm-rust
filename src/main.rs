@@ -23,6 +23,88 @@ struct Cli {
 
 #[derive(Debug, Subcommand)]
 enum Command {
+    /// Render the default brief agent orientation snapshot.
+    #[command(args_override_self = true)]
+    Context {
+        /// Maximum ranked focus rows.
+        #[arg(long, alias = "max-items", allow_hyphen_values = true)]
+        limit: Option<String>,
+        /// Focus packing token ceiling.
+        #[arg(long, alias = "token_budget", allow_hyphen_values = true)]
+        token_budget: Option<String>,
+        /// Brief depth is supported natively.
+        #[arg(long)]
+        depth: Option<String>,
+        /// Omit tags from focus rows.
+        #[arg(long)]
+        no_tags: bool,
+        /// Omit static installed extension diagnostics.
+        #[arg(long)]
+        no_extension_health: bool,
+        /// Emit JSON.
+        #[arg(long)]
+        json: bool,
+        /// Reproducible read clock for conformance fixtures.
+        #[arg(long, hide = true)]
+        timestamp: Option<String>,
+    },
+    /// Read immutable history and optionally verify integrity.
+    #[command(args_override_self = true)]
+    History {
+        /// Item identity.
+        id: String,
+        /// Latest record count.
+        #[arg(long, allow_hyphen_values = true)]
+        limit: Option<String>,
+        /// Full entries instead of compact timeline rows.
+        #[arg(long)]
+        full: bool,
+        /// Explicit default compact rows.
+        #[arg(long)]
+        compact: bool,
+        /// Verify record hashes and replay.
+        #[arg(long)]
+        verify: bool,
+        /// Fail when verification reports an error.
+        #[arg(long, alias = "fail-on-warn")]
+        strict_exit: bool,
+        /// Emit JSON.
+        #[arg(long)]
+        json: bool,
+    },
+    /// List outgoing dependency trees and graphs.
+    #[command(args_override_self = true)]
+    Deps {
+        /// Item identity.
+        id: String,
+        /// Tree or graph projection.
+        #[arg(long)]
+        format: Option<String>,
+        /// Maximum traversal depth.
+        #[arg(long, allow_hyphen_values = true)]
+        max_depth: Option<String>,
+        /// Repeated-node collapse policy.
+        #[arg(long)]
+        collapse: Option<String>,
+        /// Counts without payload rows.
+        #[arg(long)]
+        summary: bool,
+        /// Explicit complete projection.
+        #[arg(long)]
+        full: bool,
+        /// Delivered node ceiling.
+        #[arg(long, allow_hyphen_values = true)]
+        node_limit: Option<String>,
+        /// Delivered edge ceiling.
+        #[arg(long, allow_hyphen_values = true)]
+        edge_limit: Option<String>,
+        /// Complete output ceiling.
+        #[arg(long, allow_hyphen_values = true)]
+        token_budget: Option<String>,
+        /// Emit JSON.
+        #[arg(long)]
+        json: bool,
+    },
     /// Search weighted keyword occurrences across canonical item text.
     #[command(args_override_self = true)]
     Search {
@@ -453,6 +535,93 @@ mod tests;
 fn run(cli: Cli) -> Result<(), Box<dyn std::error::Error>> {
     let workspace = Workspace::discover(&cli.workspace)?;
     match cli.command {
+        Command::Context {
+            limit,
+            token_budget,
+            depth,
+            no_tags,
+            no_extension_health,
+            json,
+            timestamp,
+        } => {
+            let now = timestamp.unwrap_or_else(pm_rust::current_timestamp);
+            let result = workspace.context(
+                &pm_rust::ContextOptions {
+                    limit,
+                    token_budget,
+                    depth,
+                    no_tags,
+                    no_extension_health,
+                    toon: !json,
+                },
+                &now,
+            )?;
+            write_search_to(&mut std::io::stdout().lock(), &result, json)?;
+        }
+        Command::History {
+            id,
+            limit,
+            full,
+            compact,
+            verify,
+            strict_exit,
+            json,
+        } => {
+            if full && compact {
+                return Err(Box::new(pm_rust::PmRustError::CommandRefusal {detail:"History projection options are mutually exclusive. Use --compact, --provenance, or --full.".to_owned(),exit_code:2,context:serde_json::json!({})}));
+            }
+            if strict_exit && !verify {
+                return Err(Box::new(pm_rust::PmRustError::CommandRefusal {
+                    detail:
+                        "--strict-exit requires --verify (it gates on the verification result)."
+                            .to_owned(),
+                    exit_code: 2,
+                    context: serde_json::json!({}),
+                }));
+            }
+            let result = workspace.history(
+                &id,
+                &pm_rust::HistoryOptions {
+                    limit,
+                    verify,
+                    full,
+                    compact,
+                    toon: !json,
+                },
+            )?;
+            write_search_to(&mut std::io::stdout().lock(), &result, json)?;
+            if strict_exit && result["verification"]["ok"] == false {
+                return Err(Box::new(pm_rust::PmRustError::HistoryVerificationFailed));
+            }
+        }
+        Command::Deps {
+            id,
+            format,
+            max_depth,
+            collapse,
+            summary,
+            full,
+            node_limit,
+            edge_limit,
+            token_budget,
+            json,
+        } => {
+            let result = workspace.deps(
+                &id,
+                &pm_rust::DepsOptions {
+                    format,
+                    max_depth,
+                    collapse,
+                    summary,
+                    full,
+                    node_limit,
+                    edge_limit,
+                    token_budget,
+                    toon: !json,
+                },
+            )?;
+            return write_search_to(&mut std::io::stdout().lock(), &result, json);
+        }
         Command::Search {
             query,
             limit,
@@ -985,10 +1154,91 @@ fn close_payload(
 }
 
 /// Parses the command line and maps success or failure to the process exit code.
+#[allow(clippy::too_many_lines)]
 fn main() -> ExitCode {
-    match run(Cli::parse()) {
+    let cli = match Cli::try_parse() {
+        Ok(cli) => cli,
+        Err(error) => {
+            let mut args = published_read_arguments(std::env::args_os().skip(1));
+            let orientation = args
+                .iter()
+                .position(|arg| !arg.starts_with('-'))
+                .filter(|&index| matches!(args[index].as_str(), "context" | "history" | "deps"));
+            if error.kind() == clap::error::ErrorKind::UnknownArgument
+                && let Some(index) = orientation
+            {
+                let command = args.remove(index);
+                args.insert(0, command);
+                let allowed = match args[0].as_str() {
+                    "context" => vec![
+                        "--limit",
+                        "--max-items",
+                        "--token-budget",
+                        "--token_budget",
+                        "--depth",
+                        "--no-tags",
+                        "--no-extension-health",
+                        "--json",
+                    ],
+                    "history" => vec![
+                        "--limit",
+                        "--full",
+                        "--compact",
+                        "--verify",
+                        "--strict-exit",
+                        "--fail-on-warn",
+                        "--json",
+                    ],
+                    _ => vec![
+                        "--format",
+                        "--max-depth",
+                        "--collapse",
+                        "--summary",
+                        "--full",
+                        "--node-limit",
+                        "--edge-limit",
+                        "--token-budget",
+                        "--json",
+                    ],
+                };
+                let flag = rejected_orientation_argument(&error, &args, &allowed);
+                let detail = format!(
+                    "Native {} does not support {flag}; use the published pm CLI for this option.",
+                    args[0]
+                );
+                let payload = orientation_error_json(
+                    &detail,
+                    &serde_json::json!({"code":"unsupported_native_option","required":"Use the published pm CLI for options outside the documented native slice.","title":"Unsupported native option","flag":flag,"value":flag}),
+                    &args,
+                    2,
+                );
+                let mut stderr = std::io::stderr().lock();
+                let _ = if args.iter().any(|arg| arg == "--json") {
+                    write_json_to(&mut stderr, &payload)
+                } else {
+                    write_cursor_refusal_to(&mut stderr, &payload)
+                };
+                return ExitCode::from(2);
+            }
+            // Keep Clap's bytes and statuses while allowing normal process teardown.
+            // Immediate exit bypasses profile finalization on Windows.
+            let _ = error.print();
+            return if error.use_stderr() {
+                ExitCode::from(2)
+            } else {
+                ExitCode::SUCCESS
+            };
+        }
+    };
+    match run(cli) {
         Ok(()) => ExitCode::SUCCESS,
         Err(error) => {
+            if matches!(
+                error.downcast_ref::<pm_rust::PmRustError>(),
+                Some(pm_rust::PmRustError::HistoryVerificationFailed)
+            ) {
+                return ExitCode::from(1);
+            }
             if let Some(pm_rust::PmRustError::ToonEncoding { detail }) =
                 error.downcast_ref::<pm_rust::PmRustError>()
             {
@@ -1004,8 +1254,9 @@ fn main() -> ExitCode {
                 let args = published_read_arguments(std::env::args_os().skip(1));
                 let payload = command_error_json(detail, context, &args, *exit_code);
                 let mut stderr = std::io::stderr().lock();
-                let _ = if args.first().is_some_and(|s| s == "item" || s == "search")
-                    && !args.iter().any(|s| s == "--json")
+                let _ = if args.first().is_some_and(|s| {
+                    s == "item" || s == "search" || s == "context" || s == "history" || s == "deps"
+                }) && !args.iter().any(|s| s == "--json")
                 {
                     write_cursor_refusal_to(&mut stderr, &payload)
                 } else {
@@ -1053,6 +1304,26 @@ fn main() -> ExitCode {
     }
 }
 
+/// Retains Clap's rejected token, falling back only to unsupported option names.
+fn rejected_orientation_argument<'a>(
+    error: &'a clap::Error,
+    args: &'a [String],
+    allowed: &[&str],
+) -> &'a str {
+    let rejected = match error.get(clap::error::ContextKind::InvalidArg) {
+        Some(clap::error::ContextValue::String(arg)) => Some(arg.as_str()),
+        _ => None,
+    };
+    rejected
+        .or_else(|| {
+            args.iter()
+                .map(String::as_str)
+                .filter(|arg| arg.starts_with('-'))
+                .find(|arg| !allowed.contains(&arg.split('=').next().unwrap_or_default()))
+        })
+        .map_or("option", |arg| arg.split('=').next().unwrap_or_default())
+}
+
 /// Preserves ordinary command refusals and the published unhandled-error envelope.
 fn command_error_json(
     detail: &str,
@@ -1060,6 +1331,12 @@ fn command_error_json(
     args: &[String],
     exit_code: u8,
 ) -> serde_json::Value {
+    if args
+        .first()
+        .is_some_and(|arg| matches!(arg.as_str(), "context" | "history" | "deps"))
+    {
+        return orientation_error_json(detail, context, args, exit_code);
+    }
     if args.first().is_some_and(|arg| arg == "search") {
         return search_error_json(detail, context, args, exit_code);
     }
@@ -1077,6 +1354,89 @@ fn command_error_json(
         command_refusal_detail(detail, args, exit_code)
     };
     payload
+}
+
+/// Matches orientation command failures to the published problem envelope.
+fn orientation_error_json(
+    detail: &str,
+    context: &serde_json::Value,
+    args: &[String],
+    exit_code: u8,
+) -> serde_json::Value {
+    let mut args = args.to_vec();
+    if args.first().is_some_and(|arg| arg == "deps") {
+        args.insert(0, "item".to_owned());
+    }
+    let command = &args[0];
+    let mut context = context.clone();
+    if detail.starts_with("--strict-exit requires --verify") {
+        context["code"] = serde_json::json!("invalid_argument_value");
+    }
+
+    if context["code"] == "invalid_argument_value" {
+        context["required"] =
+            serde_json::json!("Use values that match documented command constraints.");
+        context["title"] = serde_json::json!("Invalid argument value");
+        context["next_steps"] = serde_json::json!([
+            "Check allowed values in command help, then rerun with corrected input."
+        ]);
+        context["examples"] = serde_json::json!([
+            format!("pm {command} --help"),
+            "pm contracts --command <command> --flags-only --json".to_owned()
+        ]);
+    }
+    let mut result = ownership_error_json(detail, &context, &args);
+    if context["code"] == "item_not_found" {
+        result["required"] =
+            serde_json::json!("Use an existing item ID from current tracker data.");
+        result["title"] = serde_json::json!("Item ID not found");
+        result["why"] = serde_json::json!("Mutation and read commands operate only on known IDs.");
+        result["examples"] = serde_json::json!([
+            "pm list --status open --limit 20",
+            "pm search \"<keyword>\" --limit 10"
+        ]);
+        result["next_steps"] = serde_json::json!([
+            "Confirm the active --path/PM_PATH scope, then retry with a valid id."
+        ]);
+        result["refusal"] = serde_json::json!({"surface":"id","rejected_value":context["id"],"exit_code":exit_code});
+        result["flag"] = serde_json::json!("id");
+        result["value"] = context["id"].clone();
+    } else {
+        result["refusal"] = command_refusal_detail(detail, &args, exit_code);
+    }
+    if detail.starts_with("--strict-exit requires --verify") {
+        result["recovery"]["missing"] = serde_json::json!(["--verify"]);
+        result["recovery"]["suggested_retry"] = serde_json::json!(format!(
+            "pm {} --verify",
+            args.iter()
+                .map(|arg| pm_rust::quote_command_arg(arg))
+                .collect::<Vec<_>>()
+                .join(" ")
+        ));
+    }
+    result["exit_code"] = serde_json::json!(exit_code);
+    // Insertion order is part of the wire contract.
+    let mut ordered = serde_json::Map::new();
+    for key in [
+        "code",
+        "required",
+        "recovery",
+        "next_steps",
+        "exit_code",
+        "type",
+        "title",
+        "detail",
+        "why",
+        "examples",
+        "refusal",
+        "flag",
+        "value",
+    ] {
+        if let Some(value) = result.get(key) {
+            ordered.insert(key.to_owned(), value.clone());
+        }
+    }
+    serde_json::Value::Object(ordered)
 }
 
 /// Preserves keyword-search usage classification and closed-domain recovery.

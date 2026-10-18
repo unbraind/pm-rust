@@ -14,6 +14,162 @@ fn envelope(count: usize, width: usize) -> Value {
     json!({"items":(0..count).map(|i|json!({"id":format!("demo-{i:04}"),"title":"x".repeat(width)})).collect::<Vec<_>>(),"count":count,"total":count,"has_more":false,"truncated":false,"next_cursor":null})
 }
 
+/// Custom lifecycle classification survives row truncation and disappears when no longer needed.
+#[test]
+fn custom_focus_classification_survives_compaction() {
+    let mut result = json!({
+        "summary":{"focus_row_states":{"high_level":"iI","low_level":"oO","blocked_fallback":""}},
+        "high_level":[{"status":"working"},{"status":"working","blocked":true}],
+        "low_level":[{"status":"open"},{"status":"blocked","blocked":true}],
+        "blocked_fallback":[]
+    });
+    super::finalize_orientation(&mut result, &[], 1000, "legacy", &[], 2000, "context");
+    assert_eq!(
+        result["summary"]["returned_focus"],
+        json!({"active_items":4,"in_progress":2,"open":2,"blocked":2})
+    );
+    assert_eq!(result["summary"]["focus_row_states"]["high_level"], "iI");
+    result["high_level"] = json!([{"status":"working"}]);
+    super::finalize_orientation(&mut result, &[], 1000, "legacy", &[], 2000, "context");
+    assert_eq!(result["summary"]["focus_row_states"]["high_level"], "i");
+    assert_eq!(result["summary"]["returned_focus"]["in_progress"], 1);
+    result["high_level"] = json!([]);
+    super::finalize_orientation(&mut result, &[], 1000, "legacy", &[], 2000, "context");
+    assert!(result["summary"].get("focus_row_states").is_none());
+    assert_eq!(result["summary"]["returned_focus"]["in_progress"], 0);
+    result["high_level"] = json!([{"status":"in_progress","blocked":true}]);
+    super::finalize_orientation(&mut result, &[], 1000, "legacy", &[], 2000, "context");
+    assert_eq!(result["summary"]["returned_focus"]["in_progress"], 1);
+    let states = "I".repeat(300);
+    let mut payload =
+        json!({"summary":{"focus_row_states":{"low_level":states}},"title":"x".repeat(300)});
+    assert!(compact_strings(
+        &mut payload,
+        "",
+        &mut std::collections::BTreeMap::default()
+    ));
+    assert_eq!(payload["summary"]["focus_row_states"]["low_level"], states);
+}
+
+/// Complete orientation responses compact strings, declared rows and nested payloads with receipts.
+#[test]
+#[allow(clippy::too_many_lines)]
+fn orientation_budget_recovery_boundaries() -> Result<(), Box<dyn std::error::Error>> {
+    for toon in [true, false] {
+        for budget in ["1", "800", "1600", "6000", "12000"] {
+            let options = ListOptions {
+                toon,
+                token_budget: Some(budget.to_owned()),
+                ..Default::default()
+            };
+            let source = json!({"depth":"brief","summary":{"returned_focus":{"active_items":40,"in_progress":40,"open":0,"blocked":0}},"high_level":[],"low_level":(0..40).map(|i|json!({"id":format!("sample-{i}"),"title":"x".repeat(500),"status":"in_progress","tags":vec!["a";40]})).collect::<Vec<_>>(),"blocked_fallback":[],"agenda":{"events":[]}});
+            let output = super::apply_orientation(
+                source.into(),
+                &options,
+                "context",
+                &[
+                    "high_level",
+                    "low_level",
+                    "blocked_fallback",
+                    "agenda.events",
+                ],
+            )?;
+            assert!(output["read_output"].is_object());
+            if output.get("output_budget_exceeded").is_none() {
+                assert_eq!(output["read_output"]["within_budget"], true);
+                assert_eq!(
+                    output["summary"]["returned_focus"]["in_progress"],
+                    output["low_level"].as_array().map_or(0, Vec::len)
+                );
+            }
+        }
+        let source = json!({"projection":{"row_key":"compact_history"},"count":400,"compact_history":(0..400).map(|i|json!({"index":i,"ts":"2026-08-22T10:00:00.000Z","op":"update","author":"fixture","patch_ops":1,"changed_fields":["title"]})).collect::<Vec<_>>()});
+        let output = super::apply_orientation(
+            source.into(),
+            &ListOptions {
+                toon,
+                brief: true,
+                ..Default::default()
+            },
+            "history",
+            &["compact_history"],
+        )?;
+        assert_eq!(output["read_output"]["within_budget"], true);
+        assert!(output["count"].as_u64().is_some_and(|n| n < 400));
+        assert_eq!(output["has_more"], true);
+        let output=super::apply_orientation(json!({"high_level":[],"low_level":[{"id":"sample-a","tags":vec!["abc";1000]}],"summary":{}}).into(),&ListOptions{toon,token_budget:Some("1000".to_owned()),..Default::default()},"context",&["low_level"])?;
+        assert!(output["read_output"].is_object());
+    }
+    for raw in ["", "bad"] {
+        assert!(
+            super::apply_orientation(
+                json!({}).into(),
+                &ListOptions {
+                    token_budget: Some(raw.to_owned()),
+                    ..Default::default()
+                },
+                "context",
+                &[]
+            )?
+            .get("read_output")
+            .is_none()
+        );
+    }
+    assert!(
+        super::apply_orientation(
+            json!({}).into(),
+            &ListOptions {
+                full: true,
+                ..Default::default()
+            },
+            "history",
+            &[]
+        )?
+        .get("read_output")
+        .is_none()
+    );
+    Ok(())
+}
+
+/// A compacted nested collection cannot advertise a declared-row continuation it did not truncate.
+#[test]
+fn orientation_nested_only_recovery() {
+    let state = super::OrientationRows {
+        path: "low_level".to_owned(),
+        pointer: "/low_level".to_owned(),
+        rows: vec![json!({"id":"a"})],
+        fingerprint: "snapshot".to_owned(),
+    };
+    let mut result = json!({"low_level":[{"id":"a"}],"read_output":{"rows_compacted":true,"compacted_row_paths":["low_level.0.tags"]}});
+    super::finalize_orientation(&mut result, &[state], 1000, "legacy", &[], 2000, "context");
+    assert_eq!(result["continuation_kind"], "none");
+    assert_eq!(
+        result["output_budget_truncation"]["continuation_available"],
+        false
+    );
+}
+
+/// Orientation preserves the codec's refusal for a string cut between surrogate code units.
+#[test]
+fn orientation_toon_cut_refusal() {
+    let title = format!("{}😀{}", "x".repeat(239), "y".repeat(20_000));
+    let source =
+        json!({"message":title,"high_level":[],"low_level":[],"blocked_fallback":[],"summary":{}});
+    assert!(matches!(
+        super::apply_orientation(
+            source.into(),
+            &ListOptions {
+                toon: true,
+                token_budget: Some("1000".to_owned()),
+                ..Default::default()
+            },
+            "context",
+            &["high_level", "low_level"]
+        ),
+        Err(crate::PmRustError::ToonEncoding { .. })
+    ));
+}
+
 /// Amount-only caps advance an advertised boundary while preserving terminal caps.
 #[test]
 fn amount_limit_rebases_only_advertised_producer_boundaries()

@@ -6,6 +6,144 @@ use pm_rust::{ItemDocument, ItemFilter, ItemMetadata, ListResult};
 
 use super::{Cli, Command, run, write_json_to};
 
+/// Orientation dispatch preserves budget exits and opt-in strict history verification.
+#[test]
+fn orientation_dispatch_boundaries() -> Result<(), Box<dyn std::error::Error>> {
+    use clap::Parser as _;
+    let root = tempfile::tempdir()?;
+    let pm = root.path().join(".agents/pm");
+    fs::create_dir_all(pm.join("tasks"))?;
+    fs::create_dir(pm.join("history"))?;
+    fs::write(pm.join("settings.json"), "{}")?;
+    let item = serde_json::json!({"id":"sample-a","title":"Orientation","type":"Task","status":"open","priority":1,"created_at":"2026-08-22T10:00:00.000Z","updated_at":"2026-08-22T10:00:00.000Z"});
+    fs::write(
+        pm.join("tasks/sample-a.toon"),
+        toon_format::encode_default(&item)?,
+    )?;
+    for (flags, ok) in [
+        (
+            vec!["context", "--limit", "1", "--json", "--no-extension-health"],
+            true,
+        ),
+        (
+            vec!["context", "--token-budget", "1", "--no-extension-health"],
+            false,
+        ),
+        (vec!["history", "sample-a", "--compact"], true),
+        (vec!["history", "sample-a", "--full", "--json"], true),
+        (vec!["history", "sample-a", "--full", "--compact"], false),
+        (vec!["history", "sample-a", "--strict-exit"], false),
+        (vec!["history", "sample-a", "--verify"], true),
+        (
+            vec!["history", "sample-a", "--verify", "--strict-exit"],
+            false,
+        ),
+        (vec!["deps", "sample-a", "--json"], true),
+    ] {
+        let mut arguments = vec![
+            "pm-rust",
+            "--workspace",
+            root.path().to_str().ok_or("UTF8")?,
+        ];
+        arguments.extend(flags);
+        assert_eq!(run(Cli::try_parse_from(arguments)?).is_ok(), ok);
+    }
+    Ok(())
+}
+
+/// Orientation refusals retain recovery namespaces across invalid values and missing identities.
+#[test]
+fn orientation_error_recovery_contract() {
+    let strings = |args: &[&str]| args.iter().map(|arg| (*arg).to_owned()).collect::<Vec<_>>();
+    for (args, detail, context) in [
+        (
+            vec!["context", "--limit", "bad"],
+            "--limit must be a non-negative integer",
+            serde_json::json!({"code":"invalid_argument_value"}),
+        ),
+        (
+            vec!["deps", "missing"],
+            "Item missing not found",
+            serde_json::json!({"code":"item_not_found","id":"missing"}),
+        ),
+        (
+            vec!["history", "sample-a", "--strict-exit"],
+            "--strict-exit requires --verify (it gates on the verification result).",
+            serde_json::json!({}),
+        ),
+    ] {
+        let result = super::orientation_error_json(detail, &context, &strings(&args), 2);
+        assert_eq!(result["exit_code"], 2);
+        assert!(result["recovery"].is_object());
+    }
+    assert_eq!(
+        super::published_read_arguments([
+            "context",
+            "--timestamp",
+            "ignored",
+            "--workspace=ignored",
+            "--limit",
+            "1"
+        ]),
+        strings(&["context", "--limit", "1"])
+    );
+}
+
+/// One owned argument stream preserves command namespaces, hidden controls and close aliases.
+#[test]
+fn owned_published_argument_streams() {
+    let cases: &[(&[&str], &[&str])] = &[
+        (&[], &[]),
+        (
+            &[
+                "context",
+                "--workspace",
+                "fixture",
+                "--timestamp",
+                "clock",
+                "--workspace=fixture",
+                "--timestamp=clock",
+                "--workspace-extra=kept",
+                "--timestamp-extra=kept",
+                "--json",
+            ],
+            &[
+                "context",
+                "--workspace-extra=kept",
+                "--timestamp-extra=kept",
+                "--json",
+            ],
+        ),
+        (
+            &[
+                "close",
+                "sample-a",
+                "--expected",
+                "expected",
+                "--actual",
+                "actual",
+                "--json",
+            ],
+            &[
+                "close",
+                "sample-a",
+                "--expected-result",
+                "expected",
+                "--actual-result",
+                "actual",
+                "--json",
+            ],
+        ),
+        (&["files", "sample-a"], &["item", "files", "sample-a"]),
+        (&["docs", "sample-a"], &["item", "docs", "sample-a"]),
+        (&["test", "sample-a"], &["item", "test", "sample-a"]),
+    ];
+    for (input, expected) in cases {
+        let arguments: Vec<String> = input.iter().map(|arg| (*arg).to_owned()).collect();
+        assert_eq!(super::published_read_arguments(arguments), *expected);
+    }
+}
+
 /// New command dispatchers persist real collections and propagate read/mutation failures.
 #[test]
 fn search_and_collection_dispatch_boundaries() -> Result<(), Box<dyn std::error::Error>> {
@@ -972,4 +1110,48 @@ fn search_examples_use_parsed_query() {
             "pm search \"rust search\" --type Task --json"
         );
     }
+}
+/// Parser context outranks argv order; incomplete contexts never blame an allowed option.
+#[test]
+fn orientation_argument_context_and_fallback() {
+    use clap::error::{ContextKind, ContextValue, ErrorKind};
+    let args: Vec<String> = ["history", "sample-a", "--json", "--limit=1", "-v"]
+        .into_iter()
+        .map(str::to_owned)
+        .collect();
+    let allowed = ["--json", "--limit"];
+    let mut error = clap::Error::raw(ErrorKind::UnknownArgument, "synthetic parser context");
+    assert_eq!(
+        super::rejected_orientation_argument(&error, &args, &allowed),
+        "-v"
+    );
+    error.insert(
+        ContextKind::InvalidArg,
+        ContextValue::String("extra".to_owned()),
+    );
+    assert_eq!(
+        super::rejected_orientation_argument(&error, &args, &allowed),
+        "extra"
+    );
+    error.insert(
+        ContextKind::InvalidArg,
+        ContextValue::String("--bogus=value".to_owned()),
+    );
+    assert_eq!(
+        super::rejected_orientation_argument(&error, &args, &allowed),
+        "--bogus"
+    );
+    error.insert(ContextKind::InvalidArg, ContextValue::Strings(vec![]));
+    assert_eq!(
+        super::rejected_orientation_argument(&error, &args[..4], &allowed),
+        "option"
+    );
+    let fallback: Vec<String> = ["context", "--json", "--bogus=value"]
+        .into_iter()
+        .map(str::to_owned)
+        .collect();
+    assert_eq!(
+        super::rejected_orientation_argument(&error, &fallback, &allowed),
+        "--bogus"
+    );
 }

@@ -71,11 +71,13 @@ pub(crate) fn compact_strings(
                 compact_strings(row, &format!("{pointer}/{index}"), cuts) | changed
             }),
         Value::Object(map) => map.iter_mut().fold(false, |changed, (key, row)| {
-            compact_strings(
-                row,
-                &format!("{pointer}/{}", key.replace('~', "~0").replace('/', "~1")),
-                cuts,
-            ) | changed
+            (key != "focus_row_states"
+                && compact_strings(
+                    row,
+                    &format!("{pointer}/{}", key.replace('~', "~0").replace('/', "~1")),
+                    cuts,
+                ))
+                | changed
         }),
         _ => false,
     }
@@ -247,7 +249,13 @@ fn receipt_for(options: &ListOptions, default_budget: bool, command: &str) -> Va
     let mut hints = Vec::new();
     if options.full || options.brief {
         dimensions.push("include");
-        aliases.push(if options.full { "--full" } else { "--brief" });
+        aliases.push(if options.full {
+            "--full"
+        } else if command == "history" {
+            "--compact"
+        } else {
+            "--brief"
+        });
     }
     let legacy_limit = options
         .limit
@@ -279,6 +287,7 @@ fn receipt_for(options: &ListOptions, default_budget: bool, command: &str) -> Va
             match *alias {
                 "--full" => "--output-include full",
                 "--brief" => "--output-include brief",
+                "--compact" => "--output-include compact",
                 "--limit" => "--output-limit <n>",
                 "--token-budget" => "--output-budget <tokens>",
                 _ => "--output-limit unbounded",
@@ -455,28 +464,15 @@ fn capture(result: &Value, options: &ListOptions, cursor: Option<&Value>) -> Con
     }
 }
 
-/// Chooses the largest row collection and retains its largest feasible prefix.
-fn compact_rows(
+/// Retains feasible collection prefixes while the caller refreshes its command-specific receipts.
+fn compact_collections(
     result: &mut ListOutput,
-    state: &Continuation,
+    toon: bool,
     budget: usize,
-    source: &str,
-    hints: &[String],
-    measured: usize,
-    options: &ListOptions,
+    mut finalize: impl FnMut(&mut Value),
 ) {
-    let unbounded_amount = options.output_limit.as_deref() == Some("unbounded");
-    let toon = options.toon;
     for _ in 0..64 {
-        finalize(
-            &mut result.value,
-            state,
-            budget,
-            source,
-            hints,
-            measured,
-            unbounded_amount,
-        );
+        finalize(&mut result.value);
         update_output(result, toon);
         if measure(result, toon) <= budget {
             break;
@@ -514,15 +510,7 @@ fn compact_rows(
         while low <= high {
             let middle = usize::midpoint(low, high);
             retain(&mut result.value, pointer, &values, middle);
-            finalize(
-                &mut result.value,
-                state,
-                budget,
-                source,
-                hints,
-                measured,
-                unbounded_amount,
-            );
+            finalize(&mut result.value);
             update_output(result, toon);
             if measure(result, toon) <= budget {
                 retained = middle;
@@ -533,6 +521,31 @@ fn compact_rows(
         }
         retain(&mut result.value, pointer, &values, retained);
     }
+}
+
+/// Chooses the largest row collection and retains its largest feasible prefix.
+fn compact_rows(
+    result: &mut ListOutput,
+    state: &Continuation,
+    budget: usize,
+    source: &str,
+    hints: &[String],
+    measured: usize,
+    options: &ListOptions,
+) {
+    let unbounded_amount = options.output_limit.as_deref() == Some("unbounded");
+    let toon = options.toon;
+    compact_collections(result, toon, budget, |value| {
+        finalize(
+            value,
+            state,
+            budget,
+            source,
+            hints,
+            measured,
+            unbounded_amount,
+        );
+    });
     finalize(
         &mut result.value,
         state,
@@ -598,3 +611,224 @@ fn compact_budget(
 #[cfg(test)]
 #[path = "../tests/support/read_output_unit.rs"]
 mod tests;
+
+/// Captured declared orientation row collection before budget compaction.
+struct OrientationRows {
+    /// Public dotted path used by continuation receipts.
+    path: String,
+    /// JSON pointer to the retained array.
+    pointer: String,
+    /// Original selected rows.
+    rows: Vec<Value>,
+    /// Snapshot fingerprint of the original declared collection.
+    fingerprint: String,
+}
+
+/// Refreshes orientation counters and discloses any compacted declared collection.
+fn finalize_orientation(
+    result: &mut Value,
+    states: &[OrientationRows],
+    budget: usize,
+    source: &str,
+    hints: &[String],
+    measured: usize,
+    command: &str,
+) {
+    if command == "context" {
+        let mut states = json!({});
+        let mut needs_states = false;
+        let mut delivered = String::new();
+        for key in ["high_level", "low_level", "blocked_fallback"] {
+            let original = result["summary"]["focus_row_states"][key].as_str();
+            let codes: String = result[key]
+                .as_array()
+                .into_iter()
+                .flatten()
+                .enumerate()
+                .map(|(index, row)| {
+                    let default = match (row["status"] == "in_progress", row["blocked"] == true) {
+                        (true, true) => b'I',
+                        (true, false) => b'i',
+                        (false, true) => b'O',
+                        (false, false) => b'o',
+                    };
+                    let state = original
+                        .and_then(|codes| codes.as_bytes().get(index))
+                        .copied()
+                        .unwrap_or(default);
+                    needs_states |= state != default;
+                    char::from(state)
+                })
+                .collect();
+            delivered.push_str(&codes);
+            states[key] = json!(codes);
+        }
+        let progress = delivered
+            .bytes()
+            .filter(|code| code.eq_ignore_ascii_case(&b'i'))
+            .count();
+        result["summary"]["returned_focus"] = json!({"active_items":delivered.len(),"in_progress":progress,"open":delivered.len()-progress,"blocked":delivered.bytes().filter(u8::is_ascii_uppercase).count()});
+        if needs_states {
+            result["summary"]["focus_row_states"] = states;
+        } else {
+            result["summary"]
+                .as_object_mut()
+                .map(|summary| summary.shift_remove("focus_row_states"));
+        }
+        result["summary"]["high_level"] =
+            json!(result["high_level"].as_array().map_or(0, Vec::len));
+        result["summary"]["low_level"] = json!(result["low_level"].as_array().map_or(0, Vec::len));
+    }
+    if command == "history" {
+        let key = result["projection"]["row_key"].as_str().unwrap_or_default();
+        result["count"] = json!(result[key].as_array().map_or(0, Vec::len));
+    }
+    if result["read_output"]["rows_compacted"] != true {
+        return;
+    }
+    let continuations:Vec<_>=states.iter().filter_map(|state|{
+        let retained=result.pointer(&state.pointer).and_then(Value::as_array).map_or(0,Vec::len);
+        if retained>=state.rows.len(){return None;}
+        let cursor=pagination::encode(&json!({"v":1,"c":command,"p":state.path,"o":retained,"n":state.rows.len(),"f":state.fingerprint}));
+        Some(json!({"path":state.path,"cursor":cursor,"retained_rows":retained,"remaining_rows":state.rows.len()-retained,"total_rows":state.rows.len()}))
+    }).collect();
+    let primary = continuations.first();
+    let mut migration = vec![format!(
+        "{budget}-token: raise --output-budget{}",
+        if primary.is_some() {
+            "; page --output-cursor"
+        } else {
+            ""
+        }
+    )];
+    migration.extend_from_slice(hints);
+    result["read_output"]["migration_hints"] = json!(migration);
+    if let Some(primary) = primary
+        && (!result["next_cursor"].is_string() || result["continuation_kind"] == "output_cursor")
+    {
+        result["next_cursor"] = primary["cursor"].clone();
+    }
+    result["continuation_kind"] = json!(if primary.is_some() {
+        "output_cursor"
+    } else {
+        "none"
+    });
+    let recovery = measured
+        .max(budget.saturating_add(1))
+        .saturating_mul(5)
+        .div_ceil(4)
+        .div_ceil(100)
+        * 100;
+    let recovery_value=primary.map_or_else(||json!({"cli":format!("--output-budget {recovery}"),"sdk":{"outputBudget":recovery},"mcp":{"outputBudget":recovery}}),|primary|json!({"cursor":primary["cursor"],"cli":"--output-cursor","sdk":"outputCursor","mcp":"outputCursor"}));
+    result["output_budget_truncation"] = json!({"reason":"output_budget_reached","budget_source":source,"budget_tokens":budget,"overridden_dimensions":[],"compacted_row_paths":result["read_output"]["compacted_row_paths"],"continuation_cursor_rebased":false,"continuation_available":primary.is_some(),"recovery_budget_multiplier":if primary.is_some(){json!(1)}else{json!(json!(recovery).as_f64().unwrap_or_default()/json!(budget).as_f64().unwrap_or(1.0))},"continuations":continuations,"restore_with":if primary.is_some(){"recovery".to_owned()}else{format!("Retry with --output-budget {recovery} because no declared row collection can be continued.")},"recovery":recovery_value});
+    if command == "history" {
+        result["has_more"] = json!(result["next_cursor"].is_string());
+    }
+}
+
+/// Applies the shared complete-response ceiling to brief context and history reads.
+#[allow(clippy::too_many_lines)]
+pub(crate) fn apply_orientation(
+    mut result: ListOutput,
+    options: &ListOptions,
+    command: &'static str,
+    row_keys: &[&str],
+) -> Result<ListOutput, PmRustError> {
+    let explicit = options
+        .token_budget
+        .as_deref()
+        .filter(|raw| {
+            !raw.trim().is_empty() && raw.trim().bytes().all(|byte| byte.is_ascii_digit())
+        })
+        .and_then(|raw| raw.trim().parse::<usize>().ok())
+        .filter(|value| *value > 0);
+    if options.full {
+        return Ok(result);
+    }
+    let budget = explicit.unwrap_or(if options.toon { 4000 } else { 6000 });
+    if explicit.is_none() && measure(&result, options.toon) <= budget {
+        return Ok(result);
+    }
+    let source = if explicit.is_some() {
+        "legacy"
+    } else {
+        "default"
+    };
+    let mut receipt = receipt_for(options, explicit.is_none(), command);
+    if explicit.is_some() {
+        let mut ordered = serde_json::Map::new();
+        for key in ["contract_version", "command", "requested_dimensions"] {
+            ordered.insert(key.to_owned(), receipt[key].clone());
+        }
+        ordered.insert("budget_source".to_owned(), json!(source));
+        ordered.insert("budget_tokens".to_owned(), json!(budget));
+        for (key, value) in receipt.as_object().into_iter().flatten() {
+            if !ordered.contains_key(key) {
+                ordered.insert(key.clone(), value.clone());
+            }
+        }
+        receipt = Value::Object(ordered);
+    }
+    let states: Vec<_> = row_keys
+        .iter()
+        .map(|path| {
+            let pointer = format!("/{}", path.replace('.', "/"));
+            let rows = result
+                .pointer(&pointer)
+                .and_then(Value::as_array)
+                .cloned()
+                .unwrap_or_default();
+            let mut value = json!({"path":path,"value":rows});
+            value.sort_all_objects();
+            let fingerprint =
+                pagination::collection_bytes(crate::stringify_json(&value, false).as_bytes());
+            OrientationRows {
+                path: (*path).to_owned(),
+                pointer,
+                rows,
+                fingerprint,
+            }
+        })
+        .collect();
+    let hints: Vec<_> = receipt["migration_hints"]
+        .as_array()
+        .into_iter()
+        .flatten()
+        .filter_map(Value::as_str)
+        .map(str::to_owned)
+        .collect();
+    result.value["read_output"] = receipt;
+    update_output(&mut result, options.toon);
+    let measured = measure(&result, options.toon);
+    if measured > budget {
+        let changed = compact_strings(&mut result.value, "", &mut result.cuts);
+        result.value["read_output"]["strings_compacted"] = json!(changed);
+        compact_collections(&mut result, options.toon, budget, |value| {
+            finalize_orientation(value, &states, budget, source, &hints, measured, command);
+        });
+        update_output(&mut result, options.toon);
+        if measure(&result, options.toon) > budget {
+            let omitted = measure(&result, options.toon);
+            let mut minimal = result["read_output"].clone();
+            minimal
+                .as_object_mut()
+                .map(|map| map.shift_remove("compacted_row_paths"));
+            minimal["legacy_aliases_used"] = json!([]);
+            minimal["migration_hints"] = json!([]);
+            minimal["estimated_tokens"] = json!(0);
+            minimal["within_budget"] = json!(false);
+            minimal["strings_compacted"] = json!(false);
+            minimal["rows_compacted"] = json!(false);
+            minimal["result_omitted"] = json!(true);
+            minimal["omitted_result_estimated_tokens"] = json!(omitted);
+            result = ListOutput::from(
+                json!({"output_budget_exceeded":{"omitted_result":true,"reason":"requested_budget_infeasible","restore_with":"Unbounded","recovery":{"outputBudget":"unbounded"}},"read_output":minimal}),
+            );
+        }
+    }
+    update_output(&mut result, options.toon);
+    if options.toon {
+        crate::toon_output::validate(&result)?;
+    }
+    Ok(result)
+}
