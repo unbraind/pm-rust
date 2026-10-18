@@ -599,6 +599,21 @@ fn retained_proof_generations() {
     );
 }
 
+/// Retained sealed records accept both explicitly named supported digest algorithms.
+#[test]
+fn retained_proof_hash_algorithms() {
+    for algorithm in ["sha256", "sha512"] {
+        let mut original = genesis();
+        original["hash_algorithm"] = json!(algorithm);
+        original["record_hash_version"] = json!(1);
+        original["record_hash"] = json!(history_digest(&original, algorithm));
+        let proof = json!({"before_hash":original["before_hash"],"after_hash":original["after_hash"],"item_hash_version":3,"patch_hash":digest(&original["patch"]),"record_hash_version":1,"record_hash":original["record_hash"],"hash_algorithm":algorithm,"record":original});
+        let mut rewritten = original;
+        rewritten["reanchor_evidence"] = json!([proof]);
+        assert_eq!(rewrite_error(&rewritten), None, "{algorithm}");
+    }
+}
+
 /// Legacy hashing retains malformed optional rows while normalizing only supported object members.
 #[test]
 fn legacy_optional_row_shapes() {

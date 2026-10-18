@@ -1,0 +1,86 @@
+{
+  "source_commit": "22f7fd046e9af13561640d1e9c04301ee187852f",
+  "oracle_version": "2026.10.14",
+  "node_version": "v24.19.0",
+  "start_utc": "2026-10-18T06:23:04Z",
+  "end_utc": "2026-10-18T06:26:37Z",
+  "items": 2991,
+  "cpus": 4,
+  "nice": 19,
+  "start_loadavg": [
+    17.5908203125,
+    19.0048828125,
+    21.3916015625
+  ],
+  "end_loadavg": [
+    9.03759765625,
+    14.09375,
+    18.9462890625
+  ],
+  "min_1m_load": 9.03759765625,
+  "max_1m_load": 17.5908203125,
+  "native_sha256": "5b623b63b278ddb7196fb2b3c7b570d4733f47a02c78d1d8c189737915514559",
+  "summary": [
+    {
+      "command": "context --limit 10",
+      "oracle": {
+        "n": 30,
+        "p50_ms": 1175.1835025,
+        "p95_ms": 1575.945485
+      },
+      "native": {
+        "n": 30,
+        "p50_ms": 1067.6989735,
+        "p95_ms": 1296.611059
+      }
+    },
+    {
+      "command": "list --status open --limit 20",
+      "oracle": {
+        "n": 30,
+        "p50_ms": 445.32910000000004,
+        "p95_ms": 900.635167
+      },
+      "native": {
+        "n": 30,
+        "p50_ms": 731.5880165000001,
+        "p95_ms": 1128.254967
+      }
+    },
+    {
+      "command": "search history --limit 10",
+      "oracle": {
+        "n": 30,
+        "p50_ms": 1345.143227,
+        "p95_ms": 2003.659105
+      },
+      "native": {
+        "n": 30,
+        "p50_ms": 787.3691115,
+        "p95_ms": 1243.356478
+      }
+    },
+    {
+      "command": "get <id>",
+      "oracle": {
+        "n": 30,
+        "p50_ms": 433.6780825,
+        "p95_ms": 629.030236
+      },
+      "native": {
+        "n": 30,
+        "p50_ms": 692.6430379999999,
+        "p95_ms": 944.087493
+      }
+    }
+  ],
+  "cpu_model": "Intel Core i5-7400",
+  "process_method": "30 fresh processes per command/runtime; alternating runtime order; warm filesystem and oracle derived caches; perf_counter_ns wall clock; p50 median; p95 nearest rank (29th of 30)",
+  "integrity": {
+    "checked_files": 6004,
+    "original_changed_files": 0,
+    "copy_changed_authoritative_files": 0,
+    "verified_at_utc": "2026-10-18T06:26:55Z"
+  },
+  "samples": "native-orientation-2026-10-18.csv"
+}

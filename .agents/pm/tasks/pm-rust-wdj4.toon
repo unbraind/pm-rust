@@ -1,0 +1,13 @@
+id: pm-rust-wdj4
+title: Reduce native list and get latency on large indexed trackers
+description: "The orientation latency receipt on a complete 2991-item public tracker copy measured native list p50 731.6 ms versus oracle 445.3 ms, and native get p50 692.6 ms versus oracle 433.7 ms (30 cold processes each, shared 4-CPU host, warm filesystem and oracle derived caches). Investigate selective lookup or validated derived indexes without weakening authoritative read correctness, concurrency, or parity. Keep this optimization separate from the orientation command slice."
+type: Task
+status: open
+priority: 3
+tags[3]: follow-up,performance,rust
+created_at: "2026-10-18T06:28:16.861Z"
+updated_at: "2026-10-18T06:28:16.861Z"
+author: codex-agent
+acceptance_criteria: "Measure the same 30-run commands and retain byte parity, storage integrity and all coverage dimensions."
+parent: pm-rust-u4al
+body: ""

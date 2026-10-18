@@ -138,7 +138,7 @@ convention described above; an isolated synthetic author prevents inherited
 agent feedback from changing the comparison. No tracker rows are filtered.
 
 The concurrency fixture starts three independent reader threads, each issuing
-four history/dependency reads, alongside four native updates to an unrelated
+four context/history/dependency reads, alongside four native updates to an unrelated
 item. The target TOON and append-only JSONL bytes are identical before and after;
 serial oracle reads then match both native results. Context captures one
 authoritative corpus per invocation, verified with the existing real filesystem
@@ -146,5 +146,49 @@ scan observer. These readers acquire no writer lock, execute no recovery
 journal, and do not claim a transactionally consistent snapshot across an
 item being concurrently modified. Dependency mutation remains deferred.
 
-Latency and final gate receipts are recorded after the implementation passes
-its conformance checks.
+Windows CI exposed the existing publisher's delete-before-rename gap: an
+unrelated update briefly removed an item while an orientation reader captured
+the corpus. Publication now calls `std::fs::rename` without unlinking the old
+destination; Rust documents replacement of existing files on both platforms
+([rename contract](https://doc.rust-lang.org/std/fs/fn.rename.html)). Writer
+locks and the recovery journal are retained. A real-filesystem regression also
+requires a failed publication to preserve the old destination. Reinstating the
+previous Windows delete/rename sequence behavior makes that regression fail.
+
+## Large-tracker latency receipt
+
+Measured 2026-10-18 against a complete temporary copy of the public pm CLI
+tracker: 2,991 items and 6,004 authoritative files. SHA-256 checks after the
+run found zero changed authoritative files in either the original or its copy.
+Only the copy was passed to either CLI.
+
+Each cell below is cold-process wall time in milliseconds. There are 30 fresh
+processes for every command/runtime pair (240 samples), alternating runtime
+order each round. Filesystem caches and the oracle's derived indexes are warm
+after one untimed validation of every command. p50 is the median; p95 is nearest
+rank, the 29th sorted sample of 30. The search term is `history`; get uses one
+existing task. Timed context uses real clocks; the separate byte comparison
+above pins clocks.
+
+| Command | Native p50 | Native p95 | Oracle p50 | Oracle p95 |
+| --- | ---: | ---: | ---: | ---: |
+| `context --limit 10` | 1067.7 | 1296.6 | 1175.2 | 1575.9 |
+| `list --status open --limit 20` | 731.6 | 1128.3 | 445.3 | 900.6 |
+| `search history --limit 10` | 787.4 | 1243.4 | 1345.1 | 2003.7 |
+| `get <id>` | 692.6 | 944.1 | 433.7 | 629.0 |
+
+Hardware: four logical CPUs, Intel Core i5-7400, shared Linux host. The harness
+ran under `nice -n 4`, producing effective nice 19 with the inherited priority.
+Start load averages (1/5/15 minutes): 17.59/19.00/21.39; end:
+9.04/14.09/18.95. The sampled one-minute range was 9.04–17.59.
+Native used `cargo build --locked --release` with Rust 1.90.0, source
+`22f7fd046e9af13561640d1e9c04301ee187852f`. The oracle was the locked
+2026.10.14 package on Node v24.19.0. Agent home, global state and author were
+isolated. The binary fingerprint stayed constant throughout the run.
+
+Native context and search have lower measured p50/p95. List and get are slower
+than the oracle's warm indexed reads; selective lookup/index work is tracked in
+[pm-rust-wdj4](../.agents/pm/tasks/pm-rust-wdj4.toon). These observations include
+shared-host contention. The complete [sample CSV](benchmarks/native-orientation-2026-10-18.csv)
+and [summary, load and integrity receipt](benchmarks/native-orientation-2026-10-18.json)
+retain the underlying measurements.

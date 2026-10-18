@@ -377,6 +377,10 @@ fn session_and_usage_affinity() -> Result<(), Box<dyn std::error::Error>> {
     )?;
     let affinity = affinity(&workspace, &identity, NOW);
     assert_eq!(affinity.claims.len(), 3);
+    if std::env::var("PM_CONTEXT_USAGE_DISABLED").as_deref() == Ok("1") {
+        assert!(affinity.usage.is_empty());
+        return Ok(());
+    }
     assert_eq!(affinity.usage.get("sample-a"), Some(&1.0));
     let rows = vec![item("sample-a", "open"), item("sample-b", "open")];
     assert_eq!(
@@ -390,6 +394,83 @@ fn session_and_usage_affinity() -> Result<(), Box<dyn std::error::Error>> {
     let required = BTreeSet::from(["required".to_owned()]);
     assert_eq!(pack(&candidates, 15, &required)[0]["id"], "required");
     assert!(pack(&candidates, 1, &required).is_empty());
+    let output = std::process::Command::new(std::env::current_exe()?)
+        .args([
+            "--exact",
+            "orientation_context::tests::session_and_usage_affinity",
+        ])
+        .env("PM_CONTEXT_USAGE_DISABLED", "1")
+        .output()?;
+    assert!(output.status.success(), "{output:?}");
+    assert!(String::from_utf8_lossy(&output.stdout).contains("1 passed;"));
+    Ok(())
+}
+
+/// Populated context retains inherited tags, static diagnostics and optional cursor controls.
+#[test]
+fn inherited_tags_and_extension_context() -> Result<(), Box<dyn std::error::Error>> {
+    const CHILD: &str = "PM_RUST_CONTEXT_STATIC_CHILD";
+    if std::env::var_os(CHILD).is_none() {
+        let global = tempfile::tempdir()?;
+        let output = std::process::Command::new(std::env::current_exe()?)
+            .args([
+                "--exact",
+                "orientation_context::tests::inherited_tags_and_extension_context",
+            ])
+            .env(CHILD, "1")
+            .env("PM_GLOBAL_PATH", global.path())
+            .output()?;
+        assert!(output.status.success(), "{output:?}");
+        assert!(String::from_utf8_lossy(&output.stdout).contains("1 passed;"));
+        return Ok(());
+    }
+    let (_root, workspace, _) = workspace()?;
+    let mut parent = item("sample-parent", "open");
+    parent["type"] = json!("Feature");
+    parent["tags"] = json!(["shared"]);
+    let mut child = item("sample-child", "open");
+    child["parent"] = json!("sample-parent");
+    child["tags"] = json!(["shared"]);
+    child["events"] = json!([{"start_at":NOW,"timezone":"UTC"}]);
+    for row in [&parent, &child] {
+        fs::write(
+            workspace
+                .pm_root()
+                .join(format!("tasks/{}.toon", text(row, "id"))),
+            toon_format::encode_default(row)?,
+        )?;
+    }
+    let extension = workspace.pm_root().join("extensions/fixture");
+    fs::create_dir_all(&extension)?;
+    fs::write(
+        extension.join("manifest.json"),
+        r#"{"name":"fixture","version":"1.0.0","entry":"entry.js"}"#,
+    )?;
+    fs::write(extension.join("entry.js"), "export {};")?;
+    let result = workspace.context(&ContextOptions::default(), NOW)?;
+    assert_eq!(result["low_level"][0]["tags_inherited"], "sample-parent");
+    assert!(result["extension_health"]["packages"].is_array());
+    let limited = workspace.context(
+        &ContextOptions {
+            limit: Some("1".to_owned()),
+            ..Default::default()
+        },
+        NOW,
+    )?;
+    assert!(limited["next_cursor"].is_string());
+    child["events"] = json!([{"start_at":NOW,"timezone":"Europe/Paris"}]);
+    fs::write(
+        workspace.pm_root().join("tasks/sample-child.toon"),
+        toon_format::encode_default(&child)?,
+    )?;
+    let error = workspace
+        .context(&ContextOptions::default(), NOW)
+        .err()
+        .ok_or("expected deferred timezone refusal")?;
+    assert!(
+        error.to_string().contains("UTC weekly recurrence"),
+        "{error}"
+    );
     Ok(())
 }
 
