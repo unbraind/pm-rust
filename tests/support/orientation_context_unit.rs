@@ -440,6 +440,15 @@ fn inherited_tags_and_extension_context() -> Result<(), Box<dyn std::error::Erro
             toon_format::encode_default(row)?,
         )?;
     }
+    let fitting = workspace.context(
+        &ContextOptions {
+            limit: Some("10".to_owned()),
+            ..Default::default()
+        },
+        NOW,
+    )?;
+    assert!(fitting.get("next_cursor").is_none());
+    assert!(fitting.get("extension_health").is_none());
     let extension = workspace.pm_root().join("extensions/fixture");
     fs::create_dir_all(&extension)?;
     fs::write(
@@ -458,6 +467,18 @@ fn inherited_tags_and_extension_context() -> Result<(), Box<dyn std::error::Erro
         NOW,
     )?;
     assert!(limited["next_cursor"].is_string());
+    fs::write(
+        extension.join("manifest.json"),
+        r#"{"name":"fixture","version":"1.0.0","entry":"entry.js","priority":1}"#,
+    )?;
+    let error = workspace
+        .context(&ContextOptions::default(), NOW)
+        .err()
+        .ok_or("expected extension refusal")?;
+    assert!(
+        error.to_string().contains("nonminimal manifests"),
+        "{error}"
+    );
     child["events"] = json!([{"start_at":NOW,"timezone":"Europe/Paris"}]);
     fs::write(
         workspace.pm_root().join("tasks/sample-child.toon"),

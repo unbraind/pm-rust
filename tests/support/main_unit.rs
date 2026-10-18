@@ -89,6 +89,61 @@ fn orientation_error_recovery_contract() {
     );
 }
 
+/// One owned argument stream preserves command namespaces, hidden controls and close aliases.
+#[test]
+fn owned_published_argument_streams() {
+    let cases: &[(&[&str], &[&str])] = &[
+        (&[], &[]),
+        (
+            &[
+                "context",
+                "--workspace",
+                "fixture",
+                "--timestamp",
+                "clock",
+                "--workspace=fixture",
+                "--timestamp=clock",
+                "--workspace-extra=kept",
+                "--timestamp-extra=kept",
+                "--json",
+            ],
+            &[
+                "context",
+                "--workspace-extra=kept",
+                "--timestamp-extra=kept",
+                "--json",
+            ],
+        ),
+        (
+            &[
+                "close",
+                "sample-a",
+                "--expected",
+                "expected",
+                "--actual",
+                "actual",
+                "--json",
+            ],
+            &[
+                "close",
+                "sample-a",
+                "--expected-result",
+                "expected",
+                "--actual-result",
+                "actual",
+                "--json",
+            ],
+        ),
+        (&["files", "sample-a"], &["item", "files", "sample-a"]),
+        (&["docs", "sample-a"], &["item", "docs", "sample-a"]),
+        (&["test", "sample-a"], &["item", "test", "sample-a"]),
+    ];
+    for (input, expected) in cases {
+        let arguments: Vec<String> = input.iter().map(|arg| (*arg).to_owned()).collect();
+        assert_eq!(super::published_read_arguments(arguments), *expected);
+    }
+}
+
 /// New command dispatchers persist real collections and propagate read/mutation failures.
 #[test]
 fn search_and_collection_dispatch_boundaries() -> Result<(), Box<dyn std::error::Error>> {
