@@ -1,0 +1,36 @@
+id: pm-rust-xb3s
+title: Implement native context history and dependency orientation with oracle parity
+description: "Brief context, verified history reads, dependency listing, large public tracker latency and exact gates against the pinned oracle."
+type: Feature
+status: in_progress
+priority: 2
+tags[3]: conformance,orientation,rust
+created_at: "2026-10-18T03:01:55.242Z"
+updated_at: "2026-10-18T04:14:13.391Z"
+assignee: codex-agent
+claim_principal: codex-agent
+author: codex-agent
+parent: pm-rust-u4al
+comments[4]{created_at,author,text}:
+  "2026-10-18T03:02:15.486Z",codex-agent,"Plan: implement native brief context focus selection and packing, append-only history reads, and dependency tree reads. Compare complete CLI bytes against the locked oracle on disposable trackers. Document unsupported flags explicitly, retain release disablement, and record revert controls, large public tracker latency and all local/platform gates. Pinned history reads do not verify by default; --verify returns a verification report rather than refusing on a broken record hash. Preserve this observable oracle behavior and document the distinction."
+  "2026-10-18T03:15:21.835Z",codex-agent,"Implementation in progress: native brief relevance ordering and identity packing, compact/full history with strict integrity exit, and bounded dependency tree/graph reads. Initial local build succeeds. Added real-CLI fixed-clock differential fixtures; extending refusal and corruption cases before the aggregate gate. CLI orientation requires a complete initialized settings document; fixtures now use real pm init rather than a partial settings surrogate."
+  "2026-10-18T03:39:06.493Z",codex-agent,"First real-CLI differential: history passed, including immutable-author tampering with --verify --strict-exit. Dependency truncation exposed an internal row-contract token estimate, now matched. Context exposed an oracle behavior: the 25 ms packing deadline can expire before the first selection when this shared host deschedules Node, returning zero focus rows and suggestions despite active candidates. The orientation fixture now pins the monotonic clock as well as Date to test deterministic bytes. Native packing completes deterministically; document this timing boundary and report it as an oracle UX gap rather than claiming scheduling equivalence."
+  "2026-10-18T04:12:46.206Z",codex-agent,"The six-test orientation differential passed: context focus/budgets/cursors, history integrity and retained rewrite evidence, dependency traversal/refusals, explicit unsupported options, read-only storage during concurrent unrelated writes, and group caps/session affinity. Added further weekly-calendar and bounded-history cases. Benchmark preflight found one closed weekly UTC event in the unchanged public-tracker copy; expanding that existing calendar shape instead of filtering the dataset. Local isolated strict health passed eight checks with four advisories; ambient health separately reports the global extension host-version skew. Timings and full coverage are still pending."
+files[11]{path,scope}:
+  src/error.rs,project
+  src/lib.rs,project
+  src/main.rs,project
+  src/orientation_context.rs,project
+  src/orientation_deps.rs,project
+  src/orientation.rs,project
+  src/read_output.rs,project
+  tests/orientation_differential.rs,project
+  tests/support/orientation_context_unit.rs,project
+  tests/support/orientation_deps_unit.rs,project
+  tests/support/orientation_unit.rs,project
+tests[1]{command,path,scope,timeout_seconds,provenance{author,created_at,source_kind,source_ref},shared_host_safe,note}:
+  cargo test --locked --test orientation_differential,tests/orientation_differential.rs,project,1800,codex-agent,"2026-10-18T04:14:11.408Z",local_mutation,feat/native-context-history-deps,true,Exact orientation CLI bytes and read-only concurrent storage acceptance
+docs[2]{path,scope}:
+  docs/NATIVE_ORIENTATION.md,project
+  README.md,project
+body: ""
