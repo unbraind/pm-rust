@@ -120,6 +120,41 @@ fn seed_item(workspace: &TempDir) -> Result<(), Box<dyn std::error::Error>> {
     )
 }
 
+/// Verified history succeeds strictly and propagates a reader closing its output pipe.
+#[test]
+fn history_strict_success_and_closed_pipe() -> Result<(), Box<dyn std::error::Error>> {
+    use std::process::Stdio;
+    let workspace = workspace()?;
+    seed_item(&workspace)?;
+    expect_ok(
+        &workspace,
+        &[
+            "history",
+            "sample-cli",
+            "--verify",
+            "--strict-exit",
+            "--json",
+        ],
+    )?;
+    let path = workspace.path().join(".agents/pm/history/sample-cli.jsonl");
+    let mut entry: serde_json::Value = serde_json::from_str(fs::read_to_string(&path)?.trim())?;
+    entry["author"] = serde_json::json!("fixture".repeat(100_000));
+    fs::write(&path, format!("{}\n", serde_json::to_string(&entry)?))?;
+    let before = fs::read(&path)?;
+    let mut child = Command::new(env!("CARGO_BIN_EXE_pm-rust"))
+        .current_dir(workspace.path())
+        .args(["--workspace=.", "history", "sample-cli", "--full", "--json"])
+        .stdout(Stdio::piped())
+        .stderr(Stdio::piped())
+        .spawn()?;
+    drop(child.stdout.take());
+    let output = child.wait_with_output()?;
+    assert!(!output.status.success());
+    assert!(!output.stderr.is_empty());
+    assert_eq!(fs::read(path)?, before);
+    Ok(())
+}
+
 #[test]
 /// Covers the read commands over stored items and their failure paths.
 fn list_and_get_dispatch_over_real_processes() -> Result<(), Box<dyn std::error::Error>> {

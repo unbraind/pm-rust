@@ -830,6 +830,9 @@ fn context_state_boundary(workspace: &Workspace, corpus: &[Value]) -> Result<(),
             .flatten()
             .flatten()
         {
+            if !entry.file_type().is_ok_and(|kind| kind.is_dir()) {
+                continue;
+            }
             let manifest = std::fs::read(entry.path().join("manifest.json"))
                 .ok()
                 .and_then(|bytes| serde_json::from_slice::<Value>(&bytes).ok())

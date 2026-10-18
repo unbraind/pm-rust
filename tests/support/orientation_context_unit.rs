@@ -333,6 +333,17 @@ fn context_cache_and_extension_boundaries() -> Result<(), Box<dyn std::error::Er
     fs::create_dir(extensions.join("bad"))?;
     fs::write(extensions.join("file"), "not a directory")?;
     assert!(extension_health(&workspace, &json!({}), None)?.is_some());
+    #[cfg(unix)]
+    {
+        let outside = workspace.pm_root().join("ignored-extension");
+        fs::create_dir(&outside)?;
+        fs::write(
+            outside.join("manifest.json"),
+            r#"{"contributions":{"service_overrides":["context_relevance"]}}"#,
+        )?;
+        std::os::unix::fs::symlink(outside, extensions.join("linked"))?;
+    }
+    assert!(context_state_boundary(&workspace, &[]).is_ok());
     Ok(())
 }
 

@@ -48,6 +48,8 @@ extension enable/disable policy and other manifest controls refuse with
 diagnostic. Native reads never execute extension code or custom scorer hooks.
 Declared `context_relevance` service overrides refuse even when extension health
 is omitted; core ranking is the claimed scorer model.
+Discovery skips ordinary files and symlinked extension directories, matching
+the oracle's directory-entry policy.
 
 ## History
 
@@ -126,6 +128,8 @@ complete stdout, stderr and exit status. Private unit acceptance exercises
 storage failures and the integrity, selection and traversal boundaries.
 Extension discovery has a real oracle fixture for the minimal manifest and
 explicit refusal/omission coverage for richer manifests.
+Real-process history acceptance also covers strict verification success and
+closed output pipes without changing the stored history.
 
 The complete 2,991-item public tracker copy also passed a clock-pinned context
 comparison: 11,839 JSON bytes and 7,219 default TOON bytes matched exactly,
