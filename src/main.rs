@@ -1229,7 +1229,14 @@ fn main() -> ExitCode {
                 };
                 return ExitCode::from(2);
             }
-            error.exit();
+            // Keep Clap's bytes and statuses while allowing normal process teardown.
+            // Immediate exit bypasses profile finalization on Windows.
+            let _ = error.print();
+            return if error.use_stderr() {
+                ExitCode::from(2)
+            } else {
+                ExitCode::SUCCESS
+            };
         }
     };
     match run(cli) {

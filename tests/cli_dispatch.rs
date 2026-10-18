@@ -177,6 +177,16 @@ fn list_and_get_dispatch_over_real_processes() -> Result<(), Box<dyn std::error:
         String::from_utf8_lossy(&unknown.stderr)
             .contains("unexpected argument '--native-boundary-probe'")
     );
+    for args in [
+        &["--help"][..],
+        &["--version"][..],
+        &["context", "--help"][..],
+    ] {
+        let output = pm_rust(&workspace, args)?;
+        assert!(output.status.success());
+        assert!(!output.stdout.is_empty());
+        assert!(output.stderr.is_empty());
+    }
     expect_err(&workspace, &["get", "sample-missing"], "pm item not found")?;
     Ok(())
 }
