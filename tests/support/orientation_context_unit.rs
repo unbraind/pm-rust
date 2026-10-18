@@ -295,6 +295,13 @@ fn context_api_boundaries() -> Result<(), Box<dyn std::error::Error>> {
     )?;
     assert!(workspace.context(&ContextOptions::default(), NOW).is_err());
     fs::remove_file(workspace.pm_root().join("tasks/sample-blocked.toon"))?;
+    Ok(())
+}
+
+/// Invalid derived caches refuse while supported static extension diagnostics remain bounded.
+#[test]
+fn context_cache_and_extension_boundaries() -> Result<(), Box<dyn std::error::Error>> {
+    let (_root, workspace, _) = workspace()?;
     let runtime = workspace.pm_root().join("runtime");
     fs::create_dir_all(&runtime)?;
     for (name, value) in [
