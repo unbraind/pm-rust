@@ -274,11 +274,24 @@ fn streamed_items_refuse_duplicate_ids() -> Result<(), Box<dyn std::error::Error
     for folder in ["tasks", "custom"] {
         std::fs::write(tracker.join(format!("{folder}/same.toon")), content)?;
     }
+    for index in 0..70 {
+        let id = format!("tail-{index:03}");
+        std::fs::write(
+            tracker.join(format!("tasks/{id}.toon")),
+            content.replace("id: same", &format!("id: {id}")),
+        )?;
+    }
+    // Preserve source-order refusal precedence even when a later worker fails I/O.
+    std::fs::write(tracker.join("tasks/zzz-invalid.toon"), [0xff])?;
     let workspace = super::Workspace::discover(directory.path())?;
     let items = workspace
         .stream_items(crate::read_projection::Projection::List)?
         .collect::<Result<Vec<_>, _>>();
     assert!(matches!(items, Err(PmRustError::DuplicateItemId { .. })));
+    assert!(matches!(
+        workspace.search("example", &crate::SearchOptions::default()),
+        Err(PmRustError::DuplicateItemId { .. })
+    ));
     Ok(())
 }
 

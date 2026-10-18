@@ -239,10 +239,42 @@ impl Workspace {
         projection: crate::read_projection::Projection,
     ) -> Result<impl Iterator<Item = Result<ItemDocument, PmRustError>>, PmRustError> {
         let mut seen = BTreeMap::new();
-        Ok(self.item_sources()?.map(move |source| {
-            let (path, content) = source?;
-            decode_unique(&path, &content, projection, &mut seen)
-        }))
+        #[cfg(any(windows, target_os = "macos"))]
+        {
+            #[cfg(test)]
+            crate::ownership::tests::READ_ITEMS_SCANS.with(|count| count.set(count.get() + 1));
+            let mut paths = self.lookup_paths(None)?;
+            paths.sort_by(|a, b| a.file_stem().cmp(&b.file_stem()).then_with(|| a.cmp(b)));
+            let batches: Vec<_> = paths.chunks(256).map(<[PathBuf]>::to_vec).collect();
+            Ok(batches
+                .into_iter()
+                .flat_map(move |batch| {
+                    read_parallel_batch(&batch, |path| {
+                        let document = read_item_text(path).and_then(|content| {
+                            crate::read_projection::decode(path, &content, projection)
+                        });
+                        (path.to_path_buf(), document)
+                    })
+                })
+                .map(move |(path, document)| {
+                    let document = document?;
+                    if let Some(first) = seen.insert(document.metadata.id.clone(), path.clone()) {
+                        return Err(PmRustError::DuplicateItemId {
+                            id: document.metadata.id,
+                            first,
+                            second: path,
+                        });
+                    }
+                    Ok(document)
+                }))
+        }
+        #[cfg(not(any(windows, target_os = "macos")))]
+        {
+            Ok(self.item_sources()?.map(move |source| {
+                let (path, content) = source?;
+                decode_unique(&path, &content, projection, &mut seen)
+            }))
+        }
     }
 
     /// Opens sources one at a time, allowing metadata filters before payload decoding.
@@ -256,9 +288,11 @@ impl Workspace {
             // Bound both raw-content memory and thread creation. Decoding remains
             // ordered on the caller, preserving first-error and cursor semantics.
             let batches: Vec<_> = paths.chunks(256).map(<[PathBuf]>::to_vec).collect();
-            Ok(batches
-                .into_iter()
-                .flat_map(|batch| read_parallel_batch(&batch)))
+            Ok(batches.into_iter().flat_map(|batch| {
+                read_parallel_batch(&batch, |path| {
+                    read_item_text(path).map(|content| (path.to_path_buf(), content))
+                })
+            }))
         }
         #[cfg(not(any(windows, target_os = "macos")))]
         {
@@ -453,18 +487,19 @@ impl Workspace {
     }
 }
 
-/// Reads at most 256 files with four workers and preserves listing order.
+/// Reads and projects at most 256 files with four workers in listing order.
 ///
-/// Overlaps file-open latency without retaining every raw document.
-/// Keep prefetch separate from decoding; direct get never uses it.
+/// The projection is pure; identity checks and error reporting remain ordered
+/// on the caller. Direct get never uses worker prefetch.
 #[cfg(any(windows, target_os = "macos"))]
-fn read_parallel_batch(batch: &[PathBuf]) -> Vec<ItemSource> {
-    let mut groups: [Vec<ItemSource>; 4] = std::array::from_fn(|_| Vec::new());
+fn read_parallel_batch<T: Send>(batch: &[PathBuf], read: impl Fn(&Path) -> T + Sync) -> Vec<T> {
+    let mut groups: [Vec<T>; 4] = std::array::from_fn(|_| Vec::new());
     std::thread::scope(|scope| {
         for (paths, rows) in batch.chunks(64).zip(groups.iter_mut()) {
+            let read = &read;
             scope.spawn(move || {
                 for path in paths {
-                    rows.push(read_item_text(path).map(|content| (path.clone(), content)));
+                    rows.push(read(path));
                 }
             });
         }

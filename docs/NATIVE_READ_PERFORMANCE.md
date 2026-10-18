@@ -26,8 +26,9 @@ A projection does not claim validation of omitted collection payloads; complete
 reads and `get` continue to validate complete authoritative documents.
 
 Item contents are decoded one at a time. macOS and Windows overlap filesystem reads with
-four scoped workers and at most 256 raw documents per batch, preserving listing
-and refusal order. Direct `get` bypasses this prefetch. Context caches update/deadline/history-recency
+four scoped workers and at most 256 documents per batch. List/context workers
+read and decode projections; the caller retains listing order for duplicate checks
+and refusals. Search workers prefetch raw contents before serial scoring. Direct `get` bypasses this prefetch. Context caches update/deadline/history-recency
 sort keys and parses its captured read clock once, avoiding timestamp parsing
 inside sort comparisons. A timestamp-count regression enforces linear work on
 the default brief-context fixture. Default list ordering depends on lifecycle,
@@ -128,11 +129,6 @@ implementation made `context_timestamp_parse_work_is_linear` fail: 346 timestamp
 parses exceeded its 282-parse bound for 50 items. Restoring the implementation
 passed. The single-item lookup revert separately failed both lookup regressions.
 
-The later macOS read path uses the same bounded prefetch as Windows to reduce
-file-open variance. The latency fixture and all p95 ceilings remain unchanged.
-The final PR checks certify this platform-specific follow-up; the receipt above
-retains its original measured source identity.
-
-A release rebuild after the macOS follow-up produced the identical Linux binary
-SHA-256 `4f9ac7345f1303cc9967ce0856efdbce0665553956e7dad81a2596c650e54ed5`.
-The Linux public-tracker timing and open-count samples therefore apply unchanged.
+macOS and Windows use bounded read-and-project workers; duplicate checks and
+refusals follow source order on the caller. Linux remains serial. The binary
+fingerprint and source identity in each receipt identify its measurement.

@@ -345,12 +345,29 @@ fn rejects_invalid_documents() -> Result<(), Box<dyn std::error::Error>> {
 #[test]
 fn rejects_duplicate_ids_and_deleted_tracker() -> Result<(), Box<dyn std::error::Error>> {
     let (directory, root) = tracker()?;
-    write(root.join("chores/duplicate.toon"), ITEM_A)?;
+    write(root.join("chores/demo-a.toon"), ITEM_A)?;
     assert!(matches!(
         Workspace::discover(directory.path())?.read_items(),
         Err(PmRustError::DuplicateItemId { id, .. }) if id == "demo-a"
     ));
     let workspace = Workspace::discover(directory.path())?;
+    for index in 0..70 {
+        let id = format!("tail-{index:03}");
+        write(
+            root.join(format!("tasks/{id}.toon")),
+            &ITEM_A.replace("id: demo-a", &format!("id: {id}")),
+        )?;
+    }
+    // A later worker read failure must not overtake the earlier duplicate refusal.
+    fs::write(root.join("tasks/zzz-invalid.toon"), [0xff])?;
+    assert!(matches!(
+        workspace.list(ItemFilter::default()),
+        Err(PmRustError::DuplicateItemId { id, .. }) if id == "demo-a"
+    ));
+    assert!(matches!(
+        workspace.search("alpha", &pm_rust::SearchOptions::default()),
+        Err(PmRustError::DuplicateItemId { id, .. }) if id == "demo-a"
+    ));
     fs::remove_dir_all(&root)?;
     assert!(matches!(
         workspace.read_items(),
