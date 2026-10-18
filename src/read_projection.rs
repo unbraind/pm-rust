@@ -83,15 +83,29 @@ pub(crate) fn decode(
                         | "deadline"
                 )
             } else {
-                !matches!(
+                matches!(
                     key,
-                    "body"
-                        | "description"
-                        | "files"
-                        | "docs"
-                        | "tests"
-                        | "plan_steps"
-                        | "plan_resume_context"
+                    "id" | "title"
+                        | "type"
+                        | "status"
+                        | "priority"
+                        | "tags"
+                        | "created_at"
+                        | "updated_at"
+                        | "parent"
+                        | "dependencies"
+                        | "blocked_by"
+                        | "deadline"
+                        | "order"
+                        | "assignee"
+                        | "risk"
+                        | "release"
+                        | "comments"
+                        | "notes"
+                        | "learnings"
+                        | "test_runs"
+                        | "reminders"
+                        | "events"
                 )
             };
         }

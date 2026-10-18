@@ -4,7 +4,7 @@ use serde_json::json;
 
 #[test]
 fn projections_keep_required_fields_and_context_counts() -> Result<(), Box<dyn std::error::Error>> {
-    let value = json!({"id":"sample-one","title":"Example","description":"long text","type":"Task","status":"open","priority":1,"tags":["alpha"],"created_at":"2026-08-22T10:00:00.000Z","updated_at":"2026-08-22T10:00:00.000Z","parent":"sample-parent","dependencies":[{"id":"sample-other","kind":"blocked_by"}],"deadline":"2026-10-01","comments":[{"text":"many words","author":"sample"}],"notes":[],"learnings":[],"test_runs":[],"files":[{"path":"src/lib.rs"}],"body":"long body"});
+    let value = json!({"id":"sample-one","title":"Example","description":"long text","type":"Task","status":"open","priority":1,"tags":["alpha"],"created_at":"2026-08-22T10:00:00.000Z","updated_at":"2026-08-22T10:00:00.000Z","parent":"sample-parent","dependencies":[{"id":"sample-other","kind":"blocked_by"}],"deadline":"2026-10-01","comments":[{"text":"many words","author":"sample"}],"notes":[],"learnings":[],"test_runs":[],"files":[{"path":"src/lib.rs"}],"unused_extension":{"payload":"many unused words"},"body":"long body"});
     let content = toon_format::encode_default(&value)?;
     let path = Path::new("tasks/sample-one.toon");
     let full = decode(path, &content, Projection::Full)?;
@@ -24,6 +24,7 @@ fn projections_keep_required_fields_and_context_counts() -> Result<(), Box<dyn s
         Some(0)
     );
     assert!(!brief.metadata.extra.contains_key("files"));
+    assert!(!brief.metadata.extra.contains_key("unused_extension"));
     assert!(brief.body.is_empty());
     let empty = content.replace("notes[0]:", "notes: []");
     assert_eq!(

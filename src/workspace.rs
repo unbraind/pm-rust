@@ -210,8 +210,8 @@ impl Workspace {
         Ok(paths)
     }
 
-    /// Locates matching regular filenames using directory-entry types, without per-item stats.
-    fn lookup_paths(&self, id: &str) -> Result<Vec<PathBuf>, PmRustError> {
+    /// Lists regular filenames, optionally selecting one ID, without per-item metadata calls.
+    fn lookup_paths(&self, id: Option<&str>) -> Result<Vec<PathBuf>, PmRustError> {
         let mut found = Vec::new();
         for entry in read_directory(&self.pm_root)? {
             let path = entry.path();
@@ -244,7 +244,7 @@ impl Workspace {
     ) -> Result<impl Iterator<Item = Result<(PathBuf, String), PmRustError>>, PmRustError> {
         #[cfg(test)]
         crate::ownership::tests::READ_ITEMS_SCANS.with(|count| count.set(count.get() + 1));
-        let mut paths = self.item_paths()?;
+        let mut paths = self.lookup_paths(None)?;
         paths.sort_by(|a, b| a.file_stem().cmp(&b.file_stem()).then_with(|| a.cmp(b)));
         Ok(paths.into_iter().map(|path| {
             let content = read_item_text(&path)?;
@@ -258,13 +258,16 @@ impl Workspace {
     ///
     /// Returns any error produced while reading and validating stored items.
     pub fn list(&self, filters: ItemFilter) -> Result<ListResult, PmRustError> {
-        let documents = self.read_items()?;
-        let total = documents.len();
-        let items = documents
-            .iter()
-            .filter(|document| filters.matches(document))
-            .map(ItemSummary::from)
-            .collect::<Vec<_>>();
+        let mut total = 0;
+        let mut items = Vec::new();
+        for document in self.stream_items(crate::read_projection::Projection::List)? {
+            let document = document?;
+            total += 1;
+            if filters.matches(&document) {
+                items.push(ItemSummary::from(&document));
+            }
+        }
+        items.sort_by(|a, b| a.id.cmp(&b.id));
         Ok(ListResult {
             count: items.len(),
             items,
@@ -343,7 +346,7 @@ impl Workspace {
     /// Returns an item-read error or [`PmRustError::ItemNotFound`].
     pub fn get(&self, id: &str) -> Result<ItemDocument, PmRustError> {
         let mut found = None;
-        for path in self.lookup_paths(id)? {
+        for path in self.lookup_paths(Some(id))? {
             if let Some(first) = found {
                 return Err(PmRustError::DuplicateItemId {
                     id: id.to_owned(),
@@ -507,7 +510,7 @@ fn listing_type(
 /// Recurses actual type directories, ignoring symbolic links and unrelated filenames.
 fn collect_lookup_paths(
     path: &Path,
-    id: &str,
+    id: Option<&str>,
     paths: &mut Vec<PathBuf>,
 ) -> Result<(), PmRustError> {
     for entry in read_directory(path)? {
@@ -519,7 +522,7 @@ fn collect_lookup_paths(
             && entry_path
                 .extension()
                 .is_some_and(|extension| extension == "toon")
-            && entry_path.file_stem().is_some_and(|name| name == id)
+            && id.is_none_or(|id| entry_path.file_stem().is_some_and(|name| name == id))
         {
             paths.push(entry_path);
         }
