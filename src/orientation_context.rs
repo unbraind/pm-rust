@@ -5,6 +5,13 @@ use crate::{ContextOptions, ListOutput, PmRustError, Workspace};
 use serde_json::{Value, json};
 use std::collections::{BTreeMap, BTreeSet};
 
+/// Platform home variable used by the published extension discovery convention.
+#[cfg(windows)]
+const HOME_VARIABLE: &str = "USERPROFILE";
+/// Platform home variable used by the published extension discovery convention.
+#[cfg(not(windows))]
+const HOME_VARIABLE: &str = "HOME";
+
 /// Reads a string member with an empty fallback.
 fn text<'a>(item: &'a Value, name: &str) -> &'a str {
     item[name].as_str().unwrap_or_default()
@@ -110,14 +117,18 @@ struct Affinity {
 /// Reads at most the published ledger byte ceiling, dropping a clipped leading record.
 fn usage_text(path: &std::path::Path) -> String {
     use std::io::{Read, Seek, SeekFrom};
-    let read = || -> std::io::Result<(Vec<u8>, bool)> {
-        let mut file = std::fs::File::open(path)?;
-        let size = file.metadata()?.len();
-        let start = size.saturating_sub(262_144);
-        file.seek(SeekFrom::Start(start))?;
-        let mut bytes = Vec::new();
-        file.take(262_144).read_to_end(&mut bytes)?;
-        Ok((bytes, start > 0))
+    let read = || {
+        std::fs::File::open(path).and_then(|mut file| {
+            file.metadata().and_then(|metadata| {
+                let start = metadata.len().saturating_sub(262_144);
+                file.seek(SeekFrom::Start(start)).and_then(|_| {
+                    let mut bytes = Vec::new();
+                    file.take(262_144)
+                        .read_to_end(&mut bytes)
+                        .map(|_| (bytes, start > 0))
+                })
+            })
+        })
     };
     let Ok((bytes, clipped)) = read() else {
         return String::new();
@@ -810,6 +821,35 @@ fn agenda(
 }
 /// Refuses unsupported mutable ranking state instead of silently ignoring it.
 fn context_state_boundary(workspace: &Workspace, corpus: &[Value]) -> Result<(), PmRustError> {
+    for root in extension_health_global()
+        .into_iter()
+        .chain(std::iter::once(workspace.pm_root().to_path_buf()))
+    {
+        for entry in std::fs::read_dir(root.join("extensions"))
+            .into_iter()
+            .flatten()
+            .flatten()
+        {
+            let manifest = std::fs::read(entry.path().join("manifest.json"))
+                .ok()
+                .and_then(|bytes| serde_json::from_slice::<Value>(&bytes).ok())
+                .unwrap_or(Value::Null);
+            if manifest["contributions"]["service_overrides"]
+                .as_array()
+                .is_some_and(|services| {
+                    services
+                        .iter()
+                        .any(|service| service == "context_relevance")
+                })
+            {
+                return Err(crate::collections::refusal(
+                    "Native context does not execute declared context_relevance service overrides; use the published pm CLI.",
+                    2,
+                    json!({"code":"unsupported_native_context"}),
+                ));
+            }
+        }
+    }
     let runtime = workspace.pm_root().join("runtime");
     let load = |name: &str| {
         std::fs::read(runtime.join(name))
@@ -846,15 +886,22 @@ fn context_state_boundary(workspace: &Workspace, corpus: &[Value]) -> Result<(),
     }
     Ok(())
 }
-/// Reads static extension diagnostics without loading executable extension code.
-fn extension_health(workspace: &Workspace) -> Option<Value> {
-    let global = std::env::var_os("PM_GLOBAL_PATH")
+/// Resolves the published global extension root without modifying agent environment state.
+fn extension_health_global() -> Option<std::path::PathBuf> {
+    std::env::var_os("PM_GLOBAL_PATH")
         .filter(|path| !path.is_empty())
         .map(std::path::PathBuf::from)
         .or_else(|| {
-            std::env::var_os(if cfg!(windows) { "USERPROFILE" } else { "HOME" })
+            std::env::var_os(HOME_VARIABLE)
                 .map(|home| std::path::PathBuf::from(home).join(".pm-cli"))
-        });
+        })
+}
+/// Reads the documented minimal static extension diagnostics without executing code.
+fn extension_health(
+    workspace: &Workspace,
+    settings: &Value,
+    global: Option<std::path::PathBuf>,
+) -> Result<Option<Value>, PmRustError> {
     let roots = global
         .into_iter()
         .chain(std::iter::once(workspace.pm_root().to_path_buf()));
@@ -873,16 +920,42 @@ fn extension_health(workspace: &Workspace) -> Option<Value> {
                 .ok()
                 .and_then(|bytes| serde_json::from_slice::<Value>(&bytes).ok())
                 .unwrap_or(Value::Null);
-            let valid = manifest["name"].is_string()
-                && manifest["version"].is_string()
-                && manifest["entry"].is_string();
+            let configured = ["enabled", "disabled"].iter().any(|key| {
+                settings["extensions"][key]
+                    .as_array()
+                    .is_some_and(|values| !values.is_empty())
+            }) || settings["extensions"].as_object().is_some_and(|fields| {
+                fields
+                    .keys()
+                    .any(|key| !matches!(key.as_str(), "enabled" | "disabled"))
+            });
+            let rich = manifest.as_object().is_some_and(|fields| {
+                fields.keys().any(|key| {
+                    !matches!(
+                        key.as_str(),
+                        "name" | "version" | "entry" | "description" | "author"
+                    )
+                })
+            });
+            if configured || rich {
+                return Err(crate::collections::refusal(
+                    "Native context cannot certify configured extension policy or nonminimal manifests; use --no-extension-health or the published pm CLI.",
+                    2,
+                    json!({"code":"unsupported_native_context"}),
+                ));
+            }
+            let valid = ["name", "version", "entry"].iter().all(|key| {
+                manifest[key]
+                    .as_str()
+                    .is_some_and(|value| !value.trim().is_empty())
+            });
             let name = if valid {
-                text(&manifest, "name").to_owned()
+                text(&manifest, "name").trim().to_owned()
             } else {
                 entry.file_name().to_string_lossy().into_owned()
             };
             let ready = valid
-                && std::fs::canonicalize(path.join(text(&manifest, "entry")))
+                && std::fs::canonicalize(path.join(text(&manifest, "entry").trim()))
                     .ok()
                     .zip(std::fs::canonicalize(&path).ok())
                     .is_some_and(|(entry, root)| entry.starts_with(root));
@@ -891,7 +964,7 @@ fn extension_health(workspace: &Workspace) -> Option<Value> {
     }
     packages.sort_by(|a, b| crate::collation::compare(text(a, "name"), text(b, "name")));
     if packages.is_empty() {
-        return None;
+        return Ok(None);
     }
     let degraded = packages
         .iter()
@@ -901,7 +974,7 @@ fn extension_health(workspace: &Workspace) -> Option<Value> {
     if packages.len() > 20 {
         result["truncated"] = json!(true);
     }
-    Some(result)
+    Ok(Some(result))
 }
 impl Workspace {
     /// Renders brief focus with ranked packing and the oracle's omission receipt.
@@ -1174,7 +1247,7 @@ impl Workspace {
             }
         }
         if !options.no_extension_health
-            && let Some(health) = extension_health(self)
+            && let Some(health) = extension_health(self, &settings, extension_health_global())?
         {
             result["extension_health"] = health;
         }

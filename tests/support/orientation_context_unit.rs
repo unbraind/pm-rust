@@ -215,7 +215,10 @@ fn future_agenda_rows() -> Result<(), Box<dyn std::error::Error>> {
 fn context_api_boundaries() -> Result<(), Box<dyn std::error::Error>> {
     let (_root, workspace, _lifecycle) = workspace()?;
     for options in [
-        ContextOptions::default(),
+        ContextOptions {
+            no_extension_health: true,
+            ..Default::default()
+        },
         ContextOptions {
             no_extension_health: true,
             limit: Some("0".to_owned()),
@@ -223,6 +226,7 @@ fn context_api_boundaries() -> Result<(), Box<dyn std::error::Error>> {
         },
         ContextOptions {
             no_tags: true,
+            no_extension_health: true,
             limit: Some("1".to_owned()),
             token_budget: Some("1600".to_owned()),
             ..Default::default()
@@ -268,6 +272,22 @@ fn context_api_boundaries() -> Result<(), Box<dyn std::error::Error>> {
     )?;
     assert_eq!(result["blocked_fallback"].as_array().map(Vec::len), Some(1));
     assert_eq!(result["summary"]["returned_focus"]["blocked"], 1);
+    blocked["events"] = json!([{"start_at":NOW,"recurrence":null}]);
+    fs::write(
+        workspace.pm_root().join("tasks/sample-blocked.toon"),
+        toon_format::encode_default(&blocked)?,
+    )?;
+    assert!(
+        workspace
+            .context(
+                &ContextOptions {
+                    no_extension_health: true,
+                    ..Default::default()
+                },
+                NOW
+            )
+            .is_ok()
+    );
     blocked["events"] = json!([{"start_at":NOW,"recurrence":{"freq":"daily"}}]);
     fs::write(
         workspace.pm_root().join("tasks/sample-blocked.toon"),
@@ -279,6 +299,10 @@ fn context_api_boundaries() -> Result<(), Box<dyn std::error::Error>> {
     fs::create_dir_all(&runtime)?;
     for (name, value) in [
         ("context-signals-context.json", json!({"format_version":99})),
+        (
+            "context-signals-context.json",
+            json!({"format_version":3,"signal_set_version":2,"items":null}),
+        ),
         (
             "context-signals-context.json",
             json!({"format_version":3,"signal_set_version":2,"items":[{"id":"missing"}]}),
@@ -298,10 +322,10 @@ fn context_api_boundaries() -> Result<(), Box<dyn std::error::Error>> {
         r#"{"name":"fixture-extension","version":"1.0.0","entry":"entry.js"}"#,
     )?;
     fs::write(extensions.join("good/entry.js"), "export {};")?;
-    assert!(extension_health(&workspace).is_some());
+    assert!(extension_health(&workspace, &json!({}), None)?.is_some());
     fs::create_dir(extensions.join("bad"))?;
     fs::write(extensions.join("file"), "not a directory")?;
-    assert!(extension_health(&workspace).is_some());
+    assert!(extension_health(&workspace, &json!({}), None)?.is_some());
     Ok(())
 }
 
@@ -583,14 +607,20 @@ fn configured_roles_and_extension_cap() -> Result<(), Box<dyn std::error::Error>
             )?;
         }
     }
-    let health = extension_health(&workspace).ok_or("extensions")?;
+    let health = extension_health(&workspace, &json!({}), None)?.ok_or("extensions")?;
     assert_eq!(health["truncated"], true);
     assert_eq!(health["packages"].as_array().map(Vec::len), Some(20));
     assert!(
         workspace
-            .context(&ContextOptions::default(), NOW)?
+            .context(
+                &ContextOptions {
+                    no_extension_health: true,
+                    ..Default::default()
+                },
+                NOW
+            )?
             .get("extension_health")
-            .is_some()
+            .is_none()
     );
     Ok(())
 }
@@ -669,5 +699,131 @@ fn distinct_tags_and_agenda_only() -> Result<(), Box<dyn std::error::Error>> {
         toon_format::encode_default(&child)?,
     )?;
     assert!(workspace.context(&ContextOptions::default(), NOW).is_err());
+    Ok(())
+}
+
+/// Context propagates real storage, lifecycle and activity failures before rendering partial state.
+#[test]
+fn context_storage_failure_propagation() -> Result<(), Box<dyn std::error::Error>> {
+    let (_root, workspace, _) = workspace()?;
+    fs::write(workspace.pm_root().join("settings.json"), "invalid")?;
+    assert!(workspace.context(&ContextOptions::default(), NOW).is_err());
+    fs::write(workspace.pm_root().join("settings.json"), "{}")?;
+    fs::write(
+        workspace.pm_root().join("tasks/invalid.toon"),
+        "invalid item",
+    )?;
+    assert!(workspace.context(&ContextOptions::default(), NOW).is_err());
+    fs::remove_file(workspace.pm_root().join("tasks/invalid.toon"))?;
+    fs::create_dir_all(workspace.pm_root().join("schema/statuses.json"))?;
+    assert!(workspace.context(&ContextOptions::default(), NOW).is_err());
+    fs::remove_dir(workspace.pm_root().join("schema/statuses.json"))?;
+    fs::write(
+        workspace.pm_root().join("tasks/sample-one.toon"),
+        toon_format::encode_default(&item("sample-one", "open"))?,
+    )?;
+    fs::write(
+        workspace.pm_root().join("history/sample-one.jsonl"),
+        "{broken}",
+    )?;
+    assert!(workspace.context(&ContextOptions::default(), NOW).is_err());
+    fs::remove_file(workspace.pm_root().join("history/sample-one.jsonl"))?;
+    fs::create_dir_all(workspace.pm_root().join("runtime"))?;
+    fs::write(
+        workspace
+            .pm_root()
+            .join("runtime/context-signals-context.json"),
+        r#"{"format_version":3,"signal_set_version":1,"items":[]}"#,
+    )?;
+    assert!(workspace.context(&ContextOptions::default(), NOW).is_err());
+    Ok(())
+}
+
+/// Degenerate calendar rules and incomplete recurring ends remain bounded and explicit.
+#[test]
+fn defensive_calendar_and_required_parent() -> Result<(), Box<dyn std::error::Error>> {
+    let (_root, _workspace, lifecycle) = workspace()?;
+    let row = item("sample-one", "open");
+    let mut sentinel = row.clone();
+    sentinel["blocked_by"] = json!("no-active-blocker");
+    assert!(blockers(&sentinel, std::slice::from_ref(&row), &lifecycle).is_empty());
+    let mut other = row.clone();
+    other["dependencies"] = json!([{"kind":"blocks","id":"unrelated"}]);
+    assert!(blockers(&row, &[row.clone(), other], &lifecycle).is_empty());
+    let mut child = row;
+    child["parent"] = json!("sample-parent");
+    assert_eq!(
+        pack(
+            &[(child, 1.0)],
+            100,
+            &BTreeSet::from(["sample-one".to_owned()])
+        )
+        .len(),
+        1
+    );
+    assert_eq!(
+        event_end(&json!({"start_at":NOW,"recurrence":{"freq":"weekly"}}), NOW),
+        Value::Null
+    );
+    assert_eq!(
+        event_dates(
+            &json!({"start_at":NOW,"recurrence":{"freq":"weekly","interval":0}}),
+            NOW
+        )
+        .len(),
+        1000
+    );
+    Ok(())
+}
+
+/// Rich extension metadata and configured policy require the explicit omission flag.
+#[test]
+fn extension_health_refusal_boundary() -> Result<(), Box<dyn std::error::Error>> {
+    let (_root, workspace, _) = workspace()?;
+    let path = workspace.pm_root().join("extensions/fixture");
+    fs::create_dir_all(&path)?;
+    let basic = json!({"name":" fixture ","version":"1.0.0","entry":"entry.js","description":"Static fixture","author":"fixture"});
+    fs::write(path.join("entry.js"), "export {};")?;
+    fs::write(path.join("manifest.json"), serde_json::to_vec(&basic)?)?;
+    let empty = json!({"extensions":{"enabled":[],"disabled":[]}});
+    assert_eq!(
+        extension_health(&workspace, &empty, None)?.ok_or("health")?["packages"][0]["name"],
+        "fixture"
+    );
+    for extensions in [
+        json!({"enabled":["fixture"]}),
+        json!({"disabled":["fixture"]}),
+        json!({"policy":{}}),
+    ] {
+        assert!(extension_health(&workspace, &json!({"extensions":extensions}), None).is_err());
+    }
+    let mut rich = basic.clone();
+    rich["priority"] = json!(2);
+    fs::write(path.join("manifest.json"), serde_json::to_vec(&rich)?)?;
+    assert!(extension_health(&workspace, &empty, None).is_err());
+    let mut invalid = basic;
+    invalid["name"] = json!(" ");
+    fs::write(path.join("manifest.json"), serde_json::to_vec(&invalid)?)?;
+    assert_eq!(
+        extension_health(&workspace, &empty, None)?.ok_or("health")?["packages"][0]["status"],
+        "degraded"
+    );
+    fs::write(
+        path.join("manifest.json"),
+        r#"{"contributions":{"service_overrides":["other","context_relevance"]}}"#,
+    )?;
+    assert!(
+        workspace
+            .context(
+                &ContextOptions {
+                    no_extension_health: true,
+                    ..Default::default()
+                },
+                NOW
+            )
+            .is_err()
+    );
+    fs::write(path.join("manifest.json"), "{broken}")?;
+    assert!(context_state_boundary(&workspace, &[]).is_ok());
     Ok(())
 }

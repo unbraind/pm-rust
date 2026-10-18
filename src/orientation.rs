@@ -291,7 +291,9 @@ fn record_error(entry: &Value) -> Option<&'static str> {
                 return Some("unsupported_record_hash_version");
             }
             let mut canonical = entry.clone();
-            canonical.as_object_mut()?.shift_remove("record_hash");
+            canonical
+                .as_object_mut()
+                .map(|object| object.shift_remove("record_hash"));
             (history_digest(
                 &canonical,
                 entry["hash_algorithm"].as_str().unwrap_or("sha256"),
@@ -398,8 +400,10 @@ fn rewrite_error(entry: &Value) -> Option<&'static str> {
             ] {
                 if let Some(value) = row.get(key) {
                     reconstructed[key] = value.clone();
-                } else if let Some(record) = reconstructed.as_object_mut() {
-                    record.shift_remove(key);
+                } else {
+                    reconstructed
+                        .as_object_mut()
+                        .map(|record| record.shift_remove(key));
                 }
             }
             if index == 0 {

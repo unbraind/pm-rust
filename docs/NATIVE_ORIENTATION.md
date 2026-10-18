@@ -41,6 +41,14 @@ trusted delivered-and-touched feedback contribute to native ranking; required
 claim identities enter packing before optional candidates. Plain authoritative
 reads do not write cache or usage state.
 
+Default extension diagnostics cover minimal manifests with `name`, `version`,
+`entry` and optional descriptive `description`/`author` members. Configured
+extension enable/disable policy and other manifest controls refuse with
+`unsupported_native_context`; `--no-extension-health` explicitly omits that
+diagnostic. Native reads never execute extension code or custom scorer hooks.
+Declared `context_relevance` service overrides refuse even when extension health
+is omitted; core ranking is the claimed scorer model.
+
 ## History
 
 `history <id>` defaults to compact timeline rows: record index, time,
@@ -113,6 +121,8 @@ packing is deterministic and completes the selection; scheduler-dependent oracle
 packing timeout is outside the byte-parity claim. It compares
 complete stdout, stderr and exit status. Private unit acceptance exercises
 storage failures and the integrity, selection and traversal boundaries.
+Extension discovery has a real oracle fixture for the minimal manifest and
+explicit refusal/omission coverage for richer manifests.
 
 The concurrency fixture starts three independent reader threads, each issuing
 four history/dependency reads, alongside four native updates to an unrelated

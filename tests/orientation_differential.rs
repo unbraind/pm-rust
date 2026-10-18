@@ -14,6 +14,53 @@ mod published_cli;
 use mutation_differential::write_driver;
 type TestResult = Result<(), Box<dyn std::error::Error>>;
 const CLOCK: &str = "2026-08-22T10:00:00.000Z";
+/// Minimal static extension discovery matches the oracle; richer policy refuses explicitly.
+#[test]
+fn context_static_extension_contract() -> TestResult {
+    let Some(published) = published_cli::published_cli_or_skip("orientation extension health")
+    else {
+        return Ok(());
+    };
+    let scratch = tempfile::tempdir()?;
+    let driver = orientation_driver(scratch.path(), &published)?;
+    let root = tempfile::tempdir()?;
+    assert!(
+        oracle(&driver, root.path(), &["init", "sample-", "--defaults"])?
+            .status
+            .success()
+    );
+    fixture(root.path(), &[item("sample-a", "Task", "open", 1)])?;
+    let settings_path = root.path().join(".agents/pm/settings.json");
+    let mut settings: Value = serde_json::from_slice(&fs::read(&settings_path)?)?;
+    settings["extensions"] = json!({"enabled":[],"disabled":[]});
+    fs::write(settings_path, serde_json::to_vec(&settings)?)?;
+    let path = root.path().join(".agents/pm/extensions/fixture-extension");
+    fs::create_dir_all(&path)?;
+    fs::write(path.join("entry.mjs"), "export function register() {}")?;
+    let mut manifest = json!({"name":"fixture-extension","version":"1.0.0","entry":"entry.mjs"});
+    fs::write(path.join("manifest.json"), serde_json::to_vec(&manifest)?)?;
+    let args = ["context", "--limit", "1", "--json"];
+    compare(
+        &oracle(&driver, root.path(), &args)?,
+        &native(root.path(), &args)?,
+        &args,
+    );
+    manifest["priority"] = json!(2);
+    fs::write(path.join("manifest.json"), serde_json::to_vec(&manifest)?)?;
+    let rejected = native(root.path(), &args)?;
+    assert_eq!(rejected.status.code(), Some(2));
+    assert_eq!(
+        serde_json::from_slice::<Value>(&rejected.stderr)?["code"],
+        "unsupported_native_context"
+    );
+    let args = ["context", "--limit", "1", "--no-extension-health", "--json"];
+    compare(
+        &oracle(&driver, root.path(), &args)?,
+        &native(root.path(), &args)?,
+        &args,
+    );
+    Ok(())
+}
 /// Disabled feedback is a real process setting and leaves the tracker unchanged.
 #[test]
 fn context_usage_disabled_is_read_only() -> TestResult {
@@ -21,24 +68,26 @@ fn context_usage_disabled_is_read_only() -> TestResult {
     fixture(root.path(), &[item("sample-a", "Task", "open", 1)])?;
     fs::write(root.path().join(".agents/pm/settings.json"), "{}")?;
     let before = fs::read(root.path().join(".agents/pm/tasks/sample-a.toon"))?;
-    let mut command = Command::new(env!("CARGO_BIN_EXE_pm-rust"));
-    mutation_differential::isolate_environment(&mut command);
-    let output = command
-        .current_dir(root.path())
-        .env("PM_CONTEXT_USAGE_DISABLED", "1")
-        .args([
-            "context",
-            "--no-extension-health",
-            "--json",
-            "--timestamp",
-            CLOCK,
-        ])
-        .output()?;
-    assert!(
-        output.status.success(),
-        "{}",
-        String::from_utf8_lossy(&output.stderr)
-    );
+    for global in [
+        root.path().join("global").into_os_string(),
+        std::ffi::OsString::new(),
+    ] {
+        let mut command = Command::new(env!("CARGO_BIN_EXE_pm-rust"));
+        mutation_differential::isolate_environment(&mut command);
+        let output = command
+            .current_dir(root.path())
+            .env("PM_CONTEXT_USAGE_DISABLED", "1")
+            .env("PM_GLOBAL_PATH", global)
+            .env("HOME", root.path().join("home"))
+            .env("USERPROFILE", root.path().join("home"))
+            .args(["context", "--json", "--timestamp", CLOCK])
+            .output()?;
+        assert!(
+            output.status.success(),
+            "{}",
+            String::from_utf8_lossy(&output.stderr)
+        );
+    }
     assert_eq!(
         fs::read(root.path().join(".agents/pm/tasks/sample-a.toon"))?,
         before

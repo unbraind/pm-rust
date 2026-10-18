@@ -25,7 +25,7 @@ fn orientation_budget_recovery_boundaries() -> Result<(), Box<dyn std::error::Er
                 token_budget: Some(budget.to_owned()),
                 ..Default::default()
             };
-            let source = json!({"depth":"brief","summary":{},"high_level":[],"low_level":(0..40).map(|i|json!({"id":format!("sample-{i}"),"title":"x".repeat(500),"status":"in_progress","tags":vec!["a";40]})).collect::<Vec<_>>(),"blocked_fallback":[],"agenda":{"events":[]}});
+            let source = json!({"depth":"brief","summary":{"returned_focus":{"active_items":40,"in_progress":40,"open":0,"blocked":0}},"high_level":[],"low_level":(0..40).map(|i|json!({"id":format!("sample-{i}"),"title":"x".repeat(500),"status":"in_progress","tags":vec!["a";40]})).collect::<Vec<_>>(),"blocked_fallback":[],"agenda":{"events":[]}});
             let output = super::apply_orientation(
                 source.into(),
                 &options,
@@ -110,6 +110,27 @@ fn orientation_nested_only_recovery() {
         result["output_budget_truncation"]["continuation_available"],
         false
     );
+}
+
+/// Orientation preserves the codec's refusal for a string cut between surrogate code units.
+#[test]
+fn orientation_toon_cut_refusal() {
+    let title = format!("{}😀{}", "x".repeat(239), "y".repeat(20_000));
+    let source =
+        json!({"message":title,"high_level":[],"low_level":[],"blocked_fallback":[],"summary":{}});
+    assert!(matches!(
+        super::apply_orientation(
+            source.into(),
+            &ListOptions {
+                toon: true,
+                token_budget: Some("1000".to_owned()),
+                ..Default::default()
+            },
+            "context",
+            &["high_level", "low_level"]
+        ),
+        Err(crate::PmRustError::ToonEncoding { .. })
+    ));
 }
 
 /// Amount-only caps advance an advertised boundary while preserving terminal caps.

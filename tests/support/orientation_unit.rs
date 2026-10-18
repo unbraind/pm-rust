@@ -524,3 +524,97 @@ fn legacy_epoch_two_current_state() -> Result<(), Box<dyn std::error::Error>> {
     assert_eq!(verify_records(&[entry], Some(&current))["ok"], true);
     Ok(())
 }
+
+/// Malformed RFC 6902 operations refuse at each required source, target and value boundary.
+#[test]
+fn incomplete_patch_operands() {
+    for change in [
+        json!({"op":"copy","path":"/metadata/copy"}),
+        json!({"op":"copy","from":"/missing","path":"/metadata/copy"}),
+        json!({"op":"move","from":"","path":"/metadata/copy"}),
+        json!({"op":"copy","from":"/metadata/value","path":"/missing/copy"}),
+        json!({"op":"replace","path":""}),
+        json!({"op":"test","path":""}),
+        json!({"op":"replace","path":"/metadata/value"}),
+        json!({"op":"test","path":"/metadata/missing","value":1}),
+        json!({"op":"test","path":"/metadata/value"}),
+        json!({"op":"add","path":"/metadata/rows/0"}),
+        json!({"op":"replace","path":"/metadata/rows/9","value":1}),
+        json!({"op":"replace","path":"/metadata/rows/0"}),
+        json!({"op":"test","path":"/metadata/rows/9","value":1}),
+        json!({"op":"test","path":"/metadata/rows/0"}),
+    ] {
+        let mut document = json!({"metadata":{"value":1,"rows":[0]},"body":""});
+        assert!(apply_patch(&mut document, &json!([change])).is_none());
+    }
+}
+
+/// History propagates real settings and corpus storage failures without synthesizing a timeline.
+#[test]
+fn history_configuration_failures() -> Result<(), Box<dyn std::error::Error>> {
+    let (_root, workspace) = workspace()?;
+    fs::write(workspace.pm_root().join("settings.json"), "invalid")?;
+    assert!(
+        workspace
+            .history("one", &HistoryOptions::default())
+            .is_err()
+    );
+    fs::write(workspace.pm_root().join("settings.json"), "{}")?;
+    fs::write(
+        workspace.pm_root().join("tasks/invalid.toon"),
+        "invalid item",
+    )?;
+    assert!(
+        workspace
+            .history("one", &HistoryOptions::default())
+            .is_err()
+    );
+    fs::remove_file(workspace.pm_root().join("tasks/invalid.toon"))?;
+    fs::write(
+        workspace.pm_root().join("history/sample-one.jsonl"),
+        "{broken}",
+    )?;
+    assert!(
+        workspace
+            .history("sample-one", &HistoryOptions::default())
+            .is_err()
+    );
+    Ok(())
+}
+
+/// Multiple retained proofs reconstruct earlier envelopes in reverse chronological order.
+#[test]
+fn retained_proof_generations() {
+    let original = genesis();
+    let proof = json!({"before_hash":original["before_hash"],"after_hash":original["after_hash"],"patch_hash":digest(&original["patch"]),"patch":original["patch"]});
+    let entry = json!({"patch":original["patch"],"reanchor_evidence":[proof.clone(),proof]});
+    assert_eq!(rewrite_error(&entry), None);
+    assert_eq!(
+        rewrite_error(&json!({"reanchor_evidence":[42]})),
+        Some("rewrite_evidence_invalid")
+    );
+    assert_eq!(
+        rewrite_error(&json!({"reanchor_evidence":[{"record_hash_version":1}]})),
+        Some("rewrite_evidence_invalid")
+    );
+}
+
+/// Legacy hashing retains malformed optional rows while normalizing only supported object members.
+#[test]
+fn legacy_optional_row_shapes() {
+    let mut metadata = genesis()["patch"][0]["value"].clone();
+    metadata["dependencies"] = json!([{"id":42,"kind":"related"}]);
+    metadata["tests"] = json!([42,{"command":"same","path":"same","scope":"same"},{"command":"same","path":"same","scope":"same"}]);
+    metadata["test_runs"] = json!([42]);
+    let document = json!({"metadata":metadata,"body":""});
+    assert_eq!(
+        replay_hash(&document, 1, false, "sha256"),
+        replay_hash(&document, 3, false, "sha256")
+    );
+    let original = genesis();
+    let proof = json!({"before_hash":original["before_hash"],"after_hash":original["after_hash"],"patch_hash":digest(&original["patch"]),"record":original,"hash_algorithm":"sha512"});
+    assert_eq!(
+        rewrite_error(&json!({"reanchor_evidence":[proof]})),
+        Some("rewrite_evidence_record_hash_mismatch")
+    );
+}

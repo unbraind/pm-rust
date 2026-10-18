@@ -256,4 +256,21 @@ fn dependency_leaf_and_trim_boundaries() {
     assert!(limit.reasons.contains("token_budget"));
     let mut leaf = json!({"id":"leaf","dependencies":[]});
     assert!(!trim(&mut leaf));
+    let mut index = index;
+    index.insert("leaf".to_owned(), leaf);
+    for (depth, tokens) in [(0, usize::MAX), (32, 0)] {
+        let mut limit = budget();
+        limit.depth = depth;
+        limit.tokens = tokens;
+        let leaf = node(
+            "leaf",
+            None,
+            &index,
+            &BTreeSet::new(),
+            &mut BTreeSet::new(),
+            &mut limit,
+            0,
+        );
+        assert!(leaf.get("truncated").is_none());
+    }
 }

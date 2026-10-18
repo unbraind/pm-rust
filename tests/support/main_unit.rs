@@ -21,8 +21,14 @@ fn orientation_dispatch_boundaries() -> Result<(), Box<dyn std::error::Error>> {
         toon_format::encode_default(&item)?,
     )?;
     for (flags, ok) in [
-        (vec!["context", "--limit", "1", "--json"], true),
-        (vec!["context", "--token-budget", "1"], false),
+        (
+            vec!["context", "--limit", "1", "--json", "--no-extension-health"],
+            true,
+        ),
+        (
+            vec!["context", "--token-budget", "1", "--no-extension-health"],
+            false,
+        ),
         (vec!["history", "sample-a", "--compact"], true),
         (vec!["history", "sample-a", "--full", "--json"], true),
         (vec!["history", "sample-a", "--full", "--compact"], false),
