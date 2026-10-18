@@ -1,3 +1,8 @@
+thread_local! {
+    /// Counts real authoritative item opens, including reads through the corpus path.
+    pub(super) static ITEM_OPENS: std::cell::Cell<usize> = const { std::cell::Cell::new(0) };
+}
+
 use std::io;
 use std::path::{Path, PathBuf};
 
@@ -172,5 +177,102 @@ fn workspace_equality_follows_the_canonical_tracker_not_its_spelling()
     std::fs::create_dir_all(&other_tracker)?;
     std::fs::write(other_tracker.join("settings.json"), "{}")?;
     assert_ne!(direct, super::Workspace::discover(other_directory.path())?);
+    Ok(())
+}
+
+/// A cold lookup in a large tracker opens one file, independent of unrelated damage.
+#[test]
+fn single_item_get_opens_only_the_listed_file() -> Result<(), Box<dyn std::error::Error>> {
+    let directory = tempfile::tempdir()?;
+    let tracker = directory.path().join(".agents/pm");
+    std::fs::create_dir_all(tracker.join("custom-types/nested"))?;
+    std::fs::write(tracker.join("settings.json"), "{}")?;
+    for index in 0..3000 {
+        let id = format!("sample-{index:04}");
+        std::fs::write(
+            tracker.join(format!("custom-types/nested/{id}.toon")),
+            format!(
+                "id: {id}\ntitle: Example\ntype: Custom\nstatus: open\npriority: 1\ncreated_at: date\nupdated_at: date\nbody: retained\n"
+            ),
+        )?;
+    }
+    // This refuses under the old whole-corpus lookup before reaching the target.
+    std::fs::write(
+        tracker.join("custom-types/nested/sample-0000.toon"),
+        "<<<<<<< damaged\n",
+    )?;
+    let workspace = super::Workspace::discover(directory.path())?;
+    ITEM_OPENS.set(0);
+    assert_eq!(workspace.get("sample-2999")?.body, "retained");
+    assert_eq!(ITEM_OPENS.get(), 1);
+    ITEM_OPENS.set(0);
+    assert!(matches!(
+        workspace.get("missing"),
+        Err(PmRustError::ItemNotFound { .. })
+    ));
+    assert_eq!(ITEM_OPENS.get(), 0);
+    Ok(())
+}
+
+/// Duplicate IDs come from directory entries before any content can hide the collision.
+#[test]
+fn single_item_get_checks_listing_duplicates_and_strict_target()
+-> Result<(), Box<dyn std::error::Error>> {
+    let directory = tempfile::tempdir()?;
+    let tracker = directory.path().join(".agents/pm");
+    std::fs::create_dir_all(tracker.join("tasks"))?;
+    std::fs::create_dir_all(tracker.join("custom"))?;
+    std::fs::write(tracker.join("settings.json"), "{}")?;
+    let path = tracker.join("tasks/sample-one.toon");
+    let duplicate = tracker.join("custom/sample-one.toon");
+    std::fs::write(&path, "malformed target")?;
+    std::fs::write(&duplicate, "different malformed target")?;
+    let workspace = super::Workspace::discover(directory.path())?;
+    ITEM_OPENS.set(0);
+    assert!(matches!(
+        workspace.get("sample-one"),
+        Err(PmRustError::DuplicateItemId { .. })
+    ));
+    assert_eq!(ITEM_OPENS.get(), 0);
+    std::fs::remove_file(&duplicate)?;
+    for content in [
+        "<<<<<<< ours\n",
+        "bad: incomplete",
+        "id: different\ntitle: Example\ntype: Task\nstatus: open\npriority: 1\ncreated_at: date\nupdated_at: date\n",
+    ] {
+        std::fs::write(&path, content)?;
+        assert!(matches!(
+            workspace.get("sample-one"),
+            Err(PmRustError::InvalidItemDocument { .. })
+        ));
+    }
+    Ok(())
+}
+
+/// Directory-entry metadata failures retain the failing entry, rather than guessing its type.
+#[test]
+fn lookup_listing_type_failure_preserves_entry_path() {
+    let path = Path::new("tasks/sample-one.toon");
+    assert!(
+        matches!(super::listing_type(path, Err(io::Error::other("fixture"))), Err(PmRustError::Io { path: failed, .. }) if failed == path)
+    );
+}
+
+/// Streaming readers still reject duplicate decoded identities, independently of projection.
+#[test]
+fn streamed_items_refuse_duplicate_ids() -> Result<(), Box<dyn std::error::Error>> {
+    let directory = tempfile::tempdir()?;
+    let tracker = directory.path().join(".agents/pm");
+    std::fs::create_dir_all(tracker.join("tasks"))?;
+    std::fs::write(tracker.join("settings.json"), "{}")?;
+    let content = "id: same\ntitle: Example\ntype: Task\nstatus: open\npriority: 1\ncreated_at: date\nupdated_at: date\n";
+    for name in ["first", "second"] {
+        std::fs::write(tracker.join(format!("tasks/{name}.toon")), content)?;
+    }
+    let workspace = super::Workspace::discover(directory.path())?;
+    let items = workspace
+        .stream_items(crate::read_projection::Projection::List)?
+        .collect::<Result<Vec<_>, _>>();
+    assert!(matches!(items, Err(PmRustError::DuplicateItemId { .. })));
     Ok(())
 }

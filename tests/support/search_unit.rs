@@ -1,5 +1,6 @@
 //! Search corpus, configuration, cursor and failure-boundary contracts.
 use super::*;
+use std::fs;
 type TestResult = Result<(), Box<dyn std::error::Error>>;
 
 /// Failed settings, schema and item reads never turn into successful empty searches.
@@ -386,5 +387,46 @@ fn search_continuation_boundaries() -> TestResult {
     assert!(workspace.search("needle", &options).is_err());
     options.output.after = Some("!".to_owned());
     assert!(workspace.search("needle", &options).is_err());
+    Ok(())
+}
+
+/// A bounded working set still reports all matches and the same oracle ordering.
+#[test]
+fn bounded_search_retains_total_and_best_rows() -> TestResult {
+    let (directory, workspace) = fixture(&json!({"id_prefix":"sample-"}))?;
+    for index in 0..80 {
+        let id = format!("sample-{index:03}");
+        let item = json!({"id":id,"title":"needle","type":"Task","status":"open","priority":index % 5,"created_at":"2026-08-22T10:00:00.000Z","updated_at":"2026-08-22T10:00:00.000Z","body":"large unused payload"});
+        fs::write(
+            directory.path().join(format!(".agents/pm/tasks/{id}.toon")),
+            toon_format::encode_default(&item)?,
+        )?;
+    }
+    let all = workspace.search(
+        "needle",
+        &SearchOptions {
+            output: crate::ListOptions {
+                limit: Some("1000".to_owned()),
+                ..Default::default()
+            },
+            ..Default::default()
+        },
+    )?;
+    let bounded = workspace.search(
+        "needle",
+        &SearchOptions {
+            output: crate::ListOptions {
+                limit: Some("3".to_owned()),
+                ..Default::default()
+            },
+            ..Default::default()
+        },
+    )?;
+    assert_eq!(
+        bounded["items"].as_array().ok_or("rows missing")?,
+        &all["items"].as_array().ok_or("rows missing")?[..3]
+    );
+    assert_eq!(bounded["total"], all["count"]);
+    assert_eq!(bounded["has_more"], true);
     Ok(())
 }

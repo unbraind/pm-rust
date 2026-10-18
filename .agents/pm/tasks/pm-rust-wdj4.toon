@@ -2,12 +2,35 @@ id: pm-rust-wdj4
 title: Reduce native list and get latency on large indexed trackers
 description: "The final parser-cleanup release receipt on a complete 2991-item public tracker copy measured 30 cold processes per command/runtime: native list p50 2116.0 ms versus oracle 1269.9 ms, and native get p50 1864.8 ms versus oracle 1118.5 ms. This is a shared 4-CPU host with effective nice 15, warm filesystem and oracle derived caches; sampled 1-minute load ranged 13.84 to 25.64. Earlier completed receipts also showed slower native list/get. Investigate selective lookup or validated derived indexes without weakening authoritative read correctness, concurrency or parity. Keep this optimization separate from the orientation command slice."
 type: Task
-status: open
+status: in_progress
 priority: 3
 tags[3]: follow-up,performance,rust
 created_at: "2026-10-18T06:28:16.861Z"
-updated_at: "2026-10-18T08:13:21.820Z"
+updated_at: "2026-10-18T18:09:17.030Z"
+assignee: codex-agent
+claim_principal: codex-agent
 author: codex-agent
 acceptance_criteria: "Measure the same 30-run commands and retain byte parity, storage integrity and all coverage dimensions."
 parent: pm-rust-u4al
+comments[3]{created_at,author,text}:
+  "2026-10-18T18:05:58.773Z",codex-agent,"Prerequisite PR #92 is merged into main. Implemented directory-derived strict get lookup, streamed list and brief-context projections, metadata-first filtered search and bounded first-page hit retention. No persistent index is added; release approval remains unset. Plan: byte differential suites unchanged, generated 3000-item latency and portable item-open gates on Linux/macOS/Windows, copied-public-tracker 30-run measurements, exact release checks and an open PR under pm-rust-u4al."
+  "2026-10-18T18:06:03.318Z",codex-agent,"Behavioural revert proof: reverted only Workspace::get to its original read_items-based lookup, rebuilt and ran cargo test --locked --lib workspace::tests::single_item_get. Exit 101, 0 passed, 2 failed: unrelated merge-marker damage broke the target read and duplicate filenames yielded the wrong refusal. Restored lookup: 2 passed, 0 failed. The real 3000-item regression observes exactly one authoritative file open for success and zero for missing or duplicate IDs. The unchanged committed history prefix is retained byte-for-byte. An unpublished local draft whose linked-test stderr captured compiler paths was quarantined unchanged; public task events were replayed from that prefix and linked tests now use a path-redacting wrapper."
+  "2026-10-18T18:09:17.030Z",codex-agent,"Pre-PR evidence: 247 library tests passed, both restored lookup tests passed through the sanitized linked-test runner, fmt/pedantic clippy/private-item rustdoc/changelog checks passed, and cargo audit passed with the repository-allowed RUSTSEC-2024-0449 warning. Real public-copy strace: get item opens 2991 -> 1; total openat 3009 -> 19; history opens zero in both. Paired 30-run runtime measurements and the unchanged affected differential suites are in progress. Generated local latency samples exceeded the unchanged ceilings under shared-host contention; dedicated three-OS CI is the acceptance gate."
+files[12]{path,scope}:
+  .github/workflows/ci.yml,project
+  scripts/check-lookup.mts,project
+  scripts/latency-gate.mts,project
+  src/list.rs,project
+  src/orientation_context.rs,project
+  src/read_projection.rs,project
+  src/search.rs,project
+  src/workspace.rs,project
+  tests/support/list_unit.rs,project
+  tests/support/read_projection_unit.rs,project
+  tests/support/search_unit.rs,project
+  tests/support/workspace_unit.rs,project
+tests[1]{command,scope,provenance{author,created_at,source_kind,source_ref}}:
+  node scripts/check-lookup.mts,project,codex-agent,"2026-10-18T18:06:07.687Z",local_mutation,perf/native-reads-touch-only-what-they-need
+docs[1]{path,scope}:
+  docs/NATIVE_READ_PERFORMANCE.md,project
 body: ""

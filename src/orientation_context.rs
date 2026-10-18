@@ -1050,7 +1050,9 @@ impl Workspace {
             })
             .transpose()?
             .unwrap_or_else(|| limit.saturating_mul(160).max(256));
-        let mut documents = self.read_items()?;
+        let mut documents = self
+            .stream_items(crate::read_projection::Projection::Context)?
+            .collect::<Result<Vec<_>, _>>()?;
         let lifecycle = Lifecycle::load(self.pm_root())?;
         let blocked = crate::selection::dependency_blocked_ids(&documents, &lifecycle);
         // Keep the list's default source order while projecting this one captured corpus.

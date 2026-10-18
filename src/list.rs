@@ -49,7 +49,8 @@ pub(crate) fn read_unbounded(
     )
 }
 
-/// Selects and orders complete documents before projection and page slicing.
+/// Selects required metadata before projection and page slicing.
+#[allow(clippy::too_many_lines)]
 fn read_selection(
     workspace: &Workspace,
     filters: &ItemFilter,
@@ -101,7 +102,12 @@ fn read_selection(
         }
     }
     echo.insert("runtime_filters".to_owned(), json!({}));
-    let documents = workspace.read_items()?;
+    let projection = if full && !options.brief {
+        crate::read_projection::Projection::Full
+    } else {
+        crate::read_projection::Projection::List
+    };
+    let documents = query_documents(workspace, projection, filters, options)?;
     let warnings = unknown_tags(&documents, options.tag.as_deref());
     let lifecycle = crate::list_registry::Lifecycle::load(workspace.query_pm_root())?;
     let documents = select_documents(
@@ -659,6 +665,27 @@ fn select_documents(
         }
     }
     documents
+}
+
+/// Uses an exact-ID selector before decoding when no cross-item selector needs the corpus.
+fn query_documents(
+    workspace: &Workspace,
+    projection: crate::read_projection::Projection,
+    filters: &ItemFilter,
+    options: &ListOptions,
+) -> Result<Vec<crate::ItemDocument>, PmRustError> {
+    if let Some(id) = &filters.id
+        && filters.status.as_deref() != Some("blocked")
+        && options.tag.is_none()
+        && options.parent.is_none()
+    {
+        return match workspace.get(id) {
+            Ok(document) => Ok(vec![document]),
+            Err(PmRustError::ItemNotFound { .. }) => Ok(vec![]),
+            Err(error) => Err(error),
+        };
+    }
+    workspace.stream_items(projection)?.collect()
 }
 
 /// Discloses requested tags absent from the whole corpus before applying filters.

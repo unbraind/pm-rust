@@ -24,6 +24,7 @@ mod orientation_deps;
 mod ownership;
 mod pagination;
 mod read_output;
+mod read_projection;
 mod search;
 mod selection;
 mod toon_output;

@@ -544,3 +544,67 @@ fn sdk_selection_tracker(
     }
     Ok(directory)
 }
+
+/// An exact-ID filter decodes only its target unless corpus-dependent filters are requested.
+#[test]
+fn exact_id_selection_avoids_unrelated_payloads() -> Result<(), Box<dyn std::error::Error>> {
+    let directory = tempfile::tempdir()?;
+    let root = directory.path().join(".agents/pm");
+    fs::create_dir_all(root.join("tasks"))?;
+    fs::write(root.join("settings.json"), "{}")?;
+    let item = "id: sample-target\ntitle: Example\ntype: Task\nstatus: open\npriority: 1\ncreated_at: date\nupdated_at: date\n";
+    fs::write(root.join("tasks/sample-target.toon"), item)?;
+    let damaged = root.join("tasks/sample-damaged.toon");
+    fs::write(&damaged, "<<<<<<< conflict\n")?;
+    let workspace = Workspace::discover(directory.path())?;
+    let filters = ItemFilter {
+        id: Some("sample-target".to_owned()),
+        ..Default::default()
+    };
+    let options = crate::ListOptions::default();
+    assert_eq!(
+        workspace.list_page(&filters, &options, "2026-08-22T10:00:00.000Z")?["count"],
+        1
+    );
+    let absent = ItemFilter {
+        id: Some("missing".to_owned()),
+        ..Default::default()
+    };
+    assert_eq!(
+        workspace.list_page(&absent, &options, "2026-08-22T10:00:00.000Z")?["count"],
+        0
+    );
+    fs::write(root.join("tasks/sample-target.toon"), "invalid target")?;
+    assert!(
+        workspace
+            .list_page(&filters, &options, "2026-08-22T10:00:00.000Z")
+            .is_err()
+    );
+    fs::write(root.join("tasks/sample-target.toon"), item)?;
+    for options in [
+        crate::ListOptions {
+            tag: Some("unknown".to_owned()),
+            ..Default::default()
+        },
+        crate::ListOptions {
+            parent: Some("parent".to_owned()),
+            ..Default::default()
+        },
+    ] {
+        assert!(
+            workspace
+                .list_page(&filters, &options, "2026-08-22T10:00:00.000Z")
+                .is_err()
+        );
+    }
+    let blocked = ItemFilter {
+        status: Some("blocked".to_owned()),
+        ..filters
+    };
+    assert!(
+        workspace
+            .list_page(&blocked, &options, "2026-08-22T10:00:00.000Z")
+            .is_err()
+    );
+    Ok(())
+}

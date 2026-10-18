@@ -427,6 +427,58 @@ fn score(document: ItemDocument, tokens: &[&str], query: &str, settings: &Value)
     })
 }
 
+/// Orders search hits exactly as the oracle, retaining stable source order for ties.
+fn compare_hits(
+    a: &Hit,
+    b: &Hit,
+    lifecycle: &crate::list_registry::Lifecycle,
+) -> std::cmp::Ordering {
+    b.score
+        .total_cmp(&a.score)
+        .then_with(|| {
+            lifecycle
+                .terminal(&a.document.metadata.status)
+                .cmp(&lifecycle.terminal(&b.document.metadata.status))
+        })
+        .then_with(|| {
+            a.document
+                .metadata
+                .priority
+                .cmp(&b.document.metadata.priority)
+        })
+        .then_with(|| {
+            crate::list::timestamp_key(&b.document.metadata.updated_at)
+                .cmp(&crate::list::timestamp_key(&a.document.metadata.updated_at))
+        })
+        .then_with(|| crate::collation::compare(&a.document.metadata.id, &b.document.metadata.id))
+}
+
+/// Determines a bounded first-page working set without changing input-error precedence.
+fn retention_limit(options: &SearchOptions, settings: &Value) -> Option<usize> {
+    if options.output.after.is_some() {
+        return None;
+    }
+    options
+        .output
+        .limit
+        .as_deref()
+        .map(limit)
+        .transpose()
+        .ok()
+        .map(|value| {
+            value
+                .unwrap_or_else(|| {
+                    row_limit(
+                        settings["search"]["max_results"]
+                            .as_f64()
+                            .filter(|n| *n > 0.0)
+                            .unwrap_or(50.0),
+                    )
+                })
+                .0
+        })
+}
+
 impl Workspace {
     /// Searches every item, ranks literal keyword hits and applies bounded delivery.
     ///
@@ -538,10 +590,20 @@ impl Workspace {
             .as_ref()
             .is_some_and(|statuses| statuses.len() == 1 && statuses[0].eq_ignore_ascii_case("all"));
         let mut selected = 0;
-        let mut hits = self
-            .read_items()?
-            .into_iter()
-            .filter(|document| {
+        let mut total_hits = 0;
+        let ceiling = retention_limit(&options, &settings);
+        let mut hits = Vec::new();
+        let filtered = status_tokens.is_some() || type_filter.is_some() || options.tag.is_some();
+        let projection = if filtered {
+            crate::read_projection::Projection::List
+        } else {
+            crate::read_projection::Projection::Full
+        };
+        let mut seen = std::collections::BTreeMap::new();
+        for source in self.item_sources()? {
+            let (path, content) = source?;
+            let document = crate::workspace::decode_unique(&path, &content, projection, &mut seen)?;
+            let matches = {
                 let item = &document.metadata;
                 (all_statuses
                     || status_tokens.as_ref().is_none_or(|statuses| {
@@ -560,39 +622,43 @@ impl Workspace {
                                 .any(|tag| tag.to_lowercase() == s.trim().to_lowercase())
                         })
                     })
-            })
-            .inspect(|_| selected += 1)
-            .filter_map(|document| score(document, &tokens, &normalized, &settings))
-            .filter(|hit| {
-                hit.fields == ["id"]
+            };
+            if !matches {
+                continue;
+            }
+            selected += 1;
+            let document = if filtered {
+                crate::item::decode_item(&path, &content)?
+            } else {
+                document
+            };
+            if let Some(mut hit) = score(document, &tokens, &normalized, &settings)
+                && (hit.fields == ["id"]
                     || hit.score
                         >= settings["search"]["score_threshold"]
                             .as_f64()
-                            .unwrap_or_default()
-            })
-            .collect::<Vec<_>>();
-        hits.sort_by(|a, b| {
-            b.score
-                .total_cmp(&a.score)
-                .then_with(|| {
-                    lifecycle
-                        .terminal(&a.document.metadata.status)
-                        .cmp(&lifecycle.terminal(&b.document.metadata.status))
-                })
-                .then_with(|| {
-                    a.document
-                        .metadata
-                        .priority
-                        .cmp(&b.document.metadata.priority)
-                })
-                .then_with(|| {
-                    crate::list::timestamp_key(&b.document.metadata.updated_at)
-                        .cmp(&crate::list::timestamp_key(&a.document.metadata.updated_at))
-                })
-                .then_with(|| {
-                    crate::collation::compare(&a.document.metadata.id, &b.document.metadata.id)
-                })
-        });
+                            .unwrap_or_default())
+            {
+                hit.document.body = String::new();
+                hit.document.metadata.description = String::new();
+                hit.document.metadata.extra.clear();
+                total_hits += 1;
+                if let Some(ceiling) = ceiling {
+                    let index = hits.partition_point(|existing| {
+                        compare_hits(existing, &hit, &lifecycle).is_le()
+                    });
+                    hits.insert(index, hit);
+                    if hits.len() > ceiling {
+                        hits.pop();
+                    }
+                } else {
+                    hits.push(hit);
+                }
+            }
+        }
+        if ceiling.is_none() {
+            hits.sort_by(|a, b| compare_hits(a, b, &lifecycle));
+        }
         let mut semantic = json!({"comments":true,"deps":true,"docs":true,"files":true,"learnings":true,"linkedCommand":true,"notes":true,"tests":true});
         let mut filters = json!({});
         for (key, value) in [
@@ -655,7 +721,7 @@ impl Workspace {
         if let Some(limit) = &options.output.limit {
             filters["limit"] = json!(limit);
         }
-        let total = hits.len();
+        let total = total_hits;
         let rows: Vec<_>=hits.into_iter().skip(start).take(limit).map(|hit| {let item=hit.document.metadata;json!({"id":item.id,"title":item.title,"status":item.status,"type":item.item_type,"priority":item.priority,"updated_at":item.updated_at,"score":hit.score,"matched_fields":hit.fields})}).collect();
         let count = rows.len();
         let empty = selected == 0 || options.output.limit.is_some() && limit == 0;
