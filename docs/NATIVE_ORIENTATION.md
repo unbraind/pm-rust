@@ -172,18 +172,22 @@ above pins clocks.
 
 | Command | Native p50 | Native p95 | Oracle p50 | Oracle p95 |
 | --- | ---: | ---: | ---: | ---: |
-| `context --limit 10` | 1067.7 | 1296.6 | 1175.2 | 1575.9 |
-| `list --status open --limit 20` | 731.6 | 1128.3 | 445.3 | 900.6 |
-| `search history --limit 10` | 787.4 | 1243.4 | 1345.1 | 2003.7 |
-| `get <id>` | 692.6 | 944.1 | 433.7 | 629.0 |
+| `context --limit 10` | 7407.5 | 22255.9 | 10985.6 | 23250.5 |
+| `list --status open --limit 20` | 4807.6 | 14220.8 | 4000.8 | 9672.2 |
+| `search history --limit 10` | 6153.1 | 15781.2 | 10507.0 | 23424.3 |
+| `get <id>` | 4405.4 | 12667.1 | 3715.0 | 8957.4 |
 
 Hardware: four logical CPUs, Intel Core i5-7400, shared Linux host. The harness
-ran under `nice -n 4`, producing effective nice 19 with the inherited priority.
-Start load averages (1/5/15 minutes): 17.59/19.00/21.39; end:
-9.04/14.09/18.95. The sampled one-minute range was 9.04–17.59.
-Native used `cargo build --locked --release` with Rust 1.90.0, source
-`22f7fd046e9af13561640d1e9c04301ee187852f`. The oracle was the locked
-2026.10.14 package on Node v24.19.0. Agent home, global state and author were
+ran under `nice -n 0`, retaining the inherited effective nice 15. Concurrent
+package validation remained active. Start load averages (1/5/15 minutes):
+44.51/38.77/29.71; end: 22.05/24.19/27.87. The sampled one-minute range was
+20.07–44.97. Measurement ran from 06:42:14 to 07:13:11 UTC.
+Native used `cargo build --locked --release` with Rust 1.90.0; the initial
+build source was `fe76d4b58c2e8a5398440c4d960e73cea759c612`. Production files
+remain identical at measurement checkout `d33215b6658898c994b2a523673d0d083ca37f37`;
+a rebuild preserved the measured binary's exact SHA-256. Later changes are
+acceptance fixtures and evidence. The oracle was the locked 2026.10.14 package
+on Node v24.19.0. Agent home, global state and author were
 isolated. The binary fingerprint stayed constant throughout the run.
 
 Native context and search have lower measured p50/p95. List and get are slower

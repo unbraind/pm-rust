@@ -170,6 +170,13 @@ fn list_and_get_dispatch_over_real_processes() -> Result<(), Box<dyn std::error:
     assert!(String::from_utf8_lossy(&output.stdout).contains("sample-cli"));
     let output = pm_rust(&workspace, &["get", "sample-cli"])?;
     assert!(String::from_utf8_lossy(&output.stdout).contains("Dispatch target"));
+    let unknown = pm_rust(&workspace, &["list", "--native-boundary-probe"])?;
+    assert_eq!(unknown.status.code(), Some(2));
+    assert!(unknown.stdout.is_empty());
+    assert!(
+        String::from_utf8_lossy(&unknown.stderr)
+            .contains("unexpected argument '--native-boundary-probe'")
+    );
     expect_err(&workspace, &["get", "sample-missing"], "pm item not found")?;
     Ok(())
 }

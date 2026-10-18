@@ -1,86 +1,89 @@
 {
-  "source_commit": "22f7fd046e9af13561640d1e9c04301ee187852f",
+  "source_commit": "d33215b6658898c994b2a523673d0d083ca37f37",
   "oracle_version": "2026.10.14",
   "node_version": "v24.19.0",
-  "start_utc": "2026-10-18T06:23:04Z",
-  "end_utc": "2026-10-18T06:26:37Z",
+  "start_utc": "2026-10-18T06:42:14Z",
+  "end_utc": "2026-10-18T07:13:11Z",
   "items": 2991,
   "cpus": 4,
-  "nice": 19,
+  "nice": 15,
   "start_loadavg": [
-    17.5908203125,
-    19.0048828125,
-    21.3916015625
+    44.51171875,
+    38.77099609375,
+    29.71484375
   ],
   "end_loadavg": [
-    9.03759765625,
-    14.09375,
-    18.9462890625
+    22.04833984375,
+    24.18505859375,
+    27.86767578125
   ],
-  "min_1m_load": 9.03759765625,
-  "max_1m_load": 17.5908203125,
-  "native_sha256": "5b623b63b278ddb7196fb2b3c7b570d4733f47a02c78d1d8c189737915514559",
+  "min_1m_load": 20.0712890625,
+  "max_1m_load": 44.966796875,
+  "native_sha256": "e0328e4750cc0347d09f3dd2d89255a4e02c0b4d2a79cf7a0d059a078dc10876",
   "summary": [
     {
       "command": "context --limit 10",
       "oracle": {
         "n": 30,
-        "p50_ms": 1175.1835025,
-        "p95_ms": 1575.945485
+        "p50_ms": 10985.6207895,
+        "p95_ms": 23250.528477
       },
       "native": {
         "n": 30,
-        "p50_ms": 1067.6989735,
-        "p95_ms": 1296.611059
+        "p50_ms": 7407.5250315,
+        "p95_ms": 22255.910097
       }
     },
     {
       "command": "list --status open --limit 20",
       "oracle": {
         "n": 30,
-        "p50_ms": 445.32910000000004,
-        "p95_ms": 900.635167
+        "p50_ms": 4000.772844,
+        "p95_ms": 9672.221596
       },
       "native": {
         "n": 30,
-        "p50_ms": 731.5880165000001,
-        "p95_ms": 1128.254967
+        "p50_ms": 4807.599748000001,
+        "p95_ms": 14220.805341
       }
     },
     {
       "command": "search history --limit 10",
       "oracle": {
         "n": 30,
-        "p50_ms": 1345.143227,
-        "p95_ms": 2003.659105
+        "p50_ms": 10507.0317505,
+        "p95_ms": 23424.257282
       },
       "native": {
         "n": 30,
-        "p50_ms": 787.3691115,
-        "p95_ms": 1243.356478
+        "p50_ms": 6153.130306,
+        "p95_ms": 15781.247582
       }
     },
     {
       "command": "get <id>",
       "oracle": {
         "n": 30,
-        "p50_ms": 433.6780825,
-        "p95_ms": 629.030236
+        "p50_ms": 3714.9751845,
+        "p95_ms": 8957.419266
       },
       "native": {
         "n": 30,
-        "p50_ms": 692.6430379999999,
-        "p95_ms": 944.087493
+        "p50_ms": 4405.362814,
+        "p95_ms": 12667.07632
       }
     }
   ],
+  "initial_release_build_commit": "fe76d4b58c2e8a5398440c4d960e73cea759c612",
+  "production_source_verified": "No changes in src, Cargo.toml or Cargo.lock since the initial release build; rebuilding the current production source preserves the measured binary SHA-256.",
   "cpu_model": "Intel Core i5-7400",
   "process_method": "30 fresh processes per command/runtime; alternating runtime order; warm filesystem and oracle derived caches; perf_counter_ns wall clock; p50 median; p95 nearest rank (29th of 30)",
+  "shared_host_activity": "Concurrent package validation remained active.",
   "integrity": {
     "checked_files": 6004,
     "original_changed_files": 0,
     "copy_changed_authoritative_files": 0,
-    "verified_at_utc": "2026-10-18T06:26:55Z"
+    "verified_at_utc": "2026-10-18T07:14:58Z"
   },
   "samples": "native-orientation-2026-10-18.csv"
 }
