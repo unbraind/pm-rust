@@ -244,6 +244,8 @@ fn history_strict_success_and_closed_pipe() -> Result<(), Box<dyn std::error::Er
     entry["author"] = serde_json::json!("fixture".repeat(100_000));
     fs::write(&path, format!("{}\n", serde_json::to_string(&entry)?))?;
     let before = fs::read(&path)?;
+    // Confirm the edited stream loads before isolating the closed-pipe failure.
+    expect_ok(&workspace, &["history", "sample-cli", "--full", "--json"])?;
     let mut child = Command::new(env!("CARGO_BIN_EXE_pm-rust"))
         .current_dir(workspace.path())
         .args(["--workspace=.", "history", "sample-cli", "--full", "--json"])
@@ -252,7 +254,7 @@ fn history_strict_success_and_closed_pipe() -> Result<(), Box<dyn std::error::Er
         .spawn()?;
     drop(child.stdout.take());
     let output = child.wait_with_output()?;
-    assert!(!output.status.success());
+    assert_eq!(output.status.code(), Some(2));
     assert!(!output.stderr.is_empty());
     assert_eq!(fs::read(path)?, before);
     Ok(())
