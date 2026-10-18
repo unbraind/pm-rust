@@ -15,6 +15,47 @@ use mutation_differential::write_driver;
 type TestResult = Result<(), Box<dyn std::error::Error>>;
 const CLOCK: &str = "2026-08-22T10:00:00.000Z";
 
+/// Invalid history filenames match the oracle before any escaped path can affect the refusal.
+#[test]
+fn history_invalid_filename_matches_oracle() -> TestResult {
+    let Some(published) = published_cli::published_cli_or_skip("history filename boundary") else {
+        return Ok(());
+    };
+    let scratch = tempfile::tempdir()?;
+    let driver = orientation_driver(scratch.path(), &published)?;
+    let root = tempfile::tempdir()?;
+    assert!(
+        oracle(&driver, root.path(), &["init", "sample-", "--defaults"])?
+            .status
+            .success()
+    );
+    fixture(root.path(), &[])?;
+    let outside = root.path().join(".agents/outside-x.jsonl");
+    for present in [false, true] {
+        if present {
+            fs::write(&outside, "outside bytes must never be read\n")?;
+        }
+        for id in ["../../outside-x", "with:colon", "back\\slash"] {
+            for json in [false, true] {
+                let mut args = vec!["history", id];
+                if json {
+                    args.push("--json");
+                }
+                let expected = oracle(&driver, root.path(), &args)?;
+                assert_eq!(expected.status.code(), Some(2));
+                compare(&expected, &native(root.path(), &args)?, &args);
+            }
+        }
+    }
+    assert_eq!(fs::read(&outside)?, b"outside bytes must never be read\n");
+    assert!(
+        fs::read_dir(root.path().join(".agents/pm/locks"))?
+            .next()
+            .is_none()
+    );
+    Ok(())
+}
+
 /// Dependency reads retain the pinned oracle's dangling no-active-blocker scalar receipt.
 #[test]
 fn deps_no_active_blocker_matches_oracle() -> TestResult {

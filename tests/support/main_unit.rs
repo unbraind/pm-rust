@@ -1111,3 +1111,47 @@ fn search_examples_use_parsed_query() {
         );
     }
 }
+/// Parser context outranks argv order; incomplete contexts never blame an allowed option.
+#[test]
+fn orientation_argument_context_and_fallback() {
+    use clap::error::{ContextKind, ContextValue, ErrorKind};
+    let args: Vec<String> = ["history", "sample-a", "--json", "--limit=1", "-v"]
+        .into_iter()
+        .map(str::to_owned)
+        .collect();
+    let allowed = ["--json", "--limit"];
+    let mut error = clap::Error::raw(ErrorKind::UnknownArgument, "synthetic parser context");
+    assert_eq!(
+        super::rejected_orientation_argument(&error, &args, &allowed),
+        "-v"
+    );
+    error.insert(
+        ContextKind::InvalidArg,
+        ContextValue::String("extra".to_owned()),
+    );
+    assert_eq!(
+        super::rejected_orientation_argument(&error, &args, &allowed),
+        "extra"
+    );
+    error.insert(
+        ContextKind::InvalidArg,
+        ContextValue::String("--bogus=value".to_owned()),
+    );
+    assert_eq!(
+        super::rejected_orientation_argument(&error, &args, &allowed),
+        "--bogus"
+    );
+    error.insert(ContextKind::InvalidArg, ContextValue::Strings(vec![]));
+    assert_eq!(
+        super::rejected_orientation_argument(&error, &args[..4], &allowed),
+        "option"
+    );
+    let fallback: Vec<String> = ["context", "--json", "--bogus=value"]
+        .into_iter()
+        .map(str::to_owned)
+        .collect();
+    assert_eq!(
+        super::rejected_orientation_argument(&error, &fallback, &allowed),
+        "--bogus"
+    );
+}

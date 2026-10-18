@@ -1201,17 +1201,7 @@ fn main() -> ExitCode {
                         "--json",
                     ],
                 };
-                let flag = args
-                    .iter()
-                    .filter(|arg| arg.starts_with("--"))
-                    .map(|arg| arg.split('=').next().unwrap_or_default())
-                    .find(|flag| !allowed.contains(flag))
-                    .or_else(|| {
-                        args.iter()
-                            .find(|arg| arg.starts_with('-'))
-                            .map(String::as_str)
-                    })
-                    .unwrap_or("option");
+                let flag = rejected_orientation_argument(&error, &args, &allowed);
                 let detail = format!(
                     "Native {} does not support {flag}; use the published pm CLI for this option.",
                     args[0]
@@ -1312,6 +1302,26 @@ fn main() -> ExitCode {
             ExitCode::from(2)
         }
     }
+}
+
+/// Retains Clap's rejected token, falling back only to unsupported option names.
+fn rejected_orientation_argument<'a>(
+    error: &'a clap::Error,
+    args: &'a [String],
+    allowed: &[&str],
+) -> &'a str {
+    let rejected = match error.get(clap::error::ContextKind::InvalidArg) {
+        Some(clap::error::ContextValue::String(arg)) => Some(arg.as_str()),
+        _ => None,
+    };
+    rejected
+        .or_else(|| {
+            args.iter()
+                .map(String::as_str)
+                .filter(|arg| arg.starts_with('-'))
+                .find(|arg| !allowed.contains(&arg.split('=').next().unwrap_or_default()))
+        })
+        .map_or("option", |arg| arg.split('=').next().unwrap_or_default())
 }
 
 /// Preserves ordinary command refusals and the published unhandled-error envelope.

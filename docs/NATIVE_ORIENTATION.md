@@ -118,6 +118,40 @@ Deferred work is tracked in
 
 ## Evidence
 
+The second full review adds parser refusal checks for unknown short options,
+unknown long options with values, and extra positional arguments after allowed
+flags, across all three commands and both encodings. The rejected token comes
+from Clap's error context; the fallback excludes supported options. History
+validates the normalized stream filename before decoding the corpus or checking
+the stream path. Twelve real-CLI comparisons match the oracle's complete invalid
+filename refusal bytes for traversal, colon and backslash inputs, with an escaped
+file both absent and present. Direct SDK acceptance also covers NUL and dot
+identities and proves a malformed item cannot preempt invalid-ID validation.
+
+Dependency index construction collects normalized corpus identities once and
+reuses each scalar target key. A real 256-item tracker test counts normalization
+calls in the test build and enforces at most 16 calls per item; restoring only
+the repeated corpus scan violates this deterministic budget. The existing
+dangling-parent and sentinel oracle comparisons continue to establish output
+parity. This change is limited to the review's identity-set request; the separate
+selective-read and latency follow-up remains deferred. Each new finding has a
+single-fix behavioral revert proof, recorded with its command in PM comments.
+
+The second-round PM-linked runner passes all five commands: orientation 17,
+CLI dispatch 14, library 237, workflow contracts 18 and binary units 24, for
+310 tests with zero failures or ignored tests. Automatic result recording is
+disabled by project policy; manual receipts are committed in PM comments.
+
+Tracker health has a separate boundary: the documented CI health command uses
+`--check-only --require-merge-drivers --strict-exit`. A full
+`health --strict-exit` also checks historical drift and reports inherited chain
+mismatches on `pm-rust-bj7a` and `pm-rust-unih`. A fresh clone of the preceding
+head reproduces both, and their item/history bytes are unchanged by this round.
+They remain tracked in [pm-rust-b4yl](../.agents/pm/tasks/pm-rust-b4yl.toon);
+no history was rewritten. Passing the CI health command does not certify those
+older chains. The orientation feature's own append-only stream is separately
+verified against the oracle.
+
 The PR review round adds regressions for unrelated command arguments named
 `context`, `history` or `deps`, non-Unicode Unix environment names and values,
 and configured progress statuses without the active role. Command detection
@@ -154,16 +188,15 @@ comments. The original latency measurement remains the receipt for its recorded
 binary; this review round does not implement the separate read-performance
 follow-up.
 
-The clean review-round `just release-check` passes with 456 normal and 456
+The clean second-review `just release-check` passes with 462 normal and 462
 instrumented tests across 20 suites each, with no failures or ignored tests.
-Its complete crate source scope reaches 11,732/11,732 lines, 19,212/19,212
-regions, 1,177/1,177 functions and 2,834/2,834 branches: 100% in all four
+Its complete crate source scope reaches 11,743/11,743 lines, 19,246/19,246
+regions, 1,179/1,179 functions and 2,834/2,834 branches: 100% in all four
 dimensions at unchanged thresholds. Fmt, pedantic deny-warnings Clippy,
 private rustdoc, identity, audit and changelog checks pass. Audit retains the
-existing allowed unmaintained `unsafe-libyaml` advisory. The earlier diagnostic
-runs exposed missing acceptance paths; only the subsequent clean aggregate
-result is an acceptance receipt. Final-head platform CI and fresh-clone health
-receipts are recorded in the PR.
+existing allowed unmaintained `unsafe-libyaml` advisory. Source and test digests
+remain identical throughout both passes. Final-head platform CI and fresh-clone
+health receipts are recorded in the PR, with the full-health boundary above.
 
 The initial review-head CI completed all normal OS jobs and the Windows
 aggregate, but Linux/macOS aggregates hit their former 20-minute job limit
@@ -270,7 +303,8 @@ security audit and the changelog check passed at unchanged thresholds.
 | Functions | 1,170 / 1,170 | 100% |
 | Branches | 2,830 / 2,830 | 100% |
 
-Strict read-only project health passed all eight checks with four advisory
+The documented CI health scope (`--check-only --require-merge-drivers
+--strict-exit`) passed all eight checks with four advisory
 findings retained. The linked `pm test` execution passed all 12 orientation
 differentials. Project policy disables automatic test-result tracking, so its
 persistent result receipt is an item comment rather than an automatic run row.

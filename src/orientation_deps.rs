@@ -36,12 +36,21 @@ fn text<'a>(value: &'a Value, key: &str) -> &'a str {
 
 /// Canonical identity lookup spelling.
 fn key(id: &str) -> String {
+    #[cfg(test)]
+    KEY_CALLS.with(|calls| calls.set(calls.get() + 1));
     id.trim().to_lowercase()
+}
+
+#[cfg(test)]
+thread_local! {
+    /// Per-test work counter for deterministic dependency normalization budgets.
+    static KEY_CALLS: std::cell::Cell<usize> = const { std::cell::Cell::new(0) };
 }
 
 /// Converts authoritative documents into normalized, sorted dependency rows.
 fn index(workspace: &Workspace) -> Result<(Index, Value), PmRustError> {
     let corpus = workspace.read_items()?;
+    let known: BTreeSet<String> = corpus.iter().map(|item| key(&item.metadata.id)).collect();
     let mut index = Index::new();
     let mut aliases: BTreeMap<String, u64> = BTreeMap::new();
     for item in &corpus {
@@ -86,13 +95,12 @@ fn index(workspace: &Workspace) -> Result<(Index, Value), PmRustError> {
             crate::collation::compare(a.0, b.0).then_with(|| crate::collation::compare(a.1, b.1))
         });
         for (target, kind) in scalar_references {
+            let target_key = key(target);
             if !(target.is_empty()
-                || corpus
-                    .iter()
-                    .any(|item| key(&item.metadata.id) == key(target))
+                || known.contains(&target_key)
                 || dependencies
                     .iter()
-                    .any(|dep| key(text(dep, "id")) == key(target) && text(dep, "kind") == kind))
+                    .any(|dep| key(text(dep, "id")) == target_key && text(dep, "kind") == kind))
             {
                 dependencies.push(json!({"id":target,"kind":kind}));
             }

@@ -76,6 +76,79 @@ fn pm_rust(
         .output()?)
 }
 
+/// Parser refusals identify the rejected short option or extra positional token.
+#[test]
+fn orientation_refusals_name_the_rejected_argument() -> Result<(), Box<dyn std::error::Error>> {
+    let workspace = workspace()?;
+    for (command, positional) in [
+        ("context", vec![]),
+        ("history", vec!["sample-a"]),
+        ("deps", vec!["sample-a"]),
+    ] {
+        for rejected in ["-v", "extra", "--bogus=value"] {
+            for json in [false, true] {
+                let mut args = vec![command];
+                args.extend(&positional);
+                // This allowed option must never be reported as the rejected token.
+                args.extend(["--limit", "1"].into_iter().filter(|_| command != "deps"));
+                if json {
+                    args.push("--json");
+                }
+                args.push(rejected);
+                let output = pm_rust(&workspace, &args)?;
+                let stderr = String::from_utf8(output.stderr)?;
+                let token = rejected.split('=').next().unwrap_or_default();
+                assert_eq!(output.status.code(), Some(2), "{args:?}: {stderr}");
+                assert!(output.stdout.is_empty());
+                assert!(
+                    stderr.contains(&format!("Native {command} does not support {token};")),
+                    "{args:?}: {stderr}"
+                );
+                if json {
+                    let payload: serde_json::Value = serde_json::from_str(&stderr)?;
+                    assert_eq!(payload["code"], "unsupported_native_option");
+                    assert_eq!(payload["flag"], token);
+                    assert_eq!(payload["value"], token);
+                    assert_eq!(payload["refusal"]["exit_code"], 2);
+                }
+            }
+        }
+    }
+    assert!(!workspace.path().join(".agents/pm/locks").exists());
+    Ok(())
+}
+
+/// Invalid history names have identical refusals regardless of an escaped file's existence.
+#[test]
+fn history_invalid_id_refuses_before_filesystem_lookup() -> Result<(), Box<dyn std::error::Error>> {
+    let workspace = workspace()?;
+    let root = workspace.path().join(".agents/pm");
+    fs::create_dir_all(root.join("history"))?;
+    let outside = workspace.path().join(".agents/outside-x.jsonl");
+    for json in [false, true] {
+        let mut args = vec!["history", "../../outside-x"];
+        if json {
+            args.push("--json");
+        }
+        let missing = pm_rust(&workspace, &args)?;
+        fs::write(&outside, "outside bytes must never be read\n")?;
+        let existing = pm_rust(&workspace, &args)?;
+        assert_eq!(missing.status.code(), Some(2));
+        assert_eq!(existing.status.code(), Some(2));
+        assert!(missing.stdout.is_empty());
+        assert!(existing.stdout.is_empty());
+        assert_eq!(missing.stderr, existing.stderr);
+        assert!(
+            String::from_utf8(missing.stderr)?
+                .contains("Invalid history item id: expected a single filename.")
+        );
+        assert_eq!(fs::read(&outside)?, b"outside bytes must never be read\n");
+        fs::remove_file(&outside)?;
+    }
+    assert!(!root.join("locks").exists());
+    Ok(())
+}
+
 /// Orientation words in other commands retain the selected command's Clap refusal.
 #[test]
 fn orientation_values_do_not_reclassify_unrelated_commands()

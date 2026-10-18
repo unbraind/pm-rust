@@ -1,6 +1,42 @@
 //! Bounded dependency traversal storage and budget acceptance.
 use super::*;
 use std::fs;
+
+/// Scalar membership checks have a linear normalization budget independent of corpus order.
+#[test]
+fn dependency_identity_normalization_has_a_linear_budget() -> Result<(), Box<dyn std::error::Error>>
+{
+    let directory = tempfile::tempdir()?;
+    let root = directory.path().join(".agents/pm");
+    fs::create_dir_all(root.join("tasks"))?;
+    fs::write(root.join("settings.json"), "{}")?;
+    let count = 256;
+    for position in 0..count {
+        let id = format!("sample-{position:04}");
+        let row = json!({"id":id,"title":id,"type":"Task","status":"open","priority":1,"created_at":"2026-08-22T10:00:00.000Z","updated_at":"2026-08-22T10:00:00.000Z","parent":"  SAMPLE-0255  ","blocked_by":" sample-missing "});
+        fs::write(
+            root.join(format!("tasks/{id}.toon")),
+            toon_format::encode_default(&row)?,
+        )?;
+    }
+    let workspace = Workspace::discover(directory.path())?;
+    KEY_CALLS.with(|calls| calls.set(0));
+    let (rows, aliases) = index(&workspace)?;
+    let normalizations = KEY_CALLS.with(std::cell::Cell::get);
+    assert_eq!(rows.len(), count);
+    assert_eq!(aliases, json!({}));
+    for row in rows.values() {
+        assert_eq!(
+            row["dependencies"],
+            json!([{"id":"sample-missing","kind":"blocked_by"}])
+        );
+    }
+    assert!(
+        normalizations <= 16 * count,
+        "dependency index normalized {normalizations} identities for {count} items"
+    );
+    Ok(())
+}
 /// Builds an indexed cyclic graph with missing and repeated targets.
 fn fixture_index() -> Index {
     let mut index = Index::new();

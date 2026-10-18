@@ -128,15 +128,19 @@ pub(crate) fn numeric(
     Ok(number.floor() as usize)
 }
 
-/// Reads raw JSONL without changing or auto-creating a stream.
-pub(crate) fn records(workspace: &Workspace, id: &str) -> Result<Vec<Value>, PmRustError> {
+/// Rejects history identities that cannot name a single stream file.
+fn history_filename(id: &str) -> Result<(), PmRustError> {
     if id.contains(['/', '\\', ':', '\0']) || matches!(id, "." | "..") {
-        return Err(refusal(
+        return Err(invalid(
             "Invalid history item id: expected a single filename.",
-            2,
-            json!({}),
         ));
     }
+    Ok(())
+}
+
+/// Reads raw JSONL without changing or auto-creating a stream.
+pub(crate) fn records(workspace: &Workspace, id: &str) -> Result<Vec<Value>, PmRustError> {
+    history_filename(id)?;
     let path = workspace
         .pm_root()
         .join("history")
@@ -196,6 +200,7 @@ impl Workspace {
         } else {
             format!("{}-{id}", prefix.trim_end_matches('-'))
         };
+        history_filename(&normalized)?;
         let corpus = self.read_items()?;
         let item = corpus
             .iter()

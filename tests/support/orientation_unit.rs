@@ -1,6 +1,53 @@
 //! Native history reader integrity and storage-boundary acceptance.
 use super::*;
 
+/// Invalid filenames refuse before corpus decoding, even with malformed authoritative items.
+#[test]
+fn history_invalid_id_precedes_corpus_lookup() -> Result<(), Box<dyn std::error::Error>> {
+    let (_root, workspace) = workspace()?;
+    fs::write(
+        workspace.pm_root().join("tasks/corrupt.toon"),
+        "not an item",
+    )?;
+    for prefix in ["sample-", ""] {
+        fs::write(
+            workspace.pm_root().join("settings.json"),
+            json!({"id_prefix":prefix,"item_format":"toon"}).to_string(),
+        )?;
+        for id in ["../../outside-x", "with:colon", "back\\slash", "null\0byte"] {
+            let error = workspace
+                .history(id, &HistoryOptions::default())
+                .err()
+                .ok_or("invalid ID was accepted")?;
+            assert!(matches!(
+                error,
+                PmRustError::CommandRefusal { exit_code: 2, .. }
+            ));
+            assert_eq!(
+                error.to_string(),
+                "Invalid history item id: expected a single filename."
+            );
+        }
+        if prefix.is_empty() {
+            for id in [".", ".."] {
+                assert_eq!(
+                    workspace
+                        .history(id, &HistoryOptions::default())
+                        .err()
+                        .ok_or("dot ID was accepted")?
+                        .to_string(),
+                    "Invalid history item id: expected a single filename."
+                );
+            }
+        }
+    }
+    assert_eq!(
+        fs::read(workspace.pm_root().join("tasks/corrupt.toon"))?,
+        b"not an item"
+    );
+    Ok(())
+}
+
 /// Builds a minimal real tracker for private history boundary tests.
 fn workspace() -> Result<(tempfile::TempDir, Workspace), Box<dyn std::error::Error>> {
     let root = tempfile::tempdir()?;
