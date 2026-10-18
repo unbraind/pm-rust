@@ -664,6 +664,15 @@ fn sdk_streaming_sorts_filters_and_preserves_total() -> Result<(), Box<dyn std::
     })?;
     assert_eq!(closed.items.len(), 1);
     assert_eq!(closed.total, 2);
+    let complete = workspace.list_page(
+        &ItemFilter::default(),
+        &pm_rust::ListOptions {
+            all: true,
+            ..Default::default()
+        },
+        "2026-08-22T10:00:00.000Z",
+    )?;
+    assert_eq!(complete["count"], 2);
     write(
         root.join("issues/nested/demo-b.toon"),
         &ITEM_B.replace("status: closed", "status: open"),
@@ -695,13 +704,14 @@ fn sdk_streaming_sorts_filters_and_preserves_total() -> Result<(), Box<dyn std::
     Ok(())
 }
 
-/// Raw read errors propagate through production SDK iterators, before decoding any projection.
+/// Raw reads and strict selected-document failures propagate through SDK iterators.
 #[test]
 fn sdk_streaming_preserves_invalid_utf8_refusals() -> Result<(), Box<dyn std::error::Error>> {
     let (directory, root) = tracker()?;
     fs::write(root.join("tasks/demo-a.toon"), [0xff])?;
     let workspace = Workspace::discover(directory.path())?;
     for result in [
+        workspace.get("demo-a").map(|_| ()),
         workspace.list(ItemFilter::default()).map(|_| ()),
         workspace
             .list_page(
@@ -727,6 +737,15 @@ fn sdk_streaming_preserves_invalid_utf8_refusals() -> Result<(), Box<dyn std::er
             matches!(result, Err(PmRustError::Io { source, .. }) if source.kind() == std::io::ErrorKind::InvalidData)
         );
     }
+    write(root.join("tasks/demo-a.toon"), "<<<<<<< damaged\n")?;
+    assert!(matches!(
+        workspace.list(ItemFilter::default()),
+        Err(PmRustError::InvalidItemDocument { .. })
+    ));
+    assert!(matches!(
+        workspace.search("needle", &pm_rust::SearchOptions::default()),
+        Err(PmRustError::InvalidItemDocument { .. })
+    ));
     Ok(())
 }
 

@@ -16,6 +16,12 @@ fn empty_discovery_paths_fail_before_filesystem_reads() -> Result<(), Box<dyn st
     };
     assert!(path.as_os_str().is_empty());
     assert_eq!(source.kind(), io::ErrorKind::InvalidInput);
+    let directory = tempfile::tempdir()?;
+    let missing = directory.path().join("missing");
+    assert!(matches!(
+        super::Workspace::discover(&missing),
+        Err(PmRustError::Io { source, .. }) if source.kind() == io::ErrorKind::NotFound
+    ));
     Ok(())
 }
 
@@ -284,6 +290,10 @@ fn streamed_items_refuse_duplicate_ids() -> Result<(), Box<dyn std::error::Error
     // Preserve source-order refusal precedence even when a later worker fails I/O.
     std::fs::write(tracker.join("tasks/zzz-invalid.toon"), [0xff])?;
     let workspace = super::Workspace::discover(directory.path())?;
+    assert!(matches!(
+        workspace.read_items(),
+        Err(PmRustError::DuplicateItemId { .. })
+    ));
     let items = workspace
         .stream_items(crate::read_projection::Projection::List)?
         .collect::<Result<Vec<_>, _>>();
@@ -303,22 +313,33 @@ fn sdk_streamed_summary_selection_and_read_failures() -> Result<(), Box<dyn std:
     std::fs::create_dir_all(root.join("tasks"))?;
     std::fs::write(root.join("settings.json"), "{}")?;
     for id in ["sample-one", "sample-two"] {
+        let status = if id == "sample-two" { "closed" } else { "open" };
         std::fs::write(
             root.join(format!("tasks/{id}.toon")),
             format!(
-                "id: {id}\ntitle: Needle\ntype: Task\nstatus: open\npriority: 1\ntags[1]: alpha\ncreated_at: date\nupdated_at: date\n"
+                "id: {id}\ntitle: Needle\ntype: Task\nstatus: {status}\npriority: 1\ntags[1]: alpha\ncreated_at: date\nupdated_at: date\n"
             ),
         )?;
     }
     let workspace = super::Workspace::discover(directory.path())?;
     let summary = workspace.list(crate::ItemFilter::default())?;
     assert_eq!(summary.total, 2);
-    let excluded = workspace.list(crate::ItemFilter {
+    let complete = workspace.list_page(
+        &crate::ItemFilter::default(),
+        &crate::ListOptions {
+            all: true,
+            ..Default::default()
+        },
+        "2026-08-22T10:00:00.000Z",
+    )?;
+    assert_eq!(complete["count"], 2);
+    let selected = workspace.list(crate::ItemFilter {
         status: Some("closed".to_owned()),
         ..Default::default()
     })?;
-    assert!(excluded.items.is_empty());
-    assert_eq!(excluded.total, 2);
+    assert_eq!(selected.items.len(), 1);
+    assert_eq!(selected.items[0].id, "sample-two");
+    assert_eq!(selected.total, 2);
     assert_eq!(
         summary
             .items
@@ -342,6 +363,14 @@ fn sdk_streamed_summary_selection_and_read_failures() -> Result<(), Box<dyn std:
     assert_eq!(page["count"], 1);
     std::fs::write(root.join("tasks/sample-one.toon"), [0xff])?;
     assert!(matches!(
+        workspace.get("sample-one"),
+        Err(PmRustError::Io { .. })
+    ));
+    assert!(matches!(
+        workspace.read_items(),
+        Err(PmRustError::Io { .. })
+    ));
+    assert!(matches!(
         workspace.list(crate::ItemFilter::default()),
         Err(PmRustError::Io { .. })
     ));
@@ -361,6 +390,7 @@ fn streamed_initializers_refuse_a_deleted_tracker() -> Result<(), Box<dyn std::e
     std::fs::write(root.join("settings.json"), "{}")?;
     let workspace = super::Workspace::discover(directory.path())?;
     std::fs::remove_dir_all(root)?;
+    assert!(workspace.read_items().is_err());
     assert!(workspace.item_sources().is_err());
     assert!(
         workspace
@@ -398,6 +428,7 @@ fn streamed_queries_refuse_unlistable_nested_directory() -> Result<(), Box<dyn s
         .custom_flags(0x0200_0000)
         .open(&locked)?;
     let results = [
+        workspace.get("missing").map(|_| ()),
         workspace.read_items().map(|_| ()),
         workspace.list(crate::ItemFilter::default()).map(|_| ()),
         workspace
