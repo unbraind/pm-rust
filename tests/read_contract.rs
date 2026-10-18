@@ -675,6 +675,23 @@ fn sdk_streaming_sorts_filters_and_preserves_total() -> Result<(), Box<dyn std::
     assert_eq!(complete["count"], 2);
     write(
         root.join("issues/nested/demo-b.toon"),
+        &(ITEM_B
+            .replace("parent: demo-a\n", "")
+            .replace("status: closed", "status: open")
+            + "dependencies[1]{id,kind}:\n  demo-a,child_of\n"),
+    )?;
+    let children = workspace.list_page(
+        &ItemFilter::default(),
+        &pm_rust::ListOptions {
+            parent: Some("demo-a".to_owned()),
+            ..Default::default()
+        },
+        "2026-08-22T10:00:00.000Z",
+    )?;
+    assert_eq!(children["count"], 1);
+    assert_eq!(children["items"][0]["id"], "demo-b");
+    write(
+        root.join("issues/nested/demo-b.toon"),
         &ITEM_B.replace("status: closed", "status: open"),
     )?;
     let page = workspace.list_page(
@@ -690,17 +707,27 @@ fn sdk_streaming_sorts_filters_and_preserves_total() -> Result<(), Box<dyn std::
     )?;
     assert_eq!(page["count"], 1);
     assert_eq!(page["items"][0]["id"], "demo-b");
-    assert!(matches!(
-        workspace.list_page(
-            &ItemFilter::default(),
-            &pm_rust::ListOptions {
-                limit: Some("bad".to_owned()),
-                ..Default::default()
-            },
-            "2026-08-22T10:00:00.000Z",
-        ),
-        Err(PmRustError::InvalidReadRequest { .. })
-    ));
+    for offset in [None, Some("0".to_owned())] {
+        assert!(matches!(
+            workspace.list_page(
+                &ItemFilter::default(),
+                &pm_rust::ListOptions {
+                    limit: Some("bad".to_owned()),
+                    offset,
+                    ..Default::default()
+                },
+                "2026-08-22T10:00:00.000Z",
+            ),
+            Err(PmRustError::InvalidReadRequest { .. })
+        ));
+    }
+    Command::cargo_bin("pm-rust")?
+        .arg("--workspace")
+        .arg(directory.path())
+        .args(["list", "--limit", "bad", "--offset", "0"])
+        .assert()
+        .code(2)
+        .stderr(contains("output control"));
     Ok(())
 }
 
@@ -738,6 +765,24 @@ fn sdk_streaming_preserves_invalid_utf8_refusals() -> Result<(), Box<dyn std::er
         );
     }
     write(root.join("tasks/demo-a.toon"), "<<<<<<< damaged\n")?;
+    assert!(matches!(
+        workspace.list_page(
+            &ItemFilter {
+                id: Some("demo-a".to_owned()),
+                ..Default::default()
+            },
+            &pm_rust::ListOptions::default(),
+            "2026-08-22T10:00:00.000Z",
+        ),
+        Err(PmRustError::InvalidItemDocument { .. })
+    ));
+    Command::cargo_bin("pm-rust")?
+        .arg("--workspace")
+        .arg(directory.path())
+        .args(["list", "--id", "demo-a"])
+        .assert()
+        .code(2)
+        .stderr(contains("merge conflict markers detected"));
     assert!(matches!(
         workspace.list(ItemFilter::default()),
         Err(PmRustError::InvalidItemDocument { .. })
