@@ -1162,12 +1162,15 @@ fn main() -> ExitCode {
     let cli = match Cli::try_parse() {
         Ok(cli) => cli,
         Err(error) => {
-            let args = published_read_arguments(std::env::args_os().skip(1));
+            let mut args = published_read_arguments(std::env::args_os().skip(1));
+            let orientation = args
+                .iter()
+                .position(|arg| matches!(arg.as_str(), "context" | "history" | "deps"));
             if error.kind() == clap::error::ErrorKind::UnknownArgument
-                && args
-                    .first()
-                    .is_some_and(|arg| matches!(arg.as_str(), "context" | "history" | "deps"))
+                && let Some(index) = orientation
             {
+                let command = args.remove(index);
+                args.insert(0, command);
                 let allowed = match args[0].as_str() {
                     "context" => vec![
                         "--limit",
@@ -1205,6 +1208,11 @@ fn main() -> ExitCode {
                     .filter(|arg| arg.starts_with("--"))
                     .map(|arg| arg.split('=').next().unwrap_or_default())
                     .find(|flag| !allowed.contains(flag))
+                    .or_else(|| {
+                        args.iter()
+                            .find(|arg| arg.starts_with('-'))
+                            .map(String::as_str)
+                    })
                     .unwrap_or("option");
                 let detail = format!(
                     "Native {} does not support {flag}; use the published pm CLI for this option.",

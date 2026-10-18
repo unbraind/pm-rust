@@ -6,17 +6,21 @@ status: in_progress
 priority: 2
 tags[3]: conformance,orientation,rust
 created_at: "2026-10-18T03:01:55.242Z"
-updated_at: "2026-10-18T04:14:13.391Z"
+updated_at: "2026-10-18T04:52:19.949Z"
 assignee: codex-agent
 claim_principal: codex-agent
 author: codex-agent
 parent: pm-rust-u4al
-comments[4]{created_at,author,text}:
+comments[8]{created_at,author,text}:
   "2026-10-18T03:02:15.486Z",codex-agent,"Plan: implement native brief context focus selection and packing, append-only history reads, and dependency tree reads. Compare complete CLI bytes against the locked oracle on disposable trackers. Document unsupported flags explicitly, retain release disablement, and record revert controls, large public tracker latency and all local/platform gates. Pinned history reads do not verify by default; --verify returns a verification report rather than refusing on a broken record hash. Preserve this observable oracle behavior and document the distinction."
   "2026-10-18T03:15:21.835Z",codex-agent,"Implementation in progress: native brief relevance ordering and identity packing, compact/full history with strict integrity exit, and bounded dependency tree/graph reads. Initial local build succeeds. Added real-CLI fixed-clock differential fixtures; extending refusal and corruption cases before the aggregate gate. CLI orientation requires a complete initialized settings document; fixtures now use real pm init rather than a partial settings surrogate."
   "2026-10-18T03:39:06.493Z",codex-agent,"First real-CLI differential: history passed, including immutable-author tampering with --verify --strict-exit. Dependency truncation exposed an internal row-contract token estimate, now matched. Context exposed an oracle behavior: the 25 ms packing deadline can expire before the first selection when this shared host deschedules Node, returning zero focus rows and suggestions despite active candidates. The orientation fixture now pins the monotonic clock as well as Date to test deterministic bytes. Native packing completes deterministically; document this timing boundary and report it as an oracle UX gap rather than claiming scheduling equivalence."
   "2026-10-18T04:12:46.206Z",codex-agent,"The six-test orientation differential passed: context focus/budgets/cursors, history integrity and retained rewrite evidence, dependency traversal/refusals, explicit unsupported options, read-only storage during concurrent unrelated writes, and group caps/session affinity. Added further weekly-calendar and bounded-history cases. Benchmark preflight found one closed weekly UTC event in the unchanged public-tracker copy; expanding that existing calendar shape instead of filtering the dataset. Local isolated strict health passed eight checks with four advisories; ambient health separately reports the global extension host-version skew. Timings and full coverage are still pending."
-files[11]{path,scope}:
+  "2026-10-18T04:28:26.178Z",codex-agent,"The extended native orientation differential suite passed 8 tests, including bounded large history, immutable record tampering, retained rewrite evidence, weekly recurrence, semantic and delivered usage affinity, and concurrent unrelated writes. The context reader now captures one authoritative corpus for ranking and summaries; its real-filesystem scan-count regression passed. Clippy all-targets deny-warnings passed. Draft PR #92 is open. Coverage, revert controls and the final shared-host timing receipt remain pending."
+  "2026-10-18T04:34:38.482Z",codex-agent,"All three operating-system test jobs passed on the initial PR head. The Linux aggregate gate then correctly refused coverage below 100 percent: lines 99.3069, functions 99.3892, regions 99.2402, branches 96.5957. Boundary acceptance exposed and corrected a timestamp-unit mismatch in feedback retention, touch windows and deadline scoring; 26 orientation unit tests now pass. Additional budget, dispatch and integrity tests are being added without reducing gate thresholds."
+  "2026-10-18T04:36:57.364Z",codex-agent,"Behavioral revert proofs: cargo test --locked --lib record_envelopes_and_replay_hashes failed 0 passed/1 failed when only record_error was replaced by its pre-slice no-verification behavior (None versus record_hash_mismatch). cargo test --locked --lib session_and_usage_affinity failed 0/1 when only affinity returned empty evidence (0 versus 3 claims). cargo test --locked --lib dependency_value_refusals failed 0/1 when only index discarded the new relationship rows (2 versus 3 nodes). Each control rebuilt successfully, failed an assertion, then restored its source bytes and verified SHA-256 equality. No counterfactual source is committed."
+  "2026-10-18T04:52:19.946Z",codex-agent,"The mandatory pm test --run --progress completed successfully: 1 linked command, 9 differential tests passed, 0 failed. The positive library pass completed 218 tests and the orientation dispatch pass completed 2 tests. The subsequent array-test replay fix passed its targeted unit regression; its sealed real-oracle fixture and pre-command global refusal tests are included for the next full run. Private rustdoc and all-target Clippy passed before those two final dispatch/replay refinements; the current checks are running."
+files[14]{path,scope}:
   src/error.rs,project
   src/lib.rs,project
   src/main.rs,project
@@ -25,9 +29,12 @@ files[11]{path,scope}:
   src/orientation.rs,project
   src/read_output.rs,project
   tests/orientation_differential.rs,project
+  tests/support/main_unit.rs,project
   tests/support/orientation_context_unit.rs,project
   tests/support/orientation_deps_unit.rs,project
   tests/support/orientation_unit.rs,project
+  tests/support/ownership_unit.rs,project
+  tests/support/read_output_unit.rs,project
 tests[1]{command,path,scope,timeout_seconds,provenance{author,created_at,source_kind,source_ref},shared_host_safe,note}:
   cargo test --locked --test orientation_differential,tests/orientation_differential.rs,project,1800,codex-agent,"2026-10-18T04:14:11.408Z",local_mutation,feat/native-context-history-deps,true,Exact orientation CLI bytes and read-only concurrent storage acceptance
 docs[2]{path,scope}:

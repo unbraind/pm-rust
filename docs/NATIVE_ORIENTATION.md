@@ -63,6 +63,9 @@ Supported controls: `--limit`, `--compact`, `--full`, `--verify`,
 Deferred flags: `--provenance`, `--provenance-summary`, `--harness`,
 `--agent-instance`, `--provenance-filter`, `--diff`, `--field`, and `--format`.
 History maintenance subcommands remain outside this read surface.
+If an item has no stream, the native read returns an empty timeline under the
+default policy without creating a stream. The oracle may create one under its
+`auto_create` policy. Both refuse under `history.missing_stream: strict_error`.
 
 ## Dependencies
 
@@ -82,7 +85,12 @@ options. This PR adds no dependency writer or alternate journal path.
 
 All three commands defer canonical read-output controls (`--output-include`,
 `--output-limit`, `--output-budget`, `--output-format`, `--output-session`,
-`--output-cursor`, `--output-row-contract`) and other global output modes.
+`--output-cursor`, `--output-row-contract`). Other deferred oracle global flags
+are `--lean`, `--token-accounting`, `--quiet`, `--no-changed-fields`,
+`--full-changed-fields`, `--id-only`, `--pm-path`, `--path`, `--no-extensions`,
+`--no-pager`, `--explain`, `--all`, `--profile`, and `--author`. Use the existing
+native `--workspace` for discovery. Claimed flags follow the canonical command;
+the oracle's `ctx` and `item deps` spellings are deferred.
 Numeric controls are restricted to the JavaScript safe integer range; larger
 values refuse with `unsupported_native_value`. History still floors supported
 fractional limits. Unsupported options fail closed using the published problem-envelope shape,
@@ -105,6 +113,15 @@ packing is deterministic and completes the selection; scheduler-dependent oracle
 packing timeout is outside the byte-parity claim. It compares
 complete stdout, stderr and exit status. Private unit acceptance exercises
 storage failures and the integrity, selection and traversal boundaries.
+
+The concurrency fixture starts three independent reader threads, each issuing
+four history/dependency reads, alongside four native updates to an unrelated
+item. The target TOON and append-only JSONL bytes are identical before and after;
+serial oracle reads then match both native results. Context captures one
+authoritative corpus per invocation, verified with the existing real filesystem
+scan observer. These readers acquire no writer lock, execute no recovery
+journal, and do not claim a transactionally consistent snapshot across an
+item being concurrently modified. Dependency mutation remains deferred.
 
 Latency and final gate receipts are recorded after the implementation passes
 its conformance checks.

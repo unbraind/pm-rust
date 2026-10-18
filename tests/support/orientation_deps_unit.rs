@@ -201,3 +201,59 @@ fn dependency_value_refusals() -> Result<(), Box<dyn std::error::Error>> {
     assert!(workspace.deps("a", &DepsOptions::default()).is_err());
     Ok(())
 }
+
+/// Canonical dependency kinds, aliases and scalar blockers remain distinct before traversal.
+#[test]
+fn dependency_alias_and_scalar_boundaries() -> Result<(), Box<dyn std::error::Error>> {
+    let root = tempfile::tempdir()?;
+    let pm = root.path().join(".agents/pm");
+    fs::create_dir_all(pm.join("tasks"))?;
+    fs::write(pm.join("settings.json"), "{}")?;
+    let workspace = Workspace::discover(root.path())?;
+    for blocked in ["", "no-active-blocker", "a", "missing"] {
+        let row = json!({"id":"a","title":"A","type":"Task","status":"open","priority":1,"tags":[],"created_at":"2026-08-22T10:00:00.000Z","updated_at":"2026-08-22T10:00:00.000Z","blocked_by":blocked,"dependencies":[{"id":"missing","kind":"blocked_by"},{"id":"b","kind":"related_to"},{"id":"c","kind":"parent_child"},{"id":"d","kind":"epic"}]});
+        fs::write(pm.join("tasks/a.toon"), toon_format::encode_default(&row)?)?;
+        let (index, aliases) = index(&workspace)?;
+        assert_eq!(index["a"]["dependencies"].as_array().map(Vec::len), Some(4));
+        assert_eq!(aliases, json!({"epic":1,"parent_child":1,"related_to":1}));
+    }
+    assert!(
+        workspace
+            .deps(
+                "a",
+                &DepsOptions {
+                    format: Some("context".to_owned()),
+                    ..Default::default()
+                }
+            )
+            .is_err()
+    );
+    assert!(
+        workspace
+            .deps(
+                "a",
+                &DepsOptions {
+                    collapse: Some("repeated".to_owned()),
+                    full: true,
+                    ..Default::default()
+                }
+            )
+            .is_ok()
+    );
+    Ok(())
+}
+
+/// Depth and token stops remain explicit even when a leaf has no outgoing edges.
+#[test]
+fn dependency_leaf_and_trim_boundaries() {
+    let index = fixture_index();
+    let mut limit = budget();
+    limit.tokens = 0;
+    let mut seen = BTreeSet::new();
+    let lineage = BTreeSet::new();
+    let output = node("a", None, &index, &lineage, &mut seen, &mut limit, 0);
+    assert_eq!(output["truncated"], true);
+    assert!(limit.reasons.contains("token_budget"));
+    let mut leaf = json!({"id":"leaf","dependencies":[]});
+    assert!(!trim(&mut leaf));
+}

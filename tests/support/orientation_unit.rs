@@ -319,3 +319,208 @@ fn history_ids_and_pointer_aliases() -> Result<(), Box<dyn std::error::Error>> {
     );
     Ok(())
 }
+
+/// Strict missing-stream policy and compacted version arithmetic retain their published boundaries.
+#[test]
+fn history_missing_stream_policy() -> Result<(), Box<dyn std::error::Error>> {
+    let (_root, workspace) = workspace()?;
+    let metadata = genesis()["patch"][0]["value"].clone();
+    fs::write(
+        workspace.pm_root().join("tasks/sample-one.toon"),
+        toon_format::encode_default(&metadata)?,
+    )?;
+    let path = workspace.pm_root().join("history/sample-one.jsonl");
+    assert_eq!(
+        workspace.history("one", &HistoryOptions::default())?["count"],
+        0
+    );
+    assert!(!path.exists());
+    fs::write(
+        workspace.pm_root().join("settings.json"),
+        r#"{"id_prefix":"sample-","history":{"missing_stream":"strict_error"}}"#,
+    )?;
+    assert!(
+        workspace
+            .history("one", &HistoryOptions::default())
+            .is_err()
+    );
+    for offset in [json!(9_007_199_254_740_991u64), json!("bad")] {
+        fs::write(
+            &path,
+            format!(
+                "{}\n",
+                json!({"op":"history_compact_baseline","patch":[],"context":{"history_compaction":{"version_offset":offset}}})
+            ),
+        )?;
+        assert_eq!(
+            workspace.history("one", &HistoryOptions::default())?["version_addressing"]["offset"],
+            Value::Null
+        );
+    }
+    Ok(())
+}
+
+/// Every retained-proof envelope member is validated before trusting the reconstructed record.
+#[test]
+fn malformed_retained_envelopes() {
+    let original = genesis();
+    let valid = json!({"before_hash":"before","after_hash":"after","patch_hash":digest(&original["patch"]),"record":original});
+    for (field, value) in [
+        ("record", json!(42)),
+        ("record", json!({"ts":42})),
+        ("before_hash", json!(42)),
+        ("after_hash", Value::Null),
+        ("patch", json!(42)),
+        ("record_hash_version", json!("bad")),
+        ("record_hash", json!("wrong")),
+        ("hash_algorithm", json!("other")),
+    ] {
+        let mut proof = valid.clone();
+        proof[field] = value;
+        if field == "record_hash_version" {
+            proof["record_hash"] = json!("a".repeat(64));
+        }
+        if field == "record_hash" {
+            proof["record_hash_version"] = json!(1);
+        }
+        assert_eq!(
+            rewrite_error(&json!({"reanchor_evidence":[proof]})),
+            Some("rewrite_evidence_invalid"),
+            "{field}"
+        );
+    }
+    assert!(!hex_digest(&json!(42), &[64]));
+    assert!(!hex_digest(&json!("short"), &[64]));
+    for invalid in [json!([42]), json!([{"op":"remove","path":42}])] {
+        assert!(!patch_shape(&invalid));
+    }
+}
+
+/// Root tests and unsupported operations refuse without accepting malformed final documents.
+#[test]
+fn patch_root_and_array_boundaries() {
+    for change in [
+        json!({"op":"test","path":"","value":{}}),
+        json!({"op":"remove","path":""}),
+        json!({"op":"test","path":"/metadata/rows/0","value":1}),
+        json!({"op":"replace","path":"/metadata/rows/01","value":0}),
+        json!({"op":"add","path":"/metadata/rows/9","value":0}),
+        json!({"op":"unknown","path":"/metadata/value"}),
+    ] {
+        let mut document = json!({"metadata":{"rows":[0],"value":1},"body":""});
+        assert!(apply_patch(&mut document, &json!([change])).is_none());
+    }
+    let mut document = json!({"metadata":{"rows":[0]},"body":""});
+    assert!(
+        apply_patch(
+            &mut document,
+            &json!([{"op":"test","path":"/metadata/rows/0","value":0}])
+        )
+        .is_some()
+    );
+    assert!(
+        apply_patch(
+            &mut document,
+            &json!([{"op":"remove","path":"/metadata/rows/0"}])
+        )
+        .is_some()
+    );
+    assert_eq!(document["metadata"]["rows"], json!([]));
+    assert!(
+        apply_patch(
+            &mut document,
+            &json!([{"op":"replace","path":"","value":{"body":""}}])
+        )
+        .is_none()
+    );
+}
+
+/// Undeclared hash epochs are detected across records and unsupported textual versions are disclosed.
+#[test]
+fn history_detected_hash_epochs() -> Result<(), Box<dyn std::error::Error>> {
+    let mut entry = genesis();
+    entry
+        .as_object_mut()
+        .ok_or("record")?
+        .shift_remove("item_hash_version");
+    assert_eq!(
+        verify_records(std::slice::from_ref(&entry), None)["ok"],
+        true
+    );
+    let mut unsupported = entry.clone();
+    unsupported["item_hash_version"] = json!("future");
+    assert!(
+        verify_records(&[unsupported], None)["errors"][0]
+            .as_str()
+            .is_some_and(|error| error.contains("future"))
+    );
+    let mut baseline = entry.clone();
+    baseline["op"] = json!("history_compact_baseline");
+    assert!(
+        verify_records(&[baseline, entry], None)["errors"]
+            .as_array()
+            .is_some_and(|errors| errors.iter().any(|error| error
+                .as_str()
+                .is_some_and(|text| text.contains("duplicate_create"))))
+    );
+    Ok(())
+}
+
+/// Compact changed fields preserve root namespaces and reject malformed patch rows.
+#[test]
+fn compact_history_field_names() -> Result<(), Box<dyn std::error::Error>> {
+    for (path, expected) in [
+        ("/body/line", "body"),
+        ("/body", "body"),
+        ("/metadata", "metadata"),
+        ("/front_matter", "metadata"),
+        ("/metadatax/title", "metadatax"),
+        ("/front_matter/tag~1name", "tag/name"),
+        ("/other~0field/value", "other~field"),
+        ("/", "root"),
+        ("", "root"),
+    ] {
+        assert_eq!(changed_field(path), expected);
+    }
+    for raw in ["0x", "0b", "0o", "0xgg"] {
+        assert!(numeric(raw, true, 0, "invalid".to_owned()).is_err());
+    }
+    let (_root, workspace) = workspace()?;
+    fs::write(workspace.pm_root().join("settings.json"), "{}")?;
+    fs::write(
+        workspace.pm_root().join("history/plain.jsonl"),
+        format!(
+            "{}\n",
+            json!({"patch":[{"op":"copy","path":"/metadata/title","from":"/body"},{"op":42,"path":"/body"},{"op":"remove","path":42}]})
+        ),
+    )?;
+    assert_eq!(
+        workspace.history("plain", &HistoryOptions::default())?["compact_history"][0]["patch_ops"],
+        1
+    );
+    Ok(())
+}
+
+/// Legacy epoch-two current state accepts its historical test projection while preserving the stream.
+#[test]
+fn legacy_epoch_two_current_state() -> Result<(), Box<dyn std::error::Error>> {
+    let mut entry = genesis();
+    entry["patch"][0]["value"]["tests"] = json!([{"command":"z","workspace_context_mode":"isolated","provenance":{}},{"command":"a"}]);
+    let metadata = entry["patch"][0]["value"].clone();
+    let current: crate::ItemDocument = serde_json::from_value(metadata.clone())?;
+    entry["item_hash_version"] = json!(2);
+    entry["before_hash"] = json!(replay_hash(
+        &json!({"metadata":{},"body":""}),
+        2,
+        true,
+        "sha256"
+    ));
+    entry["after_hash"] = json!(replay_hash(
+        &json!({"metadata":metadata,"body":""}),
+        2,
+        true,
+        "sha256"
+    ));
+    assert_eq!(verify_records(&[entry], Some(&current))["ok"], true);
+    Ok(())
+}

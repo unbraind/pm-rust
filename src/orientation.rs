@@ -497,6 +497,11 @@ fn apply_patch(document: &mut Value, changes: &Value) -> Option<()> {
                     "remove" if index < rows.len() => {
                         rows.remove(index);
                     }
+                    "test" => {
+                        if rows.get(index)? != change.get("value")? {
+                            return None;
+                        }
+                    }
                     _ => return None,
                 }
             }

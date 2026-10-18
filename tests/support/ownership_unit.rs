@@ -695,3 +695,31 @@ updated_at: "2026-08-22T10:00:00.000Z"
     );
     Ok(())
 }
+
+/// Brief context derives blocking, ranking and summaries from one real corpus scan.
+#[test]
+fn context_reads_one_captured_corpus() -> Result<(), Box<dyn std::error::Error>> {
+    let directory = tempfile::tempdir()?;
+    let pm = directory.path().join(".agents/pm");
+    fs::create_dir_all(pm.join("tasks"))?;
+    fs::write(pm.join("settings.json"), "{}")?;
+    for id in ["sample-one", "sample-two"] {
+        let item = json!({"id":id,"title":id,"description":"","type":"Task","status":"open","priority":1,"tags":[],"created_at":"2026-08-22T10:00:00.000Z","updated_at":"2026-08-22T10:00:00.000Z","body":""});
+        fs::write(
+            pm.join(format!("tasks/{id}.toon")),
+            toon_format::encode_default(&item)?,
+        )?;
+    }
+    let workspace = Workspace::discover(directory.path())?;
+    let before = READ_ITEMS_SCANS.get();
+    let output = workspace.context(
+        &crate::ContextOptions {
+            no_extension_health: true,
+            ..Default::default()
+        },
+        "2026-08-22T10:00:00.000Z",
+    )?;
+    assert_eq!(READ_ITEMS_SCANS.get() - before, 1);
+    assert_eq!(output["summary"]["total_items"], 2);
+    Ok(())
+}

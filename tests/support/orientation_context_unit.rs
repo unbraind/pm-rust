@@ -418,3 +418,256 @@ fn usage_ledger_byte_boundary() -> Result<(), Box<dyn std::error::Error>> {
     assert_eq!(usage_text(&path), "tail\n");
     Ok(())
 }
+
+/// Malformed semantic records cannot grant required identities; only confirmed deliveries count.
+#[test]
+#[allow(clippy::too_many_lines)]
+fn untrusted_affinity_evidence() -> Result<(), Box<dyn std::error::Error>> {
+    let (_root, workspace, _) = workspace()?;
+    let identity = crate::AuthorIdentity::resolve(None, Some("fixture"), &BTreeMap::new());
+    let runtime = workspace.pm_root().join("runtime");
+    fs::create_dir_all(&runtime)?;
+    let key = format!(
+        "author-{}",
+        &crate::history::sha256_digest(b"fixture")[..24]
+    );
+    let valid = json!({"role":"planner","confidence":"medium","topic":"fixture","rule_version":"v2","active_item_ids":["sample-a"],"evidence":["lineage:sample-a"]});
+    for (field, value) in [
+        ("role", json!("observer")),
+        ("confidence", json!("low")),
+        ("topic", json!("")),
+        ("rule_version", json!("v1")),
+        ("active_item_ids", Value::Null),
+        ("active_item_ids", json!([""])),
+        ("active_item_ids", json!([42])),
+        ("active_item_ids", json!(["a".repeat(129)])),
+        ("active_item_ids", json!(vec!["a"; 65])),
+        ("evidence", Value::Null),
+        ("evidence", json!([42])),
+        ("evidence", json!(["a".repeat(129)])),
+        ("evidence", json!(vec!["a"; 33])),
+    ] {
+        let mut row = valid.clone();
+        row[field] = value;
+        fs::write(
+            runtime.join("session.json"),
+            serde_json::to_vec(&json!({"semantic_attribution":{&key:row}}))?,
+        )?;
+        assert!(
+            affinity(&workspace, &identity, NOW).claims.is_empty(),
+            "{field}"
+        );
+    }
+    fs::write(
+        runtime.join("session.json"),
+        serde_json::to_vec(&json!({"semantic_attribution":{&key:valid}}))?,
+    )?;
+    assert_eq!(
+        affinity(&workspace, &identity, NOW).claims.get("sample-a"),
+        Some(&1.0)
+    );
+    let events = [
+        json!({"kind":"serve","schema_version":1,"serve_id":"legacy","author":"fixture","at":NOW}),
+        json!({"kind":"serve","schema_version":2,"serve_id":"","author":"fixture","at":NOW}),
+        json!({"kind":"delivery","schema_version":1,"serve_id":"legacy","author":"fixture","at":NOW}),
+        json!({"kind":"serve","schema_version":2,"serve_id":"delivery","author":"fixture","at":NOW,"rows":[{"id":"not-confirmed"},{"id":"untouched"},{"id":"late"},{"id":"before"},{"id":"confirmed"}]}),
+        json!({"kind":"delivery","schema_version":2,"serve_id":"delivery","author":"fixture","at":NOW,"delivered_item_ids":["untouched","late","before","confirmed"]}),
+        json!({"kind":"touch","author":"fixture","item_id":"late","at":"2026-08-24T10:00:00.000Z"}),
+        json!({"kind":"touch","author":"fixture","item_id":"before","at":"2026-08-21T10:00:00.000Z"}),
+        json!({"kind":"touch","author":"fixture","item_id":"confirmed","at":"invalid"}),
+        json!({"kind":"touch","author":"fixture","item_id":"confirmed","at":NOW}),
+        json!({"kind":"touch","author":"other","item_id":"untouched","at":NOW}),
+        json!({"kind":"touch","author":"fixture","item_id":"old","at":"2026-01-01T00:00:00.000Z"}),
+    ];
+    let mut ledger = String::from("not JSON\n");
+    for event in events {
+        use std::fmt::Write;
+        writeln!(ledger, "{event}")?;
+    }
+    fs::write(runtime.join("context-usage.jsonl"), ledger)?;
+    let evidence = affinity(&workspace, &identity, NOW);
+    assert_eq!(evidence.usage.len(), 1, "{:?}", evidence.usage);
+    assert_eq!(evidence.usage.get("confirmed"), Some(&1.0));
+    Ok(())
+}
+
+/// Stale cache cursors refuse while complete current snapshots remain read-only inputs.
+#[test]
+fn context_snapshot_cursor_boundary() -> Result<(), Box<dyn std::error::Error>> {
+    let (_root, workspace, _) = workspace()?;
+    let runtime = workspace.pm_root().join("runtime");
+    fs::create_dir_all(&runtime)?;
+    let snapshot = json!({"format_version":3,"signal_set_version":2,"source":"derived_index","source_cursor":"one","items":[]});
+    fs::write(
+        runtime.join("context-signals-context.json"),
+        serde_json::to_vec(&snapshot)?,
+    )?;
+    assert!(context_state_boundary(&workspace, &[]).is_ok());
+    for cursor in ["one", "two"] {
+        fs::write(
+            runtime.join("metadata-cache-manifest.json"),
+            serde_json::to_vec(&json!({"source_cursor":cursor}))?,
+        )?;
+        assert_eq!(
+            context_state_boundary(&workspace, &[]).is_ok(),
+            cursor == "one"
+        );
+    }
+    Ok(())
+}
+
+/// Agenda ties preserve distinct reminder text and all-day focus references.
+#[test]
+fn agenda_same_instant_and_all_day() -> Result<(), Box<dyn std::error::Error>> {
+    let (_root, _workspace, lifecycle) = workspace()?;
+    let mut row = item("sample-one", "open");
+    row["deadline"] = json!(NOW);
+    row["reminders"] = json!([{"at":NOW,"text":"Zulu"},{"at":NOW,"text":"Alpha"},{"at":"2026-08-20T10:00:00.000Z","text":"Past"}]);
+    row["events"] =
+        json!([{"start_at":NOW,"all_day":true},{"start_at":NOW,"title":"Zulu","all_day":true}]);
+    for focus in [BTreeSet::new(), BTreeSet::from(["sample-one".to_owned()])] {
+        let (counts, rows) = agenda(&[row.clone()], &focus, NOW, 20, &lifecycle);
+        assert_eq!(counts["events"], 5);
+        assert_eq!(rows.last().ok_or("last reminder")?["reminder_text"], "Zulu");
+        assert!(
+            rows.iter()
+                .filter(|row| row["kind"] == "event")
+                .all(|row| row["date"] == "2026-08-22")
+        );
+    }
+    Ok(())
+}
+
+/// Release recency falls back on invalid dates and maintenance cannot hide a substantive event.
+#[test]
+fn invalid_release_and_empty_activity() -> Result<(), Box<dyn std::error::Error>> {
+    let (_root, workspace, _) = workspace()?;
+    let mut row = item("sample-one", "open");
+    row["release"] = json!("2026.99.99");
+    assert_eq!(recency(&workspace, &row)?, NOW);
+    fs::write(
+        workspace.pm_root().join("history/sample-one.jsonl"),
+        format!(
+            "{}\n{}\n",
+            json!({"op":"history_salvage","ts":NOW}),
+            json!({"op":"create","event_class":"substantive","ts":""})
+        ),
+    )?;
+    assert_eq!(recency(&workspace, &row)?, NOW);
+    Ok(())
+}
+
+/// Custom blocked roles and bounded static extension diagnostics remain visible in brief output.
+#[test]
+fn configured_roles_and_extension_cap() -> Result<(), Box<dyn std::error::Error>> {
+    let (_root, workspace, _) = workspace()?;
+    fs::write(
+        workspace.pm_root().join("settings.json"),
+        r#"{"schema":{"statuses":[{"id":"waiting","roles":["blocked"]}]}}"#,
+    )?;
+    let lifecycle = Lifecycle::load(workspace.pm_root())?;
+    assert_eq!(status_rank(&item("sample-one", "waiting"), &lifecycle), 5);
+    for i in 0..21 {
+        let path = workspace.pm_root().join(format!("extensions/fixture-{i}"));
+        fs::create_dir_all(&path)?;
+        if i % 3 == 0 {
+            fs::write(
+                path.join("manifest.json"),
+                r#"{"name":"fixture","version":42,"entry":"absent"}"#,
+            )?;
+        }
+        if i % 3 == 1 {
+            fs::write(
+                path.join("manifest.json"),
+                r#"{"name":"fixture","version":"1","entry":42}"#,
+            )?;
+        }
+    }
+    let health = extension_health(&workspace).ok_or("extensions")?;
+    assert_eq!(health["truncated"], true);
+    assert_eq!(health["packages"].as_array().map(Vec::len), Some(20));
+    assert!(
+        workspace
+            .context(&ContextOptions::default(), NOW)?
+            .get("extension_health")
+            .is_some()
+    );
+    Ok(())
+}
+
+/// Large workspaces refuse the deferred memory projection without creating derived state.
+#[test]
+fn context_large_workspace_boundary() -> Result<(), Box<dyn std::error::Error>> {
+    let (_root, workspace, _) = workspace()?;
+    for i in 0..10_000 {
+        let row = item(&format!("sample-{i}"), "closed");
+        fs::write(
+            workspace.pm_root().join(format!("tasks/sample-{i}.toon")),
+            toon_format::encode_default(&row)?,
+        )?;
+    }
+    assert!(
+        workspace
+            .context(
+                &ContextOptions {
+                    no_extension_health: true,
+                    ..Default::default()
+                },
+                NOW
+            )
+            .is_err()
+    );
+    assert!(!workspace.pm_root().join("runtime").exists());
+    Ok(())
+}
+
+/// Tags with different parent values remain local, and an agenda-only workspace needs no empty-state suggestion.
+#[test]
+fn distinct_tags_and_agenda_only() -> Result<(), Box<dyn std::error::Error>> {
+    let (_root, workspace, _) = workspace()?;
+    let mut parent = item("sample-parent", "open");
+    parent["type"] = json!("Feature");
+    parent["tags"] = json!(["parent"]);
+    let mut child = item("sample-child", "open");
+    child["parent"] = json!("sample-parent");
+    child["tags"] = json!(["child"]);
+    for row in [&parent, &child] {
+        fs::write(
+            workspace
+                .pm_root()
+                .join(format!("tasks/{}.toon", text(row, "id"))),
+            toon_format::encode_default(row)?,
+        )?;
+    }
+    let result = workspace.context(
+        &ContextOptions {
+            no_extension_health: true,
+            ..Default::default()
+        },
+        NOW,
+    )?;
+    assert_eq!(result["low_level"][0]["tags"], json!(["child"]));
+    fs::remove_file(workspace.pm_root().join("tasks/sample-parent.toon"))?;
+    child["status"] = json!("draft");
+    child["deadline"] = json!("2026-08-23T10:00:00.000Z");
+    fs::write(
+        workspace.pm_root().join("tasks/sample-child.toon"),
+        toon_format::encode_default(&child)?,
+    )?;
+    let result = workspace.context(
+        &ContextOptions {
+            no_extension_health: true,
+            ..Default::default()
+        },
+        NOW,
+    )?;
+    assert_eq!(result["agenda"]["summary"]["events"], 1);
+    assert!(result.get("suggestions").is_none());
+    child["events"] = json!([{"start_at":NOW,"timezone":"Europe/Paris"}]);
+    fs::write(
+        workspace.pm_root().join("tasks/sample-child.toon"),
+        toon_format::encode_default(&child)?,
+    )?;
+    assert!(workspace.context(&ContextOptions::default(), NOW).is_err());
+    Ok(())
+}

@@ -14,6 +14,38 @@ mod published_cli;
 use mutation_differential::write_driver;
 type TestResult = Result<(), Box<dyn std::error::Error>>;
 const CLOCK: &str = "2026-08-22T10:00:00.000Z";
+/// Disabled feedback is a real process setting and leaves the tracker unchanged.
+#[test]
+fn context_usage_disabled_is_read_only() -> TestResult {
+    let root = tempfile::tempdir()?;
+    fixture(root.path(), &[item("sample-a", "Task", "open", 1)])?;
+    fs::write(root.path().join(".agents/pm/settings.json"), "{}")?;
+    let before = fs::read(root.path().join(".agents/pm/tasks/sample-a.toon"))?;
+    let mut command = Command::new(env!("CARGO_BIN_EXE_pm-rust"));
+    mutation_differential::isolate_environment(&mut command);
+    let output = command
+        .current_dir(root.path())
+        .env("PM_CONTEXT_USAGE_DISABLED", "1")
+        .args([
+            "context",
+            "--no-extension-health",
+            "--json",
+            "--timestamp",
+            CLOCK,
+        ])
+        .output()?;
+    assert!(
+        output.status.success(),
+        "{}",
+        String::from_utf8_lossy(&output.stderr)
+    );
+    assert_eq!(
+        fs::read(root.path().join(".agents/pm/tasks/sample-a.toon"))?,
+        before
+    );
+    assert!(!root.path().join(".agents/pm/runtime").exists());
+    Ok(())
+}
 /// Pins both clocks so the oracle's 25 ms packing guard is independent of host scheduling.
 fn orientation_driver(
     root: &Path,
@@ -312,6 +344,25 @@ fn history_matches_oracle() -> TestResult {
         .lines()
         .map(serde_json::from_str)
         .collect::<Result<_, _>>()?;
+    let document = pm_rust::Workspace::discover(root.path())?.get("sample-a")?;
+    let comment = document
+        .metadata
+        .extra
+        .get("comments")
+        .ok_or("comment fixture")?[0]
+        .clone();
+    let hash = rows.last().ok_or("history fixture")?["after_hash"].clone();
+    let mut tested = rows.clone();
+    tested.push(seal_record(json!({"op":"update","author":"fixture","ts":CLOCK,"item_hash_version":3,"before_hash":hash,"after_hash":hash,"patch":[{"op":"test","path":"/metadata/comments/0","value":comment}]}))?);
+    fs::write(&path, json_lines(&tested))?;
+    let args = ["history", "sample-a", "--verify", "--strict-exit", "--json"];
+    let expected = oracle(&driver, root.path(), &args)?;
+    assert!(
+        expected.status.success(),
+        "{}",
+        String::from_utf8_lossy(&expected.stdout)
+    );
+    compare(&expected, &native(root.path(), &args)?, &args);
     rows[0]["author"] = json!("tampered");
     fs::write(
         path,
@@ -468,6 +519,34 @@ fn orientation_reads_preserve_storage_during_concurrent_writes() -> TestResult {
 fn unsupported_orientation_flags_refuse_explicitly() -> TestResult {
     let root = tempfile::tempdir()?;
     fixture(root.path(), &[])?;
+    for args in [
+        vec!["--json", "context"],
+        vec!["context", "-x"],
+        vec!["context", "extra"],
+    ] {
+        let result = native(root.path(), &args)?;
+        assert_eq!(result.status.code(), Some(2));
+    }
+    for command in ["context", "history", "deps"] {
+        let args = if command == "context" {
+            vec![command, "--unknown"]
+        } else {
+            vec![command, "sample-a", "--unknown"]
+        };
+        let result = native(root.path(), &args)?;
+        assert_eq!(result.status.code(), Some(2));
+        assert!(String::from_utf8_lossy(&result.stderr).contains("Unsupported native option"));
+        let args = if command == "context" {
+            vec!["--lean", command, "--json"]
+        } else {
+            vec!["--lean", command, "sample-a", "--json"]
+        };
+        let result = native(root.path(), &args)?;
+        assert_eq!(result.status.code(), Some(2));
+        let payload: Value = serde_json::from_slice(&result.stderr)?;
+        assert_eq!(payload["code"], "unsupported_native_option");
+        assert_eq!(payload["flag"], "--lean");
+    }
     // Parsing must fail before workspace discovery for every deferred option.
     for (command, flags) in [
         (

@@ -199,7 +199,7 @@ fn affinity(workspace: &Workspace, identity: &crate::AuthorIdentity, now: &str) 
         .filter(|event| {
             crate::list::timestamp_key(text(event, "at"))
                 .0
-                .is_some_and(|time| time >= now - 30 * 86_400_000_000_000)
+                .is_some_and(|time| time >= now - 30 * 86_400_000)
         })
         .collect();
     let events: Vec<_> = retained
@@ -242,28 +242,21 @@ fn affinity(workspace: &Workspace, identity: &crate::AuthorIdentity, now: &str) 
                 .find_map(|event| {
                     crate::list::timestamp_key(text(event, "at"))
                         .0
-                        .filter(|time| *time >= served && *time - served <= 86_400_000_000_000)
+                        .filter(|time| *time >= served && *time - served <= 86_400_000)
                 });
             if let Some(touch) = touch {
                 #[allow(clippy::cast_precision_loss)]
-                let age = ((now - touch) as f64 / 86_400_000_000_000.0).max(0.0);
+                let age = ((now - touch) as f64 / 86_400_000.0).max(0.0);
                 *scores.entry(text(row, "id").to_owned()).or_default() += (-age / 14.0).exp();
             }
         }
     }
     let maximum = scores.values().copied().fold(0.0, f64::max);
+    // Every retained touch has finite age within thirty days, so a nonempty
+    // score map has a strictly positive exponential maximum.
     result.usage = scores
         .into_iter()
-        .map(|(id, score)| {
-            (
-                id,
-                if maximum == 0.0 {
-                    0.05
-                } else {
-                    0.05 + 0.95 * score / maximum
-                },
-            )
-        })
+        .map(|(id, score)| (id, 0.05 + 0.95 * score / maximum))
         .collect();
     result
 }
@@ -331,7 +324,7 @@ fn ranked(
         let now = crate::list::timestamp_key(now).0;
         #[allow(clippy::cast_precision_loss)]
         let pressure = deadline.zip(now).map_or(0.0, |(deadline, now)| {
-            let days = (deadline - now) as f64 / 86_400_000_000_000.0;
+            let days = (deadline - now) as f64 / 86_400_000.0;
             if days <= 0.0 {
                 1.0
             } else {
@@ -967,20 +960,27 @@ impl Workspace {
             })
             .transpose()?
             .unwrap_or_else(|| limit.saturating_mul(160).max(256));
-        let documents = self.read_items()?;
+        let mut documents = self.read_items()?;
         let lifecycle = Lifecycle::load(self.pm_root())?;
         let blocked = crate::selection::dependency_blocked_ids(&documents, &lifecycle);
-        let corpus = self.list_unbounded_full(
-            &crate::ItemFilter {
-                status: Some("all".to_owned()),
-                ..Default::default()
-            },
-            false,
-            now,
-        )?["items"]
-            .as_array()
-            .cloned()
-            .unwrap_or_default();
+        // Keep the list's default source order while projecting this one captured corpus.
+        documents.sort_by_cached_key(|document| {
+            let metadata = &document.metadata;
+            (
+                lifecycle.terminal(&metadata.status),
+                metadata.priority,
+                std::cmp::Reverse(crate::list::timestamp_key(&metadata.updated_at)),
+                metadata.id.clone(),
+            )
+        });
+        let corpus: Vec<_> = documents
+            .into_iter()
+            .map(|document| {
+                let mut value = serde_json::to_value(document.metadata).unwrap_or_default();
+                crate::json_output::normalize_read_numbers(&mut value);
+                value
+            })
+            .collect();
         if corpus.len() >= 10000 {
             return Err(crate::collections::refusal(
                 "Native brief context does not yet support workspace-memory rollups at 10000 items; use the published pm CLI.",
