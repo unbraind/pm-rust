@@ -14,6 +14,88 @@ mod published_cli;
 use mutation_differential::write_driver;
 type TestResult = Result<(), Box<dyn std::error::Error>>;
 const CLOCK: &str = "2026-08-22T10:00:00.000Z";
+/// A sealed record cannot traverse constructor/prototype during document replay.
+#[test]
+fn history_reserved_patch_paths_match_oracle() -> TestResult {
+    let Some(published) =
+        published_cli::published_cli_or_skip("orientation reserved history paths")
+    else {
+        return Ok(());
+    };
+    let scratch = tempfile::tempdir()?;
+    let driver = orientation_driver(scratch.path(), &published)?;
+    let root = tempfile::tempdir()?;
+    for args in [
+        vec!["init", "sample-", "--defaults"],
+        vec![
+            "create",
+            "--id",
+            "sample-a",
+            "--title",
+            "History fixture",
+            "--type",
+            "Task",
+            "--author",
+            "fixture",
+            "--create-mode",
+            "progressive",
+        ],
+    ] {
+        assert!(oracle(&driver, root.path(), &args)?.status.success());
+    }
+    let path = root.path().join(".agents/pm/history/sample-a.jsonl");
+    let mut rows: Vec<Value> = fs::read_to_string(&path)?
+        .lines()
+        .map(serde_json::from_str)
+        .collect::<Result<_, _>>()?;
+    let hash = rows.last().ok_or("genesis")?["after_hash"].clone();
+    rows.push(seal_record(json!({"op":"update","author":"fixture","ts":CLOCK,"item_hash_version":3,"before_hash":hash,"after_hash":hash,"patch":[{"op":"add","path":"/metadata/constructor","value":{}},{"op":"add","path":"/metadata/constructor/prototype","value":1}]}))?);
+    fs::write(path, json_lines(&rows))?;
+    let args = ["history", "sample-a", "--verify", "--strict-exit", "--json"];
+    let expected = oracle(&driver, root.path(), &args)?;
+    assert_eq!(expected.status.code(), Some(1));
+    assert_eq!(
+        serde_json::from_slice::<Value>(&expected.stdout)?["verification"]["errors"][0],
+        "verify_failed:patch_apply_failed:entry_2"
+    );
+    compare(&expected, &native(root.path(), &args)?, &args);
+    Ok(())
+}
+/// Numeric spellings preserve producer parsing and the complete-response budget contract.
+#[test]
+fn context_numeric_control_domains() -> TestResult {
+    let Some(published) = published_cli::published_cli_or_skip("orientation numeric controls")
+    else {
+        return Ok(());
+    };
+    let scratch = tempfile::tempdir()?;
+    let driver = orientation_driver(scratch.path(), &published)?;
+    let root = tempfile::tempdir()?;
+    assert!(
+        oracle(&driver, root.path(), &["init", "sample-", "--defaults"])?
+            .status
+            .success()
+    );
+    fixture(root.path(), &[item("sample-a", "Task", "open", 1)])?;
+    for args in [
+        vec!["context", "--limit", "4", "--token-budget", "1e3", "--json"],
+        vec![
+            "context",
+            "--limit",
+            "0x3",
+            "--token_budget",
+            "0x100",
+            "--json",
+        ],
+    ] {
+        compare(
+            &oracle(&driver, root.path(), &args)?,
+            &native(root.path(), &args)?,
+            &args,
+        );
+    }
+    Ok(())
+}
 /// Minimal static extension discovery matches the oracle; richer policy refuses explicitly.
 #[test]
 fn context_static_extension_contract() -> TestResult {

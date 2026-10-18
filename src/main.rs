@@ -557,9 +557,6 @@ fn run(cli: Cli) -> Result<(), Box<dyn std::error::Error>> {
                 &now,
             )?;
             write_search_to(&mut std::io::stdout().lock(), &result, json)?;
-            if result.get("output_budget_exceeded").is_some() {
-                return Err(Box::new(pm_rust::PmRustError::OutputBudgetExceeded));
-            }
         }
         Command::History {
             id,

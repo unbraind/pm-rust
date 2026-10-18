@@ -65,6 +65,9 @@ without the strict flag, a failed verification is a successful read containing
 `verification.ok: false`. Tests cover changed immutable authors, broken hashes,
 malformed patches, empty streams and current-state drift. History is never
 repaired, re-anchored, truncated or rewritten by these commands.
+Replay applies the oracle's prototype-path prohibition to both destinations and
+copy/move sources, including `constructor/prototype`. A sealed-record regression
+failed against the preceding verifier and passes with the matching guard.
 
 Supported controls: `--limit`, `--compact`, `--full`, `--verify`,
 `--strict-exit` / `--fail-on-warn`, and `--json`.
@@ -123,6 +126,12 @@ complete stdout, stderr and exit status. Private unit acceptance exercises
 storage failures and the integrity, selection and traversal boundaries.
 Extension discovery has a real oracle fixture for the minimal manifest and
 explicit refusal/omission coverage for richer manifests.
+
+The complete 2,991-item public tracker copy also passed a clock-pinned context
+comparison: 11,839 JSON bytes and 7,219 default TOON bytes matched exactly,
+with empty stderr and successful exits. Both clocks use the same fixture
+convention described above; an isolated synthetic author prevents inherited
+agent feedback from changing the comparison. No tracker rows are filtered.
 
 The concurrency fixture starts three independent reader threads, each issuing
 four history/dependency reads, alongside four native updates to an unrelated

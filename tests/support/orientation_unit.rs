@@ -618,3 +618,71 @@ fn legacy_optional_row_shapes() {
         Some("rewrite_evidence_record_hash_mismatch")
     );
 }
+
+/// Reserved prototype traversal is refused for writes, tests and copy/move sources.
+#[test]
+fn history_prototype_paths() {
+    for path in [
+        "/metadata/__proto__/value",
+        "/metadata/constructor/prototype/value",
+    ] {
+        assert!(protected_history_pointer(path));
+        for op in ["add", "copy", "move"] {
+            let mut document = json!({"metadata":{"__proto__":{"value":1},"constructor":{"prototype":{"value":1}},"ordinary":1},"body":""});
+            let patch = if op == "add" {
+                json!({"op":op,"path":path,"value":2})
+            } else {
+                json!({"op":op,"from":path,"path":"/metadata/copied"})
+            };
+            assert!(apply_patch(&mut document, &json!([patch])).is_none());
+        }
+    }
+    for path in ["", "/metadata/prototype", "/metadata/constructor/ordinary"] {
+        assert!(!protected_history_pointer(path));
+    }
+}
+
+/// The public history reader verifies the full stream while limiting only rendered rows.
+#[test]
+fn history_api_verified_projection() -> Result<(), Box<dyn std::error::Error>> {
+    let (_root, workspace) = workspace()?;
+    let entry = genesis();
+    let item_path = workspace.pm_root().join("tasks/sample-one.toon");
+    let history_path = workspace.pm_root().join("history/sample-one.jsonl");
+    fs::write(
+        &item_path,
+        toon_format::encode_default(&entry["patch"][0]["value"])?,
+    )?;
+    fs::write(&history_path, format!("{entry}\n"))?;
+    let before = (fs::read(&item_path)?, fs::read(&history_path)?);
+    for limit in ["0", "1"] {
+        let output = workspace.history(
+            "sample-one",
+            &HistoryOptions {
+                limit: Some(limit.to_owned()),
+                verify: true,
+                ..Default::default()
+            },
+        )?;
+        assert_eq!(output["verification"]["ok"], true);
+        assert_eq!(output["verification"]["entries"], 1);
+        assert_eq!(output["count"], limit.parse::<usize>()?);
+    }
+    assert!(
+        workspace
+            .history(
+                "sample-one",
+                &HistoryOptions {
+                    limit: Some("bad".to_owned()),
+                    ..Default::default()
+                }
+            )
+            .is_err()
+    );
+    let current: crate::ItemDocument = serde_json::from_value(entry["patch"][0]["value"].clone())?;
+    let mut broken = entry;
+    broken["after_hash"] = json!("wrong");
+    assert_eq!(verify_records(&[broken], Some(&current))["ok"], false);
+    assert_eq!((fs::read(item_path)?, fs::read(history_path)?), before);
+    Ok(())
+}

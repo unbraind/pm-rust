@@ -429,6 +429,15 @@ fn history_pointer(pointer: &str) -> String {
         .filter(|suffix| suffix.is_empty() || suffix.starts_with('/'))
         .map_or_else(|| pointer.to_owned(), |suffix| format!("/metadata{suffix}"))
 }
+/// Matches the pinned patch codec's prototype traversal ban, including read sources.
+fn protected_history_pointer(pointer: &str) -> bool {
+    let mut previous = "";
+    pointer.split('/').any(|part| {
+        let protected = part == "__proto__" || (part == "prototype" && previous == "constructor");
+        previous = part;
+        protected
+    })
+}
 /// Applies strict JSON-patch operations to an isolated replay value.
 fn apply_patch(document: &mut Value, changes: &Value) -> Option<()> {
     for change in changes.as_array().into_iter().flatten() {
@@ -436,8 +445,14 @@ fn apply_patch(document: &mut Value, changes: &Value) -> Option<()> {
             continue;
         };
         let pointer = history_pointer(pointer);
+        if protected_history_pointer(&pointer) {
+            return None;
+        }
         if matches!(op, "copy" | "move") {
             let from = history_pointer(change["from"].as_str()?);
+            if protected_history_pointer(&from) {
+                return None;
+            }
             let value = document.pointer(&from)?.clone();
             if op == "move" {
                 apply_patch(document, &json!([{"op":"remove","path":from}]))?;
@@ -459,9 +474,6 @@ fn apply_patch(document: &mut Value, changes: &Value) -> Option<()> {
                 _ => return None,
             }
             continue;
-        }
-        if pointer.split('/').any(|part| part == "__proto__") {
-            return None;
         }
         let (parent, key) = pointer.rsplit_once('/')?;
         let parent = document.pointer_mut(parent)?;

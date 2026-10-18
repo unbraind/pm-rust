@@ -197,6 +197,18 @@ fn dependency_value_refusals() -> Result<(), Box<dyn std::error::Error>> {
             assert_eq!(result["node_count"], 1);
         }
     }
+    let bounded = workspace.deps(
+        "a",
+        &DepsOptions {
+            token_budget: Some("200".to_owned()),
+            ..Default::default()
+        },
+    )?;
+    assert!(
+        bounded["truncation"]["reasons"]
+            .as_array()
+            .is_some_and(|reasons| reasons.contains(&json!("token_budget")))
+    );
     fs::write(pm.join("tasks/invalid.toon"), "invalid item")?;
     assert!(workspace.deps("a", &DepsOptions::default()).is_err());
     Ok(())

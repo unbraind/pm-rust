@@ -385,6 +385,11 @@ fn session_and_usage_affinity() -> Result<(), Box<dyn std::error::Error>> {
 /// Weekly recurrence preserves exclusions, past counts, UTC duration and published expansion caps.
 #[test]
 fn weekly_calendar_contract() {
+    assert_eq!(
+        event_dates(&json!({"start_at":NOW,"recurrence":{"freq":"weekly"}}), NOW).len(),
+        53
+    );
+    assert_eq!(recurrence_summary(&json!({"freq":"weekly"})), "freq=weekly");
     let mut event = json!({"start_at":"2026-08-19T10:00:00.000Z","end_at":"2026-08-19T10:30:00.000Z","recurrence":{"freq":"weekly","by_weekday":["fri","mon","wed"],"count":3}});
     assert_eq!(event_dates(&event, NOW), vec!["2026-08-24T10:00:00.000Z"]);
     event["recurrence"]["exdates"] = json!(["2026-08-24T12:00:00.000+02:00"]);
@@ -592,6 +597,7 @@ fn invalid_release_and_empty_activity() -> Result<(), Box<dyn std::error::Error>
 #[test]
 fn configured_roles_and_extension_cap() -> Result<(), Box<dyn std::error::Error>> {
     let (_root, workspace, _) = workspace()?;
+    assert!(extension_health(&workspace, &json!({}), None)?.is_none());
     fs::write(
         workspace.pm_root().join("settings.json"),
         r#"{"schema":{"statuses":[{"id":"waiting","roles":["blocked"]}]}}"#,
@@ -684,6 +690,19 @@ fn distinct_tags_and_agenda_only() -> Result<(), Box<dyn std::error::Error>> {
         NOW,
     )?;
     assert_eq!(result["low_level"][0]["tags"], json!(["child"]));
+    let limited = workspace.context(
+        &ContextOptions {
+            no_tags: true,
+            no_extension_health: true,
+            limit: Some("1".to_owned()),
+            depth: Some("brief".to_owned()),
+            token_budget: Some("1600".to_owned()),
+            ..Default::default()
+        },
+        NOW,
+    )?;
+    assert!(limited["low_level"][0].get("tags").is_none());
+    assert!(limited["next_cursor"].is_string());
     fs::remove_file(workspace.pm_root().join("tasks/sample-parent.toon"))?;
     child["status"] = json!("draft");
     child["deadline"] = json!("2026-08-23T10:00:00.000Z");
