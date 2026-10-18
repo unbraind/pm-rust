@@ -20,6 +20,59 @@ fn workspace() -> Result<(tempfile::TempDir, Workspace, Lifecycle), Box<dyn std:
 fn item(id: &str, status: &str) -> Value {
     json!({"id":id,"title":id,"description":"","type":"Task","status":status,"priority":2,"tags":[],"created_at":NOW,"updated_at":NOW})
 }
+
+/// The SDK context read retains custom progress classifications and non-active count boundaries.
+#[test]
+fn custom_progress_receipts_use_active_summary_counts() -> Result<(), Box<dyn std::error::Error>> {
+    let (_root, workspace, _) = workspace()?;
+    fs::write(
+        workspace.pm_root().join("settings.json"),
+        json!({"author_default":"fixture","schema":{
+            "statuses":[{"id":"working","roles":["blocked"]},{"id":"open","roles":["active"]}],
+            "workflow":{"in_progress_status":"working"}
+        }})
+        .to_string(),
+    )?;
+    fs::create_dir_all(workspace.pm_root().join("schema"))?;
+    fs::write(
+        workspace.pm_root().join("schema/workflows.json"),
+        json!({"workflow":{"in_progress_status":"working"}}).to_string(),
+    )?;
+    let row = item("sample-progress", "working");
+    let path = workspace.pm_root().join("tasks/sample-progress.toon");
+    fs::write(&path, toon_format::encode_default(&row)?)?;
+    let before = fs::read(&path)?;
+    let result = workspace.context(
+        &ContextOptions {
+            no_extension_health: true,
+            ..Default::default()
+        },
+        NOW,
+    )?;
+    assert_eq!(result["summary"]["open"], 0);
+    assert_eq!(result["summary"]["in_progress"], 0);
+    assert_eq!(result["summary"]["returned_focus"]["in_progress"], 1);
+    assert_eq!(
+        result["summary"]["focus_row_states"]["blocked_fallback"],
+        "I"
+    );
+    let settings_path = workspace.pm_root().join("settings.json");
+    let mut settings: Value = serde_json::from_slice(&fs::read(&settings_path)?)?;
+    settings["schema"]["statuses"][0]["roles"] = json!(["active"]);
+    fs::write(settings_path, settings.to_string())?;
+    let active = workspace.context(
+        &ContextOptions {
+            no_extension_health: true,
+            ..Default::default()
+        },
+        NOW,
+    )?;
+    assert_eq!(active["summary"]["in_progress"], 1);
+    assert_eq!(active["summary"]["returned_focus"]["in_progress"], 1);
+    assert_eq!(active["summary"]["focus_row_states"]["low_level"], "i");
+    assert_eq!(fs::read(path)?, before);
+    Ok(())
+}
 /// Structural ordering handles every lifecycle bucket and optional tiebreak.
 #[test]
 fn structural_and_signal_ordering() -> Result<(), Box<dyn std::error::Error>> {

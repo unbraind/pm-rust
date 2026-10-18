@@ -1162,7 +1162,8 @@ fn main() -> ExitCode {
             let mut args = published_read_arguments(std::env::args_os().skip(1));
             let orientation = args
                 .iter()
-                .position(|arg| matches!(arg.as_str(), "context" | "history" | "deps"));
+                .position(|arg| !arg.starts_with('-'))
+                .filter(|&index| matches!(args[index].as_str(), "context" | "history" | "deps"));
             if error.kind() == clap::error::ErrorKind::UnknownArgument
                 && let Some(index) = orientation
             {

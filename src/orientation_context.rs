@@ -1098,7 +1098,14 @@ impl Workspace {
                 .then_with(|| date_compare(text(b, "updated_at"), text(a, "updated_at")))
                 .then_with(|| crate::collation::compare(text(a, "id"), text(b, "id")))
         });
-        let env = std::env::vars().collect();
+        let env = std::env::vars_os()
+            .map(|(key, value)| {
+                (
+                    key.to_string_lossy().into_owned(),
+                    value.to_string_lossy().into_owned(),
+                )
+            })
+            .collect();
         let identity =
             crate::AuthorIdentity::resolve(None, settings["author_default"].as_str(), &env);
         context_state_boundary(self, &items)?;
@@ -1222,9 +1229,33 @@ impl Workspace {
             .count();
         let all_progress = items
             .iter()
+            .filter(|item| lifecycle.role(text(item, "status"), "active"))
             .filter(|item| lifecycle.matches(text(item, "status"), "in_progress"))
             .count();
         let mut result = json!({"output_default":"toon","now":now,"depth":"brief","sections_included":[],"window":{"anchor":now,"start":now,"end":null,"past":false,"from":null,"to":null},"filters":{"type":null,"tag":null,"priority":null,"assignee":null,"assignee_filter":null,"sprint":null,"release":null,"limit":options.limit,"parent":null,"token_budget":budget,"runtime_filters":{}},"summary":{"returned_focus":{"active_items":high.len()+low.len()+fallback.len(),"in_progress":in_progress,"open":high.len()+low.len()+fallback.len()-in_progress,"blocked":high.iter().chain(&low).chain(&fallback).filter(|row|row["blocked"]==true).count()},"blocked_fallback_used":active.is_empty(),"high_level":high.len(),"low_level":low.len(),"agenda_events":events.len(),"scope":"matching_items","active_items":all_active,"open":all_active-all_progress,"in_progress":all_progress,"blocked":blocked.len(),"total_items":corpus.len(),"closed":corpus.iter().filter(|item|lifecycle.canonical(text(item,"status"))==lifecycle.canonical("closed")).count(),"canceled":corpus.iter().filter(|item|lifecycle.canonical(text(item,"status"))==lifecycle.canonical("canceled")).count()},"high_level":high,"low_level":low,"blocked_fallback":fallback,"agenda":{"summary":agenda_summary,"events":events}});
+        let mut row_states = json!({});
+        let mut needs_states = false;
+        for name in ["high_level", "low_level", "blocked_fallback"] {
+            let states: String = result[name]
+                .as_array()
+                .into_iter()
+                .flatten()
+                .map(|row| {
+                    let progress = lifecycle.matches(text(row, "status"), "in_progress");
+                    needs_states |= progress != (row["status"] == "in_progress");
+                    match (progress, row["blocked"] == true) {
+                        (true, true) => 'I',
+                        (true, false) => 'i',
+                        (false, true) => 'O',
+                        (false, false) => 'o',
+                    }
+                })
+                .collect();
+            row_states[name] = json!(states);
+        }
+        if needs_states {
+            result["summary"]["focus_row_states"] = row_states;
+        }
         if bounded {
             result["applied_limit"] = json!(limit);
             if !page.is_empty() && page.len() < active.len() {

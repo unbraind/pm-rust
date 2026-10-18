@@ -73,16 +73,29 @@ fn index(workspace: &Workspace) -> Result<(Index, Value), PmRustError> {
             .and_then(Value::as_str)
             .unwrap_or_default()
             .trim();
-        if !corpus
-            .iter()
-            .any(|item| item.metadata.id.eq_ignore_ascii_case(blocked))
-            && !blocked.is_empty()
-            && !blocked.eq_ignore_ascii_case("no-active-blocker")
-            && !dependencies.iter().any(|dep| {
-                key(text(dep, "id")) == key(blocked) && text(dep, "kind") == "blocked_by"
-            })
-        {
-            dependencies.push(json!({"id":blocked,"kind":"blocked_by"}));
+        // The oracle appends dangling scalar references in target/kind order,
+        // including references held by terminal items but never existing parents.
+        let mut scalar_references = [
+            (
+                metadata.parent.as_deref().unwrap_or_default().trim(),
+                "parent",
+            ),
+            (blocked, "blocked_by"),
+        ];
+        scalar_references.sort_by(|a, b| {
+            crate::collation::compare(a.0, b.0).then_with(|| crate::collation::compare(a.1, b.1))
+        });
+        for (target, kind) in scalar_references {
+            if !(target.is_empty()
+                || corpus
+                    .iter()
+                    .any(|item| key(&item.metadata.id) == key(target))
+                || dependencies
+                    .iter()
+                    .any(|dep| key(text(dep, "id")) == key(target) && text(dep, "kind") == kind))
+            {
+                dependencies.push(json!({"id":target,"kind":kind}));
+            }
         }
         index.insert(key(&metadata.id),json!({"id":metadata.id,"title":metadata.title,"type":metadata.item_type,"status":metadata.status,"dependencies":dependencies}));
     }

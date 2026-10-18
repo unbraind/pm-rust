@@ -14,6 +14,43 @@ fn envelope(count: usize, width: usize) -> Value {
     json!({"items":(0..count).map(|i|json!({"id":format!("demo-{i:04}"),"title":"x".repeat(width)})).collect::<Vec<_>>(),"count":count,"total":count,"has_more":false,"truncated":false,"next_cursor":null})
 }
 
+/// Custom lifecycle classification survives row truncation and disappears when no longer needed.
+#[test]
+fn custom_focus_classification_survives_compaction() {
+    let mut result = json!({
+        "summary":{"focus_row_states":{"high_level":"iI","low_level":"oO","blocked_fallback":""}},
+        "high_level":[{"status":"working"},{"status":"working","blocked":true}],
+        "low_level":[{"status":"open"},{"status":"blocked","blocked":true}],
+        "blocked_fallback":[]
+    });
+    super::finalize_orientation(&mut result, &[], 1000, "legacy", &[], 2000, "context");
+    assert_eq!(
+        result["summary"]["returned_focus"],
+        json!({"active_items":4,"in_progress":2,"open":2,"blocked":2})
+    );
+    assert_eq!(result["summary"]["focus_row_states"]["high_level"], "iI");
+    result["high_level"] = json!([{"status":"working"}]);
+    super::finalize_orientation(&mut result, &[], 1000, "legacy", &[], 2000, "context");
+    assert_eq!(result["summary"]["focus_row_states"]["high_level"], "i");
+    assert_eq!(result["summary"]["returned_focus"]["in_progress"], 1);
+    result["high_level"] = json!([]);
+    super::finalize_orientation(&mut result, &[], 1000, "legacy", &[], 2000, "context");
+    assert!(result["summary"].get("focus_row_states").is_none());
+    assert_eq!(result["summary"]["returned_focus"]["in_progress"], 0);
+    result["high_level"] = json!([{"status":"in_progress","blocked":true}]);
+    super::finalize_orientation(&mut result, &[], 1000, "legacy", &[], 2000, "context");
+    assert_eq!(result["summary"]["returned_focus"]["in_progress"], 1);
+    let states = "I".repeat(300);
+    let mut payload =
+        json!({"summary":{"focus_row_states":{"low_level":states}},"title":"x".repeat(300)});
+    assert!(compact_strings(
+        &mut payload,
+        "",
+        &mut std::collections::BTreeMap::default()
+    ));
+    assert_eq!(payload["summary"]["focus_row_states"]["low_level"], states);
+}
+
 /// Complete orientation responses compact strings, declared rows and nested payloads with receipts.
 #[test]
 #[allow(clippy::too_many_lines)]

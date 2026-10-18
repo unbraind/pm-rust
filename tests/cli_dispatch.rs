@@ -76,6 +76,36 @@ fn pm_rust(
         .output()?)
 }
 
+/// Orientation words in other commands retain the selected command's Clap refusal.
+#[test]
+fn orientation_values_do_not_reclassify_unrelated_commands()
+-> Result<(), Box<dyn std::error::Error>> {
+    let workspace = workspace()?;
+    for (arguments, control) in [
+        (
+            vec!["search", "history", "--bogus"],
+            vec!["search", "fixture", "--bogus"],
+        ),
+        (
+            vec!["create", "--title", "deps", "--bogus"],
+            vec!["create", "--title", "fixture", "--bogus"],
+        ),
+        (
+            vec!["get", "context", "--bogus"],
+            vec!["get", "fixture", "--bogus"],
+        ),
+    ] {
+        let expected = pm_rust(&workspace, &control)?;
+        let actual = pm_rust(&workspace, &arguments)?;
+        assert_eq!(actual.status.code(), Some(2));
+        assert!(actual.stdout.is_empty());
+        assert_eq!(actual.stderr, expected.stderr, "{arguments:?}");
+        assert!(!String::from_utf8_lossy(&actual.stderr).contains("unsupported_native_option"));
+    }
+    assert!(!workspace.path().join(".agents/pm/locks").exists());
+    Ok(())
+}
+
 /// Runs the binary expecting success.
 fn expect_ok(workspace: &TempDir, arguments: &[&str]) -> Result<(), Box<dyn std::error::Error>> {
     let output = pm_rust(workspace, arguments)?;

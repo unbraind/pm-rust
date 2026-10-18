@@ -118,6 +118,53 @@ Deferred work is tracked in
 
 ## Evidence
 
+The PR review round adds regressions for unrelated command arguments named
+`context`, `history` or `deps`, non-Unicode Unix environment names and values,
+and configured progress statuses without the active role. Command detection
+uses the actual subcommand position; context resolves lossy OS strings without
+panicking. Matching-item progress counts are restricted to the active set,
+matching the oracle even when that set is smaller than the configured progress
+set. Custom progress identities retain the oracle's `focus_row_states` receipt
+when their classification cannot be inferred from the projected status, and
+that receipt follows delivered rows through output compaction.
+
+[Reviewer issue #93](https://github.com/unbraind/pm-rust/issues/93) adds ten
+dangling-parent controls: open and terminal holders, existing and missing
+parents, equivalent structured edges, missing blockers, absent references,
+trimmed/mixed-case identities and both scalar-reference orders. Each runs tree,
+graph and summary in JSON and TOON, with default bounds and depth zero: 120
+real native/oracle comparisons. Missing parents are appended in oracle order
+without duplicating an equivalent structured edge; existing scalar parents do
+not introduce traversal edges. Authoritative item and history bytes remain
+unchanged throughout.
+
+An additional twelve real-CLI comparisons retain the pinned dependency
+projection's `no-active-blocker` scalar as a missing `blocked_by` edge. This is
+the oracle's traversal behavior, even though actionability treats that sentinel
+as no active blocker. Tree, graph, summary, both encodings and depth zero agree;
+the previous native suppression fails the new regression. Direct SDK context
+acceptance separately verifies custom progress receipts and unchanged bytes.
+
+Each of the four finding-specific regression tests fails when only its fix is
+reverted. The additional custom-classification compaction test fails when only
+the previous finalizer is restored. All five controls produce behavioral test
+failures after rebuilding, and all fixed source bytes are restored exactly;
+commands and negative/positive receipts are recorded in the feature's PM
+comments. The original latency measurement remains the receipt for its recorded
+binary; this review round does not implement the separate read-performance
+follow-up.
+
+The clean review-round `just release-check` passes with 456 normal and 456
+instrumented tests across 20 suites each, with no failures or ignored tests.
+Its complete crate source scope reaches 11,732/11,732 lines, 19,212/19,212
+regions, 1,177/1,177 functions and 2,834/2,834 branches: 100% in all four
+dimensions at unchanged thresholds. Fmt, pedantic deny-warnings Clippy,
+private rustdoc, identity, audit and changelog checks pass. Audit retains the
+existing allowed unmaintained `unsafe-libyaml` advisory. The earlier diagnostic
+runs exposed missing acceptance paths; only the subsequent clean aggregate
+result is an acceptance receipt. Final-head platform CI and fresh-clone health
+receipts are recorded in the PR.
+
 `tests/orientation_differential.rs` executes both real CLIs against disposable
 trackers with a shared fixed clock and isolated agent environments. The oracle's
 monotonic test clock is also fixed: its 25 ms packing guard otherwise changes

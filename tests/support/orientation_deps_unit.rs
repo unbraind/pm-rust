@@ -226,7 +226,10 @@ fn dependency_alias_and_scalar_boundaries() -> Result<(), Box<dyn std::error::Er
         let row = json!({"id":"a","title":"A","type":"Task","status":"open","priority":1,"tags":[],"created_at":"2026-08-22T10:00:00.000Z","updated_at":"2026-08-22T10:00:00.000Z","blocked_by":blocked,"dependencies":[{"id":"missing","kind":"blocked_by"},{"id":"b","kind":"related_to"},{"id":"c","kind":"parent_child"},{"id":"d","kind":"epic"}]});
         fs::write(pm.join("tasks/a.toon"), toon_format::encode_default(&row)?)?;
         let (index, aliases) = index(&workspace)?;
-        assert_eq!(index["a"]["dependencies"].as_array().map(Vec::len), Some(4));
+        assert_eq!(
+            index["a"]["dependencies"].as_array().map(Vec::len),
+            Some(if blocked == "no-active-blocker" { 5 } else { 4 })
+        );
         assert_eq!(aliases, json!({"epic":1,"parent_child":1,"related_to":1}));
     }
     assert!(

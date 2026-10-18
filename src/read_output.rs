@@ -71,11 +71,13 @@ pub(crate) fn compact_strings(
                 compact_strings(row, &format!("{pointer}/{index}"), cuts) | changed
             }),
         Value::Object(map) => map.iter_mut().fold(false, |changed, (key, row)| {
-            compact_strings(
-                row,
-                &format!("{pointer}/{}", key.replace('~', "~0").replace('/', "~1")),
-                cuts,
-            ) | changed
+            (key != "focus_row_states"
+                && compact_strings(
+                    row,
+                    &format!("{pointer}/{}", key.replace('~', "~0").replace('/', "~1")),
+                    cuts,
+                ))
+                | changed
         }),
         _ => false,
     }
@@ -629,15 +631,46 @@ fn finalize_orientation(
     command: &str,
 ) {
     if command == "context" {
-        let rows: Vec<_> = ["high_level", "low_level", "blocked_fallback"]
-            .iter()
-            .flat_map(|key| result[key].as_array().into_iter().flatten())
-            .collect();
-        let progress = rows
-            .iter()
-            .filter(|row| row["status"] == "in_progress")
+        let mut states = json!({});
+        let mut needs_states = false;
+        let mut delivered = String::new();
+        for key in ["high_level", "low_level", "blocked_fallback"] {
+            let original = result["summary"]["focus_row_states"][key].as_str();
+            let codes: String = result[key]
+                .as_array()
+                .into_iter()
+                .flatten()
+                .enumerate()
+                .map(|(index, row)| {
+                    let default = match (row["status"] == "in_progress", row["blocked"] == true) {
+                        (true, true) => b'I',
+                        (true, false) => b'i',
+                        (false, true) => b'O',
+                        (false, false) => b'o',
+                    };
+                    let state = original
+                        .and_then(|codes| codes.as_bytes().get(index))
+                        .copied()
+                        .unwrap_or(default);
+                    needs_states |= state != default;
+                    char::from(state)
+                })
+                .collect();
+            delivered.push_str(&codes);
+            states[key] = json!(codes);
+        }
+        let progress = delivered
+            .bytes()
+            .filter(|code| code.eq_ignore_ascii_case(&b'i'))
             .count();
-        result["summary"]["returned_focus"] = json!({"active_items":rows.len(),"in_progress":progress,"open":rows.len()-progress,"blocked":rows.iter().filter(|row|row["blocked"]==true).count()});
+        result["summary"]["returned_focus"] = json!({"active_items":delivered.len(),"in_progress":progress,"open":delivered.len()-progress,"blocked":delivered.bytes().filter(u8::is_ascii_uppercase).count()});
+        if needs_states {
+            result["summary"]["focus_row_states"] = states;
+        } else {
+            result["summary"]
+                .as_object_mut()
+                .map(|summary| summary.shift_remove("focus_row_states"));
+        }
         result["summary"]["high_level"] =
             json!(result["high_level"].as_array().map_or(0, Vec::len));
         result["summary"]["low_level"] = json!(result["low_level"].as_array().map_or(0, Vec::len));

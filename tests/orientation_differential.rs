@@ -14,6 +14,247 @@ mod published_cli;
 use mutation_differential::write_driver;
 type TestResult = Result<(), Box<dyn std::error::Error>>;
 const CLOCK: &str = "2026-08-22T10:00:00.000Z";
+
+/// Dependency reads retain the pinned oracle's dangling no-active-blocker scalar receipt.
+#[test]
+fn deps_no_active_blocker_matches_oracle() -> TestResult {
+    let Some(published) = published_cli::published_cli_or_skip("dependency sentinel receipt")
+    else {
+        return Ok(());
+    };
+    let scratch = tempfile::tempdir()?;
+    let driver = orientation_driver(scratch.path(), &published)?;
+    let root = tempfile::tempdir()?;
+    assert!(
+        oracle(&driver, root.path(), &["init", "sample-", "--defaults"])?
+            .status
+            .success()
+    );
+    let mut row = item("sample-sentinel", "Task", "open", 1);
+    row["blocked_by"] = json!("no-active-blocker");
+    fixture(root.path(), &[row])?;
+    let before = fs::read(root.path().join(".agents/pm/tasks/sample-sentinel.toon"))?;
+    for projection in [vec![], vec!["--format", "graph"], vec!["--summary"]] {
+        for encoding in [vec![], vec!["--json"]] {
+            for bounds in [vec![], vec!["--max-depth", "0"]] {
+                let mut args = vec!["deps", "sample-sentinel"];
+                args.extend(&projection);
+                args.extend(&encoding);
+                args.extend(&bounds);
+                let expected = oracle(&driver, root.path(), &args)?;
+                assert!(expected.status.success());
+                compare(&expected, &native(root.path(), &args)?, &args);
+            }
+        }
+    }
+    assert_eq!(
+        fs::read(root.path().join(".agents/pm/tasks/sample-sentinel.toon"))?,
+        before
+    );
+    assert_eq!(
+        fs::read(root.path().join(".agents/pm/history/sample-sentinel.jsonl"))?,
+        b""
+    );
+    Ok(())
+}
+
+/// Non-Unicode host environment names and values cannot crash a context read.
+#[cfg(unix)]
+#[test]
+fn context_non_unicode_environment_matches_oracle() -> TestResult {
+    use std::ffi::OsString;
+    use std::os::unix::ffi::OsStringExt;
+    let Some(published) = published_cli::published_cli_or_skip("non-Unicode context") else {
+        return Ok(());
+    };
+    let scratch = tempfile::tempdir()?;
+    let driver = orientation_driver(scratch.path(), &published)?;
+    let root = tempfile::tempdir()?;
+    assert!(
+        oracle(&driver, root.path(), &["init", "sample-", "--defaults"])?
+            .status
+            .success()
+    );
+    fixture(root.path(), &[item("sample-a", "Task", "open", 1)])?;
+    for args in [
+        vec!["context", "--limit", "1"],
+        vec!["context", "--limit", "1", "--json"],
+    ] {
+        let mut command = Command::new(env!("CARGO_BIN_EXE_pm-rust"));
+        mutation_differential::isolate_environment(&mut command);
+        let actual = command
+            .current_dir(root.path())
+            .env("HOME", root.path().join("synthetic-home"))
+            .env("USERPROFILE", root.path().join("synthetic-home"))
+            .env(OsString::from_vec(b"ORIENTATION_\xff".to_vec()), "fixture")
+            .env("ORIENTATION_VALUE", OsString::from_vec(vec![0xfe]))
+            .args(&args)
+            .args(["--timestamp", CLOCK])
+            .output()?;
+        compare(&oracle(&driver, root.path(), &args)?, &actual, &args);
+    }
+    Ok(())
+}
+
+/// A configured progress status without the active role is excluded from active summaries.
+#[test]
+fn context_non_active_progress_matches_oracle() -> TestResult {
+    let Some(published) = published_cli::published_cli_or_skip("non-active progress context")
+    else {
+        return Ok(());
+    };
+    let scratch = tempfile::tempdir()?;
+    let driver = orientation_driver(scratch.path(), &published)?;
+    let root = tempfile::tempdir()?;
+    assert!(
+        oracle(&driver, root.path(), &["init", "sample-", "--defaults"])?
+            .status
+            .success()
+    );
+    let pm = root.path().join(".agents/pm");
+    let statuses = json!([
+        {"id":"open","roles":["active","default_open"]},
+        {"id":"reviewing","roles":["blocked"]},
+        {"id":"waiting","roles":["blocked"]},
+        {"id":"closed","roles":["terminal","terminal_done","default_close"]}
+    ]);
+    let workflow = json!({"open_status":"open","in_progress_status":"reviewing"});
+    let mut settings: Value = serde_json::from_slice(&fs::read(pm.join("settings.json"))?)?;
+    settings["schema"]["statuses"] = statuses.clone();
+    settings["schema"]["workflow"] = workflow.clone();
+    fs::write(pm.join("settings.json"), serde_json::to_vec(&settings)?)?;
+    fs::write(
+        pm.join("schema/statuses.json"),
+        json!({"statuses":statuses}).to_string(),
+    )?;
+    fs::write(
+        pm.join("schema/workflows.json"),
+        json!({"workflow":workflow}).to_string(),
+    )?;
+    for active_count in [0, 1, 3] {
+        let mut rows = vec![
+            item("sample-progress-a", "Task", "reviewing", 1),
+            item("sample-progress-b", "Task", "reviewing", 2),
+            item("sample-waiting", "Task", "waiting", 3),
+        ];
+        rows.extend(
+            (0..active_count).map(|i| item(&format!("sample-active-{i}"), "Task", "open", 3)),
+        );
+        fixture(root.path(), &rows)?;
+        // Refresh the oracle's derived snapshot after changing the fixture corpus.
+        assert!(oracle(&driver, root.path(), &["context"])?.status.success());
+        for args in [
+            vec!["context", "--json"],
+            vec!["context"],
+            vec!["context", "--token-budget", "800", "--json"],
+            vec!["context", "--token-budget", "400"],
+        ] {
+            let expected = oracle(&driver, root.path(), &args)?;
+            assert!(
+                args.contains(&"--token-budget") || expected.status.success(),
+                "{}",
+                String::from_utf8_lossy(&expected.stderr)
+            );
+            if args.contains(&"--json") && !args.contains(&"--token-budget") {
+                let result: Value = serde_json::from_slice(&expected.stdout)?;
+                assert_eq!(result["summary"]["open"], active_count);
+                assert_eq!(result["summary"]["in_progress"], 0);
+            }
+            compare(&expected, &native(root.path(), &args)?, &args);
+        }
+    }
+    Ok(())
+}
+
+/// Dangling scalar parents match every read projection without modifying authoritative bytes.
+#[test]
+fn deps_dangling_parents_match_oracle() -> TestResult {
+    let Some(published) = published_cli::published_cli_or_skip("dangling parent deps") else {
+        return Ok(());
+    };
+    let scratch = tempfile::tempdir()?;
+    let driver = orientation_driver(scratch.path(), &published)?;
+    for (status, parent, explicit, blocker) in [
+        ("open", "sample-deleted", false, ""),
+        ("closed", "sample-deleted", false, ""),
+        ("open", "sample-existing", false, ""),
+        ("open", "sample-deleted", true, ""),
+        ("open", "", false, "sample-blocker"),
+        ("open", "", false, ""),
+        ("open", "  SaMpLe-DeLeTeD  ", false, ""),
+        ("open", "  SAMPLE-EXISTING  ", false, ""),
+        ("open", "  SaMpLe-DeLeTeD  ", true, "sample-blocker"),
+        ("open", "sample-absent", false, "sample-z-blocker"),
+    ] {
+        let root = tempfile::tempdir()?;
+        assert!(
+            oracle(&driver, root.path(), &["init", "sample-", "--defaults"])?
+                .status
+                .success()
+        );
+        let mut child = item("sample-child", "Task", status, 1);
+        if !parent.is_empty() {
+            child["parent"] = json!(parent);
+        }
+        if !blocker.is_empty() {
+            child["blocked_by"] = json!(blocker);
+        }
+        if explicit {
+            child["dependencies"] =
+                json!([{"id":"sample-deleted","kind":"parent","created_at":CLOCK}]);
+        }
+        fixture(
+            root.path(),
+            &[child, item("sample-existing", "Feature", "open", 2)],
+        )?;
+        let paths = [
+            "tasks/sample-child.toon",
+            "tasks/sample-existing.toon",
+            "history/sample-child.jsonl",
+            "history/sample-existing.jsonl",
+        ];
+        let before: Vec<_> = paths
+            .iter()
+            .map(|p| fs::read(root.path().join(".agents/pm").join(p)))
+            .collect::<Result<_, _>>()?;
+        for projection in [vec![], vec!["--format", "graph"], vec!["--summary"]] {
+            for encoding in [vec![], vec!["--json"]] {
+                for bounds in [vec![], vec!["--max-depth", "0"]] {
+                    let mut args = vec!["deps", "sample-child"];
+                    args.extend(&projection);
+                    args.extend(&encoding);
+                    args.extend(&bounds);
+                    let expected = oracle(&driver, root.path(), &args)?;
+                    assert!(
+                        expected.status.success(),
+                        "{args:?}: {}",
+                        String::from_utf8_lossy(&expected.stderr)
+                    );
+                    if projection == ["--summary"] && encoding == ["--json"] {
+                        let value: Value = serde_json::from_slice(&expected.stdout)?;
+                        let missing_parent = !parent.trim().is_empty()
+                            && !parent.trim().eq_ignore_ascii_case("sample-existing");
+                        let edges = if bounds.is_empty() {
+                            usize::from(missing_parent) + usize::from(!blocker.is_empty())
+                        } else {
+                            0
+                        };
+                        assert_eq!(value["node_count"], 1 + edges);
+                        assert_eq!(value["edge_count"], edges);
+                        assert_eq!(value["missing_count"], edges);
+                    }
+                    compare(&expected, &native(root.path(), &args)?, &args);
+                }
+            }
+        }
+        let after: Vec<_> = paths
+            .iter()
+            .map(|p| fs::read(root.path().join(".agents/pm").join(p)))
+            .collect::<Result<_, _>>()?;
+        assert_eq!(after, before);
+    }
+    Ok(())
+}
 /// A sealed record cannot traverse constructor/prototype during document replay.
 #[test]
 fn history_reserved_patch_paths_match_oracle() -> TestResult {
