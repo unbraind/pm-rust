@@ -1,0 +1,124 @@
+{
+  "items": 2991,
+  "authoritative_files": 6005,
+  "copy_unchanged": true,
+  "source_access": "read-only snapshot and hashes; neither CLI received the original path",
+  "source_changed_since_capture": true,
+  "manifest_sha256": "cf767ec7939c3b5a5b0c177e35112043805ab27ab8bec5e95d0eef56e5438d52",
+  "baseline_head": "368697864187e347ed17c5a1e7dfc00284cf4e26",
+  "native_head": "1095e6a6428497248b4c15e3ed718c5903fa2e17",
+  "native_binary_sha256": "4f9ac7345f1303cc9967ce0856efdbce0665553956e7dad81a2596c650e54ed5",
+  "baseline_binary_sha256": "f8b27ebb3bdac61e311f95cf128ec362e2e09d53134f7309f50ac23dd30332c6",
+  "oracle_version": "2026.10.14",
+  "node": "v24.19.0",
+  "start_utc": "2026-10-18T19:11:53Z",
+  "end_utc": "2026-10-18T19:21:21Z",
+  "samples": 360,
+  "baseline_phase": "preceding 30-run baseline phase on the same immutable copy",
+  "comparison_phase": "native and oracle alternate runtime order each round; command order rotates; 30 rounds",
+  "processes": "cold",
+  "filesystem_cache": "warm",
+  "load_1_min_range": [
+    27.33984375,
+    40.40283203125
+  ],
+  "effective_nice": 15,
+  "open_counts": {
+    "before": {
+      "openat": 3009,
+      "item_files": 2991,
+      "history_files": 0
+    },
+    "native": {
+      "openat": 19,
+      "item_files": 1,
+      "history_files": 0
+    }
+  },
+  "summary": [
+    {
+      "command": "get",
+      "runtime": "before",
+      "runs": 30,
+      "p50_ms": 1779.2654765,
+      "p95_ms": 3062.555535
+    },
+    {
+      "command": "get",
+      "runtime": "native",
+      "runs": 30,
+      "p50_ms": 25.015071,
+      "p95_ms": 53.98499
+    },
+    {
+      "command": "get",
+      "runtime": "oracle",
+      "runs": 30,
+      "p50_ms": 1618.0667335,
+      "p95_ms": 3519.980249
+    },
+    {
+      "command": "list",
+      "runtime": "before",
+      "runs": 30,
+      "p50_ms": 1296.678723,
+      "p95_ms": 2573.534802
+    },
+    {
+      "command": "list",
+      "runtime": "native",
+      "runs": 30,
+      "p50_ms": 542.8586554999999,
+      "p95_ms": 874.39621
+    },
+    {
+      "command": "list",
+      "runtime": "oracle",
+      "runs": 30,
+      "p50_ms": 1832.7029674999999,
+      "p95_ms": 5633.152697
+    },
+    {
+      "command": "context",
+      "runtime": "before",
+      "runs": 30,
+      "p50_ms": 2217.2075455000004,
+      "p95_ms": 4137.163517
+    },
+    {
+      "command": "context",
+      "runtime": "native",
+      "runs": 30,
+      "p50_ms": 2098.187587,
+      "p95_ms": 2997.592332
+    },
+    {
+      "command": "context",
+      "runtime": "oracle",
+      "runs": 30,
+      "p50_ms": 4691.2544495,
+      "p95_ms": 12387.816186
+    },
+    {
+      "command": "search",
+      "runtime": "before",
+      "runs": 30,
+      "p50_ms": 2715.1540735,
+      "p95_ms": 9344.37084
+    },
+    {
+      "command": "search",
+      "runtime": "native",
+      "runs": 30,
+      "p50_ms": 2194.804302,
+      "p95_ms": 3532.215396
+    },
+    {
+      "command": "search",
+      "runtime": "oracle",
+      "runs": 30,
+      "p50_ms": 4218.183435499999,
+      "p95_ms": 6000.186758
+    }
+  ]
+}

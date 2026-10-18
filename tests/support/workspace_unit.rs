@@ -121,6 +121,10 @@ fn directory_snapshots_skip_removed_entries_symlinks_and_non_toon_files()
     let mut paths = Vec::new();
     super::collect_toon_entries(entries, &mut paths)?;
     paths.sort();
+    let mut listed = Vec::new();
+    super::collect_lookup_paths(directory.path(), None, &mut listed)?;
+    listed.sort();
+    assert_eq!(listed, paths);
     assert_eq!(paths, [child, retained]);
     Ok(())
 }
@@ -332,5 +336,81 @@ fn sdk_streamed_summary_selection_and_read_failures() -> Result<(), Box<dyn std:
         workspace.search("needle", &crate::SearchOptions::default()),
         Err(PmRustError::Io { .. })
     ));
+    Ok(())
+}
+
+/// A lost tracker is a real initializer refusal for every direct streaming boundary.
+#[test]
+fn streamed_initializers_refuse_a_deleted_tracker() -> Result<(), Box<dyn std::error::Error>> {
+    let directory = tempfile::tempdir()?;
+    let root = directory.path().join(".agents/pm");
+    std::fs::create_dir_all(&root)?;
+    std::fs::write(root.join("settings.json"), "{}")?;
+    let workspace = super::Workspace::discover(directory.path())?;
+    std::fs::remove_dir_all(root)?;
+    assert!(workspace.item_sources().is_err());
+    assert!(
+        workspace
+            .stream_items(crate::read_projection::Projection::Summary)
+            .is_err()
+    );
+    assert!(workspace.list(crate::ItemFilter::default()).is_err());
+    Ok(())
+}
+
+/// A nested enumeration failure reaches the SDK selectors after readable settings.
+#[test]
+fn streamed_queries_refuse_unlistable_nested_directory() -> Result<(), Box<dyn std::error::Error>> {
+    #[cfg(unix)]
+    use std::os::unix::fs::PermissionsExt;
+    #[cfg(windows)]
+    use std::os::windows::fs::OpenOptionsExt;
+    #[cfg(unix)]
+    if rustix::process::geteuid().is_root() {
+        return Ok(());
+    }
+    let directory = tempfile::tempdir()?;
+    let root = directory.path().join(".agents/pm");
+    let locked = root.join("tasks/nested/locked");
+    std::fs::create_dir_all(&locked)?;
+    std::fs::write(root.join("settings.json"), "{}")?;
+    let workspace = super::Workspace::discover(directory.path())?;
+    #[cfg(unix)]
+    std::fs::set_permissions(&locked, std::fs::Permissions::from_mode(0o000))?;
+    #[cfg(windows)]
+    let held = std::fs::OpenOptions::new()
+        .access_mode(1)
+        .share_mode(0)
+        .custom_flags(0x0200_0000)
+        .open(&locked)?;
+    let results = [
+        workspace.list(crate::ItemFilter::default()).map(|_| ()),
+        workspace
+            .list_page(
+                &crate::ItemFilter::default(),
+                &crate::ListOptions::default(),
+                "2026-08-22T10:00:00.000Z",
+            )
+            .map(|_| ()),
+        workspace
+            .context(
+                &crate::ContextOptions {
+                    no_extension_health: true,
+                    ..Default::default()
+                },
+                "2026-08-22T10:00:00.000Z",
+            )
+            .map(|_| ()),
+        workspace
+            .search("needle", &crate::SearchOptions::default())
+            .map(|_| ()),
+    ];
+    #[cfg(unix)]
+    std::fs::set_permissions(&locked, std::fs::Permissions::from_mode(0o700))?;
+    #[cfg(windows)]
+    drop(held);
+    for result in results {
+        assert!(matches!(result, Err(PmRustError::Io { path, .. }) if path == locked));
+    }
     Ok(())
 }

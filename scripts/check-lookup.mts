@@ -10,6 +10,7 @@ function sanitize(text: string): string {
   for (const root of roots) {
     for (const spelling of [root, root.replaceAll('\\', '/'), root.replaceAll('/', '\\')]) {
       result = result.replaceAll(spelling, '<local>');
+      result = result.replaceAll(JSON.stringify(spelling).slice(1, -1), '<local>');
     }
   }
   return result;
