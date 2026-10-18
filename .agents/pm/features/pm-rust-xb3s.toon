@@ -6,10 +6,10 @@ status: in_progress
 priority: 2
 tags[3]: conformance,orientation,rust
 created_at: "2026-10-18T03:01:55.242Z"
-updated_at: "2026-10-18T11:57:47.630Z"
+updated_at: "2026-10-18T12:25:15.346Z"
 author: codex-agent
 parent: pm-rust-u4al
-comments[33]{created_at,author,text}:
+comments[35]{created_at,author,text}:
   "2026-10-18T03:02:15.486Z",codex-agent,"Plan: implement native brief context focus selection and packing, append-only history reads, and dependency tree reads. Compare complete CLI bytes against the locked oracle on disposable trackers. Document unsupported flags explicitly, retain release disablement, and record revert controls, large public tracker latency and all local/platform gates. Pinned history reads do not verify by default; --verify returns a verification report rather than refusing on a broken record hash. Preserve this observable oracle behavior and document the distinction."
   "2026-10-18T03:15:21.835Z",codex-agent,"Implementation in progress: native brief relevance ordering and identity packing, compact/full history with strict integrity exit, and bounded dependency tree/graph reads. Initial local build succeeds. Added real-CLI fixed-clock differential fixtures; extending refusal and corruption cases before the aggregate gate. CLI orientation requires a complete initialized settings document; fixtures now use real pm init rather than a partial settings surrogate."
   "2026-10-18T03:39:06.493Z",codex-agent,"First real-CLI differential: history passed, including immutable-author tampering with --verify --strict-exit. Dependency truncation exposed an internal row-contract token estimate, now matched. Context exposed an oracle behavior: the 25 ms packing deadline can expire before the first selection when this shared host deschedules Node, returning zero focus rows and suggestions despite active candidates. The orientation fixture now pins the monotonic clock as well as Date to test deterministic bytes. Native packing completes deterministically; document this timing boundary and report it as an oracle UX gap rather than claiming scheduling equivalence."
@@ -43,7 +43,10 @@ comments[33]{created_at,author,text}:
   "2026-10-18T10:54:36.159Z",codex-agent,"The direct SDK context regression independently failed with exit 101 after reverting only the active-progress filter, then passed after exact source restoration. The final tracker test plan now links orientation differentials, real-process CLI dispatch and direct library acceptance. Seven negative test runs cover the four review findings, custom compaction, the pinned sentinel behavior and the direct SDK entrypoint. The second complete gate is running; its expected Linux normal count is 456 and orientation count is 16."
   "2026-10-18T11:22:04.523Z",codex-agent,"Second aggregate: all 456 normal and 456 instrumented tests passed; branches 2834/2834 and functions 1177/1177 reached 100%, but the unchanged gate retained one uncovered context line/region (11731/11732 lines, 19211/19212 regions). The remaining path is a focus-state match arm across the SDK/CLI builds. Acceptance now includes active custom progress through the direct SDK and a separate ordinary blocked row through the real CLI. Production source is unchanged by this final coverage correction. An incremental diagnostic precedes another clean complete gate; neither failed aggregate is reported as passing."
   "2026-10-18T11:57:46.827Z",codex-agent,"Final clean review acceptance: isolated just release-check passed 456 normal and 456 instrumented tests across 20 suites each, zero failed/ignored. Complete source coverage is lines 11732/11732, regions 19212/19212, functions 1177/1177 and branches 2834/2834, all 100% at unchanged thresholds. Fmt, pedantic Clippy, private rustdoc, identity, audit and changelog passed; audit retains one pre-existing allowed unsafe-libyaml unmaintained warning. The final serial pm test --run --progress --fail-on-skipped --fail-on-empty-test-run passed all three linked commands: orientation 16, CLI dispatch 12, library 235 (263 total). Automatic result recording remains disabled by project policy, so this comment records the receipt. All three review threads and issue #93 are addressed; read-performance work is untouched. Seven negative controls are recorded above. Claim will be released for orchestrator verification; no item is closed. Fresh-clone health and final-head CI will be verified and recorded in PR #92 after committing."
-files[17]{path,scope}:
+  "2026-10-18T12:22:10.383Z",codex-agent,"Exact-head CI on ad0169b passed all three normal OS jobs (Linux456, macOS452, Windows447), both security checks, and the Windows aggregate with 100% all four dimensions. Linux and macOS aggregate jobs were cancelled by their 20-minute timeout while instrumented tests were still progressing; Windows had a 30-minute budget. These cancellations are missing evidence, not approval. Reclaimed the item to correct only CI runtime capacity while preserving the complete test/coverage gates, then rerun final-head CI. Production Rust source and the completed latency receipt remain unchanged."
+  "2026-10-18T12:25:14.449Z",codex-agent,"CI capacity correction verified against GitHub job annotations: Linux job 117669461040 and macOS job 117669460775 in run 39125433531 both report exceeded maximum execution time of 20m0s; Windows aggregate completed with 100% lines11731/11731, regions19213/19213, functions1178/1178, branches2836/2836. Aggregate timeout is now 35 minutes for every OS, within the review wait window. Rust source, Rust tests, dependency pins, justfile gate commands, coverage thresholds and disabled release automation are byte-unchanged from certified ad0169b. The existing workflow-contract command passed 18/0 through pm test --run --only-last --progress with strict skipped/empty checks; the earlier three linked commands passed 263/0. Actual old-limit cancellations are the negative runtime evidence; final-head CI must supply positive evidence. No mirrored timeout assertion or skipped gate was introduced. Releasing the claim for the final rerun; no item is closed."
+files[19]{path,scope}:
+  .github/workflows/ci.yml,project
   src/error.rs,project
   src/lib.rs,project
   src/main.rs,project
@@ -54,6 +57,7 @@ files[17]{path,scope}:
   src/read_output.rs,project
   tests/cli_dispatch.rs,project
   tests/orientation_differential.rs,project
+  tests/release_pipeline_contract.rs,project
   tests/support/main_unit.rs,project
   tests/support/mutation_unit.rs,project
   tests/support/orientation_context_unit.rs,project
@@ -61,10 +65,11 @@ files[17]{path,scope}:
   tests/support/orientation_unit.rs,project
   tests/support/ownership_unit.rs,project
   tests/support/read_output_unit.rs,project
-tests[3]{command,path,scope,timeout_seconds,provenance{author,created_at,source_kind,source_ref},shared_host_safe,note}:
+tests[4]{command,path,scope,timeout_seconds,provenance{author,created_at,source_kind,source_ref},shared_host_safe,note}:
   cargo test --locked --test orientation_differential,tests/orientation_differential.rs,project,1800,codex-agent,"2026-10-18T04:14:11.408Z",local_mutation,feat/native-context-history-deps,true,Exact orientation CLI bytes and read-only concurrent storage acceptance
   cargo test --locked --test cli_dispatch,tests/cli_dispatch.rs,project,1800,codex-agent,"2026-10-18T10:54:29.183Z",local_mutation,feat/native-context-history-deps,true,Real-process parser and orientation dispatch review regressions
   cargo test --locked --lib,src/lib.rs,project,1800,codex-agent,"2026-10-18T10:54:29.183Z",local_mutation,feat/native-context-history-deps,true,Direct SDK context and classification compaction review acceptance
+  cargo test --locked --test release_pipeline_contract,tests/release_pipeline_contract.rs,project,1800,codex-agent,"2026-10-18T12:23:56.921Z",local_mutation,feat/native-context-history-deps,true,Parse and verify CI/release workflow contracts after runtime-budget correction
 docs[5]{path,scope}:
   docs/benchmarks/native-orientation-2026-10-18.csv,project
   docs/benchmarks/native-orientation-2026-10-18.json,project

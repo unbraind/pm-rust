@@ -165,6 +165,13 @@ runs exposed missing acceptance paths; only the subsequent clean aggregate
 result is an acceptance receipt. Final-head platform CI and fresh-clone health
 receipts are recorded in the PR.
 
+The initial review-head CI completed all normal OS jobs and the Windows
+aggregate, but Linux/macOS aggregates hit their former 20-minute job limit
+during the second full test pass. The aggregate budget is now 35 minutes on
+every runner. Test scope, coverage thresholds, failure behavior and disabled
+release automation are unchanged; the final-head rerun supplies the platform
+acceptance evidence.
+
 `tests/orientation_differential.rs` executes both real CLIs against disposable
 trackers with a shared fixed clock and isolated agent environments. The oracle's
 monotonic test clock is also fixed: its 25 ms packing guard otherwise changes

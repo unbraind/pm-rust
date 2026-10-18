@@ -78,8 +78,9 @@ jobs:
   release-check:
     name: ${{ matrix.gate }}
     runs-on: ${{ matrix.os }}
-    # Windows needs room for both full test passes plus audit and tracker health.
-    timeout-minutes: ${{ matrix.os == 'windows-latest' && 30 || 20 }}
+    # Every runner needs both complete oracle test passes, audit and tracker health.
+    # The orientation matrix exceeded the former Unix 20-minute budget.
+    timeout-minutes: 35
     strategy:
       fail-fast: false
       matrix:
