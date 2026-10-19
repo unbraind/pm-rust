@@ -14,6 +14,8 @@ pub(crate) enum Projection {
     Summary,
     /// Brief context ranking, agenda and collection sizes.
     Context,
+    /// Context sections additionally need file links, test definitions and run totals.
+    ContextSections,
 }
 
 /// Selects complete root fields, retaining indentation and the strict decoder.
@@ -41,8 +43,11 @@ pub(crate) fn decode(
     while let Some(line) = lines.next() {
         if !line.is_empty() && !line.starts_with([' ', '\t']) {
             let key = line.split([':', '[']).next().unwrap_or_default();
-            if projection == Projection::Context
-                && matches!(key, "comments" | "notes" | "learnings" | "test_runs")
+            if matches!(
+                projection,
+                Projection::Context | Projection::ContextSections
+            ) && matches!(key, "comments" | "notes" | "learnings" | "test_runs")
+                && !(projection == Projection::ContextSections && key == "test_runs")
                 && let Some(count) = collection_count(line)
             {
                 // Tabular canonical rows occupy exactly one indented line each.
@@ -74,7 +79,13 @@ pub(crate) fn decode(
                 | "updated_at" | "parent" | "deadline" => true,
                 "dependencies" | "blocked_by" => projection != Projection::Summary,
                 "order" | "assignee" | "risk" | "release" | "comments" | "notes" | "learnings"
-                | "test_runs" | "reminders" | "events" => projection == Projection::Context,
+                | "test_runs" | "reminders" | "events" => matches!(
+                    projection,
+                    Projection::Context | Projection::ContextSections
+                ),
+                "files" | "tests" | "blocked_reason" | "unblock_note" => {
+                    projection == Projection::ContextSections
+                }
                 _ => false,
             };
         }

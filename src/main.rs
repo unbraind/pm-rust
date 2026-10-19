@@ -32,9 +32,12 @@ enum Command {
         /// Focus packing token ceiling.
         #[arg(long, alias = "token_budget", allow_hyphen_values = true)]
         token_budget: Option<String>,
-        /// Brief depth is supported natively.
+        /// Orientation depth: brief, standard, deep or full.
         #[arg(long)]
         depth: Option<String>,
+        /// Continue after a ranked focus page.
+        #[arg(long, alias = "cursor")]
+        after: Option<String>,
         /// Omit tags from focus rows.
         #[arg(long)]
         no_tags: bool,
@@ -83,6 +86,15 @@ enum Command {
         /// Maximum traversal depth.
         #[arg(long, allow_hyphen_values = true)]
         max_depth: Option<String>,
+        /// Packet traversal direction: outgoing, incoming or both.
+        #[arg(long)]
+        direction: Option<String>,
+        /// Relationship kind filter; repeat or separate with commas.
+        #[arg(long)]
+        kind: Vec<String>,
+        /// Continue a relationship packet.
+        #[arg(long)]
+        cursor: Option<String>,
         /// Repeated-node collapse policy.
         #[arg(long)]
         collapse: Option<String>,
@@ -539,6 +551,7 @@ fn run(cli: Cli) -> Result<(), Box<dyn std::error::Error>> {
             limit,
             token_budget,
             depth,
+            after,
             no_tags,
             no_extension_health,
             json,
@@ -550,6 +563,7 @@ fn run(cli: Cli) -> Result<(), Box<dyn std::error::Error>> {
                     limit,
                     token_budget,
                     depth,
+                    after,
                     no_tags,
                     no_extension_health,
                     toon: !json,
@@ -598,6 +612,9 @@ fn run(cli: Cli) -> Result<(), Box<dyn std::error::Error>> {
             id,
             format,
             max_depth,
+            direction,
+            kind,
+            cursor,
             collapse,
             summary,
             full,
@@ -611,6 +628,9 @@ fn run(cli: Cli) -> Result<(), Box<dyn std::error::Error>> {
                 &pm_rust::DepsOptions {
                     format,
                     max_depth,
+                    direction,
+                    kind,
+                    cursor,
                     collapse,
                     summary,
                     full,
@@ -1176,6 +1196,8 @@ fn main() -> ExitCode {
                         "--token-budget",
                         "--token_budget",
                         "--depth",
+                        "--after",
+                        "--cursor",
                         "--no-tags",
                         "--no-extension-health",
                         "--json",
@@ -1192,6 +1214,9 @@ fn main() -> ExitCode {
                     _ => vec![
                         "--format",
                         "--max-depth",
+                        "--direction",
+                        "--kind",
+                        "--cursor",
                         "--collapse",
                         "--summary",
                         "--full",
@@ -1683,7 +1708,7 @@ fn cursor_error_json(code: &str, detail: &str, args: &[String]) -> serde_json::V
         ),
         (
             "refusal",
-            serde_json::json!({"surface":if args.first().is_some_and(|s|s=="search") {"search"} else {"list"},"exit_code":2}),
+            serde_json::json!({"surface":args.first().filter(|command| matches!(command.as_str(),"context"|"deps"|"search")).map_or("list",String::as_str),"exit_code":2}),
         ),
     ] {
         payload[key] = value;

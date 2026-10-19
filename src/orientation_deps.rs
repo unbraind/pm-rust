@@ -1,4 +1,5 @@
 //! Bounded dependency tree and graph reads.
+mod packet;
 use crate::orientation::{complete_receipt, invalid, numeric};
 use crate::{DepsOptions, ListOutput, PmRustError, Workspace};
 use serde_json::{Value, json};
@@ -274,8 +275,10 @@ fn graph(tree: &Value) -> Value {
 fn project(mut result: Value, summary: bool, aliases: &Value) -> Value {
     let group = if result["format"] == "tree" {
         "dependency_tree"
-    } else {
+    } else if result["format"] == "graph" {
         "dependency_graph"
+    } else {
+        "relationship_context"
     };
     result["legacy_alias_counts"] = aliases.clone();
     result["projection"] = json!({"mode":if summary{"summary"}else{"full"},"declared_field_groups":[{"name":group,"restore_with":"--full"}],"included_field_groups":if summary{vec![]}else{vec![group]}});
@@ -290,12 +293,18 @@ fn project(mut result: Value, summary: bool, aliases: &Value) -> Value {
 /// Measures the complete output including the internal row-contract declaration.
 fn tokens(result: &Value, toon: bool) -> usize {
     let mut measured = result.clone();
+    if result["format"] == "context" {
+        // The oracle settles packet cost before the caller attaches legacy alias counts.
+        measured["legacy_alias_counts"] = json!({});
+    }
     let omission = measured
         .as_object_mut()
         .and_then(|map| map.shift_remove("omission_receipt"))
         .unwrap_or_default();
     let keys = if result["format"] == "graph" {
         vec!["graph.nodes", "graph.edges"]
+    } else if result["format"] == "context" {
+        vec!["context.nodes", "context.edges"]
     } else {
         vec![]
     };
@@ -348,14 +357,7 @@ impl Workspace {
             .unwrap_or("tree")
             .trim()
             .to_lowercase();
-        if format == "context" {
-            return Err(crate::collections::refusal(
-                "Native deps does not support --format context; use the published pm CLI.",
-                2,
-                json!({"code":"unsupported_native_option","required":"Use the published pm CLI for options outside the documented native slice.","title":"Unsupported native option","flag":"--format","value":"context"}),
-            ));
-        }
-        if !["tree", "graph"].contains(&format.as_str()) {
+        if !["tree", "graph", "context"].contains(&format.as_str()) {
             return Err(invalid(format!(
                 "Invalid --format value \"{}\". Use \"tree\", \"graph\", or \"context\".",
                 options.format.as_deref().unwrap_or_default()
@@ -387,6 +389,9 @@ impl Workspace {
         }
         if options.summary && options.full {
             return Err(invalid("--summary cannot be combined with --full"));
+        }
+        if format == "context" {
+            return packet::read(self, id, options, depth);
         }
         let (index, aliases) = index(self)?;
         if !index.contains_key(&key(id)) {

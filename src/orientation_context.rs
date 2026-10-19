@@ -1,4 +1,5 @@
-//! Brief context ranking, focus packing and omission receipts.
+//! Context ranking, focus packing, optional sections and omission receipts.
+mod sections;
 use crate::list_registry::Lifecycle;
 use crate::orientation::{invalid, numeric, records};
 use crate::{ContextOptions, ListOutput, PmRustError, Workspace};
@@ -498,6 +499,15 @@ fn pack(candidates: &[(Value, f64)], budget: usize, required: &BTreeSet<String>)
 }
 /// Resolves unresolved forward and inverse blocker identities in stable lexical order.
 fn blockers(item: &Value, corpus: &[Value], lifecycle: &Lifecycle) -> Vec<String> {
+    blocker_ids(item, corpus, lifecycle, false)
+}
+/// Resolves blocker identities, optionally retaining resolved fallback evidence.
+fn blocker_ids(
+    item: &Value,
+    corpus: &[Value],
+    lifecycle: &Lifecycle,
+    include_resolved: bool,
+) -> Vec<String> {
     let mut ids = BTreeMap::new();
     let scalar = text(item, "blocked_by").trim();
     if !scalar.is_empty() && !scalar.eq_ignore_ascii_case("no-active-blocker") {
@@ -523,7 +533,9 @@ fn blockers(item: &Value, corpus: &[Value], lifecycle: &Lifecycle) -> Vec<String
             let target = corpus
                 .iter()
                 .find(|item| text(item, "id").trim().to_lowercase() == key);
-            if target.is_some_and(|item| lifecycle.terminal(text(item, "status"))) {
+            if !include_resolved
+                && target.is_some_and(|item| lifecycle.terminal(text(item, "status")))
+            {
                 None
             } else {
                 Some(target.map_or(id, |item| text(item, "id").to_owned()))
@@ -910,7 +922,43 @@ fn extension_health_global() -> Option<std::path::PathBuf> {
                 .map(|home| std::path::PathBuf::from(home).join(".pm-cli"))
         })
 }
-/// Reads the documented minimal static extension diagnostics without executing code.
+/// Certifies canonical calendar-version triples up to the locked oracle contract.
+fn compatible_minimum(value: &Value) -> bool {
+    let Some(value) = value.as_str() else {
+        return false;
+    };
+    let parts: Option<Vec<u64>> = value
+        .split('.')
+        .map(|part| {
+            part.parse()
+                .ok()
+                .filter(|number: &u64| number.to_string() == part)
+        })
+        .collect();
+    parts.is_some_and(|parts| parts.len() == 3 && parts.as_slice() <= [2026, 10, 14].as_slice())
+}
+
+/// Validates the supported static fields using the published manifest parser domains.
+fn static_manifest_valid(manifest: &Value) -> bool {
+    ["name", "version", "entry"].iter().all(|key| {
+        manifest[key]
+            .as_str()
+            .is_some_and(|value| !value.trim().is_empty())
+    }) && manifest
+        .get("priority")
+        .filter(|value| !value.is_null())
+        .is_none_or(|value| value.as_f64().is_some_and(|value| value.fract() == 0.0))
+        && manifest
+            .get("capabilities")
+            .filter(|value| !value.is_null())
+            .is_none_or(|value| {
+                value
+                    .as_array()
+                    .is_some_and(|values| values.iter().all(Value::is_string))
+            })
+}
+
+/// Reads bounded static extension diagnostics without executing code or certifying unknown version ranges.
 fn extension_health(
     workspace: &Workspace,
     settings: &Value,
@@ -939,30 +987,40 @@ fn extension_health(
                     .as_array()
                     .is_some_and(|values| !values.is_empty())
             }) || settings["extensions"].as_object().is_some_and(|fields| {
-                fields
-                    .keys()
-                    .any(|key| !matches!(key.as_str(), "enabled" | "disabled"))
+                fields.keys().any(|key| {
+                    !(matches!(key.as_str(), "enabled" | "disabled")
+                        || key == "policy"
+                            && fields[key]["mode"] == "off"
+                            && fields[key]["trust_mode"] == "off")
+                })
             });
             let rich = manifest.as_object().is_some_and(|fields| {
                 fields.keys().any(|key| {
                     !matches!(
                         key.as_str(),
-                        "name" | "version" | "entry" | "description" | "author"
+                        "name"
+                            | "version"
+                            | "entry"
+                            | "description"
+                            | "author"
+                            | "priority"
+                            | "pm_min_version"
+                            | "capabilities"
                     )
                 })
             });
-            if configured || rich {
+            let version_boundary = manifest
+                .get("pm_min_version")
+                .filter(|value| !value.is_null())
+                .is_some_and(|version| !compatible_minimum(version));
+            if configured || rich || version_boundary {
                 return Err(crate::collections::refusal(
                     "Native context cannot certify configured extension policy or nonminimal manifests; use --no-extension-health or the published pm CLI.",
                     2,
                     json!({"code":"unsupported_native_context"}),
                 ));
             }
-            let valid = ["name", "version", "entry"].iter().all(|key| {
-                manifest[key]
-                    .as_str()
-                    .is_some_and(|value| !value.trim().is_empty())
-            });
+            let valid = static_manifest_valid(&manifest);
             let name = if valid {
                 text(&manifest, "name").trim().to_owned()
             } else {
@@ -990,8 +1048,48 @@ fn extension_health(
     }
     Ok(Some(result))
 }
+/// Removes or folds identical tags across every emitted focus collection.
+fn project_tags(result: &mut Value, omit: bool) {
+    const GROUPS: [&str; 5] = [
+        "high_level",
+        "low_level",
+        "blocked_fallback",
+        "recently_created",
+        "unparented",
+    ];
+    let tags: BTreeMap<String, String> = GROUPS
+        .iter()
+        .flat_map(|name| result[name].as_array().into_iter().flatten())
+        .map(|row| {
+            let mut tags: Vec<_> = row["tags"]
+                .as_array()
+                .into_iter()
+                .flatten()
+                .filter_map(Value::as_str)
+                .collect();
+            tags.sort_unstable();
+            (text(row, "id").to_owned(), tags.join("\0"))
+        })
+        .collect();
+    for name in GROUPS {
+        for row in result
+            .get_mut(name)
+            .and_then(Value::as_array_mut)
+            .into_iter()
+            .flatten()
+        {
+            let parent = text(row, "parent").to_owned();
+            if omit {
+                row.as_object_mut().map(|row| row.shift_remove("tags"));
+            } else if !parent.is_empty() && tags.get(&parent) == tags.get(text(row, "id")) {
+                row.as_object_mut().map(|row| row.shift_remove("tags"));
+                row["tags_inherited"] = json!(parent);
+            }
+        }
+    }
+}
 impl Workspace {
-    /// Renders brief focus with ranked packing and the oracle's omission receipt.
+    /// Renders ranked focus, selected context sections and the oracle's omission receipt.
     ///
     /// # Errors
     /// Returns numeric, unsupported-depth, item or history read errors.
@@ -1024,13 +1122,6 @@ impl Workspace {
                 "Context --depth must be one of brief|standard|deep|full",
             ));
         }
-        if depth != "brief" {
-            return Err(crate::collections::refusal(
-                "Native context supports --depth brief; use the published pm CLI for other depths",
-                2,
-                json!({"code":"unsupported_native_option","required":"Use the published pm CLI for options outside the documented native slice.","title":"Unsupported native option","flag":"--depth","value":depth}),
-            ));
-        }
         let limit = options
             .limit
             .as_ref()
@@ -1043,7 +1134,12 @@ impl Workspace {
                 )
             })
             .transpose()?
-            .unwrap_or(10);
+            .unwrap_or(if depth == "full" {
+                9_007_199_254_740_991
+            } else {
+                10
+            });
+        let names = sections::selected(&depth, &settings);
         let budget = options
             .token_budget
             .as_ref()
@@ -1058,7 +1154,11 @@ impl Workspace {
             .transpose()?
             .unwrap_or_else(|| limit.saturating_mul(160).max(256));
         let mut documents = self
-            .stream_items(crate::read_projection::Projection::Context)?
+            .stream_items(if names.is_empty() {
+                crate::read_projection::Projection::Context
+            } else {
+                crate::read_projection::Projection::ContextSections
+            })?
             .collect::<Result<Vec<_>, _>>()?;
         let lifecycle = Lifecycle::load(self.pm_root())?;
         let blocked = crate::selection::dependency_blocked_ids(&documents, &lifecycle);
@@ -1149,9 +1249,46 @@ impl Workspace {
             .iter()
             .filter(|(item, _)| lifecycle.role(text(item, "status"), "active"))
             .collect();
-        let bounded = options.limit.is_some() || corpus.len() >= 10000;
+        let bounded = options.limit.is_some() || options.after.is_some() || corpus.len() >= 10000;
+        let mut semantic =
+            json!({"extensionHealth":!options.no_extension_health,"tags":!options.no_tags});
+        if let Some(depth) = &options.depth {
+            semantic["depth"] = json!(depth);
+        }
+        if let Some(budget) = &options.token_budget {
+            semantic["tokenBudget"] = json!(budget);
+        }
+        let contract = json!({"pmRoot":crate::pagination::query_root(&self.query_pm_root().to_string_lossy()),"options":semantic});
+        let hash = crate::history::sha256_digest(
+            format!("context\0{}", crate::pagination::stable(&contract)).as_bytes(),
+        );
+        let fingerprint = &hash[..24];
+        let start = if let Some(raw) = &options.after {
+            let cursor = crate::pagination::query(raw, fingerprint)?;
+            if let Some(index) = active
+                .iter()
+                .position(|(item, _)| item["id"] == cursor["after_id"])
+            {
+                index + 1
+            } else if let Some(index) = cursor["after_index"].as_u64() {
+                usize::try_from(index)
+                    .unwrap_or(usize::MAX)
+                    .min(active.len())
+            } else {
+                return Err(crate::pagination::refusal(
+                    "invalid_query_cursor",
+                    format!(
+                        "Query cursor item {} is no longer present in this result set.",
+                        text(&cursor, "after_id")
+                    ),
+                ));
+            }
+        } else {
+            0
+        };
         let page: Vec<_> = active
             .iter()
+            .skip(start)
             .take(if bounded { limit } else { usize::MAX })
             .copied()
             .collect();
@@ -1219,6 +1356,22 @@ impl Workspace {
         } else {
             vec![]
         };
+        if names.iter().any(|name| {
+            matches!(
+                *name,
+                "hierarchy"
+                    | "progress"
+                    | "blockers"
+                    | "staleness"
+                    | "recently_created"
+                    | "unparented"
+            )
+        }) {
+            let tree = sections::Hierarchy::new(&corpus, true);
+            for row in high.iter_mut().chain(&mut low).chain(&mut fallback) {
+                tree.enrich(row, &lifecycle);
+            }
+        }
         let focus_ids = high
             .iter()
             .chain(&low)
@@ -1226,31 +1379,6 @@ impl Workspace {
             .map(|item| text(item, "id").to_owned())
             .collect();
         let (agenda_summary, events) = agenda(&corpus, &focus_ids, now, limit, &lifecycle);
-        let tags: BTreeMap<_, _> = high
-            .iter()
-            .chain(&low)
-            .chain(&fallback)
-            .map(|row| {
-                let mut tags: Vec<_> = row["tags"]
-                    .as_array()
-                    .into_iter()
-                    .flatten()
-                    .filter_map(Value::as_str)
-                    .collect();
-                tags.sort_unstable();
-                (text(row, "id").to_owned(), tags.join("\0"))
-            })
-            .collect();
-        for row in high.iter_mut().chain(&mut low).chain(&mut fallback) {
-            let parent = text(row, "parent");
-            if options.no_tags {
-                row.as_object_mut().map(|row| row.shift_remove("tags"));
-            } else if !parent.is_empty() && tags.get(parent) == tags.get(text(row, "id")) {
-                let parent = parent.to_owned();
-                row.as_object_mut().map(|row| row.shift_remove("tags"));
-                row["tags_inherited"] = json!(parent);
-            }
-        }
         let in_progress = high
             .iter()
             .chain(&low)
@@ -1266,7 +1394,7 @@ impl Workspace {
             .filter(|item| lifecycle.role(text(item, "status"), "active"))
             .filter(|item| lifecycle.matches(text(item, "status"), "in_progress"))
             .count();
-        let mut result = json!({"output_default":"toon","now":now,"depth":"brief","sections_included":[],"window":{"anchor":now,"start":now,"end":null,"past":false,"from":null,"to":null},"filters":{"type":null,"tag":null,"priority":null,"assignee":null,"assignee_filter":null,"sprint":null,"release":null,"limit":options.limit,"parent":null,"token_budget":budget,"runtime_filters":{}},"summary":{"returned_focus":{"active_items":high.len()+low.len()+fallback.len(),"in_progress":in_progress,"open":high.len()+low.len()+fallback.len()-in_progress,"blocked":high.iter().chain(&low).chain(&fallback).filter(|row|row["blocked"]==true).count()},"blocked_fallback_used":active.is_empty(),"high_level":high.len(),"low_level":low.len(),"agenda_events":events.len(),"scope":"matching_items","active_items":all_active,"open":all_active-all_progress,"in_progress":all_progress,"blocked":blocked.len(),"total_items":corpus.len(),"closed":corpus.iter().filter(|item|lifecycle.canonical(text(item,"status"))==lifecycle.canonical("closed")).count(),"canceled":corpus.iter().filter(|item|lifecycle.canonical(text(item,"status"))==lifecycle.canonical("canceled")).count()},"high_level":high,"low_level":low,"blocked_fallback":fallback,"agenda":{"summary":agenda_summary,"events":events}});
+        let mut result = json!({"output_default":"toon","now":now,"depth":depth,"sections_included":names,"window":{"anchor":now,"start":now,"end":null,"past":false,"from":null,"to":null},"filters":{"type":null,"tag":null,"priority":null,"assignee":null,"assignee_filter":null,"sprint":null,"release":null,"limit":options.limit,"parent":null,"token_budget":number(budget),"runtime_filters":{}},"summary":{"returned_focus":{"active_items":high.len()+low.len()+fallback.len(),"in_progress":in_progress,"open":high.len()+low.len()+fallback.len()-in_progress,"blocked":high.iter().chain(&low).chain(&fallback).filter(|row|row["blocked"]==true).count()},"blocked_fallback_used":active.is_empty(),"high_level":high.len(),"low_level":low.len(),"agenda_events":events.len(),"scope":"matching_items","active_items":all_active,"open":all_active-all_progress,"in_progress":all_progress,"blocked":blocked.len(),"total_items":corpus.len(),"closed":corpus.iter().filter(|item|lifecycle.canonical(text(item,"status"))==lifecycle.canonical("closed")).count(),"canceled":corpus.iter().filter(|item|lifecycle.canonical(text(item,"status"))==lifecycle.canonical("canceled")).count()},"high_level":high,"low_level":low,"blocked_fallback":fallback,"agenda":{"summary":agenda_summary,"events":events}});
         let mut row_states = json!({});
         let mut needs_states = false;
         for name in ["high_level", "low_level", "blocked_fallback"] {
@@ -1292,25 +1420,13 @@ impl Workspace {
         }
         if bounded {
             result["applied_limit"] = json!(limit);
-            if !page.is_empty() && page.len() < active.len() {
+            if !page.is_empty() && start + page.len() < active.len() {
                 result["has_more"] = json!(true);
                 result["truncated"] = json!(true);
-                let mut semantic =
-                    json!({"extensionHealth":!options.no_extension_health,"tags":!options.no_tags});
-                if let Some(depth) = &options.depth {
-                    semantic["depth"] = json!(depth);
-                }
-                if let Some(budget) = &options.token_budget {
-                    semantic["tokenBudget"] = json!(budget);
-                }
-                let contract = json!({"pmRoot":crate::pagination::query_root(&self.query_pm_root().to_string_lossy()),"options":semantic});
-                let hash = crate::history::sha256_digest(
-                    format!("context\0{}", crate::pagination::stable(&contract)).as_bytes(),
-                );
                 result["next_cursor"] = json!(crate::pagination::after(
-                    &hash[..24],
+                    fingerprint,
                     &page[page.len() - 1].0,
-                    page.len() - 1
+                    start + page.len() - 1
                 ));
             }
         }
@@ -1319,6 +1435,29 @@ impl Workspace {
         {
             result["extension_health"] = health;
         }
+        let extras = if names.is_empty() {
+            json!({})
+        } else {
+            sections::build(
+                self,
+                &names,
+                &corpus,
+                &packed_active,
+                &packed_blocked,
+                &blocked,
+                &lifecycle,
+                now,
+                limit,
+                &settings,
+            )?
+        };
+        // Attach in the published field order, independent of section selection order.
+        for name in sections::NAMES {
+            if let Some(value) = extras.get(name) {
+                result[name] = value.clone();
+            }
+        }
+        project_tags(&mut result, options.no_tags);
         if packed_active.is_empty() && packed_blocked.is_empty() && events.is_empty() {
             result["suggestions"] = json!([
                 "pm create --type Task --title \"...\" to add a new work item",
@@ -1327,22 +1466,25 @@ impl Workspace {
                 "pm aggregate for a full project status overview"
             ]);
         }
-        let groups: Vec<_> = [
-            "hierarchy",
-            "activity",
-            "progress",
-            "blockers",
-            "recently_created",
-            "unparented",
-            "files",
-            "workload",
-            "staleness",
-            "tests",
-        ]
-        .iter()
-        .map(|name| json!({"name":name,"restore_with":format!("--section {name}")}))
-        .collect();
-        result["omission_receipt"] = json!({"has_omissions":true,"omitted_field_group_count":10,"omitted_field_groups":groups,"summary_scope":"matching_items"});
+        let groups: Vec<_> = sections::NAMES
+            .iter()
+            .filter(|name| !names.contains(name))
+            .map(|name| json!({"name":name,"restore_with":format!("--section {name}")}))
+            .collect();
+        result["omission_receipt"] = json!({"has_omissions":!groups.is_empty(),"omitted_field_group_count":groups.len(),"omitted_field_groups":groups,"summary_scope":"matching_items"});
+        if options.after.is_some() {
+            for key in [
+                "applied_limit",
+                "filters",
+                "has_more",
+                "now",
+                "omission_receipt",
+                "truncated",
+            ] {
+                result.as_object_mut().map(|map| map.shift_remove(key));
+            }
+            result["continuation_contract"] = json!({"fingerprint":fingerprint,"metadata":"reference","restore_with":"omit --after"});
+        }
         crate::read_output::apply_orientation(
             result.into(),
             &crate::ListOptions {

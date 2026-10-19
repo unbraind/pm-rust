@@ -2,13 +2,34 @@ id: pm-rust-s6j4
 title: Extend native orientation to richer context sections and relationship packets
 description: "Follow-up to the native brief orientation slice: implement context intents, deeper sections, calendar recurrence and timezone handling, workspace-memory rollups, derived-snapshot recovery, dependency relationship-context packets, richer history projections and canonical output continuation controls. Keep unsupported requests explicit until each contract has exact oracle differentials."
 type: Task
-status: open
+status: in_progress
 priority: 2
 tags[3]: follow-up,orientation,rust
 created_at: "2026-10-18T03:44:38.720Z"
-updated_at: "2026-10-18T05:11:47.743Z"
+updated_at: "2026-10-19T13:34:37.687Z"
+assignee: codex-agent
+claim_principal: codex-agent
 author: codex-agent
 parent: pm-rust-u4al
-comments[1]{created_at,author,text}:
+comments[6]{created_at,author,text}:
   "2026-10-18T05:11:47.743Z",codex-agent,"Deferred orientation scope also includes richer extension discovery policy, nonminimal manifest controls and execution of declared context_relevance service overrides. The core native slice fails closed on these boundaries instead of executing extension code. Future acceptance must cover configured enable/disable policy, version/engine bounds, contribution inventories and scorer activation against the pinned oracle."
+  "2026-10-19T12:26:44.135Z",codex-agent,"Scope: native default and deep context sections, relationship packets, producer continuation and output parity against the locked oracle. Preserve projection-based reads from #94. Validate synthetic fixtures and an immutable real tracker copy; publish aggregate timing only. The broader follow-up description remains beyond this bounded task."
+  "2026-10-19T12:42:00.295Z",codex-agent,"Implementation in progress: preserve the brief metadata projection; add selected deep-section fields, descendant completion, retained compact activity, files/workload/staleness/test summaries and ranked continuation. Relationship packets use deps --format context, matching the pinned command contract. The immutable real copy contains 1254 items at capture. Initial parity exposed the existing static extension-health refusal for inert manifest metadata; extending that read boundary. Synthetic dependencies retain created_at because the locked oracle has the already tracked timestamp-sort defect."
+  "2026-10-19T13:17:21.187Z",codex-agent,"Behavioral revert proof: replace only Workspace::context_with_global with its origin/main implementation, leaving the new regression and all other functions intact. cargo +1.90.0 test --locked --lib orientation_context::tests::deep_sections_preserve_relationships_and_evidence -- --exact fails behaviorally (0 passed, 1 failed; exit 101) because deep native context is refused. Restore the implementation byte-for-byte: the identical command passes (1 passed, 0 failed; exit 0). Expanded context oracle matrix and bounded relationship packet matrix each pass independently. Preserve the locked oracle quirks: legacy depends_on is ignored by blocker detail resolution; packet token settlement excludes subsequently attached alias counts; infeasible packet roots remain unknown_error refusals. No upstream issue was filed."
+  "2026-10-19T13:29:17.045Z",codex-agent,"Validation checkpoint: the native deep-section regression passes, its single-function behavioral revert fails, all 30 real-copy comparisons passed with authoritative hashes unchanged, and both expanded context and relationship-packet oracle matrices passed independently. Added conservative extension minimum-version and supported-field validation so the static summary retains explicit boundaries rather than accepting unsupported controls. Preparing a draft PR to run the unchanged cross-platform release gates while final coverage and release-binary measurements continue. The item remains claimed and in progress."
+  "2026-10-19T13:34:37.683Z",codex-agent,"Added an independent 201-item oracle regression for the completion rounding boundary: JavaScript computes Math.round(29 / 200 * 100) as 14. Native completion now preserves the IEEE division-and-rounding sequence before producing its integer field. The linked test wrapper accepts an optional integration suite while retaining sanitized compiler/test output. Final release measurements will use the frozen binary after these boundary fixes."
+files[7]{path,scope}:
+  scripts/context-real.mts,project
+  src/orientation_context.rs,project
+  src/orientation_context/sections.rs,project
+  src/orientation_deps/packet.rs,project
+  src/read_projection.rs,project
+  tests/orientation_differential.rs,project
+  tests/support/orientation_packet_unit.rs,project
+tests[3]{command,scope,provenance{author,created_at,source_kind,source_ref}}:
+  node scripts/check-lookup.mts deep_sections_preserve_relationships_and_evidence,project,codex-agent,"2026-10-19T12:50:46.247Z",local_mutation,feat/native-context-sections
+  "node scripts/check-lookup.mts orientation_deps::packet",project,codex-agent,"2026-10-19T12:51:04.937Z",local_mutation,feat/native-context-sections
+  PM_RUST_REQUIRE_PUBLISHED_CLI=1 node scripts/check-lookup.mts context_completion_rounding_matches_oracle orientation_differential,project,codex-agent,"2026-10-19T13:34:33.781Z",local_mutation,feat/native-context-sections
+docs[1]{path,scope}:
+  docs/NATIVE_CONTEXT_SECTIONS.md,project
 body: ""
