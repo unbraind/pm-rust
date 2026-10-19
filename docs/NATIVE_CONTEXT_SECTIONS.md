@@ -87,3 +87,40 @@ after warmup. Both p50 and p95 use nearest-rank percentiles. The clock-pinned
 oracle driver also disables its scheduling-dependent 25 ms packing guard so
 each comparison and timing sample produces the complete comparable response. Timings describe the
 shared validation host and this captured tracker, not a general scale guarantee.
+
+The optimized build from implementation head `63d359e` passed all 56 real-copy
+comparisons: 30 context cases and 26 packet cases across two relationship roots.
+The captured tracker contained 1,254 items, compared with the request's earlier
+1,251-item count. All 2,527 authoritative item/history files remained unchanged.
+The frozen binary hash and all 120 timing samples are retained in the
+[aggregate receipt](benchmarks/native-context-sections-2026-10-19.json).
+
+| Command | Native p50 ms | Native p95 ms | TS p50 ms | TS p95 ms |
+| --- | ---: | ---: | ---: | ---: |
+| `context --limit 10` | 81.0 | 291.0 | 1402.2 | 5101.8 |
+| `context --depth deep --limit 10` | 445.7 | 598.0 | 1905.0 | 2684.5 |
+
+Each cell has 30 fresh-process samples. Some sampling overlapped other
+validation on the shared host; alternating runtime order limits ordering bias.
+These results describe this captured tracker and test setup.
+
+The unchanged `just release-check` aggregate passed on all three platforms at
+implementation head `63d359e`, including fmt, strict Clippy, private-item rustdoc,
+required-oracle tests, branch-instrumented coverage, audit and changelog checks.
+Clone-local merge-driver installation and strict tracker health also passed.
+All four coverage dimensions are 100 percent on every platform. Exact counts,
+source identity, latency ceilings and both behavioral revert proofs are in the
+[gate receipt](benchmarks/native-context-gates-2026-10-19.json).
+
+| Platform | Ordinary tests | Instrumented tests | Failed / ignored |
+| --- | ---: | ---: | ---: |
+| Linux | 502 | 502 | 0 / 0 |
+| macOS | 498 | 498 | 0 / 0 |
+| Windows | 493 | 493 | 0 / 0 |
+
+Final-source Bun orientation acceptance passed all 24 tests. The three linked
+item commands passed seven underlying test executions; project policy keeps
+run recording disabled, so the aggregate is retained in item comments. The
+context regression fails with only its native method reverted and passes
+restored. The two numerical helper regressions also fail with integer shortcuts
+and pass when the oracle's floating-point sequence is restored.

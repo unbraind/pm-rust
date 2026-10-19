@@ -1,0 +1,764 @@
+{
+  "oracle": "2026.10.14",
+  "clock": "2026-10-19T12:00:00.000Z",
+  "comparisons": 56,
+  "context_comparisons": 30,
+  "packet_comparisons": 26,
+  "packet_roots": 2,
+  "item_count": 1254,
+  "authoritative_files": 2527,
+  "authoritative_unchanged": true,
+  "binary_sha256": "f2afc701bd936b8a7c431fa96d75e3fcd17749a320da6ed1c9302809f986bad3",
+  "timings": [
+    {
+      "command": "context --limit 10",
+      "runtime": "native",
+      "samples": 30,
+      "p50_ms": 81,
+      "p95_ms": 291
+    },
+    {
+      "command": "context --limit 10",
+      "runtime": "oracle",
+      "samples": 30,
+      "p50_ms": 1402.2,
+      "p95_ms": 5101.8
+    },
+    {
+      "command": "context --depth deep --limit 10",
+      "runtime": "native",
+      "samples": 30,
+      "p50_ms": 445.7,
+      "p95_ms": 598
+    },
+    {
+      "command": "context --depth deep --limit 10",
+      "runtime": "oracle",
+      "samples": 30,
+      "p50_ms": 1905,
+      "p95_ms": 2684.5
+    }
+  ],
+  "samples": [
+    {
+      "command": "context --limit 10",
+      "runtime": "native",
+      "round": 0,
+      "ms": 168.89375599997584
+    },
+    {
+      "command": "context --limit 10",
+      "runtime": "oracle",
+      "round": 0,
+      "ms": 5343.975366999977
+    },
+    {
+      "command": "context --limit 10",
+      "runtime": "oracle",
+      "round": 1,
+      "ms": 5101.757487000083
+    },
+    {
+      "command": "context --limit 10",
+      "runtime": "native",
+      "round": 1,
+      "ms": 167.08586500003003
+    },
+    {
+      "command": "context --limit 10",
+      "runtime": "native",
+      "round": 2,
+      "ms": 266.8902409999864
+    },
+    {
+      "command": "context --limit 10",
+      "runtime": "oracle",
+      "round": 2,
+      "ms": 3264.765647000051
+    },
+    {
+      "command": "context --limit 10",
+      "runtime": "oracle",
+      "round": 3,
+      "ms": 4059.350157000008
+    },
+    {
+      "command": "context --limit 10",
+      "runtime": "native",
+      "round": 3,
+      "ms": 156.45171399996616
+    },
+    {
+      "command": "context --limit 10",
+      "runtime": "native",
+      "round": 4,
+      "ms": 121.41927600000054
+    },
+    {
+      "command": "context --limit 10",
+      "runtime": "oracle",
+      "round": 4,
+      "ms": 3909.632585000014
+    },
+    {
+      "command": "context --limit 10",
+      "runtime": "oracle",
+      "round": 5,
+      "ms": 4853.236388999969
+    },
+    {
+      "command": "context --limit 10",
+      "runtime": "native",
+      "round": 5,
+      "ms": 302.15050099999644
+    },
+    {
+      "command": "context --limit 10",
+      "runtime": "native",
+      "round": 6,
+      "ms": 228.3975419999333
+    },
+    {
+      "command": "context --limit 10",
+      "runtime": "oracle",
+      "round": 6,
+      "ms": 4483.784454999957
+    },
+    {
+      "command": "context --limit 10",
+      "runtime": "oracle",
+      "round": 7,
+      "ms": 3836.2613610000117
+    },
+    {
+      "command": "context --limit 10",
+      "runtime": "native",
+      "round": 7,
+      "ms": 290.96827000007033
+    },
+    {
+      "command": "context --limit 10",
+      "runtime": "native",
+      "round": 8,
+      "ms": 136.0768280000193
+    },
+    {
+      "command": "context --limit 10",
+      "runtime": "oracle",
+      "round": 8,
+      "ms": 1767.7800419999985
+    },
+    {
+      "command": "context --limit 10",
+      "runtime": "oracle",
+      "round": 9,
+      "ms": 1587.9013519999571
+    },
+    {
+      "command": "context --limit 10",
+      "runtime": "native",
+      "round": 9,
+      "ms": 86.6293659999501
+    },
+    {
+      "command": "context --limit 10",
+      "runtime": "native",
+      "round": 10,
+      "ms": 137.20037800003774
+    },
+    {
+      "command": "context --limit 10",
+      "runtime": "oracle",
+      "round": 10,
+      "ms": 2210.2065670000156
+    },
+    {
+      "command": "context --limit 10",
+      "runtime": "oracle",
+      "round": 11,
+      "ms": 1384.143657000037
+    },
+    {
+      "command": "context --limit 10",
+      "runtime": "native",
+      "round": 11,
+      "ms": 74.91322899993975
+    },
+    {
+      "command": "context --limit 10",
+      "runtime": "native",
+      "round": 12,
+      "ms": 76.80320699990261
+    },
+    {
+      "command": "context --limit 10",
+      "runtime": "oracle",
+      "round": 12,
+      "ms": 1526.8162160000065
+    },
+    {
+      "command": "context --limit 10",
+      "runtime": "oracle",
+      "round": 13,
+      "ms": 1173.6096769999713
+    },
+    {
+      "command": "context --limit 10",
+      "runtime": "native",
+      "round": 13,
+      "ms": 73.02562199998647
+    },
+    {
+      "command": "context --limit 10",
+      "runtime": "native",
+      "round": 14,
+      "ms": 71.67621100007091
+    },
+    {
+      "command": "context --limit 10",
+      "runtime": "oracle",
+      "round": 14,
+      "ms": 1183.7852560000028
+    },
+    {
+      "command": "context --limit 10",
+      "runtime": "oracle",
+      "round": 15,
+      "ms": 1264.801948999986
+    },
+    {
+      "command": "context --limit 10",
+      "runtime": "native",
+      "round": 15,
+      "ms": 112.01415200007614
+    },
+    {
+      "command": "context --limit 10",
+      "runtime": "native",
+      "round": 16,
+      "ms": 83.93238699994981
+    },
+    {
+      "command": "context --limit 10",
+      "runtime": "oracle",
+      "round": 16,
+      "ms": 1429.2043929999927
+    },
+    {
+      "command": "context --limit 10",
+      "runtime": "oracle",
+      "round": 17,
+      "ms": 1701.0725130001083
+    },
+    {
+      "command": "context --limit 10",
+      "runtime": "native",
+      "round": 17,
+      "ms": 79.8413550000405
+    },
+    {
+      "command": "context --limit 10",
+      "runtime": "native",
+      "round": 18,
+      "ms": 80.98483400000259
+    },
+    {
+      "command": "context --limit 10",
+      "runtime": "oracle",
+      "round": 18,
+      "ms": 1810.8224269999191
+    },
+    {
+      "command": "context --limit 10",
+      "runtime": "oracle",
+      "round": 19,
+      "ms": 1373.380681999959
+    },
+    {
+      "command": "context --limit 10",
+      "runtime": "native",
+      "round": 19,
+      "ms": 84.77957099990454
+    },
+    {
+      "command": "context --limit 10",
+      "runtime": "native",
+      "round": 20,
+      "ms": 73.1973879999714
+    },
+    {
+      "command": "context --limit 10",
+      "runtime": "oracle",
+      "round": 20,
+      "ms": 1402.205512000015
+    },
+    {
+      "command": "context --limit 10",
+      "runtime": "oracle",
+      "round": 21,
+      "ms": 1299.76324999996
+    },
+    {
+      "command": "context --limit 10",
+      "runtime": "native",
+      "round": 21,
+      "ms": 68.97679899993818
+    },
+    {
+      "command": "context --limit 10",
+      "runtime": "native",
+      "round": 22,
+      "ms": 69.15749000001233
+    },
+    {
+      "command": "context --limit 10",
+      "runtime": "oracle",
+      "round": 22,
+      "ms": 1057.365044999984
+    },
+    {
+      "command": "context --limit 10",
+      "runtime": "oracle",
+      "round": 23,
+      "ms": 1216.9184860000387
+    },
+    {
+      "command": "context --limit 10",
+      "runtime": "native",
+      "round": 23,
+      "ms": 80.12388400000054
+    },
+    {
+      "command": "context --limit 10",
+      "runtime": "native",
+      "round": 24,
+      "ms": 81.89382399991155
+    },
+    {
+      "command": "context --limit 10",
+      "runtime": "oracle",
+      "round": 24,
+      "ms": 1082.2296689999057
+    },
+    {
+      "command": "context --limit 10",
+      "runtime": "oracle",
+      "round": 25,
+      "ms": 1057.1089200000279
+    },
+    {
+      "command": "context --limit 10",
+      "runtime": "native",
+      "round": 25,
+      "ms": 70.53312799998093
+    },
+    {
+      "command": "context --limit 10",
+      "runtime": "native",
+      "round": 26,
+      "ms": 68.35249199997634
+    },
+    {
+      "command": "context --limit 10",
+      "runtime": "oracle",
+      "round": 26,
+      "ms": 944.3851530000102
+    },
+    {
+      "command": "context --limit 10",
+      "runtime": "oracle",
+      "round": 27,
+      "ms": 1074.4010359999957
+    },
+    {
+      "command": "context --limit 10",
+      "runtime": "native",
+      "round": 27,
+      "ms": 72.74353599990718
+    },
+    {
+      "command": "context --limit 10",
+      "runtime": "native",
+      "round": 28,
+      "ms": 72.21520600002259
+    },
+    {
+      "command": "context --limit 10",
+      "runtime": "oracle",
+      "round": 28,
+      "ms": 944.7515600000042
+    },
+    {
+      "command": "context --limit 10",
+      "runtime": "oracle",
+      "round": 29,
+      "ms": 968.0404670001008
+    },
+    {
+      "command": "context --limit 10",
+      "runtime": "native",
+      "round": 29,
+      "ms": 70.38623900001403
+    },
+    {
+      "command": "context --depth deep --limit 10",
+      "runtime": "native",
+      "round": 0,
+      "ms": 438.0559169999324
+    },
+    {
+      "command": "context --depth deep --limit 10",
+      "runtime": "oracle",
+      "round": 0,
+      "ms": 1822.295665999991
+    },
+    {
+      "command": "context --depth deep --limit 10",
+      "runtime": "oracle",
+      "round": 1,
+      "ms": 1631.6086559999967
+    },
+    {
+      "command": "context --depth deep --limit 10",
+      "runtime": "native",
+      "round": 1,
+      "ms": 440.50061999994796
+    },
+    {
+      "command": "context --depth deep --limit 10",
+      "runtime": "native",
+      "round": 2,
+      "ms": 448.8423859999748
+    },
+    {
+      "command": "context --depth deep --limit 10",
+      "runtime": "oracle",
+      "round": 2,
+      "ms": 1559.892274999991
+    },
+    {
+      "command": "context --depth deep --limit 10",
+      "runtime": "oracle",
+      "round": 3,
+      "ms": 1859.6316420000512
+    },
+    {
+      "command": "context --depth deep --limit 10",
+      "runtime": "native",
+      "round": 3,
+      "ms": 428.7714800001122
+    },
+    {
+      "command": "context --depth deep --limit 10",
+      "runtime": "native",
+      "round": 4,
+      "ms": 439.7952679999871
+    },
+    {
+      "command": "context --depth deep --limit 10",
+      "runtime": "oracle",
+      "round": 4,
+      "ms": 1679.9701770000393
+    },
+    {
+      "command": "context --depth deep --limit 10",
+      "runtime": "oracle",
+      "round": 5,
+      "ms": 2407.5618569999933
+    },
+    {
+      "command": "context --depth deep --limit 10",
+      "runtime": "native",
+      "round": 5,
+      "ms": 610.595307999989
+    },
+    {
+      "command": "context --depth deep --limit 10",
+      "runtime": "native",
+      "round": 6,
+      "ms": 531.4474560000235
+    },
+    {
+      "command": "context --depth deep --limit 10",
+      "runtime": "oracle",
+      "round": 6,
+      "ms": 2638.4294409999857
+    },
+    {
+      "command": "context --depth deep --limit 10",
+      "runtime": "oracle",
+      "round": 7,
+      "ms": 1830.6195210000733
+    },
+    {
+      "command": "context --depth deep --limit 10",
+      "runtime": "native",
+      "round": 7,
+      "ms": 471.7096110000275
+    },
+    {
+      "command": "context --depth deep --limit 10",
+      "runtime": "native",
+      "round": 8,
+      "ms": 464.7689619999146
+    },
+    {
+      "command": "context --depth deep --limit 10",
+      "runtime": "oracle",
+      "round": 8,
+      "ms": 1751.958558000042
+    },
+    {
+      "command": "context --depth deep --limit 10",
+      "runtime": "oracle",
+      "round": 9,
+      "ms": 1596.8212379999459
+    },
+    {
+      "command": "context --depth deep --limit 10",
+      "runtime": "native",
+      "round": 9,
+      "ms": 438.79347700008657
+    },
+    {
+      "command": "context --depth deep --limit 10",
+      "runtime": "native",
+      "round": 10,
+      "ms": 425.00167799997143
+    },
+    {
+      "command": "context --depth deep --limit 10",
+      "runtime": "oracle",
+      "round": 10,
+      "ms": 2023.6400389999617
+    },
+    {
+      "command": "context --depth deep --limit 10",
+      "runtime": "oracle",
+      "round": 11,
+      "ms": 1542.9655929999426
+    },
+    {
+      "command": "context --depth deep --limit 10",
+      "runtime": "native",
+      "round": 11,
+      "ms": 441.56125799997244
+    },
+    {
+      "command": "context --depth deep --limit 10",
+      "runtime": "native",
+      "round": 12,
+      "ms": 427.5182650000788
+    },
+    {
+      "command": "context --depth deep --limit 10",
+      "runtime": "oracle",
+      "round": 12,
+      "ms": 1552.591671000002
+    },
+    {
+      "command": "context --depth deep --limit 10",
+      "runtime": "oracle",
+      "round": 13,
+      "ms": 1630.485273999977
+    },
+    {
+      "command": "context --depth deep --limit 10",
+      "runtime": "native",
+      "round": 13,
+      "ms": 435.2758840000024
+    },
+    {
+      "command": "context --depth deep --limit 10",
+      "runtime": "native",
+      "round": 14,
+      "ms": 434.72352699993644
+    },
+    {
+      "command": "context --depth deep --limit 10",
+      "runtime": "oracle",
+      "round": 14,
+      "ms": 1751.1173969999654
+    },
+    {
+      "command": "context --depth deep --limit 10",
+      "runtime": "oracle",
+      "round": 15,
+      "ms": 2285.9225909999805
+    },
+    {
+      "command": "context --depth deep --limit 10",
+      "runtime": "native",
+      "round": 15,
+      "ms": 469.9378789999755
+    },
+    {
+      "command": "context --depth deep --limit 10",
+      "runtime": "native",
+      "round": 16,
+      "ms": 487.87242400005925
+    },
+    {
+      "command": "context --depth deep --limit 10",
+      "runtime": "oracle",
+      "round": 16,
+      "ms": 2061.538559000008
+    },
+    {
+      "command": "context --depth deep --limit 10",
+      "runtime": "oracle",
+      "round": 17,
+      "ms": 1913.433529999922
+    },
+    {
+      "command": "context --depth deep --limit 10",
+      "runtime": "native",
+      "round": 17,
+      "ms": 453.0663239998976
+    },
+    {
+      "command": "context --depth deep --limit 10",
+      "runtime": "native",
+      "round": 18,
+      "ms": 445.7393180000363
+    },
+    {
+      "command": "context --depth deep --limit 10",
+      "runtime": "oracle",
+      "round": 18,
+      "ms": 2295.6264170000795
+    },
+    {
+      "command": "context --depth deep --limit 10",
+      "runtime": "oracle",
+      "round": 19,
+      "ms": 1874.6661590000149
+    },
+    {
+      "command": "context --depth deep --limit 10",
+      "runtime": "native",
+      "round": 19,
+      "ms": 578.023230999941
+    },
+    {
+      "command": "context --depth deep --limit 10",
+      "runtime": "native",
+      "round": 20,
+      "ms": 446.4973150000442
+    },
+    {
+      "command": "context --depth deep --limit 10",
+      "runtime": "oracle",
+      "round": 20,
+      "ms": 2039.9568200000795
+    },
+    {
+      "command": "context --depth deep --limit 10",
+      "runtime": "oracle",
+      "round": 21,
+      "ms": 1981.3799679999938
+    },
+    {
+      "command": "context --depth deep --limit 10",
+      "runtime": "native",
+      "round": 21,
+      "ms": 437.9950790000148
+    },
+    {
+      "command": "context --depth deep --limit 10",
+      "runtime": "native",
+      "round": 22,
+      "ms": 418.9889200000325
+    },
+    {
+      "command": "context --depth deep --limit 10",
+      "runtime": "oracle",
+      "round": 22,
+      "ms": 1736.3240220000735
+    },
+    {
+      "command": "context --depth deep --limit 10",
+      "runtime": "oracle",
+      "round": 23,
+      "ms": 2078.590720999986
+    },
+    {
+      "command": "context --depth deep --limit 10",
+      "runtime": "native",
+      "round": 23,
+      "ms": 427.66437899996527
+    },
+    {
+      "command": "context --depth deep --limit 10",
+      "runtime": "native",
+      "round": 24,
+      "ms": 435.4420130000217
+    },
+    {
+      "command": "context --depth deep --limit 10",
+      "runtime": "oracle",
+      "round": 24,
+      "ms": 1905.0487450000364
+    },
+    {
+      "command": "context --depth deep --limit 10",
+      "runtime": "oracle",
+      "round": 25,
+      "ms": 2039.3905889999587
+    },
+    {
+      "command": "context --depth deep --limit 10",
+      "runtime": "native",
+      "round": 25,
+      "ms": 593.2110790000297
+    },
+    {
+      "command": "context --depth deep --limit 10",
+      "runtime": "native",
+      "round": 26,
+      "ms": 564.1726710000075
+    },
+    {
+      "command": "context --depth deep --limit 10",
+      "runtime": "oracle",
+      "round": 26,
+      "ms": 2712.324752000044
+    },
+    {
+      "command": "context --depth deep --limit 10",
+      "runtime": "oracle",
+      "round": 27,
+      "ms": 2684.50404800009
+    },
+    {
+      "command": "context --depth deep --limit 10",
+      "runtime": "native",
+      "round": 27,
+      "ms": 598.0376029999461
+    },
+    {
+      "command": "context --depth deep --limit 10",
+      "runtime": "native",
+      "round": 28,
+      "ms": 479.8267329999944
+    },
+    {
+      "command": "context --depth deep --limit 10",
+      "runtime": "oracle",
+      "round": 28,
+      "ms": 1917.6040450000437
+    },
+    {
+      "command": "context --depth deep --limit 10",
+      "runtime": "oracle",
+      "round": 29,
+      "ms": 2347.92210299999
+    },
+    {
+      "command": "context --depth deep --limit 10",
+      "runtime": "native",
+      "round": 29,
+      "ms": 584.6105100000277
+    }
+  ]
+}

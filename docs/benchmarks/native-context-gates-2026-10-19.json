@@ -1,0 +1,264 @@
+{
+  "implementation_head": "63d359ea555319f1f26f76b29e776902980d262d",
+  "native_source_tree": "c28e94b86c8826c5313e5c4aa54a4ca5163aafe0",
+  "oracle_version": "2026.10.14",
+  "release_gate_command": "just release-check",
+  "oracle_install_command": "npm ci --prefix tests/oracle --ignore-scripts",
+  "coverage_requirement": "100 percent lines, functions, regions and branches; unchanged gate and source scope",
+  "ci_run_url": "https://github.com/unbraind/pm-rust/actions/runs/39273842181",
+  "platforms": {
+    "linux": {
+      "job_url": "https://github.com/unbraind/pm-rust/actions/runs/39273842181/job/118132883759",
+      "tests": {
+        "ordinary": 502,
+        "instrumented": 502,
+        "suite_executions": 40,
+        "failed": 0,
+        "ignored": 0
+      },
+      "coverage": {
+        "lines": {
+          "count": 13074,
+          "covered": 13074,
+          "percent": 100
+        },
+        "functions": {
+          "count": 1349,
+          "covered": 1349,
+          "percent": 100
+        },
+        "regions": {
+          "count": 21821,
+          "covered": 21821,
+          "notcovered": 0,
+          "percent": 100
+        },
+        "branches": {
+          "count": 3148,
+          "covered": 3148,
+          "notcovered": 0,
+          "percent": 100
+        }
+      },
+      "aggregate": "passed",
+      "tracker_health_with_merge_drivers": "passed"
+    },
+    "macos": {
+      "job_url": "https://github.com/unbraind/pm-rust/actions/runs/39273842181/job/118132882457",
+      "tests": {
+        "ordinary": 498,
+        "instrumented": 498,
+        "suite_executions": 40,
+        "failed": 0,
+        "ignored": 0
+      },
+      "coverage": {
+        "lines": {
+          "count": 13121,
+          "covered": 13121,
+          "percent": 100
+        },
+        "functions": {
+          "count": 1361,
+          "covered": 1361,
+          "percent": 100
+        },
+        "regions": {
+          "count": 21908,
+          "covered": 21908,
+          "notcovered": 0,
+          "percent": 100
+        },
+        "branches": {
+          "count": 3150,
+          "covered": 3150,
+          "notcovered": 0,
+          "percent": 100
+        }
+      },
+      "aggregate": "passed",
+      "tracker_health_with_merge_drivers": "passed"
+    },
+    "windows": {
+      "job_url": "https://github.com/unbraind/pm-rust/actions/runs/39273842181/job/118132882120",
+      "tests": {
+        "ordinary": 493,
+        "instrumented": 493,
+        "suite_executions": 40,
+        "failed": 0,
+        "ignored": 0
+      },
+      "coverage": {
+        "lines": {
+          "count": 13120,
+          "covered": 13120,
+          "percent": 100
+        },
+        "functions": {
+          "count": 1362,
+          "covered": 1362,
+          "percent": 100
+        },
+        "regions": {
+          "count": 21909,
+          "covered": 21909,
+          "notcovered": 0,
+          "percent": 100
+        },
+        "branches": {
+          "count": 3152,
+          "covered": 3152,
+          "notcovered": 0,
+          "percent": 100
+        }
+      },
+      "aggregate": "passed",
+      "tracker_health_with_merge_drivers": "passed"
+    }
+  },
+  "native_ci_latency": {
+    "linux": [
+      {
+        "command": "get",
+        "items": 3000,
+        "runs": 30,
+        "p50_ms": 3.860016999999999,
+        "p95_ms": 4.666399000000013,
+        "required_p95_below_ms": 50,
+        "pass": true
+      },
+      {
+        "command": "list",
+        "items": 3000,
+        "runs": 30,
+        "p50_ms": 44.02196550000008,
+        "p95_ms": 48.29803800000002,
+        "required_p95_below_ms": 150,
+        "pass": true
+      },
+      {
+        "command": "context",
+        "items": 3000,
+        "runs": 30,
+        "p50_ms": 84.15573199999994,
+        "p95_ms": 84.72297900000012,
+        "required_p95_below_ms": 250,
+        "pass": true
+      }
+    ],
+    "macos": [
+      {
+        "command": "get",
+        "items": 3000,
+        "runs": 30,
+        "p50_ms": 15.149250000000052,
+        "p95_ms": 27.85291600000005,
+        "required_p95_below_ms": 50,
+        "pass": true
+      },
+      {
+        "command": "list",
+        "items": 3000,
+        "runs": 30,
+        "p50_ms": 89.31018749999998,
+        "p95_ms": 130.46245899999985,
+        "required_p95_below_ms": 150,
+        "pass": true
+      },
+      {
+        "command": "context",
+        "items": 3000,
+        "runs": 30,
+        "p50_ms": 142.52762550000034,
+        "p95_ms": 187.6473329999999,
+        "required_p95_below_ms": 250,
+        "pass": true
+      }
+    ],
+    "windows": [
+      {
+        "command": "get",
+        "items": 3000,
+        "runs": 30,
+        "p50_ms": 16.983349999999973,
+        "p95_ms": 24.675700000000006,
+        "required_p95_below_ms": 50,
+        "pass": true
+      },
+      {
+        "command": "list",
+        "items": 3000,
+        "runs": 30,
+        "p50_ms": 83.65914999999973,
+        "p95_ms": 116.5030999999999,
+        "required_p95_below_ms": 150,
+        "pass": true
+      },
+      {
+        "command": "context",
+        "items": 3000,
+        "runs": 30,
+        "p50_ms": 164.26344999999947,
+        "p95_ms": 186.1880000000001,
+        "required_p95_below_ms": 250,
+        "pass": true
+      }
+    ]
+  },
+  "bun_orientation": {
+    "command": "PM_NODE_INTERPRETER=bun PM_RUST_REQUIRE_PUBLISHED_CLI=1 cargo +1.90.0 test --locked --test orientation_differential",
+    "passed": 24,
+    "failed": 0,
+    "ignored": 0
+  },
+  "focused_orientation": {
+    "command": "cargo +1.90.0 test --locked --lib orientation_",
+    "passed": 44,
+    "failed": 0,
+    "ignored": 0
+  },
+  "pm_linked_tests": {
+    "command": "pm test pm-rust-s6j4 --run --progress",
+    "commands_passed": 3,
+    "underlying_test_executions": 7,
+    "skipped_commands": 0,
+    "recording": "Existing project policy tracking_disabled; aggregate results recorded in item comments."
+  },
+  "real_tracker_receipt": "native-context-sections-2026-10-19.json",
+  "revert_proof": {
+    "native_context": {
+      "function": "Workspace::context_with_global",
+      "reverted_to": "22f6243cc44327fb3dea8075ec34fe45da268104",
+      "command": "cargo +1.90.0 test --locked --lib orientation_context::tests::deep_sections_preserve_relationships_and_evidence -- --exact",
+      "reverted": {
+        "exit_code": 101,
+        "passed": 0,
+        "failed": 1
+      },
+      "restored": {
+        "exit_code": 0,
+        "passed": 1,
+        "failed": 0
+      }
+    },
+    "numeric_helpers": {
+      "functions": [
+        "orientation_context::sections::completion",
+        "orientation_deps::packet::next_budget"
+      ],
+      "command": "cargo +1.90.0 test --locked --lib orientation_",
+      "integer_shortcuts": {
+        "exit_code": 101,
+        "passed": 41,
+        "failed": 2
+      },
+      "restored_at_proof_time": {
+        "exit_code": 0,
+        "passed": 43,
+        "failed": 0
+      }
+    }
+  },
+  "npm_packed_consumer": "Not applicable: this Rust repository has no root npm manifest or packed npm consumer. Its locked npm oracle is exercised under Node and Bun.",
+  "pins_and_thresholds_changed": false
+}
