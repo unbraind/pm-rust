@@ -794,6 +794,51 @@ fn context_completion_rounding_matches_oracle() -> TestResult {
     }
     Ok(())
 }
+
+/// Cursor aliases serve identical pages and invalid continuations retain context refusal envelopes.
+#[test]
+fn context_cursor_refusals_match_oracle() -> TestResult {
+    let Some(published) = published_cli::published_cli_or_skip("context cursor refusals") else {
+        return Ok(());
+    };
+    let scratch = tempfile::tempdir()?;
+    let driver = orientation_driver(scratch.path(), &published)?;
+    let root = tempfile::tempdir()?;
+    assert!(
+        oracle(&driver, root.path(), &["init", "sample-", "--defaults"])?
+            .status
+            .success()
+    );
+    fixture(
+        root.path(),
+        &[
+            item("sample-a", "Task", "open", 1),
+            item("sample-b", "Task", "open", 2),
+        ],
+    )?;
+    let first = oracle(&driver, root.path(), &["context", "--limit", "1", "--json"])?;
+    let value: Value = serde_json::from_slice(&first.stdout)?;
+    let cursor = value["next_cursor"].as_str().ok_or("cursor")?;
+    let expected = oracle(
+        &driver,
+        root.path(),
+        &["context", "--limit", "1", "--after", cursor, "--json"],
+    )?;
+    let alias = ["context", "--limit", "1", "--cursor", cursor, "--json"];
+    compare(&expected, &native(root.path(), &alias)?, &alias);
+    for args in [
+        vec!["context", "--after", "bad"],
+        vec!["context", "--after", "bad", "--json"],
+        vec!["context", "--depth", "deep", "--after", cursor, "--json"],
+    ] {
+        compare(
+            &oracle(&driver, root.path(), &args)?,
+            &native(root.path(), &args)?,
+            &args,
+        );
+    }
+    Ok(())
+}
 /// Relationship packets preserve bounded traversal, inverse relationships and root evidence.
 #[test]
 fn relationship_packets_match_oracle() -> TestResult {
@@ -1282,7 +1327,6 @@ fn unsupported_orientation_flags_refuse_explicitly() -> TestResult {
                 "--sprint",
                 "--release",
                 "--parent",
-                "--after",
                 "--format",
                 "--fields",
                 "--section",
@@ -1304,10 +1348,7 @@ fn unsupported_orientation_flags_refuse_explicitly() -> TestResult {
                 "--format",
             ],
         ),
-        (
-            "deps",
-            vec!["--cursor", "--direction", "--kind", "--add", "--remove"],
-        ),
+        ("deps", vec!["--add", "--remove"]),
     ] {
         for flag in flags {
             let mut args = vec![command];
