@@ -23,6 +23,9 @@ pub(crate) const NON_ITEM_DIRECTORIES: [&str; 6] = [
     "search",
 ];
 
+/// One owned file source or its authoritative filesystem refusal.
+type ItemSource = Result<(PathBuf, String), PmRustError>;
+
 /// Exact filters supported by the first read-only list contract.
 #[derive(Clone, Debug, Default, PartialEq, Serialize)]
 pub struct ItemFilter {
@@ -175,6 +178,25 @@ impl Workspace {
 
     /// Implements the corpus reader identically for ordinary and observed test calls.
     pub(crate) fn read_items_impl(&self) -> Result<Vec<ItemDocument>, PmRustError> {
+        let paths = self.item_paths()?;
+
+        let mut by_id: BTreeMap<String, (PathBuf, ItemDocument)> = BTreeMap::new();
+        for path in paths {
+            let document = read_item(&path)?;
+            if let Some((first, _)) = by_id.get(&document.metadata.id) {
+                return Err(PmRustError::DuplicateItemId {
+                    id: document.metadata.id,
+                    first: first.clone(),
+                    second: path,
+                });
+            }
+            by_id.insert(document.metadata.id.clone(), (path, document));
+        }
+        Ok(by_id.into_values().map(|(_, document)| document).collect())
+    }
+
+    /// Lists actual regular item paths without opening or decoding item contents.
+    pub(crate) fn item_paths(&self) -> Result<Vec<PathBuf>, PmRustError> {
         let mut paths = Vec::new();
         for entry in read_directory(&self.pm_root)? {
             let entry_path = entry.path();
@@ -188,23 +210,97 @@ impl Workspace {
         }
         paths.sort();
 
-        let mut by_id: BTreeMap<String, (PathBuf, ItemDocument)> = BTreeMap::new();
-        for path in paths {
-            let content = fs::read_to_string(&path).map_err(|source| PmRustError::Io {
-                path: path.clone(),
-                source,
-            })?;
-            let document = decode_item(&path, &content)?;
-            if let Some((first, _)) = by_id.get(&document.metadata.id) {
-                return Err(PmRustError::DuplicateItemId {
-                    id: document.metadata.id,
-                    first: first.clone(),
-                    second: path,
-                });
+        Ok(paths)
+    }
+
+    /// Lists regular filenames, optionally selecting one ID, without per-item metadata calls.
+    fn lookup_paths(&self, id: Option<&str>) -> Result<Vec<PathBuf>, PmRustError> {
+        let mut found = Vec::new();
+        for (path, kind) in listing_entries(&self.pm_root)? {
+            if kind.is_dir()
+                && !NON_ITEM_DIRECTORIES.contains(
+                    &path
+                        .file_name()
+                        .unwrap_or_default()
+                        .to_string_lossy()
+                        .as_ref(),
+                )
+            {
+                collect_lookup_paths(&path, id, &mut found)?;
             }
-            by_id.insert(document.metadata.id.clone(), (path, document));
         }
-        Ok(by_id.into_values().map(|(_, document)| document).collect())
+        found.sort();
+        Ok(found)
+    }
+
+    /// Streams one decoded projection at a time in deterministic path order.
+    pub(crate) fn stream_items(
+        &self,
+        projection: crate::read_projection::Projection,
+    ) -> Result<impl Iterator<Item = Result<ItemDocument, PmRustError>>, PmRustError> {
+        let mut seen = BTreeMap::new();
+        #[cfg(any(windows, target_os = "macos"))]
+        {
+            #[cfg(test)]
+            crate::ownership::tests::READ_ITEMS_SCANS.with(|count| count.set(count.get() + 1));
+            let mut paths = self.lookup_paths(None)?;
+            paths.sort_by(|a, b| a.file_stem().cmp(&b.file_stem()).then_with(|| a.cmp(b)));
+            let batches: Vec<_> = paths.chunks(256).map(<[PathBuf]>::to_vec).collect();
+            Ok(batches
+                .into_iter()
+                .flat_map(move |batch| {
+                    read_parallel_batch(&batch, |path| {
+                        let document = read_item_text(path).and_then(|content| {
+                            crate::read_projection::decode(path, &content, projection)
+                        });
+                        (path.to_path_buf(), document)
+                    })
+                })
+                .map(move |(path, document)| {
+                    let document = document?;
+                    if let Some(first) = seen.insert(document.metadata.id.clone(), path.clone()) {
+                        return Err(PmRustError::DuplicateItemId {
+                            id: document.metadata.id,
+                            first,
+                            second: path,
+                        });
+                    }
+                    Ok(document)
+                }))
+        }
+        #[cfg(not(any(windows, target_os = "macos")))]
+        {
+            Ok(self.item_sources()?.map(move |source| {
+                let (path, content) = source?;
+                decode_unique(&path, &content, projection, &mut seen)
+            }))
+        }
+    }
+
+    /// Opens sources one at a time, allowing metadata filters before payload decoding.
+    pub(crate) fn item_sources(&self) -> Result<impl Iterator<Item = ItemSource>, PmRustError> {
+        #[cfg(test)]
+        crate::ownership::tests::READ_ITEMS_SCANS.with(|count| count.set(count.get() + 1));
+        let mut paths = self.lookup_paths(None)?;
+        paths.sort_by(|a, b| a.file_stem().cmp(&b.file_stem()).then_with(|| a.cmp(b)));
+        #[cfg(any(windows, target_os = "macos"))]
+        {
+            // Bound both raw-content memory and thread creation. Decoding remains
+            // ordered on the caller, preserving first-error and cursor semantics.
+            let batches: Vec<_> = paths.chunks(256).map(<[PathBuf]>::to_vec).collect();
+            Ok(batches.into_iter().flat_map(|batch| {
+                read_parallel_batch(&batch, |path| {
+                    read_item_text(path).map(|content| (path.to_path_buf(), content))
+                })
+            }))
+        }
+        #[cfg(not(any(windows, target_os = "macos")))]
+        {
+            Ok(paths.into_iter().map(|path| {
+                let content = read_item_text(&path)?;
+                Ok((path, content))
+            }))
+        }
     }
 
     /// Lists stable item projections using exact filters.
@@ -213,13 +309,16 @@ impl Workspace {
     ///
     /// Returns any error produced while reading and validating stored items.
     pub fn list(&self, filters: ItemFilter) -> Result<ListResult, PmRustError> {
-        let documents = self.read_items()?;
-        let total = documents.len();
-        let items = documents
-            .iter()
-            .filter(|document| filters.matches(document))
-            .map(ItemSummary::from)
-            .collect::<Vec<_>>();
+        let mut total = 0;
+        let mut items = Vec::new();
+        for document in self.stream_items(crate::read_projection::Projection::Summary)? {
+            let document = document?;
+            total += 1;
+            if filters.matches(&document) {
+                items.push(ItemSummary::from(&document));
+            }
+        }
+        items.sort_by(|a, b| a.id.cmp(&b.id));
         Ok(ListResult {
             count: items.len(),
             items,
@@ -297,10 +396,26 @@ impl Workspace {
     ///
     /// Returns an item-read error or [`PmRustError::ItemNotFound`].
     pub fn get(&self, id: &str) -> Result<ItemDocument, PmRustError> {
-        self.read_items()?
-            .into_iter()
-            .find(|document| document.metadata.id == id)
-            .ok_or_else(|| PmRustError::ItemNotFound { id: id.to_owned() })
+        let mut found = None;
+        for path in self.lookup_paths(Some(id))? {
+            if let Some(first) = found {
+                return Err(PmRustError::DuplicateItemId {
+                    id: id.to_owned(),
+                    first,
+                    second: path,
+                });
+            }
+            found = Some(path);
+        }
+        let path = found.ok_or_else(|| PmRustError::ItemNotFound { id: id.to_owned() })?;
+        let document = read_item(&path)?;
+        if document.metadata.id != id {
+            return Err(PmRustError::InvalidItemDocument {
+                path,
+                reason: "stored id does not match the item filename".to_owned(),
+            });
+        }
+        Ok(document)
     }
 
     /// Creates one canonical item under a crash-recoverable per-item transaction.
@@ -372,6 +487,59 @@ impl Workspace {
     }
 }
 
+/// Reads and projects at most 256 files with four workers in listing order.
+///
+/// The projection is pure; identity checks and error reporting remain ordered
+/// on the caller. Direct get never uses worker prefetch.
+#[cfg(any(windows, target_os = "macos"))]
+fn read_parallel_batch<T: Send>(batch: &[PathBuf], read: impl Fn(&Path) -> T + Sync) -> Vec<T> {
+    let mut groups: [Vec<T>; 4] = std::array::from_fn(|_| Vec::new());
+    std::thread::scope(|scope| {
+        for (paths, rows) in batch.chunks(64).zip(groups.iter_mut()) {
+            let read = &read;
+            scope.spawn(move || {
+                for path in paths {
+                    rows.push(read(path));
+                }
+            });
+        }
+    });
+    groups.into_iter().flatten().collect()
+}
+
+/// Decodes one projection and rejects repeated authoritative identities while streaming.
+pub(crate) fn decode_unique(
+    path: &Path,
+    content: &str,
+    projection: crate::read_projection::Projection,
+    seen: &mut BTreeMap<String, PathBuf>,
+) -> Result<ItemDocument, PmRustError> {
+    let document = crate::read_projection::decode(path, content, projection)?;
+    if let Some(first) = seen.insert(document.metadata.id.clone(), path.to_path_buf()) {
+        return Err(PmRustError::DuplicateItemId {
+            id: document.metadata.id,
+            first,
+            second: path.to_path_buf(),
+        });
+    }
+    Ok(document)
+}
+
+/// Opens one authoritative item file, also observing real opens in unit tests.
+fn read_item_text(path: &Path) -> Result<String, PmRustError> {
+    #[cfg(test)]
+    tests::ITEM_OPENS.with(|count| count.set(count.get() + 1));
+    fs::read_to_string(path).map_err(|source| PmRustError::Io {
+        path: path.to_path_buf(),
+        source,
+    })
+}
+
+/// Strictly decodes the complete authoritative file selected by its listing entry.
+fn read_item(path: &Path) -> Result<ItemDocument, PmRustError> {
+    decode_item(path, &read_item_text(path)?)
+}
+
 /// Matches Node's working-directory spelling without expanding Windows aliases.
 fn query_root_path<'a>(resolved: &'a Path, canonical: &'a Path, windows: bool) -> &'a Path {
     if windows { resolved } else { canonical }
@@ -399,6 +567,49 @@ fn collect_directory_entries(
         })
 }
 
+/// Maps directory-entry type failures without replacing them with guessed folders.
+fn listing_type(
+    path: &Path,
+    result: io::Result<fs::FileType>,
+) -> Result<fs::FileType, PmRustError> {
+    result.map_err(|source| PmRustError::Io {
+        path: path.to_path_buf(),
+        source,
+    })
+}
+
+/// Captures paths and cached entry types through one fallible listing boundary.
+fn listing_entries(path: &Path) -> Result<Vec<(PathBuf, fs::FileType)>, PmRustError> {
+    read_directory(path)?
+        .into_iter()
+        .map(|entry| {
+            let path = entry.path();
+            listing_type(&path, entry.file_type()).map(|kind| (path, kind))
+        })
+        .collect()
+}
+
+/// Recurses actual type directories, ignoring symbolic links and unrelated filenames.
+fn collect_lookup_paths(
+    path: &Path,
+    id: Option<&str>,
+    paths: &mut Vec<PathBuf>,
+) -> Result<(), PmRustError> {
+    for (entry_path, kind) in listing_entries(path)? {
+        if kind.is_dir() {
+            collect_lookup_paths(&entry_path, id, paths)?;
+        } else if kind.is_file()
+            && entry_path
+                .extension()
+                .is_some_and(|extension| extension == "toon")
+            && id.is_none_or(|id| entry_path.file_stem().is_some_and(|name| name == id))
+        {
+            paths.push(entry_path);
+        }
+    }
+    Ok(())
+}
+
 /// Recursively collects regular TOON files without following symbolic links.
 fn collect_toon_paths(path: &Path, paths: &mut Vec<PathBuf>) -> Result<(), PmRustError> {
     collect_toon_entries(read_directory(path)?, paths)
@@ -411,13 +622,19 @@ fn collect_toon_entries(
 ) -> Result<(), PmRustError> {
     for entry in entries {
         let entry_path = entry.path();
-        if entry_path.is_symlink() {
-            continue;
-        }
-        if entry_path.is_dir() {
+        let metadata = match entry_path.symlink_metadata() {
+            Ok(metadata) => metadata,
+            Err(source) if source.kind() == io::ErrorKind::NotFound => continue,
+            Err(source) => {
+                return Err(PmRustError::Io {
+                    path: entry_path,
+                    source,
+                });
+            }
+        };
+        if metadata.is_dir() {
             collect_toon_paths(&entry_path, paths)?;
-        } else if entry_path.is_file()
-            && entry_path.extension().is_some_and(|value| value == "toon")
+        } else if metadata.is_file() && entry_path.extension().is_some_and(|value| value == "toon")
         {
             paths.push(entry_path);
         }

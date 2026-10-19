@@ -1,5 +1,6 @@
 //! Search corpus, configuration, cursor and failure-boundary contracts.
 use super::*;
+use std::fs;
 type TestResult = Result<(), Box<dyn std::error::Error>>;
 
 /// Failed settings, schema and item reads never turn into successful empty searches.
@@ -386,5 +387,74 @@ fn search_continuation_boundaries() -> TestResult {
     assert!(workspace.search("needle", &options).is_err());
     options.output.after = Some("!".to_owned());
     assert!(workspace.search("needle", &options).is_err());
+    Ok(())
+}
+
+/// A bounded working set still reports all matches and the same oracle ordering.
+#[test]
+fn bounded_search_retains_total_and_best_rows() -> TestResult {
+    let (directory, workspace) = fixture(&json!({"id_prefix":"sample-"}))?;
+    for index in 0..80 {
+        let id = format!("sample-{index:03}");
+        let item = json!({"id":id,"title":"needle","type":"Task","status":"open","priority":index % 5,"created_at":"2026-08-22T10:00:00.000Z","updated_at":"2026-08-22T10:00:00.000Z","body":"large unused payload"});
+        fs::write(
+            directory.path().join(format!(".agents/pm/tasks/{id}.toon")),
+            toon_format::encode_default(&item)?,
+        )?;
+    }
+    let all = workspace.search(
+        "needle",
+        &SearchOptions {
+            output: crate::ListOptions {
+                limit: Some("1000".to_owned()),
+                ..Default::default()
+            },
+            ..Default::default()
+        },
+    )?;
+    let bounded = workspace.search(
+        "needle",
+        &SearchOptions {
+            output: crate::ListOptions {
+                limit: Some("3".to_owned()),
+                ..Default::default()
+            },
+            ..Default::default()
+        },
+    )?;
+    assert_eq!(
+        bounded["items"].as_array().ok_or("rows missing")?,
+        &all["items"].as_array().ok_or("rows missing")?[..3]
+    );
+    assert_eq!(bounded["total"], all["count"]);
+    assert_eq!(bounded["has_more"], true);
+    Ok(())
+}
+
+/// Metadata filters skip unrelated payloads but selected keyword sources still strictly decode.
+#[test]
+fn filtered_search_strictly_decodes_selected_payloads() -> TestResult {
+    let directory = tempfile::tempdir()?;
+    let root = directory.path().join(".agents/pm");
+    fs::create_dir_all(root.join("tasks"))?;
+    fs::write(root.join("settings.json"), "{}")?;
+    fs::write(
+        root.join("tasks/sample-one.toon"),
+        "id: sample-one\ntitle: Needle\ntype: Task\nstatus: open\npriority: 1\ncreated_at: date\nupdated_at: date\nextra_invalid[2]: value\n",
+    )?;
+    let workspace = Workspace::discover(directory.path())?;
+    let selected = SearchOptions {
+        status: Some("open".to_owned()),
+        ..Default::default()
+    };
+    assert!(matches!(
+        workspace.search("needle", &selected),
+        Err(PmRustError::InvalidItemDocument { .. })
+    ));
+    let excluded = SearchOptions {
+        status: Some("closed".to_owned()),
+        ..Default::default()
+    };
+    assert_eq!(workspace.search("needle", &excluded)?["count"], 0);
     Ok(())
 }

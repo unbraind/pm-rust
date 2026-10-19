@@ -61,6 +61,39 @@ fn tracker() -> Result<(TempDir, PathBuf), Box<dyn std::error::Error>> {
     Ok((directory, fs::canonicalize(root)?))
 }
 
+/// Every public read refuses a listing fault instead of fabricating an empty selection.
+fn queries_refuse_broken_storage(workspace: &Workspace) -> Result<(), Box<dyn std::error::Error>> {
+    let results = [
+        workspace.get("demo-a").map(|_| ()),
+        workspace.list(ItemFilter::default()).map(|_| ()),
+        workspace
+            .list_page(
+                &ItemFilter::default(),
+                &pm_rust::ListOptions::default(),
+                "2026-08-22T10:00:00.000Z",
+            )
+            .map(|_| ()),
+        workspace
+            .context(
+                &pm_rust::ContextOptions {
+                    no_extension_health: true,
+                    ..Default::default()
+                },
+                "2026-08-22T10:00:00.000Z",
+            )
+            .map(|_| ()),
+        workspace
+            .search("needle", &pm_rust::SearchOptions::default())
+            .map(|_| ()),
+    ];
+    for result in results {
+        if !matches!(result, Err(PmRustError::Io { .. })) {
+            return Err("query did not preserve the real listing refusal".into());
+        }
+    }
+    Ok(())
+}
+
 #[test]
 fn discovers_workspace_tracker_nested_path_and_file() -> Result<(), Box<dyn std::error::Error>> {
     let (directory, root) = tracker()?;
@@ -312,12 +345,29 @@ fn rejects_invalid_documents() -> Result<(), Box<dyn std::error::Error>> {
 #[test]
 fn rejects_duplicate_ids_and_deleted_tracker() -> Result<(), Box<dyn std::error::Error>> {
     let (directory, root) = tracker()?;
-    write(root.join("chores/duplicate.toon"), ITEM_A)?;
+    write(root.join("chores/demo-a.toon"), ITEM_A)?;
     assert!(matches!(
         Workspace::discover(directory.path())?.read_items(),
         Err(PmRustError::DuplicateItemId { id, .. }) if id == "demo-a"
     ));
     let workspace = Workspace::discover(directory.path())?;
+    for index in 0..70 {
+        let id = format!("tail-{index:03}");
+        write(
+            root.join(format!("tasks/{id}.toon")),
+            &ITEM_A.replace("id: demo-a", &format!("id: {id}")),
+        )?;
+    }
+    // A later worker read failure must not overtake the earlier duplicate refusal.
+    fs::write(root.join("tasks/zzz-invalid.toon"), [0xff])?;
+    assert!(matches!(
+        workspace.list(ItemFilter::default()),
+        Err(PmRustError::DuplicateItemId { id, .. }) if id == "demo-a"
+    ));
+    assert!(matches!(
+        workspace.search("alpha", &pm_rust::SearchOptions::default()),
+        Err(PmRustError::DuplicateItemId { id, .. }) if id == "demo-a"
+    ));
     fs::remove_dir_all(&root)?;
     assert!(matches!(
         workspace.read_items(),
@@ -331,6 +381,29 @@ fn rejects_duplicate_ids_and_deleted_tracker() -> Result<(), Box<dyn std::error:
         workspace.get("demo-a"),
         Err(PmRustError::Io { .. })
     ));
+    for result in [
+        workspace
+            .list_page(
+                &ItemFilter::default(),
+                &pm_rust::ListOptions::default(),
+                "2026-08-22T10:00:00.000Z",
+            )
+            .map(|_| ()),
+        workspace
+            .context(
+                &pm_rust::ContextOptions {
+                    no_extension_health: true,
+                    ..Default::default()
+                },
+                "2026-08-22T10:00:00.000Z",
+            )
+            .map(|_| ()),
+        workspace
+            .search("needle", &pm_rust::SearchOptions::default())
+            .map(|_| ()),
+    ] {
+        assert!(matches!(result, Err(PmRustError::Io { .. })));
+    }
     Ok(())
 }
 
@@ -399,8 +472,11 @@ fn reports_an_unreadable_nested_item_directory() -> Result<(), Box<dyn std::erro
     let path = root.join("tasks/nested/locked");
     fs::create_dir_all(&path)?;
     fs::set_permissions(&path, fs::Permissions::from_mode(0o000))?;
-    let result = Workspace::discover(directory.path())?.read_items();
+    let workspace = Workspace::discover(directory.path())?;
+    let result = workspace.read_items();
+    let queries = queries_refuse_broken_storage(&workspace);
     fs::set_permissions(&path, fs::Permissions::from_mode(0o700))?;
+    queries?;
     assert!(matches!(
         result,
         Err(PmRustError::Io { path: failed, .. }) if failed == path
@@ -422,7 +498,9 @@ fn reports_a_windows_exclusively_held_nested_directory() -> Result<(), Box<dyn s
         .err()
         .ok_or("exclusively held directory listing succeeded")?;
     assert_eq!(error.raw_os_error(), Some(32), "{error:?}");
-    let result = Workspace::discover(directory.path())?.read_items();
+    let workspace = Workspace::discover(directory.path())?;
+    let result = workspace.read_items();
+    queries_refuse_broken_storage(&workspace)?;
     drop(held);
     assert!(matches!(result, Err(PmRustError::Io { path, .. }) if path == nested));
     assert_eq!(
@@ -451,6 +529,12 @@ fn ignores_symlinked_item_directories() -> Result<(), Box<dyn std::error::Error>
         Workspace::discover(directory.path())?.read_items()?.len(),
         2
     );
+    assert_eq!(
+        Workspace::discover(directory.path())?
+            .list(ItemFilter::default())?
+            .total,
+        2
+    );
     Ok(())
 }
 
@@ -476,6 +560,12 @@ fn ignores_windows_symlinked_item_directories() -> Result<(), Box<dyn std::error
     }
     assert_eq!(
         Workspace::discover(directory.path())?.read_items()?.len(),
+        2
+    );
+    assert_eq!(
+        Workspace::discover(directory.path())?
+            .list(ItemFilter::default())?
+            .total,
         2
     );
     Ok(())
@@ -552,5 +642,174 @@ fn cli_reports_a_closed_stdout_pipe() -> Result<(), Box<dyn std::error::Error>> 
         .spawn()?;
     drop(child.stdout.take());
     assert_eq!(child.wait()?.code(), Some(2));
+    Ok(())
+}
+
+/// The production SDK preserves decoded-ID ordering and filters within a streamed corpus.
+#[test]
+fn sdk_streaming_sorts_filters_and_preserves_total() -> Result<(), Box<dyn std::error::Error>> {
+    let (directory, root) = tracker()?;
+    let workspace = Workspace::discover(directory.path())?;
+    let all = workspace.list(ItemFilter::default())?;
+    assert_eq!(
+        all.items
+            .iter()
+            .map(|row| row.id.as_str())
+            .collect::<Vec<_>>(),
+        ["demo-a", "demo-b"]
+    );
+    let closed = workspace.list(ItemFilter {
+        status: Some("closed".to_owned()),
+        ..Default::default()
+    })?;
+    assert_eq!(closed.items.len(), 1);
+    assert_eq!(closed.total, 2);
+    let complete = workspace.list_page(
+        &ItemFilter::default(),
+        &pm_rust::ListOptions {
+            all: true,
+            ..Default::default()
+        },
+        "2026-08-22T10:00:00.000Z",
+    )?;
+    assert_eq!(complete["count"], 2);
+    write(
+        root.join("issues/nested/demo-b.toon"),
+        &(ITEM_B
+            .replace("parent: demo-a\n", "")
+            .replace("status: closed", "status: open")
+            + "dependencies[1]{id,kind}:\n  demo-a,child_of\n"),
+    )?;
+    let children = workspace.list_page(
+        &ItemFilter::default(),
+        &pm_rust::ListOptions {
+            parent: Some("demo-a".to_owned()),
+            ..Default::default()
+        },
+        "2026-08-22T10:00:00.000Z",
+    )?;
+    assert_eq!(children["count"], 1);
+    assert_eq!(children["items"][0]["id"], "demo-b");
+    write(
+        root.join("issues/nested/demo-b.toon"),
+        &ITEM_B.replace("status: closed", "status: open"),
+    )?;
+    let page = workspace.list_page(
+        &ItemFilter {
+            id: Some("demo-b".to_owned()),
+            ..Default::default()
+        },
+        &pm_rust::ListOptions {
+            tag: Some("beta".to_owned()),
+            ..Default::default()
+        },
+        "2026-08-22T10:00:00.000Z",
+    )?;
+    assert_eq!(page["count"], 1);
+    assert_eq!(page["items"][0]["id"], "demo-b");
+    for offset in [None, Some("0".to_owned())] {
+        assert!(matches!(
+            workspace.list_page(
+                &ItemFilter::default(),
+                &pm_rust::ListOptions {
+                    limit: Some("bad".to_owned()),
+                    offset,
+                    ..Default::default()
+                },
+                "2026-08-22T10:00:00.000Z",
+            ),
+            Err(PmRustError::InvalidReadRequest { .. })
+        ));
+    }
+    Command::cargo_bin("pm-rust")?
+        .arg("--workspace")
+        .arg(directory.path())
+        .args(["list", "--limit", "bad", "--offset", "0"])
+        .assert()
+        .code(2)
+        .stderr(contains("output control"));
+    Ok(())
+}
+
+/// Raw reads and strict selected-document failures propagate through SDK iterators.
+#[test]
+fn sdk_streaming_preserves_invalid_utf8_refusals() -> Result<(), Box<dyn std::error::Error>> {
+    let (directory, root) = tracker()?;
+    fs::write(root.join("tasks/demo-a.toon"), [0xff])?;
+    let workspace = Workspace::discover(directory.path())?;
+    for result in [
+        workspace.get("demo-a").map(|_| ()),
+        workspace.list(ItemFilter::default()).map(|_| ()),
+        workspace
+            .list_page(
+                &ItemFilter::default(),
+                &pm_rust::ListOptions::default(),
+                "2026-08-22T10:00:00.000Z",
+            )
+            .map(|_| ()),
+        workspace
+            .context(
+                &pm_rust::ContextOptions {
+                    no_extension_health: true,
+                    ..Default::default()
+                },
+                "2026-08-22T10:00:00.000Z",
+            )
+            .map(|_| ()),
+        workspace
+            .search("needle", &pm_rust::SearchOptions::default())
+            .map(|_| ()),
+    ] {
+        assert!(
+            matches!(result, Err(PmRustError::Io { source, .. }) if source.kind() == std::io::ErrorKind::InvalidData)
+        );
+    }
+    write(root.join("tasks/demo-a.toon"), "<<<<<<< damaged\n")?;
+    assert!(matches!(
+        workspace.list_page(
+            &ItemFilter {
+                id: Some("demo-a".to_owned()),
+                ..Default::default()
+            },
+            &pm_rust::ListOptions::default(),
+            "2026-08-22T10:00:00.000Z",
+        ),
+        Err(PmRustError::InvalidItemDocument { .. })
+    ));
+    Command::cargo_bin("pm-rust")?
+        .arg("--workspace")
+        .arg(directory.path())
+        .args(["list", "--id", "demo-a"])
+        .assert()
+        .code(2)
+        .stderr(contains("merge conflict markers detected"));
+    assert!(matches!(
+        workspace.list(ItemFilter::default()),
+        Err(PmRustError::InvalidItemDocument { .. })
+    ));
+    assert!(matches!(
+        workspace.search("needle", &pm_rust::SearchOptions::default()),
+        Err(PmRustError::InvalidItemDocument { .. })
+    ));
+    Ok(())
+}
+
+/// Selected search payloads retain strict decoding after a successful metadata filter.
+#[test]
+fn sdk_search_strict_payload_failure_after_filter() -> Result<(), Box<dyn std::error::Error>> {
+    let (directory, root) = tracker()?;
+    write(
+        root.join("tasks/demo-a.toon"),
+        &format!("{ITEM_A}extra_invalid[2]: value\n"),
+    )?;
+    let workspace = Workspace::discover(directory.path())?;
+    let options = pm_rust::SearchOptions {
+        status: Some("open".to_owned()),
+        ..Default::default()
+    };
+    assert!(matches!(
+        workspace.search("alpha", &options),
+        Err(PmRustError::InvalidItemDocument { .. })
+    ));
     Ok(())
 }
