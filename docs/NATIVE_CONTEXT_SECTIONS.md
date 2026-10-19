@@ -25,7 +25,9 @@ Comment, note and learning payloads remain count-only. Compact activity reads
 retained history only when its section is selected, including deleted-item
 streams. Native reads write neither derived caches nor usage feedback.
 
-`deps <id> --format context` serves a bounded relationship packet. It explains
+The locked CLI exposes relationship packets through `deps <id> --format context`,
+rather than embedding them in the orientation response. That command now serves
+a bounded native relationship packet. It explains
 parent/child and blocker/dependent relationships, with direction and kind
 filters, breadth-first distances, root evidence, exact completeness counters
 and cursor continuation. Node, edge, depth and rendered token bounds match the
@@ -70,3 +72,13 @@ three producer pages. It then alternates fresh native/oracle processes after
 warmup and emits only aggregate evidence and timing samples. Private tracker
 rows, identities, filesystem paths and raw outputs are never included in its
 public receipt. Authoritative item and history hashes must remain unchanged.
+
+The aggregate gate is `just release-check`: this Rust repository has no root
+npm manifest, npm tarball or packed-consumer targets. Its oracle installation
+uses the locked npm package. Additional Bun acceptance runs the same oracle
+orientation suite with `PM_NODE_INTERPRETER=bun`; this changes only the test
+interpreter, while the production path remains native Rust.
+
+Measurements use 30 fresh processes per runtime and command, alternating order
+after warmup. Both p50 and p95 use nearest-rank percentiles. Timings describe the
+shared validation host and this captured tracker, not a general scale guarantee.

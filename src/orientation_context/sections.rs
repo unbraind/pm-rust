@@ -151,9 +151,22 @@ fn activity(workspace: &Workspace, limit: usize) -> Result<Value, PmRustError> {
         Err(error) if error.kind() == std::io::ErrorKind::NotFound => return Ok(json!([])),
         Err(source) => return Err(PmRustError::Io { path, source }),
     };
+    activity_entries(workspace, entries, &path, limit)
+}
+
+/// Traverses retained activity entries while preserving directory-iteration failures.
+fn activity_entries(
+    workspace: &Workspace,
+    entries: impl IntoIterator<Item = std::io::Result<std::fs::DirEntry>>,
+    path: &std::path::Path,
+    limit: usize,
+) -> Result<Value, PmRustError> {
     let mut rows = Vec::new();
     for entry in entries {
-        let entry = activity_entry(entry, &path)?;
+        let entry = entry.map_err(|source| PmRustError::Io {
+            path: path.to_path_buf(),
+            source,
+        })?;
         let name = entry.file_name();
         let name = name.to_string_lossy();
         if let Some(id) = name.strip_suffix(".jsonl") {
@@ -176,17 +189,6 @@ fn activity(workspace: &Workspace, limit: usize) -> Result<Value, PmRustError> {
     });
     rows.truncate(limit);
     Ok(json!(rows))
-}
-
-/// Preserves a directory iterator's original failure and history directory context.
-fn activity_entry(
-    entry: std::io::Result<std::fs::DirEntry>,
-    path: &std::path::Path,
-) -> Result<std::fs::DirEntry, PmRustError> {
-    entry.map_err(|source| PmRustError::Io {
-        path: path.to_path_buf(),
-        source,
-    })
 }
 
 /// Builds hierarchy counts and child summaries from already selected high-level parents.

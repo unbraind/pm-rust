@@ -86,6 +86,48 @@ for (const depth of [[], ['--depth', 'deep']]) {
   }
 }
 
+console.log(JSON.stringify({ phase: 'context-parity', comparisons }));
+
+// Select representative relationship roots from the marked copy without publishing IDs.
+const candidates = [...before.keys()].filter(key => key.endsWith('.toon')).sort();
+const roots = new Set<string>();
+for (const pattern of [/^parent: (?!null|\s*$)/m, /^deps\[[1-9]/m, /^blocked_by: (?!null|\s*$)/m]) {
+  const selected = candidates.find(key => pattern.test(readFileSync(join(tracker, key), 'utf8')));
+  if (selected) roots.add(selected.split(/[\\/]/).at(-1)!.slice(0, -5));
+}
+if (roots.size === 0) throw new Error('The real-copy packet matrix needs relationship-bearing roots');
+let packetComparisons = 0;
+for (const id of roots) {
+  for (const controls of [[], ['--summary'], ['--node-limit', '1'], ['--direction', 'incoming'], ['--token-budget', '800']]) {
+    for (const format of [[], ['--json']]) {
+      const args = ['deps', id, '--format', 'context', ...controls, ...format];
+      const oracle = run('oracle', args);
+      const native = run('native', args);
+      if (oracle.status !== 0 || native.status !== 0 || !oracle.bytes.equals(native.bytes)) {
+        writeFileSync(join(root, 'oracle-output.private'), oracle.bytes);
+        writeFileSync(join(root, 'native-output.private'), native.bytes);
+        throw new Error(`Real-copy packet parity failed at comparison ${packetComparisons + 1}`);
+      }
+      comparisons += 1;
+      packetComparisons += 1;
+    }
+  }
+  let cursor: string | undefined;
+  for (let page = 0; page < 3; page += 1) {
+    const args = ['deps', id, '--format', 'context', '--node-limit', '1', '--json', ...(cursor ? ['--cursor', cursor] : [])];
+    const oracle = run('oracle', args);
+    const native = run('native', args);
+    if (oracle.status !== 0 || native.status !== 0 || !oracle.bytes.equals(native.bytes)) throw new Error('Real-copy packet continuation parity failed');
+    comparisons += 1;
+    packetComparisons += 1;
+    const parsed: { context: { meta: { nextCursor?: string } } } = JSON.parse(oracle.bytes.toString().split('\0')[0]);
+    cursor = parsed.context.meta.nextCursor;
+    if (!cursor) break;
+  }
+}
+
+console.log(JSON.stringify({ phase: 'packet-parity', comparisons, packet_comparisons: packetComparisons }));
+
 /** Return the nearest-rank latency percentile. */
 function percentile(values: number[], quantile: number): number {
   const sorted = [...values].sort((a, b) => a - b);
@@ -108,6 +150,7 @@ for (const depth of [[], ['--depth', 'deep']]) {
       if (result.status !== 0) throw new Error(`Benchmark failed: ${runtime}`);
       samples.push({ command: args.join(' '), runtime, round, ms: result.ms });
     }
+    if ((round + 1) % 5 === 0) console.log(JSON.stringify({ phase: 'timing', command: args.join(' '), rounds: round + 1 }));
   }
   for (const runtime of ['native', 'oracle']) {
     const values = samples.filter(row => row.command === args.join(' ') && row.runtime === runtime).map(row => row.ms);
@@ -118,7 +161,7 @@ const after = authoritative(tracker);
 if (createHash('sha256').update(readFileSync(binary)).digest('hex') !== binaryHash) throw new Error('Native binary changed during the run');
 if (before.size !== after.size || [...before].some(([key, hash]) => after.get(key) !== hash)) throw new Error('Authoritative copy changed');
 const receipt = {
-  oracle: '2026.10.14', clock, comparisons,
+  oracle: '2026.10.14', clock, comparisons, packet_comparisons: packetComparisons, packet_roots: roots.size,
   item_count: [...before.keys()].filter(key => key.endsWith('.toon')).length,
   authoritative_files: before.size, authoritative_unchanged: true,
   binary_sha256: binaryHash,

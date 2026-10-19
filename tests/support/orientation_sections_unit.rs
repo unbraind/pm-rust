@@ -188,7 +188,7 @@ fn section_activity_storage_and_ordering() -> Result<(), Box<dyn std::error::Err
     fs::write(&history, "not a directory")?;
     assert!(activity(&workspace, 10).is_err());
     let error = fs::read_dir(&history).err().ok_or("filesystem refusal")?;
-    assert!(activity_entry(Err(error), &history).is_err());
+    assert!(activity_entries(&workspace, [Err(error)], &history, 10).is_err());
     fs::remove_file(&history)?;
     fs::create_dir(&history)?;
     fs::write(history.join("ignored.txt"), "not history")?;
@@ -220,5 +220,73 @@ fn section_activity_storage_and_ordering() -> Result<(), Box<dyn std::error::Err
     assert_eq!(activity(&workspace, 1)?.as_array().map(Vec::len), Some(1));
     fs::write(history.join("sample-b.jsonl"), "invalid JSON")?;
     assert!(activity(&workspace, 10).is_err());
+    Ok(())
+}
+
+/// Configured activity limits and retained-storage failures flow through the complete context API.
+#[test]
+fn configured_sections_preserve_activity_errors_and_stale_order()
+-> Result<(), Box<dyn std::error::Error>> {
+    let (_directory, workspace, lifecycle) = workspace()?;
+    let pm = workspace.pm_root();
+    fs::write(
+        pm.join("settings.json"),
+        json!({"context":{"activity_limit":1}}).to_string(),
+    )?;
+    fs::create_dir(pm.join("history"))?;
+    fs::write(
+        pm.join("history/sample-gone.jsonl"),
+        format!(
+            "{}\n{}\n",
+            json!({"ts":NOW,"op":"create"}),
+            json!({"ts":NOW,"op":"update"})
+        ),
+    )?;
+    let mut older = item("sample-older", "open");
+    older["updated_at"] = json!("2026-08-01T10:00:00.000Z");
+    let mut newer = item("sample-newer", "open");
+    newer["updated_at"] = json!("2026-08-02T10:00:00.000Z");
+    let corpus = vec![newer, older];
+    let result = build(
+        &workspace,
+        &["activity", "staleness"],
+        &corpus,
+        &[],
+        &[],
+        &BTreeSet::new(),
+        &lifecycle,
+        NOW,
+        10,
+        &json!({"context":{"activity_limit":1}}),
+    )?;
+    assert_eq!(result["activity"].as_array().map(Vec::len), Some(1));
+    assert_eq!(result["staleness"][0]["id"], "sample-older");
+    fs::write(pm.join("history/sample-gone.jsonl"), "invalid JSON")?;
+    assert!(
+        build(
+            &workspace,
+            &["activity"],
+            &corpus,
+            &[],
+            &[],
+            &BTreeSet::new(),
+            &lifecycle,
+            NOW,
+            10,
+            &json!({})
+        )
+        .is_err()
+    );
+    assert!(
+        workspace
+            .context(
+                &crate::ContextOptions {
+                    depth: Some("deep".to_owned()),
+                    ..Default::default()
+                },
+                NOW
+            )
+            .is_err()
+    );
     Ok(())
 }
