@@ -49,7 +49,7 @@ function main(): void {
         const child = spawnSync(binary, ['--workspace', root, ...args], { cwd: root, env, encoding: 'utf8' });
         const elapsed = performance.now() - start;
         if (child.error || child.status !== 0 || !child.stdout) {
-          throw new Error(`${name} failed: ${child.error?.message ?? child.stderr}`);
+          throw new Error(`${name} failed (status ${child.status}, signal ${child.signal}): ${child.error?.message ?? child.stderr}`);
         }
         samples.push(elapsed);
       }
