@@ -227,3 +227,41 @@ root/evidence refusals still match the oracle.
 The final oversized-evidence harness fixture exercises matching refusals in both
 the packet matrix and continuation, while summary packets remain successful.
 No review threads are replied to or resolved by this change.
+
+
+Implementation `a01ca0b` passed all nine CI jobs in
+[run 39335689495](https://github.com/unbraind/pm-rust/actions/runs/39335689495),
+including the unchanged full `just release-check` on every platform:
+
+| Platform | Ordinary tests | Instrumented tests | Lines covered | Functions covered | Regions covered | Branches covered |
+| --- | ---: | ---: | ---: | ---: | ---: | ---: |
+| Linux | 509 | 509 | 13,136/13,136 | 1,355/1,355 | 21,941/21,941 | 3,152/3,152 |
+| macOS | 505 | 505 | 13,183/13,183 | 1,367/1,367 | 22,028/22,028 | 3,154/3,154 |
+| Windows | 500 | 500 | 13,182/13,182 | 1,368/1,368 | 22,029/22,029 | 3,156/3,156 |
+
+Every platform completed 42 suite executions with zero failures or ignored tests.
+Lines, functions, regions and branches are all 100 percent at unchanged source
+scope and thresholds. Formatting, strict Clippy, private-item rustdoc, audit,
+identity and changelog checks passed. Audit retains the pre-existing allowed
+`RUSTSEC-2024-0449` unmaintained development-dependency advisory. All three
+latency jobs passed the unchanged 50/150/250 ms bounds, and CodeQL passed.
+
+The complete Bun orientation suite passed 27/27 with
+`PM_NODE_INTERPRETER=bun PM_RUST_REQUIRE_PUBLISHED_CLI=1 cargo +1.90.0 test --locked --test orientation_differential -- --test-threads=1`.
+Node and Bun harness tests passed 7/7 each. All seven linked pm commands passed,
+covering 20 underlying test executions; automatic run recording remains disabled
+by project policy, so the item comments retain the aggregate and revert proofs.
+
+A fresh no-local clone of the implementation passed strict check-only tracker
+health with required merge drivers and no tracked changes. This does not claim
+a full retained-history audit. Host-only extension skew and existing advisories
+remain outside this change. The duplicate local aggregate was stopped after the
+complete Linux CI aggregate passed; it is excluded from completed gate evidence.
+The successful clone health check used the locked package from a verified cache
+after an earlier package-install setup was excluded. CodeRabbit reported manual
+review required; skipped automated reviews are not approval.
+
+The handoff commit changes only this evidence and the paired tracker item/history;
+production code, tests, workflow, pins and thresholds match the certified
+implementation. Its own exact-head CI matrix is verified before the final PR
+handoff. The item remains in progress and is released for orchestrator review.
