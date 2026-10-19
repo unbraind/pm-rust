@@ -622,8 +622,15 @@ fn collect_toon_entries(
 ) -> Result<(), PmRustError> {
     for entry in entries {
         let entry_path = entry.path();
-        let Ok(metadata) = entry_path.symlink_metadata() else {
-            continue;
+        let metadata = match entry_path.symlink_metadata() {
+            Ok(metadata) => metadata,
+            Err(source) if source.kind() == io::ErrorKind::NotFound => continue,
+            Err(source) => {
+                return Err(PmRustError::Io {
+                    path: entry_path,
+                    source,
+                });
+            }
         };
         if metadata.is_dir() {
             collect_toon_paths(&entry_path, paths)?;

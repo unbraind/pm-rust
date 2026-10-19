@@ -135,6 +135,52 @@ fn directory_snapshots_skip_removed_entries_symlinks_and_non_toon_files()
     Ok(())
 }
 
+/// An ancestor replaced after enumeration must not hide a listed item's metadata failure.
+#[test]
+fn directory_snapshots_propagate_item_metadata_errors() -> Result<(), Box<dyn std::error::Error>> {
+    let directory = tempfile::tempdir()?;
+    let root = directory.path().join(".agents/pm");
+    let items = root.join("tasks");
+    std::fs::create_dir_all(&items)?;
+    std::fs::write(root.join("settings.json"), "{}")?;
+    let item = items.join("sample-one.toon");
+    std::fs::write(&item, "listed before ancestor replacement")?;
+    let entries = super::read_directory(&items)?;
+    assert_eq!(entries.len(), 1);
+    std::fs::rename(&items, root.join("parked"))?;
+    // A real self-referential directory link fails metadata lookup through the
+    // ancestor on every platform, including when Unix tests run as root.
+    #[cfg(unix)]
+    std::os::unix::fs::symlink("tasks", &items)?;
+    #[cfg(windows)]
+    if let Err(error) = std::os::windows::fs::symlink_dir("tasks", &items) {
+        if error.raw_os_error() == Some(1314) && std::env::var_os("CI").is_none() {
+            eprintln!("skipping Windows symlink fixture off CI: ERROR_PRIVILEGE_NOT_HELD: {error}");
+            return Ok(());
+        }
+        return Err(error.into());
+    }
+    let expected = std::fs::symlink_metadata(&item)
+        .err()
+        .ok_or("metadata must hit the link loop")?;
+    assert_ne!(expected.kind(), io::ErrorKind::NotFound);
+    let mut paths = Vec::new();
+    let result = super::collect_toon_entries(entries, &mut paths);
+    // Remove the cycle before checking the refusal so cleanup is deterministic.
+    #[cfg(unix)]
+    std::fs::remove_file(&items)?;
+    #[cfg(windows)]
+    std::fs::remove_dir(&items)?;
+    let Err(PmRustError::Io { path, source }) = result else {
+        return Err("listed item metadata failure was silently skipped".into());
+    };
+    assert_eq!(path, item);
+    assert_eq!(source.kind(), expected.kind());
+    assert_eq!(source.raw_os_error(), expected.raw_os_error());
+    assert!(paths.is_empty());
+    Ok(())
+}
+
 #[test]
 fn directory_iteration_errors_retain_the_directory_path() -> Result<(), Box<dyn std::error::Error>>
 {

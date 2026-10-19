@@ -69,6 +69,15 @@ received a decode refusal instead of a directory-derived duplicate refusal.
 Restoring the lookup made both pass. The exact command and receipt are in the
 tracker item's append-only comments and linked test runs.
 
+Full-corpus discovery also refuses metadata failures for listed items. Only
+`NotFound` is ignored when an entry disappears after enumeration; every other
+error retains the affected item path and original I/O source. The real-filesystem
+`directory_snapshots_propagate_item_metadata_errors` regression replaces a listed
+directory with a link cycle before metadata lookup. Reverting only this error
+handling makes that test fail with an incomplete successful result, while the
+existing vanished-entry test still passes. Restoring the fix passes both tests
+with `cargo test --locked --lib workspace::tests::directory_snapshots`.
+
 ## Public-tracker measurement
 
 The measurement uses a temporary copy of the 2,991-item public tracker. Neither
