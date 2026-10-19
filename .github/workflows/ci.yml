@@ -26,8 +26,9 @@ jobs:
     # depth-1 clone there is almost nothing to walk, so the audit would pass
     # vacuously and report a clean history it never actually inspected.
     runs-on: ${{ matrix.os }}
-    # Windows completed all tests but exhausted 15 minutes during job cleanup.
-    timeout-minutes: ${{ matrix.os == 'windows-latest' && 20 || 15 }}
+    # Both Ubuntu and Windows passed tests but exhausted 15 minutes during cleanup.
+    # Allow the same bounded setup/test/cleanup window on every matrix runner.
+    timeout-minutes: 20
     strategy:
       fail-fast: false
       matrix:

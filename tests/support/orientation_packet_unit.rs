@@ -134,6 +134,47 @@ fn fixture_graph(lifecycle: &Lifecycle) -> Graph {
     Graph::new(&[root, parent, child, blocker, grandchild], lifecycle)
 }
 
+/// External targets reserve separate keys from local, missing and previously allocated IDs.
+#[test]
+fn packet_external_namespace_keys() -> Result<(), Box<dyn std::error::Error>> {
+    let (_directory, workspace) = workspace()?;
+    let lifecycle = crate::list_registry::Lifecycle::load(workspace.pm_root())?;
+    let mut root = item("sample-root");
+    root["dependencies"] = json!([
+        {"id":"plain-global","kind":"related","source_kind":"global"},
+        {"id":"plain-external","kind":"related","source_kind":"external"},
+        {"id":"sample-local","kind":"related","source_kind":"external"},
+        {"id":"sample-missing","kind":"related","source_kind":"external"},
+        {"id":"sample-missing","kind":"related"},
+        {"id":"https://example.invalid/item","kind":"related"}
+    ]);
+    let graph = Graph::new(
+        &[root, item("sample-local"), item("external:sample-local")],
+        &lifecycle,
+    );
+    for id in [
+        "plain-global",
+        "plain-external",
+        "external:external:sample-local",
+        "external:sample-missing",
+        "https://example.invalid/item",
+    ] {
+        assert_eq!(graph.details[id]["status"], "external");
+    }
+    assert_eq!(graph.details["sample-local"]["status"], "open");
+    assert_eq!(graph.details["sample-missing"]["status"], "missing");
+    let packet = packet(
+        &graph,
+        "sample-root",
+        &Query::new(&DepsOptions::default(), None)?,
+        &[],
+        None,
+        10000,
+    )?;
+    assert_eq!(packet["nodes"].as_array().map(Vec::len), Some(6));
+    Ok(())
+}
+
 /// Cyclic, duplicate, inverse and dangling edges retain stable selection and truthful bounds.
 #[test]
 fn packet_traversal_and_continuation() -> Result<(), Box<dyn std::error::Error>> {

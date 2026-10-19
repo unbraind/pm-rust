@@ -111,6 +111,31 @@ fn compare(a: &Value, b: &Value) -> std::cmp::Ordering {
         .unwrap_or(std::cmp::Ordering::Equal)
 }
 
+/// Allocates external keys after reserving every local and dangling identity.
+fn external_keys(
+    canonical: &BTreeMap<String, String>,
+    details: &mut BTreeMap<String, Value>,
+    external_ids: BTreeSet<String>,
+) -> BTreeMap<String, String> {
+    let mut external_ids: Vec<_> = external_ids.into_iter().collect();
+    external_ids.sort_by(|a, b| crate::collation::compare(a, b));
+    let mut used: BTreeSet<_> = canonical.keys().cloned().collect();
+    let mut external_keys = BTreeMap::new();
+    for id in external_ids {
+        let mut graph_id = id.clone();
+        while used.contains(&key(&graph_id)) {
+            graph_id = format!("external:{graph_id}");
+        }
+        used.insert(key(&graph_id));
+        details.insert(
+            graph_id.clone(),
+            json!({"id":graph_id,"title":format!("[external] {id}"),"status":"external"}),
+        );
+        external_keys.insert(id, graph_id);
+    }
+    external_keys
+}
+
 /// Immutable graph and dangling-reference evidence captured for one read.
 struct Graph {
     /// Compact node details including missing and external nodes.
@@ -133,6 +158,7 @@ impl Graph {
         let known_ids: BTreeSet<_> = canonical.keys().cloned().collect();
         let mut details: BTreeMap<String,Value> = corpus.iter().map(|item| (text(item,"id").trim().to_owned(),json!({"id":text(item,"id").trim(),"title":item["title"],"status":item["status"],"type":text(item,"type").trim()}))).collect();
         let mut raw_edges = Vec::new();
+        let mut external_ids = BTreeSet::new();
         let mut missing = Vec::new();
         let mut aliases: BTreeMap<String, usize> = BTreeMap::new();
         for item in corpus {
@@ -165,11 +191,10 @@ impl Graph {
                 } else {
                     canonical
                         .get(&normalized)
-                        .cloned()
-                        .unwrap_or_else(|| id.to_owned())
+                        .map_or_else(|| id.to_owned(), Clone::clone)
                 };
                 if is_external {
-                    details.entry(graph_id.clone()).or_insert_with(||json!({"id":graph_id,"title":format!("[external] {id}"),"status":"external"}));
+                    external_ids.insert(id.to_owned());
                 } else if !known {
                     canonical.insert(normalized, graph_id.clone());
                     details.insert(graph_id.clone(),json!({"id":graph_id,"title":format!("[missing] {graph_id}"),"status":"missing"}));
@@ -181,21 +206,22 @@ impl Graph {
                     }
                 }
                 if let Some(name) = kind(name) {
-                    raw_edges.push(json!({"source":source,"target":graph_id,"kind":name}));
+                    raw_edges.push((
+                        is_external,
+                        json!({"source":source,"target":graph_id,"kind":name}),
+                    ));
                 }
             }
         }
-        // Resolve forward references to the authoritative case after collecting all missing IDs.
+        let external_keys = external_keys(&canonical, &mut details, external_ids);
+        // Keep the captured namespace; plain external IDs cannot be inferred from spelling.
         let mut deduped = BTreeMap::new();
-        for mut edge in raw_edges {
-            if !external(text(&edge, "target"), "") {
-                edge["target"] = json!(
-                    canonical
-                        .get(&key(text(&edge, "target")))
-                        .cloned()
-                        .unwrap_or_default()
-                );
-            }
+        for (is_external, mut edge) in raw_edges {
+            edge["target"] = if is_external {
+                json!(external_keys[text(&edge, "target")])
+            } else {
+                json!(canonical[&key(text(&edge, "target"))])
+            };
             let mut endpoints = [
                 text(&edge, "source").to_owned(),
                 text(&edge, "target").to_owned(),

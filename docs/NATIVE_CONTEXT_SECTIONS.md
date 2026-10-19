@@ -57,6 +57,22 @@ the oracle undercounts that metadata; native packets retain the same estimate.
 Hierarchy trims parent identifiers, while progress groups the raw parent strings;
 this published inconsistency is retained. Completion follows the same IEEE division and rounding sequence: 29 closed
 descendants out of 200 render as 14 percent, matching the pinned CLI.
+The upstream compatibility reports are
+[pm-cli#1509](https://github.com/unbraind/pm-cli/issues/1509) (legacy blocker details),
+[#1510](https://github.com/unbraind/pm-cli/issues/1510) (cursor recovery),
+[#1511](https://github.com/unbraind/pm-cli/issues/1511) (repeated blocked pages),
+[#1512](https://github.com/unbraind/pm-cli/issues/1512) (rounding), and
+[#1513](https://github.com/unbraind/pm-cli/issues/1513) (packet budgets and unknown errors).
+Those output contracts stay pinned rather than introducing native-only changes.
+
+External graph keys also follow the oracle: plain `global` and `external`
+references retain external identity. Case-insensitive collisions with local,
+missing or already reserved graph IDs receive repeated `external:` prefixes.
+External node details never reuse local details. Synthetic tests cover plain
+namespaces, collisions and URL controls in full/summary TOON and JSON packets.
+The real-copy harness selects roots from decoded metadata with local targets;
+plain external references, including collisions, cannot satisfy that selection.
+
 Dependency fixtures retain `created_at`: the pinned reader's multiple-row
 timestamp-sort defect is already documented by
 [pm-rust-tdps](../.agents/pm/tasks/pm-rust-tdps.toon).
@@ -124,3 +140,30 @@ run recording disabled, so the aggregate is retained in item comments. The
 context regression fails with only its native method reverted and passes
 restored. The two numerical helper regressions also fail with integer shortcuts
 and pass when the oracle's floating-point sequence is restored.
+
+## Review round 1 latency diagnosis
+
+Windows context p95 was 339.5 ms on the evidence-only `506b448` head in
+[run 39278038751](https://github.com/unbraind/pm-rust/actions/runs/39278038751).
+The Rust sources and latency harness were identical to `63d359e`, whose p95 was
+186.2 ms in [run 39273842181](https://github.com/unbraind/pm-rust/actions/runs/39273842181).
+The preceding [run 39267857005](https://github.com/unbraind/pm-rust/actions/runs/39267857005)
+measured 213.5 ms. This establishes shared-runner variation without a source
+regression. The Ubuntu Rust job on `506b448` was cancelled after its full test
+step succeeded. Its check annotation reports exceeding the 15-minute execution
+limit. All three Rust jobs now receive the existing Windows allowance of 20
+minutes for setup, tests and cleanup; this does not change latency bounds.
+
+The latency gate now performs five unmeasured warm-up launches per command,
+then three fixed windows of 30 fresh processes. It enforces the median of the
+three nearest-rank p95 values and retains all 90 samples. There is no retry
+until success. Get/list/context bounds remain 50/150/250 ms. Harness regressions
+reject a sustained violation and a fast median with a slow p95 tail.
+
+Review regressions include four Node harness tests, a real-tracker external
+namespace unit test and an eight-case CLI oracle differential. Reverting only
+`Graph::new` to `506b448` fails the namespace unit test (exit 101); restoring it
+passes. Isolated behavioral reversions of argument validation, root namespace
+filtering, warm-up and median-window selection each fail the Node regressions
+(exit 1), which pass 4/4 with all fixes restored. These harness regressions run
+through the Rust release suite on every platform.

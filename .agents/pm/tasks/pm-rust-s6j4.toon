@@ -2,14 +2,16 @@ id: pm-rust-s6j4
 title: Extend native orientation to richer context sections and relationship packets
 description: "Follow-up to the native brief orientation slice: implement context intents, deeper sections, calendar recurrence and timezone handling, workspace-memory rollups, derived-snapshot recovery, dependency relationship-context packets, richer history projections and canonical output continuation controls. Keep unsupported requests explicit until each contract has exact oracle differentials."
 type: Task
-status: open
+status: in_progress
 priority: 2
 tags[3]: follow-up,orientation,rust
 created_at: "2026-10-18T03:44:38.720Z"
-updated_at: "2026-10-19T15:24:57.938Z"
+updated_at: "2026-10-19T16:25:26.511Z"
+assignee: codex-agent
+claim_principal: codex-agent
 author: codex-agent
 parent: pm-rust-u4al
-comments[18]{created_at,author,text}:
+comments[23]{created_at,author,text}:
   "2026-10-18T05:11:47.743Z",codex-agent,"Deferred orientation scope also includes richer extension discovery policy, nonminimal manifest controls and execution of declared context_relevance service overrides. The core native slice fails closed on these boundaries instead of executing extension code. Future acceptance must cover configured enable/disable policy, version/engine bounds, contribution inventories and scorer activation against the pinned oracle."
   "2026-10-19T12:26:44.135Z",codex-agent,"Scope: native default and deep context sections, relationship packets, producer continuation and output parity against the locked oracle. Preserve projection-based reads from #94. Validate synthetic fixtures and an immutable real tracker copy; publish aggregate timing only. The broader follow-up description remains beyond this bounded task."
   "2026-10-19T12:42:00.295Z",codex-agent,"Implementation in progress: preserve the brief metadata projection; add selected deep-section fields, descendant completion, retained compact activity, files/workload/staleness/test summaries and ranked continuation. Relationship packets use deps --format context, matching the pinned command contract. The immutable real copy contains 1254 items at capture. Initial parity exposed the existing static extension-health refusal for inert manifest metadata; extending that read boundary. Synthetic dependencies retain created_at because the locked oracle has the already tracked timestamp-sort defect."
@@ -28,20 +30,33 @@ comments[18]{created_at,author,text}:
   "2026-10-19T15:06:13.552Z",codex-agent,"Final-source acceptance and real-copy measurement passed at implementation head 63d359e. Bun ran all 24 orientation differential tests with zero failures or ignored tests. All three linked commands passed again: seven underlying test executions, with evidence recording unchanged at project tracking_disabled policy. The optimized binary passed 56 complete stdout/stderr/status comparisons: 30 context and 26 packet cases across two roots. The captured real tracker had 1254 items rather than the earlier stated 1251; all 2527 authoritative item/history files retained their hashes. Thirty alternating fresh-process samples per runtime/command: default native p50/p95 81.0/291.0 ms versus pinned TS 1402.2/5101.8 ms; deep native 445.7/598.0 ms versus TS 1905.0/2684.5 ms. The clock-pinned driver disables the scheduling-dependent packing guard; the shared-host results are bounded measurements, not a scale guarantee. Aggregate receipt: docs/benchmarks/native-context-sections-2026-10-19.json. Whole-crate CI gates remain pending."
   "2026-10-19T15:24:51.243Z",codex-agent,"Complete unchanged release gates PASSED at 63d359e on all three platforms: Linux 502 ordinary plus 502 instrumented tests, macOS 498 plus 498, Windows 493 plus 493, each across 40 suite executions with zero failures or ignored tests. Every platform measures 100 percent lines/functions/regions/branches. Linux exact totals: 13074 lines, 1349 functions, 21821 regions, 3148 branches, all covered. Formatting, strict Clippy, private-item rustdoc, required pinned-oracle suites, audit under the existing advisory policy, changelog verification and clone-local merge-driver/strict tracker health checks passed. All nine CI jobs and CodeQL are green. Gate receipt: docs/benchmarks/native-context-gates-2026-10-19.json; run: https://github.com/unbraind/pm-rust/actions/runs/39273842181. The measured Rust source is frozen; only aggregate receipts, documentation and tracker handoff remain to commit."
   "2026-10-19T15:24:55.910Z",codex-agent,"Handoff: the requested native sections and relationship-packet slice is implemented in PR #98, Serve pm context natively with relationship packets. Exact fixture and real-copy parity, both behavioral revert proofs, final-source Bun acceptance, full unchanged cross-platform gates and the real-copy timing table are documented. Existing advanced intent/filter/scorer/recurrence, large workspace-memory and stale-snapshot boundaries remain explicit; pinned TS inconsistencies are documented and no upstream issue was filed. Releasing ownership with pause leaves this item open for the orchestrator to verify and close. Do not merge or publish. The final evidence-only commit will receive CI verification of the unchanged Rust source and updated metadata."
-files[9]{path,scope}:
+  "2026-10-19T16:15:15.371Z",codex-agent,"PR 98 review round 1: verify all three CodeRabbit findings against the pinned oracle, add behavioral revert proofs, fix Windows context latency without changing bounds, and certify the three-OS release matrix. Ubuntu job 118147020360 was cancelled after its test step passed; Windows job 118147020130 measured context p95 339.5ms against 250ms."
+  "2026-10-19T16:20:25.153Z",codex-agent,"All three review findings are valid. External graph namespace allocation now matches the pinned oracle, including collisions with local and dangling IDs. The new differential passed eight full/summary TOON/JSON cases with plain global/external targets and URL controls. Four harness regressions passed; isolated behavioral reversions for argument validation, root namespace filtering, and latency warm-up each failed. Run history: context p95 186.188ms at 63d359e versus 339.541ms at 506b448 with identical Rust source and latency harness; 365d805 measured 213.515ms. Adopt five warm-ups and a fixed median of three 30-launch p95 windows, retaining all samples and the 50/150/250ms bounds. No retry-until-green. Preserve pinned quirks tracked upstream by pm-cli issues 1509 through 1513."
+  "2026-10-19T16:22:35.146Z",codex-agent,"Behavioral revert proofs completed: reverting only Graph::new to head 506b448 makes packet_external_namespace_keys fail (exit 101); restoring passes 1/1. Reverting only required-option token rejection or source_kind-aware root filtering fails the respective Node regression (exit 1). Removing warm-up or replacing median-window aggregation with a single window also fails (exit 1); restored Node harness passes 4/4. No threshold, coverage scope or oracle pin changed. The graph differential passed 8 full/summary TOON/JSON comparisons. The latest review body contains no outside-diff findings."
+  "2026-10-19T16:24:27.951Z",codex-agent,"Ubuntu root cause confirmed from check-run annotations: job 118147020360 exceeded its 15-minute maximum, although cargo test passed before cleanup. Give every ordinary Rust matrix job the existing 20-minute Windows allowance for setup, test and cleanup. The separate 35-minute full release aggregate and all latency/coverage bounds remain unchanged."
+  "2026-10-19T16:25:26.511Z",codex-agent,"Local validation: strict all-target Clippy passed; all five linked commands passed (13 underlying test executions, including four Node harness tests); project test-result tracking remains disabled by its existing policy. Changelog regeneration and check passed. Normal-environment strict health sees an existing extension host-version skew between the pinned CLI and an installed pm-github extension; do not change pins or extension policy. Verify strict health in a clean clone with isolated home and clone-local merge drivers, matching CI."
+files[15]{path,scope}:
+  .github/workflows/ci.yml,project
   docs/benchmarks/native-context-gates-2026-10-19.json,project
   docs/benchmarks/native-context-sections-2026-10-19.json,project
+  scripts/context-real-helpers.mts,project
   scripts/context-real.mts,project
+  scripts/harness.test.mts,project
+  scripts/latency-gate.mts,project
+  scripts/latency-measure.mts,project
   src/orientation_context.rs,project
   src/orientation_context/sections.rs,project
   src/orientation_deps/packet.rs,project
   src/read_projection.rs,project
+  tests/harness_contract.rs,project
   tests/orientation_differential.rs,project
   tests/support/orientation_packet_unit.rs,project
-tests[3]{command,scope,provenance{author,created_at,source_kind,source_ref}}:
+tests[5]{command,scope,provenance{author,created_at,source_kind,source_ref}}:
   node scripts/check-lookup.mts deep_sections_preserve_relationships_and_evidence,project,codex-agent,"2026-10-19T12:50:46.247Z",local_mutation,feat/native-context-sections
   "node scripts/check-lookup.mts orientation_deps::packet",project,codex-agent,"2026-10-19T12:51:04.937Z",local_mutation,feat/native-context-sections
   PM_RUST_REQUIRE_PUBLISHED_CLI=1 node scripts/check-lookup.mts context_completion_rounding_matches_oracle orientation_differential,project,codex-agent,"2026-10-19T13:34:33.781Z",local_mutation,feat/native-context-sections
+  node --test scripts/harness.test.mts,project,codex-agent,"2026-10-19T16:21:15.454Z",local_mutation,feat/native-context-sections
+  PM_RUST_REQUIRE_PUBLISHED_CLI=1 node scripts/check-lookup.mts relationship_external_namespaces_match_oracle orientation_differential,project,codex-agent,"2026-10-19T16:21:21.951Z",local_mutation,feat/native-context-sections
 docs[1]{path,scope}:
   docs/NATIVE_CONTEXT_SECTIONS.md,project
 body: ""

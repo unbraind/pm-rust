@@ -4,12 +4,7 @@ import { readFileSync, readdirSync, rmSync, writeFileSync, existsSync } from 'no
 import { resolve, join } from 'node:path';
 import { performance } from 'node:perf_hooks';
 
-/** Read a required explicit harness argument. */
-function argument(name: string): string {
-  const value = process.argv[process.argv.indexOf(name) + 1];
-  if (!process.argv.includes(name) || !value) throw new Error(`Required: ${name}`);
-  return value;
-}
+import { argument, relationshipRoots } from './context-real-helpers.mts';
 
 const root = resolve(argument('--copy'));
 if (!existsSync(join(root, '.pm-rust-read-copy'))) throw new Error('Only a marked scratch tracker copy is accepted');
@@ -55,13 +50,11 @@ const tracker = join(root, '.agents/pm');
 const before = authoritative(tracker);
 let comparisons = 0;
 rmSync(join(tracker, 'runtime'), { recursive: true, force: true });
-// Select representative relationship roots from the marked copy without publishing IDs.
-const candidates = [...before.keys()].filter(key => key.endsWith('.toon')).sort();
-const roots = new Set<string>();
-for (const pattern of [/^parent: (?!null|\s*$)/m, /^deps\[[1-9]/m, /^blocked_by: (?!null|\s*$)/m]) {
-  const selected = candidates.find(key => pattern.test(readFileSync(join(tracker, key), 'utf8')));
-  if (selected) roots.add(selected.split(/[\\/]/).at(-1)!.slice(0, -5));
-}
+// Read decoded metadata so plain external namespaces cannot masquerade as local links.
+const inventory = run('oracle', ['list', '--all', '--full', '--json', '--output-budget', 'unbounded', '--output-limit', 'unbounded']);
+if (inventory.status !== 0) throw new Error('Cannot read packet root inventory');
+const decoded: { items: Record<string, unknown>[] } = JSON.parse(inventory.bytes.toString().split('\0')[0]);
+const roots = relationshipRoots(decoded.items);
 if (roots.size === 0) throw new Error('The real-copy packet matrix needs relationship-bearing roots');
 let packetComparisons = 0;
 for (const id of roots) {

@@ -947,6 +947,64 @@ fn relationship_packets_match_oracle() -> TestResult {
     }
     Ok(())
 }
+/// Plain external namespaces and colliding local IDs retain the oracle's distinct graph keys.
+#[test]
+fn relationship_external_namespaces_match_oracle() -> TestResult {
+    let Some(published) = published_cli::published_cli_or_skip("external relationship namespaces")
+    else {
+        return Ok(());
+    };
+    let scratch = tempfile::tempdir()?;
+    let driver = orientation_driver(scratch.path(), &published)?;
+    let root = tempfile::tempdir()?;
+    assert!(
+        oracle(&driver, root.path(), &["init", "sample-", "--defaults"])?
+            .status
+            .success()
+    );
+    for collision in [false, true] {
+        let mut start = item("sample-root", "Task", "open", 1);
+        start["dependencies"] = json!([
+            {"id":"sample-global","kind":"related","source_kind":"global","created_at":CLOCK},
+            {"id":"sample-external","kind":"blocked_by","source_kind":"external","created_at":CLOCK},
+            {"id":"https://example.invalid/item","kind":"related","created_at":CLOCK},
+            {"id":"github:fixture/issue","kind":"related","created_at":CLOCK},
+            {"id":"sample-local","kind":"related","created_at":CLOCK}
+        ]);
+        let mut rows = vec![start, item("sample-local", "Task", "open", 2)];
+        if collision {
+            rows.push(item("sample-global", "Task", "open", 2));
+            rows.push(item("sample-external", "Task", "open", 2));
+        }
+        fixture(root.path(), &rows)?;
+        for summary in [false, true] {
+            for encoding in [vec![], vec!["--json"]] {
+                let mut args = vec!["deps", "sample-root", "--format", "context"];
+                args.push(if summary { "--summary" } else { "--full" });
+                args.extend(&encoding);
+                let expected = oracle(&driver, root.path(), &args)?;
+                assert!(expected.status.success());
+                compare(&expected, &native(root.path(), &args)?, &args);
+                if !summary && !encoding.is_empty() {
+                    let parsed: Value = serde_json::from_slice(&expected.stdout)?;
+                    let nodes = parsed["context"]["nodes"].as_array().ok_or("nodes")?;
+                    for name in ["global", "external"] {
+                        let id =
+                            format!("{}sample-{name}", if collision { "external:" } else { "" });
+                        let node = nodes
+                            .iter()
+                            .find(|node| node["id"] == id)
+                            .ok_or("external node")?;
+                        assert_eq!(node["status"], "external");
+                        assert_eq!(node["title"], format!("[external] sample-{name}"));
+                    }
+                }
+            }
+        }
+    }
+    Ok(())
+}
+
 /// Packet refusal envelopes match the published alias recovery and unhandled-error contracts.
 #[test]
 fn relationship_packet_refusals_match_oracle() -> TestResult {

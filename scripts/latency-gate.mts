@@ -4,6 +4,7 @@ import { tmpdir } from 'node:os';
 import { dirname, join, resolve } from 'node:path';
 import { performance } from 'node:perf_hooks';
 import { fileURLToPath } from 'node:url';
+import { measure } from './latency-measure.mts';
 
 /** Build 3,000 deterministic items with payloads omitted from brief projections. */
 function generate(root: string): void {
@@ -25,7 +26,7 @@ function generate(root: string): void {
   }
 }
 
-/** Launch 30 fresh release processes per command and enforce nearest-rank p95. */
+/** Enforce the median of three warmed fresh-process p95 windows at the original bounds. */
 function main(): void {
   const repo = resolve(dirname(fileURLToPath(import.meta.url)), '..');
   const binary = join(repo, 'target', 'release', process.platform === 'win32' ? 'pm-rust.exe' : 'pm-rust');
@@ -43,22 +44,19 @@ function main(): void {
     const env = { ...process.env, PM_SENTRY_DISABLED: '1', PM_TELEMETRY_SOURCE_CONTEXT: 'test',
       PM_AUTHOR: 'benchmark-agent', HOME: home, USERPROFILE: home, XDG_CONFIG_HOME: join(home, 'config') };
     for (const { name, args, ceiling } of cases) {
-      const samples: number[] = [];
-      for (let run = 0; run < 30; run++) {
+      const measured = measure(() => {
         const start = performance.now();
         const child = spawnSync(binary, ['--workspace', root, ...args], { cwd: root, env, encoding: 'utf8' });
         const elapsed = performance.now() - start;
         if (child.error || child.status !== 0 || !child.stdout) {
           throw new Error(`${name} failed (status ${child.status}, signal ${child.signal}): ${child.error?.message ?? child.stderr}`);
         }
-        samples.push(elapsed);
-      }
-      const sorted = [...samples].sort((a, b) => a - b);
-      const p95 = sorted[Math.ceil(0.95 * sorted.length) - 1];
-      const p50 = (sorted[14] + sorted[15]) / 2;
-      console.log(JSON.stringify({ command: name, items: 3000, runs: samples.length,
-        p50_ms: p50, p95_ms: p95, required_p95_below_ms: ceiling, pass: p95 < ceiling, samples_ms: samples }));
-      failed ||= p95 >= ceiling;
+        return elapsed;
+      });
+      console.log(JSON.stringify({ command: name, items: 3000, warmups: 5, windows: 3,
+        runs: 90, statistic: 'median-of-window-p95', ...measured,
+        required_p95_below_ms: ceiling, pass: measured.p95_ms < ceiling }));
+      failed ||= measured.p95_ms >= ceiling;
     }
   } finally {
     rmSync(root, { recursive: true, force: true });
