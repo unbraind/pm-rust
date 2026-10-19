@@ -559,6 +559,16 @@ fn packet(
     )
 }
 
+/// Mirrors the oracle's IEEE scaling, flooring and clamp for its next rendered-budget attempt.
+fn next_budget(current: usize, requested: usize, measured: usize) -> usize {
+    let number = |value| json!(value).as_f64().unwrap_or_default();
+    let scaled = number(current) * number(requested) / number(measured);
+    // The positive query budget bounds this finite, nonnegative integer below the current safe integer.
+    #[allow(clippy::cast_possible_truncation, clippy::cast_sign_loss)]
+    let next = number(current.saturating_sub(1)).min((scaled * 0.9).floor().max(1.0)) as usize;
+    next
+}
+
 /// Serves a native dependency packet and stabilizes the complete rendered token count.
 pub(super) fn read(
     workspace: &Workspace,
@@ -658,9 +668,7 @@ pub(super) fn read(
         if reference_limit > 0 {
             reference_limit -= 1;
         } else {
-            budget = budget.saturating_sub(1).min(
-                (budget.saturating_mul(query.tokens).saturating_mul(9) / measured / 10).max(1),
-            );
+            budget = next_budget(budget, query.tokens, measured);
         }
     }
 }

@@ -839,6 +839,44 @@ fn context_cursor_refusals_match_oracle() -> TestResult {
     }
     Ok(())
 }
+
+/// Deep fallback retains descendant completion and resolved blocker evidence with no active work.
+#[test]
+fn context_blocked_fallback_deep_matches_oracle() -> TestResult {
+    let Some(published) = published_cli::published_cli_or_skip("deep blocked fallback") else {
+        return Ok(());
+    };
+    let scratch = tempfile::tempdir()?;
+    let driver = orientation_driver(scratch.path(), &published)?;
+    let root = tempfile::tempdir()?;
+    assert!(
+        oracle(&driver, root.path(), &["init", "sample-", "--defaults"])?
+            .status
+            .success()
+    );
+    let mut parent = item("sample-parent", "Epic", "blocked", 1);
+    parent["blocked_by"] = json!("sample-done");
+    let mut child = item("sample-child", "Task", "blocked", 0);
+    child["parent"] = json!("sample-parent");
+    child["blocked_by"] = json!("sample-missing");
+    child["deadline"] = json!("2026-08-23T10:00:00.000Z");
+    let mut done = item("sample-done", "Task", "closed", 2);
+    done["parent"] = json!("sample-parent");
+    fixture(root.path(), &[parent, child, done])?;
+    for controls in [vec![], vec!["--limit", "1"]] {
+        for output in [vec![], vec!["--json"]] {
+            let mut args = vec!["context", "--depth", "deep"];
+            args.extend(&controls);
+            args.extend(output);
+            compare(
+                &oracle(&driver, root.path(), &args)?,
+                &native(root.path(), &args)?,
+                &args,
+            );
+        }
+    }
+    Ok(())
+}
 /// Relationship packets preserve bounded traversal, inverse relationships and root evidence.
 #[test]
 fn relationship_packets_match_oracle() -> TestResult {
@@ -907,22 +945,44 @@ fn relationship_packets_match_oracle() -> TestResult {
             break;
         }
     }
+    Ok(())
+}
+/// Packet refusal envelopes match the published alias recovery and unhandled-error contracts.
+#[test]
+fn relationship_packet_refusals_match_oracle() -> TestResult {
+    let Some(published) = published_cli::published_cli_or_skip("relationship packet refusals")
+    else {
+        return Ok(());
+    };
+    let scratch = tempfile::tempdir()?;
+    let driver = orientation_driver(scratch.path(), &published)?;
+    let root = tempfile::tempdir()?;
+    assert!(
+        oracle(&driver, root.path(), &["init", "sample-", "--defaults"])?
+            .status
+            .success()
+    );
+    rich_fixture(root.path())?;
     for controls in [
         vec!["--token-budget", "1"],
         vec!["--cursor", "bad"],
         vec!["--direction", "sideways"],
         vec!["--kind", "unknown"],
     ] {
-        let mut args = vec!["deps", "sample-task", "--format", "context", "--json"];
-        args.extend(controls);
-        compare(
-            &oracle(&driver, root.path(), &args)?,
-            &native(root.path(), &args)?,
-            &args,
-        );
+        for output in [vec![], vec!["--json"]] {
+            let mut args = vec!["deps", "sample-task", "--format", "context"];
+            args.extend(&controls);
+            args.extend(output);
+            compare(
+                &oracle(&driver, root.path(), &args)?,
+                &native(root.path(), &args)?,
+                &args,
+            );
+        }
     }
     Ok(())
 }
+
 /// Empty, ranked, blocked and budgeted brief context matches complete oracle bytes.
 #[test]
 fn context_matches_oracle() -> TestResult {

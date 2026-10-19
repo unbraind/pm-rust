@@ -6,12 +6,12 @@ status: in_progress
 priority: 2
 tags[3]: follow-up,orientation,rust
 created_at: "2026-10-18T03:44:38.720Z"
-updated_at: "2026-10-19T13:38:25.120Z"
+updated_at: "2026-10-19T13:59:14.815Z"
 assignee: codex-agent
 claim_principal: codex-agent
 author: codex-agent
 parent: pm-rust-u4al
-comments[8]{created_at,author,text}:
+comments[9]{created_at,author,text}:
   "2026-10-18T05:11:47.743Z",codex-agent,"Deferred orientation scope also includes richer extension discovery policy, nonminimal manifest controls and execution of declared context_relevance service overrides. The core native slice fails closed on these boundaries instead of executing extension code. Future acceptance must cover configured enable/disable policy, version/engine bounds, contribution inventories and scorer activation against the pinned oracle."
   "2026-10-19T12:26:44.135Z",codex-agent,"Scope: native default and deep context sections, relationship packets, producer continuation and output parity against the locked oracle. Preserve projection-based reads from #94. Validate synthetic fixtures and an immutable real tracker copy; publish aggregate timing only. The broader follow-up description remains beyond this bounded task."
   "2026-10-19T12:42:00.295Z",codex-agent,"Implementation in progress: preserve the brief metadata projection; add selected deep-section fields, descendant completion, retained compact activity, files/workload/staleness/test summaries and ranked continuation. Relationship packets use deps --format context, matching the pinned command contract. The immutable real copy contains 1254 items at capture. Initial parity exposed the existing static extension-health refusal for inert manifest metadata; extending that read boundary. Synthetic dependencies retain created_at because the locked oracle has the already tracked timestamp-sort defect."
@@ -20,6 +20,7 @@ comments[8]{created_at,author,text}:
   "2026-10-19T13:34:37.683Z",codex-agent,"Added an independent 201-item oracle regression for the completion rounding boundary: JavaScript computes Math.round(29 / 200 * 100) as 14. Native completion now preserves the IEEE division-and-rounding sequence before producing its integer field. The linked test wrapper accepts an optional integration suite while retaining sanitized compiler/test output. Final release measurements will use the frozen binary after these boundary fixes."
   "2026-10-19T13:38:09.456Z",codex-agent,"The first full instrumented run reached the orientation suite with its preceding suites passing, then exposed an obsolete deferred-option assertion: context --after and packet --cursor/--direction/--kind are now implemented. Updated only that deferral inventory; positive oracle comparisons cover the supported controls. Independent 201-item completion-rounding oracle regression passes. Current strict Clippy passes. Draft PR #97 now carries the implementation; final gate totals and measurements remain pending."
   "2026-10-19T13:38:25.120Z",codex-agent,"Correction to the preceding checkpoint: the draft is PR #98, https://github.com/unbraind/pm-rust/pull/98. The #97 reference in that checkpoint was incorrect. The implementation branch remains feat/native-context-sections."
+  "2026-10-19T13:59:14.815Z",codex-agent,"Additional numeric regression proof: reverting only completion and packet-budget arithmetic to integer shortcuts produced 41 passing and 2 failing orientation unit tests; restoring the implementation produced 43 passing and 0 failing tests. The pinned oracle uses IEEE floating-point evaluation, including 29/200 completion rendering as 14 percent and a 470/846 budget reduction producing 234. Added blocked-fallback deep differentials and explicit packet refusal comparisons; preserving the published raw TypeError text and JSON unknown_error envelope for infeasible packet budgets. No oracle pin or gate threshold changed."
 files[7]{path,scope}:
   scripts/context-real.mts,project
   src/orientation_context.rs,project

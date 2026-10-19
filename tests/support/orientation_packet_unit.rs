@@ -67,6 +67,9 @@ fn packet_roles_kinds_and_target_markers() {
 /// Invalid packet controls refuse before traversal and aliases produce canonical kind filters.
 #[test]
 fn packet_option_domains() -> Result<(), Box<dyn std::error::Error>> {
+    assert_eq!(next_budget(470, 470, 846), 234);
+    assert_eq!(next_budget(10, 1000, 1), 9);
+    assert_eq!(next_budget(20, 1, 10000), 1);
     for options in [
         DepsOptions {
             direction: Some("sideways".to_owned()),
