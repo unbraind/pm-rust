@@ -103,7 +103,7 @@ canonical history through the existing recovery journal. See the
 [search and collections contract](docs/NATIVE_SEARCH_COLLECTIONS.md) for tested
 flags, selectors, refusal differences and concurrency evidence.
 
-`context` at brief, standard and deep depth, append-only `history`, and dependency
+`context` at brief, standard, deep and full depth, append-only `history`, and dependency
 tree/graph/context `deps` reads are native. See the [orientation contract](docs/NATIVE_ORIENTATION.md) for
 supported flags, integrity behavior, explicit refusals and measured latency.
 

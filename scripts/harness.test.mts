@@ -1,7 +1,22 @@
 import assert from 'node:assert/strict';
+import { readFileSync } from 'node:fs';
 import { test } from 'node:test';
 import { argument, relationshipRoots } from './context-real-helpers.mts';
 import { measure } from './latency-measure.mts';
+
+test('README advertises every supported native context depth', () => {
+  const readme = readFileSync(new URL('../README.md', import.meta.url), 'utf8');
+  assert.match(readme, /`context` at brief, standard, deep and full depth/);
+});
+
+test('orientation documentation scopes defaults and omissions by depth and settings', () => {
+  const orientation = readFileSync(new URL('../docs/NATIVE_ORIENTATION.md', import.meta.url), 'utf8')
+    .replace(/\s+/g, ' ');
+  assert.match(orientation, /configured default depth.*when no default is configured, it uses brief depth/);
+  assert.match(orientation, /omission receipt for sections not selected by the requested depth or workspace settings/);
+  assert.match(orientation, /Brief omits all ten optional section groups; full selects all ten/);
+  assert.match(orientation, /Deep may still omit sections disabled in workspace settings/);
+});
 
 test('required options reject absent, trailing, empty and option-token values', () => {
   for (const args of [[], ['--copy'], ['--copy', ''], ['--copy', '--driver', 'fixture']]) {

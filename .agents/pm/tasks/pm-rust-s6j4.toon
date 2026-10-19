@@ -2,14 +2,16 @@ id: pm-rust-s6j4
 title: Extend native orientation to richer context sections and relationship packets
 description: "Follow-up to the native brief orientation slice: implement context intents, deeper sections, calendar recurrence and timezone handling, workspace-memory rollups, derived-snapshot recovery, dependency relationship-context packets, richer history projections and canonical output continuation controls. Keep unsupported requests explicit until each contract has exact oracle differentials."
 type: Task
-status: open
+status: in_progress
 priority: 2
 tags[3]: follow-up,orientation,rust
 created_at: "2026-10-18T03:44:38.720Z"
-updated_at: "2026-10-19T17:00:03.844Z"
+updated_at: "2026-10-19T19:28:20.184Z"
+assignee: codex-agent
+claim_principal: codex-agent
 author: codex-agent
 parent: pm-rust-u4al
-comments[30]{created_at,author,text}:
+comments[33]{created_at,author,text}:
   "2026-10-18T05:11:47.743Z",codex-agent,"Deferred orientation scope also includes richer extension discovery policy, nonminimal manifest controls and execution of declared context_relevance service overrides. The core native slice fails closed on these boundaries instead of executing extension code. Future acceptance must cover configured enable/disable policy, version/engine bounds, contribution inventories and scorer activation against the pinned oracle."
   "2026-10-19T12:26:44.135Z",codex-agent,"Scope: native default and deep context sections, relationship packets, producer continuation and output parity against the locked oracle. Preserve projection-based reads from #94. Validate synthetic fixtures and an immutable real tracker copy; publish aggregate timing only. The broader follow-up description remains beyond this bounded task."
   "2026-10-19T12:42:00.295Z",codex-agent,"Implementation in progress: preserve the brief metadata projection; add selected deep-section fields, descendant completion, retained compact activity, files/workload/staleness/test summaries and ranked continuation. Relationship packets use deps --format context, matching the pinned command contract. The immutable real copy contains 1254 items at capture. Initial parity exposed the existing static extension-health refusal for inert manifest metadata; extending that read boundary. Synthetic dependencies retain created_at because the locked oracle has the already tracked timestamp-sort defect."
@@ -40,11 +42,16 @@ comments[30]{created_at,author,text}:
   "2026-10-19T16:50:26.305Z",codex-agent,"Completed Bun acceptance: PM_NODE_INTERPRETER=bun PM_RUST_REQUIRE_PUBLISHED_CLI=1 cargo test --locked --test orientation_differential passed 25/25 with zero failures or ignored tests (Bun 1.3.5). All ordinary CI jobs passed: Linux 505, macOS 501, Windows 496, each across 21 suites. macOS full just release-check passed 501 ordinary plus 501 instrumented tests; required coverage is 100 percent: 13141 lines, 1362 functions, 21955 regions, 3152 branches. Linux and Windows full aggregate jobs are still running. The earlier incomplete-install Bun attempt is excluded."
   "2026-10-19T16:58:51.043Z",codex-agent,"All nine CI jobs at ceffe36 are green in run 39285340550. Full just release-check passed on all three OSes: Linux 505 ordinary plus 505 instrumented tests, macOS 501 plus 501, Windows 496 plus 496; each has 42 suite executions, zero failures/ignored tests, and 100 percent lines/functions/regions/branches at unchanged scope/thresholds. Formatting, strict Clippy, private-item rustdoc, required locked-oracle tests, audit, changelog, clone-local merge drivers and strict check-only project health passed. CodeQL checks passed. With stronger complete three-OS certification available, stopped the redundant isolated local aggregate before completion; it is excluded from passing evidence. Final evidence/hand-off commit will receive a fresh matrix and final-head clone health before STOP."
   "2026-10-19T16:59:58.104Z",codex-agent,"Review round 1 handoff: all three CodeRabbit findings fixed with behavioral revert proofs; both original CI failures diagnosed and repaired without raising latency ceilings, lowering coverage or changing the oracle pin. Evidence: docs/benchmarks/native-context-review-1-2026-10-19.json and docs/NATIVE_CONTEXT_SECTIONS.md. Preserve pinned upstream behavior tracked by pm-cli issues 1509 through 1513. All nine source-head CI jobs and CodeQL passed; Bun 25/25, linked tests 5/5 commands (13 underlying executions), Node harness 4/4, synthetic end-to-end parity 37/37. Releasing this item open for orchestrator verification. Final evidence-only push will receive fresh full three-OS CI and exact-head clean-clone check-only health before reporting STOP. No thread replies/resolutions, merges or releases performed. Existing local extension-version skew remains outside this slice; no new CLI/SDK bug was found."
-files[16]{path,scope}:
+  "2026-10-19T19:26:43.203Z",codex-agent,"Review round 2: fetched remote PR 98 head 090d799; origin/main is an ancestor, so no merge or reconcile is required. Read all comments on all four unresolved threads and the latest CodeRabbit review body (no outside-diff findings). The older argument and external-root findings are already fixed with regressions; reverify their behavior-only revert proofs. Correct the two valid documentation findings, add documentation contract regressions with independent reversion checks, run unchanged just release-check and Bun oracle acceptance, and verify fresh-clone health plus exact pushed-head CI. Preserve the pinned TS contracts tracked by pm-cli issues 1509 through 1513. No review replies or resolutions."
+  "2026-10-19T19:27:20.095Z",codex-agent,"Verified four independent revert proofs using node --test --test-name-pattern=<selection> scripts/harness.test.mts: remove only argument option-token rejection => required options fails, exit 1; remove only source_kind exclusion => packet roots fails on colliding plain global/external IDs, exit 1; restore only README to 090d799 => README advertises fails, exit 1; restore only orientation documentation to 090d799 => orientation documentation fails, exit 1. Each identical selected command passes after byte-exact restoration (exit 0); restored complete harness passes 6/6. Documentation changes accurately describe configured defaults, brief ten-group omission, full all-section selection and settings-disabled deep sections; full depth also avoids the ordinary default ten-row cap. Runtime TS parity and thresholds remain unchanged. Older threads PRRT_kwDOTwgMRs6uAIel and PRRT_kwDOTwgMRs6uAIew need no further implementation: required arguments already reject option tokens; root selection already excludes global/external namespaces, and the existing real-tracker external differential covers eight full/summary TOON/JSON cases."
+  "2026-10-19T19:28:20.184Z",codex-agent,"All five linked pm test commands passed with zero skipped selections; Node harness is now 6/6, and all 15 underlying test executions passed. Project policy keeps run recording disabled (tracking_disabled), so results are recorded here. Changelog regeneration and verification passed. Local check-only strict health has the inherited global pm-github host skew (locked host 2026.10.14 versus installed extension 2026.10.19); verify project-only health in an isolated fresh clone without changing either pin or global extensions. The files command accepts one --add value per invocation; a rejected multi-value call was retried as separate explicit writes."
+files[18]{path,scope}:
   .github/workflows/ci.yml,project
   docs/benchmarks/native-context-gates-2026-10-19.json,project
   docs/benchmarks/native-context-review-1-2026-10-19.json,project
   docs/benchmarks/native-context-sections-2026-10-19.json,project
+  docs/NATIVE_ORIENTATION.md,project
+  README.md,project
   scripts/context-real-helpers.mts,project
   scripts/context-real.mts,project
   scripts/harness.test.mts,project
@@ -63,7 +70,8 @@ tests[5]{command,scope,provenance{author,created_at,source_kind,source_ref}}:
   PM_RUST_REQUIRE_PUBLISHED_CLI=1 node scripts/check-lookup.mts context_completion_rounding_matches_oracle orientation_differential,project,codex-agent,"2026-10-19T13:34:33.781Z",local_mutation,feat/native-context-sections
   node --test scripts/harness.test.mts,project,codex-agent,"2026-10-19T16:21:15.454Z",local_mutation,feat/native-context-sections
   PM_RUST_REQUIRE_PUBLISHED_CLI=1 node scripts/check-lookup.mts relationship_external_namespaces_match_oracle orientation_differential,project,codex-agent,"2026-10-19T16:21:21.951Z",local_mutation,feat/native-context-sections
-docs[2]{path,scope}:
+docs[3]{path,scope}:
   docs/benchmarks/native-context-review-1-2026-10-19.json,project
   docs/NATIVE_CONTEXT_SECTIONS.md,project
+  docs/NATIVE_ORIENTATION.md,project
 body: ""

@@ -5,13 +5,17 @@ This slice belongs to [pm-rust-u4al](../.agents/pm/epics/pm-rust-u4al.toon), tra
 in [pm-rust-xb3s](../.agents/pm/features/pm-rust-xb3s.toon). Publication and
 release automation remain disabled.
 
-## Brief context
+## Context
 
-`context` emits the default brief depth in TOON or `--json`. `--limit` bounds
-the ranked producer page; absent a limit, the oracle caps each focus group at
-ten items. `--token-budget` controls ranked identity packing and the complete
+`context` emits the configured default depth in TOON or `--json`; when no default
+is configured, it uses brief depth. `--limit` bounds the ranked producer page;
+absent a limit, the oracle caps each focus group at ten items except at full
+depth. `--token-budget` controls ranked identity packing and the complete
 rendered response. The result retains `high_level`, `low_level`,
-`blocked_fallback`, matching-corpus counters and the ten omitted section groups.
+`blocked_fallback`, matching-corpus counters and an omission receipt for sections
+not selected by the requested depth or workspace settings. Brief omits all ten
+optional section groups; full selects all ten. Deep may still omit sections
+disabled in workspace settings.
 Blocked fallback is used when no active-status candidates exist. Active work
 with unresolved dependencies retains its blocking receipt.
 
