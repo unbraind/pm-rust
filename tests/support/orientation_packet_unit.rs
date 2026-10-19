@@ -318,6 +318,17 @@ fn packet_storage_and_evidence_projection_boundaries() -> Result<(), Box<dyn std
     );
     assert!(workspace.deps("sample-root", &options).is_err());
     fs::write(&path, &content)?;
+    assert!(
+        workspace
+            .deps(
+                "sample-root",
+                &DepsOptions {
+                    direction: Some("sideways".to_owned()),
+                    ..options.clone()
+                }
+            )
+            .is_err()
+    );
     fs::write(pm.join("settings.json"), "invalid JSON")?;
     assert!(workspace.deps("sample-root", &options).is_err());
     fs::write(pm.join("settings.json"), "{}")?;

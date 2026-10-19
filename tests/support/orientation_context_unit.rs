@@ -578,6 +578,14 @@ fn context_disabled_extension_policy() -> Result<(), Box<dyn std::error::Error>>
             accepted
         );
     }
+    assert!(
+        extension_health(
+            &workspace,
+            &json!({"extensions":{"unknown_control":true}}),
+            None
+        )
+        .is_err()
+    );
     for (minimum, accepted) in [
         (json!("2026.10.14"), true),
         (json!("2026.8.1"), true),
