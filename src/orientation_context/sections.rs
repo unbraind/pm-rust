@@ -146,18 +146,18 @@ fn completion(closed: usize, total: usize) -> Value {
 /// Reads compact activity from all retained streams, including deleted-item history.
 fn activity(workspace: &Workspace, limit: usize) -> Result<Value, PmRustError> {
     let path = workspace.pm_root().join("history");
-    let entries = match std::fs::read_dir(&path) {
+    let mut entries = match std::fs::read_dir(&path) {
         Ok(entries) => entries,
         Err(error) if error.kind() == std::io::ErrorKind::NotFound => return Ok(json!([])),
         Err(source) => return Err(PmRustError::Io { path, source }),
     };
-    activity_entries(workspace, entries, &path, limit)
+    activity_entries(workspace, &mut entries, &path, limit)
 }
 
 /// Traverses retained activity entries while preserving directory-iteration failures.
 fn activity_entries(
     workspace: &Workspace,
-    entries: impl IntoIterator<Item = std::io::Result<std::fs::DirEntry>>,
+    entries: &mut dyn Iterator<Item = std::io::Result<std::fs::DirEntry>>,
     path: &std::path::Path,
     limit: usize,
 ) -> Result<Value, PmRustError> {

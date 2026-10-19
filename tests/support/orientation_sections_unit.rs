@@ -20,10 +20,54 @@ fn item(id: &str, status: &str) -> Value {
     json!({"id":id,"title":id,"type":"Task","status":status,"priority":1,"tags":[],"created_at":NOW,"updated_at":NOW})
 }
 
+/// Builds mixed section metadata with two high-level parents and a closed grandchild.
+fn section_corpus() -> Vec<Value> {
+    let mut epic = item("sample-epic", "in_progress");
+    epic["type"] = json!("Epic");
+    epic["files"] = json!([{"path":"src/lib.rs"},{"path":"src/lib.rs"}]);
+    epic["tests"] = json!([{"command":"cargo test"}]);
+    let mut feature = item("sample-feature", "open");
+    feature["type"] = json!("Feature");
+    feature["priority"] = json!(2);
+    feature["assignee"] = json!("fixture");
+    let mut child = item("sample-child", "open");
+    child["parent"] = json!("sample-epic");
+    child["files"] = json!([{"path":"src/lib.rs"},{"path":"src/main.rs"}]);
+    child["test_runs"] = json!([{"passed":1,"failed":0},{"failed":1,"skipped":2}]);
+    let mut done = item("sample-done", "closed");
+    done["parent"] = json!("sample-epic");
+    let mut blocked = item("sample-blocked", "blocked");
+    blocked["parent"] = json!("sample-epic");
+    blocked["blocked_by"] = json!("sample-done");
+    blocked["updated_at"] = json!("2026-08-01T10:00:00.000Z");
+    let mut missing = item("sample-missing", "blocked");
+    missing["blocked_by"] = json!("sample-unavailable");
+    let mut progress = item("sample-progress", "in_progress");
+    progress["parent"] = json!("sample-epic");
+    let mut idle = item("sample-idle", "draft");
+    idle["updated_at"] = json!("not-a-date");
+    let mut feature_child = item("sample-feature-child", "open");
+    feature_child["parent"] = json!("sample-feature");
+    let mut grandchild = item("sample-grandchild", "closed");
+    grandchild["parent"] = json!("sample-child");
+    vec![
+        epic,
+        feature,
+        child,
+        done,
+        blocked,
+        missing,
+        progress,
+        idle,
+        feature_child,
+        grandchild,
+    ]
+}
+
 /// Enabled sections, cyclic descendants and whitespace parents preserve published boundaries.
 #[test]
 fn section_selection_and_descendant_cycles() -> Result<(), Box<dyn std::error::Error>> {
-    let (_directory, _workspace, lifecycle) = workspace()?;
+    let (_directory, workspace, lifecycle) = workspace()?;
     assert!(selected("brief", &json!({})).is_empty());
     assert_eq!(selected("standard", &json!({})).len(), 6);
     assert_eq!(selected("deep", &json!({})).len(), 10);
@@ -60,6 +104,21 @@ fn section_selection_and_descendant_cycles() -> Result<(), Box<dyn std::error::E
     assert!(leaf.get("children_total").is_none());
     assert_eq!(completion(1, 8), json!(13));
     assert_eq!(completion(29, 200), json!(14));
+    let mut empty_parent = item("sample-no-children", "open");
+    empty_parent["type"] = json!("Epic");
+    let empty = build(
+        &workspace,
+        &["progress"],
+        &[empty_parent.clone()],
+        &[&empty_parent],
+        &[],
+        &BTreeSet::new(),
+        &lifecycle,
+        NOW,
+        10,
+        &json!({}),
+    )?;
+    assert_eq!(empty["progress"], json!([]));
     Ok(())
 }
 
@@ -68,31 +127,7 @@ fn section_selection_and_descendant_cycles() -> Result<(), Box<dyn std::error::E
 fn section_summaries_with_resolved_and_missing_blockers() -> Result<(), Box<dyn std::error::Error>>
 {
     let (_directory, workspace, lifecycle) = workspace()?;
-    let mut epic = item("sample-epic", "in_progress");
-    epic["type"] = json!("Epic");
-    epic["files"] = json!([{"path":"src/lib.rs"},{"path":"src/lib.rs"}]);
-    epic["tests"] = json!([{"command":"cargo test"}]);
-    let mut feature = item("sample-feature", "open");
-    feature["type"] = json!("Feature");
-    feature["priority"] = json!(2);
-    feature["assignee"] = json!("fixture");
-    let mut child = item("sample-child", "open");
-    child["parent"] = json!("sample-epic");
-    child["files"] = json!([{"path":"src/lib.rs"},{"path":"src/main.rs"}]);
-    child["test_runs"] = json!([{"passed":1,"failed":0},{"failed":1,"skipped":2}]);
-    let mut done = item("sample-done", "closed");
-    done["parent"] = json!("sample-epic");
-    let mut blocked = item("sample-blocked", "blocked");
-    blocked["parent"] = json!("sample-epic");
-    blocked["blocked_by"] = json!("sample-done");
-    blocked["updated_at"] = json!("2026-08-01T10:00:00.000Z");
-    let mut missing = item("sample-missing", "blocked");
-    missing["blocked_by"] = json!("sample-unavailable");
-    let mut progress = item("sample-progress", "in_progress");
-    progress["parent"] = json!("sample-epic");
-    let mut idle = item("sample-idle", "draft");
-    idle["updated_at"] = json!("not-a-date");
-    let corpus = vec![epic, feature, child, done, blocked, missing, progress, idle];
+    let corpus = section_corpus();
     let active = vec![&corpus[1], &corpus[0], &corpus[2], &corpus[6]];
     let blocked = BTreeSet::from(["sample-blocked".to_owned(), "sample-missing".to_owned()]);
     let result = build(
@@ -111,6 +146,14 @@ fn section_summaries_with_resolved_and_missing_blockers() -> Result<(), Box<dyn 
     assert!(result["blockers"][1]["blocked_by_status"].is_null());
     assert_eq!(result["hierarchy"][0]["children_in_progress"], 1);
     assert_eq!(result["progress"][0]["open"], 1);
+    assert_eq!(result["progress"][0]["id"], "sample-feature");
+    let child_summary = result["hierarchy"][0]["children"]
+        .as_array()
+        .ok_or("child summaries")?
+        .iter()
+        .find(|row| row["id"] == "sample-child")
+        .ok_or("nested child")?;
+    assert_eq!(child_summary["children_closed"], 1);
     assert_eq!(result["files"][0]["references"], 2);
     assert_eq!(result["tests"]["items_failing"], json!(["sample-child"]));
     assert_eq!(result["staleness"][0]["stale_days"], 21);
@@ -140,7 +183,13 @@ fn section_summaries_with_resolved_and_missing_blockers() -> Result<(), Box<dyn 
         &json!({}),
     )?;
     assert_eq!(result["hierarchy"][0]["children_in_progress"], 1);
-    assert_eq!(result["progress"][0]["blocked"], 1);
+    let epic_progress = result["progress"]
+        .as_array()
+        .ok_or("progress summaries")?
+        .iter()
+        .find(|row| row["id"] == "sample-epic")
+        .ok_or("epic progress")?;
+    assert_eq!(epic_progress["blocked"], 1);
     custom["context"] = json!({"stale_threshold_days":30});
     assert!(
         build(
@@ -188,7 +237,10 @@ fn section_activity_storage_and_ordering() -> Result<(), Box<dyn std::error::Err
     fs::write(&history, "not a directory")?;
     assert!(activity(&workspace, 10).is_err());
     let error = fs::read_dir(&history).err().ok_or("filesystem refusal")?;
-    assert!(activity_entries(&workspace, [Err(error)], &history, 10).is_err());
+    let expected_kind = error.kind();
+    assert!(
+        matches!(activity_entries(&workspace, &mut [Err(error)].into_iter(), &history, 10), Err(PmRustError::Io {path, source}) if path == history && source.kind() == expected_kind)
+    );
     fs::remove_file(&history)?;
     fs::create_dir(&history)?;
     fs::write(history.join("ignored.txt"), "not history")?;

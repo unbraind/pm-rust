@@ -48,11 +48,14 @@ the root and evidence is an `unknown_error` refusal. A packet can also retain
 its smallest useful result when further rendered-budget reduction cannot fit
 one node. Context continuation may repeat an active blocked item because the
 packing pool independently includes the first blocked candidates on each page.
+Malformed packet-cursor recovery still refers to `--after`, although packet
+continuation accepts `--cursor`; this published recovery text is retained.
 Blocker details ignore legacy `depends_on` rows even though packet graph
 assembly canonicalizes that alias; native output preserves this inconsistency.
 Packet token estimates are settled before legacy alias counts are attached, so
 the oracle undercounts that metadata; native packets retain the same estimate.
-Completion follows the same IEEE division and rounding sequence: 29 closed
+Hierarchy trims parent identifiers, while progress groups the raw parent strings;
+this published inconsistency is retained. Completion follows the same IEEE division and rounding sequence: 29 closed
 descendants out of 200 render as 14 percent, matching the pinned CLI.
 Dependency fixtures retain `created_at`: the pinned reader's multiple-row
 timestamp-sort defect is already documented by
@@ -80,5 +83,7 @@ orientation suite with `PM_NODE_INTERPRETER=bun`; this changes only the test
 interpreter, while the production path remains native Rust.
 
 Measurements use 30 fresh processes per runtime and command, alternating order
-after warmup. Both p50 and p95 use nearest-rank percentiles. Timings describe the
+after warmup. Both p50 and p95 use nearest-rank percentiles. The clock-pinned
+oracle driver also disables its scheduling-dependent 25 ms packing guard so
+each comparison and timing sample produces the complete comparable response. Timings describe the
 shared validation host and this captured tracker, not a general scale guarantee.

@@ -44,7 +44,7 @@ function authoritative(directory: string, prefix = ''): Map<string, string> {
 function run(runtime: 'native' | 'oracle', args: string[]): { bytes: Buffer; ms: number; status: number | null } {
   const started = performance.now();
   const result = spawnSync(runtime === 'native' ? binary : process.execPath,
-    runtime === 'native' ? [...args, '--timestamp', clock] : [driver, ...args],
+    runtime === 'native' ? [...args, ...(args[0] === 'context' ? ['--timestamp', clock] : [])] : [driver, ...args],
     { cwd: root, env: environment, maxBuffer: 64 * 1024 * 1024 });
   const ms = performance.now() - started;
   if (result.error) throw new Error(`${runtime} process failed`);
@@ -55,39 +55,6 @@ const tracker = join(root, '.agents/pm');
 const before = authoritative(tracker);
 let comparisons = 0;
 rmSync(join(tracker, 'runtime'), { recursive: true, force: true });
-const cases = [
-  [], ['--limit', '0'], ['--limit', '1'], ['--limit', '10'],
-  ['--limit', '3', '--token-budget', '100'], ['--token-budget', '256'],
-];
-for (const depth of [[], ['--depth', 'deep']]) {
-  for (const controls of cases) {
-    for (const format of [[], ['--json']]) {
-      const args = ['context', ...depth, ...controls, ...format];
-      const oracle = run('oracle', args);
-      const native = run('native', args);
-      comparisons += 1;
-      if (oracle.status !== native.status || !oracle.bytes.equals(native.bytes)) {
-        writeFileSync(join(root, 'oracle-output.private'), oracle.bytes);
-        writeFileSync(join(root, 'native-output.private'), native.bytes);
-        throw new Error(`Parity failed: ${args.join(' ')} (private diagnostics retained in copy)`);
-      }
-    }
-  }
-  let cursor: string | undefined;
-  for (let page = 0; page < 3; page += 1) {
-    const args = ['context', ...depth, '--limit', '3', '--json', ...(cursor ? ['--after', cursor] : [])];
-    const oracle = run('oracle', args);
-    const native = run('native', args);
-    comparisons += 1;
-    if (oracle.status !== native.status || !oracle.bytes.equals(native.bytes)) throw new Error(`Continuation parity failed at page ${page + 1}`);
-    const parsed: { next_cursor?: string } = JSON.parse(oracle.bytes.toString().split('\0')[0]);
-    cursor = parsed.next_cursor;
-    if (!cursor) break;
-  }
-}
-
-console.log(JSON.stringify({ phase: 'context-parity', comparisons }));
-
 // Select representative relationship roots from the marked copy without publishing IDs.
 const candidates = [...before.keys()].filter(key => key.endsWith('.toon')).sort();
 const roots = new Set<string>();
@@ -128,6 +95,39 @@ for (const id of roots) {
 
 console.log(JSON.stringify({ phase: 'packet-parity', comparisons, packet_comparisons: packetComparisons }));
 
+const cases = [
+  [], ['--limit', '0'], ['--limit', '1'], ['--limit', '10'],
+  ['--limit', '3', '--token-budget', '100'], ['--token-budget', '256'],
+];
+for (const depth of [[], ['--depth', 'deep']]) {
+  for (const controls of cases) {
+    for (const format of [[], ['--json']]) {
+      const args = ['context', ...depth, ...controls, ...format];
+      const oracle = run('oracle', args);
+      const native = run('native', args);
+      comparisons += 1;
+      if (oracle.status !== native.status || !oracle.bytes.equals(native.bytes)) {
+        writeFileSync(join(root, 'oracle-output.private'), oracle.bytes);
+        writeFileSync(join(root, 'native-output.private'), native.bytes);
+        throw new Error(`Parity failed: ${args.join(' ')} (private diagnostics retained in copy)`);
+      }
+    }
+  }
+  let cursor: string | undefined;
+  for (let page = 0; page < 3; page += 1) {
+    const args = ['context', ...depth, '--limit', '3', '--json', ...(cursor ? ['--after', cursor] : [])];
+    const oracle = run('oracle', args);
+    const native = run('native', args);
+    comparisons += 1;
+    if (oracle.status !== native.status || !oracle.bytes.equals(native.bytes)) throw new Error(`Continuation parity failed at page ${page + 1}`);
+    const parsed: { next_cursor?: string } = JSON.parse(oracle.bytes.toString().split('\0')[0]);
+    cursor = parsed.next_cursor;
+    if (!cursor) break;
+  }
+}
+
+console.log(JSON.stringify({ phase: 'context-parity', comparisons }));
+
 /** Return the nearest-rank latency percentile. */
 function percentile(values: number[], quantile: number): number {
   const sorted = [...values].sort((a, b) => a - b);
@@ -161,7 +161,7 @@ const after = authoritative(tracker);
 if (createHash('sha256').update(readFileSync(binary)).digest('hex') !== binaryHash) throw new Error('Native binary changed during the run');
 if (before.size !== after.size || [...before].some(([key, hash]) => after.get(key) !== hash)) throw new Error('Authoritative copy changed');
 const receipt = {
-  oracle: '2026.10.14', clock, comparisons, packet_comparisons: packetComparisons, packet_roots: roots.size,
+  oracle: '2026.10.14', clock, comparisons, context_comparisons: comparisons - packetComparisons, packet_comparisons: packetComparisons, packet_roots: roots.size,
   item_count: [...before.keys()].filter(key => key.endsWith('.toon')).length,
   authoritative_files: before.size, authoritative_unchanged: true,
   binary_sha256: binaryHash,
