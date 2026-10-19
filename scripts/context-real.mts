@@ -3,7 +3,6 @@ import { createHash } from 'node:crypto';
 import { readFileSync, readdirSync, rmSync, writeFileSync, existsSync } from 'node:fs';
 import { resolve, join } from 'node:path';
 import { performance } from 'node:perf_hooks';
-
 import { argument, relationshipRoots } from './context-real-helpers.mts';
 
 const root = resolve(argument('--copy'));

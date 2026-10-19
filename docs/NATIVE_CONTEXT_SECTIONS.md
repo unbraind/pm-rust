@@ -167,3 +167,26 @@ passes. Isolated behavioral reversions of argument validation, root namespace
 filtering, warm-up and median-window selection each fail the Node regressions
 (exit 1), which pass 4/4 with all fixes restored. These harness regressions run
 through the Rust release suite on every platform.
+
+Review round 1 implementation `ceffe36` passed all nine CI jobs in
+[run 39285340550](https://github.com/unbraind/pm-rust/actions/runs/39285340550):
+
+| Platform | Ordinary tests | Instrumented tests | Required coverage |
+| --- | ---: | ---: | --- |
+| Linux | 505 | 505 | 100% lines/functions/regions/branches |
+| macOS | 501 | 501 | 100% lines/functions/regions/branches |
+| Windows | 496 | 496 | 100% lines/functions/regions/branches |
+
+Each platform ran 42 suite executions with zero failed or ignored tests.
+All three latency jobs passed; context median-window p95 was 106.0/135.6/188.5 ms
+on Linux/macOS/Windows against the unchanged 250 ms bound. Bun acceptance passed
+25/25 orientation tests. All five linked commands passed 13 underlying test
+executions. The end-to-end synthetic harness passed 37 comparisons and retained
+authoritative and frozen-binary hashes. Aggregate evidence and revert outcomes:
+[review receipt](benchmarks/native-context-review-1-2026-10-19.json).
+
+The first Bun attempt ran during oracle extraction and is excluded. The duplicate
+isolated local aggregate was stopped after complete three-OS CI certification
+and is also excluded. Clean-clone health passed the exact CI check-only command;
+this does not claim a full retained-history audit. The final documentation and
+tracker handoff receives a fresh three-OS matrix before the PR summary is final.

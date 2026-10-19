@@ -9,9 +9,11 @@ export function argument(name: string, args = process.argv): string {
 /** Select representative roots with local relationships from decoded oracle metadata. */
 export function relationshipRoots(items: Record<string, unknown>[]): Set<string> {
   const local = new Set(items.map(item => String(item.id).trim().toLowerCase()));
+  /** Recognize external identity from source metadata or reference spelling. */
   const external = (id: string, source: unknown): boolean =>
     ['global', 'external'].includes(String(source).trim().toLowerCase()) ||
     id.includes('://') || /^(github|gitlab|jira|linear):/i.test(id);
+  /** Require a known local target without discarding its source namespace. */
   const matches = (value: unknown, source?: unknown): boolean =>
     typeof value === 'string' && !external(value, source) && local.has(value.trim().toLowerCase());
   const predicates = [

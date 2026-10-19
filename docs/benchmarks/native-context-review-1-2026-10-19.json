@@ -1,0 +1,308 @@
+{
+  "implementation_head": "ceffe366e13c985ec7cb5a4d2bfbfb067c01dc0d",
+  "oracle": "2026.10.14",
+  "ci_run": "https://github.com/unbraind/pm-rust/actions/runs/39285340550",
+  "full_gate_command": "just release-check",
+  "ci_jobs_passed": 9,
+  "ci_jobs_total": 9,
+  "platforms": {
+    "ubuntu": {
+      "release_job": 118169555439,
+      "ordinary_tests": 505,
+      "instrumented_tests": 505,
+      "suite_runs": 42,
+      "failed": 0,
+      "ignored": 0,
+      "coverage": {
+        "lines": {
+          "count": 13094,
+          "covered": 13094,
+          "percent": 100
+        },
+        "functions": {
+          "count": 1350,
+          "covered": 1350,
+          "percent": 100
+        },
+        "regions": {
+          "count": 21868,
+          "covered": 21868,
+          "notcovered": 0,
+          "percent": 100
+        },
+        "branches": {
+          "count": 3150,
+          "covered": 3150,
+          "notcovered": 0,
+          "percent": 100
+        }
+      },
+      "latency": [
+        {
+          "command": "get",
+          "runs": 90,
+          "warmups": 5,
+          "windows": 3,
+          "statistic": "median-of-window-p95",
+          "p50_ms": 4.6167765000000145,
+          "p95_ms": 4.931208999999967,
+          "required_p95_below_ms": 50,
+          "pass": true
+        },
+        {
+          "command": "list",
+          "runs": 90,
+          "warmups": 5,
+          "windows": 3,
+          "statistic": "median-of-window-p95",
+          "p50_ms": 53.01300499999934,
+          "p95_ms": 54.11482299999989,
+          "required_p95_below_ms": 150,
+          "pass": true
+        },
+        {
+          "command": "context",
+          "runs": 90,
+          "warmups": 5,
+          "windows": 3,
+          "statistic": "median-of-window-p95",
+          "p50_ms": 102.41380049999952,
+          "p95_ms": 105.98521400000027,
+          "required_p95_below_ms": 250,
+          "pass": true
+        }
+      ]
+    },
+    "macos": {
+      "release_job": 118169556005,
+      "ordinary_tests": 501,
+      "instrumented_tests": 501,
+      "suite_runs": 42,
+      "failed": 0,
+      "ignored": 0,
+      "coverage": {
+        "lines": {
+          "count": 13141,
+          "covered": 13141,
+          "percent": 100
+        },
+        "functions": {
+          "count": 1362,
+          "covered": 1362,
+          "percent": 100
+        },
+        "regions": {
+          "count": 21955,
+          "covered": 21955,
+          "notcovered": 0,
+          "percent": 100
+        },
+        "branches": {
+          "count": 3152,
+          "covered": 3152,
+          "notcovered": 0,
+          "percent": 100
+        }
+      },
+      "latency": [
+        {
+          "command": "get",
+          "runs": 90,
+          "warmups": 5,
+          "windows": 3,
+          "statistic": "median-of-window-p95",
+          "p50_ms": 7.199354500000027,
+          "p95_ms": 14.253500000000031,
+          "required_p95_below_ms": 50,
+          "pass": true
+        },
+        {
+          "command": "list",
+          "runs": 90,
+          "warmups": 5,
+          "windows": 3,
+          "statistic": "median-of-window-p95",
+          "p50_ms": 63.41558350000014,
+          "p95_ms": 80.0087080000003,
+          "required_p95_below_ms": 150,
+          "pass": true
+        },
+        {
+          "command": "context",
+          "runs": 90,
+          "warmups": 5,
+          "windows": 3,
+          "statistic": "median-of-window-p95",
+          "p50_ms": 94.1660624999995,
+          "p95_ms": 135.62341600000036,
+          "required_p95_below_ms": 250,
+          "pass": true
+        }
+      ]
+    },
+    "windows": {
+      "release_job": 118169555849,
+      "ordinary_tests": 496,
+      "instrumented_tests": 496,
+      "suite_runs": 42,
+      "failed": 0,
+      "ignored": 0,
+      "coverage": {
+        "lines": {
+          "count": 13140,
+          "covered": 13140,
+          "percent": 100
+        },
+        "functions": {
+          "count": 1363,
+          "covered": 1363,
+          "percent": 100
+        },
+        "regions": {
+          "count": 21956,
+          "covered": 21956,
+          "notcovered": 0,
+          "percent": 100
+        },
+        "branches": {
+          "count": 3154,
+          "covered": 3154,
+          "notcovered": 0,
+          "percent": 100
+        }
+      },
+      "latency": [
+        {
+          "command": "get",
+          "runs": 90,
+          "warmups": 5,
+          "windows": 3,
+          "statistic": "median-of-window-p95",
+          "p50_ms": 15.209600000000023,
+          "p95_ms": 17.34109999999987,
+          "required_p95_below_ms": 50,
+          "pass": true
+        },
+        {
+          "command": "list",
+          "runs": 90,
+          "warmups": 5,
+          "windows": 3,
+          "statistic": "median-of-window-p95",
+          "p50_ms": 93.61355000000003,
+          "p95_ms": 113.40989999999874,
+          "required_p95_below_ms": 150,
+          "pass": true
+        },
+        {
+          "command": "context",
+          "runs": 90,
+          "warmups": 5,
+          "windows": 3,
+          "statistic": "median-of-window-p95",
+          "p50_ms": 178.66949999999997,
+          "p95_ms": 188.51970000000074,
+          "required_p95_below_ms": 250,
+          "pass": true
+        }
+      ]
+    }
+  },
+  "bun": {
+    "version": "1.3.5",
+    "command": "PM_NODE_INTERPRETER=bun PM_RUST_REQUIRE_PUBLISHED_CLI=1 cargo test --locked --test orientation_differential",
+    "passed": 25,
+    "failed": 0,
+    "ignored": 0
+  },
+  "harness": {
+    "command": "node --test scripts/harness.test.mts",
+    "passed": 4,
+    "failed": 0
+  },
+  "linked_tests": {
+    "command": "node tests/oracle/launch.mts test pm-rust-s6j4 --run --progress",
+    "commands_passed": 5,
+    "underlying_test_executions": 13,
+    "evidence_recording": "tracking_disabled policy retained"
+  },
+  "revert_proofs": [
+    {
+      "behavior": "Graph::new reverted to 506b448 only",
+      "reverted_exit": 101,
+      "restored_exit": 0
+    },
+    {
+      "behavior": "required-option token rejection removed only",
+      "reverted_exit": 1,
+      "restored_exit": 0
+    },
+    {
+      "behavior": "root source_kind namespace filter removed only",
+      "reverted_exit": 1,
+      "restored_exit": 0
+    },
+    {
+      "behavior": "latency warm-up removed only",
+      "reverted_exit": 1,
+      "restored_exit": 0
+    },
+    {
+      "behavior": "median-window selection replaced by first window only",
+      "reverted_exit": 1,
+      "restored_exit": 0
+    }
+  ],
+  "external_packet_differential": {
+    "cases": 8,
+    "encodings": [
+      "TOON",
+      "JSON"
+    ],
+    "projections": [
+      "full",
+      "summary"
+    ],
+    "controls": [
+      "plain global",
+      "plain external",
+      "local collisions",
+      "URL references"
+    ]
+  },
+  "end_to_end_harness": {
+    "fixture": "initialized synthetic tracker",
+    "comparisons": 37,
+    "packet_comparisons": 11,
+    "context_comparisons": 26,
+    "packet_roots": 1,
+    "authoritative_unchanged": true,
+    "frozen_binary_unchanged": true,
+    "timing_samples_per_runtime": 1,
+    "performance_certification": false
+  },
+  "ci_root_causes": {
+    "ubuntu_rust": "15-minute execution maximum exceeded after test step passed; ordinary matrix now uses existing 20-minute Windows allowance",
+    "windows_latency": {
+      "failed_p95_ms": 339.5407,
+      "bound_ms": 250,
+      "preceding_identical_source_p95_ms": 186.188,
+      "earlier_p95_ms": 213.5155,
+      "source_harness_lockfile_and_workflow_unchanged_between_runs": true,
+      "measurement": "5 warm-up launches then median of 3 fixed 30-process nearest-rank p95 windows; all measured samples retained in CI logs"
+    }
+  },
+  "retained_oracle_issues": [
+    1509,
+    1510,
+    1511,
+    1512,
+    1513
+  ],
+  "excluded_attempts": [
+    "initial Bun attempt overlapped incomplete oracle extraction; complete serialized-install acceptance passed afterward",
+    "redundant isolated local aggregate stopped after complete three-OS CI certification; never counted as passed"
+  ],
+  "health_scope": "fresh no-local clone, isolated home and Git configuration, clone-local merge drivers, health --check-only --require-merge-drivers --strict-exit; not a full history-drift audit",
+  "final_handoff": "Evidence and documentation changes receive fresh three-OS CI; final-head receipt is linked in the PR summary."
+}
