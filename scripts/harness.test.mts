@@ -1,7 +1,9 @@
 import assert from 'node:assert/strict';
-import { readFileSync } from 'node:fs';
+import { readFileSync, mkdtempSync, mkdirSync, rmSync, writeFileSync } from 'node:fs';
+import { tmpdir } from 'node:os';
+import { join } from 'node:path';
 import { test } from 'node:test';
-import { argument, relationshipRoots } from './context-real-helpers.mts';
+import { argument, authoritative, relationshipRoots } from './context-real-helpers.mts';
 import { measure } from './latency-measure.mts';
 
 test('README advertises every supported native context depth', () => {
@@ -62,4 +64,34 @@ test('sustained latency violations still fail the unchanged bound', () => {
   const tail = measure(() => ++index % 30 >= 28 ? 300 : 200);
   assert.equal(tail.p50_ms, 200);
   assert.equal(tail.p95_ms, 300);
+});
+
+
+test('authoritative snapshots exclude caches only at the tracker root', () => {
+  const root = mkdtempSync(join(tmpdir(), 'pm-rust-snapshot-'));
+  try {
+    for (const name of ['runtime', 'locks', 'transactions', 'checkpoints', 'search']) {
+      for (const prefix of ['', 'custom-types']) {
+        const folder = join(root, prefix, name);
+        mkdirSync(folder, { recursive: true });
+        writeFileSync(join(folder, 'item.toon'), 'title: before\n');
+        writeFileSync(join(folder, 'item.jsonl'), '{}\n');
+      }
+    }
+    const before = authoritative(root);
+    assert.equal(before.size, 10);
+    for (const name of ['runtime', 'locks', 'transactions', 'checkpoints', 'search']) {
+      for (const extension of ['toon', 'jsonl']) {
+        const relative = join('custom-types', name, `item.${extension}`);
+        assert.ok(before.has(relative));
+        writeFileSync(join(root, name, `item.${extension}`), 'cache changed\n');
+        assert.deepEqual(authoritative(root), before);
+        writeFileSync(join(root, relative), 'authoritative changed\n');
+        assert.notEqual(authoritative(root).get(relative), before.get(relative));
+        writeFileSync(join(root, relative), extension === 'toon' ? 'title: before\n' : '{}\n');
+      }
+    }
+  } finally {
+    rmSync(root, { recursive: true, force: true });
+  }
 });

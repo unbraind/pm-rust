@@ -136,12 +136,42 @@ fn external_keys(
     external_keys
 }
 
+/// Orders active missing-reference evidence before terminal holders with stable tie breakers.
+fn compare_missing(a: &Value, b: &Value) -> std::cmp::Ordering {
+    a["legacy_terminal"]
+        .as_bool()
+        .cmp(&b["legacy_terminal"].as_bool())
+        .then_with(|| {
+            ["holder_id", "target_id", "kind", "source"]
+                .iter()
+                .map(|key| crate::collation::compare(text(a, key), text(b, key)))
+                .find(|order| !order.is_eq())
+                .unwrap_or(std::cmp::Ordering::Equal)
+        })
+}
+
+/// Indexes incident edge positions once, counting a self-loop once for its endpoint.
+fn index_edges(edges: &[Value]) -> BTreeMap<String, Vec<usize>> {
+    let mut adjacency: BTreeMap<String, Vec<usize>> = BTreeMap::new();
+    for (index, edge) in edges.iter().enumerate() {
+        let source = text(edge, "source");
+        let target = text(edge, "target");
+        adjacency.entry(source.to_owned()).or_default().push(index);
+        if target != source {
+            adjacency.entry(target.to_owned()).or_default().push(index);
+        }
+    }
+    adjacency
+}
+
 /// Immutable graph and dangling-reference evidence captured for one read.
 struct Graph {
     /// Compact node details including missing and external nodes.
     details: BTreeMap<String, Value>,
     /// Sorted deduplicated directed edges.
     edges: Vec<Value>,
+    /// Edge positions indexed once per endpoint, including self-loops only once.
+    adjacency: BTreeMap<String, Vec<usize>>,
     /// Missing-reference storage rows in active then terminal order.
     missing: Vec<Value>,
     /// Legacy kind occurrence counts.
@@ -234,19 +264,9 @@ impl Graph {
         }
         let mut edges: Vec<_> = deduped.into_values().collect();
         edges.sort_by(compare);
-        missing.sort_by(|a, b| {
-            a["legacy_terminal"]
-                .as_bool()
-                .cmp(&b["legacy_terminal"].as_bool())
-                .then_with(|| {
-                    ["holder_id", "target_id", "kind", "source"]
-                        .iter()
-                        .map(|key| crate::collation::compare(text(a, key), text(b, key)))
-                        .find(|order| !order.is_eq())
-                        .unwrap_or(std::cmp::Ordering::Equal)
-                })
-        });
+        missing.sort_by(compare_missing);
         Self {
+            adjacency: index_edges(&edges),
             details,
             edges,
             missing,
@@ -257,8 +277,11 @@ impl Graph {
     /// Returns stable neighboring edge rows under direction and kind constraints.
     fn neighbors(&self, id: &str, query: &Query) -> Vec<(&str, &Value)> {
         let mut rows: Vec<_> = self
-            .edges
-            .iter()
+            .adjacency
+            .get(id)
+            .into_iter()
+            .flatten()
+            .map(|index| &self.edges[*index])
             .filter(|edge| {
                 let outgoing = text(edge, "source") == id;
                 let incoming = text(edge, "target") == id;
@@ -407,60 +430,100 @@ fn evidence(root: &Value) -> Vec<String> {
     evidence
 }
 
+/// Query discovery shared by every rendered-budget retry over one immutable graph.
+struct Traversal<'a> {
+    /// Nodes reachable under the direction, kind and depth controls.
+    seen: BTreeSet<&'a str>,
+    /// Stable breadth-first rows with their first incoming reason.
+    discovered: Vec<(&'a str, usize, &'a str, &'static str)>,
+    /// Incident root edges reused for roles and direct counts.
+    direct: Vec<(&'a str, &'a Value)>,
+    /// Direct edge counts in published role order.
+    direct_counts: Value,
+    /// Cursor contract digest, computed once per query.
+    fingerprint: String,
+    /// Number of visited nodes before delivery bounds.
+    visited: usize,
+    /// Number of inspected incident edges before delivery bounds.
+    inspected: usize,
+    /// Whether the requested depth omitted reachable nodes.
+    truncated: bool,
+}
+
+impl<'a> Traversal<'a> {
+    /// Discovers and orders the complete query once, independently of rendered budget.
+    fn new(graph: &'a Graph, root: &'a str, query: &Query) -> Self {
+        let mut seen = BTreeSet::from([root]);
+        let mut queue = vec![(root, 0)];
+        let mut discovered = Vec::new();
+        let mut inspected = 0;
+        let mut truncated = false;
+        let mut index = 0;
+        while index < queue.len() {
+            let (id, distance) = queue[index];
+            index += 1;
+            if distance >= query.depth && truncated {
+                continue;
+            }
+            let adjacent = graph.neighbors(id, query);
+            inspected += adjacent.len();
+            if distance >= query.depth {
+                truncated |= adjacent.iter().any(|(id, _)| !seen.contains(id));
+                continue;
+            }
+            for (next, edge) in adjacent {
+                if seen.insert(next) {
+                    discovered.push((next, distance + 1, id, role(edge, next)));
+                    queue.push((next, distance + 1));
+                }
+            }
+        }
+        discovered.sort_by(|a, b| {
+            a.1.cmp(&b.1)
+                .then_with(|| crate::collation::compare(a.0, b.0))
+        });
+        let direct = graph.neighbors(root, query);
+        let mut direct_counts = json!({"prerequisite":0,"dependent":0,"ancestor":0,"descendant":0,"provenance":0,"related":0});
+        for (id, edge) in &direct {
+            let name = role(edge, id);
+            direct_counts[name] = json!(direct_counts[name].as_u64().unwrap_or_default() + 1);
+        }
+        let contract = json!({"rootId":root,"direction":query.direction,"kinds":query.kinds,"maxDepth":query.depth});
+        let fingerprint = crate::history::sha256_digest(
+            format!(
+                "relationship-context\0{}",
+                crate::pagination::stable(&contract)
+            )
+            .as_bytes(),
+        );
+        Self {
+            seen,
+            discovered,
+            direct,
+            direct_counts,
+            fingerprint,
+            visited: queue.len(),
+            inspected,
+            truncated,
+        }
+    }
+}
+
 /// Builds an exact packet and its producer continuation before rendered-budget enforcement.
 #[allow(clippy::too_many_lines)]
 fn packet(
     graph: &Graph,
     root: &str,
     query: &Query,
+    traversal: &Traversal<'_>,
     evidence: &[String],
     cursor: Option<&str>,
     budget: usize,
 ) -> Result<Value, PmRustError> {
-    let mut seen = BTreeSet::from([root]);
-    let mut queue = vec![(root, 0)];
-    let mut discovered = Vec::new();
-    let mut inspected = 0;
-    let mut truncated = false;
-    let mut index = 0;
-    while index < queue.len() {
-        let (id, distance) = queue[index];
-        index += 1;
-        if distance >= query.depth && truncated {
-            continue;
-        }
-        let adjacent = graph.neighbors(id, query);
-        inspected += adjacent.len();
-        if distance >= query.depth {
-            truncated |= adjacent.iter().any(|(id, _)| !seen.contains(id));
-            continue;
-        }
-        for (next, edge) in adjacent {
-            if seen.insert(next) {
-                discovered.push((next, distance + 1, id, role(edge, next)));
-                queue.push((next, distance + 1));
-            }
-        }
-    }
-    discovered.sort_by(|a, b| {
-        a.1.cmp(&b.1)
-            .then_with(|| crate::collation::compare(a.0, b.0))
-    });
-    let direct = graph.neighbors(root, query);
-    let mut direct_counts = json!({"prerequisite":0,"dependent":0,"ancestor":0,"descendant":0,"provenance":0,"related":0});
-    for (id, edge) in &direct {
-        let name = role(edge, id);
-        direct_counts[name] = json!(direct_counts[name].as_u64().unwrap_or_default() + 1);
-    }
-    let contract = json!({"rootId":root,"direction":query.direction,"kinds":query.kinds,"maxDepth":query.depth});
-    let fingerprint = crate::history::sha256_digest(
-        format!(
-            "relationship-context\0{}",
-            crate::pagination::stable(&contract)
-        )
-        .as_bytes(),
-    );
-    let fingerprint = &fingerprint[..24];
+    let discovered = &traversal.discovered;
+    let direct = &traversal.direct;
+    let mut truncated = traversal.truncated;
+    let fingerprint = &traversal.fingerprint[..24];
     let start = if let Some(cursor) = cursor {
         let cursor = crate::pagination::query(cursor, fingerprint)?;
         if let Some(index) = discovered
@@ -536,9 +599,15 @@ fn packet(
     let included: BTreeSet<_> = std::iter::once(root)
         .chain(nodes.iter().map(|node| text(node, "id")))
         .collect();
-    let candidates: Vec<_> = graph
-        .edges
+    let incident: BTreeSet<_> = included
         .iter()
+        .filter_map(|id| graph.adjacency.get(*id))
+        .flatten()
+        .copied()
+        .collect();
+    let candidates: Vec<_> = incident
+        .into_iter()
+        .map(|index| &graph.edges[index])
         .filter(|edge| {
             included.contains(text(edge, "source"))
                 && included.contains(text(edge, "target"))
@@ -558,7 +627,7 @@ fn packet(
     let has_more = consumed < discovered.len();
     let omitted_edges = candidates.len() - edges.len();
     truncated |= has_more || omitted_edges > 0;
-    let mut meta = json!({"exact":true,"truncated":truncated,"completeness":if truncated {"truncated"} else {"complete"},"nodeLimit":query.nodes,"edgeLimit":query.edges,"tokenBudget":budget,"usedTokens":used,"visitedNodes":queue.len(),"inspectedEdges":inspected,"omittedNodes":discovered.len()-consumed,"omittedEdges":omitted_edges});
+    let mut meta = json!({"exact":true,"truncated":truncated,"completeness":if truncated {"truncated"} else {"complete"},"nodeLimit":query.nodes,"edgeLimit":query.edges,"tokenBudget":budget,"usedTokens":used,"visitedNodes":traversal.visited,"inspectedEdges":traversal.inspected,"omittedNodes":discovered.len()-consumed,"omittedEdges":omitted_edges});
     if has_more {
         // A nonempty remaining page either delivers a node or returns the budget-floor error above.
         meta["nextCursor"] = json!(crate::pagination::after(
@@ -571,8 +640,8 @@ fn packet(
         .missing
         .iter()
         .filter(|row| {
-            seen.contains(text(row, "target_id"))
-                && seen.contains(text(row, "holder_id"))
+            traversal.seen.contains(text(row, "target_id"))
+                && traversal.seen.contains(text(row, "holder_id"))
                 && query.matches(kind(text(row, "kind")).unwrap_or_default())
         })
         .collect();
@@ -581,7 +650,7 @@ fn packet(
         .map(|row| key(text(row, "target_id")))
         .collect();
     Ok(
-        json!({"root":root_details,"summary":{"rootId":root,"rootStatus":root_details["status"],"directEdges":direct_counts,"directTotal":direct.len(),"discoveredNodes":discovered.len(),"returnedNodes":nodes.len(),"returnedEdges":edges.len(),"omittedNodes":discovered.len()-consumed,"omittedEdges":omitted_edges,"evidenceCount":evidence.len(),"hasMore":has_more},"nodes":nodes,"edges":edges,"evidence":evidence,"meta":meta,"missing_count":missing_ids.len(),"missing_references":missing}),
+        json!({"root":root_details,"summary":{"rootId":root,"rootStatus":root_details["status"],"directEdges":traversal.direct_counts,"directTotal":direct.len(),"discoveredNodes":discovered.len(),"returnedNodes":nodes.len(),"returnedEdges":edges.len(),"omittedNodes":discovered.len()-consumed,"omittedEdges":omitted_edges,"evidenceCount":evidence.len(),"hasMore":has_more},"nodes":nodes,"edges":edges,"evidence":evidence,"meta":meta,"missing_count":missing_ids.len(),"missing_references":missing}),
     )
 }
 
@@ -629,6 +698,7 @@ pub(super) fn read(
     } else {
         evidence(&serde_json::to_value(workspace.get(id)?.metadata).unwrap_or_default())
     };
+    let traversal = Traversal::new(&graph, id, &query);
     let mut budget = query.tokens;
     let mut reference_limit = query.edges;
     let mut smallest: Option<Value> = None;
@@ -637,6 +707,7 @@ pub(super) fn read(
             &graph,
             id,
             &query,
+            &traversal,
             &evidence,
             options
                 .cursor
@@ -647,7 +718,7 @@ pub(super) fn read(
         ) {
             Ok(packet) => packet,
             Err(error) => {
-                // After one successful immutable query, reducing only its budget can fail only at the floor.
+                // The pinned oracle retains the previous result at both budget floors.
                 return smallest.map_or_else(|| Err(error), |result| Ok(result.into()));
             }
         };

@@ -1,9 +1,9 @@
 import { spawnSync } from 'node:child_process';
 import { createHash } from 'node:crypto';
-import { readFileSync, readdirSync, rmSync, writeFileSync, existsSync } from 'node:fs';
+import { readFileSync, rmSync, writeFileSync, existsSync } from 'node:fs';
 import { resolve, join } from 'node:path';
 import { performance } from 'node:perf_hooks';
-import { argument, relationshipRoots } from './context-real-helpers.mts';
+import { argument, authoritative, relationshipRoots } from './context-real-helpers.mts';
 
 const root = resolve(argument('--copy'));
 if (!existsSync(join(root, '.pm-rust-read-copy'))) throw new Error('Only a marked scratch tracker copy is accepted');
@@ -18,21 +18,6 @@ const environment = {
   PM_SENTRY_DISABLED: '1', PM_TELEMETRY_SOURCE_CONTEXT: 'test',
   DO_NOT_TRACK: '1', FIXED_CLOCK: clock,
 };
-
-/** Hash authoritative item and append-only history files without retaining their contents. */
-function authoritative(directory: string, prefix = ''): Map<string, string> {
-  const hashes = new Map<string, string>();
-  for (const entry of readdirSync(directory, { withFileTypes: true })) {
-    const relative = join(prefix, entry.name);
-    if (['runtime', 'locks', 'transactions', 'checkpoints', 'search'].includes(entry.name)) continue;
-    if (entry.isDirectory()) {
-      for (const [key, value] of authoritative(join(directory, entry.name), relative)) hashes.set(key, value);
-    } else if (entry.name.endsWith('.toon') || entry.name.endsWith('.jsonl')) {
-      hashes.set(relative, createHash('sha256').update(readFileSync(join(directory, entry.name))).digest('hex'));
-    }
-  }
-  return hashes;
-}
 
 /** Run one fresh process; private output remains exclusively in the marked copy. */
 function run(runtime: 'native' | 'oracle', args: string[]): { bytes: Buffer; ms: number; status: number | null } {
@@ -62,7 +47,7 @@ for (const id of roots) {
       const args = ['deps', id, '--format', 'context', ...controls, ...format];
       const oracle = run('oracle', args);
       const native = run('native', args);
-      if (oracle.status !== 0 || native.status !== 0 || !oracle.bytes.equals(native.bytes)) {
+      if (oracle.status !== native.status || !oracle.bytes.equals(native.bytes)) {
         writeFileSync(join(root, 'oracle-output.private'), oracle.bytes);
         writeFileSync(join(root, 'native-output.private'), native.bytes);
         throw new Error(`Real-copy packet parity failed at comparison ${packetComparisons + 1}`);
@@ -76,9 +61,10 @@ for (const id of roots) {
     const args = ['deps', id, '--format', 'context', '--node-limit', '1', '--json', ...(cursor ? ['--cursor', cursor] : [])];
     const oracle = run('oracle', args);
     const native = run('native', args);
-    if (oracle.status !== 0 || native.status !== 0 || !oracle.bytes.equals(native.bytes)) throw new Error('Real-copy packet continuation parity failed');
+    if (oracle.status !== native.status || !oracle.bytes.equals(native.bytes)) throw new Error('Real-copy packet continuation parity failed');
     comparisons += 1;
     packetComparisons += 1;
+    if (oracle.status !== 0) break;
     const parsed: { context: { meta: { nextCursor?: string } } } = JSON.parse(oracle.bytes.toString().split('\0')[0]);
     cursor = parsed.context.meta.nextCursor;
     if (!cursor) break;

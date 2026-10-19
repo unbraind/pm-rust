@@ -1685,3 +1685,115 @@ fn bounded_history_and_refusals_match_oracle() -> TestResult {
     }
     Ok(())
 }
+
+/// The marked-copy harness accepts identical nonzero packet statuses and still writes its receipt.
+#[test]
+fn real_copy_harness_accepts_matching_packet_refusals() -> TestResult {
+    let Some(published) =
+        published_cli::published_cli_or_skip("matching packet refusals in harness")
+    else {
+        return Ok(());
+    };
+    let scratch = tempfile::tempdir()?;
+    let driver = orientation_driver(scratch.path(), &published)?;
+    let root = tempfile::tempdir()?;
+    assert!(
+        oracle(&driver, root.path(), &["init", "sample-", "--defaults"])?
+            .status
+            .success()
+    );
+    let mut start = item("sample-root", "Task", "open", 1);
+    start["parent"] = json!("sample-parent");
+    start["files"] = json!([{"path": "x".repeat(6000)}]);
+    fixture(
+        root.path(),
+        &[start, item("sample-parent", "Task", "open", 2)],
+    )?;
+    let args = [
+        "deps",
+        "sample-root",
+        "--format",
+        "context",
+        "--token-budget",
+        "800",
+        "--json",
+    ];
+    let refused = oracle(&driver, root.path(), &args)?;
+    assert!(!refused.status.success());
+    compare(&refused, &native(root.path(), &args)?, &args);
+    fs::write(
+        root.path().join(".pm-rust-read-copy"),
+        "synthetic fixture\n",
+    )?;
+    let receipt = root.path().join("receipt.json");
+    let output = Command::new("node")
+        .arg("scripts/context-real.mts")
+        .arg("--copy")
+        .arg(root.path())
+        .arg("--driver")
+        .arg(&driver)
+        .args([
+            "--binary",
+            env!("CARGO_BIN_EXE_pm-rust"),
+            "--samples",
+            "1",
+            "--output",
+        ])
+        .arg(&receipt)
+        .output()?;
+    assert!(
+        output.status.success(),
+        "{}{}",
+        String::from_utf8_lossy(&output.stdout),
+        String::from_utf8_lossy(&output.stderr)
+    );
+    let result: Value = serde_json::from_slice(&fs::read(receipt)?)?;
+    assert_eq!(result["authoritative_unchanged"], true);
+    assert_eq!(result["packet_roots"], 1);
+    assert_eq!(result["packet_comparisons"], 11);
+    assert!(result["comparisons"].as_u64().unwrap_or_default() > 11);
+    Ok(())
+}
+
+/// Both packet budget floors retain the previous useful result in the pinned published CLI.
+#[test]
+fn relationship_root_evidence_floor_retains_oracle_parity() -> TestResult {
+    let Some(published) =
+        published_cli::published_cli_or_skip("root evidence rendered-budget floor")
+    else {
+        return Ok(());
+    };
+    let scratch = tempfile::tempdir()?;
+    let driver = orientation_driver(scratch.path(), &published)?;
+    let root = tempfile::tempdir()?;
+    assert!(
+        oracle(&driver, root.path(), &["init", "sample-", "--defaults"])?
+            .status
+            .success()
+    );
+    fixture(root.path(), &[item("sample-root", "Task", "open", 1)])?;
+    for encoding in [vec![], vec!["--json"]] {
+        let mut args = vec![
+            "deps",
+            "sample-root",
+            "--format",
+            "context",
+            "--token-budget",
+            "100",
+        ];
+        args.extend(&encoding);
+        let expected = oracle(&driver, root.path(), &args)?;
+        assert!(expected.status.success());
+        compare(&expected, &native(root.path(), &args)?, &args);
+        if !encoding.is_empty() {
+            let output: Value = serde_json::from_slice(&expected.stdout)?;
+            assert!(
+                output["context"]["meta"]["usedTokens"]
+                    .as_u64()
+                    .unwrap_or_default()
+                    > 100
+            );
+        }
+    }
+    Ok(())
+}

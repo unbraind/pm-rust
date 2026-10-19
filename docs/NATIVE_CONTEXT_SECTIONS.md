@@ -43,10 +43,11 @@ oracle version; unknown ranges and newer minima retain the explicit refusal.
 Context intents, arbitrary explicit sections, subtree/filter flags and canonical
 read-output controls remain in the follow-up item.
 
-Oracle compatibility retains published quirks. A packet budget unable to fit
-the root and evidence is an `unknown_error` refusal. A packet can also retain
-its smallest useful result when further rendered-budget reduction cannot fit
-one node. Context continuation may repeat an active blocked item because the
+Oracle compatibility retains published quirks. An initial packet budget unable to fit
+the root and evidence is an `unknown_error` refusal. After a successful attempt,
+the pinned oracle retains its previous result if further rendered-budget reduction
+cannot fit either one node or the root and evidence. That retained result may
+exceed the requested rendered budget; native output preserves this behavior. Context continuation may repeat an active blocked item because the
 packing pool independently includes the first blocked candidates on each page.
 Malformed packet-cursor recovery still refers to `--after`, although packet
 continuation accepts `--cursor`; this published recovery text is retained.
@@ -190,3 +191,39 @@ isolated local aggregate was stopped after complete three-OS CI certification
 and is also excluded. Clean-clone health passed the exact CI check-only command;
 this does not claim a full retained-history audit. The final documentation and
 tracker handoff receives a fresh three-OS matrix before the PR summary is final.
+
+
+## Review round 2
+
+Authoritative-copy snapshots exclude runtime, locks, transactions, checkpoints
+and search directories only at the tracker root. Identically named nested item
+folders and their history streams remain hashed, so changes invalidate the receipt.
+The packet matrix accepts matching status and output bytes, including nonzero
+refusals. A real synthetic tracker with evidence exceeding the 800-token packet
+budget verifies that the complete harness still writes its receipt.
+
+Relationship packets index incident edges once per immutable graph. Self-loops
+appear once; direction, inverse kind filtering and stable output ordering remain
+unchanged. Query discovery, direct role counts and cursor fingerprints are computed
+once and reused while rendered budgets and missing-reference limits shrink.
+A 20,000-edge disconnected component regression bounds 2,000 isolated-node lookups
+to one second; it excludes graph construction and does not change public latency
+thresholds. Exact-output differential tests remain the semantic acceptance gate.
+
+The request to propagate the root-and-evidence floor after a successful attempt
+is declined for pinned-oracle parity (upstream pm-cli#1513). The published SDK's
+`isContextBudgetFloorError` accepts both floor messages. A root-only 100-token
+TOON/JSON regression confirms identical successful over-budget responses; initial
+root/evidence refusals still match the oracle.
+
+
+| Unresolved thread | Disposition and regression |
+| --- | --- |
+| `PRRT_kwDOTwgMRs6uG8fo` | Fixed root-only cache exclusions; snapshot regression detects nested TOON and JSONL mutations. Reverting only the exclusion function fails (exit 1), restoration passes. |
+| `PRRT_kwDOTwgMRs6uG8f6` | Fixed matching packet refusals, including continuation. The real-tracker harness retains hashes and writes a receipt. Reverting only the packet comparison fails (exit 101), at comparison 1 in the final oversized-evidence fixture. |
+| `PRRT_kwDOTwgMRs6uG8gM` | Indexed adjacency and reused immutable discovery across retries. Reverting only `Graph::neighbors` compiles and fails the performance assertion (exit 101; 134.87 seconds); restoration passes all eight packet tests. Self-loop, direction, inverse-kind and ordering assertions also pass. |
+| `PRRT_kwDOTwgMRs6uG8gW` | Declined for pinned-oracle parity. Applying the proposed one-node-only fallback makes native exit 1 while the oracle exits 0; the TOON/JSON differential fails (exit 101), and restoring oracle behavior passes. |
+
+The final oversized-evidence harness fixture exercises matching refusals in both
+the packet matrix and continuation, while summary packets remain successful.
+No review threads are replied to or resolved by this change.

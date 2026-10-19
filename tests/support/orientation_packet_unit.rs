@@ -379,3 +379,117 @@ fn packet_storage_and_evidence_projection_boundaries() -> Result<(), Box<dyn std
     assert!(workspace.deps("sample-root", &options).is_err());
     Ok(())
 }
+
+/// Exercises packet construction with a fresh traversal for independent unit queries.
+fn packet(
+    graph: &Graph,
+    root: &str,
+    query: &Query,
+    evidence: &[String],
+    cursor: Option<&str>,
+    budget: usize,
+) -> Result<Value, PmRustError> {
+    super::packet(
+        graph,
+        root,
+        query,
+        &Traversal::new(graph, root, query),
+        evidence,
+        cursor,
+        budget,
+    )
+}
+
+/// Unrelated dense components must not turn isolated-node lookup into a full edge scan.
+#[test]
+fn packet_adjacency_bounds_unrelated_edge_work() -> Result<(), Box<dyn std::error::Error>> {
+    let (_directory, workspace) = workspace()?;
+    let lifecycle = Lifecycle::load(workspace.pm_root())?;
+    let mut rows = vec![item("sample-root")];
+    for index in 0..20000 {
+        let mut row = item(&format!("sample-{index}"));
+        row["parent"] = json!("sample-hub");
+        rows.push(row);
+    }
+    rows.push(item("sample-hub"));
+    let graph = Graph::new(&rows, &lifecycle);
+    let query = Query::new(&DepsOptions::default(), None)?;
+    let started = std::time::Instant::now();
+    for _ in 0..2000 {
+        assert!(graph.neighbors("sample-root", &query).is_empty());
+    }
+    assert!(started.elapsed() < std::time::Duration::from_secs(1));
+    Ok(())
+}
+
+/// Self-loops count once and directed, undirected and inverse kind filters retain ordering.
+#[test]
+fn packet_adjacency_preserves_incident_edge_semantics() -> Result<(), Box<dyn std::error::Error>> {
+    let (_directory, workspace) = workspace()?;
+    let lifecycle = Lifecycle::load(workspace.pm_root())?;
+    let mut root = item("sample-root");
+    root["dependencies"] = json!([
+        {"id":"sample-root","kind":"related"},
+        {"id":"sample-out","kind":"parent"},
+        {"id":"sample-related","kind":"related"}
+    ]);
+    let mut incoming = item("sample-in");
+    incoming["parent"] = json!("sample-root");
+    let graph = Graph::new(
+        &[
+            root,
+            incoming,
+            item("sample-out"),
+            item("sample-related"),
+            item("isolated"),
+        ],
+        &lifecycle,
+    );
+    let complete = packet(
+        &graph,
+        "sample-root",
+        &Query::new(&DepsOptions::default(), None)?,
+        &[],
+        None,
+        10000,
+    )?;
+    assert_eq!(complete["summary"]["returnedEdges"], 4);
+    assert_eq!(complete["summary"]["returnedNodes"], 3);
+    for (direction, expected) in [
+        (
+            "both",
+            vec!["sample-in", "sample-out", "sample-related", "sample-root"],
+        ),
+        (
+            "incoming",
+            vec!["sample-in", "sample-related", "sample-root"],
+        ),
+        (
+            "outgoing",
+            vec!["sample-out", "sample-related", "sample-root"],
+        ),
+    ] {
+        let mut query = Query::new(
+            &DepsOptions {
+                direction: Some(direction.to_owned()),
+                ..Default::default()
+            },
+            None,
+        )?;
+        let ids: Vec<_> = graph
+            .neighbors("sample-root", &query)
+            .iter()
+            .map(|row| row.0)
+            .collect();
+        assert_eq!(ids, expected);
+        query.kinds.insert("child".to_owned());
+        assert!(
+            graph
+                .neighbors("sample-root", &query)
+                .iter()
+                .all(|(_, edge)| edge["kind"] == "parent")
+        );
+        assert!(graph.neighbors("isolated", &query).is_empty());
+    }
+    Ok(())
+}

@@ -1,3 +1,22 @@
+import { createHash } from 'node:crypto';
+import { readFileSync, readdirSync } from 'node:fs';
+import { join } from 'node:path';
+
+/** Hash authoritative item and append-only history files without retaining their contents. */
+export function authoritative(directory: string, prefix = ''): Map<string, string> {
+  const hashes = new Map<string, string>();
+  for (const entry of readdirSync(directory, { withFileTypes: true })) {
+    const relative = join(prefix, entry.name);
+    if (!prefix && ['runtime', 'locks', 'transactions', 'checkpoints', 'search'].includes(entry.name)) continue;
+    if (entry.isDirectory()) {
+      for (const [key, value] of authoritative(join(directory, entry.name), relative)) hashes.set(key, value);
+    } else if (entry.name.endsWith('.toon') || entry.name.endsWith('.jsonl')) {
+      hashes.set(relative, createHash('sha256').update(readFileSync(join(directory, entry.name))).digest('hex'));
+    }
+  }
+  return hashes;
+}
+
 /** Read an explicit harness option without consuming the following option token. */
 export function argument(name: string, args = process.argv): string {
   const index = args.indexOf(name);
