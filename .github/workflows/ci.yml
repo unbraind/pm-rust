@@ -45,7 +45,7 @@ jobs:
           toolchain: "1.90.0"
           components: clippy,rustfmt
       - name: Install just for the oracle recipe contract
-        uses: taiki-e/install-action@1168f6810a3cb30a3514bf5756a3b7f0422c6df8 # v2
+        uses: taiki-e/install-action@8cca0918f8471c33515202b73f56ab27f2bed283 # v2
         with:
           tool: just
       - run: cargo fmt --all -- --check
@@ -162,7 +162,7 @@ jobs:
         with:
           node-version: 26
       - name: Install Rust quality tools and just
-        uses: taiki-e/install-action@1168f6810a3cb30a3514bf5756a3b7f0422c6df8 # v2
+        uses: taiki-e/install-action@8cca0918f8471c33515202b73f56ab27f2bed283 # v2
         with:
           tool: cargo-audit,cargo-llvm-cov,just
 
