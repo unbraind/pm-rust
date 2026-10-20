@@ -483,7 +483,9 @@ fn assert_sdk_list_selection(
         if status == "blocked" {
             assert_eq!(result["count"], 2);
         } else {
-            assert_eq!(result["projection"]["mode"], "full");
+            // Terminal-family status filters keep the invoked command's brief
+            // default instead of the legacy full projection (GH-1489).
+            assert_eq!(result["projection"]["mode"], "brief");
         }
     }
     assert!(
@@ -650,5 +652,87 @@ fn context_timestamp_parse_work_is_linear() -> Result<(), Box<dyn std::error::Er
         parses <= 5 * 50 + 32,
         "{parses} timestamp parses for 50 items"
     );
+    Ok(())
+}
+
+/// Brief rows never fabricate a value for an unrecognized sort key (GH-1481).
+#[test]
+fn brief_rows_report_null_for_unrecognized_sort_keys() -> Result<(), Box<dyn std::error::Error>> {
+    let metadata: crate::ItemMetadata = serde_json::from_value(serde_json::json!({
+        "id": "demo-0001",
+        "title": "title",
+        "type": "Task",
+        "status": "open",
+        "priority": 1,
+        "created_at": "2026-09-01T00:00:00.000Z",
+        "updated_at": "2026-09-01T00:00:00.000Z"
+    }))?;
+    let row = super::brief_row(&metadata, Some("bogus"));
+    assert_eq!(row["bogus"], serde_json::Value::Null);
+    assert_eq!(
+        super::brief_fields(Some("bogus")),
+        vec!["id", "status", "type", "title", "bogus"]
+    );
+    assert_eq!(
+        super::brief_fields(Some("title")),
+        vec!["id", "status", "type", "title"]
+    );
+    assert_eq!(
+        super::brief_fields(None),
+        vec!["id", "status", "type", "title"]
+    );
+    Ok(())
+}
+
+/// An explicit --limit refuses non-integer values even under --no-truncate (GH-1457).
+#[test]
+fn no_truncate_still_refuses_invalid_explicit_limits() -> Result<(), Box<dyn std::error::Error>> {
+    let directory = tempfile::tempdir()?;
+    let root = directory.path().join(".agents/pm");
+    fs::create_dir_all(root.join("tasks"))?;
+    fs::write(root.join("settings.json"), "{}")?;
+    let workspace = Workspace::discover(directory.path())?;
+    let options = crate::ListOptions {
+        no_truncate: true,
+        limit: Some("bogus".to_owned()),
+        output_budget: Some("unbounded".to_owned()),
+        ..crate::ListOptions::default()
+    };
+    assert!(matches!(
+        workspace.list_page(&ItemFilter::default(), &options, "clock"),
+        Err(PmRustError::InvalidReadRequest { .. })
+    ));
+    Ok(())
+}
+
+/// Explicit brief sorting exposes the selected value in a tracker without Git.
+#[test]
+fn brief_sort_values_survive_sdk_projection() -> Result<(), Box<dyn std::error::Error>> {
+    let directory = tempfile::tempdir()?;
+    let root = directory.path().join(".agents/pm");
+    fs::create_dir_all(root.join("tasks"))?;
+    fs::write(root.join("settings.json"), "{}")?;
+    fs::write(
+        root.join("tasks/demo-sort.toon"),
+        "id: demo-sort\ntitle: Sorted task\ntype: Task\nstatus: open\npriority: 2\ncreated_at: \"2026-09-01T00:00:00.000Z\"\nupdated_at: \"2026-09-02T00:00:00.000Z\"\n",
+    )?;
+    let workspace = Workspace::discover(directory.path())?;
+    for brief in [false, true] {
+        let output = workspace.list_page(
+            &ItemFilter::default(),
+            &crate::ListOptions {
+                brief,
+                sort: Some("priority".to_owned()),
+                output_budget: Some("unbounded".to_owned()),
+                ..crate::ListOptions::default()
+            },
+            "clock",
+        )?;
+        assert_eq!(output["items"][0]["priority"], 2);
+        assert_eq!(
+            output["projection"]["fields"],
+            serde_json::json!(["id", "status", "type", "title", "priority"])
+        );
+    }
     Ok(())
 }

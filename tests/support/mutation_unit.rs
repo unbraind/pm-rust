@@ -4108,7 +4108,9 @@ fn closure_sdk_fields_and_evidence_modes() -> Result<(), Box<dyn std::error::Err
                 Err(PmRustError::CommandRefusal { exit_code: 2, .. })
             ));
         } else {
-            assert!(result?.close_receipt.ok_or("receipt")?["recovery"].is_object());
+            // Successful warn closes return the completion follow-up instead of
+            // failure recovery (GH-1464).
+            assert!(result?.close_receipt.ok_or("receipt")?["follow_up"].is_object());
         }
     }
     let (_directory, pm_root) = root(r#"{"governance":{"require_close_reason":false}}"#)?;

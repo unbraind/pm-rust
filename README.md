@@ -6,7 +6,7 @@ native applications.
 
 The project is pre-release. Its current delivery slice reads workspaces and
 creates, updates, comments on, closes, claims, and releases canonical items
-against the published `pm` 2026.10.14 on-disk contract. Production code, tests, benchmarks,
+against the published `pm` 2026.10.19 on-disk contract. Production code, tests, benchmarks,
 and build tooling are Rust; the distributed binary does not require Node.js,
 Bun, JavaScript, or TypeScript.
 
@@ -74,7 +74,7 @@ cargo run -- release pm-example --author agent --json
 cargo run -- --workspace /path/to/project close pm-example --reason "Done: shipped" --author agent --resolution "Fixed" --expected-result "Expected" --actual-result "Observed" --validate-close strict --json
 ```
 
-List pagination uses the pinned 2026.10.14 oracle in both JSON and default TOON.
+List pagination uses the pinned 2026.10.19 oracle in both JSON and default TOON.
 Configured lifecycle roles and declarative custom hierarchy kinds are resolved
 before selection; see [configured list registries](docs/CONFIGURED_LIST_REGISTRIES.md).
 Parent and tag filters and all six published sort fields run before slicing;
@@ -159,7 +159,7 @@ Work is managed in this repository with the latest `pm` CLI under
 
 ## Development
 
-The published parity oracle is pinned to exactly 2026.10.14 in
+The published parity oracle is pinned to exactly 2026.10.19 in
 `tests/oracle/package.json` and installed from its committed `package-lock.json`.
 Both local runs and every CI matrix job use `npm ci`; the lock records the
 registry tarball and integrity, including the bundled runtime closure. This

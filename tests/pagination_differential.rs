@@ -1240,11 +1240,14 @@ fn toon_budget_envelopes_and_snapshot_walks_match() -> TestResult {
             true,
         )?;
         compare_bytes_only(verbose.path(), &["--full", "--output-budget", "1500"], true)?;
-        compare_toon(verbose.path(), &["--output-budget", "1500"], false)?;
+        // The 2026.10.17+ pair-preserving cut keeps TOON bounded output
+        // encodable: the pinned codec no longer refuses a split surrogate
+        // escape that the old 240-unit cut produced (GH-1478).
+        compare_toon(verbose.path(), &["--output-budget", "1500"], true)?;
         compare_toon(
             verbose.path(),
             &["--for", "triage", "--token-budget", "1000"],
-            false,
+            true,
         )?;
         compare_toon(
             verbose.path(),
@@ -1653,7 +1656,16 @@ fn configured_hierarchy_pages_match_oracle() -> TestResult {
                 assert!(delivered < 10);
             }
             assert_eq!(delivered, 9);
-            let page = run(&["--all", "--parent", "demo-0000", "--output-budget", "900"])?;
+            // All-status rows stay brief (GH-1489), so the budget continuation
+            // snapshot is exercised through an explicit --full projection.
+            let page = run(&[
+                "--all",
+                "--parent",
+                "demo-0000",
+                "--full",
+                "--output-budget",
+                "900",
+            ])?;
             let cursor = page["next_cursor"].as_str().ok_or_else(|| {
                 format!("missing custom hierarchy snapshot (toon={toon}): {page}")
             })?;
@@ -1661,6 +1673,7 @@ fn configured_hierarchy_pages_match_oracle() -> TestResult {
                 "--all",
                 "--parent",
                 "demo-0000",
+                "--full",
                 "--output-budget",
                 "900",
                 "--output-cursor",

@@ -169,8 +169,33 @@ fn generated_utf16_cut_offsets_match_locked_oracle() -> TestResult {
         assert_eq!(result["read_output"]["strings_compacted"], !intent);
         assert_eq!(result["read_output"]["rows_compacted"], false);
         let wire = pm_rust::stringify_json(&result, true);
+        // The published 2026.10.17+ cut preserves surrogate pairs: no bounded
+        // output ends on a lone high-surrogate escape (GH-1478). The
+        // ellipsis suffix distinguishes cuts from the literal escape strings.
         for escape in ["\\ud83d…", "\\ud801…", "\\ud834…", "\\ud840…"] {
-            assert_eq!(wire.matches(escape).count(), 1, "{escape}");
+            assert_eq!(wire.matches(escape).count(), 0, "{escape}");
+        }
+        // Every astral placement that straddles the 240-unit cut either steps
+        // back one UTF-16 unit (ending in "x…") or completes the pair within
+        // the retained prefix (ending in the astral character plus ellipsis).
+        if !intent {
+            assert_eq!(
+                wire.matches("x…").count(),
+                4 * 242 - 4,
+                "pair-preserving cuts"
+            );
+            for (astral, escape) in [
+                ('😀', "\\ud83d"),
+                ('𐐷', "\\ud801"),
+                ('𝄞', "\\ud834"),
+                ('𠀀', "\\ud840"),
+            ] {
+                assert_eq!(
+                    wire.matches(format!("{astral}…").as_str()).count(),
+                    1,
+                    "completed {escape} pair"
+                );
+            }
         }
         assert_eq!(
             wire.matches("�\\\\ud83d").count(),
@@ -189,7 +214,7 @@ fn generated_utf16_cut_offsets_match_locked_oracle() -> TestResult {
         }
     }
     // Intent compaction precedes canonical amount/cost controls. Replay must
-    // rebase lossless pointers and hash the escaped strings, not the safe view.
+    // rebase lossless pointers and hash the compacted strings, not the safe view.
     let first = compare(directory.path(), "3000", true, None, None)?;
     let cursor = first["next_cursor"]
         .as_str()
@@ -201,12 +226,15 @@ fn generated_utf16_cut_offsets_match_locked_oracle() -> TestResult {
     let last_cursor = URL_SAFE_NO_PAD.encode(last_cursor.to_string());
     let tail = compare(directory.path(), "120000", true, None, Some(&last_cursor))?;
     assert_eq!(tail["count"], 3);
+    let tail_wire = pm_rust::stringify_json(&tail, true);
     for escape in ["\\ud83d…", "\\ud801…", "\\ud834…", "\\ud840…"] {
-        assert_eq!(
-            pm_rust::stringify_json(&tail, true).matches(escape).count(),
-            1
-        );
+        assert_eq!(tail_wire.matches(escape).count(), 0, "{escape}");
     }
+    assert_eq!(
+        tail_wire.matches("x…").count(),
+        4 * 3,
+        "pair-preserving cuts"
+    );
     let capped = compare(directory.path(), "120000", true, Some("2"), None)?;
     assert_eq!(capped["count"], 2);
     println!(

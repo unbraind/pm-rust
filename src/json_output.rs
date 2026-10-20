@@ -25,6 +25,20 @@ pub struct ListOutput {
 }
 
 impl ListOutput {
+    /// Builds a Unicode-safe response with lossless raw JSON replacements.
+    ///
+    /// Keys are JSON pointers into `value`; replacements for absent paths are
+    /// ignored. This retains legacy unpaired surrogate escapes without creating
+    /// them during compaction. JSON serialization validates each surviving raw
+    /// fragment; TOON refuses any surviving replacement.
+    #[must_use]
+    pub fn with_json_overrides(value: Value, overrides: BTreeMap<String, String>) -> Self {
+        Self {
+            value,
+            cuts: overrides,
+        }
+    }
+
     /// Measures the original projected rows with sorted keys and preserved cuts.
     pub(crate) fn row_fingerprint(&self) -> String {
         let mut sorted = self.value["items"].clone();

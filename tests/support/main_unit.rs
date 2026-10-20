@@ -1065,7 +1065,9 @@ fn list_and_cursor_writers_propagate_io_failures() -> Result<(), Box<dyn std::er
         assert!(super::write_cursor_refusal_to(&mut WriteFailure, &payload).is_err());
         assert!(super::write_cursor_refusal_to(&mut FlushFailure, &payload).is_err());
     }
-    // JSON can carry a lossless surrogate cut that the TOON codec must refuse.
+    // The pair-preserving cut keeps the astral pair intact, so bounded JSON
+    // carries a compacted prefix with no lone-surrogate escape and the TOON
+    // codec renders it (GH-1478).
     let directory = tempfile::tempdir()?;
     let root = directory.path().join(".agents/pm");
     fs::create_dir_all(root.join("tasks"))?;
@@ -1086,8 +1088,17 @@ fn list_and_cursor_writers_propagate_io_failures() -> Result<(), Box<dyn std::er
         },
         "clock",
     )?;
-    assert!(pm_rust::stringify_json(&cut, false).contains("\\ud83d"));
-    assert!(super::write_list_to(&mut Vec::new(), &cut, false).is_err());
+    assert!(!pm_rust::stringify_json(&cut, false).contains("\\ud83d"));
+    assert!(pm_rust::stringify_json(&cut, false).contains("x…"));
+    assert!(super::write_list_to(&mut Vec::new(), &cut, false).is_ok());
+    // A retained malformed override still refuses TOON rendering: the cut
+    // machinery keeps the codec rejection for values that were already
+    // malformed before compaction (GH-1478 preserves those for the encoder).
+    let malformed = pm_rust::ListOutput::with_json_overrides(
+        (*cut).clone(),
+        std::collections::BTreeMap::from([("/items/0/title".to_owned(), "\"\\ud83d\"".to_owned())]),
+    );
+    assert!(super::write_list_to(&mut Vec::new(), &malformed, false).is_err());
     Ok(())
 }
 

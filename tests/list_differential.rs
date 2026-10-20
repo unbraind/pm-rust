@@ -368,17 +368,18 @@ fn all_with_explicit_status_fails_closed() -> Result<(), Box<dyn std::error::Err
 fn full_restores_fields_without_adding_terminal_items() -> Result<(), Box<dyn std::error::Error>> {
     let fixture = tracker()?;
     let golden: Value = serde_json::from_str(GOLDEN)?;
-    let mut expected = golden["all"].clone();
-    let items = expected["items"]
-        .as_array_mut()
-        .ok_or("missing golden items")?;
-    items.retain(|item| item["status"] != "closed" && item["status"] != "canceled");
-    expected["count"] = 5.into();
-    expected["total"] = 5.into();
-    expected["filters"]
-        .as_object_mut()
-        .ok_or("missing filters")?
-        .remove("status");
+    // Explicit --full restores every metadata field while the default selection
+    // still excludes terminal items; all-status filters stay brief unless the
+    // projection is requested explicitly (GH-1489).
+    let expected = golden["full"].clone();
+    assert_eq!(expected["count"], serde_json::json!(5));
+    assert!(
+        expected["items"]
+            .as_array()
+            .into_iter()
+            .flatten()
+            .all(|item| item["status"] != "closed" && item["status"] != "canceled")
+    );
     let output = Command::new(env!("CARGO_BIN_EXE_pm-rust"))
         .args([
             "list",
@@ -400,11 +401,7 @@ fn full_restores_fields_without_adding_terminal_items() -> Result<(), Box<dyn st
         String::from_utf8_lossy(&output.stderr)
     );
     let actual: Value = serde_json::from_slice(&output.stdout)?;
-    let mut expected_with_receipt = expected.clone();
-    expected_with_receipt["read_output"] = serde_json::from_str(include_str!(
-        "fixtures/list-full-read-output-2026-10-2.json"
-    ))?;
-    assert_eq!(actual, expected_with_receipt);
+    assert_eq!(actual, expected);
     if let Some((interpreter, driver)) = published_driver(fixture.path())? {
         let output = published_cli::oracle_command(interpreter)
             .arg(driver)
@@ -422,20 +419,24 @@ fn full_restores_fields_without_adding_terminal_items() -> Result<(), Box<dyn st
             .output()?;
         assert!(output.status.success());
         let published: Value = serde_json::from_slice(&output.stdout)?;
-        let mut published_expected = expected.clone();
-        published_expected["read_output"] = serde_json::from_str(include_str!(
-            "fixtures/list-full-read-output-2026-10-2.json"
-        ))?;
-        assert_eq!(published, published_expected, "published full envelope");
+        assert_eq!(published, expected, "published full envelope");
     }
     let workspace = pm_rust::Workspace::discover(fixture.path())?;
+    let mut raw_expected = expected.clone();
+    raw_expected
+        .as_object_mut()
+        .map(|map| map.shift_remove("read_output"));
+    let mut raw_all = golden["full-all"].clone();
+    raw_all
+        .as_object_mut()
+        .map(|map| map.shift_remove("read_output"));
     assert_eq!(
         workspace.list_unbounded_full(&pm_rust::ItemFilter::default(), false, CLOCK)?,
-        expected
+        raw_expected
     );
     assert_eq!(
         workspace.list_unbounded_full(&pm_rust::ItemFilter::default(), true, CLOCK)?,
-        golden["all"]
+        raw_all
     );
     let output = Command::new(env!("CARGO_BIN_EXE_pm-rust"))
         .args([

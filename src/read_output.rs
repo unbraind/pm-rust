@@ -45,39 +45,28 @@ pub(crate) fn update(result: &mut ListOutput, key: &str, pretty: bool) {
 }
 
 /// Recursively compacts long strings using the published 240 UTF-16-unit ceiling.
-pub(crate) fn compact_strings(
-    value: &mut Value,
-    pointer: &str,
-    cuts: &mut std::collections::BTreeMap<String, String>,
-) -> bool {
+///
+/// The cut preserves surrogate pairs: ending on a high surrogate steps back one
+/// UTF-16 unit so an astral character never becomes a lone surrogate escape
+/// (published 2026.10.17+ contract, GH-1478). Already-malformed values keep the
+/// lossless overrides that [`crate::ListOutput`] serialization retains.
+pub(crate) fn compact_strings(value: &mut Value) -> bool {
     match value {
         Value::String(text) if text.encode_utf16().count() > 240 => {
             let units = text.encode_utf16().take(240).collect::<Vec<_>>();
-            let last = units[239];
-            if (0xd800..=0xdbff).contains(&last) {
-                let prefix = String::from_utf16_lossy(&units[..239]);
-                let mut raw = crate::stringify_json(&prefix, false);
-                raw.pop();
-                raw = format!("{raw}\\u{last:04x}…\"");
-                cuts.insert(pointer.to_owned(), raw);
-            }
-            *text = format!("{}…", String::from_utf16_lossy(&units));
+            let end = if (0xd800..=0xdbff).contains(&units[239]) {
+                239
+            } else {
+                240
+            };
+            *text = format!("{}…", String::from_utf16_lossy(&units[..end]));
             true
         }
         Value::Array(rows) => rows
             .iter_mut()
-            .enumerate()
-            .fold(false, |changed, (index, row)| {
-                compact_strings(row, &format!("{pointer}/{index}"), cuts) | changed
-            }),
+            .fold(false, |changed, row| compact_strings(row) | changed),
         Value::Object(map) => map.iter_mut().fold(false, |changed, (key, row)| {
-            (key != "focus_row_states"
-                && compact_strings(
-                    row,
-                    &format!("{pointer}/{}", key.replace('~', "~0").replace('/', "~1")),
-                    cuts,
-                ))
-                | changed
+            (key != "focus_row_states" && compact_strings(row)) | changed
         }),
         _ => false,
     }
@@ -408,7 +397,7 @@ pub(crate) fn apply_command(
     if let Some(budget) = budget
         && measure(&result, options.toon) > budget
     {
-        result = compact_budget(result, options, &state, budget, default_budget)?;
+        result = compact_budget(result, options, &state, budget, default_budget);
     }
     update_output(&mut result, options.toon);
     if result.get("context_intent").is_some() {
@@ -565,7 +554,7 @@ fn compact_budget(
     state: &Continuation,
     budget: usize,
     default_budget: bool,
-) -> Result<ListOutput, PmRustError> {
+) -> ListOutput {
     let hints = result["read_output"]["migration_hints"]
         .as_array()
         .into_iter()
@@ -574,10 +563,10 @@ fn compact_budget(
         .map(str::to_owned)
         .collect::<Vec<_>>();
     let measured = measure(&result, options.toon);
-    let strings_compacted = compact_strings(&mut result.value, "", &mut result.cuts);
-    if options.toon {
-        crate::toon_output::validate(&result)?;
-    }
+    let strings_compacted = compact_strings(&mut result.value);
+    // The pair-preserving cut (GH-1478) can no longer introduce a lone-surrogate
+    // override during compaction, so the entry validation already proved the
+    // envelope encodable and this pass cannot fail.
     result.value["read_output"]["strings_compacted"] = json!(strings_compacted);
     let source = if default_budget {
         "default"
@@ -605,7 +594,7 @@ fn compact_budget(
             json!({"output_budget_exceeded":{"omitted_result":true,"reason":"requested_budget_infeasible","restore_with":"Unbounded","recovery":{"outputBudget":"unbounded"}},"read_output":minimal}),
         );
     }
-    Ok(result)
+    result
 }
 
 #[cfg(test)]
@@ -801,7 +790,7 @@ pub(crate) fn apply_orientation(
     update_output(&mut result, options.toon);
     let measured = measure(&result, options.toon);
     if measured > budget {
-        let changed = compact_strings(&mut result.value, "", &mut result.cuts);
+        let changed = compact_strings(&mut result.value);
         result.value["read_output"]["strings_compacted"] = json!(changed);
         compact_collections(&mut result, options.toon, budget, |value| {
             finalize_orientation(value, &states, budget, source, &hints, measured, command);

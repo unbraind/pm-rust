@@ -43,11 +43,7 @@ fn custom_focus_classification_survives_compaction() {
     let states = "I".repeat(300);
     let mut payload =
         json!({"summary":{"focus_row_states":{"low_level":states}},"title":"x".repeat(300)});
-    assert!(compact_strings(
-        &mut payload,
-        "",
-        &mut std::collections::BTreeMap::default()
-    ));
+    assert!(compact_strings(&mut payload));
     assert_eq!(payload["summary"]["focus_row_states"]["low_level"], states);
 }
 
@@ -152,12 +148,33 @@ fn orientation_nested_only_recovery() {
 /// Orientation preserves the codec's refusal for a string cut between surrogate code units.
 #[test]
 fn orientation_toon_cut_refusal() {
+    // The pair-preserving cut never manufactures a lone surrogate, so a real
+    // astral title renders fine (GH-1478); only a retained malformed override
+    // keeps the pinned codec refusal.
     let title = format!("{}😀{}", "x".repeat(239), "y".repeat(20_000));
     let source =
         json!({"message":title,"high_level":[],"low_level":[],"blocked_fallback":[],"summary":{}});
+    assert!(
+        super::apply_orientation(
+            source.clone().into(),
+            &ListOptions {
+                toon: true,
+                token_budget: Some("1000".to_owned()),
+                ..Default::default()
+            },
+            "context",
+            &["high_level", "low_level"]
+        )
+        .is_ok()
+    );
+    let mut malformed = crate::ListOutput::from(source);
+    malformed.cuts.insert(
+        "/message".to_owned(),
+        format!("\"{}\\ud83d…\"", "x".repeat(239)),
+    );
     assert!(matches!(
         super::apply_orientation(
-            source.into(),
+            malformed,
             &ListOptions {
                 toon: true,
                 token_budget: Some("1000".to_owned()),
@@ -404,17 +421,10 @@ fn producer_rebasing_and_disclosure_keep_indices_and_snapshot() {
 #[test]
 fn estimates_and_string_compaction_handle_nested_unicode() {
     let mut value = json!({"rows":["😀".repeat(130),"x".repeat(240),null,3]});
-    assert!(compact_strings(
-        &mut value,
-        "",
-        &mut std::collections::BTreeMap::new()
-    ));
+    assert!(compact_strings(&mut value));
     assert_eq!(value["rows"][0], format!("{}…", "😀".repeat(120)));
-    assert!(!compact_strings(
-        &mut json!([true, null, "short"]),
-        "",
-        &mut std::collections::BTreeMap::new()
-    ));
+    assert_eq!(value["rows"][1], "x".repeat(240));
+    assert!(!compact_strings(&mut json!([true, null, "short"])));
     let mut measured = crate::ListOutput::from(json!({"read_output":{"estimated_tokens":0}}));
     super::update(&mut measured, "read_output", true);
     assert_eq!(
@@ -546,7 +556,7 @@ fn output_policy_audits_cover_requested_controls_and_absent_counts()
     Ok(())
 }
 
-/// Checks default TOON ceilings and both pre-existing and newly introduced string cuts.
+/// Checks default TOON ceilings and the retained malformed-cut codec refusal.
 fn assert_toon_budget_contract() -> Result<(), Box<dyn std::error::Error>> {
     let toon = apply(
         envelope(200, 400),
@@ -562,18 +572,24 @@ fn assert_toon_budget_contract() -> Result<(), Box<dyn std::error::Error>> {
         toon: true,
         ..ListOptions::default()
     };
+    // The pair-preserving cut keeps the astral character intact, so bounded
+    // TOON output renders instead of refusing (GH-1478).
     let title = format!("{}😀{}", "x".repeat(239), "y".repeat(300));
     let mut cut: crate::ListOutput = envelope(1, 0).into();
     cut.value["items"][0]["title"] = json!(title);
-    compact_strings(&mut cut.value, "", &mut cut.cuts);
-    assert!(matches!(
-        super::apply(cut, &options),
-        Err(crate::PmRustError::ToonEncoding { .. })
-    ));
+    compact_strings(&mut cut.value);
+    assert!(super::apply(cut, &options).is_ok());
     let mut original = envelope(200, 400);
-    original["items"][0]["title"] = json!(title);
+    original["items"][0]["title"] = json!(format!("{}😀{}", "x".repeat(239), "y".repeat(300)));
+    assert!(apply(original, &options).is_ok());
+    // A retained malformed override still reaches the pinned codec refusal.
+    let mut malformed: crate::ListOutput = envelope(1, 0).into();
+    malformed.cuts.insert(
+        "/items/0/title".to_owned(),
+        format!("\"{}\\ud83d…\"", "x".repeat(239)),
+    );
     assert!(matches!(
-        apply(original, &options),
+        super::apply(malformed, &options),
         Err(crate::PmRustError::ToonEncoding { .. })
     ));
     Ok(())

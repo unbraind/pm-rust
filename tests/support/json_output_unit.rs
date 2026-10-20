@@ -35,17 +35,25 @@ fn ordered_collections_preserve_strings_and_empty_values() -> Result<(), Box<dyn
 /// Envelope-level cuts survive row slicing, while row-string cuts move with rows.
 #[test]
 fn lossless_views_keep_cuts_and_javascript_numbers() -> Result<(), Box<dyn std::error::Error>> {
+    // Pair-preserving compaction never manufactures a lone surrogate (GH-1478):
+    // every safe view retains the prefix before the astral character.
     let cut = format!("{}😀suffix", "x".repeat(239));
     let mut output =
         super::ListOutput::from(json!({"items":[cut, cut],"notice":cut,"number":1e20}));
-    assert!(crate::read_output::compact_strings(
-        &mut output.value,
-        "",
-        &mut output.cuts
-    ));
+    assert!(crate::read_output::compact_strings(&mut output.value));
+    assert_eq!(output["notice"], format!("{}…", "x".repeat(239)));
+    let compacted = serde_json::to_string(&output)?;
+    assert_eq!(compacted.matches("…").count(), 3);
+    assert_eq!(compacted.matches("\\ud83d").count(), 0);
+    assert!(compacted.contains("100000000000000000000"));
+    // Retained raw overrides replace their safe views verbatim, including the
+    // lone-surrogate escape a malformed value keeps for the encoder to reject.
+    let raw = format!("\"{}\\ud83d…\"", "x".repeat(239));
+    for pointer in ["/items/0", "/items/1", "/notice"] {
+        output.cuts.insert(pointer.to_owned(), raw.clone());
+    }
     let before = serde_json::to_string(&output)?;
     assert_eq!(before.matches("\\ud83d…").count(), 3);
-    assert!(before.contains("100000000000000000000"));
     output
         .cuts
         .insert("/items/invalid/title".to_owned(), "null".to_owned());

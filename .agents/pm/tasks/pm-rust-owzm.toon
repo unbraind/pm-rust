@@ -1,0 +1,101 @@
+id: pm-rust-owzm
+title: Track pm-cli 2026.10.19 as the parity oracle
+description: "Bump the tests/oracle pin from 2026.10.14 to 2026.10.19, keep native parity and full coverage green"
+type: Task
+status: in_progress
+priority: 1
+tags[4]: ci,conformance,oracle,toolchain
+created_at: "2026-10-20T05:19:59.230Z"
+updated_at: "2026-10-20T08:14:37.628Z"
+deadline: "2026-10-24T00:00:00.000Z"
+assignee: codex-agent
+claim_principal: codex-agent
+author: pi-agent
+estimated_minutes: 240
+acceptance_criteria: tests/oracle package.json and lockfile pin @unbrained/pm-cli 2026.10.19; COMPATIBLE_PM_VERSION matches; just release-check green at unchanged thresholds; every parity delta classified
+dependencies[1]{id,kind,created_at,author,source_kind,author_source}:
+  pm-rust-4ld8,related,"2026-10-20T05:19:59.230Z",pi-agent,"cli:create:dep",detected
+comments[7]{created_at,author,text}:
+  "2026-10-20T05:19:59.230Z",pi-agent,"Created for the oracle-currency update: pin tests/oracle to @unbrained/pm-cli 2026.10.19, run the full gate, classify all parity deltas."
+  "2026-10-20T05:21:45.866Z",pi-agent,"Oracle pin bump applied: tests/oracle manifest and lockfile now pin @unbrained/pm-cli 2026.10.19 (regenerated with npm; new integrity recorded; bundled deps gained semver and OpenTelemetry api pins), COMPATIBLE_PM_VERSION in src/lib.rs and README oracle references updated. Merge drivers installed for this worktree against the 2026.10.19 oracle; strict health passes. Next: full just release-check and parity-failure classification."
+  "2026-10-20T06:28:03.033Z",pi-agent,"Full parity-failure classification against the 2026.10.19 oracle, all verified empirically against the published 10.14 and 10.19 packages: (a) intended upstream changes: GH-1457 in 10.15 (explicit --limit binds under --no-truncate; no-truncate disables only the implicit token ceiling and the 10k row guard), GH-1465 in 10.17 (foreign principal release under warn governance emits ownership_warning:assignee_conflict in the release envelope; forced and bypass releases stay silent, strict still refuses), GH-1464 in 10.17 (successful warn-mode close returns follow_up kind complete_close_evidence with suggested_command/suggested_command_args instead of failure-shaped recovery), GH-1478 in 10.17 (240 UTF-16-unit string compaction steps back one unit to preserve surrogate pairs in JSON and TOON; no lone-surrogate escapes; the retained malformed-override refusal stays), GH-1481 in 10.18 (explicit --sort keys appear once in brief rows and projection.fields; title excluded as already present), GH-1489 in 10.18 (all-status spellings and terminal-family status filters keep the brief default; explicit --full and raw SDK full reads stay full). No upstream bug from the parity list surfaced as a divergence; upstream issues 1507 and 1509-1514 remain byte-kept quirks with no native fixes smuggled in. Native defects: none found; every failure mapped to an upstream behaviour change. Fixes: release envelope warning in mutation.rs ownership path, close follow_up receipt, list projection model (all-status brief, sort key in brief, explicit producer limit under no-truncate), pair-preserving compact_strings; golden list fixture regenerated from the 10.19 oracle with new full and full-all labels; differential and unit tests updated to the new contracts."
+  "2026-10-20T07:12:40.212Z",pi-agent,"Progress: all 21 cargo test binaries pass against the 2026.10.19 oracle (514 integration+unit tests, 0 failures, including the previously red claim_release, close, list, output_parity and pagination suites). clippy -D warnings, fmt and rustdoc -D missing-docs gates pass. First branch-coverage run found 8 uncovered regions from the now-dead CLI-level lone-surrogate handler and one defensive match arm: the pair-preserving cut (GH-1478) can no longer manufacture a lone surrogate through the read pipeline, so the native CLI handler for the ToonEncoding detail was removed (the error variant and codec refusal stay covered by direct unit tests with retained malformed overrides, mirroring the upstream contract) and the defensive brief-row arm got a unit test. Re-running the coverage gate."
+  "2026-10-20T07:58:56.127Z",codex-agent,"Read all handover comments and reviewed the uncommitted oracle/parity work. Continuing as codex-agent. Will resolve unreachable coverage paths without exclusions or lower thresholds, record behavioural revert proof, run the unchanged release gate, and verify all three CI platforms before releasing the claim. Registry currently reports 2026.10.20; this task deliberately remains scoped to the requested 2026.10.19 oracle."
+  "2026-10-20T08:03:38.308Z",codex-agent,"Behavioural revert proof completed for all six intended deltas: reverting changed list selection/page functions fails unbounded_list_matches_published_cli_and_golden on all-status SDK output; reverting brief_row behavior fails brief_sort_values_survive_sdk_projection; reverting no-truncate limit handling fails no_truncate_still_refuses_invalid_explicit_limits; reverting close_item fails closure_sdk_fields_and_evidence_modes; reverting ownership_item_with_options fails claim_release_sequences_match_published_bytes_and_envelopes; restoring unconditional 240-unit compaction fails lossless_views_keep_cuts_and_javascript_numbers. Every reverted run exited 101 with assertion failures, not compile errors. Source restored after each proof. Strengthened the Unicode regression to assert the preserved prefix. Removed unreachable CLI handler and redundant compaction validation; retained the lossless codec contract via a documented constructor and refusal tests. No exclusions or threshold changes."
+  "2026-10-20T08:14:37.628Z",codex-agent,"Fmt, clippy -D warnings and rustdoc gates pass. The foreground nice-wrapped pm test run is executing just release-check with the pinned oracle; shared-host load is high and mutation differential subprocesses are still progressing. Starting hosted CI alongside the local aggregate, with validation explicitly pending. Strict summary health with required merge drivers passes with the three existing advisories tracked by pm-rust-vuwe. Full health separately reconfirms the two untouched legacy chain mismatches on pm-rust-bj7a and pm-rust-unih already tracked by pm-rust-b4yl; no history repair or re-anchor is authorized or performed."
+notes[1]{created_at,author,text}:
+  "2026-10-20T05:19:59.230Z",pi-agent,"Oracle currency: pm-rust must track the current published pm CLI; this item owns the 2026.10.19 pin update"
+learnings[1]{created_at,author,text}:
+  "2026-10-20T05:19:59.230Z",pi-agent,"pm create requires intent fields from every collection category (comment, test, file, note, doc, dep, deadline, estimate, learning) even when some are placeholders"
+files[21]:
+  - path: justfile
+    scope: project
+  - path: README.md
+    scope: project
+    note: Oracle currency references
+  - path: src/json_output.rs
+    scope: project
+  - path: src/lib.rs
+    scope: project
+    note: COMPATIBLE_PM_VERSION 2026.10.19
+  - path: src/list_intent.rs
+    scope: project
+  - path: src/list.rs
+    scope: project
+    note: "Brief all-status projection (GH-1489), sort key in brief (GH-1481), explicit limit under no-truncate (GH-1457)"
+  - path: src/mutation.rs
+    scope: project
+    note: Release ownership warning (GH-1465) and close follow_up (GH-1464)
+  - path: src/read_output.rs
+    scope: project
+    note: Pair-preserving 240-unit string cut (GH-1478)
+  - path: src/toon_output.rs
+    scope: project
+  - path: tests/fixtures/list-2026-10-2.json
+    scope: project
+    note: Golden regenerated from the 2026.10.19 oracle with full and full-all labels
+  - path: tests/list_differential.rs
+    scope: project
+  - path: tests/oracle/package-lock.json
+    scope: project
+    note: Regenerated lockfile with new integrity
+  - path: tests/oracle/package.json
+    scope: project
+    note: Oracle manifest pin
+  - path: tests/output_parity_differential.rs
+    scope: project
+    note: Pair-preservation regression
+  - path: tests/pagination_differential.rs
+    scope: project
+  - path: tests/support/json_output_unit.rs
+    scope: project
+  - path: tests/support/list_unit.rs
+    scope: project
+  - path: tests/support/main_unit.rs
+    scope: project
+  - path: tests/support/mutation_unit.rs
+    scope: project
+  - path: tests/support/read_output_unit.rs
+    scope: project
+  - path: tests/support/toon_output_unit.rs
+    scope: project
+tests[1]{command,scope,provenance{author,created_at,source_kind,source_ref}}:
+  just release-check,project,pi-agent,"2026-10-20T05:19:59.230Z",local_mutation,main
+docs[16]{path,scope}:
+  docs/ORACLE_2026_10_19.md,project
+  "https://github.com/unbraind/pm-cli/blob/main/.agents/pm/features/pm-gh1465.toon",project
+  "https://github.com/unbraind/pm-cli/blob/main/.agents/pm/issues/pm-gh1457.toon",project
+  "https://github.com/unbraind/pm-cli/blob/main/.agents/pm/issues/pm-gh1464.toon",project
+  "https://github.com/unbraind/pm-cli/blob/main/.agents/pm/issues/pm-gh1478.toon",project
+  "https://github.com/unbraind/pm-cli/blob/main/.agents/pm/issues/pm-gh1481.toon",project
+  "https://github.com/unbraind/pm-cli/blob/main/.agents/pm/issues/pm-gh1489.toon",project
+  "https://github.com/unbraind/pm-cli/blob/v2026.10.19/CHANGELOG.md",project
+  "https://github.com/unbraind/pm-cli/issues/1507",project
+  "https://github.com/unbraind/pm-cli/issues/1509",project
+  "https://github.com/unbraind/pm-cli/issues/1510",project
+  "https://github.com/unbraind/pm-cli/issues/1511",project
+  "https://github.com/unbraind/pm-cli/issues/1512",project
+  "https://github.com/unbraind/pm-cli/issues/1513",project
+  "https://github.com/unbraind/pm-cli/issues/1514",project
+  README.md,project
+body: "The parity oracle in tests/oracle is pinned to @unbrained/pm-cli 2026.10.14 while the current release is 2026.10.19. Owner rule: pm-rust must track the current pm CLI. This task bumps the oracle pin (package.json + committed lockfile), updates COMPATIBLE_PM_VERSION and docs references, runs the full gate, and classifies every parity delta between 10.14 and 10.19 as intended upstream change, upstream bug kept at parity, or native defect. Supersedes the open Dependabot oracle bumps."
