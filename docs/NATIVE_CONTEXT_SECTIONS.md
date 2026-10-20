@@ -287,4 +287,37 @@ real tracker fixture. All proofs retain their new regressions while reverting
 only the relevant behavior.
 Production Rust, oracle versions, the TS contracts tracked by pm-cli issues
 1509 through 1513, source coverage scope and release thresholds are unchanged.
-Current gate results are recorded on `pm-rust-s6j4` and the PR after completion.
+
+Implementation `323a960` passed all nine CI jobs in
+[run 39347695821](https://github.com/unbraind/pm-rust/actions/runs/39347695821),
+plus CodeQL. Every platform passed the unchanged full `just release-check`:
+
+| Platform | Ordinary tests | Instrumented tests | Suite executions | Covered lines / functions / regions / branches |
+| --- | ---: | ---: | ---: | --- |
+| Linux | 512 | 512 | 42 | 13136 / 1355 / 21941 / 3152 |
+| macOS | 508 | 508 | 42 | 13183 / 1367 / 22028 / 3154 |
+| Windows | 503 | 503 | 42 | 13182 / 1368 / 22029 / 3156 |
+
+Every row has zero failures and ignored tests, with 100 percent lines, functions,
+regions and branches at the existing scope and thresholds. Formatting, strict
+Clippy, private-item rustdoc, identity, changelog and clone-local strict check-only
+tracker health passed. Audit retains only the inherited allowed
+`RUSTSEC-2024-0449` advisory. All three latency jobs passed the unchanged
+50/150/250 ms limits; context p95 was 89.022 ms, 123.355 ms and 233.660 ms on
+Linux, macOS and Windows respectively.
+
+The required Bun orientation suite passed 28/28 on `323a960` with
+`PM_NODE_INTERPRETER=bun PM_RUST_REQUIRE_PUBLISHED_CLI=1 cargo +1.90.0 test --locked --test orientation_differential -- --test-threads=1`.
+All ten distinct linked commands passed, covering 26 direct test executions.
+One overlapping linked run timed out; rerunning only command 6 serially passed
+in 31.229 seconds at the unchanged 120-second limit. An earlier Bun run hit
+`ENOENT` in its self-spawning control after the test executable was rebuilt while
+running. Both overlapping failures are excluded; the complete clean Bun rerun
+and the serialized linked result are the acceptance evidence. Automatic run
+recording remains disabled by project policy; item comments retain the results.
+
+The final handoff changes only this documentation and paired tracker evidence.
+The item remains in progress with ownership released for orchestrator review.
+Its exact final-head matrix and fresh-clone check-only health are verified on
+the PR before reporting completion. This does not claim a full retained-history
+audit or approval from skipped automated reviewers.
