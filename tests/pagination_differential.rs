@@ -1093,6 +1093,46 @@ fn compare_toon(directory: &Path, flags: &[&str], success: bool) -> TestResultVa
 /// Decoded differential output with an owned error channel.
 type TestResultValue = Result<Value, Box<dyn std::error::Error>>;
 
+/// Nullable intent sort keys match the pinned CLI in JSON and TOON without Git.
+#[test]
+fn nullable_intent_brief_sort_values_match_both_wire_encodings() -> TestResult {
+    let directory = fixture(2, 0)?;
+    let path = directory.path().join(".agents/pm/tasks/demo-0001.toon");
+    let mut text = fs::read_to_string(&path)?;
+    text.push_str("parent: demo-0000\ndeadline: \"2026-10-24T00:00:00.000Z\"\n");
+    fs::write(path, text)?;
+    assert!(!directory.path().join(".git").exists());
+    for sort in ["parent", "deadline"] {
+        for order in ["asc", "desc"] {
+            let flags = [
+                "--for", "triage", "--brief", "--sort", sort, "--order", order,
+            ];
+            let page = compare(directory.path(), &flags, true)?;
+            // TOON omits null scalars by contract; compare its complete wire output.
+            compare_toon(directory.path(), &flags, true)?;
+            let rows = page["items"].as_array().ok_or("brief rows")?;
+            assert_eq!(rows.len(), 2);
+            let absent = rows.iter().find(|row| row["id"] == "demo-0000");
+            assert_eq!(absent.and_then(|row| row.get(sort)), Some(&Value::Null));
+            let present = rows.iter().find(|row| row["id"] == "demo-0001");
+            let expected = if sort == "parent" {
+                "demo-0000"
+            } else {
+                "2026-10-24T00:00:00.000Z"
+            };
+            assert_eq!(
+                present.and_then(|row| row.get(sort)),
+                Some(&serde_json::json!(expected))
+            );
+            assert_eq!(
+                page["projection"]["fields"],
+                serde_json::json!(["id", "status", "type", "title", sort])
+            );
+        }
+    }
+    Ok(())
+}
+
 /// Mixed-status producer walks compare both wire encodings with no skipped or repeated ID.
 #[test]
 fn mixed_status_filtered_walks_match_both_wire_encodings() -> TestResult {

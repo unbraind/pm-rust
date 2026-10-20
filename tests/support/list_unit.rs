@@ -762,3 +762,80 @@ fn brief_sort_values_survive_sdk_projection() -> Result<(), Box<dyn std::error::
     }
     Ok(())
 }
+
+/// Intent brief rows retain absent sort keys as null, matching ordinary SDK rows without Git.
+#[test]
+fn nullable_sort_values_survive_intent_brief_projection() -> Result<(), Box<dyn std::error::Error>>
+{
+    let directory = tempfile::tempdir()?;
+    let root = directory.path().join(".agents/pm");
+    fs::create_dir_all(root.join("tasks"))?;
+    fs::write(root.join("settings.json"), "{}")?;
+    for (id, extras) in [
+        ("demo-absent", ""),
+        (
+            "demo-present",
+            "parent: demo-absent\ndeadline: \"2026-10-24T00:00:00.000Z\"\n",
+        ),
+    ] {
+        fs::write(
+            root.join("tasks").join(format!("{id}.toon")),
+            format!(
+                "id: {id}\ntitle: Sorted task\ntype: Task\nstatus: open\npriority: 2\ncreated_at: \"2026-09-01T00:00:00.000Z\"\nupdated_at: \"2026-09-02T00:00:00.000Z\"\n{extras}"
+            ),
+        )?;
+    }
+    assert!(!directory.path().join(".git").exists());
+    let workspace = Workspace::discover(directory.path())?;
+    for sort in [
+        "parent",
+        "deadline",
+        "priority",
+        "title",
+        "created_at",
+        "updated_at",
+        "created",
+        "updated",
+    ] {
+        for order in ["asc", "desc"] {
+            let options = crate::ListOptions {
+                brief: true,
+                sort: Some(sort.to_owned()),
+                order: Some(order.to_owned()),
+                output_budget: Some("unbounded".to_owned()),
+                ..crate::ListOptions::default()
+            };
+            let ordinary = workspace.list_page(&ItemFilter::default(), &options, "clock")?;
+            let intent = workspace.list_page(
+                &ItemFilter::default(),
+                &crate::ListOptions {
+                    intent: Some("triage".to_owned()),
+                    ..options
+                },
+                "clock",
+            )?;
+            assert_eq!(intent["items"], ordinary["items"], "{sort} {order}");
+            assert_eq!(intent["projection"], ordinary["projection"]);
+            let rows = intent["items"].as_array().ok_or("brief rows")?;
+            assert_eq!(rows.len(), 2);
+            if matches!(sort, "parent" | "deadline") {
+                let absent = rows.iter().find(|row| row["id"] == "demo-absent");
+                assert_eq!(
+                    absent.and_then(|row| row.get(sort)),
+                    Some(&serde_json::Value::Null)
+                );
+                let present = rows.iter().find(|row| row["id"] == "demo-present");
+                let expected = if sort == "parent" {
+                    "demo-absent"
+                } else {
+                    "2026-10-24T00:00:00.000Z"
+                };
+                assert_eq!(
+                    present.and_then(|row| row.get(sort)),
+                    Some(&serde_json::json!(expected))
+                );
+            }
+        }
+    }
+    Ok(())
+}

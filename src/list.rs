@@ -33,8 +33,8 @@ fn project_brief_rows(result: &mut Value, sort: Option<&str>) {
     let sort_field = sort.filter(|field| *field != "title");
     result["items"] = json!(result["items"].as_array().into_iter().flatten().map(|row| {
         let mut brief = json!({"id":row["id"],"status":row["status"],"type":row["type"],"title":row["title"]});
-        if let (Some(field), Some(value)) = (sort_field, sort_field.and_then(|field| row.get(field))) {
-            brief[field] = value.clone();
+        if let Some(field) = sort_field {
+            brief[field] = row.get(field).cloned().unwrap_or(Value::Null);
         }
         brief
     }).collect::<Vec<_>>());
