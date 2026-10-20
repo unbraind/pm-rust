@@ -108,6 +108,12 @@ uses the locked npm package. Additional Bun acceptance runs the same oracle
 orientation suite with `PM_NODE_INTERPRETER=bun`; this changes only the test
 interpreter, while the production path remains native Rust.
 
+Broader Bun aggregate acceptance is blocked by the existing close-date overflow
+fixture: Bun reports `Invalid Date` where the pinned Node oracle reports
+`Invalid time value`. [pm-rust-9bci](../.agents/pm/tasks/pm-rust-9bci.toon)
+retains that Node diagnostic until a future oracle contract change. The close
+fixture and native date-overflow implementation are unchanged by this PR.
+
 Measurements use 30 fresh processes per runtime and command, alternating order
 after warmup. Both p50 and p95 use nearest-rank percentiles. The clock-pinned
 oracle driver also disables its scheduling-dependent 25 ms packing guard so
