@@ -98,7 +98,7 @@ pub(crate) fn attach(
     result.value["context_intent"] = json!({"command":"list","intent":"triage","source":"core","included_field_groups":["identity","governance","ownership","dependencies"],"token_budget":budget,"declared_token_budget":3200,"token_budget_override":i64::try_from(budget).unwrap_or(i64::MAX)-3200,"estimated_tokens":0,"within_budget":true,"degradation":"bounded_fields_and_rows","declaration_feasible":true,"result_omitted":false,"budget_derived_limit":derived,"binding_constraint":if explicit {"explicit_limit"} else {"token_budget"},"limit_reason":if explicit {"The caller supplied a smaller row limit than the budget-derived ceiling."} else {"The selected intent token budget constrains the effective row ceiling."}});
     read_output::update(&mut result, "context_intent", false);
     if read_output::estimate(&result, false) > budget {
-        read_output::compact_strings(&mut result.value, "", &mut result.cuts);
+        read_output::compact_strings(&mut result.value);
         result.value["context_intent"]["degradation"] = json!("recursive_budget_compaction");
         read_output::update(&mut result, "context_intent", false);
     }

@@ -1960,6 +1960,23 @@ pub fn quote_command_arg(value: &str) -> String {
 
 /// Builds the same evidence recovery tokens using the actual disposable tracker root.
 fn close_recovery(display_root: &Path, document: &ItemDocument) -> Option<Value> {
+    let (flags, command, args) = close_evidence_tokens(display_root, document)?;
+    Some(serde_json::json!({"missing":flags,"suggested_retry":command,"suggested_retry_args":args}))
+}
+
+/// Builds the successful warn-close follow-up the published CLI returns instead of failure recovery.
+fn close_follow_up(display_root: &Path, document: &ItemDocument) -> Option<Value> {
+    let (flags, command, args) = close_evidence_tokens(display_root, document)?;
+    Some(
+        serde_json::json!({"kind":"complete_close_evidence","missing":flags,"suggested_command":command,"suggested_command_args":args}),
+    )
+}
+
+/// Collects missing close-evidence flags and the completing update invocation.
+fn close_evidence_tokens(
+    display_root: &Path,
+    document: &ItemDocument,
+) -> Option<(Vec<String>, String, Vec<String>)> {
     let missing = missing_close_fields(document);
     if missing.is_empty() {
         return None;
@@ -1984,7 +2001,7 @@ fn close_recovery(display_root: &Path, document: &ItemDocument) -> Option<Value>
             .collect::<Vec<_>>()
             .join(" ")
     );
-    Some(serde_json::json!({"missing":flags,"suggested_retry":command,"suggested_retry_args":args}))
+    Some((flags, command, args))
 }
 
 /// Rejects impossible ISO calendar dates with the oracle's field-specific guidance.
@@ -2463,7 +2480,7 @@ pub(crate) fn close_item(
     }
     document.metadata.updated_at.clone_from(&timestamp);
     let recovery = if mode == "warn" {
-        close_recovery(display_root, &document)
+        close_follow_up(display_root, &document)
     } else {
         None
     };
@@ -2475,7 +2492,7 @@ pub(crate) fn close_item(
         receipt["warnings"] = serde_json::json!(warnings);
     }
     if let Some(recovery) = recovery {
-        receipt["recovery"] = recovery;
+        receipt["follow_up"] = recovery;
     }
     let mut result = commit_mutation(
         pm_root,
@@ -2868,6 +2885,17 @@ pub(crate) fn ownership_item_with_options(
             }
         }
     } else {
+        if foreign
+            && !request.force
+            && !options.release_bypass
+            && settings.governance.policy() == "warn"
+        {
+            warnings.push(format!(
+                "ownership_warning:assignee_conflict:{}:{}",
+                request.id,
+                assignee.trim()
+            ));
+        }
         if foreign
             && !request.force
             && !options.release_bypass

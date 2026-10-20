@@ -243,7 +243,10 @@ fn append_token(output: &mut String, token: &mut String) {
 /// Rejects the first surviving split code unit in wire traversal order.
 pub(crate) fn validate(output: &ListOutput) -> Result<(), crate::PmRustError> {
     if let Some(raw) = first_cut(&output.value, "", &output.cuts) {
-        let unit = raw.rsplit_once("\\u").map_or("", |(_, tail)| &tail[..4]);
+        let unit = raw
+            .rsplit_once("\\u")
+            .and_then(|(_, tail)| tail.get(..4))
+            .unwrap_or("");
         return Err(crate::PmRustError::ToonEncoding {
             detail: format!(
                 "Cannot encode string value containing an unpaired surrogate U+{} at index 239",

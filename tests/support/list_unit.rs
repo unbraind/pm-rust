@@ -133,6 +133,17 @@ fn page_limits_offsets_and_deleted_item_fallback() -> Result<(), Box<dyn std::er
     assert!(!legacy);
     assert_eq!(defaults["count"], 20);
     assert_eq!(defaults["applied_limit"], 20);
+    for (limit, count) in [(None, 10_000), (Some("2".to_owned()), 2)] {
+        let options = ListOptions {
+            no_truncate: true,
+            limit,
+            ..ListOptions::default()
+        };
+        assert_eq!(
+            super::page_envelope(source.clone(), &options, "fp")?.0["count"],
+            count
+        );
+    }
     for options in [
         ListOptions {
             limit: Some("0".to_owned()),
@@ -483,7 +494,9 @@ fn assert_sdk_list_selection(
         if status == "blocked" {
             assert_eq!(result["count"], 2);
         } else {
-            assert_eq!(result["projection"]["mode"], "full");
+            // Terminal-family status filters keep the invoked command's brief
+            // default instead of the legacy full projection (GH-1489).
+            assert_eq!(result["projection"]["mode"], "brief");
         }
     }
     assert!(
@@ -650,5 +663,179 @@ fn context_timestamp_parse_work_is_linear() -> Result<(), Box<dyn std::error::Er
         parses <= 5 * 50 + 32,
         "{parses} timestamp parses for 50 items"
     );
+    Ok(())
+}
+
+/// Brief rows never fabricate a value for an unrecognized sort key (GH-1481).
+#[test]
+fn brief_rows_report_null_for_unrecognized_sort_keys() -> Result<(), Box<dyn std::error::Error>> {
+    let mut metadata: crate::ItemMetadata = serde_json::from_value(serde_json::json!({
+        "id": "demo-0001",
+        "title": "title",
+        "type": "Task",
+        "status": "open",
+        "priority": 1,
+        "created_at": "2026-09-01T00:00:00.000Z",
+        "updated_at": "2026-09-01T00:00:00.000Z"
+    }))?;
+    let row = super::brief_row(&metadata, Some("bogus"));
+    assert_eq!(row["bogus"], serde_json::Value::Null);
+    assert_eq!(
+        super::brief_row(&metadata, Some("deadline"))["deadline"],
+        serde_json::Value::Null
+    );
+    metadata.extra.insert(
+        "deadline".to_owned(),
+        serde_json::json!("2026-10-24T00:00:00.000Z"),
+    );
+    assert_eq!(
+        super::brief_row(&metadata, Some("deadline"))["deadline"],
+        "2026-10-24T00:00:00.000Z"
+    );
+    assert_eq!(
+        super::brief_fields(Some("bogus")),
+        vec!["id", "status", "type", "title", "bogus"]
+    );
+    assert_eq!(
+        super::brief_fields(Some("title")),
+        vec!["id", "status", "type", "title"]
+    );
+    assert_eq!(
+        super::brief_fields(None),
+        vec!["id", "status", "type", "title"]
+    );
+    Ok(())
+}
+
+/// An explicit --limit refuses non-integer values even under --no-truncate (GH-1457).
+#[test]
+fn no_truncate_still_refuses_invalid_explicit_limits() -> Result<(), Box<dyn std::error::Error>> {
+    let directory = tempfile::tempdir()?;
+    let root = directory.path().join(".agents/pm");
+    fs::create_dir_all(root.join("tasks"))?;
+    fs::write(root.join("settings.json"), "{}")?;
+    let workspace = Workspace::discover(directory.path())?;
+    for offset in [None, Some("0".to_owned())] {
+        let options = crate::ListOptions {
+            no_truncate: true,
+            limit: Some("bogus".to_owned()),
+            offset,
+            output_budget: Some("unbounded".to_owned()),
+            ..crate::ListOptions::default()
+        };
+        assert!(matches!(
+            workspace.list_page(&ItemFilter::default(), &options, "clock"),
+            Err(PmRustError::InvalidReadRequest { .. })
+        ));
+    }
+    Ok(())
+}
+
+/// Explicit brief sorting exposes the selected value in a tracker without Git.
+#[test]
+fn brief_sort_values_survive_sdk_projection() -> Result<(), Box<dyn std::error::Error>> {
+    let directory = tempfile::tempdir()?;
+    let root = directory.path().join(".agents/pm");
+    fs::create_dir_all(root.join("tasks"))?;
+    fs::write(root.join("settings.json"), "{}")?;
+    fs::write(
+        root.join("tasks/demo-sort.toon"),
+        "id: demo-sort\ntitle: Sorted task\ntype: Task\nstatus: open\npriority: 2\ncreated_at: \"2026-09-01T00:00:00.000Z\"\nupdated_at: \"2026-09-02T00:00:00.000Z\"\n",
+    )?;
+    let workspace = Workspace::discover(directory.path())?;
+    for brief in [false, true] {
+        let output = workspace.list_page(
+            &ItemFilter::default(),
+            &crate::ListOptions {
+                brief,
+                sort: Some("priority".to_owned()),
+                output_budget: Some("unbounded".to_owned()),
+                ..crate::ListOptions::default()
+            },
+            "clock",
+        )?;
+        assert_eq!(output["items"][0]["priority"], 2);
+        assert_eq!(
+            output["projection"]["fields"],
+            serde_json::json!(["id", "status", "type", "title", "priority"])
+        );
+    }
+    Ok(())
+}
+
+/// Intent brief rows retain absent sort keys as null, matching ordinary SDK rows without Git.
+#[test]
+fn nullable_sort_values_survive_intent_brief_projection() -> Result<(), Box<dyn std::error::Error>>
+{
+    let directory = tempfile::tempdir()?;
+    let root = directory.path().join(".agents/pm");
+    fs::create_dir_all(root.join("tasks"))?;
+    fs::write(root.join("settings.json"), "{}")?;
+    for (id, extras) in [
+        ("demo-absent", ""),
+        (
+            "demo-present",
+            "parent: demo-absent\ndeadline: \"2026-10-24T00:00:00.000Z\"\n",
+        ),
+    ] {
+        fs::write(
+            root.join("tasks").join(format!("{id}.toon")),
+            format!(
+                "id: {id}\ntitle: Sorted task\ntype: Task\nstatus: open\npriority: 2\ncreated_at: \"2026-09-01T00:00:00.000Z\"\nupdated_at: \"2026-09-02T00:00:00.000Z\"\n{extras}"
+            ),
+        )?;
+    }
+    assert!(!directory.path().join(".git").exists());
+    let workspace = Workspace::discover(directory.path())?;
+    for sort in [
+        "parent",
+        "deadline",
+        "priority",
+        "title",
+        "created_at",
+        "updated_at",
+        "created",
+        "updated",
+    ] {
+        for order in ["asc", "desc"] {
+            let options = crate::ListOptions {
+                brief: true,
+                sort: Some(sort.to_owned()),
+                order: Some(order.to_owned()),
+                output_budget: Some("unbounded".to_owned()),
+                ..crate::ListOptions::default()
+            };
+            let ordinary = workspace.list_page(&ItemFilter::default(), &options, "clock")?;
+            let intent = workspace.list_page(
+                &ItemFilter::default(),
+                &crate::ListOptions {
+                    intent: Some("triage".to_owned()),
+                    ..options
+                },
+                "clock",
+            )?;
+            assert_eq!(intent["items"], ordinary["items"], "{sort} {order}");
+            assert_eq!(intent["projection"], ordinary["projection"]);
+            let rows = intent["items"].as_array().ok_or("brief rows")?;
+            assert_eq!(rows.len(), 2);
+            if matches!(sort, "parent" | "deadline") {
+                let absent = rows.iter().find(|row| row["id"] == "demo-absent");
+                assert_eq!(
+                    absent.and_then(|row| row.get(sort)),
+                    Some(&serde_json::Value::Null)
+                );
+                let present = rows.iter().find(|row| row["id"] == "demo-present");
+                let expected = if sort == "parent" {
+                    "demo-absent"
+                } else {
+                    "2026-10-24T00:00:00.000Z"
+                };
+                assert_eq!(
+                    present.and_then(|row| row.get(sort)),
+                    Some(&serde_json::json!(expected))
+                );
+            }
+        }
+    }
     Ok(())
 }

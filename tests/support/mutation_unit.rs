@@ -4095,6 +4095,10 @@ fn closure_sdk_fields_and_evidence_modes() -> Result<(), Box<dyn std::error::Err
             "2026-08-03T00:00:00.000Z"
         );
         assert!(serde_json::to_value(&result)?["item_path"].is_string());
+        let receipt = result.close_receipt.ok_or("receipt")?;
+        assert_eq!(receipt["status"], "closed");
+        assert!(receipt.get("follow_up").is_none());
+        assert!(receipt.get("recovery").is_none());
     }
     for mode in ["warn", "strict"] {
         let (_directory, pm_root) = root("{}")?;
@@ -4108,7 +4112,27 @@ fn closure_sdk_fields_and_evidence_modes() -> Result<(), Box<dyn std::error::Err
                 Err(PmRustError::CommandRefusal { exit_code: 2, .. })
             ));
         } else {
-            assert!(result?.close_receipt.ok_or("receipt")?["recovery"].is_object());
+            // Successful warn closes return the completion follow-up instead of
+            // failure recovery (GH-1464).
+            let receipt = result?.close_receipt.ok_or("receipt")?;
+            assert_eq!(receipt["status"], "closed");
+            assert!(receipt.get("recovery").is_none());
+            assert_eq!(
+                receipt["follow_up"],
+                serde_json::json!({
+                    "kind": "complete_close_evidence",
+                    "missing": ["--resolution", "--expected-result", "--actual-result"],
+                    "suggested_command": format!(
+                        "pm --pm-path {} update sample-unit --resolution \"<value>\" --expected-result \"<value>\" --actual-result \"<value>\"",
+                        quote_command_arg(&pm_root.to_string_lossy())
+                    ),
+                    "suggested_command_args": [
+                        "--pm-path", pm_root.to_string_lossy().as_ref(),
+                        "update", "sample-unit", "--resolution", "<value>",
+                        "--expected-result", "<value>", "--actual-result", "<value>"
+                    ]
+                })
+            );
         }
     }
     let (_directory, pm_root) = root(r#"{"governance":{"require_close_reason":false}}"#)?;

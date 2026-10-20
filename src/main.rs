@@ -1264,12 +1264,6 @@ fn main() -> ExitCode {
             ) {
                 return ExitCode::from(1);
             }
-            if let Some(pm_rust::PmRustError::ToonEncoding { detail }) =
-                error.downcast_ref::<pm_rust::PmRustError>()
-            {
-                eprintln!("{detail}");
-                return ExitCode::from(1);
-            }
             if let Some(pm_rust::PmRustError::CommandRefusal {
                 detail,
                 exit_code,

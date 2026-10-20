@@ -1,0 +1,33 @@
+id: pm-rust-qhem
+title: Certify the October 20 oracle in a separate follow-up
+description: Evaluate published pm-cli 2026.10.20 after the scoped 2026.10.19 delivery.
+type: Task
+status: open
+priority: 3
+tags[3]: conformance,follow-up,oracle
+created_at: "2026-10-20T09:07:30.168Z"
+updated_at: "2026-10-20T11:05:13.491Z"
+deadline: "2026-10-27T00:00:00.000Z"
+author: codex-agent
+estimated_minutes: 240
+acceptance_criteria: Oracle pin and compatibility version agree on 2026.10.20; deltas classified; behavioural revert proof recorded; release-check reaches 100 percent lines/functions/regions/branches; all three OS gates pass.
+parent: pm-rust-u4al
+blocked_by: pm-rust-owzm
+dependencies[2]{id,kind,created_at,author,source_kind,author_source}:
+  pm-rust-owzm,related,"2026-10-20T09:07:30.168Z",codex-agent,"cli:create:dep",detected
+  pm-rust-owzm,blocked_by,"2026-10-20T11:05:13.191Z",codex-agent,"cli:update:blocked_by",detected
+comments[1]{created_at,author,text}:
+  "2026-10-20T09:07:30.168Z",codex-agent,Planning only. Implementation is deferred until the current delivery is reviewed.
+notes[1]{created_at,author,text}:
+  "2026-10-20T09:07:30.168Z",codex-agent,Published version 2026.10.20 was observed via npm view during the 2026.10.19 continuation.
+learnings[1]{created_at,author,text}:
+  "2026-10-20T09:07:30.168Z",codex-agent,Completing 2026.10.19 certification does not certify a later release.
+files[3]{path,scope}:
+  src/lib.rs,project
+  tests/oracle/package-lock.json,project
+  tests/oracle/package.json,project
+tests[1]{command,scope,timeout_seconds,provenance{author,created_at,source_kind,source_ref}}:
+  just release-check,project,10800,codex-agent,"2026-10-20T09:07:30.168Z",local_mutation,chore/oracle-pm-cli-2026-10-19
+docs[1]{path,scope}:
+  "https://www.npmjs.com/package/@unbrained/pm-cli/v/2026.10.20",project
+body: The registry reports pm-cli 2026.10.20. Keep PR 100 scoped to the requested 2026.10.19 oracle. Update the oracle in a separate branch; classify published changes and retained quirks; prove regressions by behavioural revert; require full unchanged coverage and Linux/macOS/Windows CI. Full-field local search and GitHub issue/PR searches found no existing 2026.10.20 follow-up.

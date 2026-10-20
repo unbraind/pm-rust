@@ -74,87 +74,45 @@
     "items": [
       {
         "id": "demo-c",
-        "title": "demo-c",
-        "description": "",
-        "type": "Task",
         "status": "blocked",
-        "priority": 1,
-        "tags": [],
-        "created_at": "2026-09-01T00:00:00.000Z",
-        "updated_at": "2026-09-02T10:00:00.000Z",
-        "custom_field": "retained"
+        "type": "Task",
+        "title": "demo-c"
       },
       {
         "id": "demo-d",
-        "title": "demo-d",
-        "description": "",
-        "type": "Task",
         "status": "draft",
-        "priority": 1,
-        "tags": [],
-        "created_at": "2026-09-01T00:00:00.000Z",
-        "updated_at": "2026-09-02T10:00:00.000Z",
-        "custom_field": "retained"
+        "type": "Task",
+        "title": "demo-d"
       },
       {
         "id": "demo-g",
-        "title": "demo-g",
-        "description": "",
-        "type": "Task",
         "status": "open",
-        "priority": 1,
-        "tags": [],
-        "created_at": "2026-09-01T00:00:00.000Z",
-        "updated_at": "2026-09-02T10:00:00.000100Z",
-        "custom_field": "retained"
+        "type": "Task",
+        "title": "demo-g"
       },
       {
         "id": "demo-b",
-        "title": "demo-b",
-        "description": "",
-        "type": "Task",
         "status": "in_progress",
-        "priority": 1,
-        "tags": [],
-        "created_at": "2026-09-01T00:00:00.000Z",
-        "updated_at": "2026-09-01T10:00:00.000Z",
-        "custom_field": "retained"
+        "type": "Task",
+        "title": "demo-b"
       },
       {
         "id": "demo-a",
-        "title": "demo-a",
-        "description": "",
-        "type": "Task",
         "status": "open",
-        "priority": 2,
-        "tags": [],
-        "created_at": "2026-09-01T00:00:00.000Z",
-        "updated_at": "2026-09-02T10:00:00.000Z",
-        "custom_field": "retained"
+        "type": "Task",
+        "title": "demo-a"
       },
       {
         "id": "demo-f",
-        "title": "demo-f",
-        "description": "",
-        "type": "Task",
         "status": "canceled",
-        "priority": 0,
-        "tags": [],
-        "created_at": "2026-09-01T00:00:00.000Z",
-        "updated_at": "2026-09-04T10:00:00.000Z",
-        "custom_field": "retained"
+        "type": "Task",
+        "title": "demo-f"
       },
       {
         "id": "demo-e",
-        "title": "demo-e",
-        "description": "",
-        "type": "Task",
         "status": "closed",
-        "priority": 0,
-        "tags": [],
-        "created_at": "2026-09-01T00:00:00.000Z",
-        "updated_at": "2026-09-03T10:00:00.000Z",
-        "custom_field": "retained"
+        "type": "Task",
+        "title": "demo-e"
       }
     ],
     "count": 7,
@@ -172,8 +130,13 @@
       "runtime_filters": {}
     },
     "projection": {
-      "mode": "full",
-      "fields": null
+      "mode": "brief",
+      "fields": [
+        "id",
+        "status",
+        "type",
+        "title"
+      ]
     },
     "sorting": {
       "sort": "default",
@@ -181,96 +144,59 @@
     },
     "now": "2026-10-02T10:00:00.000Z",
     "omission_receipt": {
-      "has_omissions": false,
-      "omitted_field_group_count": 0,
-      "omitted_field_groups": []
+      "has_omissions": true,
+      "omitted_field_group_count": 1,
+      "omitted_field_groups": [
+        {
+          "name": "full_item_fields",
+          "restore_with": "--full"
+        }
+      ]
     }
   },
   "status-all": {
     "items": [
       {
         "id": "demo-c",
-        "title": "demo-c",
-        "description": "",
-        "type": "Task",
         "status": "blocked",
-        "priority": 1,
-        "tags": [],
-        "created_at": "2026-09-01T00:00:00.000Z",
-        "updated_at": "2026-09-02T10:00:00.000Z",
-        "custom_field": "retained"
+        "type": "Task",
+        "title": "demo-c"
       },
       {
         "id": "demo-d",
-        "title": "demo-d",
-        "description": "",
-        "type": "Task",
         "status": "draft",
-        "priority": 1,
-        "tags": [],
-        "created_at": "2026-09-01T00:00:00.000Z",
-        "updated_at": "2026-09-02T10:00:00.000Z",
-        "custom_field": "retained"
+        "type": "Task",
+        "title": "demo-d"
       },
       {
         "id": "demo-g",
-        "title": "demo-g",
-        "description": "",
-        "type": "Task",
         "status": "open",
-        "priority": 1,
-        "tags": [],
-        "created_at": "2026-09-01T00:00:00.000Z",
-        "updated_at": "2026-09-02T10:00:00.000100Z",
-        "custom_field": "retained"
+        "type": "Task",
+        "title": "demo-g"
       },
       {
         "id": "demo-b",
-        "title": "demo-b",
-        "description": "",
-        "type": "Task",
         "status": "in_progress",
-        "priority": 1,
-        "tags": [],
-        "created_at": "2026-09-01T00:00:00.000Z",
-        "updated_at": "2026-09-01T10:00:00.000Z",
-        "custom_field": "retained"
+        "type": "Task",
+        "title": "demo-b"
       },
       {
         "id": "demo-a",
-        "title": "demo-a",
-        "description": "",
-        "type": "Task",
         "status": "open",
-        "priority": 2,
-        "tags": [],
-        "created_at": "2026-09-01T00:00:00.000Z",
-        "updated_at": "2026-09-02T10:00:00.000Z",
-        "custom_field": "retained"
+        "type": "Task",
+        "title": "demo-a"
       },
       {
         "id": "demo-f",
-        "title": "demo-f",
-        "description": "",
-        "type": "Task",
         "status": "canceled",
-        "priority": 0,
-        "tags": [],
-        "created_at": "2026-09-01T00:00:00.000Z",
-        "updated_at": "2026-09-04T10:00:00.000Z",
-        "custom_field": "retained"
+        "type": "Task",
+        "title": "demo-f"
       },
       {
         "id": "demo-e",
-        "title": "demo-e",
-        "description": "",
-        "type": "Task",
         "status": "closed",
-        "priority": 0,
-        "tags": [],
-        "created_at": "2026-09-01T00:00:00.000Z",
-        "updated_at": "2026-09-03T10:00:00.000Z",
-        "custom_field": "retained"
+        "type": "Task",
+        "title": "demo-e"
       }
     ],
     "count": 7,
@@ -288,8 +214,13 @@
       "runtime_filters": {}
     },
     "projection": {
-      "mode": "full",
-      "fields": null
+      "mode": "brief",
+      "fields": [
+        "id",
+        "status",
+        "type",
+        "title"
+      ]
     },
     "sorting": {
       "sort": "default",
@@ -297,9 +228,14 @@
     },
     "now": "2026-10-02T10:00:00.000Z",
     "omission_receipt": {
-      "has_omissions": false,
-      "omitted_field_group_count": 0,
-      "omitted_field_groups": []
+      "has_omissions": true,
+      "omitted_field_group_count": 1,
+      "omitted_field_groups": [
+        {
+          "name": "full_item_fields",
+          "restore_with": "--full"
+        }
+      ]
     }
   },
   "closed": {
@@ -600,6 +536,273 @@
           "restore_with": "--full"
         }
       ]
+    }
+  },
+  "full": {
+    "items": [
+      {
+        "id": "demo-c",
+        "title": "demo-c",
+        "description": "",
+        "type": "Task",
+        "status": "blocked",
+        "priority": 1,
+        "tags": [],
+        "created_at": "2026-09-01T00:00:00.000Z",
+        "updated_at": "2026-09-02T10:00:00.000Z",
+        "custom_field": "retained"
+      },
+      {
+        "id": "demo-d",
+        "title": "demo-d",
+        "description": "",
+        "type": "Task",
+        "status": "draft",
+        "priority": 1,
+        "tags": [],
+        "created_at": "2026-09-01T00:00:00.000Z",
+        "updated_at": "2026-09-02T10:00:00.000Z",
+        "custom_field": "retained"
+      },
+      {
+        "id": "demo-g",
+        "title": "demo-g",
+        "description": "",
+        "type": "Task",
+        "status": "open",
+        "priority": 1,
+        "tags": [],
+        "created_at": "2026-09-01T00:00:00.000Z",
+        "updated_at": "2026-09-02T10:00:00.000100Z",
+        "custom_field": "retained"
+      },
+      {
+        "id": "demo-b",
+        "title": "demo-b",
+        "description": "",
+        "type": "Task",
+        "status": "in_progress",
+        "priority": 1,
+        "tags": [],
+        "created_at": "2026-09-01T00:00:00.000Z",
+        "updated_at": "2026-09-01T10:00:00.000Z",
+        "custom_field": "retained"
+      },
+      {
+        "id": "demo-a",
+        "title": "demo-a",
+        "description": "",
+        "type": "Task",
+        "status": "open",
+        "priority": 2,
+        "tags": [],
+        "created_at": "2026-09-01T00:00:00.000Z",
+        "updated_at": "2026-09-02T10:00:00.000Z",
+        "custom_field": "retained"
+      }
+    ],
+    "count": 5,
+    "total": 5,
+    "has_more": false,
+    "truncated": false,
+    "next_cursor": null,
+    "completeness": {
+      "status": "complete",
+      "unreadable_item_count": 0,
+      "unreadable_directory_count": 0
+    },
+    "filters": {
+      "runtime_filters": {}
+    },
+    "projection": {
+      "mode": "full",
+      "fields": null
+    },
+    "sorting": {
+      "sort": "default",
+      "order": "asc"
+    },
+    "now": "2026-10-02T10:00:00.000Z",
+    "omission_receipt": {
+      "has_omissions": false,
+      "omitted_field_group_count": 0,
+      "omitted_field_groups": []
+    },
+    "read_output": {
+      "contract_version": 1,
+      "command": "list",
+      "requested_dimensions": [
+        "include",
+        "amount",
+        "cost"
+      ],
+      "precedence": [
+        "canonical",
+        "legacy",
+        "intent",
+        "default"
+      ],
+      "canonical_options_used": [
+        "--output-limit",
+        "--output-budget"
+      ],
+      "legacy_aliases_used": [
+        "--full"
+      ],
+      "migration_hints": [
+        "--full is a compatibility alias; prefer --output-include full."
+      ],
+      "estimated_tokens": 678,
+      "within_budget": true,
+      "strings_compacted": false,
+      "rows_compacted": false,
+      "result_omitted": false
+    }
+  },
+  "full-all": {
+    "items": [
+      {
+        "id": "demo-c",
+        "title": "demo-c",
+        "description": "",
+        "type": "Task",
+        "status": "blocked",
+        "priority": 1,
+        "tags": [],
+        "created_at": "2026-09-01T00:00:00.000Z",
+        "updated_at": "2026-09-02T10:00:00.000Z",
+        "custom_field": "retained"
+      },
+      {
+        "id": "demo-d",
+        "title": "demo-d",
+        "description": "",
+        "type": "Task",
+        "status": "draft",
+        "priority": 1,
+        "tags": [],
+        "created_at": "2026-09-01T00:00:00.000Z",
+        "updated_at": "2026-09-02T10:00:00.000Z",
+        "custom_field": "retained"
+      },
+      {
+        "id": "demo-g",
+        "title": "demo-g",
+        "description": "",
+        "type": "Task",
+        "status": "open",
+        "priority": 1,
+        "tags": [],
+        "created_at": "2026-09-01T00:00:00.000Z",
+        "updated_at": "2026-09-02T10:00:00.000100Z",
+        "custom_field": "retained"
+      },
+      {
+        "id": "demo-b",
+        "title": "demo-b",
+        "description": "",
+        "type": "Task",
+        "status": "in_progress",
+        "priority": 1,
+        "tags": [],
+        "created_at": "2026-09-01T00:00:00.000Z",
+        "updated_at": "2026-09-01T10:00:00.000Z",
+        "custom_field": "retained"
+      },
+      {
+        "id": "demo-a",
+        "title": "demo-a",
+        "description": "",
+        "type": "Task",
+        "status": "open",
+        "priority": 2,
+        "tags": [],
+        "created_at": "2026-09-01T00:00:00.000Z",
+        "updated_at": "2026-09-02T10:00:00.000Z",
+        "custom_field": "retained"
+      },
+      {
+        "id": "demo-f",
+        "title": "demo-f",
+        "description": "",
+        "type": "Task",
+        "status": "canceled",
+        "priority": 0,
+        "tags": [],
+        "created_at": "2026-09-01T00:00:00.000Z",
+        "updated_at": "2026-09-04T10:00:00.000Z",
+        "custom_field": "retained"
+      },
+      {
+        "id": "demo-e",
+        "title": "demo-e",
+        "description": "",
+        "type": "Task",
+        "status": "closed",
+        "priority": 0,
+        "tags": [],
+        "created_at": "2026-09-01T00:00:00.000Z",
+        "updated_at": "2026-09-03T10:00:00.000Z",
+        "custom_field": "retained"
+      }
+    ],
+    "count": 7,
+    "total": 7,
+    "has_more": false,
+    "truncated": false,
+    "next_cursor": null,
+    "completeness": {
+      "status": "complete",
+      "unreadable_item_count": 0,
+      "unreadable_directory_count": 0
+    },
+    "filters": {
+      "status": "all",
+      "runtime_filters": {}
+    },
+    "projection": {
+      "mode": "full",
+      "fields": null
+    },
+    "sorting": {
+      "sort": "default",
+      "order": "asc"
+    },
+    "now": "2026-10-02T10:00:00.000Z",
+    "omission_receipt": {
+      "has_omissions": false,
+      "omitted_field_group_count": 0,
+      "omitted_field_groups": []
+    },
+    "read_output": {
+      "contract_version": 1,
+      "command": "list",
+      "requested_dimensions": [
+        "include",
+        "amount",
+        "cost"
+      ],
+      "precedence": [
+        "canonical",
+        "legacy",
+        "intent",
+        "default"
+      ],
+      "canonical_options_used": [
+        "--output-limit",
+        "--output-budget"
+      ],
+      "legacy_aliases_used": [
+        "--full"
+      ],
+      "migration_hints": [
+        "--full is a compatibility alias; prefer --output-include full."
+      ],
+      "estimated_tokens": 834,
+      "within_budget": true,
+      "strings_compacted": false,
+      "rows_compacted": false,
+      "result_omitted": false
     }
   }
 }

@@ -104,6 +104,21 @@ fn toon_wire_shapes_preserve_values_and_disclose_sparse_cells()
     Ok(())
 }
 
+/// Malformed or short raw fragments refuse TOON without panicking.
+#[test]
+fn raw_overrides_refuse_toon_without_panicking() {
+    for raw in ["invalid", "\"\\\\u\""] {
+        let output = crate::ListOutput::with_json_overrides(
+            json!("safe"),
+            std::collections::BTreeMap::from([(String::new(), raw.to_owned())]),
+        );
+        assert!(matches!(
+            super::stringify_toon(&output),
+            Err(crate::PmRustError::ToonEncoding { .. })
+        ));
+    }
+}
+
 /// Verifies scalar and nested read coercion without changing numeric strings.
 fn assert_read_number_domain() -> Result<(), Box<dyn std::error::Error>> {
     use super::{render, table};

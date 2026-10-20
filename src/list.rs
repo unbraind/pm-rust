@@ -19,6 +19,47 @@ pub(crate) fn terminal(status: &str) -> bool {
     matches!(status, "closed" | "canceled")
 }
 
+/// Brief projection field names, with an explicit sort key retained once (GH-1481).
+pub(crate) fn brief_fields(sort: Option<&str>) -> Vec<&str> {
+    let fields = ["id", "status", "type", "title"];
+    match sort.filter(|field| *field != "title") {
+        Some(field) => fields.into_iter().chain(std::iter::once(field)).collect(),
+        None => fields.to_vec(),
+    }
+}
+
+/// Re-projects full rows to the explicit brief contract, retaining sort keys (GH-1481).
+fn project_brief_rows(result: &mut Value, sort: Option<&str>) {
+    let sort_field = sort.filter(|field| *field != "title");
+    result["items"] = json!(result["items"].as_array().into_iter().flatten().map(|row| {
+        let mut brief = json!({"id":row["id"],"status":row["status"],"type":row["type"],"title":row["title"]});
+        if let Some(field) = sort_field {
+            brief[field] = row.get(field).cloned().unwrap_or(Value::Null);
+        }
+        brief
+    }).collect::<Vec<_>>());
+    result["projection"] = json!({"mode":"brief","fields":brief_fields(sort)});
+    result["omission_receipt"] = json!({"has_omissions":true,"omitted_field_group_count":1,"omitted_field_groups":[{"name":"full_item_fields","restore_with":"--full"}]});
+}
+
+/// Builds a brief row, appending the explicitly requested sort value (GH-1481).
+fn brief_row(metadata: &crate::ItemMetadata, sort: Option<&str>) -> Value {
+    let mut row = json!({
+        "id": metadata.id, "status": metadata.status,
+        "type": metadata.item_type, "title": metadata.title,
+    });
+    if let Some(field) = sort.filter(|field| *field != "title") {
+        row[field] = match field {
+            "priority" => json!(metadata.priority),
+            "updated_at" => json!(metadata.updated_at),
+            "created_at" => json!(metadata.created_at),
+            "parent" => metadata.parent.clone().map_or(Value::Null, Value::String),
+            _ => metadata.extra.get(field).cloned().unwrap_or(Value::Null),
+        };
+    }
+    row
+}
+
 /// Builds an ascending timestamp key with invalid values below valid instants.
 pub(crate) fn timestamp_key(value: &str) -> (Option<i128>, String) {
     #[cfg(test)]
@@ -76,7 +117,9 @@ fn read_selection(
         });
     }
     let include_terminal = all || filters.status.as_deref() == Some("all");
-    let full = full_projection || include_terminal;
+    // All-status filters stay brief: the invoked command's SDK default applies
+    // independently of status-derived legacy family aliases (GH-1489).
+    let full = full_projection;
     let mut echo = Map::new();
     if include_terminal {
         echo.insert("status".to_owned(), json!("all"));
@@ -123,31 +166,40 @@ fn read_selection(
     let total = documents.len();
     // First-page bounds can discard unreturned documents before JSON projection.
     // Global sort/filter metadata is still complete, including the total count.
-    if !options.no_truncate
-        && options.after.is_none()
+    // An explicit --limit binds even under --no-truncate: no-truncate disables
+    // only the implicit default token ceiling (GH-1457).
+    if options.after.is_none()
         && options.offset.is_none()
         && let Some(limit) = &options.limit
     {
         documents.truncate(integer(limit, 0)?);
     }
-    let items: Vec<Value> = documents.into_iter().map(|document| {
-        let metadata = document.metadata;
-        if full {
-            {
-                let mut pairs = canonical_metadata_pairs(&metadata);
-                pairs.retain(|(key, _)| crate::history::canonical_rank(key).is_some());
-                pairs.sort_by_key(|(key, _)| read_rank(key));
-                pairs.extend(metadata.extra.into_iter().filter(|(key, _)| crate::history::canonical_rank(key).is_none()));
-                Value::Object(pairs.into_iter().collect())
+    let items: Vec<Value> = documents
+        .into_iter()
+        .map(|document| {
+            let metadata = document.metadata;
+            if full {
+                {
+                    let mut pairs = canonical_metadata_pairs(&metadata);
+                    pairs.retain(|(key, _)| crate::history::canonical_rank(key).is_some());
+                    pairs.sort_by_key(|(key, _)| read_rank(key));
+                    pairs.extend(
+                        metadata
+                            .extra
+                            .into_iter()
+                            .filter(|(key, _)| crate::history::canonical_rank(key).is_none()),
+                    );
+                    Value::Object(pairs.into_iter().collect())
+                }
+            } else {
+                brief_row(&metadata, options.sort.as_deref())
             }
-        } else {
-            json!({"id": metadata.id, "status": metadata.status, "type": metadata.item_type, "title": metadata.title})
-        }
-    }).collect();
+        })
+        .collect();
     let projection = if full {
         json!({"mode":"full", "fields":null})
     } else {
-        json!({"mode":"brief", "fields":["id","status","type","title"]})
+        json!({"mode":"brief", "fields":brief_fields(options.sort.as_deref())})
     };
     let omissions = if full {
         vec![]
@@ -341,16 +393,12 @@ pub(crate) fn read_page(
         workspace,
         filters,
         options.all,
-        options.full
-            || intent_budget.is_some()
-            || matches!(filters.status.as_deref(), Some("draft" | "canceled")),
+        options.full || intent_budget.is_some(),
         now,
         &options,
     )?;
     if options.brief {
-        result["items"] = json!(result["items"].as_array().into_iter().flatten().map(|row| json!({"id":row["id"],"status":row["status"],"type":row["type"],"title":row["title"]})).collect::<Vec<_>>());
-        result["projection"] = json!({"mode":"brief","fields":["id","status","type","title"]});
-        result["omission_receipt"] = json!({"has_omissions":true,"omitted_field_group_count":1,"omitted_field_groups":[{"name":"full_item_fields","restore_with":"--full"}]});
+        project_brief_rows(&mut result, options.sort.as_deref());
     } else if intent_budget.is_some() && !options.full {
         crate::list_intent::project(&mut result);
     }
@@ -453,16 +501,14 @@ fn page_envelope(
             .transpose()?
             .unwrap_or(0)
     };
-    let limit = if options.no_truncate {
-        None
-    } else {
-        options
-            .limit
-            .as_deref()
-            .map(|raw| integer(raw, 0))
-            .transpose()?
-            .or_else(|| (rows.len() >= 10_000).then_some(20))
-    };
+    // An explicit --limit binds even under --no-truncate, while the implicit
+    // 10,000-row guard stays disabled with it (GH-1457).
+    let limit = options
+        .limit
+        .as_deref()
+        .map(|raw| integer(raw, 0))
+        .transpose()?
+        .or_else(|| (!options.no_truncate && rows.len() >= 10_000).then_some(20));
     let page = rows
         .into_iter()
         .skip(start)

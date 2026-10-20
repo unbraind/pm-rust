@@ -1093,6 +1093,46 @@ fn compare_toon(directory: &Path, flags: &[&str], success: bool) -> TestResultVa
 /// Decoded differential output with an owned error channel.
 type TestResultValue = Result<Value, Box<dyn std::error::Error>>;
 
+/// Nullable intent sort keys match the pinned CLI in JSON and TOON without Git.
+#[test]
+fn nullable_intent_brief_sort_values_match_both_wire_encodings() -> TestResult {
+    let directory = fixture(2, 0)?;
+    let path = directory.path().join(".agents/pm/tasks/demo-0001.toon");
+    let mut text = fs::read_to_string(&path)?;
+    text.push_str("parent: demo-0000\ndeadline: \"2026-10-24T00:00:00.000Z\"\n");
+    fs::write(path, text)?;
+    assert!(!directory.path().join(".git").exists());
+    for sort in ["parent", "deadline"] {
+        for order in ["asc", "desc"] {
+            let flags = [
+                "--for", "triage", "--brief", "--sort", sort, "--order", order,
+            ];
+            let page = compare(directory.path(), &flags, true)?;
+            // TOON omits null scalars by contract; compare its complete wire output.
+            compare_toon(directory.path(), &flags, true)?;
+            let rows = page["items"].as_array().ok_or("brief rows")?;
+            assert_eq!(rows.len(), 2);
+            let absent = rows.iter().find(|row| row["id"] == "demo-0000");
+            assert_eq!(absent.and_then(|row| row.get(sort)), Some(&Value::Null));
+            let present = rows.iter().find(|row| row["id"] == "demo-0001");
+            let expected = if sort == "parent" {
+                "demo-0000"
+            } else {
+                "2026-10-24T00:00:00.000Z"
+            };
+            assert_eq!(
+                present.and_then(|row| row.get(sort)),
+                Some(&serde_json::json!(expected))
+            );
+            assert_eq!(
+                page["projection"]["fields"],
+                serde_json::json!(["id", "status", "type", "title", sort])
+            );
+        }
+    }
+    Ok(())
+}
+
 /// Mixed-status producer walks compare both wire encodings with no skipped or repeated ID.
 #[test]
 fn mixed_status_filtered_walks_match_both_wire_encodings() -> TestResult {
@@ -1240,11 +1280,14 @@ fn toon_budget_envelopes_and_snapshot_walks_match() -> TestResult {
             true,
         )?;
         compare_bytes_only(verbose.path(), &["--full", "--output-budget", "1500"], true)?;
-        compare_toon(verbose.path(), &["--output-budget", "1500"], false)?;
+        // The 2026.10.17+ pair-preserving cut keeps TOON bounded output
+        // encodable: the pinned codec no longer refuses a split surrogate
+        // escape that the old 240-unit cut produced (GH-1478).
+        compare_toon(verbose.path(), &["--output-budget", "1500"], true)?;
         compare_toon(
             verbose.path(),
             &["--for", "triage", "--token-budget", "1000"],
-            false,
+            true,
         )?;
         compare_toon(
             verbose.path(),
@@ -1653,7 +1696,16 @@ fn configured_hierarchy_pages_match_oracle() -> TestResult {
                 assert!(delivered < 10);
             }
             assert_eq!(delivered, 9);
-            let page = run(&["--all", "--parent", "demo-0000", "--output-budget", "900"])?;
+            // All-status rows stay brief (GH-1489), so the budget continuation
+            // snapshot is exercised through an explicit --full projection.
+            let page = run(&[
+                "--all",
+                "--parent",
+                "demo-0000",
+                "--full",
+                "--output-budget",
+                "900",
+            ])?;
             let cursor = page["next_cursor"].as_str().ok_or_else(|| {
                 format!("missing custom hierarchy snapshot (toon={toon}): {page}")
             })?;
@@ -1661,6 +1713,7 @@ fn configured_hierarchy_pages_match_oracle() -> TestResult {
                 "--all",
                 "--parent",
                 "demo-0000",
+                "--full",
                 "--output-budget",
                 "900",
                 "--output-cursor",
