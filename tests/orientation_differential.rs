@@ -1830,3 +1830,146 @@ fn relationship_root_evidence_floor_retains_oracle_parity() -> TestResult {
     }
     Ok(())
 }
+
+/// Huge delivery controls skip identical retries and retain the default-limit packet payload.
+#[test]
+fn relationship_large_edge_limit_finishes_at_budget_floor() -> TestResult {
+    let Some(published) = published_cli::published_cli_or_skip("bounded packet reference retries")
+    else {
+        return Ok(());
+    };
+    let scratch = tempfile::tempdir()?;
+    let driver = orientation_driver(scratch.path(), &published)?;
+    let root = tempfile::tempdir()?;
+    assert!(
+        oracle(&driver, root.path(), &["init", "sample-", "--defaults"])?
+            .status
+            .success()
+    );
+    for missing in [false, true] {
+        let mut row = item("sample-root", "Task", "open", 1);
+        if missing {
+            row["dependencies"] = json!([
+                {"id":"sample-missing","kind":"related","created_at":CLOCK},
+                {"id":"sample-missing","kind":"related","created_at":CLOCK}
+            ]);
+        }
+        fixture(root.path(), &[row])?;
+        for encoding in [vec![], vec!["--json"]] {
+            let mut args = vec![
+                "deps",
+                "sample-root",
+                "--format",
+                "context",
+                "--token-budget",
+                if missing { "300" } else { "100" },
+            ];
+            args.extend(&encoding);
+            let expected = oracle(&driver, root.path(), &args)?;
+            assert!(expected.status.success());
+            compare(&expected, &native(root.path(), &args)?, &args);
+            let decode = |bytes: &[u8]| -> Result<Value, Box<dyn std::error::Error>> {
+                Ok(if encoding.is_empty() {
+                    toon_format::decode_default(std::str::from_utf8(bytes)?)?
+                } else {
+                    serde_json::from_slice(bytes)?
+                })
+            };
+            let expected_packet = decode(&expected.stdout)?;
+            assert!(
+                expected_packet["context"]["meta"]["usedTokens"]
+                    .as_u64()
+                    .unwrap_or_default()
+                    > if missing { 300 } else { 100 }
+            );
+            for limit in ["1000000000", "9007199254740991"] {
+                let mut bounded_args = args.clone();
+                bounded_args.extend(["--edge-limit", limit]);
+                let mut command = Command::new(env!("CARGO_BIN_EXE_pm-rust"));
+                mutation_differential::isolate_environment(&mut command);
+                command
+                    .current_dir(root.path())
+                    .env("HOME", root.path().join("synthetic-home"))
+                    .env("USERPROFILE", root.path().join("synthetic-home"))
+                    .args(&bounded_args);
+                let output = assert_cmd::Command::from_std(command)
+                    .timeout(std::time::Duration::from_secs(5))
+                    .output()?;
+                assert!(
+                    output.status.success(),
+                    "large edge limit must complete within five seconds"
+                );
+                assert!(output.stderr.is_empty());
+                let mut actual = decode(&output.stdout)?;
+                assert_eq!(
+                    actual["context"]["meta"]["edgeLimit"],
+                    limit.parse::<u64>()?
+                );
+                // These fields describe the changed request and its rendered size, not the payload.
+                actual["context"]["meta"]["edgeLimit"] =
+                    expected_packet["context"]["meta"]["edgeLimit"].clone();
+                actual["context"]["meta"]["usedTokens"] =
+                    expected_packet["context"]["meta"]["usedTokens"].clone();
+                assert_eq!(actual, expected_packet);
+            }
+        }
+    }
+    Ok(())
+}
+
+/// Reference count caps preserve complete oracle bytes under kind, depth and delivery filters.
+#[test]
+fn relationship_reference_limits_match_oracle() -> TestResult {
+    let Some(published) = published_cli::published_cli_or_skip("filtered packet reference limits")
+    else {
+        return Ok(());
+    };
+    let scratch = tempfile::tempdir()?;
+    let driver = orientation_driver(scratch.path(), &published)?;
+    let root = tempfile::tempdir()?;
+    assert!(
+        oracle(&driver, root.path(), &["init", "sample-", "--defaults"])?
+            .status
+            .success()
+    );
+    let mut start = item("sample-root", "Task", "open", 1);
+    start["parent"] = json!("sample-parent");
+    start["dependencies"] = json!([
+        {"id":"sample-missing","kind":"related_to","created_at":CLOCK},
+        {"id":"sample-missing","kind":"related_to","created_at":CLOCK},
+        {"id":"sample-other","kind":"blocked_by","created_at":CLOCK}
+    ]);
+    let mut unrelated = item("sample-unrelated", "Task", "closed", 2);
+    unrelated["parent"] = json!("sample-unreachable");
+    fixture(root.path(), &[start, unrelated])?;
+    for controls in [
+        vec![],
+        vec!["--kind", "child"],
+        vec!["--direction", "incoming"],
+        vec!["--max-depth", "0"],
+        vec!["--summary"],
+    ] {
+        for (limit, budget) in [("1", "300"), ("2", "1200"), ("40", "300")] {
+            for encoding in [vec![], vec!["--json"]] {
+                let mut args = vec![
+                    "deps",
+                    "sample-root",
+                    "--format",
+                    "context",
+                    "--edge-limit",
+                    limit,
+                    "--token-budget",
+                    budget,
+                ];
+                args.extend(&controls);
+                args.extend(&encoding);
+                compare(
+                    &oracle(&driver, root.path(), &args)?,
+                    &native(root.path(), &args)?,
+                    &args,
+                );
+            }
+        }
+    }
+    Ok(())
+}

@@ -66,6 +66,14 @@ The upstream compatibility reports are
 [#1513](https://github.com/unbraind/pm-cli/issues/1513) (packet budgets and unknown errors).
 Those output contracts stay pinned rather than introducing native-only changes.
 
+Packet retries are bounded by the missing-reference rows selected by traversal
+and kind filters, rather than the requested edge limit. Limits above that row
+count produce identical reference lists, so native reads skip those redundant
+renders before reducing the token budget. This preserves oracle output and both
+budget-floor fallbacks while allowing even the maximum safe integer edge limit
+to finish. Regressions enforce a five-second process deadline for huge limits
+and exact oracle bytes across bounded limits, filters, budgets and encodings.
+
 External graph keys also follow the oracle: plain `global` and `external`
 references retain external identity. Case-insensitive collisions with local,
 missing or already reserved graph IDs receive repeated `external:` prefixes.

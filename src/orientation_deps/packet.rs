@@ -432,8 +432,8 @@ fn evidence(root: &Value) -> Vec<String> {
 
 /// Query discovery shared by every rendered-budget retry over one immutable graph.
 struct Traversal<'a> {
-    /// Nodes reachable under the direction, kind and depth controls.
-    seen: BTreeSet<&'a str>,
+    /// Missing-reference rows selected by the same reachability and kind controls as the packet.
+    missing: Vec<&'a Value>,
     /// Stable breadth-first rows with their first incoming reason.
     discovered: Vec<(&'a str, usize, &'a str, &'static str)>,
     /// Incident root edges reused for roles and direct counts.
@@ -496,8 +496,17 @@ impl<'a> Traversal<'a> {
             )
             .as_bytes(),
         );
+        let missing = graph
+            .missing
+            .iter()
+            .filter(|row| {
+                seen.contains(text(row, "target_id"))
+                    && seen.contains(text(row, "holder_id"))
+                    && query.matches(kind(text(row, "kind")).unwrap_or_default())
+            })
+            .collect();
         Self {
-            seen,
+            missing,
             discovered,
             direct,
             direct_counts,
@@ -636,15 +645,7 @@ fn packet(
             consumed - 1
         ));
     }
-    let missing: Vec<_> = graph
-        .missing
-        .iter()
-        .filter(|row| {
-            traversal.seen.contains(text(row, "target_id"))
-                && traversal.seen.contains(text(row, "holder_id"))
-                && query.matches(kind(text(row, "kind")).unwrap_or_default())
-        })
-        .collect();
+    let missing = &traversal.missing;
     let missing_ids: BTreeSet<_> = missing
         .iter()
         .map(|row| key(text(row, "target_id")))
@@ -700,7 +701,8 @@ pub(super) fn read(
     };
     let traversal = Traversal::new(&graph, id, &query);
     let mut budget = query.tokens;
-    let mut reference_limit = query.edges;
+    // Larger limits render the same rows; skip retries that cannot remove a reference.
+    let mut reference_limit = query.edges.min(traversal.missing.len());
     let mut smallest: Option<Value> = None;
     loop {
         let mut packet = match packet(
