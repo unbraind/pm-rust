@@ -331,6 +331,34 @@ fn packet_evidence_and_rendered_budget() -> Result<(), Box<dyn std::error::Error
     Ok(())
 }
 
+/// Rendered-budget retries remove actual dangling-reference rows before reducing packet content.
+#[test]
+fn packet_rendered_budget_removes_missing_references() -> Result<(), Box<dyn std::error::Error>> {
+    let (_directory, workspace) = workspace()?;
+    let mut root = item("sample-root");
+    root["blocked_by"] = json!("sample-missing");
+    fs::write(
+        workspace.pm_root().join("tasks/sample-root.toon"),
+        toon_format::encode_default(&root)?,
+    )?;
+    for toon in [true, false] {
+        let result = workspace.deps(
+            "sample-root",
+            &DepsOptions {
+                format: Some("context".to_owned()),
+                toon,
+                token_budget: Some("200".to_owned()),
+                ..Default::default()
+            },
+        )?;
+        assert_eq!(result["missing_reference_count"], 1);
+        assert_eq!(result["missing_count"], 1);
+        assert_eq!(result["missing_references"], json!([]));
+        assert_eq!(result["context"]["root"]["id"], "sample-root");
+    }
+    Ok(())
+}
+
 /// Summary reads avoid malformed evidence payloads while full packets preserve storage failures.
 #[test]
 fn packet_storage_and_evidence_projection_boundaries() -> Result<(), Box<dyn std::error::Error>> {

@@ -73,6 +73,7 @@ renders before reducing the token budget. This preserves oracle output and both
 budget-floor fallbacks while allowing even the maximum safe integer edge limit
 to finish. Regressions enforce a five-second process deadline for huge limits
 and exact oracle bytes across bounded limits, filters, budgets and encodings.
+SDK acceptance checks that trimming reference rows preserves total missing counts.
 
 External graph keys also follow the oracle: plain `global` and `external`
 references retain external identity. Case-insensitive collisions with local,
