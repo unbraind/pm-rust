@@ -5,13 +5,17 @@ This slice belongs to [pm-rust-u4al](../.agents/pm/epics/pm-rust-u4al.toon), tra
 in [pm-rust-xb3s](../.agents/pm/features/pm-rust-xb3s.toon). Publication and
 release automation remain disabled.
 
-## Brief context
+## Context
 
-`context` emits the default brief depth in TOON or `--json`. `--limit` bounds
-the ranked producer page; absent a limit, the oracle caps each focus group at
-ten items. `--token-budget` controls ranked identity packing and the complete
+`context` emits the configured default depth in TOON or `--json`; when no default
+is configured, it uses brief depth. `--limit` bounds the ranked producer page;
+absent a limit, the oracle caps each focus group at ten items except at full
+depth. `--token-budget` controls ranked identity packing and the complete
 rendered response. The result retains `high_level`, `low_level`,
-`blocked_fallback`, matching-corpus counters and the ten omitted section groups.
+`blocked_fallback`, matching-corpus counters and an omission receipt for sections
+not selected by the requested depth or workspace settings. Brief omits all ten
+optional section groups; full selects all ten. Deep may still omit sections
+disabled in workspace settings.
 Blocked fallback is used when no active-status candidates exist. Active work
 with unresolved dependencies retains its blocking receipt.
 
@@ -25,25 +29,25 @@ nonrecurring and weekly UTC scheduled events participate in the agenda, includin
 compact references to focus items.
 
 Supported controls: `--limit` / `--max-items`, `--token-budget` /
-`--token_budget`, `--depth brief`, `--no-tags`, `--no-extension-health`, and
+`--token_budget`, `--depth brief|standard|deep|full`, `--after` / native `--cursor`, `--no-tags`, `--no-extension-health`, and
 `--json`. A hidden native `--timestamp` supplies the deterministic read clock
 used by conformance fixtures; it is excluded from published error recovery.
 
 Deferred context flags: `--for`, `--date`, `--from`, `--to`, `--past`, `--type`,
 `--tag`, `--priority`, `--assignee`, `--assignee-filter` / `--assignee_filter`,
-`--sprint`, `--release`, `--parent`, `--after`, `--format`, `--fields`,
+`--sprint`, `--release`, `--parent`, `--format`, `--fields`,
 `--section`, `--activity-limit`, `--stale-threshold`, and
-`--explain-ranking` / `--explain_ranking`. Depths `standard`, `deep` and `full`
-are deferred. Workspace-memory rollups at 10,000 items, non-weekly recurrence and
+`--explain-ranking` / `--explain_ranking`. Workspace-memory rollups at 10,000 items, non-weekly recurrence and
 non-UTC scheduled events are explicit native context refusals. Invalid or stale
 derived ranking snapshots also refuse explicitly. Semantic claim affinity and
 trusted delivered-and-touched feedback contribute to native ranking; required
 claim identities enter packing before optional candidates. Plain authoritative
 reads do not write cache or usage state.
 
-Default extension diagnostics cover minimal manifests with `name`, `version`,
-`entry` and optional descriptive `description`/`author` members. Configured
-extension enable/disable policy and other manifest controls refuse with
+Default extension diagnostics cover static manifests with `name`, `version`,
+`entry`, descriptive metadata, priority, minimum-version and capability declarations.
+An explicitly disabled policy is supported. Configured extension enable/disable
+policy and other manifest controls refuse with
 `unsupported_native_context`; `--no-extension-health` explicitly omits that
 diagnostic. Native reads never execute extension code or custom scorer hooks.
 Declared `context_relevance` service overrides refuse even when extension health
@@ -91,7 +95,8 @@ and `--token-budget` bound expansion and disclose truncation. `--summary`
 returns graph counts; `--full` explicitly requests the complete projection.
 Both default TOON and `--json` retain projection and omission receipts.
 
-Deferred controls: `--format context`, `--cursor`, `--direction`, and `--kind`.
+`--format context` serves bounded relationship packets with `--cursor`,
+`--direction` and `--kind`; see [native context sections](NATIVE_CONTEXT_SECTIONS.md).
 `--add` and `--remove` are deferred: the pinned oracle exposes relationship
 mutations through its mutation surface rather than these dependency traversal
 options. This PR adds no dependency writer or alternate journal path.

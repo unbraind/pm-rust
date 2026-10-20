@@ -12,8 +12,10 @@ pub struct ContextOptions {
     pub limit: Option<String>,
     /// Focus packing token ceiling.
     pub token_budget: Option<String>,
-    /// Explicit supported brief depth.
+    /// Explicit orientation depth.
     pub depth: Option<String>,
+    /// Continue after a ranked focus page.
+    pub after: Option<String>,
     /// Omit focus tags.
     pub no_tags: bool,
     /// Omit installed extension diagnostics.
@@ -46,6 +48,12 @@ pub struct DepsOptions {
     pub format: Option<String>,
     /// Maximum traversal depth.
     pub max_depth: Option<String>,
+    /// Packet traversal direction.
+    pub direction: Option<String>,
+    /// Relationship kinds included in a packet.
+    pub kind: Vec<String>,
+    /// Packet continuation cursor.
+    pub cursor: Option<String>,
     /// Collapse repeated nodes.
     pub collapse: Option<String>,
     /// Counts without tree payload.

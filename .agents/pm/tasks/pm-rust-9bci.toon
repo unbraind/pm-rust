@@ -6,14 +6,18 @@ status: open
 priority: 3
 tags[3]: close-parity,follow-up,oracle
 created_at: "2026-10-14T23:18:14.490Z"
-updated_at: "2026-10-15T00:40:16.920Z"
+updated_at: "2026-10-20T03:51:44.459Z"
 author: codex-agent
 acceptance_criteria: "When the oracle pin changes, compare the overflow fixture against the new published binary and update the native diagnostic only if the observed contract changes. This task does not authorize an oracle bump or an upstream write."
 parent: pm-rust-u4al
-comments[1]{created_at,author,text}:
+comments[3]{created_at,author,text}:
   "2026-10-15T00:40:16.920Z",codex-agent,Follow-up remains open and unassigned. The current six-group close differential suite verifies the pinned oracle overflow diagnostic exactly. Reassessment is deferred until a future pin changes the observed contract; this batch neither bumps the oracle nor writes upstream.
-files[1]{path,scope}:
+  "2026-10-20T03:44:39.306Z",codex-agent,"PR #98 broader runtime validation reproduces the existing overflow gap under Bun: PM_NODE_INTERPRETER=bun just release-check on 1463a49 exits 101 in close_validation_errors_match_oracle for --completed-at +1200000000m (close suite: 5 passed, 1 failed). Native output matches the pinned Node detail Invalid time value; Bun oracle detail is Invalid Date. Direct new Date(NaN).toISOString() probes confirm the same engine-message difference. src/mutation.rs and tests/close_differential.rs have no diff against origin/main, proving this predates the context review fix. Preserve the existing acceptance decision: no oracle bump or native diagnostic change in this review. Remains open and unassigned; context review evidence is on pm-rust-s6j4."
+  "2026-10-20T03:51:44.459Z",codex-agent,"Runtime evidence for the PR #98 broader aggregate: Bun 1.3.5 produces Invalid Date in its Date.toISOString overflow path. The independent Node v24.19.0 probe produces Invalid time value, matching native output and the pinned Node oracle contract. The complete Bun orientation suite separately passes 30/30 on 1463a49; that does not certify the broader aggregate or resolve this inherited close boundary."
+files[2]{path,scope}:
+  src/mutation.rs,project
   tests/close_differential.rs,project
-docs[1]{path,scope}:
+docs[2]{path,scope}:
+  docs/NATIVE_CONTEXT_SECTIONS.md,project
   docs/NATIVE_PARITY_2026_10_14.md,project
 body: ""

@@ -274,6 +274,7 @@ fn dependency_alias_and_scalar_boundaries() -> Result<(), Box<dyn std::error::Er
                 "a",
                 &DepsOptions {
                     format: Some("context".to_owned()),
+                    token_budget: Some("1".to_owned()),
                     ..Default::default()
                 }
             )

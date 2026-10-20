@@ -32,9 +32,12 @@ enum Command {
         /// Focus packing token ceiling.
         #[arg(long, alias = "token_budget", allow_hyphen_values = true)]
         token_budget: Option<String>,
-        /// Brief depth is supported natively.
+        /// Orientation depth: brief, standard, deep or full.
         #[arg(long)]
         depth: Option<String>,
+        /// Continue after a ranked focus page.
+        #[arg(long, alias = "cursor")]
+        after: Option<String>,
         /// Omit tags from focus rows.
         #[arg(long)]
         no_tags: bool,
@@ -83,6 +86,15 @@ enum Command {
         /// Maximum traversal depth.
         #[arg(long, allow_hyphen_values = true)]
         max_depth: Option<String>,
+        /// Packet traversal direction: outgoing, incoming or both.
+        #[arg(long)]
+        direction: Option<String>,
+        /// Relationship kind filter; repeat or separate with commas.
+        #[arg(long)]
+        kind: Vec<String>,
+        /// Continue a relationship packet.
+        #[arg(long)]
+        cursor: Option<String>,
         /// Repeated-node collapse policy.
         #[arg(long)]
         collapse: Option<String>,
@@ -539,6 +551,7 @@ fn run(cli: Cli) -> Result<(), Box<dyn std::error::Error>> {
             limit,
             token_budget,
             depth,
+            after,
             no_tags,
             no_extension_health,
             json,
@@ -550,6 +563,7 @@ fn run(cli: Cli) -> Result<(), Box<dyn std::error::Error>> {
                     limit,
                     token_budget,
                     depth,
+                    after,
                     no_tags,
                     no_extension_health,
                     toon: !json,
@@ -598,6 +612,9 @@ fn run(cli: Cli) -> Result<(), Box<dyn std::error::Error>> {
             id,
             format,
             max_depth,
+            direction,
+            kind,
+            cursor,
             collapse,
             summary,
             full,
@@ -611,6 +628,9 @@ fn run(cli: Cli) -> Result<(), Box<dyn std::error::Error>> {
                 &pm_rust::DepsOptions {
                     format,
                     max_depth,
+                    direction,
+                    kind,
+                    cursor,
                     collapse,
                     summary,
                     full,
@@ -1176,6 +1196,8 @@ fn main() -> ExitCode {
                         "--token-budget",
                         "--token_budget",
                         "--depth",
+                        "--after",
+                        "--cursor",
                         "--no-tags",
                         "--no-extension-health",
                         "--json",
@@ -1192,6 +1214,9 @@ fn main() -> ExitCode {
                     _ => vec![
                         "--format",
                         "--max-depth",
+                        "--direction",
+                        "--kind",
+                        "--cursor",
                         "--collapse",
                         "--summary",
                         "--full",
@@ -1254,7 +1279,10 @@ fn main() -> ExitCode {
                 let args = published_read_arguments(std::env::args_os().skip(1));
                 let payload = command_error_json(detail, context, &args, *exit_code);
                 let mut stderr = std::io::stderr().lock();
-                let _ = if args.first().is_some_and(|s| {
+                let _ = if context["code"] == "unknown_error" && !args.iter().any(|s| s == "--json")
+                {
+                    writeln!(stderr, "{detail}").map_err(Into::into)
+                } else if args.first().is_some_and(|s| {
                     s == "item" || s == "search" || s == "context" || s == "history" || s == "deps"
                 }) && !args.iter().any(|s| s == "--json")
                 {
@@ -1344,7 +1372,7 @@ fn command_error_json(
         return collection_error_json(detail, context, args, exit_code);
     }
     if context["code"] == "unknown_error" {
-        return serde_json::json!({"code":"unknown_error","required":"Inspect command input and runtime state, then retry.","exit_code":exit_code,"type":"urn:pm-cli:error:unknown_error","title":"Unhandled error","detail":detail,"why":"Unexpected runtime failures can occur from environment or extension-level issues.","examples":["pm --help","pm health --json"],"refusal":{"surface":"command","exit_code":exit_code}});
+        return unhandled_error_json(detail, exit_code);
     }
     let mut payload = ownership_error_json(detail, context, args);
     payload["exit_code"] = serde_json::json!(exit_code);
@@ -1356,6 +1384,20 @@ fn command_error_json(
     payload
 }
 
+/// Renders the published `TypeError` envelope without adding command-recovery metadata.
+fn unhandled_error_json(detail: &str, exit_code: u8) -> serde_json::Value {
+    serde_json::json!({"code":"unknown_error","required":"Inspect command input and runtime state, then retry.","exit_code":exit_code,"type":"urn:pm-cli:error:unknown_error","title":"Unhandled error","detail":detail,"why":"Unexpected runtime failures can occur from environment or extension-level issues.","examples":["pm --help","pm health --json"],"refusal":{"surface":"command","exit_code":exit_code}})
+}
+
+/// Preserves the published canonical dependency spelling in recovery arguments.
+fn orientation_arguments(args: &[String]) -> Vec<String> {
+    let mut args = args.to_vec();
+    if args.first().is_some_and(|arg| arg == "deps") {
+        args.insert(0, "item".to_owned());
+    }
+    args
+}
+
 /// Matches orientation command failures to the published problem envelope.
 fn orientation_error_json(
     detail: &str,
@@ -1363,10 +1405,10 @@ fn orientation_error_json(
     args: &[String],
     exit_code: u8,
 ) -> serde_json::Value {
-    let mut args = args.to_vec();
-    if args.first().is_some_and(|arg| arg == "deps") {
-        args.insert(0, "item".to_owned());
+    if context["code"] == "unknown_error" {
+        return unhandled_error_json(detail, exit_code);
     }
+    let args = orientation_arguments(args);
     let command = &args[0];
     let mut context = context.clone();
     if detail.starts_with("--strict-exit requires --verify") {
@@ -1641,7 +1683,8 @@ fn cursor_error_json(code: &str, detail: &str, args: &[String]) -> serde_json::V
             provided.push(arg.clone());
         }
     }
-    let mut payload = serde_json::json!({"code":code,"required":"Adjust command input or tracker state and retry.","recovery":{"attempted_command":format!("pm {}",args.iter().map(|arg| pm_rust::quote_command_arg(arg)).collect::<Vec<_>>().join(" ")),"normalized_args":args,"provided_fields":provided}});
+    let recovery_args = orientation_arguments(args);
+    let mut payload = serde_json::json!({"code":code,"required":"Adjust command input or tracker state and retry.","recovery":{"attempted_command":format!("pm {}",recovery_args.iter().map(|arg| pm_rust::quote_command_arg(arg)).collect::<Vec<_>>().join(" ")),"normalized_args":recovery_args,"provided_fields":provided}});
     if args.first().is_some_and(|command| command == "close") {
         payload["recovery"]["attempted_command"] = serde_json::json!(format!(
             "pm {}",
@@ -1683,7 +1726,7 @@ fn cursor_error_json(code: &str, detail: &str, args: &[String]) -> serde_json::V
         ),
         (
             "refusal",
-            serde_json::json!({"surface":if args.first().is_some_and(|s|s=="search") {"search"} else {"list"},"exit_code":2}),
+            serde_json::json!({"surface":args.first().filter(|command| matches!(command.as_str(),"context"|"deps"|"search")).map_or("list",String::as_str),"exit_code":2}),
         ),
     ] {
         payload[key] = value;

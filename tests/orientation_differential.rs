@@ -9,6 +9,8 @@ use std::{
 #[allow(dead_code)]
 #[path = "support/mutation_differential.rs"]
 mod mutation_differential;
+#[path = "support/node_harness.rs"]
+mod node_harness;
 #[path = "support/published_cli.rs"]
 mod published_cli;
 use mutation_differential::write_driver;
@@ -488,6 +490,15 @@ fn context_static_extension_contract() -> TestResult {
         &args,
     );
     manifest["priority"] = json!(2);
+    manifest["pm_min_version"] = json!("2026.8.1");
+    manifest["capabilities"] = json!(["commands", "schema"]);
+    fs::write(path.join("manifest.json"), serde_json::to_vec(&manifest)?)?;
+    compare(
+        &oracle(&driver, root.path(), &args)?,
+        &native(root.path(), &args)?,
+        &args,
+    );
+    manifest["contributions"] = json!({});
     fs::write(path.join("manifest.json"), serde_json::to_vec(&manifest)?)?;
     let rejected = native(root.path(), &args)?;
     assert_eq!(rejected.status.code(), Some(2));
@@ -656,6 +667,382 @@ fn fixture(root: &Path, items: &[Value]) -> TestResult {
 fn item(id: &str, kind: &str, status: &str, priority: u8) -> Value {
     json!({"id":id,"title":format!("Native {id} café 🚀"),"description":"Orientation fixture","type":kind,"status":status,"priority":priority,"tags":["native"],"created_at":CLOCK,"updated_at":CLOCK,"body":""})
 }
+
+/// Builds real metadata and retained-history fixtures shared by rich orientation differentials.
+fn rich_fixture(root: &Path) -> TestResult {
+    let mut epic = item("sample-epic", "Epic", "in_progress", 1);
+    epic["files"] = json!([{"path":"src/lib.rs"},{"path":"src/main.rs"}]);
+    epic["docs"] = json!([{"path":"README.md"}]);
+    epic["tests"] = json!([{"command":"cargo test"}]);
+    epic["comments"] = json!([{"text":"Evidence","author":"fixture"}]);
+    let mut feature = item("sample-feature", "Feature", "open", 2);
+    feature["parent"] = json!("sample-epic");
+    feature["files"] = json!([{"path":"src/lib.rs"}]);
+    feature["assignee"] = json!("fixture-agent");
+    feature["test_runs"] = json!([{"run_id":"synthetic-run","kind":"test","status":"failed","started_at":CLOCK,"finished_at":CLOCK,"recorded_at":CLOCK,"passed":3,"failed":1,"skipped":2}]);
+    let mut task = item("sample-task", "Task", "in_progress", 0);
+    task["parent"] = json!("sample-feature");
+    task["blocked_by"] = json!("sample-blocker");
+    task["blocked_reason"] = json!("Prerequisite remains open");
+    task["unblock_note"] = json!("Finish prerequisite");
+    task["deadline"] = json!("2026-08-23T10:00:00.000Z");
+    let mut done = item("sample-done", "Task", "closed", 4);
+    done["parent"] = json!("sample-feature");
+    let mut blocked = item("sample-blocked", "Task", "blocked", 3);
+    blocked["dependencies"] = json!([{"id":"sample-task","kind":"depends_on","created_at":CLOCK},{"id":"sample-missing","kind":"related","created_at":CLOCK}]);
+    let mut prerequisite = item("sample-blocker", "Task", "open", 1);
+    prerequisite["updated_at"] = json!("2026-08-01T10:00:00.000Z");
+    prerequisite["order"] = json!(2);
+    prerequisite["dependencies"] = json!([{"id":"sample-done","kind":"related_to"}]);
+    fixture(root, &[epic, feature, task, done, blocked, prerequisite])?;
+    fs::write(
+        root.join(".agents/pm/history/sample-deleted.jsonl"),
+        json_lines(&[
+            json!({"ts":CLOCK,"author":"fixture","op":"create","message":"Synthetic retained history"}),
+            json!({"ts":CLOCK,"op":"update"}),
+        ]),
+    )?;
+    Ok(())
+}
+/// Rich context sections preserve hierarchy, dependencies and linked evidence.
+#[test]
+fn context_sections_match_oracle() -> TestResult {
+    let Some(published) = published_cli::published_cli_or_skip("rich native orientation") else {
+        return Ok(());
+    };
+    let scratch = tempfile::tempdir()?;
+    let driver = orientation_driver(scratch.path(), &published)?;
+    let root = tempfile::tempdir()?;
+    assert!(
+        oracle(&driver, root.path(), &["init", "sample-", "--defaults"])?
+            .status
+            .success()
+    );
+    rich_fixture(root.path())?;
+    for depth in ["brief", "standard", "deep", "full"] {
+        for controls in [
+            vec![],
+            vec!["--limit", "0"],
+            vec!["--limit", "2"],
+            vec!["--limit", "3", "--token-budget", "100"],
+            vec!["--no-tags"],
+        ] {
+            for output in [vec![], vec!["--json"]] {
+                let mut args = vec!["context", "--depth", depth];
+                args.extend(&controls);
+                args.extend(&output);
+                let runtime = root.path().join(".agents/pm/runtime");
+                if runtime.exists() {
+                    fs::remove_dir_all(runtime)?;
+                }
+                let expected = oracle(&driver, root.path(), &args)?;
+                let actual = native(root.path(), &args)?;
+                compare(&expected, &actual, &args);
+            }
+        }
+        let mut cursor = None;
+        for _ in 0..4 {
+            let mut args = vec!["context", "--depth", depth, "--limit", "1", "--json"];
+            if let Some(cursor) = cursor.as_deref() {
+                args.extend(["--after", cursor]);
+            }
+            let expected = oracle(&driver, root.path(), &args)?;
+            compare(&expected, &native(root.path(), &args)?, &args);
+            cursor = serde_json::from_slice::<Value>(&expected.stdout)?["next_cursor"]
+                .as_str()
+                .map(ToString::to_string);
+            if cursor.is_none() {
+                break;
+            }
+        }
+    }
+    Ok(())
+}
+
+/// Completion preserves the oracle's IEEE rounding artifact at a mathematical half percent.
+#[test]
+fn context_completion_rounding_matches_oracle() -> TestResult {
+    let Some(published) = published_cli::published_cli_or_skip("context completion rounding")
+    else {
+        return Ok(());
+    };
+    let scratch = tempfile::tempdir()?;
+    let driver = orientation_driver(scratch.path(), &published)?;
+    let root = tempfile::tempdir()?;
+    assert!(
+        oracle(&driver, root.path(), &["init", "sample-", "--defaults"])?
+            .status
+            .success()
+    );
+    let mut parent = item("sample-parent", "Epic", "in_progress", 0);
+    parent["title"] = json!("Completion rounding boundary");
+    let mut rows = vec![parent];
+    for index in 0..200 {
+        let mut child = item(
+            &format!("sample-child-{index:03}"),
+            "Task",
+            if index < 29 { "closed" } else { "open" },
+            3,
+        );
+        child["parent"] = json!("sample-parent");
+        rows.push(child);
+    }
+    fixture(root.path(), &rows)?;
+    for output in [vec![], vec!["--json"]] {
+        let mut args = vec!["context", "--depth", "deep", "--limit", "1"];
+        args.extend(output);
+        let expected = oracle(&driver, root.path(), &args)?;
+        compare(&expected, &native(root.path(), &args)?, &args);
+    }
+    Ok(())
+}
+
+/// Cursor aliases serve identical pages and invalid continuations retain context refusal envelopes.
+#[test]
+fn context_cursor_refusals_match_oracle() -> TestResult {
+    let Some(published) = published_cli::published_cli_or_skip("context cursor refusals") else {
+        return Ok(());
+    };
+    let scratch = tempfile::tempdir()?;
+    let driver = orientation_driver(scratch.path(), &published)?;
+    let root = tempfile::tempdir()?;
+    assert!(
+        oracle(&driver, root.path(), &["init", "sample-", "--defaults"])?
+            .status
+            .success()
+    );
+    fixture(
+        root.path(),
+        &[
+            item("sample-a", "Task", "open", 1),
+            item("sample-b", "Task", "open", 2),
+        ],
+    )?;
+    let first = oracle(&driver, root.path(), &["context", "--limit", "1", "--json"])?;
+    let value: Value = serde_json::from_slice(&first.stdout)?;
+    let cursor = value["next_cursor"].as_str().ok_or("cursor")?;
+    let expected = oracle(
+        &driver,
+        root.path(),
+        &["context", "--limit", "1", "--after", cursor, "--json"],
+    )?;
+    let alias = ["context", "--limit", "1", "--cursor", cursor, "--json"];
+    compare(&expected, &native(root.path(), &alias)?, &alias);
+    for args in [
+        vec!["context", "--after", "bad"],
+        vec!["context", "--after", "bad", "--json"],
+        vec!["context", "--depth", "deep", "--after", cursor, "--json"],
+    ] {
+        compare(
+            &oracle(&driver, root.path(), &args)?,
+            &native(root.path(), &args)?,
+            &args,
+        );
+    }
+    Ok(())
+}
+
+/// Deep fallback retains descendant completion and resolved blocker evidence with no active work.
+#[test]
+fn context_blocked_fallback_deep_matches_oracle() -> TestResult {
+    let Some(published) = published_cli::published_cli_or_skip("deep blocked fallback") else {
+        return Ok(());
+    };
+    let scratch = tempfile::tempdir()?;
+    let driver = orientation_driver(scratch.path(), &published)?;
+    let root = tempfile::tempdir()?;
+    assert!(
+        oracle(&driver, root.path(), &["init", "sample-", "--defaults"])?
+            .status
+            .success()
+    );
+    let mut parent = item("sample-parent", "Epic", "blocked", 1);
+    parent["blocked_by"] = json!("sample-done");
+    let mut child = item("sample-child", "Task", "blocked", 0);
+    child["parent"] = json!("sample-parent");
+    child["blocked_by"] = json!("sample-missing");
+    child["deadline"] = json!("2026-08-23T10:00:00.000Z");
+    let mut done = item("sample-done", "Task", "closed", 2);
+    done["parent"] = json!("sample-parent");
+    fixture(root.path(), &[parent, child, done])?;
+    for controls in [vec![], vec!["--limit", "1"]] {
+        for output in [vec![], vec!["--json"]] {
+            let mut args = vec!["context", "--depth", "deep"];
+            args.extend(&controls);
+            args.extend(output);
+            compare(
+                &oracle(&driver, root.path(), &args)?,
+                &native(root.path(), &args)?,
+                &args,
+            );
+        }
+    }
+    Ok(())
+}
+/// Relationship packets preserve bounded traversal, inverse relationships and root evidence.
+#[test]
+fn relationship_packets_match_oracle() -> TestResult {
+    let Some(published) = published_cli::published_cli_or_skip("native relationship packets")
+    else {
+        return Ok(());
+    };
+    let scratch = tempfile::tempdir()?;
+    let driver = orientation_driver(scratch.path(), &published)?;
+    let root = tempfile::tempdir()?;
+    assert!(
+        oracle(&driver, root.path(), &["init", "sample-", "--defaults"])?
+            .status
+            .success()
+    );
+    rich_fixture(root.path())?;
+    for id in [
+        "sample-epic",
+        "sample-task",
+        "sample-blocked",
+        "SAMPLE-TASK",
+    ] {
+        for controls in [
+            vec![],
+            vec!["--summary"],
+            vec!["--max-depth", "0"],
+            vec!["--node-limit", "1"],
+            vec!["--edge-limit", "1"],
+            vec!["--token-budget", "800"],
+            vec!["--direction", "incoming"],
+            vec!["--direction", "outgoing", "--kind", "parent,blocks"],
+        ] {
+            for output in [vec![], vec!["--json"]] {
+                let mut args = vec!["deps", id, "--format", "context"];
+                args.extend(&controls);
+                args.extend(&output);
+                compare(
+                    &oracle(&driver, root.path(), &args)?,
+                    &native(root.path(), &args)?,
+                    &args,
+                );
+            }
+        }
+    }
+    let mut cursor = None;
+    for _ in 0..3 {
+        let mut args = vec![
+            "deps",
+            "sample-task",
+            "--format",
+            "context",
+            "--node-limit",
+            "1",
+            "--json",
+        ];
+        if let Some(cursor) = cursor.as_deref() {
+            args.extend(["--cursor", cursor]);
+        }
+        let expected = oracle(&driver, root.path(), &args)?;
+        compare(&expected, &native(root.path(), &args)?, &args);
+        cursor =
+            serde_json::from_slice::<Value>(&expected.stdout)?["context"]["meta"]["nextCursor"]
+                .as_str()
+                .map(ToString::to_string);
+        if cursor.is_none() {
+            break;
+        }
+    }
+    Ok(())
+}
+/// Plain external namespaces and colliding local IDs retain the oracle's distinct graph keys.
+#[test]
+fn relationship_external_namespaces_match_oracle() -> TestResult {
+    let Some(published) = published_cli::published_cli_or_skip("external relationship namespaces")
+    else {
+        return Ok(());
+    };
+    let scratch = tempfile::tempdir()?;
+    let driver = orientation_driver(scratch.path(), &published)?;
+    let root = tempfile::tempdir()?;
+    assert!(
+        oracle(&driver, root.path(), &["init", "sample-", "--defaults"])?
+            .status
+            .success()
+    );
+    for collision in [false, true] {
+        let mut start = item("sample-root", "Task", "open", 1);
+        start["dependencies"] = json!([
+            {"id":"sample-global","kind":"related","source_kind":"global","created_at":CLOCK},
+            {"id":"sample-external","kind":"blocked_by","source_kind":"external","created_at":CLOCK},
+            {"id":"https://example.invalid/item","kind":"related","created_at":CLOCK},
+            {"id":"github:fixture/issue","kind":"related","created_at":CLOCK},
+            {"id":"sample-local","kind":"related","created_at":CLOCK}
+        ]);
+        let mut rows = vec![start, item("sample-local", "Task", "open", 2)];
+        if collision {
+            rows.push(item("sample-global", "Task", "open", 2));
+            rows.push(item("sample-external", "Task", "open", 2));
+        }
+        fixture(root.path(), &rows)?;
+        for summary in [false, true] {
+            for encoding in [vec![], vec!["--json"]] {
+                let mut args = vec!["deps", "sample-root", "--format", "context"];
+                args.push(if summary { "--summary" } else { "--full" });
+                args.extend(&encoding);
+                let expected = oracle(&driver, root.path(), &args)?;
+                assert!(expected.status.success());
+                compare(&expected, &native(root.path(), &args)?, &args);
+                if !summary && !encoding.is_empty() {
+                    let parsed: Value = serde_json::from_slice(&expected.stdout)?;
+                    let nodes = parsed["context"]["nodes"].as_array().ok_or("nodes")?;
+                    for name in ["global", "external"] {
+                        let id =
+                            format!("{}sample-{name}", if collision { "external:" } else { "" });
+                        let node = nodes
+                            .iter()
+                            .find(|node| node["id"] == id)
+                            .ok_or("external node")?;
+                        assert_eq!(node["status"], "external");
+                        assert_eq!(node["title"], format!("[external] sample-{name}"));
+                    }
+                }
+            }
+        }
+    }
+    Ok(())
+}
+
+/// Packet refusal envelopes match the published alias recovery and unhandled-error contracts.
+#[test]
+fn relationship_packet_refusals_match_oracle() -> TestResult {
+    let Some(published) = published_cli::published_cli_or_skip("relationship packet refusals")
+    else {
+        return Ok(());
+    };
+    let scratch = tempfile::tempdir()?;
+    let driver = orientation_driver(scratch.path(), &published)?;
+    let root = tempfile::tempdir()?;
+    assert!(
+        oracle(&driver, root.path(), &["init", "sample-", "--defaults"])?
+            .status
+            .success()
+    );
+    rich_fixture(root.path())?;
+    for controls in [
+        vec!["--token-budget", "1"],
+        vec!["--cursor", "bad"],
+        vec!["--direction", "sideways"],
+        vec!["--kind", "unknown"],
+    ] {
+        for output in [vec![], vec!["--json"]] {
+            let mut args = vec!["deps", "sample-task", "--format", "context"];
+            args.extend(&controls);
+            args.extend(output);
+            compare(
+                &oracle(&driver, root.path(), &args)?,
+                &native(root.path(), &args)?,
+                &args,
+            );
+        }
+    }
+    Ok(())
+}
+
 /// Empty, ranked, blocked and budgeted brief context matches complete oracle bytes.
 #[test]
 fn context_matches_oracle() -> TestResult {
@@ -690,6 +1077,10 @@ fn context_matches_oracle() -> TestResult {
         for args in [
             vec!["context"],
             vec!["context", "--json"],
+            vec!["context", "--depth", "deep", "--json"],
+            vec!["context", "--depth", "deep"],
+            vec!["context", "--depth", "standard", "--limit", "3", "--json"],
+            vec!["context", "--depth", "full", "--json"],
             vec!["context", "--limit", "3"],
             vec!["context", "--limit", "3", "--json"],
             vec!["context", "--limit", "0", "--json"],
@@ -1056,7 +1447,6 @@ fn unsupported_orientation_flags_refuse_explicitly() -> TestResult {
                 "--sprint",
                 "--release",
                 "--parent",
-                "--after",
                 "--format",
                 "--fields",
                 "--section",
@@ -1078,10 +1468,7 @@ fn unsupported_orientation_flags_refuse_explicitly() -> TestResult {
                 "--format",
             ],
         ),
-        (
-            "deps",
-            vec!["--cursor", "--direction", "--kind", "--add", "--remove"],
-        ),
+        ("deps", vec!["--add", "--remove"]),
     ] {
         for flag in flags {
             let mut args = vec![command];
@@ -1297,6 +1684,292 @@ fn bounded_history_and_refusals_match_oracle() -> TestResult {
             &native(root.path(), &args)?,
             &args,
         );
+    }
+    Ok(())
+}
+
+/// The marked-copy harness accepts identical nonzero packet statuses and still writes its receipt.
+#[test]
+fn real_copy_harness_accepts_matching_packet_refusals() -> TestResult {
+    let Some(interpreter) = node_harness::interpreter_or_skip()? else {
+        return Ok(());
+    };
+    let Some(published) =
+        published_cli::published_cli_or_skip("matching packet refusals in harness")
+    else {
+        return Ok(());
+    };
+    let scratch = tempfile::tempdir()?;
+    let driver = orientation_driver(scratch.path(), &published)?;
+    let root = tempfile::tempdir()?;
+    assert!(
+        oracle(&driver, root.path(), &["init", "sample-", "--defaults"])?
+            .status
+            .success()
+    );
+    let mut start = item("sample-root", "Task", "open", 1);
+    start["parent"] = json!("sample-parent");
+    start["files"] = json!([{"path": "x".repeat(6000)}]);
+    fixture(
+        root.path(),
+        &[start, item("sample-parent", "Task", "open", 2)],
+    )?;
+    let args = [
+        "deps",
+        "sample-root",
+        "--format",
+        "context",
+        "--token-budget",
+        "800",
+        "--json",
+    ];
+    let refused = oracle(&driver, root.path(), &args)?;
+    assert!(!refused.status.success());
+    compare(&refused, &native(root.path(), &args)?, &args);
+    fs::write(
+        root.path().join(".pm-rust-read-copy"),
+        "synthetic fixture\n",
+    )?;
+    let receipt = root.path().join("receipt.json");
+    let output = interpreter
+        .command()
+        .arg("scripts/context-real.mts")
+        .arg("--copy")
+        .arg(root.path())
+        .arg("--driver")
+        .arg(&driver)
+        .args([
+            "--binary",
+            env!("CARGO_BIN_EXE_pm-rust"),
+            "--samples",
+            "1",
+            "--output",
+        ])
+        .arg(&receipt)
+        .output()?;
+    assert!(
+        output.status.success(),
+        "{}{}",
+        String::from_utf8_lossy(&output.stdout),
+        String::from_utf8_lossy(&output.stderr)
+    );
+    let result: Value = serde_json::from_slice(&fs::read(receipt)?)?;
+    assert_eq!(result["authoritative_unchanged"], true);
+    assert_eq!(result["packet_roots"], 1);
+    assert_eq!(result["packet_comparisons"], 11);
+    assert!(result["comparisons"].as_u64().unwrap_or_default() > 11);
+    Ok(())
+}
+
+/// The real-copy entry point applies the shared opt-in rule before oracle work.
+#[test]
+fn real_copy_harness_missing_runtime_obeys_opt_in() -> TestResult {
+    let directory = tempfile::tempdir()?;
+    for required in [false, true] {
+        let mut child = Command::new(std::env::current_exe()?);
+        child
+            .args([
+                "--exact",
+                "real_copy_harness_accepts_matching_packet_refusals",
+                "--nocapture",
+            ])
+            .env("PM_NODE_INTERPRETER", directory.path().join("missing-node"))
+            .env("PATH", directory.path())
+            .env_remove("PM_RUST_REQUIRE_PUBLISHED_CLI");
+        if required {
+            child.env("PM_RUST_REQUIRE_PUBLISHED_CLI", "1");
+        }
+        let output = child.output()?;
+        assert_eq!(output.status.success(), !required);
+        if !required {
+            assert!(String::from_utf8_lossy(&output.stdout).contains("skip: Node harness"));
+        }
+    }
+    Ok(())
+}
+
+/// Both packet budget floors retain the previous useful result in the pinned published CLI.
+#[test]
+fn relationship_root_evidence_floor_retains_oracle_parity() -> TestResult {
+    let Some(published) =
+        published_cli::published_cli_or_skip("root evidence rendered-budget floor")
+    else {
+        return Ok(());
+    };
+    let scratch = tempfile::tempdir()?;
+    let driver = orientation_driver(scratch.path(), &published)?;
+    let root = tempfile::tempdir()?;
+    assert!(
+        oracle(&driver, root.path(), &["init", "sample-", "--defaults"])?
+            .status
+            .success()
+    );
+    fixture(root.path(), &[item("sample-root", "Task", "open", 1)])?;
+    for encoding in [vec![], vec!["--json"]] {
+        let mut args = vec![
+            "deps",
+            "sample-root",
+            "--format",
+            "context",
+            "--token-budget",
+            "100",
+        ];
+        args.extend(&encoding);
+        let expected = oracle(&driver, root.path(), &args)?;
+        assert!(expected.status.success());
+        compare(&expected, &native(root.path(), &args)?, &args);
+        if !encoding.is_empty() {
+            let output: Value = serde_json::from_slice(&expected.stdout)?;
+            assert!(
+                output["context"]["meta"]["usedTokens"]
+                    .as_u64()
+                    .unwrap_or_default()
+                    > 100
+            );
+        }
+    }
+    Ok(())
+}
+
+/// Huge delivery controls skip identical retries and retain the default-limit packet payload.
+#[test]
+fn relationship_large_edge_limit_finishes_at_budget_floor() -> TestResult {
+    let Some(published) = published_cli::published_cli_or_skip("bounded packet reference retries")
+    else {
+        return Ok(());
+    };
+    let scratch = tempfile::tempdir()?;
+    let driver = orientation_driver(scratch.path(), &published)?;
+    let root = tempfile::tempdir()?;
+    assert!(
+        oracle(&driver, root.path(), &["init", "sample-", "--defaults"])?
+            .status
+            .success()
+    );
+    for missing in [false, true] {
+        let mut row = item("sample-root", "Task", "open", 1);
+        if missing {
+            row["dependencies"] = json!([
+                {"id":"sample-missing","kind":"related","created_at":CLOCK},
+                {"id":"sample-missing","kind":"related","created_at":CLOCK}
+            ]);
+        }
+        fixture(root.path(), &[row])?;
+        for encoding in [vec![], vec!["--json"]] {
+            let mut args = vec![
+                "deps",
+                "sample-root",
+                "--format",
+                "context",
+                "--token-budget",
+                if missing { "300" } else { "100" },
+            ];
+            args.extend(&encoding);
+            let expected = oracle(&driver, root.path(), &args)?;
+            assert!(expected.status.success());
+            compare(&expected, &native(root.path(), &args)?, &args);
+            let decode = |bytes: &[u8]| -> Result<Value, Box<dyn std::error::Error>> {
+                Ok(if encoding.is_empty() {
+                    toon_format::decode_default(std::str::from_utf8(bytes)?)?
+                } else {
+                    serde_json::from_slice(bytes)?
+                })
+            };
+            let expected_packet = decode(&expected.stdout)?;
+            assert!(
+                expected_packet["context"]["meta"]["usedTokens"]
+                    .as_u64()
+                    .unwrap_or_default()
+                    > if missing { 300 } else { 100 }
+            );
+            for limit in ["1000000000", "9007199254740991"] {
+                let mut bounded_args = args.clone();
+                bounded_args.extend(["--edge-limit", limit]);
+                let mut command = Command::new(env!("CARGO_BIN_EXE_pm-rust"));
+                mutation_differential::isolate_environment(&mut command);
+                command
+                    .current_dir(root.path())
+                    .env("HOME", root.path().join("synthetic-home"))
+                    .env("USERPROFILE", root.path().join("synthetic-home"))
+                    .args(&bounded_args);
+                let output = assert_cmd::Command::from_std(command)
+                    .timeout(std::time::Duration::from_secs(5))
+                    .output()?;
+                assert!(
+                    output.status.success(),
+                    "large edge limit must complete within five seconds"
+                );
+                assert!(output.stderr.is_empty());
+                let mut actual = decode(&output.stdout)?;
+                assert_eq!(
+                    actual["context"]["meta"]["edgeLimit"],
+                    limit.parse::<u64>()?
+                );
+                // These fields describe the changed request and its rendered size, not the payload.
+                actual["context"]["meta"]["edgeLimit"] =
+                    expected_packet["context"]["meta"]["edgeLimit"].clone();
+                actual["context"]["meta"]["usedTokens"] =
+                    expected_packet["context"]["meta"]["usedTokens"].clone();
+                assert_eq!(actual, expected_packet);
+            }
+        }
+    }
+    Ok(())
+}
+
+/// Reference count caps preserve complete oracle bytes under kind, depth and delivery filters.
+#[test]
+fn relationship_reference_limits_match_oracle() -> TestResult {
+    let Some(published) = published_cli::published_cli_or_skip("filtered packet reference limits")
+    else {
+        return Ok(());
+    };
+    let scratch = tempfile::tempdir()?;
+    let driver = orientation_driver(scratch.path(), &published)?;
+    let root = tempfile::tempdir()?;
+    assert!(
+        oracle(&driver, root.path(), &["init", "sample-", "--defaults"])?
+            .status
+            .success()
+    );
+    let mut start = item("sample-root", "Task", "open", 1);
+    start["parent"] = json!("sample-parent");
+    start["dependencies"] = json!([
+        {"id":"sample-missing","kind":"related_to","created_at":CLOCK},
+        {"id":"sample-missing","kind":"related_to","created_at":CLOCK},
+        {"id":"sample-other","kind":"blocked_by","created_at":CLOCK}
+    ]);
+    let mut unrelated = item("sample-unrelated", "Task", "closed", 2);
+    unrelated["parent"] = json!("sample-unreachable");
+    fixture(root.path(), &[start, unrelated])?;
+    for controls in [
+        vec![],
+        vec!["--kind", "child"],
+        vec!["--direction", "incoming"],
+        vec!["--max-depth", "0"],
+        vec!["--summary"],
+    ] {
+        for (limit, budget) in [("1", "300"), ("2", "1200"), ("40", "300")] {
+            for encoding in [vec![], vec!["--json"]] {
+                let mut args = vec![
+                    "deps",
+                    "sample-root",
+                    "--format",
+                    "context",
+                    "--edge-limit",
+                    limit,
+                    "--token-budget",
+                    budget,
+                ];
+                args.extend(&controls);
+                args.extend(&encoding);
+                compare(
+                    &oracle(&driver, root.path(), &args)?,
+                    &native(root.path(), &args)?,
+                    &args,
+                );
+            }
+        }
     }
     Ok(())
 }

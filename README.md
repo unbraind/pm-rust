@@ -51,6 +51,7 @@ cargo run -- list --limit 20 --tag rust --sort updated --order desc
 cargo run -- list --cursor "$NEXT_CURSOR" --limit 20 --output-budget unbounded
 cargo run -- list --json --for triage --token-budget 1000
 cargo run -- context --limit 10
+cargo run -- context --depth deep --limit 10
 cargo run -- context --limit 10 --token-budget 4000 --json
 cargo run -- history pm-example --limit 10
 cargo run -- history pm-example --verify --strict-exit --json
@@ -102,8 +103,8 @@ canonical history through the existing recovery journal. See the
 [search and collections contract](docs/NATIVE_SEARCH_COLLECTIONS.md) for tested
 flags, selectors, refusal differences and concurrency evidence.
 
-Brief `context`, append-only `history`, and dependency tree/graph `deps` reads
-are native. See the [orientation contract](docs/NATIVE_ORIENTATION.md) for
+`context` at brief, standard, deep and full depth, append-only `history`, and dependency
+tree/graph/context `deps` reads are native. See the [orientation contract](docs/NATIVE_ORIENTATION.md) for
 supported flags, integrity behavior, explicit refusals and measured latency.
 
 Rust formatting, strict Clippy (deny warnings, pedantic), complete

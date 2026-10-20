@@ -16,7 +16,9 @@ function sanitize(text: string): string {
   return result;
 }
 
-const result = spawnSync('cargo', ['test', '--quiet', '--locked', '--lib', process.argv[2] ?? 'workspace::tests::single_item_get'],
+const suite = process.argv[3];
+const target = suite ? ['--test', suite] : ['--lib'];
+const result = spawnSync('cargo', ['test', '--quiet', '--locked', ...target, process.argv[2] ?? 'workspace::tests::single_item_get'],
   { encoding: 'utf8', env: process.env });
 process.stdout.write(sanitize(result.stdout ?? ''));
 process.stderr.write(sanitize(result.error?.message ?? result.stderr ?? ''));

@@ -335,9 +335,6 @@ fn context_api_boundaries() -> Result<(), Box<dyn std::error::Error>> {
     }
     for (depth, limit, budget) in [
         ("bad", None, None),
-        ("standard", None, None),
-        ("deep", None, None),
-        ("full", None, None),
         ("brief", Some("-1"), None),
         ("brief", None, Some("0")),
     ] {
@@ -401,6 +398,280 @@ fn context_api_boundaries() -> Result<(), Box<dyn std::error::Error>> {
             .is_err()
     );
     fs::remove_file(workspace.pm_root().join("tasks/sample-blocked.toon"))?;
+    Ok(())
+}
+
+/// Deep reads expose descendant completion, compact activity and bounded section projections.
+#[test]
+fn deep_sections_preserve_relationships_and_evidence() -> Result<(), Box<dyn std::error::Error>> {
+    let (_root, workspace, _) = workspace()?;
+    let mut parent = item("sample-parent", "in_progress");
+    parent["type"] = json!("Epic");
+    parent["files"] = json!([{"path":"src/lib.rs"},{"path":"src/main.rs"}]);
+    parent["tests"] = json!([{"command":"cargo test"}]);
+    parent["comments"] = json!([{"text":"Retained count","author":"fixture","created_at":NOW}]);
+    let mut child = item("sample-child", "open");
+    child["parent"] = json!("sample-parent");
+    child["files"] = json!([{"path":"src/lib.rs"}]);
+    child["test_runs"] = json!([{"run_id":"synthetic-run","kind":"test","status":"failed","started_at":NOW,"finished_at":NOW,"recorded_at":NOW,"passed":2,"failed":1,"skipped":3}]);
+    child["assignee"] = json!("fixture");
+    child["updated_at"] = json!("2026-08-01T00:00:00.000Z");
+    let mut done = item("sample-done", "closed");
+    done["parent"] = json!("sample-parent");
+    let mut blocked = item("sample-blocked", "blocked");
+    blocked["parent"] = json!("sample-parent");
+    blocked["blocked_by"] = json!("sample-child");
+    for row in [parent, child, done, blocked] {
+        fs::write(
+            workspace
+                .pm_root()
+                .join(format!("tasks/{}.toon", text(&row, "id"))),
+            toon_format::encode_default(&row)?,
+        )?;
+    }
+    fs::write(
+        workspace.pm_root().join("history/sample-deleted.jsonl"),
+        format!(
+            "{}\n",
+            json!({"ts":NOW,"op":"create","author":"fixture","message":"Retained evidence"})
+        ),
+    )?;
+    let result = workspace.context_with_global(
+        &ContextOptions {
+            depth: Some("deep".to_owned()),
+            ..Default::default()
+        },
+        NOW,
+        None,
+    )?;
+    assert_eq!(result["high_level"][0]["children_total"], 3);
+    assert_eq!(result["high_level"][0]["children_closed"], 1);
+    assert_eq!(result["high_level"][0]["completion_pct"], 33);
+    assert_eq!(result["hierarchy"][0]["children_blocked"], 1);
+    assert_eq!(result["progress"][0]["blocked"], 1);
+    assert_eq!(result["files"][0]["references"], 2);
+    assert_eq!(
+        result["tests"]["recent_runs"],
+        json!({"passed":2,"failed":1,"skipped":3})
+    );
+    assert_eq!(result["activity"][0]["id"], "sample-deleted");
+    assert_eq!(result["staleness"][0]["id"], "sample-child");
+    assert_eq!(result["omission_receipt"]["has_omissions"], false);
+    for depth in ["standard", "deep", "full"] {
+        for limit in ["0", "1", "10"] {
+            let bounded = workspace.context_with_global(
+                &ContextOptions {
+                    depth: Some(depth.to_owned()),
+                    limit: Some(limit.to_owned()),
+                    no_tags: true,
+                    ..Default::default()
+                },
+                NOW,
+                None,
+            )?;
+            assert_eq!(bounded["depth"], depth);
+            assert!(
+                bounded["low_level"]
+                    .as_array()
+                    .into_iter()
+                    .flatten()
+                    .all(|row| row.get("tags").is_none())
+            );
+        }
+    }
+    Ok(())
+}
+
+/// Ranked continuation tolerates removed rows with positions and refuses unanchored cursors.
+#[test]
+fn context_producer_cursor_boundaries() -> Result<(), Box<dyn std::error::Error>> {
+    use base64::Engine as _;
+    let (_root, workspace, _) = workspace()?;
+    for id in ["sample-a", "sample-b", "sample-c"] {
+        fs::write(
+            workspace.pm_root().join(format!("tasks/{id}.toon")),
+            toon_format::encode_default(&item(id, "open"))?,
+        )?;
+    }
+    let options = ContextOptions {
+        limit: Some("1".to_owned()),
+        no_extension_health: true,
+        ..Default::default()
+    };
+    let first = workspace.context_with_global(&options, NOW, None)?;
+    let raw = first["next_cursor"].as_str().ok_or("producer cursor")?;
+    let mut cursor: Value =
+        serde_json::from_slice(&base64::engine::general_purpose::URL_SAFE_NO_PAD.decode(raw)?)?;
+    let second = workspace.context_with_global(
+        &ContextOptions {
+            after: Some(raw.to_owned()),
+            ..options.clone()
+        },
+        NOW,
+        None,
+    )?;
+    assert_ne!(first["low_level"][0]["id"], second["low_level"][0]["id"]);
+    assert_eq!(second["continuation_contract"]["metadata"], "reference");
+    assert!(second.get("now").is_none());
+    let unbounded = workspace.context_with_global(
+        &ContextOptions {
+            after: Some(raw.to_owned()),
+            no_extension_health: true,
+            ..Default::default()
+        },
+        NOW,
+        None,
+    )?;
+    assert_eq!(unbounded["low_level"].as_array().map(Vec::len), Some(2));
+    cursor["after_id"] = json!("removed");
+    for position in [0, 100] {
+        cursor["after_index"] = json!(position);
+        let result = workspace.context_with_global(
+            &ContextOptions {
+                after: Some(crate::pagination::encode(&cursor)),
+                ..options.clone()
+            },
+            NOW,
+            None,
+        )?;
+        assert_eq!(
+            result["low_level"].as_array().map(Vec::len),
+            Some(usize::from(position == 0))
+        );
+    }
+    cursor
+        .as_object_mut()
+        .map(|cursor| cursor.shift_remove("after_index"));
+    for raw in [crate::pagination::encode(&cursor), "bad".to_owned()] {
+        assert!(
+            workspace
+                .context_with_global(
+                    &ContextOptions {
+                        after: Some(raw),
+                        ..options.clone()
+                    },
+                    NOW,
+                    None
+                )
+                .is_err()
+        );
+    }
+    Ok(())
+}
+
+/// Disabled extension policy is inert; enabled trust or policy modes remain explicit boundaries.
+#[test]
+fn context_disabled_extension_policy() -> Result<(), Box<dyn std::error::Error>> {
+    let (_root, workspace, _) = workspace()?;
+    let path = workspace.pm_root().join("extensions/fixture");
+    fs::create_dir_all(&path)?;
+    fs::write(path.join("entry.js"), "export {};")?;
+    fs::write(path.join("manifest.json"),json!({"name":"fixture","version":"1.0.0","entry":"entry.js","priority":1,"capabilities":["commands"],"pm_min_version":"2026.8.1"}).to_string())?;
+    for (mode, trust, accepted) in [
+        ("off", "off", true),
+        ("off", "warn", false),
+        ("warn", "off", false),
+    ] {
+        let settings = json!({"extensions":{"policy":{"mode":mode,"trust_mode":trust}}});
+        assert_eq!(
+            extension_health(&workspace, &settings, None).is_ok(),
+            accepted
+        );
+    }
+    assert!(
+        extension_health(
+            &workspace,
+            &json!({"extensions":{"unknown_control":true}}),
+            None
+        )
+        .is_err()
+    );
+    for (minimum, accepted) in [
+        (json!("2026.10.14"), true),
+        (json!("2026.8.1"), true),
+        (json!("2026.10.15"), false),
+        (json!("2026.10"), false),
+        (json!("2026.10.14.1"), false),
+        (json!("2026.08.1"), false),
+        (json!("^2026.8.1"), false),
+        (json!(true), false),
+        (json!(null), true),
+    ] {
+        let manifest =
+            json!({"name":"fixture","version":"1.0.0","entry":"entry.js","pm_min_version":minimum});
+        fs::write(path.join("manifest.json"), manifest.to_string())?;
+        assert_eq!(
+            extension_health(&workspace, &json!({}), None).is_ok(),
+            accepted
+        );
+    }
+    for (key, value, ready) in [
+        ("priority", json!(null), true),
+        ("priority", json!(1.5), false),
+        ("priority", json!("1"), false),
+        ("capabilities", json!(null), true),
+        ("capabilities", json!("commands"), false),
+        ("capabilities", json!([1]), false),
+    ] {
+        let mut manifest = json!({"name":"fixture","version":"1.0.0","entry":"entry.js"});
+        manifest[key] = value;
+        fs::write(path.join("manifest.json"), manifest.to_string())?;
+        let health = extension_health(&workspace, &json!({}), None)?.ok_or("health")?;
+        assert_eq!(
+            health["packages"][0]["status"],
+            if ready { "ok" } else { "degraded" }
+        );
+    }
+    Ok(())
+}
+
+/// Workspace settings select each optional section independently and control completion enrichment.
+#[test]
+fn context_settings_select_each_optional_section() -> Result<(), Box<dyn std::error::Error>> {
+    let (_root, workspace, _) = workspace()?;
+    let mut parent = item("sample-parent", "open");
+    parent["type"] = json!("Epic");
+    let mut child = item("sample-child", "open");
+    child["parent"] = json!("sample-parent");
+    for row in [parent, child] {
+        fs::write(
+            workspace
+                .pm_root()
+                .join(format!("tasks/{}.toon", text(&row, "id"))),
+            toon_format::encode_default(&row)?,
+        )?;
+    }
+    for selected in sections::NAMES.into_iter().chain([""]) {
+        let enabled: BTreeMap<_, _> = sections::NAMES
+            .into_iter()
+            .map(|name| (name, name == selected))
+            .collect();
+        fs::write(workspace.pm_root().join("settings.json"),json!({"author_default":"fixture","context":{"default_depth":"deep","activity_limit":2,"sections":enabled}}).to_string())?;
+        let result = workspace.context_with_global(
+            &ContextOptions {
+                no_extension_health: true,
+                ..Default::default()
+            },
+            NOW,
+            None,
+        )?;
+        assert_eq!(
+            result["sections_included"].as_array().map(Vec::len),
+            Some(usize::from(!selected.is_empty()))
+        );
+        assert_eq!(
+            result["high_level"][0].get("children_total").is_some(),
+            matches!(
+                selected,
+                "hierarchy"
+                    | "progress"
+                    | "blockers"
+                    | "recently_created"
+                    | "unparented"
+                    | "staleness"
+            )
+        );
+    }
     Ok(())
 }
 
@@ -577,7 +848,7 @@ fn inherited_tags_and_extension_context() -> Result<(), Box<dyn std::error::Erro
     assert!(limited["next_cursor"].is_string());
     fs::write(
         extension.join("manifest.json"),
-        r#"{"name":"fixture","version":"1.0.0","entry":"entry.js","priority":1}"#,
+        r#"{"name":"fixture","version":"1.0.0","entry":"entry.js","contributions":{}}"#,
     )?;
     let error = workspace
         .context_with_global(&ContextOptions::default(), NOW, None)
@@ -1074,7 +1345,7 @@ fn extension_health_refusal_boundary() -> Result<(), Box<dyn std::error::Error>>
         assert!(extension_health(&workspace, &json!({"extensions":extensions}), None).is_err());
     }
     let mut rich = basic.clone();
-    rich["priority"] = json!(2);
+    rich["contributions"] = json!({});
     fs::write(path.join("manifest.json"), serde_json::to_vec(&rich)?)?;
     assert!(extension_health(&workspace, &empty, None).is_err());
     let mut invalid = basic;
