@@ -1,8 +1,10 @@
 import assert from 'node:assert/strict';
-import { readFileSync, mkdtempSync, mkdirSync, rmSync, writeFileSync } from 'node:fs';
+import { spawnSync } from 'node:child_process';
+import { existsSync, readFileSync, mkdtempSync, mkdirSync, rmSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { test } from 'node:test';
+import { fileURLToPath } from 'node:url';
 import { argument, authoritative, relationshipRoots } from './context-real-helpers.mts';
 import { measure } from './latency-measure.mts';
 
@@ -25,6 +27,43 @@ test('required options reject absent, trailing, empty and option-token values', 
     assert.throws(() => argument('--copy', args), /Required: --copy/);
   }
   assert.equal(argument('--copy', ['--copy', 'fixture']), 'fixture');
+});
+
+test('real-copy options fail before tracker changes or parity processes', () => {
+  const root = mkdtempSync(join(tmpdir(), 'pm-rust-options-'));
+  try {
+    const runtime = join(root, '.agents/pm/runtime');
+    mkdirSync(runtime, { recursive: true });
+    writeFileSync(join(root, '.pm-rust-read-copy'), 'synthetic fixture\n');
+    const retained = join(runtime, 'retained.txt');
+    writeFileSync(retained, 'unchanged\n');
+    const invoked = join(root, 'invoked');
+    const driver = join(root, 'driver.mjs');
+    writeFileSync(driver, `import { writeFileSync } from 'node:fs'; writeFileSync(${JSON.stringify(invoked)}, 'invoked'); process.exit(1);`);
+    const output = join(root, 'receipt.json');
+    const base = ['--copy', root, '--driver', driver, '--binary', process.execPath];
+    const cases = [
+      { args: ['--output', output], error: /Required: --samples/ },
+      { args: ['--samples', '--output', output], error: /Required: --samples/ },
+      ...['0', '-1', '1.5', 'NaN', 'Infinity', '9007199254740992'].map(value => ({
+        args: ['--samples', value, '--output', output], error: /Samples must be a positive safe integer/,
+      })),
+      { args: ['--samples', '1'], error: /Required: --output/ },
+      { args: ['--samples', '1', '--output'], error: /Required: --output/ },
+      { args: ['--samples', '1', '--output', '--unknown'], error: /Required: --output/ },
+    ];
+    for (const { args, error } of cases) {
+      const result = spawnSync(process.execPath, [fileURLToPath(new URL('./context-real.mts', import.meta.url)), ...base, ...args], { encoding: 'utf8' });
+      assert.equal(result.error, undefined);
+      assert.equal(result.status, 1);
+      assert.match(result.stderr, error);
+      assert.equal(readFileSync(retained, 'utf8'), 'unchanged\n');
+      assert.equal(existsSync(invoked), false);
+      assert.equal(existsSync(output), false);
+    }
+  } finally {
+    rmSync(root, { recursive: true, force: true });
+  }
 });
 
 test('packet roots require local targets even when an external ID collides', () => {

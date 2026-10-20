@@ -9,6 +9,8 @@ use std::{
 #[allow(dead_code)]
 #[path = "support/mutation_differential.rs"]
 mod mutation_differential;
+#[path = "support/node_harness.rs"]
+mod node_harness;
 #[path = "support/published_cli.rs"]
 mod published_cli;
 use mutation_differential::write_driver;
@@ -1689,6 +1691,9 @@ fn bounded_history_and_refusals_match_oracle() -> TestResult {
 /// The marked-copy harness accepts identical nonzero packet statuses and still writes its receipt.
 #[test]
 fn real_copy_harness_accepts_matching_packet_refusals() -> TestResult {
+    let Some(interpreter) = node_harness::interpreter_or_skip()? else {
+        return Ok(());
+    };
     let Some(published) =
         published_cli::published_cli_or_skip("matching packet refusals in harness")
     else {
@@ -1726,7 +1731,8 @@ fn real_copy_harness_accepts_matching_packet_refusals() -> TestResult {
         "synthetic fixture\n",
     )?;
     let receipt = root.path().join("receipt.json");
-    let output = Command::new("node")
+    let output = interpreter
+        .command()
         .arg("scripts/context-real.mts")
         .arg("--copy")
         .arg(root.path())
@@ -1752,6 +1758,33 @@ fn real_copy_harness_accepts_matching_packet_refusals() -> TestResult {
     assert_eq!(result["packet_roots"], 1);
     assert_eq!(result["packet_comparisons"], 11);
     assert!(result["comparisons"].as_u64().unwrap_or_default() > 11);
+    Ok(())
+}
+
+/// The real-copy entry point applies the shared opt-in rule before oracle work.
+#[test]
+fn real_copy_harness_missing_runtime_obeys_opt_in() -> TestResult {
+    let directory = tempfile::tempdir()?;
+    for required in [false, true] {
+        let mut child = Command::new(std::env::current_exe()?);
+        child
+            .args([
+                "--exact",
+                "real_copy_harness_accepts_matching_packet_refusals",
+                "--nocapture",
+            ])
+            .env("PM_NODE_INTERPRETER", directory.path().join("missing-node"))
+            .env("PATH", directory.path())
+            .env_remove("PM_RUST_REQUIRE_PUBLISHED_CLI");
+        if required {
+            child.env("PM_RUST_REQUIRE_PUBLISHED_CLI", "1");
+        }
+        let output = child.output()?;
+        assert_eq!(output.status.success(), !required);
+        if !required {
+            assert!(String::from_utf8_lossy(&output.stdout).contains("skip: Node harness"));
+        }
+    }
     Ok(())
 }
 

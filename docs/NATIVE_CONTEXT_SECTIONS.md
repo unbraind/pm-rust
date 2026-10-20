@@ -265,3 +265,26 @@ The handoff commit changes only this evidence and the paired tracker item/histor
 production code, tests, workflow, pins and thresholds match the certified
 implementation. Its own exact-head CI matrix is verified before the final PR
 handoff. The item remains in progress and is released for orchestrator review.
+
+## Harness review follow-up, 2026-10-20
+
+All three unresolved findings in the next review were verified. The latest
+CodeRabbit review body had no outside-diff findings.
+
+| Thread | Correction and independent behavioral proof |
+| --- | --- |
+| `PRRT_kwDOTwgMRs6uJUh5` | Parse all required options before tracker access or parity work. Samples must be positive safe integers. Restoring only the old script makes `node --test --test-name-pattern="real-copy options" scripts/harness.test.mts` fail with exit 1; restoration passes. The regression checks missing/invalid options, untouched runtime files, no oracle invocation and no receipt. |
+| `PRRT_kwDOTwgMRs6uJUh7` | Probe Node type-stripping capability. Missing or incapable Node prints a skip only when the published CLI is optional; required runs fail. Executed harness failures still fail. Restoring only `harness_behavior` makes `cargo +1.90.0 test --locked --test harness_contract obeys_opt_in -- --nocapture` fail both controls, exit 101; restoration passes both. |
+| `PRRT_kwDOTwgMRs6uJUh8` | Use the same nonzero staleness limit for a default-threshold positive control and the 30-day empty result. Reverting that limit to zero makes `cargo +1.90.0 test --locked --lib section_summaries_with_resolved_and_missing_blockers -- --nocapture` fail, exit 101. Independently ignoring the configured threshold also fails; restoration passes. |
+
+The Node harness contains eight passing tests, and the Rust harness contains
+three. A shared interpreter probe also gates the real-copy integration test,
+which previously hardcoded Node. It executes an actual typed-module import and
+selects the native Node or Bun test-runner spelling. Reverting only the real-copy
+entry point makes `cargo +1.90.0 test --locked --test orientation_differential real_copy_harness_missing_runtime_obeys_opt_in -- --exact --nocapture`
+fail with exit 101; restoring it passes. The staleness assertion uses the existing
+real tracker fixture. All proofs retain their new regressions while reverting
+only the relevant behavior.
+Production Rust, oracle versions, the TS contracts tracked by pm-cli issues
+1509 through 1513, source coverage scope and release thresholds are unchanged.
+Current gate results are recorded on `pm-rust-s6j4` and the PR after completion.

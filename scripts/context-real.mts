@@ -6,9 +6,12 @@ import { performance } from 'node:perf_hooks';
 import { argument, authoritative, relationshipRoots } from './context-real-helpers.mts';
 
 const root = resolve(argument('--copy'));
-if (!existsSync(join(root, '.pm-rust-read-copy'))) throw new Error('Only a marked scratch tracker copy is accepted');
 const driver = resolve(argument('--driver'));
 const binary = resolve(argument('--binary'));
+const sampleCount = Number(argument('--samples'));
+if (!Number.isSafeInteger(sampleCount) || sampleCount < 1) throw new Error('Samples must be a positive safe integer');
+const output = resolve(argument('--output'));
+if (!existsSync(join(root, '.pm-rust-read-copy'))) throw new Error('Only a marked scratch tracker copy is accepted');
 const binaryHash = createHash('sha256').update(readFileSync(binary)).digest('hex');
 const clock = '2026-10-19T12:00:00.000Z';
 const home = join(root, 'synthetic-home');
@@ -112,8 +115,6 @@ function percentile(values: number[], quantile: number): number {
   return Math.round(sorted[Math.ceil(sorted.length * quantile) - 1] * 10) / 10;
 }
 
-const sampleCount = Number(argument('--samples'));
-if (!Number.isInteger(sampleCount) || sampleCount < 1) throw new Error('Samples must be positive');
 const samples: { command: string; runtime: string; round: number; ms: number }[] = [];
 const timings = [];
 for (const depth of [[], ['--depth', 'deep']]) {
@@ -145,5 +146,5 @@ const receipt = {
   binary_sha256: binaryHash,
   timings, samples,
 };
-writeFileSync(argument('--output'), `${JSON.stringify(receipt, null, 2)}\n`);
+writeFileSync(output, `${JSON.stringify(receipt, null, 2)}\n`);
 console.log(JSON.stringify({ comparisons, authoritative_unchanged: true, timings }));

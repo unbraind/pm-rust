@@ -190,6 +190,24 @@ fn section_summaries_with_resolved_and_missing_blockers() -> Result<(), Box<dyn 
         .find(|row| row["id"] == "sample-epic")
         .ok_or("epic progress")?;
     assert_eq!(epic_progress["blocked"], 1);
+    let staleness_limit = 10;
+    let default_staleness = build(
+        &workspace,
+        &["staleness"],
+        &corpus,
+        &[],
+        &[],
+        &blocked,
+        &lifecycle,
+        NOW,
+        staleness_limit,
+        &json!({}),
+    )?;
+    assert_eq!(
+        default_staleness["staleness"].as_array().map(Vec::len),
+        Some(1)
+    );
+    assert_eq!(default_staleness["staleness"][0]["id"], "sample-blocked");
     custom["context"] = json!({"stale_threshold_days":30});
     assert!(
         build(
@@ -201,7 +219,7 @@ fn section_summaries_with_resolved_and_missing_blockers() -> Result<(), Box<dyn 
             &blocked,
             &lifecycle,
             NOW,
-            0,
+            staleness_limit,
             &custom
         )?["staleness"]
             .as_array()
