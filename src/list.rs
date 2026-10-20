@@ -54,12 +54,7 @@ fn brief_row(metadata: &crate::ItemMetadata, sort: Option<&str>) -> Value {
             "updated_at" => json!(metadata.updated_at),
             "created_at" => json!(metadata.created_at),
             "parent" => metadata.parent.clone().map_or(Value::Null, Value::String),
-            "deadline" => metadata
-                .extra
-                .get("deadline")
-                .cloned()
-                .unwrap_or(Value::Null),
-            _ => Value::Null,
+            _ => metadata.extra.get(field).cloned().unwrap_or(Value::Null),
         };
     }
     row
@@ -508,20 +503,12 @@ fn page_envelope(
     };
     // An explicit --limit binds even under --no-truncate, while the implicit
     // 10,000-row guard stays disabled with it (GH-1457).
-    let limit = if options.no_truncate {
-        options
-            .limit
-            .as_deref()
-            .map(|raw| integer(raw, 0))
-            .transpose()?
-    } else {
-        options
-            .limit
-            .as_deref()
-            .map(|raw| integer(raw, 0))
-            .transpose()?
-            .or_else(|| (rows.len() >= 10_000).then_some(20))
-    };
+    let limit = options
+        .limit
+        .as_deref()
+        .map(|raw| integer(raw, 0))
+        .transpose()?
+        .or_else(|| (!options.no_truncate && rows.len() >= 10_000).then_some(20));
     let page = rows
         .into_iter()
         .skip(start)

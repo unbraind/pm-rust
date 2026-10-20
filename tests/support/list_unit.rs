@@ -133,6 +133,17 @@ fn page_limits_offsets_and_deleted_item_fallback() -> Result<(), Box<dyn std::er
     assert!(!legacy);
     assert_eq!(defaults["count"], 20);
     assert_eq!(defaults["applied_limit"], 20);
+    for (limit, count) in [(None, 10_000), (Some("2".to_owned()), 2)] {
+        let options = ListOptions {
+            no_truncate: true,
+            limit,
+            ..ListOptions::default()
+        };
+        assert_eq!(
+            super::page_envelope(source.clone(), &options, "fp")?.0["count"],
+            count
+        );
+    }
     for options in [
         ListOptions {
             limit: Some("0".to_owned()),
@@ -658,7 +669,7 @@ fn context_timestamp_parse_work_is_linear() -> Result<(), Box<dyn std::error::Er
 /// Brief rows never fabricate a value for an unrecognized sort key (GH-1481).
 #[test]
 fn brief_rows_report_null_for_unrecognized_sort_keys() -> Result<(), Box<dyn std::error::Error>> {
-    let metadata: crate::ItemMetadata = serde_json::from_value(serde_json::json!({
+    let mut metadata: crate::ItemMetadata = serde_json::from_value(serde_json::json!({
         "id": "demo-0001",
         "title": "title",
         "type": "Task",
@@ -669,6 +680,18 @@ fn brief_rows_report_null_for_unrecognized_sort_keys() -> Result<(), Box<dyn std
     }))?;
     let row = super::brief_row(&metadata, Some("bogus"));
     assert_eq!(row["bogus"], serde_json::Value::Null);
+    assert_eq!(
+        super::brief_row(&metadata, Some("deadline"))["deadline"],
+        serde_json::Value::Null
+    );
+    metadata.extra.insert(
+        "deadline".to_owned(),
+        serde_json::json!("2026-10-24T00:00:00.000Z"),
+    );
+    assert_eq!(
+        super::brief_row(&metadata, Some("deadline"))["deadline"],
+        "2026-10-24T00:00:00.000Z"
+    );
     assert_eq!(
         super::brief_fields(Some("bogus")),
         vec!["id", "status", "type", "title", "bogus"]
@@ -692,16 +715,19 @@ fn no_truncate_still_refuses_invalid_explicit_limits() -> Result<(), Box<dyn std
     fs::create_dir_all(root.join("tasks"))?;
     fs::write(root.join("settings.json"), "{}")?;
     let workspace = Workspace::discover(directory.path())?;
-    let options = crate::ListOptions {
-        no_truncate: true,
-        limit: Some("bogus".to_owned()),
-        output_budget: Some("unbounded".to_owned()),
-        ..crate::ListOptions::default()
-    };
-    assert!(matches!(
-        workspace.list_page(&ItemFilter::default(), &options, "clock"),
-        Err(PmRustError::InvalidReadRequest { .. })
-    ));
+    for offset in [None, Some("0".to_owned())] {
+        let options = crate::ListOptions {
+            no_truncate: true,
+            limit: Some("bogus".to_owned()),
+            offset,
+            output_budget: Some("unbounded".to_owned()),
+            ..crate::ListOptions::default()
+        };
+        assert!(matches!(
+            workspace.list_page(&ItemFilter::default(), &options, "clock"),
+            Err(PmRustError::InvalidReadRequest { .. })
+        ));
+    }
     Ok(())
 }
 
