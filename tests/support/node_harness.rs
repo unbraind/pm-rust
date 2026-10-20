@@ -32,7 +32,7 @@ pub fn interpreter_or_skip() -> Result<Option<Interpreter>, Box<dyn std::error::
         .args([
             "--input-type=module",
             "-e",
-            "await import('./scripts/context-real-helpers.mts'); console.log(process.versions.bun ? 'test' : '--test')",
+            "import './scripts/context-real-helpers.mts'; console.log(process.versions.bun ? 'test' : '--test')",
         ])
         .current_dir(env!("CARGO_MANIFEST_DIR"))
         .output()
