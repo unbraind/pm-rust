@@ -1368,5 +1368,14 @@ fn search_recovery_keeps_literal_argument_values() {
             result["recovery"]["normalized_args"],
             serde_json::json!(args)
         );
+        let args = vec![
+            "search".to_owned(),
+            "rust".to_owned(),
+            "--type".to_owned(),
+            value.to_owned(),
+        ];
+        let result =
+            super::command_refusal_detail("--type requires at least one non-empty value", &args, 2);
+        assert_eq!(result["rejected_value"], value);
     }
 }

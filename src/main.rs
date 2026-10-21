@@ -2045,7 +2045,6 @@ fn command_refusal_detail(detail: &str, args: &[String], exit_code: u8) -> serde
             .and_then(|index| args.get(index + 1))
             // The published extractor omits these shared author/output controls.
             .filter(|arg| !matches!(arg.as_str(), "--author" | "--json"));
-        let rejected = rejected.filter(|arg| !arg.trim().is_empty());
         if let Some(rejected) = rejected {
             return serde_json::json!({"surface":surface,"rejected_value":rejected,"exit_code":exit_code});
         }

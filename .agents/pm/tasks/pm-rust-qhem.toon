@@ -6,7 +6,7 @@ status: in_progress
 priority: 3
 tags[3]: conformance,follow-up,oracle
 created_at: "2026-10-20T09:07:30.168Z"
-updated_at: "2026-10-21T07:30:43.709Z"
+updated_at: "2026-10-21T07:39:28.165Z"
 deadline: "2026-10-27T00:00:00.000Z"
 assignee: codex-agent
 claim_principal: codex-agent
@@ -18,7 +18,7 @@ blocked_by: pm-rust-owzm
 dependencies[2]{id,kind,created_at,author,source_kind,author_source}:
   pm-rust-owzm,related,"2026-10-20T09:07:30.168Z",codex-agent,"cli:create:dep",detected
   pm-rust-owzm,blocked_by,"2026-10-20T11:05:13.191Z",codex-agent,"cli:update:blocked_by",detected
-comments[19]{created_at,author,text}:
+comments[20]{created_at,author,text}:
   "2026-10-20T09:07:30.168Z",codex-agent,Planning only. Implementation is deferred until the current delivery is reviewed.
   "2026-10-21T04:41:10.473Z",codex-agent,"Scope extended to published pm-cli 2026.10.21 as requested. Compare both releases against the October 19 native slice; implement applicable deltas, prove fail-before/pass-after behaviour, and require all four coverage dimensions plus the three-platform gates. No-git acceptance will require every real process write and history record to survive."
   "2026-10-21T04:47:20.325Z",codex-agent,"Implementation covers conservative same-host original-process death receipts and recovery intent, strict serialized mutation keys, invocation-preserving lock advice, effective default ordering, count-based completion rounding, and cursor page-local blocker focus. Test execution remains outside the native slice and unsupported run options are preflight-refused before linked-test edits. Assurance declaration reads gain typed missing-ID refusals and bounded read-only discovery."
@@ -38,6 +38,7 @@ comments[19]{created_at,author,text}:
   "2026-10-21T07:06:41.750Z",codex-agent,"Updated read contracts pass all 295 library tests and all 29 CLI unit tests. This includes real cursor-preserving budget retries, explicit traversal controls, summary-budget refusal, cost-limited fallback, compact JSON byte spelling, partial/unchecked brief envelopes, and lossless TOON row facts. Strict lint and exact process differentials are running; full coverage and latest-head three-platform CI are still required."
   "2026-10-21T07:12:45.004Z",codex-agent,"Strict all-target Clippy passed after the bounded-read implementation. CI then caught formatting in the final encoding-precedence helper, which was added after the earlier formatting pass. Regenerating formatting and requiring a fresh fmt check before the next push; this CI result is a failure, not certification."
   "2026-10-21T07:30:43.706Z",codex-agent,"Exact process acceptance now passes the relationship refusal matrix, the advertised canonical retry replay in both CLIs, bounded-list byte receipts, and collection safety refusals. CI narrowed orientation to one legacy depends_on resolution gap; fixed alias/sentinel handling, and preserved empty/whitespace search recovery arguments. Strict Clippy passes. All 297 library tests and all 31 CLI unit tests pass. The coverage preview exposed duplicated generic search instantiations and untested classification paths; use one borrowed probe implementation and explicit refusal-boundary checks. Full coverage and platform certification remain pending."
+  "2026-10-21T07:39:28.165Z",codex-agent,"The complete context-sections differential now passes after legacy depends_on resolution. The full search-refusal matrix also passes after retaining literal empty/whitespace normalized arguments and rejected option values. All 31 CLI unit tests pass. These are exact stdout/stderr/status comparisons; no output normalization or threshold reductions were introduced. Next: behavioral revert proofs for the additional read changes, then the unchanged aggregate and platform coverage gates."
 notes[1]{created_at,author,text}:
   "2026-10-20T09:07:30.168Z",codex-agent,Published version 2026.10.20 was observed via npm view during the 2026.10.19 continuation.
 learnings[1]{created_at,author,text}:
