@@ -135,6 +135,9 @@ enum Command {
         /// Complete output ceiling.
         #[arg(long, allow_hyphen_values = true)]
         token_budget: Option<String>,
+        /// Explicit wire format for replayable recovery commands.
+        #[arg(long, value_parser = ["json", "toon"])]
+        output_format: Option<String>,
         /// Emit JSON.
         #[arg(long)]
         json: bool,
@@ -672,8 +675,12 @@ fn run(cli: Cli) -> Result<(), Box<dyn std::error::Error>> {
             node_limit,
             edge_limit,
             token_budget,
+            output_format,
             json,
         } => {
+            let json = output_format
+                .as_deref()
+                .map_or(json, |format| format == "json");
             let result = workspace.deps(
                 &id,
                 &pm_rust::DepsOptions {
@@ -1224,10 +1231,40 @@ fn close_payload(
         .map_err(Into::into)
 }
 
+/// Accepts the canonical item-deps spelling emitted by verified retry commands.
+fn native_arguments(args: impl IntoIterator<Item = std::ffi::OsString>) -> Vec<std::ffi::OsString> {
+    let mut args = args.into_iter().collect::<Vec<_>>();
+    let mut index = 1;
+    while let Some(arg) = args.get(index) {
+        let arg = arg.to_string_lossy();
+        if matches!(arg.as_ref(), "--workspace" | "--pm-path" | "--path") {
+            index += 2;
+        } else if ["--workspace=", "--pm-path=", "--path="]
+            .iter()
+            .any(|flag| arg.starts_with(flag))
+        {
+            index += 1;
+        } else {
+            if arg == "item" && args.get(index + 1).is_some_and(|arg| arg == "deps") {
+                args.remove(index);
+            }
+            break;
+        }
+    }
+    args
+}
+
+/// Resolves explicit wire encoding before the legacy JSON switch for error output.
+fn json_requested(args: &[String]) -> bool {
+    let explicit = args.windows(2).find(|pair| pair[0] == "--output-format").map(|pair| pair[1].as_str())
+        .or_else(|| args.iter().find_map(|arg| arg.strip_prefix("--output-format=")));
+    explicit.map_or_else(|| args.iter().any(|arg| arg == "--json"), |format| format == "json")
+}
+
 /// Parses the command line and maps success or failure to the process exit code.
 #[allow(clippy::too_many_lines)]
 fn main() -> ExitCode {
-    let cli = match Cli::try_parse() {
+    let cli = match Cli::try_parse_from(native_arguments(std::env::args_os())) {
         Ok(cli) => cli,
         Err(error) => {
             let mut args = published_read_arguments(std::env::args_os().skip(1));
@@ -1274,6 +1311,7 @@ fn main() -> ExitCode {
                         "--node-limit",
                         "--edge-limit",
                         "--token-budget",
+                        "--output-format",
                         "--json",
                     ],
                 };
@@ -1289,7 +1327,7 @@ fn main() -> ExitCode {
                     2,
                 );
                 let mut stderr = std::io::stderr().lock();
-                let _ = if args.iter().any(|arg| arg == "--json") {
+                let _ = if json_requested(&args) {
                     write_json_to(&mut stderr, &payload)
                 } else {
                     write_cursor_refusal_to(&mut stderr, &payload)
@@ -1324,12 +1362,12 @@ fn main() -> ExitCode {
                 let args = published_read_arguments(std::env::args_os().skip(1));
                 let payload = command_error_json(detail, context, &args, *exit_code);
                 let mut stderr = std::io::stderr().lock();
-                let _ = if context["code"] == "unknown_error" && !args.iter().any(|s| s == "--json")
+                let _ = if context["code"] == "unknown_error" && !json_requested(&args)
                 {
                     writeln!(stderr, "{detail}").map_err(Into::into)
                 } else if args.first().is_some_and(|s| {
                     s == "item" || s == "search" || s == "context" || s == "history" || s == "deps"
-                }) && !args.iter().any(|s| s == "--json")
+                }) && !json_requested(&args)
                 {
                     write_cursor_refusal_to(&mut stderr, &payload)
                 } else {
@@ -1353,7 +1391,7 @@ fn main() -> ExitCode {
                 }
                 let mut stderr = std::io::stderr().lock();
                 let _ = if args.first().is_some_and(|s| s == "item")
-                    && !args.iter().any(|s| s == "--json")
+                    && !json_requested(&args)
                 {
                     write_cursor_refusal_to(&mut stderr, &payload)
                 } else {
@@ -1392,7 +1430,7 @@ fn main() -> ExitCode {
                 let args = published_read_arguments(std::env::args_os().skip(1));
                 let payload = cursor_error_json(code, detail, &args);
                 let mut stderr = std::io::stderr().lock();
-                let _ = if args.iter().any(|arg| arg == "--json") {
+                let _ = if json_requested(&args) {
                     write_json_to(&mut stderr, &payload)
                 } else {
                     write_cursor_refusal_to(&mut stderr, &payload)
@@ -1432,6 +1470,20 @@ fn command_error_json(
     args: &[String],
     exit_code: u8,
 ) -> serde_json::Value {
+    if context["recovery"]["token_budget"].is_object() {
+        return context.clone();
+    }
+    if context["code"] == "invalid_query_cursor" && context["recovery"].is_object() {
+        let mut payload = cursor_error_json("invalid_query_cursor", detail, args);
+        let retry = context["recovery"]["suggested_retry"].clone();
+        if let Some(steps) = payload["next_steps"].as_array_mut() {
+            steps.push(retry);
+        }
+        for (key, value) in context["recovery"].as_object().into_iter().flatten() {
+            payload["recovery"][key] = value.clone();
+        }
+        return payload;
+    }
     if context["reason"] == "assurance_evaluation_refused" {
         let mut payload = ownership_error_json(detail, context, args);
         payload["exit_code"] = serde_json::json!(exit_code);
@@ -2046,7 +2098,10 @@ fn write_list_to(
     json: bool,
 ) -> Result<(), Box<dyn std::error::Error>> {
     if json {
-        return write_json_to(writer, result);
+        result.write_read_json(writer)?;
+        writer.write_all(b"\n")?;
+        writer.flush()?;
+        return Ok(());
     }
     writer.write_all(pm_rust::stringify_toon(result)?.as_bytes())?;
     writer.flush()?;
@@ -2088,6 +2143,8 @@ fn write_cursor_refusal_to(
     ));
     if let Some(why) = payload["why"].as_str() {
         parts.push(format!("\nWhy:\n  {why}"));
+    } else if payload["recovery"]["token_budget"].is_object() {
+        parts.push("\nWhy:\n  Budget advice is verified against the current query. A minimum is reported only after every smaller positive budget is checked.".to_owned());
     } else if payload["code"] == "command_failed" {
         parts.push("\nWhy:\n  pm enforces explicit, deterministic contracts for data and command semantics.".to_owned());
     } else if payload["code"] == "invalid_argument_value" {
@@ -2106,9 +2163,15 @@ fn write_cursor_refusal_to(
                 .map(|example| format!("  - {}", example.as_str().unwrap_or_default())),
         );
     }
-    parts.push(format!(
-        "\nRecovery bundle:\n  attempted_command: {attempted}"
-    ));
+    if payload["recovery"]["token_budget"].is_object() {
+        append_budget_recovery(&mut parts, &payload["recovery"]);
+    } else {
+        parts.push("\nRecovery bundle:".to_owned());
+        if let Some(retry) = payload["recovery"]["suggested_retry"].as_str() {
+            parts.push(format!("  suggested_retry: {retry}"));
+        }
+        parts.push(format!("  attempted_command: {attempted}"));
+    }
     if let Some(fields) = payload["recovery"]["provided_fields"]
         .as_array()
         .filter(|fields| !fields.is_empty())
@@ -2149,4 +2212,38 @@ fn write_cursor_refusal_to(
     writer.write_all(format!("{}\n", parts.join("\n")).as_bytes())?;
     writer.flush()?;
     Ok(())
+}
+
+/// Renders compact, verified packet recovery without inventing attempted-command fields.
+fn append_budget_recovery(parts: &mut Vec<String>, recovery: &serde_json::Value) {
+    let bounds = &recovery["token_budget"];
+    let feasible = bounds["feasible_tokens"]
+        .as_u64()
+        .map_or_else(|| "unavailable".to_owned(), |value| value.to_string());
+    let minimum = bounds["minimum_feasible_tokens"]
+        .as_u64()
+        .map_or_else(|| "not established".to_owned(), |value| value.to_string());
+    parts.push(format!("\nRecovery bundle:\n  requested_token_budget: {}\n  feasible_token_budget: {feasible}\n  minimum_token_budget: {minimum}", bounds["requested_tokens"]));
+    parts.push(format!(
+        "  suggested_retry: {}",
+        recovery["suggested_retry"].as_str().unwrap_or_default()
+    ));
+    parts.push("  suggested_flags: --token-budget".to_owned());
+    parts.push(format!(
+        "  next_best_command: {}",
+        recovery["next_best_command"].as_str().unwrap_or_default()
+    ));
+    parts.push("  fallback_candidates:".to_owned());
+    for candidate in recovery["fallback_candidates"]
+        .as_array()
+        .into_iter()
+        .flatten()
+    {
+        parts.push(format!(
+            "    - {}: {} ({})",
+            candidate["source"].as_str().unwrap_or_default(),
+            candidate["command"].as_str().unwrap_or_default(),
+            candidate["reason"].as_str().unwrap_or_default()
+        ));
+    }
 }

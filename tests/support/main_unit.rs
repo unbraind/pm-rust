@@ -1276,3 +1276,75 @@ fn close_recovery_preserves_literal_argument_values() {
         assert_eq!(payload["refusal"]["rejected_value"], value);
     }
 }
+/// Canonical packet retry namespaces normalize after scope options, preserving literal values.
+#[test]
+fn canonical_packet_retry_arguments_are_accepted() -> Result<(), Box<dyn std::error::Error>> {
+    for prefix in [vec![], vec!["--pm-path", "."], vec!["--workspace=."]] {
+        let mut args = vec!["pm-rust"];
+        args.extend(prefix);
+        args.extend(["item", "deps", "sample-root", "--output-format", "json"]);
+        let normalized = super::native_arguments(args.into_iter().map(std::ffi::OsString::from));
+        let cli = <super::Cli as clap::Parser>::try_parse_from(normalized)?;
+        assert!(
+            matches!(cli.command, super::Command::Deps { output_format: Some(format), .. } if format == "json")
+        );
+    }
+    for args in [
+        vec![],
+        vec!["pm-rust"],
+        vec!["pm-rust", "--workspace"],
+        vec!["pm-rust", "--workspace", "item", "deps", "root"],
+        vec!["pm-rust", "item", "get", "root"],
+        vec!["pm-rust", "deps", "item"],
+    ] {
+        let args = args
+            .into_iter()
+            .map(std::ffi::OsString::from)
+            .collect::<Vec<_>>();
+        assert_eq!(super::native_arguments(args.clone()), args);
+    }
+    Ok(())
+}
+
+/// Budget receipts stay compact and distinguish unavailable advice from a proven minimum.
+#[test]
+fn packet_recovery_receipts_preserve_verified_evidence() -> Result<(), Box<dyn std::error::Error>> {
+    for minimum in [serde_json::json!(123), serde_json::Value::Null] {
+        let payload = serde_json::json!({"code":"invalid_argument_value","title":"Budget floor","detail":"Budget floor","required":"Retry","recovery":{"token_budget":{"requested_tokens":1,"feasible_tokens":minimum,"minimum_feasible_tokens":minimum},"suggested_retry":"pm retry","next_best_command":"pm inspect","fallback_candidates":[{"source":"relationship_summary","command":"pm inspect","reason":"Bounded counts"}]}});
+        assert_eq!(
+            super::command_error_json("Budget floor", &payload, &["deps".to_owned()], 2),
+            payload
+        );
+        let mut output = Vec::new();
+        super::write_cursor_refusal_to(&mut output, &payload)?;
+        let text = String::from_utf8(output)?;
+        assert!(text.contains("minimum_token_budget:"));
+        assert!(text.contains("suggested_retry: pm retry"));
+        assert!(!text.contains("attempted_command:"));
+    }
+    let context = serde_json::json!({"code":"invalid_query_cursor","recovery":{"suggested_retry":"pm retry","suggested_retry_args":["deps","a"]}});
+    let payload = super::command_error_json(
+        "Query cursor is malformed.",
+        &context,
+        &["deps".to_owned(), "--cursor".to_owned(), "bad".to_owned()],
+        2,
+    );
+    assert_eq!(payload["next_steps"][1], "pm retry");
+    let mut output = Vec::new();
+    super::write_cursor_refusal_to(&mut output, &payload)?;
+    assert!(String::from_utf8(output)?.contains("suggested_retry: pm retry"));
+    Ok(())
+}
+
+/// Explicit encoding controls take precedence for structured and human refusals.
+#[test]
+fn explicit_error_encoding_has_the_published_precedence() {
+    for (args, expected) in [
+        (vec![], false), (vec!["--json"], true),
+        (vec!["--output-format", "json"], true),
+        (vec!["--json", "--output-format", "toon"], false),
+        (vec!["--output-format=json"], true), (vec!["--output-format=toon"], false),
+    ] {
+        assert_eq!(super::json_requested(&args.into_iter().map(str::to_owned).collect::<Vec<_>>()), expected);
+    }
+}

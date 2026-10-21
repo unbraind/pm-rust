@@ -18,13 +18,14 @@ command into the native implementation.
 | GH-1511 context cursor boundaries | Active blocked candidates enter packing only through the current focus page. Nonactive blocked fallback candidates retain their separate admission. |
 | GH-1512 completion boundaries | Integer counts define half-up completion rounding, including 29/200 = 15 percent. |
 | GH-1510 relationship cursor recovery | Recovery names the cursor flag used by the command rather than always naming `--after`. |
+| Rendered relationship budget recovery | Oversized root/evidence packets refuse with a typed usage receipt. Candidate budgets replay the preserved query; bounded verification distinguishes a proven minimum, a feasible candidate and unavailable advice. Canonical retry arguments preserve scope, traversal controls and encoding, and are accepted by the native CLI. Packet cost excludes hidden row-discovery metadata. |
 | GH-1509 legacy blockers | Existing scalar and relationship blocker resolution retains resolved fallback details and ignores the no-active-blocker sentinel; differential coverage checks the published outputs. |
 | GH-1514 injected SDK author | The native SDK has no injected extension client. Explicit identity/author precedence remains owned by the native request and scoped attribution contracts. |
-| GH-1500/1501 JSON facts and brief TOON | Literal empty and whitespace closure arguments remain in recovery and rejected-value receipts. TOON preserves explicit nulls, empty arrays and empty objects inside data rows while compacting envelope metadata. Complete brief envelopes retain default ordering disclosure. |
+| GH-1500/1501 JSON facts and brief output | Literal empty and whitespace closure arguments remain in recovery and rejected-value receipts. Brief list JSON uses compact wire bytes and matching budget estimates. TOON preserves explicit nulls and empty descendants inside data rows. Standard brief envelopes remove redundant declarations while retaining partial-page continuation, source completeness and effective sorting evidence. |
 
 The remaining release notes concern upstream dependency advisories, CI scheduling,
 review receipts, native SQLite startup, extension/MCP transport, generic item
-mutation previews, and recovery/packing surfaces outside the supported native
+mutation previews, and other recovery/packing surfaces outside the supported native
 slice. They do not justify adding a JavaScript runtime to the distributed binary.
 
 ## Concurrency without Git

@@ -1,4 +1,5 @@
 //! Bounded dependency tree and graph reads.
+mod budget_recovery;
 mod packet;
 use crate::orientation::{complete_receipt, invalid, numeric};
 use crate::{DepsOptions, ListOutput, PmRustError, Workspace};
@@ -290,38 +291,13 @@ fn project(mut result: Value, summary: bool, aliases: &Value) -> Value {
     result
 }
 
-/// Measures the complete output including the internal row-contract declaration.
+/// Measures the delivered output after hidden discovery metadata is suppressed.
 fn tokens(result: &Value, toon: bool) -> usize {
-    let mut measured = result.clone();
-    if result["format"] == "context" {
-        // The oracle settles packet cost before the caller attaches legacy alias counts.
-        measured["legacy_alias_counts"] = json!({});
-    }
-    let omission = measured
-        .as_object_mut()
-        .and_then(|map| map.shift_remove("omission_receipt"))
-        .unwrap_or_default();
-    let keys = if result["format"] == "graph" {
-        vec!["graph.nodes", "graph.edges"]
-    } else if result["format"] == "context" {
-        vec!["context.nodes", "context.edges"]
-    } else {
-        vec![]
-    };
-    let mut contract = json!({"command":"deps","row_kind":if keys.is_empty(){"none"}else{"collection"},"row_keys":keys,"fields":"unsupported"});
-    if !keys.is_empty() {
-        contract["jq_selector"] = json!(
-            ".row_contract.row_keys[] as $key | getpath($key | split(\".\")) | if type == \"array\" then .[] else if type == \"object\" then to_entries[] else empty end end"
-        );
-    }
-    contract["toon_encoding"] = json!("tabular_when_uniform");
-    measured["row_contract"] = contract;
-    measured["omission_receipt"] = omission;
-    let output = ListOutput::from(measured);
+    let output = ListOutput::from(result.clone());
     let bytes = if toon {
         crate::toon_output::render_output(&output).len()
     } else {
-        crate::stringify_json(&output, true).len() + 1
+        output.stringify_read_json().len()
     };
     bytes.div_ceil(4)
 }

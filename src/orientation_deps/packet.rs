@@ -307,6 +307,7 @@ impl Graph {
 }
 
 /// Validated packet traversal and delivery bounds.
+#[derive(Clone)]
 struct Query {
     /// Traversal direction relative to each node.
     direction: String,
@@ -700,30 +701,56 @@ pub(super) fn read(
         evidence(&serde_json::to_value(workspace.get(id)?.metadata).unwrap_or_default())
     };
     let traversal = Traversal::new(&graph, id, &query);
+    match render_packet(&graph, id, &query, &traversal, &evidence, options) {
+        Err(error) if budget_floor(&error) => Err(budget_refusal(
+            workspace, id, &graph, &query, &traversal, &evidence, options,
+        )),
+        Err(PmRustError::ReadCursor { code, detail }) if code == "invalid_query_cursor" => {
+            let mut fresh = options.clone();
+            fresh.cursor = None;
+            let args = retry_args(workspace, id, &query, &fresh, query.tokens);
+            Err(crate::collections::refusal(
+                detail,
+                2,
+                json!({"code":code,"recovery":{"suggested_retry":command(&args),"suggested_retry_args":args}}),
+            ))
+        }
+        result => result.and_then(|result| disclose(result, options)),
+    }
+}
+
+/// Distinguishes native packet floor errors from malformed queries and storage failures.
+fn budget_floor(error: &PmRustError) -> bool {
+    matches!(error, PmRustError::CommandRefusal { detail, .. }
+        if detail.starts_with("Relationship context tokenBudget cannot fit "))
+}
+
+/// Enforces the complete rendered ceiling without returning an earlier oversized packet.
+fn render_packet(
+    graph: &Graph,
+    id: &str,
+    query: &Query,
+    traversal: &Traversal<'_>,
+    evidence: &[String],
+    options: &DepsOptions,
+) -> Result<ListOutput, PmRustError> {
     let mut budget = query.tokens;
     // Larger limits render the same rows; skip retries that cannot remove a reference.
     let mut reference_limit = query.edges.min(traversal.missing.len());
-    let mut smallest: Option<Value> = None;
     loop {
-        let mut packet = match packet(
-            &graph,
+        let mut packet = packet(
+            graph,
             id,
-            &query,
-            &traversal,
-            &evidence,
+            query,
+            traversal,
+            evidence,
             options
                 .cursor
                 .as_deref()
                 .map(str::trim)
                 .filter(|value| !value.is_empty()),
             budget,
-        ) {
-            Ok(packet) => packet,
-            Err(error) => {
-                // The pinned oracle retains the previous result at both budget floors.
-                return smallest.map_or_else(|| Err(error), |result| Ok(result.into()));
-            }
-        };
+        )?;
         let references = packet
             .as_object_mut()
             .and_then(|packet| packet.shift_remove("missing_references"))
@@ -747,6 +774,13 @@ pub(super) fn read(
         }
         let mut result = project(result, options.summary, &graph.aliases);
         if options.summary {
+            if tokens(&result, options.toon) > query.tokens {
+                return Err(crate::collections::refusal(
+                    "Relationship context tokenBudget cannot fit the rendered summary",
+                    1,
+                    json!({"code":"unknown_error"}),
+                ));
+            }
             return Ok(result.into());
         }
         loop {
@@ -763,13 +797,184 @@ pub(super) fn read(
         if measured <= query.tokens {
             return Ok(result.into());
         }
-        smallest = Some(result);
         if reference_limit > 0 {
             reference_limit -= 1;
         } else {
             budget = next_budget(budget, query.tokens, measured);
         }
     }
+}
+
+/// Applies the same default output ceiling used by a canonical retry.
+fn disclose(result: ListOutput, options: &DepsOptions) -> Result<ListOutput, PmRustError> {
+    crate::read_output::apply_orientation(
+        result,
+        &crate::ListOptions {
+            toon: options.toon,
+            full: options.full,
+            ..Default::default()
+        },
+        "deps",
+        &["context.nodes", "context.edges"],
+    )
+}
+
+/// Renders an argument vector using the public command quoting contract.
+fn command(args: &[String]) -> String {
+    format!(
+        "pm {}",
+        args.iter()
+            .map(|arg| crate::quote_command_arg(arg))
+            .collect::<Vec<_>>()
+            .join(" ")
+    )
+}
+
+/// Preserves validated query controls in a replayable canonical command.
+fn retry_args(
+    workspace: &Workspace,
+    id: &str,
+    query: &Query,
+    options: &DepsOptions,
+    budget: usize,
+) -> Vec<String> {
+    let mut args = vec![
+        "--pm-path".to_owned(),
+        workspace.query_pm_root().to_string_lossy().into_owned(),
+        "item".to_owned(),
+        "deps".to_owned(),
+        id.to_owned(),
+        "--format".to_owned(),
+        "context".to_owned(),
+        "--output-format".to_owned(),
+        if options.toon { "toon" } else { "json" }.to_owned(),
+        "--token-budget".to_owned(),
+        budget.to_string(),
+    ];
+    for (flag, value) in [
+        (
+            "--max-depth",
+            options.max_depth.as_ref().map(|_| query.depth.to_string()),
+        ),
+        (
+            "--node-limit",
+            options.node_limit.as_ref().map(|_| query.nodes.to_string()),
+        ),
+        (
+            "--edge-limit",
+            options.edge_limit.as_ref().map(|_| query.edges.to_string()),
+        ),
+        ("--direction", Some(query.direction.clone())),
+        (
+            "--cursor",
+            options
+                .cursor
+                .as_deref()
+                .map(str::trim)
+                .filter(|value| !value.is_empty())
+                .map(str::to_owned),
+        ),
+    ] {
+        if let Some(value) = value {
+            args.extend([flag.to_owned(), value]);
+        }
+    }
+    for kind in &query.kinds {
+        args.extend(["--kind".to_owned(), kind.clone()]);
+    }
+    for (flag, enabled) in [
+        ("--summary", options.summary),
+        ("--full", options.full),
+        ("--json", !options.toon),
+    ] {
+        if enabled {
+            args.push(flag.to_owned());
+        }
+    }
+    args
+}
+
+/// Verifies candidate budgets against the preserved query before advertising recovery.
+#[allow(clippy::too_many_arguments)]
+fn budget_refusal(
+    workspace: &Workspace,
+    id: &str,
+    graph: &Graph,
+    query: &Query,
+    traversal: &Traversal<'_>,
+    evidence: &[String],
+    options: &DepsOptions,
+) -> PmRustError {
+    use super::budget_recovery::{self, Probe};
+    let text_units = graph
+        .details
+        .values()
+        .map(|node| {
+            ["id", "title", "status", "type"]
+                .iter()
+                .map(|field| text(node, field).encode_utf16().count())
+                .sum::<usize>()
+        })
+        .sum::<usize>();
+    let work = (if options.summary {
+        1
+    } else {
+        1 + query.edges.min(traversal.missing.len())
+    })
+    .saturating_mul(
+        text_units
+            .saturating_add(graph.edges.len())
+            .saturating_add(traversal.missing.len())
+            .saturating_add(
+                evidence
+                    .iter()
+                    .map(|text| text.encode_utf16().count())
+                    .sum::<usize>(),
+            ),
+    );
+    let bounds = budget_recovery::find(query.tokens, work, |budget| {
+        let mut candidate = query.clone();
+        candidate.tokens = budget;
+        match render_packet(graph, id, &candidate, traversal, evidence, options)
+            .and_then(|result| disclose(result, options))
+        {
+            Ok(result) if result.get("output_budget_exceeded").is_some() => {
+                Probe::OutputConstraints
+            }
+            Ok(_) => Probe::Fits,
+            Err(_) => Probe::Floor,
+        }
+    });
+    let inspection_args = vec![
+        "--pm-path".to_owned(),
+        workspace.query_pm_root().to_string_lossy().into_owned(),
+        "item".to_owned(),
+        "deps".to_owned(),
+        id.to_owned(),
+        "--format".to_owned(),
+        "tree".to_owned(),
+        "--summary".to_owned(),
+    ];
+    let inspection = command(&inspection_args);
+    let feasible = bounds["feasible_tokens"]
+        .as_u64()
+        .and_then(|value| usize::try_from(value).ok());
+    let args = feasible.map_or_else(
+        || inspection_args.clone(),
+        |budget| retry_args(workspace, id, query, options, budget),
+    );
+    let retry = command(&args);
+    let required = feasible.map_or_else(
+        || "Inspect the compact summary and review the output constraints.".to_owned(),
+        |budget| format!("Retry the preserved context query with --token-budget {budget}."),
+    );
+    let detail = "Relationship context tokenBudget cannot fit the required rendered packet";
+    let context = json!({"code":"invalid_argument_value","required":required,
+        "recovery":{"token_budget":bounds,"recovery_mode":"compact","suggested_flags":["--token-budget"],
+        "suggested_retry":retry,"suggested_retry_args":args,"fallback_candidates":[{"source":"relationship_summary","command":inspection,"reason":"Inspect bounded counts separately from context rows."}],"next_best_command":inspection},
+        "next_steps":[retry],"exit_code":2,"type":"urn:pm-cli:error:invalid_argument_value","title":detail,"detail":detail,
+        "examples":[retry,inspection],"refusal":{"surface":"command","rejected_value":query.tokens.to_string(),"exit_code":2},"value":query.tokens.to_string()});
+    crate::collections::refusal(detail, 2, context)
 }
 
 #[cfg(test)]

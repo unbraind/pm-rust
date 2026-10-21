@@ -1816,22 +1816,34 @@ fn relationship_root_evidence_floor_retains_oracle_parity() -> TestResult {
         ];
         args.extend(&encoding);
         let expected = oracle(&driver, root.path(), &args)?;
-        assert!(expected.status.success());
+        assert_eq!(expected.status.code(), Some(2));
         compare(&expected, &native(root.path(), &args)?, &args);
         if !encoding.is_empty() {
-            let output: Value = serde_json::from_slice(&expected.stdout)?;
+            let refusal: Value = serde_json::from_slice(&expected.stderr)?;
+            let retry = refusal["recovery"]["suggested_retry_args"]
+                .as_array()
+                .ok_or("missing verified retry")?
+                .iter()
+                .filter_map(Value::as_str)
+                .collect::<Vec<_>>();
+            let delivered = oracle(&driver, root.path(), &retry)?;
+            assert!(delivered.status.success());
+            compare(&delivered, &native(root.path(), &retry)?, &retry);
+            let output: Value = serde_json::from_slice(&delivered.stdout)?;
             assert!(
                 output["context"]["meta"]["usedTokens"]
                     .as_u64()
-                    .unwrap_or_default()
-                    > 100
+                    .ok_or("used tokens")?
+                    <= refusal["recovery"]["token_budget"]["feasible_tokens"]
+                        .as_u64()
+                        .ok_or("feasible tokens")?
             );
         }
     }
     Ok(())
 }
 
-/// Huge delivery controls skip identical retries and retain the default-limit packet payload.
+/// Huge delivery controls keep budget refusal and verified recovery bounded and exact.
 #[test]
 fn relationship_large_edge_limit_finishes_at_budget_floor() -> TestResult {
     let Some(published) = published_cli::published_cli_or_skip("bounded packet reference retries")
@@ -1856,61 +1868,32 @@ fn relationship_large_edge_limit_finishes_at_budget_floor() -> TestResult {
         }
         fixture(root.path(), &[row])?;
         for encoding in [vec![], vec!["--json"]] {
-            let mut args = vec![
-                "deps",
-                "sample-root",
-                "--format",
-                "context",
-                "--token-budget",
-                if missing { "300" } else { "100" },
-            ];
-            args.extend(&encoding);
-            let expected = oracle(&driver, root.path(), &args)?;
-            assert!(expected.status.success());
-            compare(&expected, &native(root.path(), &args)?, &args);
-            let decode = |bytes: &[u8]| -> Result<Value, Box<dyn std::error::Error>> {
-                Ok(if encoding.is_empty() {
-                    toon_format::decode_default(std::str::from_utf8(bytes)?)?
-                } else {
-                    serde_json::from_slice(bytes)?
-                })
-            };
-            let expected_packet = decode(&expected.stdout)?;
-            assert!(
-                expected_packet["context"]["meta"]["usedTokens"]
-                    .as_u64()
-                    .unwrap_or_default()
-                    > if missing { 300 } else { 100 }
-            );
-            for limit in ["1000000000", "9007199254740991"] {
-                let mut bounded_args = args.clone();
-                bounded_args.extend(["--edge-limit", limit]);
+            for limit in [None, Some("1000000000"), Some("9007199254740991")] {
+                let mut args = vec![
+                    "deps",
+                    "sample-root",
+                    "--format",
+                    "context",
+                    "--token-budget",
+                    if missing { "300" } else { "100" },
+                ];
+                args.extend(&encoding);
+                if let Some(limit) = limit {
+                    args.extend(["--edge-limit", limit]);
+                }
+                let expected = oracle(&driver, root.path(), &args)?;
+                assert_eq!(expected.status.code(), Some(2));
                 let mut command = Command::new(env!("CARGO_BIN_EXE_pm-rust"));
                 mutation_differential::isolate_environment(&mut command);
                 command
                     .current_dir(root.path())
                     .env("HOME", root.path().join("synthetic-home"))
                     .env("USERPROFILE", root.path().join("synthetic-home"))
-                    .args(&bounded_args);
-                let output = assert_cmd::Command::from_std(command)
+                    .args(&args);
+                let actual = assert_cmd::Command::from_std(command)
                     .timeout(std::time::Duration::from_secs(5))
                     .output()?;
-                assert!(
-                    output.status.success(),
-                    "large edge limit must complete within five seconds"
-                );
-                assert!(output.stderr.is_empty());
-                let mut actual = decode(&output.stdout)?;
-                assert_eq!(
-                    actual["context"]["meta"]["edgeLimit"],
-                    limit.parse::<u64>()?
-                );
-                // These fields describe the changed request and its rendered size, not the payload.
-                actual["context"]["meta"]["edgeLimit"] =
-                    expected_packet["context"]["meta"]["edgeLimit"].clone();
-                actual["context"]["meta"]["usedTokens"] =
-                    expected_packet["context"]["meta"]["usedTokens"].clone();
-                assert_eq!(actual, expected_packet);
+                compare(&expected, &actual, &args);
             }
         }
     }
