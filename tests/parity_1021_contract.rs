@@ -397,6 +397,7 @@ fn native_command(root: &std::path::Path) -> Command {
 }
 
 /// Starts a process-level oracle tool with the same deterministic environment boundary.
+#[cfg(target_os = "linux")]
 fn oracle_tool() -> Command {
     let mut command = published_cli::oracle_tool("node");
     process_environment::isolate_environment(&mut command);
