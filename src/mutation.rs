@@ -389,7 +389,7 @@ impl Drop for GateLease {
 struct GateObservation {
     metadata: fs::Metadata,
     #[cfg(windows)]
-    identity: same_file::Handle,
+    identity: (u64, u64),
 }
 
 impl GateObservation {
@@ -397,8 +397,12 @@ impl GateObservation {
     fn from_file(file: File) -> std::io::Result<Self> {
         let metadata = file.metadata()?;
         #[cfg(windows)]
-        let identity = same_file::Handle::from_file(file)?;
-        #[cfg(not(windows))]
+        let identity = {
+            let information = winapi_util::file::information(&file)?;
+            (information.volume_serial_number(), information.file_index())
+        };
+        // Retaining a Windows owner handle would leave removal pending and
+        // prevent immediate recreation while an earlier guard is still alive.
         drop(file);
         Ok(Self {
             metadata,
@@ -411,12 +415,8 @@ impl GateObservation {
     fn read(path: &Path) -> std::io::Result<Self> {
         #[cfg(windows)]
         {
-            same_file::Handle::from_path(path).and_then(|identity| {
-                identity
-                    .as_file()
-                    .metadata()
-                    .map(|metadata| Self { metadata, identity })
-            })
+            let handle = same_file::Handle::from_path(path)?;
+            Self::from_file(handle.as_file().try_clone()?)
         }
         #[cfg(not(windows))]
         {

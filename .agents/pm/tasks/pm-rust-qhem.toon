@@ -6,7 +6,7 @@ status: in_progress
 priority: 3
 tags[3]: conformance,follow-up,oracle
 created_at: "2026-10-20T09:07:30.168Z"
-updated_at: "2026-10-21T13:17:26.342Z"
+updated_at: "2026-10-21T13:20:39.599Z"
 deadline: "2026-10-27T00:00:00.000Z"
 assignee: codex-agent
 claim_principal: codex-agent
@@ -18,7 +18,7 @@ blocked_by: pm-rust-owzm
 dependencies[2]{id,kind,created_at,author,source_kind,author_source}:
   pm-rust-owzm,related,"2026-10-20T09:07:30.168Z",codex-agent,"cli:create:dep",detected
   pm-rust-owzm,blocked_by,"2026-10-20T11:05:13.191Z",codex-agent,"cli:update:blocked_by",detected
-comments[47]{created_at,author,text}:
+comments[48]{created_at,author,text}:
   "2026-10-20T09:07:30.168Z",codex-agent,Planning only. Implementation is deferred until the current delivery is reviewed.
   "2026-10-21T04:41:10.473Z",codex-agent,"Scope extended to published pm-cli 2026.10.21 as requested. Compare both releases against the October 19 native slice; implement applicable deltas, prove fail-before/pass-after behaviour, and require all four coverage dimensions plus the three-platform gates. No-git acceptance will require every real process write and history record to survive."
   "2026-10-21T04:47:20.325Z",codex-agent,"Implementation covers conservative same-host original-process death receipts and recovery intent, strict serialized mutation keys, invocation-preserving lock advice, effective default ordering, count-based completion rounding, and cursor page-local blocker focus. Test execution remains outside the native slice and unsupported run options are preflight-refused before linked-test edits. Assurance declaration reads gain typed missing-ID refusals and bounded read-only discovery."
@@ -66,12 +66,15 @@ comments[47]{created_at,author,text}:
   "2026-10-21T13:14:05.040Z",codex-agent,"Behavioral revert proofs: cargo +1.90.0 test --locked --lib stale_lock_replacement_with_identical_bytes_is_preserved fails with exit 101 and a runtime assertion when only remove_stale_lock identity checking is removed. The equivalent --lib released_lock_replacement_with_identical_bytes_is_preserved fails with exit 101 when only Drop identity checking is removed. cargo +1.90.0 test --locked --test orientation_differential padded_inverse_blockers_match_oracle fails with exit 101 and an exact stdout assertion when only inverse ID trimming is reverted. cargo +1.90.0 test --locked --test parity_1021_contract absent_oracle_obeys_optional_and_required_modes fails with exit 101 and a subprocess status assertion when only tracker oracle admission is reverted. Sources restored after each proof; no compile failure counted."
   "2026-10-21T13:14:53.743Z",codex-agent,"Fifth behavioral revert proof: cargo +1.90.0 test --locked --lib failed_lock_replacement_with_identical_bytes_is_preserved fails with exit 101 and the runtime assertion failed writer removed a replacement lock when only the failed-write cleanup identity guard is removed. Restored afterward. Read-only initialization failure still removes its own unchanged lock. The identity check narrows the pathname window under the existing lease; it is not an atomic compare-and-unlink against external writers that bypass the lease."
   "2026-10-21T13:17:26.341Z",codex-agent,"Restored PM-managed acceptance passed: three identity regressions, one exact 2026.10.21 blocker differential, and one optional/required oracle regression. The supplemental broad test run completed 302 library tests but its self-relaunch harness failed because an overlapping rebuild unlinked the running executable; the executable link confirmed the cause. Stopped that supplemental run and started the full unchanged aggregate without overlapping rebuilds, with a fresh home and neutral global/system Git configuration. No aggregate success is claimed until it completes."
+  "2026-10-21T13:20:38.718Z",codex-agent,"Cross-platform self-review: snapshot Windows volume/file IDs rather than retaining owner handles, since retained handles can keep deletion pending and prevent immediate stale-lock recreation. Uses the already locked winapi-util version through a direct Windows-only dependency; no resolved package version changed. Existing forced-stale replacement with the original guard still alive covers immediate recreation on Windows. The local lock selector passed 25 tests; the previously affected self-relaunch harness passes alone. The aggregate was stopped before completion to restart on this correction; that partial run is not counted as a release pass."
 notes[1]{created_at,author,text}:
   "2026-10-20T09:07:30.168Z",codex-agent,Published version 2026.10.20 was observed via npm view during the 2026.10.19 continuation.
 learnings[1]{created_at,author,text}:
   "2026-10-20T09:07:30.168Z",codex-agent,Completing 2026.10.19 certification does not certify a later release.
-files[28]{path,scope}:
+files[30]{path,scope}:
   build.rs,project
+  Cargo.lock,project
+  Cargo.toml,project
   src/assurance.rs,project
   src/collections.rs,project
   src/json_output.rs,project

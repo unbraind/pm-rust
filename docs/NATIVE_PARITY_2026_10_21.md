@@ -75,7 +75,7 @@ All three unresolved review findings in the October 21 review are valid:
 
 | Thread | Verified behavior and change |
 | --- | --- |
-| `PRRT_kwDOTwgMRs6uxrCh` | Stale recovery reads receipt bytes and file identity from one open file, then checks both before unlinking. Unix compares device/inode; Windows compares native file handles. Normal release and failed initialization cleanup also preserve replacement files. |
+| `PRRT_kwDOTwgMRs6uxrCh` | Stale recovery reads receipt bytes and file identity from one open file, then checks both before unlinking. Unix compares device/inode; Windows compares native volume/file IDs captured through the open handle. The handle is closed before lock recreation. Normal release and failed initialization cleanup also preserve replacement files. |
 | `PRRT_kwDOTwgMRs6uxrCr` | Inverse `blocks` comparisons trim both IDs. The locked oracle resolves ordinary, padded and padded uppercase dependency IDs to the same blocker. |
 | `PRRT_kwDOTwgMRs6uxrDJ` | Oracle-dependent fixture setup uses the shared optional-or-required locator. Every dependent caller skips without an optional oracle; required-oracle mode still fails. |
 
