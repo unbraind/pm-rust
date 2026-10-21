@@ -126,6 +126,7 @@ the refusal surface label differ. This corpus uses each runtime's own raw restar
 reference and the declared shared acknowledgement projection; it does not certify
 every CLI diagnostic surface.
 
-Exact-head CI evidence is recorded in the PR.
+Exact-head recovery CI evidence, including all platform test and coverage counts,
+is recorded in [PR #105](https://github.com/unbraind/pm-rust/pull/105).
 Full-gate success tests the harness implementation and existing package contracts;
 it does not establish power-loss durability or coverage of unmeasured syscalls.
