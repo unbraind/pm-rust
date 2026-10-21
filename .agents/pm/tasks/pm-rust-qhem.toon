@@ -6,7 +6,7 @@ status: in_progress
 priority: 3
 tags[3]: conformance,follow-up,oracle
 created_at: "2026-10-20T09:07:30.168Z"
-updated_at: "2026-10-21T06:16:52.177Z"
+updated_at: "2026-10-21T06:35:09.414Z"
 deadline: "2026-10-27T00:00:00.000Z"
 assignee: codex-agent
 claim_principal: codex-agent
@@ -18,7 +18,7 @@ blocked_by: pm-rust-owzm
 dependencies[2]{id,kind,created_at,author,source_kind,author_source}:
   pm-rust-owzm,related,"2026-10-20T09:07:30.168Z",codex-agent,"cli:create:dep",detected
   pm-rust-owzm,blocked_by,"2026-10-20T11:05:13.191Z",codex-agent,"cli:update:blocked_by",detected
-comments[13]{created_at,author,text}:
+comments[15]{created_at,author,text}:
   "2026-10-20T09:07:30.168Z",codex-agent,Planning only. Implementation is deferred until the current delivery is reviewed.
   "2026-10-21T04:41:10.473Z",codex-agent,"Scope extended to published pm-cli 2026.10.21 as requested. Compare both releases against the October 19 native slice; implement applicable deltas, prove fail-before/pass-after behaviour, and require all four coverage dimensions plus the three-platform gates. No-git acceptance will require every real process write and history record to survive."
   "2026-10-21T04:47:20.325Z",codex-agent,"Implementation covers conservative same-host original-process death receipts and recovery intent, strict serialized mutation keys, invocation-preserving lock advice, effective default ordering, count-based completion rounding, and cursor page-local blocker focus. Test execution remains outside the native slice and unsupported run options are preflight-refused before linked-test edits. Assurance declaration reads gain typed missing-ID refusals and bounded read-only discovery."
@@ -32,11 +32,13 @@ comments[13]{created_at,author,text}:
   "2026-10-21T06:04:32.845Z",codex-agent,"All 27 CLI unit tests now pass. Updated the legacy close-refusal expectation to the oracle literal whitespace value rather than the following option token; the exact comparison remains. Supplemental closure and bounded-assurance before/after tests pass, and the 50-row read remains byte-preserving."
   "2026-10-21T06:13:39.533Z",codex-agent,"The pm-managed focused acceptance now passes after clearing inherited tracker context inside process fixtures: 1 concurrency test plus 7 parity tests, all real processes. The concurrency case accepts all 24 writes and validates 25 chained history records. CI next exposed obsolete list golden envelopes; both implementations agree on the new priority and effective sorting fields, so the fixed-clock goldens are being refreshed directly from the pinned published oracle."
   "2026-10-21T06:16:52.175Z",codex-agent,All 8 list differential tests pass after regenerating all 11 fixed-clock golden envelopes directly from pm-cli 2026.10.21. macOS and Windows strict Clippy found the new oracle lock-tool helper was compiled outside its Linux-only caller; scoped the helper to Linux instead of suppressing warnings. Full aggregate and platform certification remain pending.
+  "2026-10-21T06:25:27.066Z",codex-agent,Linux functional CI reached the mutation contract and found a pre-update ownerless-lock assertion. The pinned oracle now explicitly reports owner process unknown with reason lock_owner_unknown. The focused updated contract passes (1 selected test); item/history byte checks remain intact. Running the later read-contract suites with no-fail-fast to collect downstream oracle differences before the next CI push.
+  "2026-10-21T06:34:56.807Z",codex-agent,"The downstream context differential exposed another applicable rendering delta: published TOON preserves explicit nulls and empty descendants inside object rows while compacting envelope metadata. The pre-fix deep blocked-fallback comparison fails on those missing facts. Implemented the same recursive boundary and added an independent fixed wire example captured from the pinned formatter; post-fix unit/differential verification is running. Stopped the older aggregate because its production code changed during the run; it is diagnostic only."
 notes[1]{created_at,author,text}:
   "2026-10-20T09:07:30.168Z",codex-agent,Published version 2026.10.20 was observed via npm view during the 2026.10.19 continuation.
 learnings[1]{created_at,author,text}:
   "2026-10-20T09:07:30.168Z",codex-agent,Completing 2026.10.19 certification does not certify a later release.
-files[17]{path,scope}:
+files[18]{path,scope}:
   src/assurance.rs,project
   src/collections.rs,project
   src/lib.rs,project
@@ -46,6 +48,7 @@ files[17]{path,scope}:
   src/mutation.rs,project
   src/orientation_context.rs,project
   src/orientation_context/sections.rs,project
+  src/toon_output.rs,project
   tests/claim_release_differential.rs,project
   tests/concurrency_contract.rs,project
   tests/oracle/package-lock.json,project

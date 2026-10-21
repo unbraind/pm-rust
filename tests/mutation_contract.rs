@@ -1701,9 +1701,11 @@ fn bounded_ownership_lock_wait_preserves_ownerless_diagnostics_and_bytes()
     let Err(PmRustError::OwnershipRefusal { detail, context }) = result else {
         return Err("held ownership lock must refuse".into());
     };
-    assert!(detail.starts_with("Item sample-conv is locked after waiting "));
-    assert!(!detail.contains("owner"));
+    assert!(
+        detail.starts_with("Item sample-conv is locked (owner process unknown) after waiting ")
+    );
     assert_eq!(context["code"], "lock_conflict");
+    assert_eq!(context["reason"], "lock_owner_unknown");
     assert_eq!(item(directory.path()), before_item);
     assert_eq!(history(directory.path()), before_history);
     Ok(())

@@ -2,6 +2,32 @@
 
 use serde_json::{Value, json};
 
+/// Object rows retain explicit null, empty and nested facts while envelopes remain compact.
+#[test]
+fn toon_rows_preserve_explicit_facts() -> Result<(), Box<dyn std::error::Error>> {
+    let source = json!({
+        "empty_envelope": [],
+        "rows": [
+            {"id":"one","missing":null,"tags":[],"metadata":{},"nested":[null,{}]},
+            {},
+            null
+        ]
+    });
+    let expected = json!({"rows":[
+        {"id":"one","missing":null,"tags":[],"metadata":{},"nested":[null,{}]},
+        {}
+    ]});
+    assert_eq!(super::compact(&source), Some(expected.clone()));
+    let rendered = super::stringify_toon(&source.into())?;
+    assert_eq!(rendered, format!("{}\n", super::render(&expected, 0)));
+    // Fixed wire captured independently from the pinned published formatter.
+    assert_eq!(
+        rendered,
+        "rows[2]:\n  - id: one\n    missing: null\n    tags: []\n    metadata:\n    nested[2]:\n      - null\n      -\n  -\n"
+    );
+    Ok(())
+}
+
 /// Independent wire examples cover empty values, tables and complete brief summaries.
 #[test]
 fn toon_wire_shapes_preserve_values_and_disclose_sparse_cells()

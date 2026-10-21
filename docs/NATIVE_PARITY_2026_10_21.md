@@ -20,7 +20,7 @@ command into the native implementation.
 | GH-1510 relationship cursor recovery | Recovery names the cursor flag used by the command rather than always naming `--after`. |
 | GH-1509 legacy blockers | Existing scalar and relationship blocker resolution retains resolved fallback details and ignores the no-active-blocker sentinel; differential coverage checks the published outputs. |
 | GH-1514 injected SDK author | The native SDK has no injected extension client. Explicit identity/author precedence remains owned by the native request and scoped attribution contracts. |
-| GH-1500/1501 JSON facts and brief TOON | Literal empty and whitespace closure arguments remain in recovery and rejected-value receipts. Lossless JSON facts and completeness-aware brief envelopes run against the new oracle; default ordering disclosure is retained. |
+| GH-1500/1501 JSON facts and brief TOON | Literal empty and whitespace closure arguments remain in recovery and rejected-value receipts. TOON preserves explicit nulls, empty arrays and empty objects inside data rows while compacting envelope metadata. Complete brief envelopes retain default ordering disclosure. |
 
 The remaining release notes concern upstream dependency advisories, CI scheduling,
 review receipts, native SQLite startup, extension/MCP transport, generic item

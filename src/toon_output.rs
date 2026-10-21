@@ -58,13 +58,21 @@ fn complete_brief(value: &Value) -> Value {
     }
 }
 
-/// Omits nulls and recursively empty collections, retaining explicit omission groups.
+/// Compacts envelope metadata while retaining explicit facts inside object rows.
 fn compact(value: &Value) -> Option<Value> {
+    compact_value(value, false)
+}
+
+/// Preserves null and empty descendants once traversal enters an object row.
+fn compact_value(value: &Value, preserve_empty: bool) -> Option<Value> {
     match value {
-        Value::Null => None,
+        Value::Null => preserve_empty.then_some(Value::Null),
         Value::Array(rows) => {
-            let rows: Vec<_> = rows.iter().filter_map(compact).collect();
-            (!rows.is_empty()).then_some(Value::Array(rows))
+            let rows: Vec<_> = rows
+                .iter()
+                .filter_map(|row| compact_value(row, preserve_empty || row.is_object()))
+                .collect();
+            (!rows.is_empty() || preserve_empty).then_some(Value::Array(rows))
         }
         Value::Object(fields) => {
             let fields: Map<_, _> = fields
@@ -73,12 +81,12 @@ fn compact(value: &Value) -> Option<Value> {
                     let value = if key == "omitted_field_groups" && value == &json!([]) {
                         Some(value.clone())
                     } else {
-                        compact(value)
+                        compact_value(value, preserve_empty)
                     };
                     value.map(|value| (key.clone(), value))
                 })
                 .collect();
-            (!fields.is_empty()).then_some(Value::Object(fields))
+            (!fields.is_empty() || preserve_empty).then_some(Value::Object(fields))
         }
         _ => Some(value.clone()),
     }
