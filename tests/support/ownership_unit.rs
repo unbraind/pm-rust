@@ -5,6 +5,8 @@ use super::*;
 thread_local! {
     /// Counts actual corpus reads on the test caller's thread.
     pub(crate) static READ_ITEMS_SCANS: std::cell::Cell<usize> = const { std::cell::Cell::new(0) };
+    /// Counts full item payloads returned together by the materializing reader.
+    pub(crate) static MATERIALIZED_ITEMS: std::cell::Cell<usize> = const { std::cell::Cell::new(0) };
 }
 
 impl Workspace {
@@ -566,6 +568,7 @@ fn external_runtime_schema_precedence_and_errors() -> Result<(), Box<dyn std::er
 /// A deep lineage costs one corpus read per explicit ownership command.
 #[test]
 fn ownership_lineage_scans_corpus_once() -> Result<(), Box<dyn std::error::Error>> {
+    MATERIALIZED_ITEMS.set(0);
     let directory = tempfile::tempdir()?;
     let root = directory.path().join(".agents/pm");
     fs::create_dir_all(root.join("tasks"))?;
@@ -597,6 +600,11 @@ fn ownership_lineage_scans_corpus_once() -> Result<(), Box<dyn std::error::Error
     let before = READ_ITEMS_SCANS.get();
     workspace.claim_with_options(&request, &OwnershipOptions::default())?;
     assert_eq!(READ_ITEMS_SCANS.get() - before, 1);
+    assert_eq!(
+        MATERIALIZED_ITEMS.get(),
+        0,
+        "lineage retained the full corpus payloads"
+    );
     let state: Value = serde_json::from_slice(&fs::read(root.join("runtime/session.json"))?)?;
     let key = format!("author-{}", hex_prefix(b"alpha", 24));
     let mut evidence = vec!["claim:sample-11".to_owned()];

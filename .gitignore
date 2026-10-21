@@ -20,3 +20,4 @@ cov-no-branch.json
 
 # Locked published parity oracle installation
 /tests/oracle/node_modules/
+/tests/bench-oracle/node_modules/

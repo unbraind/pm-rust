@@ -41,6 +41,16 @@ export PM_NODE_CLI := env_var_or_default("PM_NODE_CLI", justfile_directory() / "
 oracle-install:
     npm ci --prefix tests/oracle --ignore-scripts
 
+# Reproduce large synthetic non-git trackers against the requested current oracle.
+bench-oracle-install:
+    npm ci --prefix tests/bench-oracle --ignore-scripts
+
+# GNU time provides per-process peak RSS; all generated state stays in scratch.
+[positional-arguments]
+bench *args: bench-oracle-install
+    cargo +1.90.0 build --release --locked
+    node scripts/native-bench.mts "$@"
+
 # Run the locked oracle through its shared test-environment launcher.
 [positional-arguments]
 oracle *args:

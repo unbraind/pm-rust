@@ -1549,36 +1549,52 @@ fn locate_item_entries(
 ) -> Result<(), PmRustError> {
     let target = format!("{id}.toon");
     for entry in entries {
-        let entry_path = entry.path();
-        if entry_path.is_symlink() {
-            continue;
-        }
         let name = entry.file_name().to_string_lossy().into_owned();
-        if at_root && crate::workspace::NON_ITEM_DIRECTORIES.contains(&name.as_str()) {
+        // The listing already knows these are unrelated regular files. Keep
+        // live metadata checks for targets, directories, symlinks and unknown
+        // types, including a target moved after this directory snapshot.
+        if name != target && entry.file_type().is_ok_and(|kind| kind.is_file()) {
             continue;
         }
-        if entry_path.is_dir() {
-            locate_item_recursive(&entry_path, false, id, found)?;
-        } else if entry_path.is_file() && name == target {
-            // `read_optional` returns `Ok(None)` only on `NotFound`. The
-            // `is_file()` check just succeeded, so a `None` here means the
-            // entry vanished between the directory listing and the read — a
-            // race the per-item lock prevents for tracked items. Propagating
-            // the IO error (rather than silently skipping) keeps the locator
-            // free of an unreachable `None` branch and surfaces the unlikely
-            // race instead of hiding it.
-            let raw = match fs::read_to_string(&entry_path) {
-                Ok(raw) => raw,
-                Err(source) => {
-                    return Err(PmRustError::Io {
-                        path: entry_path.clone(),
-                        source,
-                    });
-                }
-            };
-            let document = crate::item::decode_item(&entry_path, &raw)?;
-            found.push((entry_path, document));
-        }
+        locate_item_entry(&entry, at_root, id, &target, found)?;
+    }
+    Ok(())
+}
+
+/// Applies the original live checks to a possible target or traversable entry.
+fn locate_item_entry(
+    entry: &fs::DirEntry,
+    at_root: bool,
+    id: &str,
+    target: &str,
+    found: &mut Vec<(PathBuf, ItemDocument)>,
+) -> Result<(), PmRustError> {
+    #[cfg(test)]
+    tests::LOCATOR_METADATA_ENTRIES.with(|count| count.set(count.get() + 1));
+    let entry_path = entry.path();
+    if entry_path.is_symlink() {
+        return Ok(());
+    }
+    let name = entry.file_name().to_string_lossy().into_owned();
+    if at_root && crate::workspace::NON_ITEM_DIRECTORIES.contains(&name.as_str()) {
+        return Ok(());
+    }
+    if entry_path.is_dir() {
+        locate_item_recursive(&entry_path, false, id, found)?;
+    } else if entry_path.is_file() && name == target {
+        // A matching item that vanishes after metadata remains a typed I/O
+        // failure. Mutators still call this locator under their item lock.
+        let raw = match fs::read_to_string(&entry_path) {
+            Ok(raw) => raw,
+            Err(source) => {
+                return Err(PmRustError::Io {
+                    path: entry_path.clone(),
+                    source,
+                });
+            }
+        };
+        let document = crate::item::decode_item(&entry_path, &raw)?;
+        found.push((entry_path, document));
     }
     Ok(())
 }

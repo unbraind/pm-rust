@@ -7,8 +7,18 @@ native applications.
 The project is pre-release. Its current delivery slice reads workspaces and
 creates, updates, comments on, closes, claims, and releases canonical items
 against the published `pm` 2026.10.19 on-disk contract. Production code, tests, benchmarks,
-and build tooling are Rust; the distributed binary does not require Node.js,
+and build tooling use Rust and typed test harnesses; the distributed binary does not require Node.js,
 Bun, JavaScript, or TypeScript.
+
+See [large tracker hot-path benchmarks](docs/NATIVE_HOT_PATHS.md) for `just bench`,
+the generated 1k/10k/50k matrix, peak RSS, byte comparisons and known parity gaps.
+
+## Without git
+
+Native context, list, search, get, claim, comment and update work in plain
+tracker directories without a Git executable. The multi-process write contract
+tests 50 writers against one such tracker. GitHub synchronization and Git-based
+changelog generation require Git and are outside these native command paths.
 
 See the [command and storage parity matrix](docs/CLI_PARITY_2026_10_2.md) and
 [2026.10.7 pagination contract](docs/LIST_PAGINATION_2026_10_5.md) for supported

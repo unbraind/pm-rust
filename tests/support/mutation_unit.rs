@@ -19,6 +19,41 @@ mod windows_acl;
 
 const TS: &str = "2026-08-07T10:06:30.183Z";
 
+thread_local! {
+    /// Counts entries that actually reach the locator's live metadata boundary.
+    pub(crate) static LOCATOR_METADATA_ENTRIES: std::cell::Cell<usize> = const { std::cell::Cell::new(0) };
+}
+
+/// Thousands of unrelated items must not require individual metadata probes.
+#[test]
+fn locator_metadata_work_depends_on_directories_and_targets()
+-> Result<(), Box<dyn std::error::Error>> {
+    let (_directory, pm_root) = root("{}")?;
+    create_item(&pm_root, request())?;
+    for index in 0..1000 {
+        fs::write(
+            pm_root.join(format!("tasks/unrelated-{index}.toon")),
+            "unrelated damage",
+        )?;
+    }
+    LOCATOR_METADATA_ENTRIES.set(0);
+    assert_eq!(
+        locate_item(&pm_root, "sample-unit")?.1.metadata.id,
+        "sample-unit"
+    );
+    assert!(
+        LOCATOR_METADATA_ENTRIES.get() < 20,
+        "unrelated files reached live metadata checks"
+    );
+    LOCATOR_METADATA_ENTRIES.set(0);
+    assert!(matches!(
+        locate_item(&pm_root, "sample-missing"),
+        Err(PmRustError::ItemNotFound { .. })
+    ));
+    assert!(LOCATOR_METADATA_ENTRIES.get() < 20);
+    Ok(())
+}
+
 /// Lifecycle storage faults stop before mutation or retain a durable recovery journal.
 #[test]
 fn lifecycle_storage_faults_preserve_recovery_evidence() -> Result<(), Box<dyn std::error::Error>> {

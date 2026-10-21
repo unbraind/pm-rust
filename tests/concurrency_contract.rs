@@ -10,25 +10,66 @@
 use std::fs;
 use std::path::Path;
 use std::process::Command;
-use std::sync::Arc;
+use std::sync::{Arc, Barrier};
 use std::thread;
 
 use serde_json::Value;
+#[path = "support/process_environment.rs"]
+mod process_environment;
+#[path = "support/published_cli.rs"]
+#[allow(dead_code)]
+mod published_cli;
 
-const PROCESSES: usize = 8;
-const MUTATIONS_PER_PROCESS: usize = 3;
+const PROCESSES: usize = 50;
+const MUTATIONS_PER_PROCESS: usize = 1;
+
+/// Run the native executable in a plain tracker with no Git executable available.
+fn native_command(workspace: &Path) -> Command {
+    let mut command = Command::new(env!("CARGO_BIN_EXE_pm-rust"));
+    process_environment::isolate_environment(&mut command);
+    command
+        .current_dir(workspace)
+        .env("HOME", workspace.join("isolated-home"))
+        .env("USERPROFILE", workspace.join("isolated-home"))
+        .env(
+            "GIT_CEILING_DIRECTORIES",
+            workspace.parent().unwrap_or(workspace),
+        )
+        .env("PATH", workspace.join("no-tools"));
+    command
+}
 
 /// Builds the fixture workspace and seeds one shared item for contention.
-fn seeded_workspace() -> Result<tempfile::TempDir, Box<dyn std::error::Error>> {
+fn seeded_workspace() -> Result<Option<tempfile::TempDir>, Box<dyn std::error::Error>> {
+    let Some(published) = published_cli::published_cli_or_skip("50-writer non-git contract") else {
+        return Ok(None);
+    };
     let directory = tempfile::tempdir()?;
     let root = directory.path().join(".agents/pm");
-    fs::create_dir_all(&root)?;
-    fs::write(
-        root.join("settings.json"),
-        r#"{"id_prefix":"sample-","item_format":"toon","locks":{"ttl_seconds":1800,"wait_ms":60000}}"#,
-    )?;
-    let output = Command::new(env!("CARGO_BIN_EXE_pm-rust"))
+    let interpreter = std::env::var_os("PM_NODE_INTERPRETER").unwrap_or_else(|| "node".into());
+    let mut init = published_cli::oracle_command(interpreter);
+    process_environment::isolate_environment(&mut init);
+    let output = init
+        .arg(published.entry)
+        .args(["init", "sample-", "--defaults", "--agent-guidance", "skip"])
         .current_dir(directory.path())
+        .env("HOME", directory.path().join("isolated-home"))
+        .env("USERPROFILE", directory.path().join("isolated-home"))
+        .env(
+            "GIT_CEILING_DIRECTORIES",
+            directory.path().parent().ok_or("temp parent")?,
+        )
+        .output()?;
+    assert!(
+        output.status.success(),
+        "oracle init failed: {}",
+        String::from_utf8_lossy(&output.stderr)
+    );
+    let mut settings: Value = serde_json::from_slice(&fs::read(root.join("settings.json"))?)?;
+    settings["locks"]["wait_ms"] = serde_json::json!(60000);
+    settings["agent_identity"]["probes_enabled"] = serde_json::json!(false);
+    fs::write(root.join("settings.json"), serde_json::to_vec(&settings)?)?;
+    let output = native_command(directory.path())
         .args([
             "--workspace=.",
             "create",
@@ -39,7 +80,7 @@ fn seeded_workspace() -> Result<tempfile::TempDir, Box<dyn std::error::Error>> {
         ])
         .output()?;
     assert!(output.status.success());
-    Ok(directory)
+    Ok(Some(directory))
 }
 
 /// Appends one comment from one dedicated OS process.
@@ -53,8 +94,7 @@ fn seeded_workspace() -> Result<tempfile::TempDir, Box<dyn std::error::Error>> {
 /// would pass through a real crash on a slow platform.
 fn append_comment(workspace: &Path, marker: &str) -> Result<(), String> {
     let text = format!("concurrent note {marker}");
-    let output = Command::new(env!("CARGO_BIN_EXE_pm-rust"))
-        .current_dir(workspace)
+    let output = native_command(workspace)
         .args([
             "--workspace=.",
             "comment",
@@ -73,13 +113,6 @@ fn append_comment(workspace: &Path, marker: &str) -> Result<(), String> {
         stderr = String::from_utf8_lossy(&output.stderr).trim()
     ))
 }
-
-/// The diagnostic a writer emits when the configured lock wait budget expires.
-///
-/// Kept as the substring of `PmRustError::LockConflict`'s `Display` that does
-/// not vary with the item id, so the test recognises admission control without
-/// matching any other failure.
-const LOCK_WAIT_EXHAUSTED: &str = "is locked by another writer";
 
 /// Reads the stored item document bytes for the contention target.
 fn stored_item(workspace: &Path) -> Result<String, Box<dyn std::error::Error>> {
@@ -102,13 +135,18 @@ fn history_records(workspace: &Path) -> Result<Vec<Value>, Box<dyn std::error::E
 /// Proves concurrent native processes never lose an accepted mutation.
 fn concurrent_comment_processes_preserve_every_accepted_mutation()
 -> Result<(), Box<dyn std::error::Error>> {
-    let directory = seeded_workspace()?;
+    let Some(directory) = seeded_workspace()? else {
+        return Ok(());
+    };
     let workspace = Arc::new(directory.path().to_path_buf());
+    let start = Arc::new(Barrier::new(PROCESSES));
 
     let mut handles = Vec::new();
     for process in 0..PROCESSES {
         let workspace = Arc::clone(&workspace);
+        let start = Arc::clone(&start);
         handles.push(thread::spawn(move || {
+            start.wait();
             let mut accepted = 0;
             let mut rejections = Vec::new();
             for mutation in 0..MUTATIONS_PER_PROCESS {
@@ -130,35 +168,11 @@ fn concurrent_comment_processes_preserve_every_accepted_mutation()
         accepted_total += accepted;
         rejections.append(&mut reasons);
     }
-    // The configured `wait_ms` budget is host-dependent admission control, not
-    // a correctness property: on a slower filesystem (notably the Windows CI
-    // runner) a writer can exhaust the budget before the per-item lock frees,
-    // so the number admitted is a function of how fast the host is. Asserting
-    // that the budget admits every writer measures the runner, not the code —
-    // the same class of defect as a gate that measures the clock.
-    //
-    // Tolerating a short admission is only sound while the reason is known.
-    // Every writer that was turned away must have been turned away by the lock,
-    // because that is the one rejection this contract permits; a rejection with
-    // any other diagnostic is a real defect on that platform and must fail the
-    // test rather than quietly reduce the number of writers it exercises.
-    let unexpected: Vec<&String> = rejections
-        .iter()
-        .filter(|reason| !reason.contains(LOCK_WAIT_EXHAUSTED))
-        .collect();
     assert!(
-        unexpected.is_empty(),
-        "a writer failed for a reason other than the lock wait budget: {unexpected:?}"
+        rejections.is_empty(),
+        "every writer must succeed: {rejections:?}"
     );
-    // The contract under test is deterministic: every writer the lock DID admit
-    // must have its mutation fully preserved — comment rows, history records,
-    // and the hash chain all agree — regardless of how many the budget
-    // admitted. Guard against the degenerate case where the fixture admitted no
-    // writer at all and so could not exercise the invariant at all.
-    assert_ne!(
-        accepted_total, 0,
-        "the contention fixture must admit at least one writer to exercise the contract"
-    );
+    assert_eq!(accepted_total, PROCESSES * MUTATIONS_PER_PROCESS);
 
     // Every accepted mutation is present as one comment row.
     let item = stored_item(directory.path())?;
@@ -167,6 +181,17 @@ fn concurrent_comment_processes_preserve_every_accepted_mutation()
         .filter(|line| line.starts_with("  \"") && line.contains("concurrent note"))
         .count();
     assert_eq!(row_count, accepted_total, "lost comment rows in the item");
+    let document = pm_rust::Workspace::discover(directory.path())?.get("sample-load")?;
+    let actual: std::collections::BTreeSet<_> = document.metadata.extra["comments"]
+        .as_array()
+        .ok_or("missing comment array")?
+        .iter()
+        .filter_map(|comment| comment["text"].as_str())
+        .collect();
+    let expected: std::collections::BTreeSet<_> = (0..PROCESSES)
+        .map(|process| format!("concurrent note {process}-0"))
+        .collect();
+    assert_eq!(actual, expected.iter().map(String::as_str).collect());
 
     // Every accepted mutation is present as exactly one history record, and
     // the hash chain proves each update built on the previous durable state.

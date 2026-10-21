@@ -6,11 +6,13 @@ status: in_progress
 priority: 3
 tags[3]: follow-up,performance,rust
 created_at: "2026-10-18T06:28:16.861Z"
-updated_at: "2026-10-19T15:24:53.044Z"
+updated_at: "2026-10-21T17:23:23.839Z"
+assignee: codex-agent
+claim_principal: codex-agent
 author: codex-agent
 acceptance_criteria: "Measure the same 30-run commands and retain byte parity, storage integrity and all coverage dimensions."
 parent: pm-rust-u4al
-comments[34]{created_at,author,text}:
+comments[37]{created_at,author,text}:
   "2026-10-18T18:05:58.773Z",codex-agent,"Prerequisite PR #92 is merged into main. Implemented directory-derived strict get lookup, streamed list and brief-context projections, metadata-first filtered search and bounded first-page hit retention. No persistent index is added; release approval remains unset. Plan: byte differential suites unchanged, generated 3000-item latency and portable item-open gates on Linux/macOS/Windows, copied-public-tracker 30-run measurements, exact release checks and an open PR under pm-rust-u4al."
   "2026-10-18T18:06:03.318Z",codex-agent,"Behavioural revert proof: reverted only Workspace::get to its original read_items-based lookup, rebuilt and ran cargo test --locked --lib workspace::tests::single_item_get. Exit 101, 0 passed, 2 failed: unrelated merge-marker damage broke the target read and duplicate filenames yielded the wrong refusal. Restored lookup: 2 passed, 0 failed. The real 3000-item regression observes exactly one authoritative file open for success and zero for missing or duplicate IDs. The unchanged committed history prefix is retained byte-for-byte. An unpublished local draft whose linked-test stderr captured compiler paths was quarantined unchanged; public task events were replayed from that prefix and linked tests now use a path-redacting wrapper."
   "2026-10-18T18:09:17.030Z",codex-agent,"Pre-PR evidence: 247 library tests passed, both restored lookup tests passed through the sanitized linked-test runner, fmt/pedantic clippy/private-item rustdoc/changelog checks passed, and cargo audit passed with the repository-allowed RUSTSEC-2024-0449 warning. Real public-copy strace: get item opens 2991 -> 1; total openat 3009 -> 19; history opens zero in both. Paired 30-run runtime measurements and the unchanged affected differential suites are in progress. Generated local latency samples exceeded the unchanged ceilings under shared-host contention; dedicated three-OS CI is the acceptance gate."
@@ -45,31 +47,48 @@ comments[34]{created_at,author,text}:
   "2026-10-19T01:05:49.242Z",codex-agent,"Review round 1 Linux local just release-check PASSED with isolated home and global Git configuration: formatting, pedantic Clippy, private-item rustdoc, identity audit, required-oracle ordinary and instrumented tests, cargo audit and changelog verification. Exact counts: 482 ordinary + 482 instrumented = 964 passed across 40 suite executions; zero failed or ignored. Coverage is 12005/12005 lines, 1211/1211 functions, 19693/19693 regions and 2926/2926 branches, all 100 percent. Audit retains only the existing allowed RUSTSEC-2024-0449 advisory. All six linked commands also passed (21 executions). The new metadata regression fails with only the fix reverted and passes restored; original get/context revert proofs remain valid. Will push the paired code and append-only tracker changes, then poll exact-head three-platform CI every 60 seconds for up to 40 minutes. No thread reply, resolution, bot mention, merge or publishing action is authorized or planned. Final CI receipts will be linked in PR 94."
   "2026-10-19T14:13:44.407Z",codex-agent,"Related validation evidence from native-context PR #98 at 921275d: the unchanged 3000-item Windows cold-process latency job passed get p95 25.97 ms below 50 ms and context p95 243.88 ms below 250 ms, but list p95 156.14 ms exceeded its unchanged 150 ms ceiling (30 fresh processes). Linux and macOS latency jobs passed. No list implementation or latency gate was changed in that context commit. Retaining this observation on the existing performance item rather than creating a duplicate; a subsequent exact-head run remains pending. Job receipt: https://github.com/unbraind/pm-rust/actions/runs/39264985747/job/118102127308"
   "2026-10-19T15:24:53.044Z",codex-agent,"Follow-up to the recorded Windows list observation: all unchanged get/list/context latency jobs subsequently passed on Linux, macOS and Windows at native-context implementation head 63d359e. Exact p50/p95 values and unchanged ceilings are retained in docs/benchmarks/native-context-gates-2026-10-19.json and CI run https://github.com/unbraind/pm-rust/actions/runs/39273842181. No list implementation or latency threshold was changed for this follow-up. The earlier miss remains a bounded observed result, not proof of its cause."
-files[14]{path,scope}:
+  "2026-10-21T16:54:28.034Z",codex-agent,"Extend the existing performance item with a reproducible 1k/10k/50k synthetic no-git benchmark against pm-cli 2026.10.21: context, next, list-open, search, get, claim, comment and update. Branch starts at main because PR 101 is still open. Retain the locked release-check oracle until that parity PR merges. Measure wall p50/p95, GNU time peak RSS, output bytes and exact stdout/stderr/status comparisons. Main currently refuses context at 10k and larger; report this as unsupported rather than a successful speed measurement. Profile before optimizing, preserve append-only history and all write-safety boundaries, then verify 50 concurrent writers and unchanged full gates."
+  "2026-10-21T17:09:05.364Z",codex-agent,Benchmark calibration found that the current oracle changes list completeness from complete on a cold validation to unchecked on a warm cache read. The harness now compares only measured warm runs after fixed warmups; it does not normalize that receipt. Native list also receives the same fixed read clock as context. Syscall profiling is enabled outside timing windows; perf hardware sampling is refused by the host kernel and no host setting was changed.
+  "2026-10-21T17:20:48.437Z",codex-agent,"Baseline 1k syscall diagnostics confirm the mutation locator dominates metadata work: claim 8042 statx calls, comment and update 6026 each. The candidate skips live metadata for unrelated regular entries while retaining target, directory and symlink checks. Claim attribution still fully validates every document in the same order, but retains only IDs and parents instead of complete payloads. Added strict corruption/duplicate checks, moved-target coverage, work-count regressions and a 50-process barrier test that requires every write and marker to survive without Git. Benchmark fixtures now include SDK-generated valid create/comment history and oracle verification; timed oracle children import only the real CLI after clock pinning."
+files[24]{path,scope}:
   .github/workflows/ci.yml,project
   justfile,project
+  scripts/bench-oracle.mts,project
+  scripts/bench-report.mts,project
   scripts/check-lookup.mts,project
   scripts/latency-gate.mts,project
+  scripts/native-bench.mts,project
   src/list.rs,project
+  src/mutation.rs,project
   src/orientation_context.rs,project
+  src/ownership.rs,project
   src/read_projection.rs,project
   src/search.rs,project
   src/workspace.rs,project
+  tests/bench-oracle/package-lock.json,project
+  tests/bench-oracle/package.json,project
+  tests/concurrency_contract.rs,project
   tests/read_contract.rs,project
   tests/support/list_unit.rs,project
+  tests/support/mutation_unit.rs,project
+  tests/support/ownership_unit.rs,project
   tests/support/read_projection_unit.rs,project
   tests/support/search_unit.rs,project
   tests/support/workspace_unit.rs,project
-tests[6]{command,scope,provenance{author,created_at,source_kind,source_ref}}:
+tests[9]{command,scope,provenance{author,created_at,source_kind,source_ref}}:
   node scripts/check-lookup.mts,project,codex-agent,"2026-10-18T18:06:07.687Z",local_mutation,perf/native-reads-touch-only-what-they-need
   "node scripts/check-lookup.mts list::tests::context_timestamp_parse_work_is_linear",project,codex-agent,"2026-10-18T19:20:39.964Z",local_mutation,perf/native-reads-touch-only-what-they-need
   "node scripts/check-lookup.mts search::tests::filtered_search_strictly_decodes_selected_payloads",project,codex-agent,"2026-10-18T19:20:44.115Z",local_mutation,perf/native-reads-touch-only-what-they-need
   "node scripts/check-lookup.mts workspace::tests",project,codex-agent,"2026-10-18T19:42:45.259Z",local_mutation,perf/native-reads-touch-only-what-they-need
   "node scripts/check-lookup.mts list::tests::sdk_page_contract_refusals_and_status_fingerprints",project,codex-agent,"2026-10-18T20:34:37.879Z",local_mutation,perf/native-reads-touch-only-what-they-need
   "node scripts/check-lookup.mts workspace::tests::directory_snapshots",project,codex-agent,"2026-10-18T23:25:16.724Z",local_mutation,perf/native-reads-touch-only-what-they-need
-docs[4]{path,scope}:
+  "node scripts/check-lookup.mts ownership::tests::ownership_lineage_scans_corpus_once",project,codex-agent,"2026-10-21T17:03:43.801Z",local_mutation,perf/native-hot-paths
+  node scripts/check-lookup.mts concurrent_comment_processes_preserve_every_accepted_mutation concurrency_contract,project,codex-agent,"2026-10-21T17:03:43.801Z",local_mutation,perf/native-hot-paths
+  "node scripts/check-lookup.mts mutation::tests::locator_metadata_work_depends_on_directories_and_targets",project,codex-agent,"2026-10-21T17:22:19.368Z",local_mutation,perf/native-hot-paths
+docs[5]{path,scope}:
   docs/benchmarks/native-read-ci-2026-10-18.json,project
   docs/benchmarks/native-read-performance-2026-10-18.csv,project
   docs/benchmarks/native-read-performance-2026-10-18.json,project
+  docs/NATIVE_HOT_PATHS.md,project
   docs/NATIVE_READ_PERFORMANCE.md,project
 body: ""

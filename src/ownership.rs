@@ -449,11 +449,7 @@ fn record_semantics(
     } else {
         format!("author-{}", hex_prefix(principal.as_bytes(), 24))
     };
-    let parents: BTreeMap<String, Option<String>> = workspace
-        .read_items()?
-        .into_iter()
-        .map(|item| (item.metadata.id, item.metadata.parent))
-        .collect();
+    let parents = workspace.read_parent_index()?;
     let Some(mut current) = parents.get(&request.id).cloned() else {
         return Err(PmRustError::ItemNotFound {
             id: request.id.clone(),

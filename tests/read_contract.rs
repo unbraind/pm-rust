@@ -61,6 +61,45 @@ fn tracker() -> Result<(TempDir, PathBuf), Box<dyn std::error::Error>> {
     Ok((directory, fs::canonicalize(root)?))
 }
 
+/// Claim lineage retains full-corpus duplicate and payload validation through the public SDK.
+#[test]
+fn ownership_parent_index_keeps_unrelated_validation() -> Result<(), Box<dyn std::error::Error>> {
+    let (directory, root) = tracker()?;
+    let workspace = Workspace::discover(directory.path())?;
+    let request = pm_rust::OwnershipItem {
+        id: "demo-a".to_owned(),
+        author: "fixture-agent".to_owned(),
+        timestamp: Some("2026-08-22T10:00:00.000Z".to_owned()),
+        message: None,
+        force: false,
+        if_available: false,
+        provenance_role: None,
+    };
+    write(root.join("tasks/unrelated.toon"), ITEM_B)?;
+    assert!(matches!(
+        workspace.claim_with_options(&request, &pm_rust::OwnershipOptions::default()),
+        Err(PmRustError::DuplicateItemId { .. })
+    ));
+    assert_eq!(
+        workspace.get("demo-a")?.metadata.extra["assignee"],
+        "fixture-agent"
+    );
+    assert!(!root.join("runtime/session.json").exists());
+    write(
+        root.join("tasks/unrelated.toon"),
+        "invalid unrelated payload",
+    )?;
+    assert!(matches!(
+        workspace.claim_with_options(&request, &pm_rust::OwnershipOptions::default()),
+        Err(PmRustError::InvalidItemDocument { .. })
+    ));
+    fs::remove_file(root.join("tasks/unrelated.toon"))?;
+    workspace.claim_with_options(&request, &pm_rust::OwnershipOptions::default())?;
+    let state: Value = serde_json::from_slice(&fs::read(root.join("runtime/session.json"))?)?;
+    assert!(state["semantic_attribution"].is_object());
+    Ok(())
+}
+
 /// Every public read refuses a listing fault instead of fabricating an empty selection.
 fn queries_refuse_broken_storage(workspace: &Workspace) -> Result<(), Box<dyn std::error::Error>> {
     let results = [
