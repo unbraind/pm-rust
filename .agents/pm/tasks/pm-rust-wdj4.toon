@@ -6,13 +6,13 @@ status: in_progress
 priority: 3
 tags[3]: follow-up,performance,rust
 created_at: "2026-10-18T06:28:16.861Z"
-updated_at: "2026-10-21T17:23:23.839Z"
+updated_at: "2026-10-21T17:31:42.918Z"
 assignee: codex-agent
 claim_principal: codex-agent
 author: codex-agent
 acceptance_criteria: "Measure the same 30-run commands and retain byte parity, storage integrity and all coverage dimensions."
 parent: pm-rust-u4al
-comments[37]{created_at,author,text}:
+comments[38]{created_at,author,text}:
   "2026-10-18T18:05:58.773Z",codex-agent,"Prerequisite PR #92 is merged into main. Implemented directory-derived strict get lookup, streamed list and brief-context projections, metadata-first filtered search and bounded first-page hit retention. No persistent index is added; release approval remains unset. Plan: byte differential suites unchanged, generated 3000-item latency and portable item-open gates on Linux/macOS/Windows, copied-public-tracker 30-run measurements, exact release checks and an open PR under pm-rust-u4al."
   "2026-10-18T18:06:03.318Z",codex-agent,"Behavioural revert proof: reverted only Workspace::get to its original read_items-based lookup, rebuilt and ran cargo test --locked --lib workspace::tests::single_item_get. Exit 101, 0 passed, 2 failed: unrelated merge-marker damage broke the target read and duplicate filenames yielded the wrong refusal. Restored lookup: 2 passed, 0 failed. The real 3000-item regression observes exactly one authoritative file open for success and zero for missing or duplicate IDs. The unchanged committed history prefix is retained byte-for-byte. An unpublished local draft whose linked-test stderr captured compiler paths was quarantined unchanged; public task events were replayed from that prefix and linked tests now use a path-redacting wrapper."
   "2026-10-18T18:09:17.030Z",codex-agent,"Pre-PR evidence: 247 library tests passed, both restored lookup tests passed through the sanitized linked-test runner, fmt/pedantic clippy/private-item rustdoc/changelog checks passed, and cargo audit passed with the repository-allowed RUSTSEC-2024-0449 warning. Real public-copy strace: get item opens 2991 -> 1; total openat 3009 -> 19; history opens zero in both. Paired 30-run runtime measurements and the unchanged affected differential suites are in progress. Generated local latency samples exceeded the unchanged ceilings under shared-host contention; dedicated three-OS CI is the acceptance gate."
@@ -50,14 +50,17 @@ comments[37]{created_at,author,text}:
   "2026-10-21T16:54:28.034Z",codex-agent,"Extend the existing performance item with a reproducible 1k/10k/50k synthetic no-git benchmark against pm-cli 2026.10.21: context, next, list-open, search, get, claim, comment and update. Branch starts at main because PR 101 is still open. Retain the locked release-check oracle until that parity PR merges. Measure wall p50/p95, GNU time peak RSS, output bytes and exact stdout/stderr/status comparisons. Main currently refuses context at 10k and larger; report this as unsupported rather than a successful speed measurement. Profile before optimizing, preserve append-only history and all write-safety boundaries, then verify 50 concurrent writers and unchanged full gates."
   "2026-10-21T17:09:05.364Z",codex-agent,Benchmark calibration found that the current oracle changes list completeness from complete on a cold validation to unchecked on a warm cache read. The harness now compares only measured warm runs after fixed warmups; it does not normalize that receipt. Native list also receives the same fixed read clock as context. Syscall profiling is enabled outside timing windows; perf hardware sampling is refused by the host kernel and no host setting was changed.
   "2026-10-21T17:20:48.437Z",codex-agent,"Baseline 1k syscall diagnostics confirm the mutation locator dominates metadata work: claim 8042 statx calls, comment and update 6026 each. The candidate skips live metadata for unrelated regular entries while retaining target, directory and symlink checks. Claim attribution still fully validates every document in the same order, but retains only IDs and parents instead of complete payloads. Added strict corruption/duplicate checks, moved-target coverage, work-count regressions and a 50-process barrier test that requires every write and marker to survive without Git. Benchmark fixtures now include SDK-generated valid create/comment history and oracle verification; timed oracle children import only the real CLI after clock pinning."
-files[24]{path,scope}:
+  "2026-10-21T17:31:42.918Z",codex-agent,"Draft PR 102 is open at f1abf67. Added an exact-head dedicated-runner benchmark to avoid the development host contention, and an automated behavioral revert proof that restores only full-corpus retention and per-entry metadata work, requires the specific two regression assertions to fail, then restores exact source bytes and requires both to pass. The full benchmark keeps all 20 measured launches per runtime/case and two warmups. Existing release thresholds remain unchanged. No merge or release is requested."
+files[26]{path,scope}:
   .github/workflows/ci.yml,project
+  .github/workflows/native-bench.yml,project
   justfile,project
   scripts/bench-oracle.mts,project
   scripts/bench-report.mts,project
   scripts/check-lookup.mts,project
   scripts/latency-gate.mts,project
   scripts/native-bench.mts,project
+  scripts/perf-revert-proof.mts,project
   src/list.rs,project
   src/mutation.rs,project
   src/orientation_context.rs,project

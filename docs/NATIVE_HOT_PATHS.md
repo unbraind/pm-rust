@@ -27,9 +27,10 @@ ignored `target` directory, then rebuild the candidate and run:
 
 ```sh
 cargo +1.90.0 build --release --locked
-cp target/release/pm-rust target/pm-rust-before
+mkdir -p target/before
+cp target/release/pm-rust target/before/pm-rust
 # Apply the candidate and rebuild through just bench.
-just bench --baseline target/pm-rust-before --profile yes \
+just bench --baseline target/before/pm-rust --profile yes \
   --output target/native-bench.json
 ```
 
@@ -39,6 +40,11 @@ baseline and candidate stdout/stderr/status exactly, and compares their item
 and history hashes after each write. Write targets and runtime state are reset
 outside the timed interval, so every claim is a real first claim and every
 comment/update starts from the same item. Only generated state is removed.
+The paired executable filenames must match: CLI diagnostics expose the program
+name, so changing that name would itself change observable error bytes. CI
+builds baseline and candidate in independent Cargo target directories and
+rejects identical paired executables, preventing a shared build cache from
+silently replacing the candidate with the baseline.
 
 The `Native hot-path benchmark` workflow runs this same twenty-sample matrix on
 a dedicated Linux runner for the performance branch, with an immutable main

@@ -2,7 +2,7 @@ import { spawnSync } from 'node:child_process';
 import { createHash } from 'node:crypto';
 import { existsSync, mkdirSync, mkdtempSync, readFileSync, readdirSync, rmSync, writeFileSync } from 'node:fs';
 import { loadavg, tmpdir } from 'node:os';
-import { dirname, join, resolve } from 'node:path';
+import { basename, dirname, join, resolve } from 'node:path';
 import { performance } from 'node:perf_hooks';
 import { fileURLToPath } from 'node:url';
 import { encode } from '../tests/bench-oracle/node_modules/@unbrained/pm-cli/node_modules/@toon-format/toon/dist/index.mjs';
@@ -92,6 +92,7 @@ function main(): void {
   const output = resolve(option('--output', 'target/native-bench.json'));
   const binary = resolve(option('--binary', 'target/release/pm-rust'));
   const baseline = option('--baseline', '');
+  if (baseline && basename(baseline) !== basename(binary)) throw new Error('Baseline and native executable filenames must match: use separate directories');
   const profile = option('--profile', 'no') === 'yes';
   const selected = option('--commands', '').split(',').filter(Boolean);
   const oracleRoot = join(repo, 'tests/bench-oracle/node_modules/@unbrained/pm-cli');
@@ -103,6 +104,7 @@ function main(): void {
     { name: 'oracle', program: process.execPath, prefix: [join(repo, 'scripts/bench-oracle.mts')], native: false },
   ];
   const fingerprints = runtimes.map(runtime => ({ runtime: runtime.name, sha256: hash(readFileSync(runtime.program)) }));
+  if (baseline && process.env.BENCH_BASE_SHA && fingerprints[0].sha256 === fingerprints[1].sha256) throw new Error('Paired CI builds produced the same executable; check target-directory isolation');
   const scratch = mkdtempSync(join(tmpdir(), 'pm-rust-bench-'));
   const rows: Record<string, unknown>[] = [];
   const loads: number[][] = [];

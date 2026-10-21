@@ -51,6 +51,10 @@ bench *args: bench-oracle-install
     cargo +1.90.0 build --release --locked
     node scripts/native-bench.mts "$@"
 
+# Revert only the optimized behaviors, require assertion failures, then restore.
+perf-revert-proof:
+    node scripts/perf-revert-proof.mts
+
 # Run the locked oracle through its shared test-environment launcher.
 [positional-arguments]
 oracle *args:
