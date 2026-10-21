@@ -6,8 +6,10 @@ status: in_progress
 priority: 3
 tags[3]: conformance,follow-up,oracle
 created_at: "2026-10-20T09:07:30.168Z"
-updated_at: "2026-10-21T14:16:01.631Z"
+updated_at: "2026-10-21T14:56:25.939Z"
 deadline: "2026-10-27T00:00:00.000Z"
+assignee: codex-agent
+claim_principal: codex-agent
 author: codex-agent
 estimated_minutes: 240
 acceptance_criteria: Oracle pin and native compatibility version agree on 2026.10.21; both release deltas classified; behavioural revert proofs; every plain-directory process write and history entry preserved; unchanged 100 percent lines/functions/regions/branches; Linux/macOS/Windows gates pass.
@@ -16,7 +18,7 @@ blocked_by: pm-rust-owzm
 dependencies[2]{id,kind,created_at,author,source_kind,author_source}:
   pm-rust-owzm,related,"2026-10-20T09:07:30.168Z",codex-agent,"cli:create:dep",detected
   pm-rust-owzm,blocked_by,"2026-10-20T11:05:13.191Z",codex-agent,"cli:update:blocked_by",detected
-comments[51]{created_at,author,text}:
+comments[55]{created_at,author,text}:
   "2026-10-20T09:07:30.168Z",codex-agent,Planning only. Implementation is deferred until the current delivery is reviewed.
   "2026-10-21T04:41:10.473Z",codex-agent,"Scope extended to published pm-cli 2026.10.21 as requested. Compare both releases against the October 19 native slice; implement applicable deltas, prove fail-before/pass-after behaviour, and require all four coverage dimensions plus the three-platform gates. No-git acceptance will require every real process write and history record to survive."
   "2026-10-21T04:47:20.325Z",codex-agent,"Implementation covers conservative same-host original-process death receipts and recovery intent, strict serialized mutation keys, invocation-preserving lock advice, effective default ordering, count-based completion rounding, and cursor page-local blocker focus. Test execution remains outside the native slice and unsupported run options are preflight-refused before linked-test edits. Assurance declaration reads gain typed missing-ID refusals and bounded read-only discovery."
@@ -68,6 +70,10 @@ comments[51]{created_at,author,text}:
   "2026-10-21T13:44:58.606Z",codex-agent,"The first macOS aggregate executed all 563 stable and 563 instrumented tests successfully, but the unchanged 100 percent region gate found two uncovered error-propagation regions in the new metadata helpers. Replaced nested question-mark propagation with Result mapping while preserving errors and file lifetime. Strict all-target Clippy passes. Instrumented library acceptance passes all 302 tests; the three identity helpers and both mapping closures have zero uncovered regions. The Windows clone result uses the same propagation form. No source exclusions or thresholds changed. All three standalone CI Rust suites and latency jobs passed; final aggregate recertification remains pending."
   "2026-10-21T14:15:57.883Z",codex-agent,"Final certification at code head c03335e826fb2edd392ca0eda51c0b74774cb849: all nine CI jobs passed in https://github.com/unbraind/pm-rust/actions/runs/39610776837 and CodeQL passed in https://github.com/unbraind/pm-rust/actions/runs/39610776769. The unchanged just release-check aggregate passes on Linux, macOS and Windows. Linux: 573 stable plus 573 instrumented tests; 14004/14004 lines, 1462/1462 functions, 23395/23395 regions, 3294/3294 branches. macOS: 563 plus 563 tests; 13922/13922 lines, 1450/1450 functions, 23254/23254 regions, 3256/3256 branches. Windows: 557 plus 557 tests; 13920/13920 lines, 1450/1450 functions, 23258/23258 regions, 3258/3258 branches. Each aggregate completed 44 binary executions with zero failed or ignored tests. All four required dimensions are exactly 100 percent with unchanged scope and thresholds. Fmt, strict Clippy, private rustdoc, identity, audit, changelog, clone-local health and all three latency gates passed. Audit retains the inherited allowed RUSTSEC-2024-0449 maintenance advisory."
   "2026-10-21T14:15:58.805Z",codex-agent,"Final review refetch confirms the same three unresolved thread IDs, all complete with no pagination gaps or new comments; the latest CodeRabbit review still has no outside-diff findings. All five restored PM-linked regressions pass on the certified source. A local parallel aggregate hit the existing five-second packet subprocess timeout; the exact isolated retry passed unchanged, and the scenario passed in the certified CI aggregates. Earlier stopped supplemental runs are not aggregate passes. Original history remains an unchanged byte prefix; only records were appended. Existing full-history follow-up pm-rust-b4yl remains out of scope, with no repair or re-anchoring. Default strict local health passed with three existing advisories. No new pm CLI or SDK defect was discovered. Releasing the claim for orchestrator verification; the item stays in progress. The final evidence commit changes only this item and its appended history; production, tests, build controls and documentation remain identical to the certified head."
+  "2026-10-21T14:38:30.143Z",codex-agent,"PR #101 review round: fetched all four unresolved threads and every comment; pagination is complete. Latest CodeRabbit review has no Outside diff range section. Branch is current with remote and contains origin/main. Verify recovery-directory durability, single owner classification, optional oracle handling, and deterministic zero-wait regression; audit the whole PR for these classes, record behavioral revert proofs, and run unchanged just release-check."
+  "2026-10-21T14:41:50.148Z",codex-agent,"Validated all four review findings. Recovery intent now flushes locks/recoveries and locks before stale unlink (including the newly created directory entry); diagnostics reuse one real owner observation, matching buildLockConflictError in the locked 2026.10.21 oracle; no-git concurrency honors optional and required oracle modes; zero-wait regression runs inline while holding the incumbent. Whole PR audit of publication, owner inspection, optional locator callers, and timing patterns found no further instance requiring an oracle divergence. Targeted tests pass; preparing isolated behavioral revert proofs."
+  "2026-10-21T14:43:48.892Z",codex-agent,"Behavioral revert proof: five isolated experiments each failed at runtime with exit 101 and restored fixed sources immediately. Reverting record_dead_owner produced zero directory flushes instead of two; removing only the new-directory parent flush produced one instead of two; reverting ownership_lock_refusal produced two real owner probes instead of one; reverting seeded_workspace and its concurrency caller made the absent optional oracle fail rather than skip; changing acquire_lock back to the configured wait budget made resolved_zero_wait_budget_is_used_without_rereading_settings violate its elapsed assertion after 2.04 seconds. Exact selectors and thread mapping are in docs/NATIVE_PARITY_2026_10_21.md. No oracle divergence requested or introduced."
+  "2026-10-21T14:56:25.939Z",codex-agent,"All targeted regressions pass: three unit selectors and both concurrency contract tests. Strict Clippy and neutral-config tracker health pass; health retains three existing advisories. The full PM-linked just release-check is running with neutral Git configuration and a temporary HOME on a heavily contended four-CPU host. Push the reviewed code plus this tracker evidence to start dedicated CI while the local aggregate continues; no aggregate pass is claimed yet."
 notes[1]{created_at,author,text}:
   "2026-10-20T09:07:30.168Z",codex-agent,Published version 2026.10.20 was observed via npm view during the 2026.10.19 continuation.
 learnings[1]{created_at,author,text}:
@@ -103,15 +109,99 @@ files[30]{path,scope}:
   tests/support/mutation_unit.rs,project
   tests/support/orientation_context_unit.rs,project
   tests/support/process_environment.rs,project
-tests[8]{command,scope,timeout_seconds,provenance{author,created_at,source_kind,source_ref}}:
-  just release-check,project,10800,codex-agent,"2026-10-20T09:07:30.168Z",local_mutation,chore/oracle-pm-cli-2026-10-19
-  cargo test --locked --test parity_1021_contract --test concurrency_contract,project,600,codex-agent,"2026-10-21T04:50:48.589Z",local_mutation,feat/parity-pm-2026-10-21
-  cargo +1.90.0 test --locked --lib --bin pm-rust --test parity_1021_contract --test cli_dispatch,project,600,codex-agent,"2026-10-21T11:06:52.102Z",local_mutation,feat/parity-pm-2026-10-21
-  cargo +1.90.0 test --locked --test identity_audit,project,300,codex-agent,"2026-10-21T11:42:58.631Z",local_mutation,feat/parity-pm-2026-10-21
-  cargo +1.90.0 test --locked --lib sdk_collection_git_source -- --nocapture,project,300,codex-agent,"2026-10-21T12:07:46.527Z",local_mutation,feat/parity-pm-2026-10-21
-  cargo +1.90.0 test --locked --lib lock_replacement_with_identical_bytes -- --nocapture,project,300,codex-agent,"2026-10-21T13:14:55.168Z",local_mutation,feat/parity-pm-2026-10-21
-  cargo +1.90.0 test --locked --test orientation_differential padded_inverse_blockers_match_oracle -- --nocapture,project,300,codex-agent,"2026-10-21T13:14:57.042Z",local_mutation,feat/parity-pm-2026-10-21
-  cargo +1.90.0 test --locked --test parity_1021_contract absent_oracle_obeys_optional_and_required_modes -- --nocapture,project,300,codex-agent,"2026-10-21T13:14:58.726Z",local_mutation,feat/parity-pm-2026-10-21
+tests[12]:
+  - command: just release-check
+    scope: project
+    timeout_seconds: 10800
+    provenance:
+      author: codex-agent
+      created_at: "2026-10-20T09:07:30.168Z"
+      source_kind: local_mutation
+      source_ref: chore/oracle-pm-cli-2026-10-19
+  - command: cargo test --locked --test parity_1021_contract --test concurrency_contract
+    scope: project
+    timeout_seconds: 600
+    provenance:
+      author: codex-agent
+      created_at: "2026-10-21T04:50:48.589Z"
+      source_kind: local_mutation
+      source_ref: feat/parity-pm-2026-10-21
+  - command: cargo +1.90.0 test --locked --lib --bin pm-rust --test parity_1021_contract --test cli_dispatch
+    scope: project
+    timeout_seconds: 600
+    provenance:
+      author: codex-agent
+      created_at: "2026-10-21T11:06:52.102Z"
+      source_kind: local_mutation
+      source_ref: feat/parity-pm-2026-10-21
+  - command: cargo +1.90.0 test --locked --test identity_audit
+    scope: project
+    timeout_seconds: 300
+    provenance:
+      author: codex-agent
+      created_at: "2026-10-21T11:42:58.631Z"
+      source_kind: local_mutation
+      source_ref: feat/parity-pm-2026-10-21
+  - command: cargo +1.90.0 test --locked --lib sdk_collection_git_source -- --nocapture
+    scope: project
+    timeout_seconds: 300
+    provenance:
+      author: codex-agent
+      created_at: "2026-10-21T12:07:46.527Z"
+      source_kind: local_mutation
+      source_ref: feat/parity-pm-2026-10-21
+  - command: cargo +1.90.0 test --locked --lib lock_replacement_with_identical_bytes -- --nocapture
+    scope: project
+    timeout_seconds: 300
+    provenance:
+      author: codex-agent
+      created_at: "2026-10-21T13:14:55.168Z"
+      source_kind: local_mutation
+      source_ref: feat/parity-pm-2026-10-21
+  - command: cargo +1.90.0 test --locked --test orientation_differential padded_inverse_blockers_match_oracle -- --nocapture
+    scope: project
+    timeout_seconds: 300
+    provenance:
+      author: codex-agent
+      created_at: "2026-10-21T13:14:57.042Z"
+      source_kind: local_mutation
+      source_ref: feat/parity-pm-2026-10-21
+  - command: cargo +1.90.0 test --locked --test parity_1021_contract absent_oracle_obeys_optional_and_required_modes -- --nocapture
+    scope: project
+    timeout_seconds: 300
+    provenance:
+      author: codex-agent
+      created_at: "2026-10-21T13:14:58.726Z"
+      source_kind: local_mutation
+      source_ref: feat/parity-pm-2026-10-21
+  - command: cargo +1.90.0 test --locked --lib recovery_intent_flushes_receipt_and_new_directory -- --nocapture
+    scope: project
+    provenance:
+      author: codex-agent
+      created_at: "2026-10-21T14:41:53.167Z"
+      source_kind: local_mutation
+      source_ref: feat/parity-pm-2026-10-21
+  - command: cargo +1.90.0 test --locked --lib ownership_refusal_observes_owner_once -- --nocapture
+    scope: project
+    provenance:
+      author: codex-agent
+      created_at: "2026-10-21T14:41:54.935Z"
+      source_kind: local_mutation
+      source_ref: feat/parity-pm-2026-10-21
+  - command: cargo +1.90.0 test --locked --lib resolved_zero_wait_budget_is_used_without_rereading_settings -- --nocapture
+    scope: project
+    provenance:
+      author: codex-agent
+      created_at: "2026-10-21T14:41:56.956Z"
+      source_kind: local_mutation
+      source_ref: feat/parity-pm-2026-10-21
+  - command: cargo +1.90.0 test --locked --test concurrency_contract -- --nocapture
+    scope: project
+    provenance:
+      author: codex-agent
+      created_at: "2026-10-21T14:41:59.133Z"
+      source_kind: local_mutation
+      source_ref: feat/parity-pm-2026-10-21
 docs[8]{path,scope}:
   docs/NATIVE_PARITY_2026_10_21.md,project
   "https://github.com/unbraind/pm-rust/actions/runs/39589911773",project

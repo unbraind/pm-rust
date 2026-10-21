@@ -24,11 +24,12 @@ const PROCESSES: usize = 8;
 const MUTATIONS_PER_PROCESS: usize = 3;
 
 /// Builds the fixture workspace and seeds one shared item for contention.
-fn seeded_workspace() -> Result<tempfile::TempDir, Box<dyn std::error::Error>> {
+fn seeded_workspace() -> Result<Option<tempfile::TempDir>, Box<dyn std::error::Error>> {
+    let Some(published) = published_cli::published_cli_or_skip("no-git concurrency") else {
+        return Ok(None);
+    };
     let directory = tempfile::tempdir()?;
     let root = directory.path().join(".agents/pm");
-    let published = published_cli::locate_published_cli()
-        .ok_or("published CLI required for no-git initialization")?;
     let init = oracle_command()
         .arg(published.entry)
         .current_dir(directory.path())
@@ -60,7 +61,7 @@ fn seeded_workspace() -> Result<tempfile::TempDir, Box<dyn std::error::Error>> {
         ])
         .output()?;
     assert!(output.status.success());
-    Ok(directory)
+    Ok(Some(directory))
 }
 
 /// Appends one comment from one dedicated OS process.
@@ -120,7 +121,9 @@ fn history_records(workspace: &Path) -> Result<Vec<Value>, Box<dyn std::error::E
 /// Proves concurrent native processes never lose an accepted mutation.
 fn concurrent_comment_processes_preserve_every_accepted_mutation()
 -> Result<(), Box<dyn std::error::Error>> {
-    let directory = seeded_workspace()?;
+    let Some(directory) = seeded_workspace()? else {
+        return Ok(());
+    };
     let workspace = Arc::new(directory.path().to_path_buf());
 
     let mut handles = Vec::new();
@@ -212,6 +215,44 @@ fn concurrent_comment_processes_preserve_every_accepted_mutation()
             record["item_hash_version"], 3,
             "record {index} is not stamped with the published epoch"
         );
+    }
+    Ok(())
+}
+
+/// Optional oracle absence skips the real concurrency test; required absence fails closed.
+#[test]
+fn absent_concurrency_oracle_obeys_optional_and_required_modes()
+-> Result<(), Box<dyn std::error::Error>> {
+    let directory = tempfile::tempdir()?;
+    for required in [false, true] {
+        let mut command = Command::new(std::env::current_exe()?);
+        command
+            .args([
+                "--exact",
+                "concurrent_comment_processes_preserve_every_accepted_mutation",
+                "--nocapture",
+            ])
+            .env("PM_NODE_CLI", directory.path().join("absent-oracle"));
+        if required {
+            command.env("PM_RUST_REQUIRE_PUBLISHED_CLI", "1");
+        } else {
+            command.env_remove("PM_RUST_REQUIRE_PUBLISHED_CLI");
+        }
+        let output = command.output()?;
+        let stdout = String::from_utf8_lossy(&output.stdout);
+        let stderr = String::from_utf8_lossy(&output.stderr);
+        assert_eq!(output.status.success(), !required, "{stdout}{stderr}");
+        if required {
+            assert!(
+                stderr.contains("requires the published Node pm CLI"),
+                "{stdout}{stderr}"
+            );
+        } else {
+            assert!(
+                stdout.contains("skip: no published Node pm CLI found"),
+                "{stdout}{stderr}"
+            );
+        }
     }
     Ok(())
 }

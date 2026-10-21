@@ -1125,7 +1125,11 @@ fn record_dead_owner(path: &Path, existing: &Value) -> Result<(), PmRustError> {
                 .and_then(|()| file.sync_all())
         });
     match write {
-        Ok(()) => Ok(()),
+        Ok(()) => {
+            sync_parent(&receipt)?;
+            // The recoveries directory itself may have been created above.
+            sync_parent(&directory)
+        }
         Err(source) => Err(PmRustError::Io {
             path: receipt,
             source,
@@ -1333,7 +1337,11 @@ fn sync_parent(path: &Path) -> Result<(), PmRustError> {
         }
     };
     match directory.sync_all() {
-        Ok(()) => Ok(()),
+        Ok(()) => {
+            #[cfg(test)]
+            tests::SYNCED_PARENTS.with_borrow_mut(|paths| paths.push(parent.to_path_buf()));
+            Ok(())
+        }
         Err(source) => Err(PmRustError::Io {
             path: parent.to_path_buf(),
             source,
@@ -2757,13 +2765,13 @@ fn ownership_lock_refusal(
     } else {
         format!(" after waiting {waited_ms}ms")
     };
+    let owner_state = crate::lock_owner::inspect(&value);
     ownership_refusal(
         format!(
-            "Item {} is locked{owner_suffix} (owner process {}){waited}",
-            request.id,
-            crate::lock_owner::inspect(&value)
+            "Item {} is locked{owner_suffix} (owner process {owner_state}){waited}",
+            request.id
         ),
-        serde_json::json!({"code":"lock_conflict","item_id":request.id,"reason":format!("lock_owner_{}",crate::lock_owner::inspect(&value)),"required":"Wait for the owner to release the lock, then retry the same operation. Set PM_LOCK_WAIT_MS to a larger bounded millisecond budget when contention is expected. Inspect stale receipts with pm gc --scope locks --dry-run.","recovery":{"retry_after_ms":250}}),
+        serde_json::json!({"code":"lock_conflict","item_id":request.id,"reason":format!("lock_owner_{owner_state}"),"required":"Wait for the owner to release the lock, then retry the same operation. Set PM_LOCK_WAIT_MS to a larger bounded millisecond budget when contention is expected. Inspect stale receipts with pm gc --scope locks --dry-run.","recovery":{"retry_after_ms":250}}),
     )
 }
 

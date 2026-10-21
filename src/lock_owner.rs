@@ -1,6 +1,12 @@
 //! Conservative boot, PID namespace and process-start receipts for item locks.
 use serde_json::Value;
 
+#[cfg(test)]
+std::thread_local! {
+    /// Counts real owner observations on this test thread without changing classification.
+    pub(crate) static INSPECT_CALLS: std::cell::Cell<usize> = const { std::cell::Cell::new(0) };
+}
+
 /// Extracts Linux field 22 after the potentially parenthesized process name.
 #[cfg(target_os = "linux")]
 fn process_start(raw: &str) -> Option<String> {
@@ -67,6 +73,8 @@ fn capture_at(root: &std::path::Path) -> Value {
 
 /// Classifies only a matching boot/namespace and a valid original-process receipt.
 pub(crate) fn inspect(value: &Value) -> &'static str {
+    #[cfg(test)]
+    INSPECT_CALLS.with(|count| count.set(count.get() + 1));
     #[cfg(target_os = "linux")]
     {
         inspect_at(

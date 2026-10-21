@@ -19,6 +19,12 @@ mod windows_acl;
 
 const TS: &str = "2026-08-07T10:06:30.183Z";
 
+#[cfg(unix)]
+std::thread_local! {
+    /// Records successful real directory flushes on this test thread.
+    pub(super) static SYNCED_PARENTS: std::cell::RefCell<Vec<PathBuf>> = const { std::cell::RefCell::new(Vec::new()) };
+}
+
 /// Lifecycle storage faults stop before mutation or retain a durable recovery journal.
 #[test]
 fn lifecycle_storage_faults_preserve_recovery_evidence() -> Result<(), Box<dyn std::error::Error>> {
@@ -4727,6 +4733,82 @@ fn dead_owner_recovery_requires_a_durable_intent() -> Result<(), Box<dyn std::er
     Ok(())
 }
 
+#[cfg(target_os = "linux")]
+#[test]
+/// Recovery intent flushes both the receipt entry and its newly created directory entry.
+fn recovery_intent_flushes_receipt_and_new_directory() -> Result<(), Box<dyn std::error::Error>> {
+    use std::os::unix::fs::PermissionsExt;
+
+    let directory = tempfile::tempdir()?;
+    let locks = directory.path().join("locks");
+    fs::create_dir(&locks)?;
+    let path = locks.join("sample-owner.lock");
+    let owner = serde_json::json!({"owner":"original-agent"});
+    let raw = serde_json::to_string(&owner)?;
+    fs::write(&path, &raw)?;
+    for expected_count in [1, 2] {
+        SYNCED_PARENTS.with_borrow_mut(Vec::clear);
+        record_dead_owner(&path, &owner)?;
+        let synced = SYNCED_PARENTS.with_borrow_mut(std::mem::take);
+        assert_eq!(synced, [locks.join("recoveries"), locks.clone()]);
+        assert_eq!(fs::read_to_string(&path)?, raw);
+        let receipts = fs::read_dir(locks.join("recoveries"))?.collect::<Result<Vec<_>, _>>()?;
+        assert_eq!(receipts.len(), expected_count);
+        for receipt in receipts {
+            let value: Value = serde_json::from_slice(&fs::read(receipt.path())?)?;
+            assert_eq!(value["event"], "owner_dead_recovery_attempt");
+            assert_eq!(value["lock"], owner);
+            assert_eq!(receipt.metadata()?.permissions().mode() & 0o777, 0o600);
+        }
+    }
+    Ok(())
+}
+
+/// One real owner observation supplies both the text and structured refusal fields.
+#[test]
+fn ownership_refusal_observes_owner_once() -> Result<(), Box<dyn std::error::Error>> {
+    let (_directory, pm_root) = root("{}")?;
+    let request = OwnershipItem {
+        id: "sample-unit".to_owned(),
+        author: "unit-agent".to_owned(),
+        timestamp: Some(TS.to_owned()),
+        message: None,
+        force: false,
+        if_available: false,
+        provenance_role: None,
+    };
+    fs::create_dir_all(pm_root.join("locks"))?;
+    let settings = read_settings(&pm_root)?;
+    for start in [None, Some("0"), Some("invalid")] {
+        let mut owner = crate::lock_owner::capture();
+        owner["pid"] = serde_json::json!(process::id());
+        owner["owner"] = serde_json::json!("holder");
+        owner["created_at"] = serde_json::json!(TS);
+        if let Some(start) = start {
+            owner["process_start_identity"] = serde_json::json!(start);
+        }
+        let expected = crate::lock_owner::inspect(&owner);
+        fs::write(
+            pm_root.join("locks/sample-unit.lock"),
+            serde_json::to_vec(&owner)?,
+        )?;
+        let before = crate::lock_owner::INSPECT_CALLS.get();
+        let error = ownership_lock_refusal(&pm_root, &request, &settings, TS, 25);
+        assert_eq!(crate::lock_owner::INSPECT_CALLS.get() - before, 1);
+        let PmRustError::OwnershipRefusal { detail, context } = error else {
+            return Err(format!("unexpected refusal: {error}").into());
+        };
+        assert_eq!(
+            detail,
+            format!(
+                "Item sample-unit is locked (owner holder) (owner process {expected}) after waiting 25ms"
+            )
+        );
+        assert_eq!(context["reason"], format!("lock_owner_{expected}"));
+    }
+    Ok(())
+}
+
 /// Invalid wait overrides retain configured admission; valid milliseconds take precedence.
 #[test]
 fn environment_lock_wait_budget_is_bounded() {
@@ -4821,26 +4903,21 @@ fn resolved_zero_wait_budget_is_used_without_rereading_settings()
         ..locks(1_800)
     };
     let held = acquire_lock(&pm_root, "sample-unit", "holder", &configured, false, TS, 0)?;
-    // Keep the holder alive until the immediate attempt has observed contention.
-    // Re-reading the configured budget waits for the replacement and succeeds.
-    let outcome = thread::scope(|scope| {
-        let contender = scope.spawn(|| {
-            acquire_lock(
-                &pm_root,
-                "sample-unit",
-                "contender",
-                &configured,
-                false,
-                TS,
-                0,
-            )
-        });
-        thread::sleep(Duration::from_millis(100));
-        drop(held);
-        contender.join()
-    })
-    .map_err(|_| "contender panicked")?;
+    // Keep the incumbent held for the entire attempt, independent of thread scheduling.
+    // Re-reading the configured budget would wait the full two seconds.
+    let started = Instant::now();
+    let outcome = acquire_lock(
+        &pm_root,
+        "sample-unit",
+        "contender",
+        &configured,
+        false,
+        TS,
+        0,
+    );
     assert!(matches!(outcome, Err(PmRustError::LockConflict { .. })));
+    assert!(started.elapsed() < Duration::from_millis(1_000));
+    drop(held);
     Ok(())
 }
 

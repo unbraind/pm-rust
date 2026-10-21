@@ -97,3 +97,32 @@ sources after each run. Use `cargo +1.90.0 test --locked` with these selectors:
 The identity guard narrows pathname replacement exposure under the existing gate
 lease; it does not claim an atomic compare-and-unlink against arbitrary external
 writers that bypass that lease.
+
+## PR 101 second review follow-up
+
+All four unresolved threads in the next review are valid. The latest CodeRabbit
+review body has no outside-diff findings; pagination of threads and comments is
+complete. The production diff and fixture callers were checked for the same
+publication, repeated-observation, optional-oracle and scheduling defects.
+
+| Thread | Verified behavior and change |
+| --- | --- |
+| `PRRT_kwDOTwgMRs6uz2WV` | Recovery intent flushes the receipt's containing directory before stale-lock removal. It also flushes `locks/`, persisting a newly created `recoveries/` entry before the deletion. Both new and existing recovery directories are exercised with real file writes and directory flushes. |
+| `PRRT_kwDOTwgMRs6uz2Wn` | One owner inspection supplies both diagnostic text and structured reason, matching `buildLockConflictError` in the locked 2026.10.21 oracle. Test-only observation counters leave the real kernel probes intact. |
+| `PRRT_kwDOTwgMRs6uz2Ww` | The no-git concurrency fixture uses the shared optional-or-required oracle contract. A subprocess regression runs the actual concurrency test with an absent oracle in both modes. |
+| `PRRT_kwDOTwgMRs6uz2W4` | The zero-wait regression attempts acquisition on the current thread while retaining the holder, then checks conflict and elapsed time below the configured two-second budget. It no longer depends on a contender starting within a sleep window. |
+
+Five isolated behavioral reverts fail with exit 101. Each source was restored
+immediately after the expected failure; no tracker history was rewritten.
+Use `cargo +1.90.0 test --locked` with the following selectors:
+
+| Reverted behavior | Selector and observed failure |
+| --- | --- |
+| Recovery intent function | `--lib recovery_intent_flushes_receipt_and_new_directory`: zero directory flushes instead of two. |
+| New recovery-directory entry flush alone | Same selector: only `recoveries/` flushed, missing `locks/`. |
+| Ownership refusal function | `--lib ownership_refusal_observes_owner_once`: two real owner observations instead of one. |
+| Concurrency fixture and its caller | `--test concurrency_contract absent_concurrency_oracle_obeys_optional_and_required_modes`: optional absence fails instead of skipping. |
+| Resolved acquisition budget | `--lib resolved_zero_wait_budget_is_used_without_rereading_settings`: using configured wait rather than the resolved zero budget violates the elapsed-time assertion. |
+
+There is no requested oracle divergence and no refusal. Thread replies and
+resolution remain with the orchestrator.
