@@ -162,9 +162,32 @@ receipts omit the runner's private execution-context paths. `.mts` scripts use
 Node's native type stripping and executable syntax/behavior checks; a standalone
 TypeScript compiler is not installed locally.
 
-The first complete Linux aggregate at `124975a` passed 524 ordinary and 524
-instrumented tests, with 100% lines, functions and regions. It refused its single
-uncovered branch at the locator fallback filename check (3159/3160 branches).
-The added test-only fallback case exercises that exact false arm. The unchanged
-full gate is required again with the repair; no threshold or source exclusion
-is altered.
+The unchanged [full CI gate](https://github.com/unbraind/pm-rust/actions/runs/39650772379)
+passed at `fd836ba` on all three platforms. Each aggregate runs ordinary and
+branch-instrumented tests, formatting, strict Clippy, private-item rustdoc,
+dependency audit and changelog verification. The documented fresh-clone tracker
+preflight also passed. The dependency audit retains the repository's existing
+allowed `RUSTSEC-2024-0449` advisory.
+
+| Platform | Ordinary / instrumented tests | Lines | Functions | Regions | Branches |
+| --- | ---: | ---: | ---: | ---: | ---: |
+| Linux | 525 / 525 | 13218 / 13218 | 1370 / 1370 | 22077 / 22077 | 3160 / 3160 |
+| macOS | 521 / 521 | 13265 / 13265 | 1382 / 1382 | 22164 / 22164 | 3162 / 3162 |
+| Windows | 516 / 516 | 13264 / 13264 | 1383 / 1383 | 22165 / 22165 | 3164 / 3164 |
+
+Every aggregate has 42 suite executions, zero failures/ignored tests, and 100%
+in all four required dimensions. The [gate receipt](benchmarks/native-hot-path-gates-2026-10-21.json)
+retains exact source hashes, counts, job links and all 270 existing latency-gate
+samples. All nine unchanged get/list/context p95 bounds pass.
+
+The first aggregate exposed the locator fallback filename check's missing false
+arm. The added test-only case closes that branch without changing production
+Rust, coverage thresholds or exclusions. Both behavioral revert controls still
+fail at their intended assertions and pass restored.
+
+The [repeat benchmark](https://github.com/unbraind/pm-rust/actions/runs/39650772378)
+also passes at `fd836ba`, with another 1,620 measured samples. Its baseline and
+native executable hashes are identical to the committed measurement run; the
+[reproduction receipt](benchmarks/native-hot-path-reproduction-2026-10-21.json)
+records that comparison. The final documentation and tracker handoff preserve
+the verified implementation and test source.

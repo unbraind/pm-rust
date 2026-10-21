@@ -1,0 +1,22 @@
+{
+  "run": 39650772378,
+  "head": "fd836ba6b6b4e365714b4aa80aa2a07f180ef6fa",
+  "complete": true,
+  "rows": 81,
+  "measured_samples": 1620,
+  "identical_native_executables": true,
+  "fingerprints": [
+    {
+      "runtime": "before",
+      "sha256": "a1198143900bc947e88cc8f530bf86f95501464a70c2dbd56b90ca43c6ddc926"
+    },
+    {
+      "runtime": "native",
+      "sha256": "7e2c4c7ed2d596555b5e3ff19bdedef30b592bb0f072406eb7830139ab7f2898"
+    },
+    {
+      "runtime": "oracle",
+      "sha256": "08f12d42fb304468e8ee86247fe686aae5b225836ea65e9d6566c11ae6ba2e8e"
+    }
+  ]
+}
