@@ -6,10 +6,8 @@ status: in_progress
 priority: 3
 tags[3]: conformance,follow-up,oracle
 created_at: "2026-10-20T09:07:30.168Z"
-updated_at: "2026-10-21T15:31:59.546Z"
+updated_at: "2026-10-21T16:21:24.209Z"
 deadline: "2026-10-27T00:00:00.000Z"
-assignee: codex-agent
-claim_principal: codex-agent
 author: codex-agent
 estimated_minutes: 240
 acceptance_criteria: Oracle pin and native compatibility version agree on 2026.10.21; both release deltas classified; behavioural revert proofs; every plain-directory process write and history entry preserved; unchanged 100 percent lines/functions/regions/branches; Linux/macOS/Windows gates pass.
@@ -18,7 +16,7 @@ blocked_by: pm-rust-owzm
 dependencies[2]{id,kind,created_at,author,source_kind,author_source}:
   pm-rust-owzm,related,"2026-10-20T09:07:30.168Z",codex-agent,"cli:create:dep",detected
   pm-rust-owzm,blocked_by,"2026-10-20T11:05:13.191Z",codex-agent,"cli:update:blocked_by",detected
-comments[59]{created_at,author,text}:
+comments[63]{created_at,author,text}:
   "2026-10-20T09:07:30.168Z",codex-agent,Planning only. Implementation is deferred until the current delivery is reviewed.
   "2026-10-21T04:41:10.473Z",codex-agent,"Scope extended to published pm-cli 2026.10.21 as requested. Compare both releases against the October 19 native slice; implement applicable deltas, prove fail-before/pass-after behaviour, and require all four coverage dimensions plus the three-platform gates. No-git acceptance will require every real process write and history record to survive."
   "2026-10-21T04:47:20.325Z",codex-agent,"Implementation covers conservative same-host original-process death receipts and recovery intent, strict serialized mutation keys, invocation-preserving lock advice, effective default ordering, count-based completion rounding, and cursor page-local blocker focus. Test execution remains outside the native slice and unsupported run options are preflight-refused before linked-test edits. Assurance declaration reads gain typed missing-ID refusals and bounded read-only discovery."
@@ -78,6 +76,10 @@ comments[59]{created_at,author,text}:
   "2026-10-21T15:18:49.797Z",codex-agent,"At code head a88299be81c5430eef93fd3ec83a2ff7386f42e1, all standalone CI Rust suites pass: Linux 576 tests, macOS 565, Windows 559; each executes 22 test binaries with zero failed or ignored tests. All three latency jobs and CodeQL pass too. Three full just release-check aggregates remain active; standalone results do not substitute for their coverage/audit/changelog gates."
   "2026-10-21T15:27:36.176Z",codex-agent,"Linux CI ran all 576 stable and 576 instrumented tests successfully, but unchanged coverage correctly rejected one uncovered error-return region in record_dead_owner (23408 of 23409 regions). macOS aggregate passed at 100 percent in all four required dimensions. Added a deterministic real-filesystem race before the recovery-directory flush: retain the written audit under a different directory name, force the original-directory flush to fail, and verify the incumbent lock plus item/history bytes remain unchanged. The prior local aggregate was stopped as obsolete before this test expansion; it is not aggregate pass evidence. Validate the new failure branch and rerun gates without changing thresholds."
   "2026-10-21T15:31:59.546Z",codex-agent,"The expanded dead_owner_recovery_requires_a_durable_intent regression passes both directly and through pm test --run --only-last --progress with tracker/source context. Strict Clippy passes. Both macOS and Windows full aggregates pass at the first code head; Linux alone rejected the uncovered sync-error return after all 1152 test executions passed. The new thread-local test hook performs a real directory rename before sync, is absent from production builds, and makes the failure refusal deterministic while retaining audit evidence. Push this test expansion and rerun the full unchanged release gates; focused instrumentation is collecting the exact recovery-function region coverage."
+  "2026-10-21T15:37:04.173Z",codex-agent,"Focused nightly branch instrumentation passes the expanded durable-intent case and reports zero uncovered code regions in record_dead_owner and its closures, including the previously missed error return. Sixth behavioral revert proof: omit only sync_parent(&receipt) while retaining the real directory-rename race. dead_owner_recovery_requires_a_durable_intent fails at runtime with exit 101 because acquisition is accepted instead of refusing the sync error. Restored committed source matches head 4c53da42ae0d9ce37a9a38a8443cd51fc2737369 and the regression passes again. Refetch at that head confirms the same four unresolved threads, all comments complete, with no outside-diff findings."
+  "2026-10-21T15:53:14.388Z",codex-agent,"Replacement Linux just release-check passes at code head 4c53da42ae0d9ce37a9a38a8443cd51fc2737369: 576 stable plus 576 instrumented tests, 44 test-binary executions, zero failed or ignored tests. Required coverage is exactly 100 percent: lines 14011/14011, functions 1465/1465, regions 23414/23414, branches 3294/3294. The prior uncovered error-return region is closed with the real sync-failure regression; thresholds and source scope are unchanged. Main remains fully contained by the branch. Windows and macOS aggregates are still active. The separate macOS standalone job was canceled before runner allocation; GitHub refuses rerun until the workflow becomes terminal, so it is not counted as passed evidence."
+  "2026-10-21T16:06:18.661Z",codex-agent,"All three unchanged just release-check aggregates pass at code head 4c53da42ae0d9ce37a9a38a8443cd51fc2737369 in CI run 39626582814. Linux: 576 stable + 576 instrumented tests; lines 14011/14011, functions 1465/1465, regions 23414/23414, branches 3294/3294. macOS: 565 + 565 tests; lines 13926/13926, functions 1452/1452, regions 23264/23264, branches 3256/3256. Windows: 559 + 559 tests; lines 13922/13922, functions 1451/1451, regions 23262/23262, branches 3258/3258. Each aggregate executes 44 test binaries, with zero failed or ignored tests and exactly 100 percent in all four required coverage dimensions. No thresholds or source exclusions changed. All latency jobs, CodeQL, and standalone Linux/Windows suites pass. The only separate missing CI job is macOS standalone, canceled before runner allocation; retry it now that the parent workflow is terminal. Original canceled/obsolete runs are not counted as passed evidence."
+  "2026-10-21T16:21:15.644Z",codex-agent,"Final verification: CI run 39626582814 is fully green at certified code head 4c53da42ae0d9ce37a9a38a8443cd51fc2737369. The macOS standalone retry executed 22 binaries and passed all 565 tests, with zero failed or ignored tests; the original no-runner cancellation is not counted as a pass. All nine CI jobs and separate CodeQL now pass. Final review refetch confirms the same four unresolved threads, every comment read, no pagination gaps, and no outside-diff findings in the latest CodeRabbit body. All four findings are valid and fixed; six behavioral reverts fail at runtime with exit 101 and restored regressions pass. No oracle divergence, thread reply, resolution, merge, release, or new pm CLI/SDK defect. Existing full-history investigation pm-rust-b4yl remains out of scope; history was not repaired or re-anchored. Releasing the claim for orchestrator verification while leaving this item in progress. The final evidence commit changes only this item and its appended history; source, tests, build controls and documentation remain identical to the certified head."
 notes[1]{created_at,author,text}:
   "2026-10-20T09:07:30.168Z",codex-agent,Published version 2026.10.20 was observed via npm view during the 2026.10.19 continuation.
 learnings[1]{created_at,author,text}:
@@ -214,7 +216,7 @@ tests[13]:
       created_at: "2026-10-21T15:28:52.529Z"
       source_kind: local_mutation
       source_ref: feat/parity-pm-2026-10-21
-docs[10]{path,scope}:
+docs[12]{path,scope}:
   docs/NATIVE_PARITY_2026_10_21.md,project
   "https://github.com/unbraind/pm-rust/actions/runs/39589911773",project
   "https://github.com/unbraind/pm-rust/actions/runs/39589911783",project
@@ -224,5 +226,7 @@ docs[10]{path,scope}:
   "https://github.com/unbraind/pm-rust/actions/runs/39610776837",project
   "https://github.com/unbraind/pm-rust/actions/runs/39621650870",project
   "https://github.com/unbraind/pm-rust/actions/runs/39621651104",project
+  "https://github.com/unbraind/pm-rust/actions/runs/39626582745",project
+  "https://github.com/unbraind/pm-rust/actions/runs/39626582814",project
   "https://www.npmjs.com/package/@unbrained/pm-cli/v/2026.10.20",project
 body: "Certify native CLI and SDK behaviour against published pm-cli 2026.10.21 in PR 101, including applicable changes since 2026.10.19, plain-directory concurrent writers, behavioural revert proofs, unchanged 100 percent coverage thresholds, and Linux/macOS/Windows release gates. Resolve every valid review finding while retaining published oracle quirks and append-only history."
