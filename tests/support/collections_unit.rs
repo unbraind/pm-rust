@@ -853,7 +853,7 @@ fn sdk_collection_git_source_context() -> TestResult {
             String::from_utf8_lossy(&init.stderr)
         );
         let empty = source.path().join("empty-bin");
-        fs::create_dir(&empty)?;
+        std::fs::create_dir(&empty)?;
         for mode in ["with-git", "without-git"] {
             let mut command = std::process::Command::new(std::env::current_exe()?);
             command

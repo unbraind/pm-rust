@@ -6,7 +6,7 @@ status: in_progress
 priority: 3
 tags[3]: conformance,follow-up,oracle
 created_at: "2026-10-20T09:07:30.168Z"
-updated_at: "2026-10-21T05:28:42.334Z"
+updated_at: "2026-10-21T05:37:55.255Z"
 deadline: "2026-10-27T00:00:00.000Z"
 assignee: codex-agent
 claim_principal: codex-agent
@@ -18,7 +18,7 @@ blocked_by: pm-rust-owzm
 dependencies[2]{id,kind,created_at,author,source_kind,author_source}:
   pm-rust-owzm,related,"2026-10-20T09:07:30.168Z",codex-agent,"cli:create:dep",detected
   pm-rust-owzm,blocked_by,"2026-10-20T11:05:13.191Z",codex-agent,"cli:update:blocked_by",detected
-comments[8]{created_at,author,text}:
+comments[9]{created_at,author,text}:
   "2026-10-20T09:07:30.168Z",codex-agent,Planning only. Implementation is deferred until the current delivery is reviewed.
   "2026-10-21T04:41:10.473Z",codex-agent,"Scope extended to published pm-cli 2026.10.21 as requested. Compare both releases against the October 19 native slice; implement applicable deltas, prove fail-before/pass-after behaviour, and require all four coverage dimensions plus the three-platform gates. No-git acceptance will require every real process write and history record to survive."
   "2026-10-21T04:47:20.325Z",codex-agent,"Implementation covers conservative same-host original-process death receipts and recovery intent, strict serialized mutation keys, invocation-preserving lock advice, effective default ordering, count-based completion rounding, and cursor page-local blocker focus. Test execution remains outside the native slice and unsupported run options are preflight-refused before linked-test edits. Assurance declaration reads gain typed missing-ID refusals and bounded read-only discovery."
@@ -27,6 +27,7 @@ comments[8]{created_at,author,text}:
   "2026-10-21T05:13:41.091Z",codex-agent,"Real-process plain-directory acceptance now passes: all 24 submitted comments survive exactly once, all 25 history entries remain, and every hash-chain link agrees. The vanished-owner reread/unlink race is retryable contention. Six focused parity scenarios also passed; final scoped-retry refinement, behavioural revert proofs, full coverage and exact-head three-platform CI remain pending."
   "2026-10-21T05:21:20.718Z",codex-agent,Initial macOS and Windows jobs found six future-clock lock tests that incorrectly expected Linux process liveness. Unsupported hosts must report unknown while retaining every original lock/item/history byte; expected diagnostics now reflect that boundary. Preserve valid tokenless owner receipts as the published parser does. Linux library coverage preview passed 287 tests; full-scope four-dimension coverage remains a separate gate.
   "2026-10-21T05:28:36.261Z",codex-agent,"Behavioural revert proof: reverting changed production behaviour made five of six process scenarios fail, eight library checks fail, and the cursor recovery formatter fail. The original context fixture could hide leaked rows through per-section limits; a mixed Feature/Task fixture now fails separately when only the packing predicate is reverted. All production files were restored. Differential CLI fixtures now use equal cwd-based invocations on both sides; explicit workspace recovery is independently asserted rather than normalized away. Added real Git branch and missing-executable provenance cases plus assurance error propagation checks."
+  "2026-10-21T05:37:55.250Z",codex-agent,"Corrected a missing filesystem qualifier in the new provenance fixture. Strict all-target Clippy now passes, and the targeted real-Git/missing-executable provenance test passes with exactly one selected test and both child modes asserted. Added explicit safety-contract rustdoc to every new process and identity test. The next aggregate uses a fresh home with global and system Git configuration disabled; earlier refusals/failures are not gate approvals."
 notes[1]{created_at,author,text}:
   "2026-10-20T09:07:30.168Z",codex-agent,Published version 2026.10.20 was observed via npm view during the 2026.10.19 continuation.
 learnings[1]{created_at,author,text}:

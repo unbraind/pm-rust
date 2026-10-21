@@ -2,6 +2,7 @@
 use super::*;
 
 #[test]
+/// Incomplete and foreign process receipts cannot authorize early recovery.
 fn malformed_receipts_are_unknown() {
     for value in [
         serde_json::json!(null),
@@ -17,6 +18,7 @@ fn malformed_receipts_are_unknown() {
 
 #[cfg(target_os = "linux")]
 #[test]
+/// Kernel observations distinguish a live process, PID reuse and a reaped child.
 fn kernel_receipts_distinguish_live_dead_and_reused_processes()
 -> Result<(), Box<dyn std::error::Error>> {
     let mut identity = capture();
@@ -35,6 +37,7 @@ fn kernel_receipts_distinguish_live_dead_and_reused_processes()
 
 #[cfg(target_os = "linux")]
 #[test]
+/// Malformed procfs fields cannot produce trusted host or process coordinates.
 fn malformed_kernel_coordinates_are_refused() {
     for raw in ["", "(name)", "(name) x", "(broken"] {
         assert_eq!(process_start(raw), None);
@@ -64,6 +67,7 @@ fn malformed_kernel_coordinates_are_refused() {
 
 #[cfg(target_os = "linux")]
 #[test]
+/// Unavailable kernel observations and permission failures remain conservatively unknown.
 fn inaccessible_kernel_coordinates_never_authorize_recovery()
 -> Result<(), Box<dyn std::error::Error>> {
     use std::os::unix::fs::symlink;

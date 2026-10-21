@@ -48,6 +48,7 @@ fn tracker() -> Result<tempfile::TempDir, Box<dyn std::error::Error>> {
 }
 
 #[test]
+/// Decoding admits known mutation schemas and refuses misspelled options before storage access.
 fn unknown_mutation_keys_are_refused_before_storage() -> TestResult {
     let base = json!({"id":"sample-probe","author":"test-agent"});
     let mut create = base.clone();
@@ -88,6 +89,7 @@ fn unknown_mutation_keys_are_refused_before_storage() -> TestResult {
 }
 
 #[test]
+/// Unsupported execution controls cannot persist linked tests or change history.
 fn unsupported_test_execution_is_refused_before_link_edits() -> TestResult {
     let directory = tracker()?;
     let root = directory.path().join(".agents/pm");
@@ -120,6 +122,7 @@ fn unsupported_test_execution_is_refused_before_link_edits() -> TestResult {
 
 #[cfg(target_os = "linux")]
 #[test]
+/// A terminated published writer permits audited recovery without waiting for lease expiry.
 fn dead_same_host_owner_is_recovered_before_ttl_with_audit() -> TestResult {
     let directory = tracker()?;
     let published = published_cli::locate_published_cli().ok_or("oracle")?;
@@ -164,6 +167,7 @@ fn dead_same_host_owner_is_recovered_before_ttl_with_audit() -> TestResult {
 }
 
 #[test]
+/// Retry advice retains the operation and workspace without introducing a force override.
 fn lock_contention_preserves_the_actual_invocation_without_force_advice() -> TestResult {
     let directory = tracker()?;
     let root = directory.path().join(".agents/pm");
@@ -237,6 +241,7 @@ fn lock_contention_preserves_the_actual_invocation_without_force_advice() -> Tes
 }
 
 #[test]
+/// Expected declaration misses match the oracle and leave registry state absent.
 fn unknown_declaration_reads_match_typed_oracle_refusals() -> TestResult {
     let directory = tracker()?;
     let published = published_cli::locate_published_cli().ok_or("oracle")?;
@@ -264,6 +269,7 @@ fn unknown_declaration_reads_match_typed_oracle_refusals() -> TestResult {
 
 #[cfg(unix)]
 #[test]
+/// Plain-directory mutations avoid a poison Git shim and also work without its executable.
 fn plain_directory_linked_tests_never_invoke_git() -> TestResult {
     use std::os::unix::fs::PermissionsExt;
     let directory = tracker()?;

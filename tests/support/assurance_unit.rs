@@ -1,6 +1,7 @@
 //! Declaration reads retain registry and history bytes on expected refusals.
 use super::*;
 #[test]
+/// Declaration discovery, lookup and refusal paths preserve stored registry bytes.
 fn assurance_reads_are_typed_and_read_only() -> Result<(), Box<dyn std::error::Error>> {
     let directory = tempfile::tempdir()?;
     let root = directory.path().join(".agents/pm");
