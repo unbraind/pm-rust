@@ -20,19 +20,50 @@ pub(crate) fn render_output(output: &ListOutput) -> String {
     format!("{}\n", render(&compacted, 0))
 }
 
-/// Removes redundant metadata only when a complete identity list proves it redundant.
+/// Recognizes only the published identity projection, including its priority extension.
+fn standard_brief(value: &Value) -> bool {
+    value.as_object().is_some_and(|fields| fields.len() == 2)
+        && value["mode"] == "brief"
+        && (value["fields"] == json!(["id", "status", "type", "title"])
+            || value["fields"] == json!(["id", "status", "type", "title", "priority"]))
+}
+
+/// Validates standard pagination before removing redundant delivery declarations.
+fn standard_pagination(value: &Value, count: usize) -> bool {
+    let Some(more) = value["has_more"].as_bool() else {
+        return false;
+    };
+    let Some(total) = value["total"]
+        .as_f64()
+        .filter(|total| total.fract() == 0.0 && total.abs() <= 9_007_199_254_740_991.0)
+    else {
+        return false;
+    };
+    let count = json!(count).as_f64().unwrap_or_default();
+    value["truncated"] == more
+        && value["count"].as_f64() == Some(count)
+        && if more {
+            total > count
+                && value["next_cursor"]
+                    .as_str()
+                    .is_some_and(|cursor| !cursor.is_empty())
+        } else {
+            total.total_cmp(&count).is_eq() && value["next_cursor"].is_null()
+        }
+}
+
+/// Removes only redundant brief metadata, preserving partial-page and source evidence.
 fn complete_brief(value: &Value) -> Value {
+    let source = &value["completeness"];
     if value["items"].is_array()
         && value.get("details").is_none()
-        && value["projection"]["mode"] == "brief"
-        && value["completeness"]
-            == json!({"status":"complete","unreadable_item_count":0,"unreadable_directory_count":0})
-        && value["has_more"] == false
-        && value["truncated"] == false
-        && value["count"] == value["items"].as_array().map_or(0, Vec::len)
-        && value["total"] == value["count"]
-        && value["omission_receipt"]["omitted_field_groups"]
-            == json!([{"name":"full_item_fields","restore_with":"--full"}])
+        && standard_brief(&value["projection"])
+        && matches!(source["status"].as_str(), Some("complete" | "unchecked"))
+        && source["unreadable_item_count"] == 0
+        && source["unreadable_directory_count"] == 0
+        && standard_pagination(value, value["items"].as_array().map_or(0, Vec::len))
+        && value["omission_receipt"]
+            == json!({"has_omissions":true,"omitted_field_group_count":1,"omitted_field_groups":[{"name":"full_item_fields","restore_with":"--full"}]})
     {
         let mut projected = value.as_object().cloned().unwrap_or_default();
         for key in [
@@ -48,8 +79,25 @@ fn complete_brief(value: &Value) -> Value {
         ] {
             projected.shift_remove(key);
         }
-        if value["sorting"]["sort"] != "default" {
-            projected.insert("sorting".to_owned(), value["sorting"].clone());
+        if source["status"] != "complete"
+            || value["has_more"] == true
+            || source.as_object().is_some_and(|fields| fields.len() != 3)
+        {
+            projected.insert("total".to_owned(), value["total"].clone());
+            projected.insert("has_more".to_owned(), value["has_more"].clone());
+            let mut source = source.as_object().cloned().unwrap_or_default();
+            source.shift_remove("unreadable_item_count");
+            source.shift_remove("unreadable_directory_count");
+            projected.insert("completeness".to_owned(), Value::Object(source));
+        }
+        if value["has_more"] == true {
+            projected.insert("next_cursor".to_owned(), value["next_cursor"].clone());
+        }
+        if let Some(sorting) = value
+            .get("sorting")
+            .filter(|sorting| **sorting != json!({"sort":"default","order":"asc"}))
+        {
+            projected.insert("sorting".to_owned(), sorting.clone());
         }
         projected.insert("details".to_owned(), json!("--full"));
         Value::Object(projected)
@@ -58,13 +106,21 @@ fn complete_brief(value: &Value) -> Value {
     }
 }
 
-/// Omits nulls and recursively empty collections, retaining explicit omission groups.
+/// Compacts envelope metadata while retaining explicit facts inside object rows.
 fn compact(value: &Value) -> Option<Value> {
+    compact_value(value, false)
+}
+
+/// Preserves null and empty descendants once traversal enters an object row.
+fn compact_value(value: &Value, preserve_empty: bool) -> Option<Value> {
     match value {
-        Value::Null => None,
+        Value::Null => preserve_empty.then_some(Value::Null),
         Value::Array(rows) => {
-            let rows: Vec<_> = rows.iter().filter_map(compact).collect();
-            (!rows.is_empty()).then_some(Value::Array(rows))
+            let rows: Vec<_> = rows
+                .iter()
+                .filter_map(|row| compact_value(row, preserve_empty || row.is_object()))
+                .collect();
+            (!rows.is_empty() || preserve_empty).then_some(Value::Array(rows))
         }
         Value::Object(fields) => {
             let fields: Map<_, _> = fields
@@ -73,12 +129,12 @@ fn compact(value: &Value) -> Option<Value> {
                     let value = if key == "omitted_field_groups" && value == &json!([]) {
                         Some(value.clone())
                     } else {
-                        compact(value)
+                        compact_value(value, preserve_empty)
                     };
                     value.map(|value| (key.clone(), value))
                 })
                 .collect();
-            (!fields.is_empty()).then_some(Value::Object(fields))
+            (!fields.is_empty() || preserve_empty).then_some(Value::Object(fields))
         }
         _ => Some(value.clone()),
     }

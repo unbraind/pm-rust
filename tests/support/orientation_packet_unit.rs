@@ -290,10 +290,30 @@ fn packet_evidence_and_rendered_budget() -> Result<(), Box<dyn std::error::Error
                     ..Default::default()
                 },
             );
-            if budget == "1" || budget == "30" {
-                assert!(result.is_err());
-            } else {
-                assert_eq!(result?["format"], "context");
+            match result {
+                Ok(result) => {
+                    assert_eq!(result["format"], "context");
+                    assert!(
+                        result["context"]["meta"]["usedTokens"]
+                            .as_u64()
+                            .unwrap_or_default()
+                            <= budget.parse::<u64>()?
+                    );
+                }
+                Err(PmRustError::CommandRefusal {
+                    exit_code, context, ..
+                }) => {
+                    assert_eq!(exit_code, 2);
+                    assert_eq!(context["code"], "invalid_argument_value");
+                    assert!(
+                        context["recovery"]["token_budget"]["feasible_tokens"]
+                            .as_u64()
+                            .is_some_and(
+                                |tokens| tokens > budget.parse::<u64>().unwrap_or_default()
+                            )
+                    );
+                }
+                Err(error) => return Err(error.into()),
             }
         }
     }
@@ -341,19 +361,36 @@ fn packet_rendered_budget_removes_missing_references() -> Result<(), Box<dyn std
         workspace.pm_root().join("tasks/sample-root.toon"),
         toon_format::encode_default(&root)?,
     )?;
+    let graph = Graph::new(&[root], &Lifecycle::load(workspace.pm_root())?);
     for toon in [true, false] {
-        let result = workspace.deps(
-            "sample-root",
-            &DepsOptions {
-                format: Some("context".to_owned()),
-                toon,
-                token_budget: Some("200".to_owned()),
-                ..Default::default()
-            },
-        )?;
+        let mut options = DepsOptions {
+            format: Some("context".to_owned()),
+            toon,
+            ..Default::default()
+        };
+        let mut query = Query::new(&options, None)?;
+        let traversal = Traversal::new(&graph, "sample-root", &query);
+        let mut compacted = None;
+        for budget in 1..=1200 {
+            query.tokens = budget;
+            options.token_budget = Some(budget.to_string());
+            if let Ok(result) =
+                render_packet(&graph, "sample-root", &query, &traversal, &[], &options)
+                && result["missing_references"] == json!([])
+            {
+                assert!(
+                    result["context"]["meta"]["usedTokens"]
+                        .as_u64()
+                        .unwrap_or_default()
+                        <= u64::try_from(budget)?
+                );
+                compacted = Some(result);
+                break;
+            }
+        }
+        let result = compacted.ok_or("no feasible reference-compacted packet")?;
         assert_eq!(result["missing_reference_count"], 1);
         assert_eq!(result["missing_count"], 1);
-        assert_eq!(result["missing_references"], json!([]));
         assert_eq!(result["context"]["root"]["id"], "sample-root");
     }
     Ok(())
@@ -520,4 +557,126 @@ fn packet_adjacency_preserves_incident_edge_semantics() -> Result<(), Box<dyn st
         assert!(graph.neighbors("isolated", &query).is_empty());
     }
     Ok(())
+}
+/// Recovery preserves a real producer cursor and explicit controls, with cost-limited fallback.
+#[test]
+fn packet_budget_recovery_replays_preserved_queries() -> Result<(), Box<dyn std::error::Error>> {
+    let (_directory, workspace) = workspace()?;
+    for (id, parent) in [
+        ("sample-root", "sample-parent"),
+        ("sample-parent", "sample-grand"),
+        ("sample-grand", ""),
+    ] {
+        let mut row = item(id);
+        if !parent.is_empty() {
+            row["parent"] = json!(parent);
+        }
+        fs::write(
+            workspace.pm_root().join(format!("tasks/{id}.toon")),
+            toon_format::encode_default(&row)?,
+        )?;
+    }
+    let mut options = DepsOptions {
+        format: Some("context".to_owned()),
+        max_depth: Some("2".to_owned()),
+        node_limit: Some("1".to_owned()),
+        edge_limit: Some("2".to_owned()),
+        direction: Some("both".to_owned()),
+        kind: vec!["parent,child".to_owned()],
+        full: true,
+        ..Default::default()
+    };
+    let first = workspace.deps("sample-root", &options)?;
+    let cursor = first["context"]["meta"]["nextCursor"]
+        .as_str()
+        .ok_or("producer cursor")?
+        .to_owned();
+    options.cursor = Some(cursor.clone());
+    options.token_budget = Some("1".to_owned());
+    let Err(PmRustError::CommandRefusal {
+        context, exit_code, ..
+    }) = workspace.deps("sample-root", &options)
+    else {
+        return Err("bounded continuation must refuse".into());
+    };
+    assert_eq!(exit_code, 2);
+    let args = context["recovery"]["suggested_retry_args"]
+        .as_array()
+        .ok_or("retry args")?;
+    assert!(
+        args.windows(2)
+            .any(|pair| pair == [json!("--cursor"), json!(cursor)])
+    );
+    for flag in [
+        "--max-depth",
+        "--node-limit",
+        "--edge-limit",
+        "--direction",
+        "--kind",
+        "--full",
+        "--json",
+    ] {
+        assert!(args.contains(&json!(flag)));
+    }
+    let feasible = context["recovery"]["token_budget"]["feasible_tokens"]
+        .as_u64()
+        .ok_or("feasible budget")?;
+    options.token_budget = Some(feasible.to_string());
+    let retry = workspace.deps("sample-root", &options)?;
+    assert!(
+        retry["context"]["meta"]["usedTokens"]
+            .as_u64()
+            .ok_or("used tokens")?
+            <= feasible
+    );
+    options.cursor = None;
+    options.summary = true;
+    options.full = false;
+    options.token_budget = Some("100".to_owned());
+    assert!(workspace.deps("sample-root", &options).is_err());
+    let mut root = item("sample-root");
+    root["title"] = json!("x".repeat(1_000_001));
+    fs::write(
+        workspace.pm_root().join("tasks/sample-root.toon"),
+        toon_format::encode_default(&root)?,
+    )?;
+    options.summary = false;
+    options.token_budget = Some("1".to_owned());
+    let Err(PmRustError::CommandRefusal { context, .. }) = workspace.deps("sample-root", &options)
+    else {
+        return Err("costly search must refuse".into());
+    };
+    assert_eq!(
+        context["recovery"]["token_budget"]["reason"],
+        "query_cost_limit"
+    );
+    assert!(
+        context["recovery"]["suggested_retry"]
+            .as_str()
+            .is_some_and(|command| command.ends_with("--format tree --summary"))
+    );
+    Ok(())
+}
+/// Retry classification preserves native floors, separate output constraints and valid delivery.
+#[test]
+fn packet_probe_classification_respects_refusal_boundaries() {
+    use crate::orientation_deps::budget_recovery::Probe;
+    let floor = crate::collections::refusal(
+        "Relationship context tokenBudget cannot fit one node",
+        1,
+        json!({"code":"unknown_error"}),
+    );
+    assert!(budget_floor(&floor));
+    assert!(probe_delivery(Err(floor)) == Probe::Floor);
+    assert!(!budget_floor(&crate::collections::refusal(
+        "Unrelated argument failure",
+        2,
+        json!({})
+    )));
+    assert!(!budget_floor(&PmRustError::ReadCursor {
+        code: "invalid_query_cursor",
+        detail: "bad cursor".to_owned()
+    }));
+    assert!(probe_delivery(Ok(json!({"context":{"nodes":[]}}).into())) == Probe::Fits);
+    assert!(probe_delivery(Ok(json!({"output_budget_exceeded":{"reason":"requested_budget_infeasible","omitted_result":true}}).into())) == Probe::OutputConstraints);
 }

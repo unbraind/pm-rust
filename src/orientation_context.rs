@@ -514,15 +514,29 @@ fn blocker_ids(
         ids.insert(scalar.to_lowercase(), scalar.to_owned());
     }
     for dep in item["dependencies"].as_array().into_iter().flatten() {
-        if dep["kind"] == "blocked_by" {
+        if matches!(
+            text(dep, "kind")
+                .trim()
+                .to_lowercase()
+                .replace('-', "_")
+                .as_str(),
+            "blocked_by" | "depends_on"
+        ) {
             let id = text(dep, "id").trim();
+            if id.is_empty() || id.eq_ignore_ascii_case("no-active-blocker") {
+                continue;
+            }
             ids.entry(id.to_lowercase())
                 .or_insert_with(|| id.to_owned());
         }
     }
     for other in corpus {
         for dep in other["dependencies"].as_array().into_iter().flatten() {
-            if dep["kind"] == "blocks" && text(dep, "id").eq_ignore_ascii_case(text(item, "id")) {
+            if text(dep, "kind").trim().eq_ignore_ascii_case("blocks")
+                && text(dep, "id")
+                    .trim()
+                    .eq_ignore_ascii_case(text(item, "id").trim())
+            {
                 ids.entry(text(other, "id").to_lowercase())
                     .or_insert_with(|| text(other, "id").to_owned());
             }
@@ -1298,7 +1312,10 @@ impl Workspace {
             .chain(
                 ranking
                     .iter()
-                    .filter(|(item, _)| blocked.contains(text(item, "id")))
+                    .filter(|(item, _)| {
+                        blocked.contains(text(item, "id"))
+                            && !lifecycle.role(text(item, "status"), "active")
+                    })
                     .take(limit)
                     .map(|(item, _)| text(item, "id")),
             )

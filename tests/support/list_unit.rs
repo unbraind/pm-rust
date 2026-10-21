@@ -702,7 +702,7 @@ fn brief_rows_report_null_for_unrecognized_sort_keys() -> Result<(), Box<dyn std
     );
     assert_eq!(
         super::brief_fields(None),
-        vec!["id", "status", "type", "title"]
+        vec!["id", "status", "type", "title", "priority"]
     );
     Ok(())
 }
@@ -837,5 +837,38 @@ fn nullable_sort_values_survive_intent_brief_projection() -> Result<(), Box<dyn 
             }
         }
     }
+    Ok(())
+}
+
+/// GH-1507 makes effective default keys visible in brief SDK rows and metadata.
+#[test]
+fn default_brief_rows_explain_effective_ordering() -> Result<(), Box<dyn std::error::Error>> {
+    let directory = tempfile::tempdir()?;
+    let root = directory.path().join(".agents/pm");
+    fs::create_dir_all(root.join("tasks"))?;
+    fs::write(root.join("settings.json"), "{}")?;
+    fs::write(
+        root.join("tasks/sample-first.toon"),
+        "id: sample-first\ntitle: First\ntype: Task\nstatus: open\npriority: 1\ncreated_at: 2026-08-22T10:00:00.000Z\nupdated_at: 2026-08-22T10:00:00.000Z\n",
+    )?;
+    let workspace = Workspace::discover(directory.path())?;
+    let result = workspace.list_page(
+        &ItemFilter::default(),
+        &crate::ListOptions {
+            output_budget: Some("unbounded".to_owned()),
+            ..Default::default()
+        },
+        "clock",
+    )?;
+    assert_eq!(result["items"][0]["priority"], 1);
+    assert_eq!(
+        result["sorting"]["effective_keys"],
+        serde_json::json!([
+            ["status_registry:nonterminal_before_terminal", "asc"],
+            ["priority", "asc"],
+            ["updated_at", "desc"],
+            ["id", "asc"]
+        ])
+    );
     Ok(())
 }

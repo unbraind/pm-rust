@@ -2,6 +2,32 @@
 
 use serde_json::{Value, json};
 
+/// Object rows retain explicit null, empty and nested facts while envelopes remain compact.
+#[test]
+fn toon_rows_preserve_explicit_facts() -> Result<(), Box<dyn std::error::Error>> {
+    let source = json!({
+        "empty_envelope": [],
+        "rows": [
+            {"id":"one","missing":null,"tags":[],"metadata":{},"nested":[null,{}]},
+            {},
+            null
+        ]
+    });
+    let expected = json!({"rows":[
+        {"id":"one","missing":null,"tags":[],"metadata":{},"nested":[null,{}]},
+        {}
+    ]});
+    assert_eq!(super::compact(&source), Some(expected.clone()));
+    let rendered = super::stringify_toon(&source.into())?;
+    assert_eq!(rendered, format!("{}\n", super::render(&expected, 0)));
+    // Fixed wire captured independently from the pinned published formatter.
+    assert_eq!(
+        rendered,
+        "rows[2]:\n  - id: one\n    missing: null\n    tags: []\n    metadata:\n    nested[2]:\n      - null\n      -\n  -\n"
+    );
+    Ok(())
+}
+
 /// Independent wire examples cover empty values, tables and complete brief summaries.
 #[test]
 fn toon_wire_shapes_preserve_values_and_disclose_sparse_cells()
@@ -34,10 +60,10 @@ fn toon_wire_shapes_preserve_values_and_disclose_sparse_cells()
         encoding,
         json!({"json_columns":["tags"],"absent":[[0,"parent"]]})
     );
-    let brief = json!({"items":[],"count":0,"total":0,"has_more":false,"truncated":false,"projection":{"mode":"brief"},"completeness":{"status":"complete","unreadable_item_count":0,"unreadable_directory_count":0},"sorting":{"sort":"default"},"omission_receipt":{"omitted_field_groups":[{"name":"full_item_fields","restore_with":"--full"}]}});
+    let brief = json!({"items":[],"count":0,"total":0,"has_more":false,"truncated":false,"projection":{"mode":"brief","fields":["id","status","type","title"]},"completeness":{"status":"complete","unreadable_item_count":0,"unreadable_directory_count":0},"sorting":{"sort":"default"},"omission_receipt":{"has_omissions":true,"omitted_field_group_count":1,"omitted_field_groups":[{"name":"full_item_fields","restore_with":"--full"}]}});
     assert_eq!(
         complete_brief(&brief),
-        json!({"items":[],"count":0,"details":"--full"})
+        json!({"items":[],"count":0,"sorting":{"sort":"default"},"details":"--full"})
     );
     for (pointer, value) in [
         ("/items", json!(null)),
@@ -58,6 +84,12 @@ fn toon_wire_shapes_preserve_values_and_disclose_sparse_cells()
         }
         assert_eq!(complete_brief(&altered), altered);
     }
+    let mut missing_sorting = brief.clone();
+    missing_sorting
+        .as_object_mut()
+        .ok_or("object")?
+        .shift_remove("sorting");
+    assert!(complete_brief(&missing_sorting).get("sorting").is_none());
     let mut sorted = brief;
     sorted["sorting"] = json!({"sort":"title","order":"asc"});
     assert_eq!(complete_brief(&sorted)["sorting"], sorted["sorting"]);
@@ -138,4 +170,72 @@ fn assert_read_number_domain() -> Result<(), Box<dyn std::error::Error>> {
         "[-9007199254740992,9007199254740992,-42,42,1.5,{\"safe\":null,\"text\":\"9007199254740993\"}]"
     );
     Ok(())
+}
+/// Brief projection keeps continuation and source evidence, rejecting ambiguous metadata.
+#[test]
+fn brief_envelopes_preserve_partial_and_unchecked_sources() {
+    let base = json!({"items":[{"id":"a"}],"count":1,"total":1,"has_more":false,"truncated":false,"next_cursor":null,"projection":{"mode":"brief","fields":["id","status","type","title"]},"sorting":{"sort":"default","order":"asc"},"completeness":{"status":"complete","unreadable_item_count":0,"unreadable_directory_count":0},"omission_receipt":{"has_omissions":true,"omitted_field_group_count":1,"omitted_field_groups":[{"name":"full_item_fields","restore_with":"--full"}]}});
+    assert_eq!(
+        super::complete_brief(&base),
+        json!({"items":[{"id":"a"}],"count":1,"details":"--full"})
+    );
+    let mut page = base.clone();
+    page["has_more"] = json!(true);
+    page["truncated"] = json!(true);
+    page["total"] = json!(2);
+    page["next_cursor"] = json!("next");
+    assert_eq!(
+        super::complete_brief(&page),
+        json!({"items":[{"id":"a"}],"count":1,"total":2,"has_more":true,"completeness":{"status":"complete"},"next_cursor":"next","details":"--full"})
+    );
+    for (pointer, value) in [
+        ("/completeness/status", json!("unchecked")),
+        ("/completeness/extra", json!("retained")),
+    ] {
+        let mut altered = base.clone();
+        if pointer.ends_with("extra") {
+            altered["completeness"]["extra"] = value;
+        } else {
+            altered["completeness"]["status"] = value;
+        }
+        let projected = super::complete_brief(&altered);
+        assert_eq!(projected["total"], 1);
+        assert_eq!(projected["has_more"], false);
+        assert_eq!(projected.pointer(pointer), altered.pointer(pointer));
+    }
+    for (pointer, value) in [
+        ("/has_more", Value::Null),
+        ("/total", json!("bad")),
+        ("/total", json!(1.5)),
+        ("/total", json!(9_007_199_254_740_992_u64)),
+        ("/total", json!(-1)),
+        ("/total", json!(0)),
+        ("/count", json!(2)),
+        ("/truncated", json!(true)),
+        ("/next_cursor", json!("unexpected")),
+        ("/projection/fields", json!([])),
+        ("/completeness/unreadable_item_count", json!(1)),
+        ("/completeness/unreadable_directory_count", json!(1)),
+    ] {
+        let mut altered = base.clone();
+        if let Some(target) = altered.pointer_mut(pointer) {
+            *target = value;
+        }
+        assert_eq!(super::complete_brief(&altered), altered, "{pointer}");
+    }
+    for cursor in [Value::Null, json!(""), json!(0)] {
+        let mut altered = page.clone();
+        altered["next_cursor"] = cursor;
+        assert_eq!(super::complete_brief(&altered), altered);
+    }
+    page["total"] = json!(1);
+    assert_eq!(super::complete_brief(&page), page);
+    let mut extra = base.clone();
+    extra["projection"]["extra"] = json!(true);
+    assert_eq!(super::complete_brief(&extra), extra);
+    assert!(!super::standard_brief(&Value::Null));
+    assert!(super::standard_pagination(
+        &json!({"count":1.0,"total":1.0,"has_more":false,"truncated":false}),
+        1
+    ));
 }

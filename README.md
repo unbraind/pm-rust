@@ -6,7 +6,7 @@ native applications.
 
 The project is pre-release. Its current delivery slice reads workspaces and
 creates, updates, comments on, closes, claims, and releases canonical items
-against the published `pm` 2026.10.19 on-disk contract. Production code, tests, benchmarks,
+against the published `pm` 2026.10.21 on-disk contract. Production code, tests, benchmarks,
 and build tooling are Rust; the distributed binary does not require Node.js,
 Bun, JavaScript, or TypeScript.
 
@@ -41,6 +41,18 @@ list projections preserve stored extra metadata key order. Generated differentia
 checks and independent revert proofs are documented in
 [the output parity receipt](docs/OUTPUT_PARITY_2026_10_7.md).
 
+See the [October 21 parity contract](docs/NATIVE_PARITY_2026_10_21.md) for lock-owner
+recovery, strict mutation admission, ordering and cursor changes.
+
+## Without git
+
+Workspace discovery, list/get/search/context/history/dependencies, item mutations,
+ownership and linked artifacts work in plain directories. Concurrent writers share
+the same tracker and retain every admitted item edit and append-only history entry.
+Linked-test branch provenance is optional and inspects Git only when a repository
+marker exists. GitHub synchronization and Git history tooling require a Git
+repository and are outside the distributed native command slice.
+
 ## Current native slice
 
 ```bash
@@ -74,7 +86,7 @@ cargo run -- release pm-example --author agent --json
 cargo run -- --workspace /path/to/project close pm-example --reason "Done: shipped" --author agent --resolution "Fixed" --expected-result "Expected" --actual-result "Observed" --validate-close strict --json
 ```
 
-List pagination uses the pinned 2026.10.19 oracle in both JSON and default TOON.
+List pagination uses the pinned 2026.10.21 oracle in both JSON and default TOON.
 Configured lifecycle roles and declarative custom hierarchy kinds are resolved
 before selection; see [configured list registries](docs/CONFIGURED_LIST_REGISTRIES.md).
 Parent and tag filters and all six published sort fields run before slicing;
@@ -159,7 +171,7 @@ Work is managed in this repository with the latest `pm` CLI under
 
 ## Development
 
-The published parity oracle is pinned to exactly 2026.10.19 in
+The published parity oracle is pinned to exactly 2026.10.21 in
 `tests/oracle/package.json` and installed from its committed `package-lock.json`.
 Both local runs and every CI matrix job use `npm ci`; the lock records the
 registry tarball and integrity, including the bundled runtime closure. This

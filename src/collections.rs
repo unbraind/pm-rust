@@ -87,7 +87,7 @@ pub(crate) fn missing(pm_root: &Path, id: &str) -> PmRustError {
 }
 
 /// Resolves the same hosted or local branch provenance used by linked test additions.
-pub(crate) fn source_ref() -> Option<String> {
+pub(crate) fn source_ref(pm_root: &Path) -> Option<String> {
     let hosted = ["GITHUB_HEAD_REF", "GITHUB_REF_NAME"]
         .into_iter()
         .filter_map(|key| std::env::var(key).ok())
@@ -95,11 +95,35 @@ pub(crate) fn source_ref() -> Option<String> {
     if let Some(hosted) = hosted.filter(|s| s.trim() != "merge") {
         return Some(hosted.trim().to_owned());
     }
-    let mut command = std::process::Command::new("git");
-    command.args(["symbolic-ref", "--quiet", "--short", "HEAD"]);
-    if let Some(root) = std::env::var_os("PM_SOURCE_WORKSPACE_ROOT") {
-        command.current_dir(root);
+    let workspace = std::env::var_os("PM_SOURCE_WORKSPACE_ROOT").map_or_else(
+        || {
+            pm_root
+                .parent()
+                .and_then(Path::parent)
+                .unwrap_or(pm_root)
+                .to_path_buf()
+        },
+        std::path::PathBuf::from,
+    );
+    if !workspace
+        .ancestors()
+        .any(|parent| parent.join(".git").exists())
+    {
+        return None;
     }
+    let mut command = std::process::Command::new("git");
+    command
+        .current_dir(workspace)
+        // Hooks can export coordinates for a different repository. Resolve
+        // provenance solely from the selected workspace, including worktrees.
+        .env_remove("GIT_DIR")
+        .env_remove("GIT_WORK_TREE")
+        .env_remove("GIT_INDEX_FILE")
+        .env_remove("GIT_OBJECT_DIRECTORY")
+        .env_remove("GIT_ALTERNATE_OBJECT_DIRECTORIES")
+        .env_remove("GIT_COMMON_DIR")
+        .env_remove("GIT_NAMESPACE")
+        .args(["symbolic-ref", "--quiet", "--short", "HEAD"]);
     let output = command.output().ok()?;
     let value = String::from_utf8_lossy(&output.stdout).trim().to_owned();
     (!value.is_empty()).then_some(value)

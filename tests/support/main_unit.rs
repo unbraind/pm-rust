@@ -134,6 +134,7 @@ fn owned_published_argument_streams() {
                 "--json",
             ],
         ),
+        (&["item", "deps", "sample-a"], &["deps", "sample-a"]),
         (&["files", "sample-a"], &["item", "files", "sample-a"]),
         (&["docs", "sample-a"], &["item", "docs", "sample-a"]),
         (&["test", "sample-a"], &["item", "test", "sample-a"]),
@@ -279,7 +280,7 @@ fn search_error_value_and_output_control_guidance() {
         let payload = super::command_error_json(detail, &serde_json::json!({}), &args, 2);
         assert_eq!(payload["code"], "invalid_argument_value");
         assert_eq!(payload["refusal"]["surface"], surface);
-        assert_eq!(payload["recovery"]["normalized_args"][1], "q");
+        assert_eq!(payload["recovery"]["normalized_args"][1], " q ");
         assert!(payload["next_steps"][0].is_string());
     }
 }
@@ -376,6 +377,11 @@ fn collection_and_search_error_guidance_edges() -> Result<(), Box<dyn std::error
 /// A final rejected flag has no following value to include in its refusal.
 #[test]
 fn flag_only_refusals_do_not_invent_a_rejected_value() {
+    let exclusive = ["claim", "--next", "--start"].map(str::to_owned);
+    assert_eq!(
+        super::command_refusal_detail("Use --next or --start, not both.", &exclusive, 2),
+        serde_json::json!({"surface":"--next", "exit_code":2})
+    );
     let args = ["claim", "--next"].map(str::to_owned);
     assert_eq!(
         super::command_refusal_detail("Invalid --next.", &args, 2),
@@ -855,6 +861,18 @@ fn cursor_recovery_arguments_preserve_public_flags() {
         serde_json::json!(["--json", "--after"])
     );
     assert!(producer["next_steps"].is_array());
+    for cursor in ["--cursor", "--cursor=invalid"] {
+        let args = vec![
+            "deps".to_owned(),
+            "sample-root".to_owned(),
+            cursor.to_owned(),
+        ];
+        let payload = super::cursor_error_json("invalid_query_cursor", "reason", &args);
+        assert_eq!(
+            payload["next_steps"][0],
+            "Repeat the original query without --cursor to obtain a fresh cursor."
+        );
+    }
     let output = super::cursor_error_json("read_output_cursor_stale", "reason", &args);
     assert!(output.get("next_steps").is_none());
 }
@@ -964,7 +982,7 @@ fn closure_recovery_and_refusal_boundaries() {
             &payload,
             2
         ),
-        serde_json::json!({"surface":"--actual-result","rejected_value":"--validate-close","exit_code":2})
+        serde_json::json!({"surface":"--actual-result","rejected_value":" ","exit_code":2})
     );
     for (payload, detail, expected) in [
         (
@@ -1165,4 +1183,363 @@ fn orientation_argument_context_and_fallback() {
         super::rejected_orientation_argument(&error, &fallback, &allowed),
         "--bogus"
     );
+}
+
+/// Assurance dispatch discovers declarations and returns typed missing-operand/read refusals.
+#[test]
+fn assurance_dispatch_is_read_only() -> Result<(), Box<dyn std::error::Error>> {
+    use clap::Parser as _;
+    let directory = tempfile::tempdir()?;
+    let root = directory.path().join(".agents/pm");
+    std::fs::create_dir_all(&root)?;
+    std::fs::write(root.join("settings.json"), "{}")?;
+    std::fs::write(root.join("assurance.json"), r#"{"gates":[{"id":"known"}]}"#)?;
+    for (flags, success) in [
+        (vec!["assurance", "list", "gate", "--json"], true),
+        (vec!["assurance", "list", "gate"], true),
+        (vec!["assurance", "show", "gate", "known", "--json"], true),
+        (vec!["assurance", "show", "measurement"], false),
+        (
+            vec!["assurance", "show", "measurement", "missing", "--json"],
+            false,
+        ),
+    ] {
+        let mut args = vec![
+            "pm-rust",
+            "--workspace",
+            directory.path().to_str().ok_or("UTF8")?,
+        ];
+        args.extend(flags);
+        assert_eq!(run(Cli::try_parse_from(args)?).is_ok(), success);
+    }
+    for recovery in [
+        serde_json::Value::Null,
+        serde_json::json!({"suggested_retry":"pm assurance list gate"}),
+    ] {
+        let context = serde_json::json!({"reason":"assurance_evaluation_refused","value":"missing","changed":false,"recovery":recovery});
+        let payload = super::command_error_json(
+            "missing declaration",
+            &context,
+            &["assurance".to_owned()],
+            2,
+        );
+        assert_eq!(payload["exit_code"], 2);
+        assert_eq!(payload["changed"], false);
+    }
+    Ok(())
+}
+
+/// Retrying a contended mutation must keep an explicitly selected native workspace.
+#[test]
+fn lock_recovery_keeps_explicit_workspace_scope() {
+    for raw in [
+        vec!["--workspace", "tracker directory"],
+        vec!["--workspace=tracker directory"],
+        vec!["--pm-path", "tracker directory"],
+        vec!["--pm-path=tracker directory"],
+        vec!["--path", "tracker directory"],
+        vec!["--path=tracker directory"],
+    ] {
+        let mut payload =
+            serde_json::json!({"recovery":{"normalized_args":["comment","sample-one","note"]}});
+        super::preserve_lock_scope(
+            &mut payload,
+            &raw.iter().map(|arg| (*arg).to_owned()).collect::<Vec<_>>(),
+        );
+        assert_eq!(
+            payload["recovery"]["suggested_retry_args"],
+            serde_json::json!([
+                "--pm-path",
+                "tracker directory",
+                "comment",
+                "sample-one",
+                "note"
+            ])
+        );
+    }
+    for raw in [
+        vec!["comment"],
+        vec!["--workspace"],
+        vec!["--pm-path"],
+        vec!["--path"],
+    ] {
+        let mut payload = serde_json::json!({});
+        super::preserve_lock_scope(
+            &mut payload,
+            &raw.iter().map(|arg| (*arg).to_owned()).collect::<Vec<_>>(),
+        );
+        assert_eq!(payload, serde_json::json!({}));
+    }
+}
+
+/// Recovery envelopes preserve literal empty and whitespace values from the invocation.
+#[test]
+fn close_recovery_preserves_literal_argument_values() {
+    for value in [" ", "", " value "] {
+        let args = ["close", "sample-close", "--actual-result", value]
+            .map(str::to_owned)
+            .to_vec();
+        let payload = super::command_error_json(
+            "Cannot close: missing actual_result (--actual-result).",
+            &serde_json::json!({"code":"close_validation_missing_fields","recovery":{"missing":["--actual-result"]}}),
+            &args,
+            2,
+        );
+        assert_eq!(
+            payload["recovery"]["normalized_args"],
+            serde_json::json!(args)
+        );
+        assert_eq!(payload["refusal"]["rejected_value"], value);
+    }
+}
+/// Canonical packet retry namespaces normalize after scope options, preserving literal values.
+#[test]
+fn canonical_packet_retry_arguments_are_accepted() -> Result<(), Box<dyn std::error::Error>> {
+    for prefix in [vec![], vec!["--pm-path", "."], vec!["--workspace=."]] {
+        let mut args = vec!["pm-rust"];
+        args.extend(prefix);
+        args.extend(["item", "deps", "sample-root", "--output-format", "json"]);
+        let normalized =
+            super::native_arguments(args.into_iter().map(std::ffi::OsString::from).collect());
+        let cli = <super::Cli as clap::Parser>::try_parse_from(normalized)?;
+        assert!(
+            matches!(cli.command, super::Command::Deps { output_format: Some(format), .. } if format == "json")
+        );
+    }
+    for args in [
+        vec![],
+        vec!["pm-rust"],
+        vec!["pm-rust", "--workspace"],
+        vec!["pm-rust", "--workspace", "item", "deps", "root"],
+        vec!["pm-rust", "item", "get", "root"],
+        vec!["pm-rust", "deps", "item"],
+    ] {
+        let args = args
+            .into_iter()
+            .map(std::ffi::OsString::from)
+            .collect::<Vec<_>>();
+        assert_eq!(super::native_arguments(args.clone()), args);
+    }
+    Ok(())
+}
+
+/// Canonical comment retry namespaces parse after scope aliases without changing literal text.
+#[test]
+fn canonical_comment_retry_arguments_are_accepted() -> Result<(), Box<dyn std::error::Error>> {
+    for prefix in [vec![], vec!["--pm-path", "."], vec!["--workspace=."]] {
+        let mut args = vec!["pm-rust"];
+        args.extend(prefix);
+        args.extend([
+            "item",
+            "comments",
+            "sample-one",
+            " note ",
+            "--author",
+            "test-agent",
+        ]);
+        let normalized =
+            super::native_arguments(args.into_iter().map(std::ffi::OsString::from).collect());
+        let cli = <super::Cli as clap::Parser>::try_parse_from(normalized)?;
+        assert!(matches!(cli.command, super::Command::Comment { text, .. } if text == " note "));
+    }
+    Ok(())
+}
+
+/// Budget receipts stay compact and distinguish unavailable advice from a proven minimum.
+#[test]
+fn packet_recovery_receipts_preserve_verified_evidence() -> Result<(), Box<dyn std::error::Error>> {
+    for minimum in [serde_json::json!(123), serde_json::Value::Null] {
+        let payload = serde_json::json!({"code":"invalid_argument_value","title":"Budget floor","detail":"Budget floor","required":"Retry","recovery":{"token_budget":{"requested_tokens":1,"feasible_tokens":minimum,"minimum_feasible_tokens":minimum},"suggested_retry":"pm retry","next_best_command":"pm inspect","fallback_candidates":[{"source":"relationship_summary","command":"pm inspect","reason":"Bounded counts"}]}});
+        assert_eq!(
+            super::command_error_json("Budget floor", &payload, &["deps".to_owned()], 2),
+            payload
+        );
+        let mut output = Vec::new();
+        super::write_cursor_refusal_to(&mut output, &payload)?;
+        let text = String::from_utf8(output)?;
+        assert!(text.contains("minimum_token_budget:"));
+        assert!(text.contains("suggested_retry: pm retry"));
+        assert!(!text.contains("attempted_command:"));
+    }
+    let context = serde_json::json!({"code":"invalid_query_cursor","recovery":{"suggested_retry":"pm retry","suggested_retry_args":["deps","a"]}});
+    let payload = super::command_error_json(
+        "Query cursor is malformed.",
+        &context,
+        &["deps".to_owned(), "--cursor".to_owned(), "bad".to_owned()],
+        2,
+    );
+    assert_eq!(payload["next_steps"][1], "pm retry");
+    let mut output = Vec::new();
+    super::write_cursor_refusal_to(&mut output, &payload)?;
+    assert!(String::from_utf8(output)?.contains("suggested_retry: pm retry"));
+    Ok(())
+}
+
+/// Explicit encoding controls take precedence for structured and human refusals.
+#[test]
+fn explicit_error_encoding_has_the_published_precedence() {
+    for (args, expected) in [
+        (vec![], false),
+        (vec!["--json"], true),
+        (vec!["--output-format", "json"], true),
+        (vec!["--json", "--output-format", "toon"], false),
+        (vec!["--output-format=json"], true),
+        (vec!["--output-format=toon"], false),
+    ] {
+        assert_eq!(
+            super::json_requested(&args.into_iter().map(str::to_owned).collect::<Vec<_>>()),
+            expected
+        );
+    }
+}
+/// Search refusals retain empty and whitespace argument facts exactly as supplied.
+#[test]
+fn search_recovery_keeps_literal_argument_values() {
+    for value in ["", " ", " padded "] {
+        let args = vec!["search".to_owned(), value.to_owned(), "--json".to_owned()];
+        let result = super::search_error_json(
+            "Search query must not be empty",
+            &serde_json::json!({"code":"command_failed"}),
+            &args,
+            2,
+        );
+        assert_eq!(
+            result["recovery"]["normalized_args"],
+            serde_json::json!(args)
+        );
+        let args = vec![
+            "search".to_owned(),
+            "rust".to_owned(),
+            "--type".to_owned(),
+            value.to_owned(),
+        ];
+        let result =
+            super::command_refusal_detail("--type requires at least one non-empty value", &args, 2);
+        assert_eq!(result["rejected_value"], value);
+    }
+}
+
+/// Unknown runtime failures preserve their human fallback and explicit JSON encoding.
+#[test]
+fn command_refusal_encoding_and_recovery_boundaries() -> Result<(), Box<dyn std::error::Error>> {
+    let context = serde_json::json!({"code":"unknown_error"});
+    for command in ["context", "assurance"] {
+        for json in [false, true] {
+            let mut args = vec![command.to_owned()];
+            if json {
+                args.push("--json".to_owned());
+            }
+            let payload = super::command_error_json("runtime failed", &context, &args, 1);
+            let mut output = Vec::new();
+            super::write_command_refusal_to(
+                &mut output,
+                "runtime failed",
+                &context,
+                &args,
+                &payload,
+            )?;
+            if json {
+                assert_eq!(
+                    serde_json::from_slice::<serde_json::Value>(&output)?["code"],
+                    "unknown_error"
+                );
+            } else {
+                assert_eq!(output, b"runtime failed\n");
+            }
+            assert!(
+                super::write_command_refusal_to(
+                    &mut WriteFailure,
+                    "runtime failed",
+                    &context,
+                    &args,
+                    &payload
+                )
+                .is_err()
+            );
+        }
+    }
+    let args = vec!["context".to_owned()];
+    assert_eq!(
+        super::command_error_json("runtime failed", &context, &args, 1)["code"],
+        "unknown_error"
+    );
+    for command in ["close", "claim", "context", "search", "item"] {
+        let args = vec![
+            command.to_owned(),
+            "sample-one".to_owned(),
+            "--limit".to_owned(),
+            "bad".to_owned(),
+        ];
+        let payload = super::command_error_json(
+            "Invalid --limit.",
+            &serde_json::json!({"code":"invalid_argument_value"}),
+            &args,
+            2,
+        );
+        assert_eq!(payload["exit_code"], 2);
+        assert!(payload["refusal"].is_object());
+    }
+    let bare_cursor = super::command_error_json(
+        "cursor invalid",
+        &serde_json::json!({"code":"invalid_query_cursor"}),
+        &[
+            "deps".to_owned(),
+            "sample-one".to_owned(),
+            "--cursor".to_owned(),
+            "bad".to_owned(),
+        ],
+        2,
+    );
+    assert_eq!(bare_cursor["code"], "invalid_query_cursor");
+    assert!(bare_cursor["recovery"].is_object());
+    let context = serde_json::json!({"code":"invalid_query_cursor","recovery":{"suggested_retry":"pm item deps sample-one","scope":"sample-one"}});
+    let args = vec![
+        "item".to_owned(),
+        "deps".to_owned(),
+        "sample-one".to_owned(),
+    ];
+    let payload = super::command_error_json("cursor invalid", &context, &args, 2);
+    assert_eq!(payload["recovery"]["scope"], "sample-one");
+    assert!(
+        payload["next_steps"]
+            .as_array()
+            .ok_or("steps")?
+            .iter()
+            .any(|step| step == "pm item deps sample-one")
+    );
+    super::write_command_refusal_to(&mut Vec::new(), "cursor invalid", &context, &args, &payload)?;
+    let list: pm_rust::ListOutput = serde_json::json!({"items":[],"count":0}).into();
+    assert!(
+        super::write_list_to(
+            &mut NewlineFailure {
+                document_complete: false
+            },
+            &list,
+            true
+        )
+        .is_err()
+    );
+    Ok(())
+}
+
+/// Every discovery alias is removed before classifying published refusal arguments.
+#[test]
+fn published_refusal_arguments_strip_all_workspace_aliases() {
+    for flag in ["--workspace", "--pm-path", "--path"] {
+        for args in [
+            vec![
+                flag.to_owned(),
+                "tracker directory".to_owned(),
+                "context".to_owned(),
+                "--json".to_owned(),
+            ],
+            vec![
+                format!("{flag}=tracker directory"),
+                "context".to_owned(),
+                "--json".to_owned(),
+            ],
+        ] {
+            assert_eq!(super::published_read_arguments(args), ["context", "--json"]);
+        }
+    }
 }

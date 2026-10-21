@@ -136,10 +136,8 @@ impl<'a> Hierarchy<'a> {
 
 /// Computes JavaScript's nonnegative rounded percentage.
 fn completion(closed: usize, total: usize) -> Value {
-    // Keep IEEE division before rounding: the oracle renders 29/200 as 14%, not 15%.
-    // Closed descendants are a subset of a nonempty collection, so the cast is in 0..=100.
-    #[allow(clippy::cast_possible_truncation, clippy::cast_sign_loss)]
-    let percent = (super::number(closed) / super::number(total) * 100.0).round() as u64;
+    // Integer counts define half-up rounding without floating-point boundary drift.
+    let percent = (closed * 100 + total / 2) / total;
     json!(percent)
 }
 

@@ -19,6 +19,28 @@ mod windows_acl;
 
 const TS: &str = "2026-08-07T10:06:30.183Z";
 
+#[cfg(unix)]
+std::thread_local! {
+    /// Records successful real directory flushes on this test thread.
+    pub(super) static SYNCED_PARENTS: std::cell::RefCell<Vec<PathBuf>> = const { std::cell::RefCell::new(Vec::new()) };
+}
+
+#[cfg(target_os = "linux")]
+std::thread_local! {
+    /// Applies a real directory-removal race only on the requesting test thread.
+    pub(super) static RECOVERY_SYNC_HOOK: std::cell::Cell<fn(&Path)> = const { std::cell::Cell::new(keep_recovery_directory) };
+}
+
+/// Leaves the real recovery directory in place for ordinary persistence tests.
+#[cfg(target_os = "linux")]
+fn keep_recovery_directory(_: &Path) {}
+
+/// Retains the written audit while making its old containing directory unavailable.
+#[cfg(target_os = "linux")]
+fn retain_recovery_directory(directory: &Path) {
+    assert!(fs::rename(directory, directory.with_extension("retained")).is_ok());
+}
+
 /// Lifecycle storage faults stop before mutation or retain a durable recovery journal.
 #[test]
 fn lifecycle_storage_faults_preserve_recovery_evidence() -> Result<(), Box<dyn std::error::Error>> {
@@ -127,6 +149,7 @@ fn ownership_session_faults_and_contention_preserve_durable_steps()
         &locks,
         false,
         &now_iso(),
+        locks.wait_ms,
     )?;
     let called = std::cell::Cell::new(false);
     assert!(matches!(
@@ -365,7 +388,8 @@ fn initialization_gate_protects_a_lock_before_its_payload_is_published()
             "contender",
             &lock_settings,
             true,
-            TS
+            TS,
+            lock_settings.wait_ms,
         ),
         Err(PmRustError::LockConflict { .. })
     ));
@@ -378,6 +402,7 @@ fn initialization_gate_protects_a_lock_before_its_payload_is_published()
         &lock_settings,
         true,
         TS,
+        lock_settings.wait_ms,
     )?;
     assert!(matches!(
         acquire_lock(
@@ -386,7 +411,8 @@ fn initialization_gate_protects_a_lock_before_its_payload_is_published()
             "contender",
             &lock_settings,
             true,
-            TS
+            TS,
+            lock_settings.wait_ms,
         ),
         Err(PmRustError::LockConflict { .. })
     ));
@@ -403,6 +429,7 @@ fn initialization_gate_protects_a_lock_before_its_payload_is_published()
         },
         true,
         TS,
+        0,
     )?);
     assert!(!gate.exists());
     assert!(matches!(
@@ -538,9 +565,9 @@ fn stale_gate_reclamation_preserves_a_concurrent_replacement()
 fn lock_conflicts_and_forced_stale_cleanup_preserve_the_current_owner()
 -> Result<(), Box<dyn std::error::Error>> {
     let (_directory, pm_root) = root(&settings("sample-", "toon", 0))?;
-    let first = acquire_lock(&pm_root, "sample-unit", "first", &locks(0), false, TS)?;
+    let first = acquire_lock(&pm_root, "sample-unit", "first", &locks(0), false, TS, 0)?;
     assert!(matches!(
-        acquire_lock(&pm_root, "sample-unit", "second", &locks(0), false, TS),
+        acquire_lock(&pm_root, "sample-unit", "second", &locks(0), false, TS, 0,),
         Err(PmRustError::LockConflict { .. })
     ));
     let lock_path = pm_root.join("locks/sample-unit.lock");
@@ -549,12 +576,12 @@ fn lock_conflicts_and_forced_stale_cleanup_preserve_the_current_owner()
         fs::FileTimes::new().set_modified(SystemTime::now() + Duration::from_secs(60)),
     )?;
     assert!(matches!(
-        acquire_lock(&pm_root, "sample-unit", "second", &locks(0), true, TS),
+        acquire_lock(&pm_root, "sample-unit", "second", &locks(0), true, TS, 0,),
         Err(PmRustError::LockConflict { .. })
     ));
     lock_file.set_times(fs::FileTimes::new().set_modified(SystemTime::now()))?;
     thread::sleep(Duration::from_millis(2));
-    let second = acquire_lock(&pm_root, "sample-unit", "second", &locks(0), true, TS)?;
+    let second = acquire_lock(&pm_root, "sample-unit", "second", &locks(0), true, TS, 0)?;
     drop(first);
     assert!(pm_root.join("locks/sample-unit.lock").exists());
     drop(second);
@@ -570,10 +597,18 @@ fn lock_conflicts_and_forced_stale_cleanup_preserve_the_current_owner()
     fs::create_dir(&gate)?;
     thread::sleep(Duration::from_millis(2));
     assert!(matches!(
-        acquire_lock(&pm_root, "sample-gated", "third", &locks(1_800), true, TS),
+        acquire_lock(
+            &pm_root,
+            "sample-gated",
+            "third",
+            &locks(1_800),
+            true,
+            TS,
+            0,
+        ),
         Err(PmRustError::LockConflict { .. })
     ));
-    let recovered_gate = acquire_lock(&pm_root, "sample-gated", "third", &locks(0), true, TS)?;
+    let recovered_gate = acquire_lock(&pm_root, "sample-gated", "third", &locks(0), true, TS, 0)?;
     assert!(!gate.exists());
     drop(recovered_gate);
 
@@ -590,21 +625,30 @@ fn lock_conflicts_and_forced_stale_cleanup_preserve_the_current_owner()
             "third",
             &locks(0),
             true,
-            TS
+            TS,
+            0,
         ),
         Err(PmRustError::LockConflict { .. })
     ));
     let directory_lock = pm_root.join("locks/sample-directory.lock");
     fs::create_dir(&directory_lock)?;
     assert!(matches!(
-        acquire_lock(&pm_root, "sample-directory", "third", &locks(0), true, TS),
+        acquire_lock(
+            &pm_root,
+            "sample-directory",
+            "third",
+            &locks(0),
+            true,
+            TS,
+            0,
+        ),
         Err(PmRustError::Io { .. })
     ));
     #[cfg(unix)]
     {
         let oversized_id = "x".repeat(300);
         assert!(matches!(
-            acquire_lock(&pm_root, &oversized_id, "third", &locks(0), true, TS),
+            acquire_lock(&pm_root, &oversized_id, "third", &locks(0), true, TS, 0,),
             Err(PmRustError::Io { .. })
         ));
     }
@@ -865,7 +909,8 @@ fn filesystem_failures_are_typed_and_atomic_temps_are_cleaned()
             "agent",
             &LockSettings::default(),
             false,
-            TS
+            TS,
+            LockSettings::default().wait_ms,
         ),
         Err(PmRustError::Io { .. })
     ));
@@ -879,13 +924,13 @@ fn filesystem_failures_are_typed_and_atomic_temps_are_cleaned()
         Err(PmRustError::LockConflict { .. })
     ));
     assert!(matches!(
-        remove_stale_lock(&lock_path, "different", "sample-lock"),
+        remove_stale_lock(&lock_path, "different", None, "sample-lock"),
         Err(PmRustError::LockConflict { .. })
     ));
     fs::remove_file(&lock_path)?;
     assert!(matches!(
-        remove_stale_lock(&lock_path, "existing", "sample-lock"),
-        Err(PmRustError::Io { .. })
+        remove_stale_lock(&lock_path, "existing", None, "sample-lock"),
+        Err(PmRustError::LockConflict { .. })
     ));
     let read_only_lock_path = lock_root.join("read-only.lock");
     fs::write(&read_only_lock_path, "")?;
@@ -897,6 +942,7 @@ fn filesystem_failures_are_typed_and_atomic_temps_are_cleaned()
     let missing_guard = ItemLock {
         path: lock_root.join("missing.lock"),
         raw: "missing".to_owned(),
+        observed: None,
     };
     drop(missing_guard);
     Ok(())
@@ -1019,6 +1065,7 @@ fn create_surfaces_lock_recovery_journal_and_item_stage_failures()
         &LockSettings::default(),
         false,
         TS,
+        LockSettings::default().wait_ms,
     )?;
     assert!(matches!(
         create_item(&lock_root, request()),
@@ -1207,7 +1254,15 @@ fn in_place_mutations_refuse_a_live_lock_within_the_budget()
 -> Result<(), Box<dyn std::error::Error>> {
     let (_directory, pm_root) = root(&mutation_settings(0))?;
     create_item(&pm_root, request())?;
-    let _held = acquire_lock(&pm_root, "sample-unit", "holder", &locks(1_800), false, TS)?;
+    let _held = acquire_lock(
+        &pm_root,
+        "sample-unit",
+        "holder",
+        &locks(1_800),
+        false,
+        TS,
+        0,
+    )?;
     let mut update = UpdateItem {
         id: "sample-unit".to_owned(),
         title: Some("Next".to_owned()),
@@ -2660,7 +2715,15 @@ fn remaining_portable_mutation_arms_are_covered_in_the_unit_binary()
 
     // acquire_lock retry loop: a held lock plus a non-zero wait budget
     // exercises the sleep arm before the deadline returns the conflict.
-    let held = acquire_lock(&pm_root, "sample-unit", "holder", &locks(1_800), false, TS)?;
+    let held = acquire_lock(
+        &pm_root,
+        "sample-unit",
+        "holder",
+        &locks(1_800),
+        false,
+        TS,
+        0,
+    )?;
     assert!(matches!(
         acquire_lock(
             &pm_root,
@@ -2673,6 +2736,7 @@ fn remaining_portable_mutation_arms_are_covered_in_the_unit_binary()
             },
             false,
             TS,
+            40,
         ),
         Err(PmRustError::LockConflict { .. })
     ));
@@ -3144,6 +3208,7 @@ fn future_ownership_preserves_held_lock(
         &lock_settings,
         false,
         &now_iso(),
+        lock_settings.wait_ms,
     )?;
     let paths = [
         pm_root.join("tasks/sample-unit.toon"),
@@ -3179,7 +3244,17 @@ fn future_ownership_preserves_held_lock(
     let Err(PmRustError::OwnershipRefusal { detail, context }) = blocked else {
         return Err("a historical clock must still respect the held lock".into());
     };
-    assert_eq!(detail, "Item sample-unit is locked (owner live-holder)");
+    assert_eq!(
+        detail,
+        format!(
+            "Item sample-unit is locked (owner live-holder) (owner process {})",
+            if cfg!(target_os = "linux") {
+                "alive"
+            } else {
+                "unknown"
+            }
+        )
+    );
     assert_eq!(context["code"], "lock_conflict");
     assert_eq!(paths.each_ref().map(|path| fs::read(path).ok()), before);
     drop(held);
@@ -4378,7 +4453,8 @@ fn closure_prelock_identifier_grammar() -> Result<(), Box<dyn std::error::Error>
                 "unit-agent",
                 &LockSettings::default(),
                 false,
-                TS
+                TS,
+                LockSettings::default().wait_ms,
             ),
             Err(PmRustError::InvalidMutationRequest { .. })
         ));
@@ -4510,6 +4586,7 @@ fn future_collection_preserves_held_lock() -> Result<(), Box<dyn std::error::Err
             },
             false,
             &now_iso(),
+            0,
         )?;
         let paths = [
             pm_root.join("tasks/sample-unit.toon"),
@@ -4614,14 +4691,333 @@ fn unpublished_lock_payloads_are_not_stale() -> Result<(), Box<dyn std::error::E
             return Err(format!("unexpected lock refusal: {error}").into());
         };
         if raw.is_none_or(|value| value.trim().is_empty()) {
-            assert_eq!(detail, "Item sample-unit is locked");
-            assert_eq!(
-                context,
-                serde_json::json!({"code":"lock_conflict","recovery":{"retry_after_ms":250}})
-            );
+            assert_eq!(detail, "Item sample-unit is locked (owner process unknown)");
+            assert_eq!(context["code"], "lock_conflict");
+            assert_eq!(context["reason"], "lock_owner_unknown");
+            assert_eq!(context["recovery"]["retry_after_ms"], 250);
         } else {
             assert!(detail.contains("lock is stale"));
         }
     }
+    Ok(())
+}
+
+/// A failed recovery audit must retain the incumbent lock and all item bytes.
+#[cfg(target_os = "linux")]
+#[test]
+fn dead_owner_recovery_requires_a_durable_intent() -> Result<(), Box<dyn std::error::Error>> {
+    let (_directory, pm_root) = root("{}")?;
+    create_item(&pm_root, request())?;
+    let item = pm_root.join("tasks/sample-unit.toon");
+    let history = pm_root.join("history/sample-unit.jsonl");
+    let before = (fs::read(&item)?, fs::read(&history)?);
+    fs::create_dir_all(pm_root.join("locks"))?;
+    let path = pm_root.join("locks/sample-unit.lock");
+    let mut owner = crate::lock_owner::capture();
+    owner["pid"] = serde_json::json!(process::id());
+    owner["process_start_identity"] = serde_json::json!("0");
+    owner["created_at"] = serde_json::json!(now_iso());
+    owner["id"] = serde_json::json!("sample-unit");
+    owner["owner"] = serde_json::json!("old-agent");
+    owner["ttl_seconds"] = serde_json::json!(1800);
+    owner["token"] = serde_json::json!("old-token");
+    let raw = serde_json::to_string(&owner)?;
+    fs::write(&path, &raw)?;
+    fs::write(pm_root.join("locks/recoveries"), "blocked audit directory")?;
+    assert!(matches!(
+        acquire_lock(
+            &pm_root,
+            "sample-unit",
+            "alpha",
+            &LockSettings::default(),
+            false,
+            &now_iso(),
+            LockSettings::default().wait_ms,
+        ),
+        Err(PmRustError::Io { .. })
+    ));
+    assert_eq!(fs::read_to_string(&path)?, raw);
+    fs::remove_file(pm_root.join("locks/recoveries"))?;
+    RECOVERY_SYNC_HOOK.set(retain_recovery_directory);
+    let refused = acquire_lock(
+        &pm_root,
+        "sample-unit",
+        "alpha",
+        &LockSettings::default(),
+        false,
+        &now_iso(),
+        0,
+    );
+    RECOVERY_SYNC_HOOK.set(keep_recovery_directory);
+    assert!(
+        matches!(refused, Err(PmRustError::Io { source, .. }) if source.kind() == ErrorKind::NotFound)
+    );
+    assert_eq!(fs::read_to_string(&path)?, raw);
+    assert_eq!((fs::read(&item)?, fs::read(&history)?), before);
+    assert_eq!(
+        fs::read_dir(pm_root.join("locks/recoveries.retained"))?.count(),
+        1
+    );
+    let guard = acquire_lock(
+        &pm_root,
+        "sample-unit",
+        "alpha",
+        &LockSettings::default(),
+        false,
+        &now_iso(),
+        LockSettings::default().wait_ms,
+    )?;
+    assert_eq!(fs::read_dir(pm_root.join("locks/recoveries"))?.count(), 1);
+    drop(guard);
+    Ok(())
+}
+
+#[cfg(target_os = "linux")]
+#[test]
+/// Recovery intent flushes both the receipt entry and its newly created directory entry.
+fn recovery_intent_flushes_receipt_and_new_directory() -> Result<(), Box<dyn std::error::Error>> {
+    use std::os::unix::fs::PermissionsExt;
+
+    let directory = tempfile::tempdir()?;
+    let locks = directory.path().join("locks");
+    fs::create_dir(&locks)?;
+    let path = locks.join("sample-owner.lock");
+    let owner = serde_json::json!({"owner":"original-agent"});
+    let raw = serde_json::to_string(&owner)?;
+    fs::write(&path, &raw)?;
+    for expected_count in [1, 2] {
+        SYNCED_PARENTS.with_borrow_mut(Vec::clear);
+        record_dead_owner(&path, &owner)?;
+        let synced = SYNCED_PARENTS.with_borrow_mut(std::mem::take);
+        assert_eq!(synced, [locks.join("recoveries"), locks.clone()]);
+        assert_eq!(fs::read_to_string(&path)?, raw);
+        let receipts = fs::read_dir(locks.join("recoveries"))?.collect::<Result<Vec<_>, _>>()?;
+        assert_eq!(receipts.len(), expected_count);
+        for receipt in receipts {
+            let value: Value = serde_json::from_slice(&fs::read(receipt.path())?)?;
+            assert_eq!(value["event"], "owner_dead_recovery_attempt");
+            assert_eq!(value["lock"], owner);
+            assert_eq!(receipt.metadata()?.permissions().mode() & 0o777, 0o600);
+        }
+    }
+    Ok(())
+}
+
+/// One real owner observation supplies both the text and structured refusal fields.
+#[test]
+fn ownership_refusal_observes_owner_once() -> Result<(), Box<dyn std::error::Error>> {
+    let (_directory, pm_root) = root("{}")?;
+    let request = OwnershipItem {
+        id: "sample-unit".to_owned(),
+        author: "unit-agent".to_owned(),
+        timestamp: Some(TS.to_owned()),
+        message: None,
+        force: false,
+        if_available: false,
+        provenance_role: None,
+    };
+    fs::create_dir_all(pm_root.join("locks"))?;
+    let settings = read_settings(&pm_root)?;
+    for start in [None, Some("0"), Some("invalid")] {
+        let mut owner = crate::lock_owner::capture();
+        owner["pid"] = serde_json::json!(process::id());
+        owner["owner"] = serde_json::json!("holder");
+        owner["created_at"] = serde_json::json!(TS);
+        if let Some(start) = start {
+            owner["process_start_identity"] = serde_json::json!(start);
+        }
+        let expected = crate::lock_owner::inspect(&owner);
+        fs::write(
+            pm_root.join("locks/sample-unit.lock"),
+            serde_json::to_vec(&owner)?,
+        )?;
+        let before = crate::lock_owner::INSPECT_CALLS.get();
+        let error = ownership_lock_refusal(&pm_root, &request, &settings, TS, 25);
+        assert_eq!(crate::lock_owner::INSPECT_CALLS.get() - before, 1);
+        let PmRustError::OwnershipRefusal { detail, context } = error else {
+            return Err(format!("unexpected refusal: {error}").into());
+        };
+        assert_eq!(
+            detail,
+            format!(
+                "Item sample-unit is locked (owner holder) (owner process {expected}) after waiting 25ms"
+            )
+        );
+        assert_eq!(context["reason"], format!("lock_owner_{expected}"));
+    }
+    Ok(())
+}
+
+/// Invalid wait overrides retain configured admission; valid milliseconds take precedence.
+#[test]
+fn environment_lock_wait_budget_is_bounded() {
+    for (raw, expected) in [
+        (None, 12),
+        (Some(""), 12),
+        (Some("x"), 12),
+        (Some("-1"), 12),
+        (Some("0"), 0),
+        (Some(" 250 "), 250),
+        (Some("9007199254740992"), 12),
+        (Some("999999999999999999999999"), 12),
+    ] {
+        assert_eq!(lock_wait_budget(raw, 12), expected);
+    }
+}
+
+/// Invalid receipt shape, blank ownership token and invalid clocks cannot permit early recovery.
+#[cfg(target_os = "linux")]
+#[test]
+fn malformed_dead_owner_receipts_are_not_reclaimed() {
+    let mut value = crate::lock_owner::capture();
+    value["id"] = serde_json::json!("sample-one");
+    value["owner"] = serde_json::json!("alpha");
+    value["pid"] = serde_json::json!(process::id());
+    value["process_start_identity"] = serde_json::json!("0");
+    value["created_at"] = serde_json::json!(now_iso());
+    value["ttl_seconds"] = serde_json::json!(1800);
+    assert!(
+        confirmed_dead_owner(&value),
+        "legacy tokenless receipts remain valid"
+    );
+    value["token"] = serde_json::json!("token");
+    assert!(confirmed_dead_owner(&value));
+    for field in ["id", "pid", "owner", "ttl_seconds", "created_at", "token"] {
+        let mut invalid = value.clone();
+        invalid[field] = Value::Null;
+        assert!(
+            !confirmed_dead_owner(&invalid),
+            "invalid {field} authorized recovery"
+        );
+    }
+    for (field, invalid) in [("token", ""), ("token", "  "), ("created_at", "invalid")] {
+        let mut candidate = value.clone();
+        candidate[field] = serde_json::json!(invalid);
+        assert!(!confirmed_dead_owner(&candidate));
+    }
+    value["process_start_identity"] = serde_json::json!("invalid");
+    assert!(!confirmed_dead_owner(&value));
+}
+
+/// A released incumbent is retryable whether it vanishes before reread or before unlink.
+#[test]
+fn stale_owner_disappearance_is_contention_not_a_write_failure()
+-> Result<(), Box<dyn std::error::Error>> {
+    let directory = tempfile::tempdir()?;
+    let path = directory.path().join("sample-vanished.lock");
+    assert!(matches!(
+        remove_stale_lock(&path, "observed owner", None, "sample-vanished"),
+        Err(PmRustError::LockConflict { .. })
+    ));
+    for kind in [ErrorKind::NotFound, ErrorKind::PermissionDenied] {
+        assert!(matches!(
+            finish_lock_removal(&path, "sample-vanished", Err(std::io::Error::from(kind))),
+            Err(PmRustError::LockConflict { .. })
+        ));
+    }
+    assert!(matches!(
+        finish_lock_removal(
+            &path,
+            "sample-vanished",
+            Err(std::io::Error::from(ErrorKind::InvalidInput))
+        ),
+        Err(PmRustError::Io { .. })
+    ));
+    fs::create_dir(&path)?;
+    assert!(matches!(
+        remove_stale_lock(&path, "observed owner", None, "sample-vanished"),
+        Err(PmRustError::Io { .. })
+    ));
+    Ok(())
+}
+
+/// A resolved zero-wait override wins over the original tracker budget.
+#[test]
+fn resolved_zero_wait_budget_is_used_without_rereading_settings()
+-> Result<(), Box<dyn std::error::Error>> {
+    let (_directory, pm_root) = root(&mutation_settings(0))?;
+    create_item(&pm_root, request())?;
+    let configured = LockSettings {
+        wait_ms: 2_000,
+        ..locks(1_800)
+    };
+    let held = acquire_lock(&pm_root, "sample-unit", "holder", &configured, false, TS, 0)?;
+    // Keep the incumbent held for the entire attempt, independent of thread scheduling.
+    // Re-reading the configured budget would wait the full two seconds.
+    let started = Instant::now();
+    let outcome = acquire_lock(
+        &pm_root,
+        "sample-unit",
+        "contender",
+        &configured,
+        false,
+        TS,
+        0,
+    );
+    assert!(matches!(outcome, Err(PmRustError::LockConflict { .. })));
+    assert!(started.elapsed() < Duration::from_millis(1_000));
+    drop(held);
+    Ok(())
+}
+
+/// Identical legacy receipts cannot authorize deletion of a replacement inode.
+#[test]
+fn stale_lock_replacement_with_identical_bytes_is_preserved()
+-> Result<(), Box<dyn std::error::Error>> {
+    let directory = tempfile::tempdir()?;
+    let path = directory.path().join("sample-owner.lock");
+    let raw = "legacy tokenless receipt";
+    fs::write(&path, raw)?;
+    let (existing, observed) = read_lock_owner(&path)?;
+    assert!(lock_identity_unchanged(&path, Some(&observed)));
+    assert!(!lock_identity_unchanged(&path, None));
+    fs::rename(&path, directory.path().join("retired.lock"))?;
+    fs::write(&path, raw)?;
+    assert!(matches!(
+        remove_stale_lock(&path, &existing, Some(&observed), "sample-owner"),
+        Err(PmRustError::LockConflict { .. })
+    ));
+    assert_eq!(fs::read_to_string(&path)?, raw);
+    let (_, replacement) = read_lock_owner(&path)?;
+    remove_stale_lock(&path, raw, Some(&replacement), "sample-owner")?;
+    assert!(!path.exists());
+    assert!(!lock_identity_unchanged(&path, Some(&observed)));
+    assert!(read_lock_owner(&path).is_err());
+    fs::write(&path, [0xff])?;
+    assert!(read_lock_owner(&path).is_err());
+    Ok(())
+}
+
+/// A completed owner guard also preserves a same-byte replacement lock.
+#[test]
+fn released_lock_replacement_with_identical_bytes_is_preserved()
+-> Result<(), Box<dyn std::error::Error>> {
+    let directory = tempfile::tempdir()?;
+    let path = directory.path().join("sample-owner.lock");
+    let held = create_lock_file(&path, "same receipt", "sample-owner")?;
+    fs::rename(&path, directory.path().join("retired.lock"))?;
+    fs::write(&path, "same receipt")?;
+    drop(held);
+    assert!(path.exists(), "released guard removed a replacement lock");
+    assert_eq!(fs::read_to_string(&path)?, "same receipt");
+    Ok(())
+}
+
+/// Failed lock initialization cleans up only the file that was opened by the writer.
+#[test]
+fn failed_lock_replacement_with_identical_bytes_is_preserved()
+-> Result<(), Box<dyn std::error::Error>> {
+    let directory = tempfile::tempdir()?;
+    let path = directory.path().join("sample-owner.lock");
+    fs::write(&path, "same receipt")?;
+    let read_only = File::open(&path)?;
+    fs::rename(&path, directory.path().join("retired.lock"))?;
+    fs::write(&path, "same receipt")?;
+    assert!(matches!(
+        write_lock_file(read_only, &path, "same receipt"),
+        Err(PmRustError::Io { .. })
+    ));
+    assert!(path.exists(), "failed writer removed a replacement lock");
+    assert_eq!(fs::read_to_string(&path)?, "same receipt");
     Ok(())
 }
