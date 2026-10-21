@@ -885,7 +885,7 @@ fn filesystem_failures_are_typed_and_atomic_temps_are_cleaned()
     fs::remove_file(&lock_path)?;
     assert!(matches!(
         remove_stale_lock(&lock_path, "existing", "sample-lock"),
-        Err(PmRustError::Io { .. })
+        Err(PmRustError::LockConflict { .. })
     ));
     let read_only_lock_path = lock_root.join("read-only.lock");
     fs::write(&read_only_lock_path, "")?;
@@ -3179,7 +3179,10 @@ fn future_ownership_preserves_held_lock(
     let Err(PmRustError::OwnershipRefusal { detail, context }) = blocked else {
         return Err("a historical clock must still respect the held lock".into());
     };
-    assert_eq!(detail, "Item sample-unit is locked (owner live-holder)");
+    assert_eq!(
+        detail,
+        "Item sample-unit is locked (owner live-holder) (owner process alive)"
+    );
     assert_eq!(context["code"], "lock_conflict");
     assert_eq!(paths.each_ref().map(|path| fs::read(path).ok()), before);
     drop(held);
@@ -4614,14 +4617,120 @@ fn unpublished_lock_payloads_are_not_stale() -> Result<(), Box<dyn std::error::E
             return Err(format!("unexpected lock refusal: {error}").into());
         };
         if raw.is_none_or(|value| value.trim().is_empty()) {
-            assert_eq!(detail, "Item sample-unit is locked");
-            assert_eq!(
-                context,
-                serde_json::json!({"code":"lock_conflict","recovery":{"retry_after_ms":250}})
-            );
+            assert_eq!(detail, "Item sample-unit is locked (owner process unknown)");
+            assert_eq!(context["code"], "lock_conflict");
+            assert_eq!(context["reason"], "lock_owner_unknown");
+            assert_eq!(context["recovery"]["retry_after_ms"], 250);
         } else {
             assert!(detail.contains("lock is stale"));
         }
     }
+    Ok(())
+}
+
+/// A failed recovery audit must retain the incumbent lock and all item bytes.
+#[cfg(target_os = "linux")]
+#[test]
+fn dead_owner_recovery_requires_a_durable_intent() -> Result<(), Box<dyn std::error::Error>> {
+    let (_directory, pm_root) = root("{}")?;
+    create_item(&pm_root, request())?;
+    fs::create_dir_all(pm_root.join("locks"))?;
+    let path = pm_root.join("locks/sample-unit.lock");
+    let mut owner = crate::lock_owner::capture();
+    owner["pid"] = serde_json::json!(process::id());
+    owner["process_start_identity"] = serde_json::json!("0");
+    owner["created_at"] = serde_json::json!(now_iso());
+    owner["id"] = serde_json::json!("sample-unit");
+    owner["owner"] = serde_json::json!("old-agent");
+    owner["ttl_seconds"] = serde_json::json!(1800);
+    owner["token"] = serde_json::json!("old-token");
+    let raw = serde_json::to_string(&owner)?;
+    fs::write(&path, &raw)?;
+    fs::write(pm_root.join("locks/recoveries"), "blocked audit directory")?;
+    assert!(matches!(
+        acquire_lock(
+            &pm_root,
+            "sample-unit",
+            "alpha",
+            &LockSettings::default(),
+            false,
+            &now_iso()
+        ),
+        Err(PmRustError::Io { .. })
+    ));
+    assert_eq!(fs::read_to_string(&path)?, raw);
+    fs::remove_file(pm_root.join("locks/recoveries"))?;
+    let guard = acquire_lock(
+        &pm_root,
+        "sample-unit",
+        "alpha",
+        &LockSettings::default(),
+        false,
+        &now_iso(),
+    )?;
+    assert_eq!(fs::read_dir(pm_root.join("locks/recoveries"))?.count(), 1);
+    drop(guard);
+    Ok(())
+}
+
+/// Invalid wait overrides retain configured admission; valid milliseconds take precedence.
+#[test]
+fn environment_lock_wait_budget_is_bounded() {
+    for (raw, expected) in [
+        (None, 12),
+        (Some(""), 12),
+        (Some("x"), 12),
+        (Some("-1"), 12),
+        (Some("0"), 0),
+        (Some(" 250 "), 250),
+        (Some("9007199254740992"), 12),
+        (Some("999999999999999999999999"), 12),
+    ] {
+        assert_eq!(lock_wait_budget(raw, 12), expected);
+    }
+}
+
+/// Invalid receipt shape, blank ownership token and invalid clocks cannot permit early recovery.
+#[cfg(target_os = "linux")]
+#[test]
+fn malformed_dead_owner_receipts_are_not_reclaimed() {
+    assert!(!confirmed_dead_owner(&serde_json::json!(null)));
+    let mut value = serde_json::json!({"id":"sample-one","owner":"alpha","pid":1,"token":"","created_at":"invalid","ttl_seconds":1800});
+    assert!(!confirmed_dead_owner(&value));
+    value["token"] = serde_json::json!("token");
+    assert!(!confirmed_dead_owner(&value));
+    value["created_at"] = serde_json::json!("2026-08-22T10:00:00Z");
+    assert!(!confirmed_dead_owner(&value));
+}
+
+/// A released incumbent is retryable whether it vanishes before reread or before unlink.
+#[test]
+fn stale_owner_disappearance_is_contention_not_a_write_failure()
+-> Result<(), Box<dyn std::error::Error>> {
+    let directory = tempfile::tempdir()?;
+    let path = directory.path().join("sample-vanished.lock");
+    assert!(matches!(
+        remove_stale_lock(&path, "observed owner", "sample-vanished"),
+        Err(PmRustError::LockConflict { .. })
+    ));
+    for kind in [ErrorKind::NotFound, ErrorKind::PermissionDenied] {
+        assert!(matches!(
+            finish_lock_removal(&path, "sample-vanished", Err(std::io::Error::from(kind))),
+            Err(PmRustError::LockConflict { .. })
+        ));
+    }
+    assert!(matches!(
+        finish_lock_removal(
+            &path,
+            "sample-vanished",
+            Err(std::io::Error::from(ErrorKind::InvalidInput))
+        ),
+        Err(PmRustError::Io { .. })
+    ));
+    fs::create_dir(&path)?;
+    assert!(matches!(
+        remove_stale_lock(&path, "observed owner", "sample-vanished"),
+        Err(PmRustError::Io { .. })
+    ));
     Ok(())
 }

@@ -855,6 +855,18 @@ fn cursor_recovery_arguments_preserve_public_flags() {
         serde_json::json!(["--json", "--after"])
     );
     assert!(producer["next_steps"].is_array());
+    for cursor in ["--cursor", "--cursor=invalid"] {
+        let args = vec![
+            "deps".to_owned(),
+            "sample-root".to_owned(),
+            cursor.to_owned(),
+        ];
+        let payload = super::cursor_error_json("invalid_query_cursor", "reason", &args);
+        assert_eq!(
+            payload["next_steps"][0],
+            "Repeat the original query without --cursor to obtain a fresh cursor."
+        );
+    }
     let output = super::cursor_error_json("read_output_cursor_stale", "reason", &args);
     assert!(output.get("next_steps").is_none());
 }
@@ -1165,4 +1177,81 @@ fn orientation_argument_context_and_fallback() {
         super::rejected_orientation_argument(&error, &fallback, &allowed),
         "--bogus"
     );
+}
+
+/// Assurance dispatch discovers declarations and returns typed missing-operand/read refusals.
+#[test]
+fn assurance_dispatch_is_read_only() -> Result<(), Box<dyn std::error::Error>> {
+    use clap::Parser as _;
+    let directory = tempfile::tempdir()?;
+    let root = directory.path().join(".agents/pm");
+    std::fs::create_dir_all(&root)?;
+    std::fs::write(root.join("settings.json"), "{}")?;
+    std::fs::write(root.join("assurance.json"), r#"{"gates":[{"id":"known"}]}"#)?;
+    for (flags, success) in [
+        (vec!["assurance", "list", "gate", "--json"], true),
+        (vec!["assurance", "show", "gate", "known", "--json"], true),
+        (vec!["assurance", "show", "measurement"], false),
+        (
+            vec!["assurance", "show", "measurement", "missing", "--json"],
+            false,
+        ),
+    ] {
+        let mut args = vec![
+            "pm-rust",
+            "--workspace",
+            directory.path().to_str().ok_or("UTF8")?,
+        ];
+        args.extend(flags);
+        assert_eq!(run(Cli::try_parse_from(args)?).is_ok(), success);
+    }
+    for recovery in [
+        serde_json::Value::Null,
+        serde_json::json!({"suggested_retry":"pm assurance list gate"}),
+    ] {
+        let context = serde_json::json!({"reason":"assurance_evaluation_refused","value":"missing","changed":false,"recovery":recovery});
+        let payload = super::command_error_json(
+            "missing declaration",
+            &context,
+            &["assurance".to_owned()],
+            2,
+        );
+        assert_eq!(payload["exit_code"], 2);
+        assert_eq!(payload["changed"], false);
+    }
+    Ok(())
+}
+
+/// Retrying a contended mutation must keep an explicitly selected native workspace.
+#[test]
+fn lock_recovery_keeps_explicit_workspace_scope() {
+    for raw in [
+        vec!["--workspace", "tracker directory"],
+        vec!["--workspace=tracker directory"],
+    ] {
+        let mut payload =
+            serde_json::json!({"recovery":{"normalized_args":["comment","sample-one","note"]}});
+        super::preserve_lock_scope(
+            &mut payload,
+            &raw.iter().map(|arg| (*arg).to_owned()).collect::<Vec<_>>(),
+        );
+        assert_eq!(
+            payload["recovery"]["suggested_retry_args"],
+            serde_json::json!([
+                "--pm-path",
+                "tracker directory",
+                "comment",
+                "sample-one",
+                "note"
+            ])
+        );
+    }
+    for raw in [vec!["comment"], vec!["--workspace"]] {
+        let mut payload = serde_json::json!({});
+        super::preserve_lock_scope(
+            &mut payload,
+            &raw.iter().map(|arg| (*arg).to_owned()).collect::<Vec<_>>(),
+        );
+        assert_eq!(payload, serde_json::json!({}));
+    }
 }

@@ -15,7 +15,7 @@ use serde::Serialize;
 #[command(name = "pm-rust", version, about = "Rust-native pm workspace reader")]
 struct Cli {
     /// Workspace, nested path, or `.agents/pm` tracker root.
-    #[arg(long, default_value = ".")]
+    #[arg(long, aliases = ["pm-path", "path"], default_value = ".")]
     workspace: PathBuf,
     #[command(subcommand)]
     command: Command,
@@ -23,6 +23,22 @@ struct Cli {
 
 #[derive(Debug, Subcommand)]
 enum Command {
+    /// Read configured assurance declarations without changing the registry.
+    Assurance {
+        /// Read one declaration or discover configured IDs.
+        #[arg(value_parser = ["show", "list"])]
+        action: String,
+        /// Canonical declaration kind.
+        kind: String,
+        /// Exact declaration ID for show.
+        id: Option<String>,
+        /// Discovery output ceiling, accepted for bounded recovery commands.
+        #[arg(long)]
+        output_budget: Option<String>,
+        /// Emit JSON.
+        #[arg(long)]
+        json: bool,
+    },
     /// Render the default brief agent orientation snapshot.
     #[command(args_override_self = true)]
     Context {
@@ -547,6 +563,31 @@ mod tests;
 fn run(cli: Cli) -> Result<(), Box<dyn std::error::Error>> {
     let workspace = Workspace::discover(&cli.workspace)?;
     match cli.command {
+        Command::Assurance {
+            action,
+            kind,
+            id,
+            output_budget,
+            json,
+        } => {
+            let id = if action == "show" {
+                Some(id.ok_or_else(|| pm_rust::PmRustError::InvalidReadRequest {
+                    reason: "assurance show requires an id".to_owned(),
+                })?)
+            } else {
+                None
+            };
+            let result = workspace.assurance_read(
+                &kind,
+                id.as_deref(),
+                &ListOptions {
+                    output_budget,
+                    toon: !json,
+                    ..ListOptions::default()
+                },
+            )?;
+            write_search_to(&mut std::io::stdout().lock(), &result, json)?;
+        }
         Command::Context {
             limit,
             token_budget,
@@ -1290,7 +1331,16 @@ fn main() -> ExitCode {
                 error.downcast_ref::<pm_rust::PmRustError>()
             {
                 let args = published_read_arguments(std::env::args_os().skip(1));
-                let payload = ownership_error_json(detail, context, &args);
+                let mut payload = ownership_error_json(detail, context, &args);
+                if context["code"] == "lock_conflict" {
+                    preserve_lock_scope(
+                        &mut payload,
+                        &std::env::args_os()
+                            .skip(1)
+                            .map(|arg| arg.to_string_lossy().into_owned())
+                            .collect::<Vec<_>>(),
+                    );
+                }
                 let mut stderr = std::io::stderr().lock();
                 let _ = if args.first().is_some_and(|s| s == "item")
                     && !args.iter().any(|s| s == "--json")
@@ -1299,6 +1349,25 @@ fn main() -> ExitCode {
                 } else {
                     write_json_to(&mut stderr, &payload)
                 };
+                return ExitCode::from(4);
+            }
+            if let Some(pm_rust::PmRustError::LockConflict { .. }) =
+                error.downcast_ref::<pm_rust::PmRustError>()
+            {
+                let args = published_read_arguments(std::env::args_os().skip(1));
+                let mut payload = ownership_error_json(
+                    &error.to_string(),
+                    &serde_json::json!({"code":"lock_conflict"}),
+                    &args,
+                );
+                preserve_lock_scope(
+                    &mut payload,
+                    &std::env::args_os()
+                        .skip(1)
+                        .map(|arg| arg.to_string_lossy().into_owned())
+                        .collect::<Vec<_>>(),
+                );
+                let _ = write_json_to(&mut std::io::stderr().lock(), &payload);
                 return ExitCode::from(4);
             }
             if matches!(
@@ -1353,6 +1422,19 @@ fn command_error_json(
     args: &[String],
     exit_code: u8,
 ) -> serde_json::Value {
+    if context["reason"] == "assurance_evaluation_refused" {
+        let mut payload = ownership_error_json(detail, context, args);
+        payload["exit_code"] = serde_json::json!(exit_code);
+        payload["refusal"] = serde_json::json!({"surface":"assurance","rejected_value":context["value"],"exit_code":exit_code});
+        payload["changed"] = context["changed"].clone();
+        payload["value"] = context["value"].clone();
+        if let Some(recovery) = context["recovery"].as_object() {
+            for (key, value) in recovery {
+                payload["recovery"][key] = value.clone();
+            }
+        }
+        return payload;
+    }
     if args
         .first()
         .is_some_and(|arg| matches!(arg.as_str(), "context" | "history" | "deps"))
@@ -1669,6 +1751,40 @@ fn collection_error_json(
     result
 }
 
+/// Maps an explicit native workspace into the published retry command's tracker scope.
+fn preserve_lock_scope(payload: &mut serde_json::Value, raw: &[String]) {
+    let workspace = raw.iter().enumerate().find_map(|(index, arg)| {
+        if arg == "--workspace" {
+            raw.get(index + 1).cloned()
+        } else {
+            arg.strip_prefix("--workspace=").map(str::to_owned)
+        }
+    });
+    if let Some(workspace) = workspace {
+        let mut args = vec!["--pm-path".to_owned(), workspace];
+        args.extend(
+            payload["recovery"]["normalized_args"]
+                .as_array()
+                .into_iter()
+                .flatten()
+                .filter_map(serde_json::Value::as_str)
+                .map(str::to_owned),
+        );
+        let command = format!(
+            "pm {}",
+            args.iter()
+                .map(|arg| pm_rust::quote_command_arg(arg))
+                .collect::<Vec<_>>()
+                .join(" ")
+        );
+        payload["recovery"]["attempted_command"] = serde_json::json!(command);
+        payload["recovery"]["normalized_args"] = serde_json::json!(args);
+        payload["recovery"]["suggested_retry"] = serde_json::json!(command);
+        payload["recovery"]["suggested_retry_args"] = serde_json::json!(args);
+        payload["examples"] = serde_json::json!([command]);
+    }
+}
+
 /// Formats the published machine-readable refusal for a rejected list cursor.
 fn cursor_error_json(code: &str, detail: &str, args: &[String]) -> serde_json::Value {
     let mut provided = Vec::new();
@@ -1696,9 +1812,17 @@ fn cursor_error_json(code: &str, detail: &str, args: &[String]) -> serde_json::V
     }
 
     if code == "invalid_query_cursor" {
-        payload["next_steps"] = serde_json::json!([
-            "Repeat the original query without --after to obtain a fresh cursor."
-        ]);
+        let flag = if args
+            .iter()
+            .any(|arg| arg == "--cursor" || arg.starts_with("--cursor="))
+        {
+            "--cursor"
+        } else {
+            "--after"
+        };
+        payload["next_steps"] = serde_json::json!([format!(
+            "Repeat the original query without {flag} to obtain a fresh cursor."
+        )]);
     }
     for (key, value) in [
         ("exit_code", serde_json::json!(2)),
@@ -1761,12 +1885,15 @@ fn ownership_error_json(
         Some("lock_conflict") => {
             payload["title"] = serde_json::json!("Lock conflict");
             payload["required"] = serde_json::json!(
-                "Wait for lock release, or use --force where supported if lock is stale and safe to override."
+                "Wait for lock release, then retry the same operation. Set PM_LOCK_WAIT_MS to a larger bounded millisecond budget for expected contention."
             );
             payload["why"] =
                 serde_json::json!("Locking protects item files from concurrent write races.");
-            payload["examples"] =
-                serde_json::json!(["pm update pm-a1b2 --status in_progress --force"]);
+            let retry = payload["recovery"]["attempted_command"].clone();
+            payload["examples"] = serde_json::json!([retry]);
+            payload["recovery"]["suggested_retry"] = retry;
+            payload["recovery"]["suggested_retry_args"] =
+                payload["recovery"]["normalized_args"].clone();
         }
         None => {
             payload["title"] = serde_json::json!("Command failed");

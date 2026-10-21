@@ -37,7 +37,7 @@ fn toon_wire_shapes_preserve_values_and_disclose_sparse_cells()
     let brief = json!({"items":[],"count":0,"total":0,"has_more":false,"truncated":false,"projection":{"mode":"brief"},"completeness":{"status":"complete","unreadable_item_count":0,"unreadable_directory_count":0},"sorting":{"sort":"default"},"omission_receipt":{"omitted_field_groups":[{"name":"full_item_fields","restore_with":"--full"}]}});
     assert_eq!(
         complete_brief(&brief),
-        json!({"items":[],"count":0,"details":"--full"})
+        json!({"items":[],"count":0,"sorting":{"sort":"default"},"details":"--full"})
     );
     for (pointer, value) in [
         ("/items", json!(null)),
@@ -58,6 +58,12 @@ fn toon_wire_shapes_preserve_values_and_disclose_sparse_cells()
         }
         assert_eq!(complete_brief(&altered), altered);
     }
+    let mut missing_sorting = brief.clone();
+    missing_sorting
+        .as_object_mut()
+        .ok_or("object")?
+        .shift_remove("sorting");
+    assert!(complete_brief(&missing_sorting).get("sorting").is_none());
     let mut sorted = brief;
     sorted["sorting"] = json!({"sort":"title","order":"asc"});
     assert_eq!(complete_brief(&sorted)["sorting"], sorted["sorting"]);

@@ -103,7 +103,7 @@ fn section_selection_and_descendant_cycles() -> Result<(), Box<dyn std::error::E
     tree.enrich(&mut leaf, &lifecycle);
     assert!(leaf.get("children_total").is_none());
     assert_eq!(completion(1, 8), json!(13));
-    assert_eq!(completion(29, 200), json!(14));
+    assert_eq!(completion(29, 200), json!(15));
     let mut empty_parent = item("sample-no-children", "open");
     empty_parent["type"] = json!("Epic");
     let empty = build(

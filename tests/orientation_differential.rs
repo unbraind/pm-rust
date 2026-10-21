@@ -1973,3 +1973,52 @@ fn relationship_reference_limits_match_oracle() -> TestResult {
     }
     Ok(())
 }
+
+/// GH-1511 keeps blocked active rows inside the same bounded window as other focus rows.
+#[test]
+fn blocked_focus_cursor_pages_match_october_21_oracle() -> TestResult {
+    let Some(published) = published_cli::published_cli_or_skip("blocked focus pages") else {
+        return Ok(());
+    };
+    let scratch = tempfile::tempdir()?;
+    let driver = orientation_driver(scratch.path(), &published)?;
+    let root = tempfile::tempdir()?;
+    assert!(
+        oracle(&driver, root.path(), &["init", "sample-", "--defaults"])?
+            .status
+            .success()
+    );
+    let first = item("sample-one", "Task", "open", 1);
+    let mut blocked = item("sample-two", "Task", "open", 2);
+    blocked["blocked_by"] = json!("sample-missing");
+    let third = item("sample-three", "Task", "open", 3);
+    fixture(root.path(), &[first, blocked, third])?;
+    let mut cursor = None::<String>;
+    let mut seen = std::collections::BTreeSet::new();
+    for _ in 0..3 {
+        let mut args = vec!["context", "--limit", "1", "--json", "--no-extension-health"];
+        if let Some(cursor) = &cursor {
+            args.extend(["--after", cursor]);
+        }
+        let expected = oracle(&driver, root.path(), &args)?;
+        assert!(
+            expected.status.success(),
+            "{}",
+            String::from_utf8_lossy(&expected.stderr)
+        );
+        compare(&expected, &native(root.path(), &args)?, &args);
+        let page: Value = serde_json::from_slice(&expected.stdout)?;
+        let rows = page["high_level"]
+            .as_array()
+            .into_iter()
+            .flatten()
+            .chain(page["low_level"].as_array().into_iter().flatten())
+            .collect::<Vec<_>>();
+        assert_eq!(rows.len(), 1);
+        assert!(seen.insert(rows[0]["id"].as_str().ok_or("id")?.to_owned()));
+        cursor = page["next_cursor"].as_str().map(str::to_owned);
+    }
+    assert_eq!(seen.len(), 3);
+    assert!(cursor.is_none());
+    Ok(())
+}

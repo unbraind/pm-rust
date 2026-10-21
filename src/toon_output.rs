@@ -48,7 +48,7 @@ fn complete_brief(value: &Value) -> Value {
         ] {
             projected.shift_remove(key);
         }
-        if value["sorting"]["sort"] != "default" {
+        if value["sorting"].is_object() {
             projected.insert("sorting".to_owned(), value["sorting"].clone());
         }
         projected.insert("details".to_owned(), json!("--full"));

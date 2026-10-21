@@ -1375,3 +1375,56 @@ fn extension_health_refusal_boundary() -> Result<(), Box<dyn std::error::Error>>
     assert!(context_state_boundary(&workspace, &[], None).is_ok());
     Ok(())
 }
+
+/// Active blocked rows cannot be repacked across bounded focus page boundaries.
+#[test]
+fn blocked_focus_stays_inside_its_cursor_page() -> Result<(), Box<dyn std::error::Error>> {
+    let (_directory, workspace, _) = workspace()?;
+    for (id, blocked) in [
+        ("sample-one", false),
+        ("sample-two", true),
+        ("sample-three", false),
+    ] {
+        let mut row = item(id, "open");
+        if blocked {
+            row["blocked_by"] = json!("sample-missing");
+        }
+        fs::write(
+            workspace.pm_root().join(format!("tasks/{id}.toon")),
+            toon_format::encode_default(&row)?,
+        )?;
+    }
+    let mut after = None;
+    let mut seen = BTreeSet::new();
+    for _ in 0..3 {
+        let page = workspace.context_with_global(
+            &ContextOptions {
+                limit: Some("1".to_owned()),
+                after: after.clone(),
+                no_extension_health: true,
+                ..Default::default()
+            },
+            NOW,
+            None,
+        )?;
+        let rows = page["high_level"]
+            .as_array()
+            .into_iter()
+            .flatten()
+            .chain(page["low_level"].as_array().into_iter().flatten())
+            .collect::<Vec<_>>();
+        assert_eq!(
+            rows.len(),
+            1,
+            "each page must contain exactly one active focus item"
+        );
+        assert!(
+            seen.insert(text(rows[0], "id").to_owned()),
+            "focus item repeated across cursor pages"
+        );
+        after = page["next_cursor"].as_str().map(str::to_owned);
+    }
+    assert_eq!(seen.len(), 3);
+    assert!(after.is_none());
+    Ok(())
+}

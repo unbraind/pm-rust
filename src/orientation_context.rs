@@ -1298,7 +1298,10 @@ impl Workspace {
             .chain(
                 ranking
                     .iter()
-                    .filter(|(item, _)| blocked.contains(text(item, "id")))
+                    .filter(|(item, _)| {
+                        blocked.contains(text(item, "id"))
+                            && !lifecycle.role(text(item, "status"), "active")
+                    })
                     .take(limit)
                     .map(|(item, _)| text(item, "id")),
             )

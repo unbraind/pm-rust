@@ -22,6 +22,7 @@ static TEMP_COUNTER: AtomicU64 = AtomicU64::new(0);
 
 /// Input accepted by the first native mutation surface.
 #[derive(Clone, Debug, Deserialize, PartialEq, Serialize)]
+#[serde(deny_unknown_fields)]
 pub struct CreateItem {
     /// Explicit stable identifier, including the configured project prefix.
     pub id: String,
@@ -63,6 +64,7 @@ pub struct CreateItem {
 
 /// Explicit-author ownership mutation shared by claim and release.
 #[derive(Clone, Debug, Deserialize, PartialEq, Serialize)]
+#[serde(deny_unknown_fields)]
 pub struct OwnershipItem {
     /// Stable identifier of the existing item.
     pub id: String,
@@ -134,6 +136,7 @@ pub struct CreateResult {
 
 /// Request accepted by the native update mutation surface.
 #[derive(Clone, Debug, Deserialize, PartialEq, Serialize)]
+#[serde(deny_unknown_fields)]
 pub struct UpdateItem {
     /// Exact stable identifier of the item to mutate.
     pub id: String,
@@ -173,6 +176,7 @@ pub struct UpdateItem {
 
 /// Request accepted by the native comment-append mutation surface.
 #[derive(Clone, Debug, Deserialize, PartialEq, Serialize)]
+#[serde(deny_unknown_fields)]
 pub struct CommentItem {
     /// Exact stable identifier of the item to mutate.
     pub id: String,
@@ -196,6 +200,7 @@ pub struct CommentItem {
 
 /// Request accepted by the native close mutation surface.
 #[derive(Clone, Debug, Deserialize, PartialEq, Serialize)]
+#[serde(deny_unknown_fields)]
 pub struct CloseItem {
     /// Exact stable identifier of the item to close.
     pub id: String,
@@ -220,6 +225,7 @@ pub struct CloseItem {
 
 /// Optional fields accepted by the published single-item close command.
 #[derive(Clone, Debug, Default, Deserialize, PartialEq, Serialize)]
+#[serde(deny_unknown_fields)]
 pub struct CloseFields {
     /// Trimmed resolution summary, also a fallback closing reason.
     pub resolution: Option<String>,
@@ -359,6 +365,8 @@ struct LockPayload {
     created_at: String,
     ttl_seconds: u64,
     token: String,
+    #[serde(flatten)]
+    identity: Value,
 }
 
 struct ItemLock {
@@ -832,7 +840,11 @@ fn acquire_lock(
             "id must use ASCII letters, digits, and interior hyphens",
         ));
     }
-    let deadline = Instant::now() + Duration::from_millis(locks.wait_ms);
+    let wait_ms = lock_wait_budget(
+        std::env::var("PM_LOCK_WAIT_MS").ok().as_deref(),
+        locks.wait_ms,
+    );
+    let deadline = Instant::now() + Duration::from_millis(wait_ms);
     loop {
         match acquire_lock_attempt(
             pm_root,
@@ -852,6 +864,15 @@ fn acquire_lock(
         }
         std::thread::sleep(Duration::from_millis(25));
     }
+}
+
+/// Resolves a bounded environment wait budget before falling back to tracker settings.
+fn lock_wait_budget(raw: Option<&str>, fallback: u64) -> u64 {
+    raw.map(str::trim)
+        .filter(|raw| !raw.is_empty() && raw.bytes().all(|byte| byte.is_ascii_digit()))
+        .and_then(|raw| raw.parse::<u64>().ok())
+        .filter(|value| *value <= 9_007_199_254_740_991)
+        .unwrap_or(fallback)
 }
 
 /// Attempts one immediate lock acquisition, optionally reclaiming an expired
@@ -883,6 +904,7 @@ fn acquire_lock_attempt(
         created_at: timestamp.to_owned(),
         ttl_seconds,
         token: unique_token(),
+        identity: crate::lock_owner::capture(),
     };
     let raw = format!(
         "{}\n",
@@ -1036,10 +1058,61 @@ fn create_or_reclaim_lock(
             .unwrap_or_default()
             > Duration::from_secs(ttl_seconds)
     };
+    #[cfg(target_os = "linux")]
+    {
+        let existing: Value = serde_json::from_str(&existing_raw).unwrap_or(Value::Null);
+        if confirmed_dead_owner(&existing) {
+            record_dead_owner(path, &existing)?;
+            return remove_stale_lock(path, &existing_raw, id)
+                .and_then(|()| create_lock_file(path, raw, id));
+        }
+    }
     if !stale || !force_stale {
         return Err(PmRustError::LockConflict { id: id.to_owned() });
     }
     remove_stale_lock(path, &existing_raw, id).and_then(|()| create_lock_file(path, raw, id))
+}
+
+/// Rejects malformed lock receipts before inspecting same-host original-process death.
+#[cfg(target_os = "linux")]
+fn confirmed_dead_owner(value: &Value) -> bool {
+    let Ok(payload) = serde_json::from_value::<LockPayload>(value.clone()) else {
+        return false;
+    };
+    !payload.token.trim().is_empty()
+        && OffsetDateTime::parse(&payload.created_at, &Rfc3339).is_ok()
+        && crate::lock_owner::inspect(value) == "dead"
+}
+
+/// Persists immutable recovery intent before removing an original owner's receipt.
+#[cfg(target_os = "linux")]
+fn record_dead_owner(path: &Path, existing: &Value) -> Result<(), PmRustError> {
+    let directory = path.with_file_name("recoveries");
+    let receipt = directory.join(format!("{}.json", unique_token()));
+    let write = || -> std::io::Result<()> {
+        fs::create_dir_all(&directory)?;
+        let mut options = OpenOptions::new();
+        options.write(true).create_new(true);
+        #[cfg(unix)]
+        {
+            use std::os::unix::fs::OpenOptionsExt;
+            options.mode(0o600);
+        }
+        let mut file = options.open(&receipt)?;
+        writeln!(
+            file,
+            "{}",
+            serde_json::json!({"event":"owner_dead_recovery_attempt","recorded_at":now_iso(),"lock":existing})
+        )?;
+        file.sync_all()
+    };
+    match write() {
+        Ok(()) => Ok(()),
+        Err(source) => Err(PmRustError::Io {
+            path: receipt,
+            source,
+        }),
+    }
 }
 
 /// Decides whether a lock-path filesystem error means contention or a fault.
@@ -1134,10 +1207,11 @@ fn write_lock_file(mut file: File, path: &Path, raw: &str) -> Result<ItemLock, P
 
 /// Removes an expired lock only when its bytes still match the observed owner.
 fn remove_stale_lock(path: &Path, expected_raw: &str, id: &str) -> Result<(), PmRustError> {
-    // `match` instead of `.map_err(..)` avoids a per-instantiation closure
-    // function the coverage gate counts separately.
     let current_raw = match fs::read_to_string(path) {
         Ok(raw) => raw,
+        Err(source) if lock_error_is_contention(path, &source) => {
+            return Err(PmRustError::LockConflict { id: id.to_owned() });
+        }
         Err(source) => {
             return Err(PmRustError::Io {
                 path: path.to_path_buf(),
@@ -1148,7 +1222,34 @@ fn remove_stale_lock(path: &Path, expected_raw: &str, id: &str) -> Result<(), Pm
     if current_raw != expected_raw {
         return Err(PmRustError::LockConflict { id: id.to_owned() });
     }
-    remove_file(path)
+    finish_lock_removal(path, id, fs::remove_file(path))
+}
+
+/// Retries vanished or pending-delete lock observations and persists successful removal.
+fn finish_lock_removal(
+    path: &Path,
+    id: &str,
+    result: std::io::Result<()>,
+) -> Result<(), PmRustError> {
+    match result {
+        Err(source) if lock_error_is_contention(path, &source) => {
+            Err(PmRustError::LockConflict { id: id.to_owned() })
+        }
+        Err(source) => Err(PmRustError::Io {
+            path: path.to_path_buf(),
+            source,
+        }),
+        Ok(()) => {
+            #[cfg(unix)]
+            {
+                sync_parent(path)
+            }
+            #[cfg(not(unix))]
+            {
+                Ok(())
+            }
+        }
+    }
 }
 
 /// Removes a file and persists the containing-directory change where supported.
@@ -2598,8 +2699,12 @@ fn ownership_lock_refusal(
         format!(" after waiting {waited_ms}ms")
     };
     ownership_refusal(
-        format!("Item {} is locked{owner_suffix}{waited}", request.id),
-        serde_json::json!({"code":"lock_conflict","recovery":{"retry_after_ms":250}}),
+        format!(
+            "Item {} is locked{owner_suffix} (owner process {}){waited}",
+            request.id,
+            crate::lock_owner::inspect(&value)
+        ),
+        serde_json::json!({"code":"lock_conflict","item_id":request.id,"reason":format!("lock_owner_{}",crate::lock_owner::inspect(&value)),"required":"Wait for the owner to release the lock, then retry the same operation. Set PM_LOCK_WAIT_MS to a larger bounded millisecond budget when contention is expected. Inspect stale receipts with pm gc --scope locks --dry-run.","recovery":{"retry_after_ms":250}}),
     )
 }
 
@@ -2648,7 +2753,11 @@ pub(crate) fn collection_item(
             &request,
             &settings,
             lock_clock,
-            if settings.locks.wait_ms == 0 {
+            if lock_wait_budget(
+                std::env::var("PM_LOCK_WAIT_MS").ok().as_deref(),
+                settings.locks.wait_ms,
+            ) == 0
+            {
                 0
             } else {
                 started.elapsed().as_millis()
@@ -2693,7 +2802,7 @@ pub(crate) fn collection_item(
         ));
     }
     let source = if key == "tests" && !edit.adds.is_empty() {
-        crate::collections::source_ref()
+        crate::collections::source_ref(pm_root)
     } else {
         None
     };
@@ -2809,7 +2918,11 @@ pub(crate) fn ownership_item_with_options(
                 request,
                 &settings,
                 &timestamp,
-                if settings.locks.wait_ms == 0 {
+                if lock_wait_budget(
+                    std::env::var("PM_LOCK_WAIT_MS").ok().as_deref(),
+                    settings.locks.wait_ms,
+                ) == 0
+                {
                     0
                 } else {
                     lock_started.elapsed().as_millis()

@@ -4,9 +4,10 @@
 //! field-update, comment-append, and close transactions, each backed by
 //! per-item locking with a wait budget, durable journaling, recovery, and
 //! canonical `item_hash_version: 3` history compatible with the published
-//! `pm` 2026.10.19 release. Merge operations remain gated on differential
+//! `pm` 2026.10.21 release. Merge operations remain gated on differential
 //! conformance evidence.
 
+mod assurance;
 mod collation;
 mod collections;
 mod error;
@@ -17,6 +18,7 @@ mod json_output;
 mod list;
 mod list_intent;
 mod list_registry;
+mod lock_owner;
 mod mutation;
 mod orientation;
 mod orientation_context;
@@ -50,4 +52,4 @@ pub use toon_output::stringify_toon;
 pub use workspace::{ItemFilter, ListResult, Workspace};
 
 /// Published canonical `pm` release used by this compatibility slice.
-pub const COMPATIBLE_PM_VERSION: &str = "2026.10.19";
+pub const COMPATIBLE_PM_VERSION: &str = "2026.10.21";
