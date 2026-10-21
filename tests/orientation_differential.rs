@@ -2005,3 +2005,39 @@ fn blocked_focus_cursor_pages_match_october_21_oracle() -> TestResult {
     assert!(cursor.is_none());
     Ok(())
 }
+
+/// Padded inverse blocker IDs retain the published context classification.
+#[test]
+fn padded_inverse_blockers_match_oracle() -> TestResult {
+    let Some(published) = published_cli::published_cli_or_skip("padded inverse blockers") else {
+        return Ok(());
+    };
+    let scratch = tempfile::tempdir()?;
+    let driver = orientation_driver(scratch.path(), &published)?;
+    let root = tempfile::tempdir()?;
+    assert!(
+        oracle(&driver, root.path(), &["init", "sample-", "--defaults"])?
+            .status
+            .success()
+    );
+    for id in ["sample-root", " sample-root ", " SAMPLE-ROOT "] {
+        let start = item("sample-root", "Task", "blocked", 1);
+        let mut inverse = item("sample-inverse", "Task", "open", 2);
+        inverse["dependencies"] = json!([{"id":id,"kind":"blocks","created_at":CLOCK}]);
+        fixture(root.path(), &[start, inverse])?;
+        let args = ["context", "--depth", "deep", "--json"];
+        // Refresh the oracle signal cache after replacing fixture metadata.
+        assert!(oracle(&driver, root.path(), &args)?.status.success());
+        let expected = oracle(&driver, root.path(), &args)?;
+        assert!(
+            expected.status.success(),
+            "{}",
+            String::from_utf8_lossy(&expected.stderr)
+        );
+
+        let document: Value = serde_json::from_slice(&expected.stdout)?;
+        assert_eq!(document["blockers"][0]["blocked_by"], "sample-inverse");
+        compare(&expected, &native(root.path(), &args)?, &args);
+    }
+    Ok(())
+}

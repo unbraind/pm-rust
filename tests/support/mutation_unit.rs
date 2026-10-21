@@ -902,12 +902,12 @@ fn filesystem_failures_are_typed_and_atomic_temps_are_cleaned()
         Err(PmRustError::LockConflict { .. })
     ));
     assert!(matches!(
-        remove_stale_lock(&lock_path, "different", "sample-lock"),
+        remove_stale_lock(&lock_path, "different", None, "sample-lock"),
         Err(PmRustError::LockConflict { .. })
     ));
     fs::remove_file(&lock_path)?;
     assert!(matches!(
-        remove_stale_lock(&lock_path, "existing", "sample-lock"),
+        remove_stale_lock(&lock_path, "existing", None, "sample-lock"),
         Err(PmRustError::LockConflict { .. })
     ));
     let read_only_lock_path = lock_root.join("read-only.lock");
@@ -920,6 +920,7 @@ fn filesystem_failures_are_typed_and_atomic_temps_are_cleaned()
     let missing_guard = ItemLock {
         path: lock_root.join("missing.lock"),
         raw: "missing".to_owned(),
+        observed: None,
     };
     drop(missing_guard);
     Ok(())
@@ -4784,7 +4785,7 @@ fn stale_owner_disappearance_is_contention_not_a_write_failure()
     let directory = tempfile::tempdir()?;
     let path = directory.path().join("sample-vanished.lock");
     assert!(matches!(
-        remove_stale_lock(&path, "observed owner", "sample-vanished"),
+        remove_stale_lock(&path, "observed owner", None, "sample-vanished"),
         Err(PmRustError::LockConflict { .. })
     ));
     for kind in [ErrorKind::NotFound, ErrorKind::PermissionDenied] {
@@ -4803,7 +4804,7 @@ fn stale_owner_disappearance_is_contention_not_a_write_failure()
     ));
     fs::create_dir(&path)?;
     assert!(matches!(
-        remove_stale_lock(&path, "observed owner", "sample-vanished"),
+        remove_stale_lock(&path, "observed owner", None, "sample-vanished"),
         Err(PmRustError::Io { .. })
     ));
     Ok(())
@@ -4840,5 +4841,67 @@ fn resolved_zero_wait_budget_is_used_without_rereading_settings()
     })
     .map_err(|_| "contender panicked")?;
     assert!(matches!(outcome, Err(PmRustError::LockConflict { .. })));
+    Ok(())
+}
+
+/// Identical legacy receipts cannot authorize deletion of a replacement inode.
+#[test]
+fn stale_lock_replacement_with_identical_bytes_is_preserved()
+-> Result<(), Box<dyn std::error::Error>> {
+    let directory = tempfile::tempdir()?;
+    let path = directory.path().join("sample-owner.lock");
+    let raw = "legacy tokenless receipt";
+    fs::write(&path, raw)?;
+    let (existing, observed) = read_lock_owner(&path)?;
+    assert!(lock_identity_unchanged(&path, Some(&observed)));
+    assert!(!lock_identity_unchanged(&path, None));
+    fs::rename(&path, directory.path().join("retired.lock"))?;
+    fs::write(&path, raw)?;
+    assert!(matches!(
+        remove_stale_lock(&path, &existing, Some(&observed), "sample-owner"),
+        Err(PmRustError::LockConflict { .. })
+    ));
+    assert_eq!(fs::read_to_string(&path)?, raw);
+    let (_, replacement) = read_lock_owner(&path)?;
+    remove_stale_lock(&path, raw, Some(&replacement), "sample-owner")?;
+    assert!(!path.exists());
+    assert!(!lock_identity_unchanged(&path, Some(&observed)));
+    assert!(read_lock_owner(&path).is_err());
+    fs::write(&path, [0xff])?;
+    assert!(read_lock_owner(&path).is_err());
+    Ok(())
+}
+
+/// A completed owner guard also preserves a same-byte replacement lock.
+#[test]
+fn released_lock_replacement_with_identical_bytes_is_preserved()
+-> Result<(), Box<dyn std::error::Error>> {
+    let directory = tempfile::tempdir()?;
+    let path = directory.path().join("sample-owner.lock");
+    let held = create_lock_file(&path, "same receipt", "sample-owner")?;
+    fs::rename(&path, directory.path().join("retired.lock"))?;
+    fs::write(&path, "same receipt")?;
+    drop(held);
+    assert!(path.exists(), "released guard removed a replacement lock");
+    assert_eq!(fs::read_to_string(&path)?, "same receipt");
+    Ok(())
+}
+
+/// Failed lock initialization cleans up only the file that was opened by the writer.
+#[test]
+fn failed_lock_replacement_with_identical_bytes_is_preserved()
+-> Result<(), Box<dyn std::error::Error>> {
+    let directory = tempfile::tempdir()?;
+    let path = directory.path().join("sample-owner.lock");
+    fs::write(&path, "same receipt")?;
+    let read_only = File::open(&path)?;
+    fs::rename(&path, directory.path().join("retired.lock"))?;
+    fs::write(&path, "same receipt")?;
+    assert!(matches!(
+        write_lock_file(read_only, &path, "same receipt"),
+        Err(PmRustError::Io { .. })
+    ));
+    assert!(path.exists(), "failed writer removed a replacement lock");
+    assert_eq!(fs::read_to_string(&path)?, "same receipt");
     Ok(())
 }

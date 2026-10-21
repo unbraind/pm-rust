@@ -533,7 +533,9 @@ fn blocker_ids(
     for other in corpus {
         for dep in other["dependencies"].as_array().into_iter().flatten() {
             if text(dep, "kind").trim().eq_ignore_ascii_case("blocks")
-                && text(dep, "id").eq_ignore_ascii_case(text(item, "id"))
+                && text(dep, "id")
+                    .trim()
+                    .eq_ignore_ascii_case(text(item, "id").trim())
             {
                 ids.entry(text(other, "id").to_lowercase())
                     .or_insert_with(|| text(other, "id").to_owned());

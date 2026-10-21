@@ -2,7 +2,7 @@
 
 use serde_json::Map;
 use std::fs::{self, File, OpenOptions};
-use std::io::{ErrorKind, Write};
+use std::io::{ErrorKind, Read, Write};
 use std::path::{Path, PathBuf};
 use std::process;
 use std::sync::atomic::{AtomicU64, Ordering};
@@ -372,6 +372,7 @@ struct LockPayload {
 struct ItemLock {
     path: PathBuf,
     raw: String,
+    observed: Option<GateObservation>,
 }
 
 /// Releases a kernel gate lease independently of inherited file descriptors.
@@ -384,7 +385,7 @@ impl Drop for GateLease {
     }
 }
 
-/// Retains the metadata and native identity of one observed gate instance.
+/// Retains the metadata and native identity of one observed gate or owner file.
 struct GateObservation {
     metadata: fs::Metadata,
     #[cfg(windows)]
@@ -392,6 +393,20 @@ struct GateObservation {
 }
 
 impl GateObservation {
+    /// Captures identity from the opened owner file rather than a second pathname lookup.
+    fn from_file(file: File) -> std::io::Result<Self> {
+        let metadata = file.metadata()?;
+        #[cfg(windows)]
+        let identity = same_file::Handle::from_file(file)?;
+        #[cfg(not(windows))]
+        drop(file);
+        Ok(Self {
+            metadata,
+            #[cfg(windows)]
+            identity,
+        })
+    }
+
     /// Reads age and identity from the same open directory handle on Windows.
     fn read(path: &Path) -> std::io::Result<Self> {
         #[cfg(windows)]
@@ -412,9 +427,11 @@ impl GateObservation {
 }
 
 impl Drop for ItemLock {
-    /// Removes the lock only when its ownership token is still unchanged.
+    /// Removes the lock only when its ownership token and file identity are unchanged.
     fn drop(&mut self) {
-        if fs::read_to_string(&self.path).is_ok_and(|raw| raw == self.raw) {
+        if fs::read_to_string(&self.path).is_ok_and(|raw| raw == self.raw)
+            && lock_identity_unchanged(&self.path, self.observed.as_ref())
+        {
             let _ = fs::remove_file(&self.path);
         }
     }
@@ -994,7 +1011,7 @@ fn reclaim_stale_gate(gate: &Path, observed: Option<&GateObservation>) -> std::i
     fs::rename(gate, &tombstone).and_then(|()| fs::remove_dir(&tombstone))
 }
 
-/// Compares directory identity independently of its modification timestamp.
+/// Compares filesystem identity independently of its modification timestamp.
 fn same_gate_identity(observed: &GateObservation, current: &GateObservation) -> bool {
     #[cfg(unix)]
     {
@@ -1032,8 +1049,8 @@ fn create_or_reclaim_lock(
     // The same pending-delete window applies to reading the incumbent lock: the
     // create above failed because a lock was there, and the holder may release
     // it before this read runs.
-    let existing_raw = match fs::read_to_string(path) {
-        Ok(raw) => raw,
+    let (existing_raw, observed) = match read_lock_owner(path) {
+        Ok(observed) => observed,
         Err(source) if lock_error_is_contention(path, &source) => {
             return Err(PmRustError::LockConflict { id: id.to_owned() });
         }
@@ -1044,9 +1061,7 @@ fn create_or_reclaim_lock(
             });
         }
     };
-    let modified = fs::metadata(path)
-        .and_then(|metadata| metadata.modified())
-        .unwrap_or(UNIX_EPOCH);
+    let modified = observed.metadata.modified().unwrap_or(UNIX_EPOCH);
     let stale = if use_created_at {
         ownership_lock_stale(&existing_raw, timestamp, ttl_seconds)
     } else {
@@ -1060,14 +1075,15 @@ fn create_or_reclaim_lock(
         let existing: Value = serde_json::from_str(&existing_raw).unwrap_or(Value::Null);
         if confirmed_dead_owner(&existing) {
             record_dead_owner(path, &existing)?;
-            return remove_stale_lock(path, &existing_raw, id)
+            return remove_stale_lock(path, &existing_raw, Some(&observed), id)
                 .and_then(|()| create_lock_file(path, raw, id));
         }
     }
     if !stale || !force_stale {
         return Err(PmRustError::LockConflict { id: id.to_owned() });
     }
-    remove_stale_lock(path, &existing_raw, id).and_then(|()| create_lock_file(path, raw, id))
+    remove_stale_lock(path, &existing_raw, Some(&observed), id)
+        .and_then(|()| create_lock_file(path, raw, id))
 }
 
 /// Rejects malformed lock receipts before inspecting same-host original-process death.
@@ -1190,12 +1206,15 @@ fn create_lock_file(path: &Path, raw: &str, id: &str) -> Result<ItemLock, PmRust
 
 /// Flushes a newly created lock payload before returning its ownership guard.
 fn write_lock_file(mut file: File, path: &Path, raw: &str) -> Result<ItemLock, PmRustError> {
+    let observed = file.try_clone().and_then(GateObservation::from_file).ok();
     if let Err(source) = file
         .write_all(raw.as_bytes())
         .and_then(|()| file.sync_all())
     {
         drop(file);
-        let _ = fs::remove_file(path);
+        if lock_identity_unchanged(path, observed.as_ref()) {
+            let _ = fs::remove_file(path);
+        }
         return Err(PmRustError::Io {
             path: path.to_path_buf(),
             source,
@@ -1204,11 +1223,33 @@ fn write_lock_file(mut file: File, path: &Path, raw: &str) -> Result<ItemLock, P
     Ok(ItemLock {
         path: path.to_path_buf(),
         raw: raw.to_owned(),
+        observed,
     })
 }
 
-/// Removes an expired lock only when its bytes still match the observed owner.
-fn remove_stale_lock(path: &Path, expected_raw: &str, id: &str) -> Result<(), PmRustError> {
+/// Reads owner bytes and identity from one opened file.
+fn read_lock_owner(path: &Path) -> std::io::Result<(String, GateObservation)> {
+    let mut file = File::open(path)?;
+    let mut raw = String::new();
+    file.read_to_string(&mut raw)?;
+    Ok((raw, GateObservation::from_file(file)?))
+}
+
+/// Refuses replacement files even when their receipt bytes are identical.
+fn lock_identity_unchanged(path: &Path, observed: Option<&GateObservation>) -> bool {
+    match (observed, GateObservation::read(path)) {
+        (Some(observed), Ok(current)) => same_gate_identity(observed, &current),
+        _ => false,
+    }
+}
+
+/// Removes an expired lock only when its bytes and identity still match the observed owner.
+fn remove_stale_lock(
+    path: &Path,
+    expected_raw: &str,
+    observed: Option<&GateObservation>,
+    id: &str,
+) -> Result<(), PmRustError> {
     let current_raw = match fs::read_to_string(path) {
         Ok(raw) => raw,
         Err(source) if lock_error_is_contention(path, &source) => {
@@ -1221,7 +1262,7 @@ fn remove_stale_lock(path: &Path, expected_raw: &str, id: &str) -> Result<(), Pm
             });
         }
     };
-    if current_raw != expected_raw {
+    if current_raw != expected_raw || !lock_identity_unchanged(path, observed) {
         return Err(PmRustError::LockConflict { id: id.to_owned() });
     }
     finish_lock_removal(path, id, fs::remove_file(path))

@@ -1437,7 +1437,7 @@ fn legacy_blocker_aliases_keep_the_resolved_target() -> Result<(), Box<dyn std::
     let (_root, _workspace, lifecycle) = workspace()?;
     let target = item("sample-target", "closed");
     let mut inverse = item("sample-inverse", "open");
-    inverse["dependencies"] = json!([{"id":"sample-root","kind":" BLOCKS "}]);
+    inverse["dependencies"] = json!([{"id":" SAMPLE-ROOT ","kind":" BLOCKS "}]);
     for kind in ["depends_on", " DEPENDS-ON ", "blocked_by"] {
         let mut root = item("sample-root", "blocked");
         root["dependencies"] = json!([

@@ -68,3 +68,32 @@ Independent test cases can be serialized locally with
 `RUST_TEST_THREADS=1 just release-check`. Each scenario retains its internal
 process concurrency and subprocess deadlines; the CI matrix runs the standard
 recipe.
+
+## PR 101 review follow-up
+
+All three unresolved review findings in the October 21 review are valid:
+
+| Thread | Verified behavior and change |
+| --- | --- |
+| `PRRT_kwDOTwgMRs6uxrCh` | Stale recovery reads receipt bytes and file identity from one open file, then checks both before unlinking. Unix compares device/inode; Windows compares native file handles. Normal release and failed initialization cleanup also preserve replacement files. |
+| `PRRT_kwDOTwgMRs6uxrCr` | Inverse `blocks` comparisons trim both IDs. The locked oracle resolves ordinary, padded and padded uppercase dependency IDs to the same blocker. |
+| `PRRT_kwDOTwgMRs6uxrDJ` | Oracle-dependent fixture setup uses the shared optional-or-required locator. Every dependent caller skips without an optional oracle; required-oracle mode still fails. |
+
+The latest review body contains no outside-diff findings. The full production
+PR diff was inspected for the same deletion, normalization and fixture-admission
+classes. Review threads are left for the orchestrator to disposition.
+
+Five independent behavioral reverts fail with exit 101 at runtime, restoring
+sources after each run. Use `cargo +1.90.0 test --locked` with these selectors:
+
+| Reverted behavior | Selector |
+| --- | --- |
+| Stale receipt identity guard | `--lib stale_lock_replacement_with_identical_bytes_is_preserved` |
+| Normal release identity guard | `--lib released_lock_replacement_with_identical_bytes_is_preserved` |
+| Failed initialization identity guard | `--lib failed_lock_replacement_with_identical_bytes_is_preserved` |
+| Inverse ID trimming | `--test orientation_differential padded_inverse_blockers_match_oracle` |
+| Optional oracle admission | `--test parity_1021_contract absent_oracle_obeys_optional_and_required_modes` |
+
+The identity guard narrows pathname replacement exposure under the existing gate
+lease; it does not claim an atomic compare-and-unlink against arbitrary external
+writers that bypass that lease.

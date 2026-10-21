@@ -10,9 +10,11 @@ mod published_cli;
 type TestResult = Result<(), Box<dyn std::error::Error>>;
 
 /// Seeds a plain directory tracker through the published initialization surface.
-fn tracker() -> Result<tempfile::TempDir, Box<dyn std::error::Error>> {
+fn tracker() -> Result<Option<tempfile::TempDir>, Box<dyn std::error::Error>> {
+    let Some(published) = published_cli::published_cli_or_skip("October 21 parity") else {
+        return Ok(None);
+    };
     let dir = tempfile::tempdir()?;
-    let published = published_cli::locate_published_cli().ok_or("published oracle required")?;
     let result = oracle_command()
         .arg(published.entry)
         .current_dir(dir.path())
@@ -45,7 +47,7 @@ fn tracker() -> Result<tempfile::TempDir, Box<dyn std::error::Error>> {
         "{}",
         String::from_utf8_lossy(&output.stderr)
     );
-    Ok(dir)
+    Ok(Some(dir))
 }
 
 #[test]
@@ -92,7 +94,9 @@ fn unknown_mutation_keys_are_refused_before_storage() -> TestResult {
 #[test]
 /// Unsupported execution controls cannot persist linked tests or change history.
 fn unsupported_test_execution_is_refused_before_link_edits() -> TestResult {
-    let directory = tracker()?;
+    let Some(directory) = tracker()? else {
+        return Ok(());
+    };
     let root = directory.path().join(".agents/pm");
     let item = root.join("tasks/sample-probe.toon");
     let history = root.join("history/sample-probe.jsonl");
@@ -125,7 +129,9 @@ fn unsupported_test_execution_is_refused_before_link_edits() -> TestResult {
 #[test]
 /// A terminated published writer permits audited recovery without waiting for lease expiry.
 fn dead_same_host_owner_is_recovered_before_ttl_with_audit() -> TestResult {
-    let directory = tracker()?;
+    let Some(directory) = tracker()? else {
+        return Ok(());
+    };
     let published = published_cli::locate_published_cli().ok_or("oracle")?;
     let lock_module = published.package_root.join("dist/core/lock/lock.js");
     let script = "const {pathToFileURL}=await import('node:url');const {acquireLock}=await import(pathToFileURL(process.argv[1]));await acquireLock(process.argv[2],'sample-probe',1800,'dead-agent');process.exit(0);";
@@ -169,7 +175,9 @@ fn dead_same_host_owner_is_recovered_before_ttl_with_audit() -> TestResult {
 #[test]
 /// Retry advice retains the operation and workspace without introducing a force override.
 fn lock_contention_preserves_the_actual_invocation_without_force_advice() -> TestResult {
-    let directory = tracker()?;
+    let Some(directory) = tracker()? else {
+        return Ok(());
+    };
     let root = directory.path().join(".agents/pm");
     let lock = root.join("locks/sample-probe.lock");
     fs::create_dir_all(root.join("locks"))?;
@@ -241,7 +249,9 @@ fn lock_contention_preserves_the_actual_invocation_without_force_advice() -> Tes
 #[test]
 /// Expected declaration misses match the oracle and leave registry state absent.
 fn unknown_declaration_reads_match_typed_oracle_refusals() -> TestResult {
-    let directory = tracker()?;
+    let Some(directory) = tracker()? else {
+        return Ok(());
+    };
     let published = published_cli::locate_published_cli().ok_or("oracle")?;
     for kind in ["measurement", "assertion", "gate"] {
         let args = ["assurance", "show", kind, "missing", "--json"];
@@ -270,7 +280,9 @@ fn unknown_declaration_reads_match_typed_oracle_refusals() -> TestResult {
 /// Plain-directory mutations avoid a poison Git shim and also work without its executable.
 fn plain_directory_linked_tests_never_invoke_git() -> TestResult {
     use std::os::unix::fs::PermissionsExt;
-    let directory = tracker()?;
+    let Some(directory) = tracker()? else {
+        return Ok(());
+    };
     let poison = directory.path().join("poison-path");
     fs::create_dir(&poison)?;
     let git = poison.join("git");
@@ -313,7 +325,9 @@ fn plain_directory_linked_tests_never_invoke_git() -> TestResult {
 /// Bounded declaration discovery delivers every row once and refuses changed snapshots.
 #[test]
 fn bounded_assurance_discovery_resumes_and_refuses_stale_snapshots() -> TestResult {
-    let directory = tracker()?;
+    let Some(directory) = tracker()? else {
+        return Ok(());
+    };
     let path = directory.path().join(".agents/pm/assurance.json");
     let mut document = json!({"version":1,"measurements":[],"assertions":[],"gates":(0..50).map(|index|json!({"id":format!("gate-{index:03}"),"assertion_ids":[],"triggers":["ci"],"description":"x".repeat(500)})).collect::<Vec<_>>()});
     let before = serde_json::to_vec(&document)?;
@@ -407,7 +421,9 @@ fn oracle_tool() -> Command {
 #[test]
 /// Invalid completion arithmetic keeps its published human/JSON failure and preserves stored bytes.
 fn completion_overflow_preserves_refusal_encoding_before_mutation() -> TestResult {
-    let directory = tracker()?;
+    let Some(directory) = tracker()? else {
+        return Ok(());
+    };
     let root = directory.path().join(".agents/pm");
     let item = root.join("tasks/sample-probe.toon");
     let history = root.join("history/sample-probe.jsonl");
@@ -513,7 +529,9 @@ fn fixture_git_configuration_is_neutral() -> TestResult {
 /// The pinned oracle preserves aged recovery receipts through actual lock garbage collection.
 #[test]
 fn published_lock_gc_retains_recovery_receipts() -> TestResult {
-    let directory = tracker()?;
+    let Some(directory) = tracker()? else {
+        return Ok(());
+    };
     let root = directory.path().join(".agents/pm");
     let receipts = root.join("locks/recoveries");
     fs::create_dir_all(&receipts)?;
@@ -550,5 +568,42 @@ fn certification_tracker_body_matches_the_active_oracle() -> TestResult {
     let body = task["body"].as_str().ok_or("missing body")?;
     assert!(body.contains("2026.10.21") && body.contains("PR 101"));
     assert!(!body.contains("Keep PR 100 scoped"));
+    Ok(())
+}
+
+/// The optional oracle skips fixture tests, while required mode still fails closed.
+#[test]
+fn absent_oracle_obeys_optional_and_required_modes() -> TestResult {
+    let directory = tempfile::tempdir()?;
+    for required in [false, true] {
+        let mut command = Command::new(std::env::current_exe()?);
+        command
+            .args([
+                "--exact",
+                "unsupported_test_execution_is_refused_before_link_edits",
+                "--nocapture",
+            ])
+            .env("PM_NODE_CLI", directory.path().join("absent-oracle"));
+        if required {
+            command.env("PM_RUST_REQUIRE_PUBLISHED_CLI", "1");
+        } else {
+            command.env_remove("PM_RUST_REQUIRE_PUBLISHED_CLI");
+        }
+        let output = command.output()?;
+        let stdout = String::from_utf8_lossy(&output.stdout);
+        let stderr = String::from_utf8_lossy(&output.stderr);
+        assert_eq!(output.status.success(), !required, "{stdout}{stderr}");
+        if required {
+            assert!(
+                stderr.contains("requires the published Node pm CLI"),
+                "{stdout}{stderr}"
+            );
+        } else {
+            assert!(
+                stdout.contains("skip: no published Node pm CLI found"),
+                "{stdout}{stderr}"
+            );
+        }
+    }
     Ok(())
 }
