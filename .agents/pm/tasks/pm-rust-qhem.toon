@@ -6,10 +6,8 @@ status: in_progress
 priority: 3
 tags[3]: conformance,follow-up,oracle
 created_at: "2026-10-20T09:07:30.168Z"
-updated_at: "2026-10-21T13:44:58.606Z"
+updated_at: "2026-10-21T14:16:01.631Z"
 deadline: "2026-10-27T00:00:00.000Z"
-assignee: codex-agent
-claim_principal: codex-agent
 author: codex-agent
 estimated_minutes: 240
 acceptance_criteria: Oracle pin and native compatibility version agree on 2026.10.21; both release deltas classified; behavioural revert proofs; every plain-directory process write and history entry preserved; unchanged 100 percent lines/functions/regions/branches; Linux/macOS/Windows gates pass.
@@ -18,7 +16,7 @@ blocked_by: pm-rust-owzm
 dependencies[2]{id,kind,created_at,author,source_kind,author_source}:
   pm-rust-owzm,related,"2026-10-20T09:07:30.168Z",codex-agent,"cli:create:dep",detected
   pm-rust-owzm,blocked_by,"2026-10-20T11:05:13.191Z",codex-agent,"cli:update:blocked_by",detected
-comments[49]{created_at,author,text}:
+comments[51]{created_at,author,text}:
   "2026-10-20T09:07:30.168Z",codex-agent,Planning only. Implementation is deferred until the current delivery is reviewed.
   "2026-10-21T04:41:10.473Z",codex-agent,"Scope extended to published pm-cli 2026.10.21 as requested. Compare both releases against the October 19 native slice; implement applicable deltas, prove fail-before/pass-after behaviour, and require all four coverage dimensions plus the three-platform gates. No-git acceptance will require every real process write and history record to survive."
   "2026-10-21T04:47:20.325Z",codex-agent,"Implementation covers conservative same-host original-process death receipts and recovery intent, strict serialized mutation keys, invocation-preserving lock advice, effective default ordering, count-based completion rounding, and cursor page-local blocker focus. Test execution remains outside the native slice and unsupported run options are preflight-refused before linked-test edits. Assurance declaration reads gain typed missing-ID refusals and bounded read-only discovery."
@@ -68,6 +66,8 @@ comments[49]{created_at,author,text}:
   "2026-10-21T13:17:26.341Z",codex-agent,"Restored PM-managed acceptance passed: three identity regressions, one exact 2026.10.21 blocker differential, and one optional/required oracle regression. The supplemental broad test run completed 302 library tests but its self-relaunch harness failed because an overlapping rebuild unlinked the running executable; the executable link confirmed the cause. Stopped that supplemental run and started the full unchanged aggregate without overlapping rebuilds, with a fresh home and neutral global/system Git configuration. No aggregate success is claimed until it completes."
   "2026-10-21T13:20:38.718Z",codex-agent,"Cross-platform self-review: snapshot Windows volume/file IDs rather than retaining owner handles, since retained handles can keep deletion pending and prevent immediate stale-lock recreation. Uses the already locked winapi-util version through a direct Windows-only dependency; no resolved package version changed. Existing forced-stale replacement with the original guard still alive covers immediate recreation on Windows. The local lock selector passed 25 tests; the previously affected self-relaunch harness passes alone. The aggregate was stopped before completion to restart on this correction; that partial run is not counted as a release pass."
   "2026-10-21T13:44:58.606Z",codex-agent,"The first macOS aggregate executed all 563 stable and 563 instrumented tests successfully, but the unchanged 100 percent region gate found two uncovered error-propagation regions in the new metadata helpers. Replaced nested question-mark propagation with Result mapping while preserving errors and file lifetime. Strict all-target Clippy passes. Instrumented library acceptance passes all 302 tests; the three identity helpers and both mapping closures have zero uncovered regions. The Windows clone result uses the same propagation form. No source exclusions or thresholds changed. All three standalone CI Rust suites and latency jobs passed; final aggregate recertification remains pending."
+  "2026-10-21T14:15:57.883Z",codex-agent,"Final certification at code head c03335e826fb2edd392ca0eda51c0b74774cb849: all nine CI jobs passed in https://github.com/unbraind/pm-rust/actions/runs/39610776837 and CodeQL passed in https://github.com/unbraind/pm-rust/actions/runs/39610776769. The unchanged just release-check aggregate passes on Linux, macOS and Windows. Linux: 573 stable plus 573 instrumented tests; 14004/14004 lines, 1462/1462 functions, 23395/23395 regions, 3294/3294 branches. macOS: 563 plus 563 tests; 13922/13922 lines, 1450/1450 functions, 23254/23254 regions, 3256/3256 branches. Windows: 557 plus 557 tests; 13920/13920 lines, 1450/1450 functions, 23258/23258 regions, 3258/3258 branches. Each aggregate completed 44 binary executions with zero failed or ignored tests. All four required dimensions are exactly 100 percent with unchanged scope and thresholds. Fmt, strict Clippy, private rustdoc, identity, audit, changelog, clone-local health and all three latency gates passed. Audit retains the inherited allowed RUSTSEC-2024-0449 maintenance advisory."
+  "2026-10-21T14:15:58.805Z",codex-agent,"Final review refetch confirms the same three unresolved thread IDs, all complete with no pagination gaps or new comments; the latest CodeRabbit review still has no outside-diff findings. All five restored PM-linked regressions pass on the certified source. A local parallel aggregate hit the existing five-second packet subprocess timeout; the exact isolated retry passed unchanged, and the scenario passed in the certified CI aggregates. Earlier stopped supplemental runs are not aggregate passes. Original history remains an unchanged byte prefix; only records were appended. Existing full-history follow-up pm-rust-b4yl remains out of scope, with no repair or re-anchoring. Default strict local health passed with three existing advisories. No new pm CLI or SDK defect was discovered. Releasing the claim for orchestrator verification; the item stays in progress. The final evidence commit changes only this item and its appended history; production, tests, build controls and documentation remain identical to the certified head."
 notes[1]{created_at,author,text}:
   "2026-10-20T09:07:30.168Z",codex-agent,Published version 2026.10.20 was observed via npm view during the 2026.10.19 continuation.
 learnings[1]{created_at,author,text}:
@@ -112,11 +112,13 @@ tests[8]{command,scope,timeout_seconds,provenance{author,created_at,source_kind,
   cargo +1.90.0 test --locked --lib lock_replacement_with_identical_bytes -- --nocapture,project,300,codex-agent,"2026-10-21T13:14:55.168Z",local_mutation,feat/parity-pm-2026-10-21
   cargo +1.90.0 test --locked --test orientation_differential padded_inverse_blockers_match_oracle -- --nocapture,project,300,codex-agent,"2026-10-21T13:14:57.042Z",local_mutation,feat/parity-pm-2026-10-21
   cargo +1.90.0 test --locked --test parity_1021_contract absent_oracle_obeys_optional_and_required_modes -- --nocapture,project,300,codex-agent,"2026-10-21T13:14:58.726Z",local_mutation,feat/parity-pm-2026-10-21
-docs[6]{path,scope}:
+docs[8]{path,scope}:
   docs/NATIVE_PARITY_2026_10_21.md,project
   "https://github.com/unbraind/pm-rust/actions/runs/39589911773",project
   "https://github.com/unbraind/pm-rust/actions/runs/39589911783",project
   "https://github.com/unbraind/pm-rust/actions/runs/39597214331",project
   "https://github.com/unbraind/pm-rust/actions/runs/39597214333",project
+  "https://github.com/unbraind/pm-rust/actions/runs/39610776769",project
+  "https://github.com/unbraind/pm-rust/actions/runs/39610776837",project
   "https://www.npmjs.com/package/@unbrained/pm-cli/v/2026.10.20",project
 body: "Certify native CLI and SDK behaviour against published pm-cli 2026.10.21 in PR 101, including applicable changes since 2026.10.19, plain-directory concurrent writers, behavioural revert proofs, unchanged 100 percent coverage thresholds, and Linux/macOS/Windows release gates. Resolve every valid review finding while retaining published oracle quirks and append-only history."
