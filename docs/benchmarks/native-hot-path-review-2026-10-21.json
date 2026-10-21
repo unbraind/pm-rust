@@ -1,0 +1,107 @@
+{
+  "source_restored": true,
+  "results": [
+    {
+      "case": "runtime-order",
+      "mode": "behavior reverted",
+      "command": "node --test \"--test-name-pattern=hot-path samples retain\" scripts/harness.test.mts",
+      "passed": 0,
+      "failed": 1,
+      "status": 1,
+      "intended_assertion": true
+    },
+    {
+      "case": "runtime-order",
+      "mode": "restored",
+      "command": "node --test \"--test-name-pattern=hot-path samples retain\" scripts/harness.test.mts",
+      "passed": 1,
+      "failed": 0,
+      "status": 0
+    },
+    {
+      "case": "historical-order",
+      "mode": "behavior reverted",
+      "command": "node --test \"--test-name-pattern=hot-path historical order\" scripts/harness.test.mts",
+      "passed": 0,
+      "failed": 1,
+      "status": 1,
+      "intended_assertion": true
+    },
+    {
+      "case": "historical-order",
+      "mode": "restored",
+      "command": "node --test \"--test-name-pattern=hot-path historical order\" scripts/harness.test.mts",
+      "passed": 1,
+      "failed": 0,
+      "status": 0
+    },
+    {
+      "case": "runner-wording",
+      "mode": "behavior reverted",
+      "command": "node --test \"--test-name-pattern=hot-path runner wording\" scripts/harness.test.mts",
+      "passed": 0,
+      "failed": 1,
+      "status": 1,
+      "intended_assertion": true
+    },
+    {
+      "case": "runner-wording",
+      "mode": "restored",
+      "command": "node --test \"--test-name-pattern=hot-path runner wording\" scripts/harness.test.mts",
+      "passed": 1,
+      "failed": 0,
+      "status": 0
+    },
+    {
+      "case": "sample-count",
+      "mode": "behavior reverted",
+      "command": "node --test \"--test-name-pattern=hot-path documented latency\" scripts/harness.test.mts",
+      "passed": 0,
+      "failed": 1,
+      "status": 1,
+      "intended_assertion": true
+    },
+    {
+      "case": "sample-count",
+      "mode": "restored",
+      "command": "node --test \"--test-name-pattern=hot-path documented latency\" scripts/harness.test.mts",
+      "passed": 1,
+      "failed": 0,
+      "status": 0
+    },
+    {
+      "case": "readme-boundaries",
+      "mode": "behavior reverted",
+      "command": "node --test \"--test-name-pattern=hot-path README\" scripts/harness.test.mts",
+      "passed": 0,
+      "failed": 1,
+      "status": 1,
+      "intended_assertion": true
+    },
+    {
+      "case": "readme-boundaries",
+      "mode": "restored",
+      "command": "node --test \"--test-name-pattern=hot-path README\" scripts/harness.test.mts",
+      "passed": 1,
+      "failed": 0,
+      "status": 0
+    }
+  ],
+  "scope": "PR 102 review round; scheduler, receipt and documentation regressions",
+  "local_checks": {
+    "node --test scripts/harness.test.mts": {
+      "passed": 13,
+      "failed": 0,
+      "skipped": 0
+    },
+    "strict TypeScript no-emit and erasable-syntax check": {
+      "status": "passed"
+    },
+    "cargo +1.90.0 fmt --all -- --check": {
+      "status": "passed"
+    },
+    "cargo +1.90.0 clippy --locked --all-targets --all-features -- -D warnings": {
+      "status": "passed"
+    }
+  }
+}

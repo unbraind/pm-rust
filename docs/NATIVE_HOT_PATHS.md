@@ -14,6 +14,13 @@ Each command gets two warmups and twenty measured fresh processes per runtime.
 Runtime order alternates; filesystem pages and oracle derived caches are warm.
 The receipt retains every sample, nearest-rank wall p50/p95, maximum per-child
 RSS in KiB from GNU time, stdout/stderr bytes, exit status and output hashes.
+Each measured sample records its zero-based `round` and `runtime_order` (the
+ordered runtime names actually launched in that round); warmups are excluded.
+New receipts identify this as `runtime_order_source.kind: recorded-at-launch`.
+The historical receipt linked below has order reconstructed from its exact
+candidate scheduler and sample index, labeled `reconstructed-from-scheduler`,
+with its original receipt SHA-256 retained. Its timings are unchanged; this
+annotation is not independent observation of the historical launch order.
 The external wall clock includes process startup, the GNU time wrapper and
 output capture. The oracle driver pins Date before importing the real CLI and
 pins the context packing watchdog for deterministic byte comparisons. It does
@@ -46,12 +53,12 @@ rejects identical paired executables, preventing a shared build cache from
 silently replacing the candidate with the baseline.
 
 The `Native hot-path benchmark` workflow runs this same twenty-sample matrix on
-a dedicated Linux runner for the performance branch, with an immutable main
-baseline and an exact candidate checkout. Its JSON and Markdown artifacts
+an ephemeral GitHub-hosted `ubuntu-latest` runner for the performance branch,
+with an immutable main baseline and an exact candidate checkout. Its JSON and Markdown artifacts
 contain synthetic measurements only; binaries, trackers and raw command output
 are excluded. This avoids treating a heavily contended development host as a
-stable performance reference. It can also be dispatched after the workflow is
-available on the default branch. Existing release gates remain independent.
+stable performance reference; GitHub-hosted runner noise is still possible. It
+can also be dispatched after the workflow is available on the default branch. Existing release gates remain independent.
 
 The optional syscall profiles use `strace -c -f` outside the measurement
 windows. They cover file opens, reads, metadata calls, directory enumeration,
@@ -89,7 +96,7 @@ continue to govern every mutation.
 
 The [complete before/after tables](benchmarks/native-hot-path-tables-2026-10-21.md) include every command at all three sizes, p50/p95, maximum RSS, stdout/stderr bytes, exit status and exact oracle output/storage comparisons. The [raw receipt](benchmarks/native-hot-paths-2026-10-21.json) retains all 1,620 measured samples, 54 syscall profiles, load averages and executable hashes.
 
-The [dedicated run](https://github.com/unbraind/pm-rust/actions/runs/39657720819) compares merged main `c0154dbd7cd8071ac52b891be13f956f7a0f21fd` (including PR #101) with candidate `32c14792b2c041fb4bf30a265af328bb3742ca44`. Each runtime/case has twenty measured launches after two warmups. All 27 oracle cases succeed. Every baseline/candidate output and target item/history comparison passes byte for byte, including known native refusals.
+The [GitHub-hosted run](https://github.com/unbraind/pm-rust/actions/runs/39657720819) compares merged main `c0154dbd7cd8071ac52b891be13f956f7a0f21fd` (including PR #101) with candidate `32c14792b2c041fb4bf30a265af328bb3742ca44`. Each runtime/case has twenty measured launches after two warmups. All 27 oracle cases succeed. Every baseline/candidate output and target item/history comparison passes byte for byte, including known native refusals.
 
 At 50,000 items:
 
@@ -136,8 +143,19 @@ The unchanged [full CI gate](https://github.com/unbraind/pm-rust/actions/runs/39
 | macOS | 571 / 571 | 13977 / 13977 | 1459 / 1459 | 23350 / 23350 | 3264 / 3264 |
 | Windows | 565 / 565 | 13973 / 13973 | 1458 / 1458 | 23348 / 23348 | 3266 / 3266 |
 
-Every aggregate executes 44 test binaries with zero failures or ignored tests and 100% in all four required coverage dimensions. The [gate receipt](benchmarks/native-hot-path-gates-2026-10-21.json) retains source hashes, exact counts, job links and all 270 existing latency samples. All nine unchanged get/list/context p95 bounds pass. CodeQL also passes. Thresholds and exclusions are unchanged.
+Every aggregate executes 44 test binaries with zero failures or ignored tests and 100% in all four required coverage dimensions. The [gate receipt](benchmarks/native-hot-path-gates-2026-10-21.json) retains source hashes, exact counts, job links and all 810 existing latency samples (270 per platform). All nine unchanged get/list/context p95 bounds pass. CodeQL also passes. Thresholds and exclusions are unchanged.
 
 ## Baseline transition
 
 PR #101 merged during the original validation. This branch then incorporated the merged parity baseline and repeated the complete paired matrix, revert controls, linked tests and platform gates. Primary tables and receipts above describe that combined implementation. The [earlier reproduction receipt](benchmarks/native-hot-path-reproduction-2026-10-21.json) is historical pre-parity evidence at `fd836ba`; it does not describe the current executable. Older full receipts remain available in Git history and their linked workflow artifacts.
+
+## Review regressions
+
+The [review receipt](benchmarks/native-hot-path-review-2026-10-21.json) records
+five assertion-level negative controls: sample order, historical order provenance,
+runner wording, aggregate latency counts and the README non-git boundary. Each
+control fails one intended assertion with only its behavior or documentation
+reverted, then passes after exact byte restoration. The existing Node harness
+now passes 13 tests and remains part of every platform release gate through
+`harness_contract`. The scheduler tests cover both two and three runtimes, odd
+and even warmup counts, and compare recorded order against actual callbacks.

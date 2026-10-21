@@ -7,6 +7,7 @@ import { performance } from 'node:perf_hooks';
 import { fileURLToPath } from 'node:url';
 import { encode } from '../tests/bench-oracle/node_modules/@unbrained/pm-cli/node_modules/@toon-format/toon/dist/index.mjs';
 import { authoritative } from './context-real-helpers.mts';
+import { measureRuntimes } from './bench-schedule.mts';
 import { createHistoryEntry } from '../tests/bench-oracle/node_modules/@unbrained/pm-cli/dist/core/history/history.js';
 import type { ItemDocument } from '../tests/bench-oracle/node_modules/@unbrained/pm-cli/dist/types/index.js';
 
@@ -115,6 +116,7 @@ function main(): void {
     writeFileSync(output, `${JSON.stringify({ schema: 1, complete, oracle: oracleVersion, clock, samples, warmups,
       baseline_commit: process.env.BENCH_BASE_SHA ?? null, candidate_commit: process.env.BENCH_HEAD_SHA ?? null,
       history_entries_per_item: 5, generated_target_history_verified: true,
+      runtime_order_source: { kind: 'recorded-at-launch' },
       method: 'alternating fresh processes; warm filesystem; nearest-rank percentiles; GNU time maximum RSS; reset mutations outside timing',
       platform: process.platform, arch: process.arch, node: process.versions.node, fingerprints, load_average: loads, profiles, rows }, null, 2)}\n`);
   }
@@ -191,26 +193,22 @@ function main(): void {
           writeFileSync(history, originalHistory);
           rmSync(join(tracker, 'runtime'), { recursive: true, force: true });
         };
-        const results = new Map<string, Sample[]>();
         const references = new Map<string, Execution>();
-        for (let round = -warmups; round < samples; round++) {
-          const order = round % 2 === 0 ? runtimes : [...runtimes].reverse();
-          for (const runtime of order) {
-            reset();
-            const result = run(runtime, root, args);
-            if (mutates) result.storage = [hash(readFileSync(item)), existsSync(history) ? hash(readFileSync(history)) : 'absent'];
-            // The oracle discloses cold validation versus warm cache reads in
-            // its completeness receipt. Compare measured warm runs only.
-            if (round < 0) continue;
-            if (!references.has(runtime.name)) references.set(runtime.name, result);
-            const reference = references.get(runtime.name);
-            if (reference && (!equal(reference, result) || JSON.stringify(reference.storage) !== JSON.stringify(result.storage))) {
-              writeFileSync(join(repo, 'target/bench-unstable.private.json'), JSON.stringify({ runtime: runtime.name, command: args[0], expected: { stdout: reference.stdout.toString(), stderr: reference.stderr.toString(), storage: reference.storage }, actual: { stdout: result.stdout.toString(), stderr: result.stderr.toString(), storage: result.storage } }));
-              throw new Error(`Unstable output or storage: ${runtime.name} ${args[0]}`);
-            }
-            results.set(runtime.name, [...(results.get(runtime.name) ?? []), result.sample]);
+        const results = measureRuntimes(runtimes, warmups, samples, (runtime, measured) => {
+          reset();
+          const result = run(runtime, root, args);
+          if (mutates) result.storage = [hash(readFileSync(item)), existsSync(history) ? hash(readFileSync(history)) : 'absent'];
+          // The oracle discloses cold validation versus warm cache reads in
+          // its completeness receipt. Compare measured warm runs only.
+          if (!measured) return result.sample;
+          if (!references.has(runtime.name)) references.set(runtime.name, result);
+          const reference = references.get(runtime.name);
+          if (reference && (!equal(reference, result) || JSON.stringify(reference.storage) !== JSON.stringify(result.storage))) {
+            writeFileSync(join(repo, 'target/bench-unstable.private.json'), JSON.stringify({ runtime: runtime.name, command: args[0], expected: { stdout: reference.stdout.toString(), stderr: reference.stderr.toString(), storage: reference.storage }, actual: { stdout: result.stdout.toString(), stderr: result.stderr.toString(), storage: result.storage } }));
+            throw new Error(`Unstable output or storage: ${runtime.name} ${args[0]}`);
           }
-        }
+          return result.sample;
+        });
         const expected = references.get('oracle');
         const before = references.get('before');
         if (!expected) throw new Error('Missing oracle execution');

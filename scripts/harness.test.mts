@@ -1,5 +1,6 @@
 import assert from 'node:assert/strict';
 import { spawnSync } from 'node:child_process';
+import { createHash } from 'node:crypto';
 import { existsSync, readFileSync, mkdtempSync, mkdirSync, rmSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
@@ -7,6 +8,7 @@ import { test } from 'node:test';
 import { fileURLToPath } from 'node:url';
 import { argument, authoritative, relationshipRoots } from './context-real-helpers.mts';
 import { measure } from './latency-measure.mts';
+import { measureRuntimes } from './bench-schedule.mts';
 
 test('README advertises every supported native context depth', () => {
   const readme = readFileSync(new URL('../README.md', import.meta.url), 'utf8');
@@ -133,4 +135,95 @@ test('authoritative snapshots exclude caches only at the tracker root', () => {
   } finally {
     rmSync(root, { recursive: true, force: true });
   }
+});
+
+// These small contracts run inside the existing cross-platform Rust harness gate.
+test('hot-path samples retain the executed order after warmups with two or three runtimes', () => {
+  for (const names of [['native', 'oracle'], ['before', 'native', 'oracle']]) {
+    for (const warmups of [1, 2]) {
+      const launches: { name: string; measured: boolean }[] = [];
+      const runtimes = names.map(name => ({ name }));
+      const results = measureRuntimes(runtimes, warmups, 3, (runtime, measured) => {
+        launches.push({ name: runtime.name, measured });
+        return { ms: launches.length };
+      });
+      assert.deepEqual(runtimes.map(runtime => runtime.name), names);
+      const expected = Array.from({ length: warmups + 3 }, (_, index) => {
+        const round = index - warmups;
+        return (round % 2 === 0 ? names : [...names].reverse())
+          .map(name => ({ name, measured: round >= 0 }));
+      }).flat();
+      assert.deepEqual(launches, expected);
+      for (const name of names) {
+        const samples = results.get(name);
+        assert.equal(samples?.length, 3);
+        samples?.forEach((sample, round) => {
+          const order = round % 2 === 0 ? names : [...names].reverse();
+          assert.equal(sample.round, round);
+          assert.deepEqual(sample.runtime_order, order);
+          const launch = (warmups + round) * names.length + order.indexOf(name);
+          assert.equal(sample.ms, launch + 1);
+          assert.deepEqual(launches[launch], { name, measured: true });
+        });
+      }
+    }
+  }
+});
+
+test('hot-path historical order is labeled reconstruction and preserves the original receipt bytes', () => {
+  const receipt: { candidate_commit: string; samples: number; fingerprints: { runtime: string }[];
+    rows: { samples: { round?: number; runtime_order?: string[] }[] }[];
+    runtime_order_source?: { kind: string; candidate_commit: string; original_receipt_sha256: string } } = JSON.parse(readFileSync(new URL('../docs/benchmarks/native-hot-paths-2026-10-21.json', import.meta.url), 'utf8'));
+  const source = receipt.runtime_order_source;
+  assert.ok(source);
+  assert.equal(source.kind, 'reconstructed-from-scheduler');
+  assert.equal(source.candidate_commit, receipt.candidate_commit);
+  const names: string[] = receipt.fingerprints.map((entry: { runtime: string }) => entry.runtime);
+  for (const row of receipt.rows) {
+    assert.equal(row.samples.length, receipt.samples);
+    row.samples.forEach((sample: { round?: number; runtime_order?: string[] }, round: number) => {
+      assert.equal(sample.round, round);
+      assert.deepEqual(sample.runtime_order, round % 2 === 0 ? names : [...names].reverse());
+      delete sample.round;
+      delete sample.runtime_order;
+    });
+  }
+  delete receipt.runtime_order_source;
+  assert.equal(createHash('sha256').update(`${JSON.stringify(receipt, null, 2)}\n`).digest('hex'), source.original_receipt_sha256);
+  const docs = readFileSync(new URL('../docs/NATIVE_HOT_PATHS.md', import.meta.url), 'utf8');
+  assert.match(docs, /`round` and `runtime_order`/);
+  assert.match(docs, /not independent observation of the historical launch order/);
+});
+
+test('hot-path runner wording describes the actual GitHub-hosted runner', () => {
+  const docs = readFileSync(new URL('../docs/NATIVE_HOT_PATHS.md', import.meta.url), 'utf8');
+  const workflow = readFileSync(new URL('../.github/workflows/native-bench.yml', import.meta.url), 'utf8');
+  assert.match(workflow, /runs-on: ubuntu-latest/);
+  assert.match(docs, /ephemeral GitHub-hosted `ubuntu-latest` runner/);
+  assert.doesNotMatch(docs, /\bdedicated\b/i);
+  assert.match(docs, /GitHub-hosted runner noise is still possible/);
+});
+
+test('hot-path documented latency sample total matches every retained window', () => {
+  const receipt: { jobs: { latency?: { runs: number; windows_ms: number[][] }[] }[] } = JSON.parse(readFileSync(new URL('../docs/benchmarks/native-hot-path-gates-2026-10-21.json', import.meta.url), 'utf8'));
+  const counts = receipt.jobs.flatMap(job => job.latency ? [job.latency.reduce((sum, latency) => {
+      const retained = latency.windows_ms.flat().length;
+      assert.equal(retained, latency.runs);
+      return sum + retained;
+    }, 0)] : []);
+  assert.deepEqual(counts, [270, 270, 270]);
+  const total = counts.reduce((sum, count) => sum + count, 0);
+  const docs = readFileSync(new URL('../docs/NATIVE_HOT_PATHS.md', import.meta.url), 'utf8');
+  assert.match(docs, new RegExp(`all ${total} existing latency samples \\(270 per platform\\)`));
+});
+
+test('hot-path README has one non-git section with writer and context boundaries', () => {
+  const readme = readFileSync(new URL('../README.md', import.meta.url), 'utf8');
+  assert.equal(readme.match(/^## Without git$/gm)?.length, 1);
+  const section = readme.split('## Without git\n')[1].split('\n## ')[0];
+  assert.match(section, /tests 50 writers/);
+  assert.match(section, /without\na Git executable/);
+  assert.match(section, /`context` refuses trackers with 10,000 or more items/);
+  assert.match(section, /\]\(docs\/NATIVE_HOT_PATHS.md\)/);
+  assert.match(section, /GitHub synchronization and Git history tooling require a Git\nrepository/);
 });

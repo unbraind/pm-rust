@@ -5,6 +5,7 @@ on:
     paths:
       - .github/workflows/native-bench.yml
       - scripts/native-bench.mts
+      - scripts/bench-schedule.mts
       - scripts/bench-oracle.mts
       - scripts/bench-report.mts
       - scripts/perf-revert-proof.mts
