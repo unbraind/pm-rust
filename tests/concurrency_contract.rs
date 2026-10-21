@@ -14,6 +14,8 @@ use std::sync::Arc;
 use std::thread;
 
 use serde_json::Value;
+#[path = "support/process_environment.rs"]
+mod process_environment;
 #[path = "support/published_cli.rs"]
 #[allow(dead_code)]
 mod published_cli;
@@ -27,7 +29,7 @@ fn seeded_workspace() -> Result<tempfile::TempDir, Box<dyn std::error::Error>> {
     let root = directory.path().join(".agents/pm");
     let published = published_cli::locate_published_cli()
         .ok_or("published CLI required for no-git initialization")?;
-    let init = published_cli::oracle_command("node")
+    let init = oracle_command()
         .arg(published.entry)
         .current_dir(directory.path())
         .env(
@@ -47,8 +49,7 @@ fn seeded_workspace() -> Result<tempfile::TempDir, Box<dyn std::error::Error>> {
     )?;
     fs::create_dir(directory.path().join("empty-path"))?;
     assert!(!directory.path().join(".git").exists());
-    let output = Command::new(env!("CARGO_BIN_EXE_pm-rust"))
-        .current_dir(directory.path())
+    let output = native_command(directory.path())
         .args([
             "--workspace=.",
             "create",
@@ -73,8 +74,7 @@ fn seeded_workspace() -> Result<tempfile::TempDir, Box<dyn std::error::Error>> {
 /// would pass through a real crash on a slow platform.
 fn append_comment(workspace: &Path, marker: &str) -> Result<(), String> {
     let text = format!("concurrent note {marker}");
-    let output = Command::new(env!("CARGO_BIN_EXE_pm-rust"))
-        .current_dir(workspace)
+    let output = native_command(workspace)
         .env("PATH", workspace.join("empty-path"))
         .env(
             "GIT_CEILING_DIRECTORIES",
@@ -214,4 +214,19 @@ fn concurrent_comment_processes_preserve_every_accepted_mutation()
         );
     }
     Ok(())
+}
+
+/// Starts the published CLI without ambient tracker or agent context.
+fn oracle_command() -> Command {
+    let mut command = published_cli::oracle_command("node");
+    process_environment::isolate_environment(&mut command);
+    command
+}
+
+/// Starts a native fixture process without ambient tracker or agent context.
+fn native_command(root: &std::path::Path) -> Command {
+    let mut command = Command::new(env!("CARGO_BIN_EXE_pm-rust"));
+    process_environment::isolate_environment(&mut command);
+    command.current_dir(root);
+    command
 }

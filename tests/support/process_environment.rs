@@ -13,6 +13,8 @@ pub fn isolate_environment(command: &mut std::process::Command) {
         "LLVM_PROFILE_FILE",
         "PATH",
         "HOME",
+        "GIT_CONFIG_GLOBAL",
+        "GIT_CONFIG_NOSYSTEM",
         "SystemRoot",
         "SystemDrive",
         "windir",

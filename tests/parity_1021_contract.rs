@@ -2,6 +2,8 @@
 use pm_rust::{CloseItem, CommentItem, CreateItem, OwnershipItem, UpdateItem};
 use serde_json::{Value, json};
 use std::{fs, process::Command};
+#[path = "support/process_environment.rs"]
+mod process_environment;
 #[path = "support/published_cli.rs"]
 #[allow(dead_code)]
 mod published_cli;
@@ -11,7 +13,7 @@ type TestResult = Result<(), Box<dyn std::error::Error>>;
 fn tracker() -> Result<tempfile::TempDir, Box<dyn std::error::Error>> {
     let dir = tempfile::tempdir()?;
     let published = published_cli::locate_published_cli().ok_or("published oracle required")?;
-    let result = published_cli::oracle_command("node")
+    let result = oracle_command()
         .arg(published.entry)
         .current_dir(dir.path())
         .env(
@@ -25,8 +27,7 @@ fn tracker() -> Result<tempfile::TempDir, Box<dyn std::error::Error>> {
         "{}",
         String::from_utf8_lossy(&result.stderr)
     );
-    let output = Command::new(env!("CARGO_BIN_EXE_pm-rust"))
-        .current_dir(dir.path())
+    let output = native_command(dir.path())
         .args([
             "create",
             "--id",
@@ -102,7 +103,7 @@ fn unsupported_test_execution_is_refused_before_link_edits() -> TestResult {
         vec!["--run"],
         vec!["--timeout", "invalid"],
     ] {
-        let output = Command::new(env!("CARGO_BIN_EXE_pm-rust"))
+        let output = native_command(directory.path())
             .current_dir(directory.path())
             .args([
                 "test",
@@ -128,7 +129,7 @@ fn dead_same_host_owner_is_recovered_before_ttl_with_audit() -> TestResult {
     let published = published_cli::locate_published_cli().ok_or("oracle")?;
     let lock_module = published.package_root.join("dist/core/lock/lock.js");
     let script = "const {pathToFileURL}=await import('node:url');const {acquireLock}=await import(pathToFileURL(process.argv[1]));await acquireLock(process.argv[2],'sample-probe',1800,'dead-agent');process.exit(0);";
-    let output = published_cli::oracle_tool("node")
+    let output = oracle_tool()
         .args(["--input-type=module", "-e", script])
         .arg(lock_module)
         .arg(directory.path().join(".agents/pm"))
@@ -141,8 +142,7 @@ fn dead_same_host_owner_is_recovered_before_ttl_with_audit() -> TestResult {
     let lock = directory.path().join(".agents/pm/locks/sample-probe.lock");
     let old: Value = serde_json::from_slice(&fs::read(&lock)?)?;
     assert!(old["host_identity"].is_string());
-    let output = Command::new(env!("CARGO_BIN_EXE_pm-rust"))
-        .current_dir(directory.path())
+    let output = native_command(directory.path())
         .args([
             "comment",
             "sample-probe",
@@ -175,8 +175,7 @@ fn lock_contention_preserves_the_actual_invocation_without_force_advice() -> Tes
     fs::create_dir_all(root.join("locks"))?;
     fs::write(&lock, "unverified owner")?;
     let before = fs::read(root.join("history/sample-probe.jsonl"))?;
-    let output = Command::new(env!("CARGO_BIN_EXE_pm-rust"))
-        .current_dir(directory.path())
+    let output = native_command(directory.path())
         .env("PM_LOCK_WAIT_MS", "0")
         .args([
             "comment",
@@ -209,8 +208,7 @@ fn lock_contention_preserves_the_actual_invocation_without_force_advice() -> Tes
     assert_eq!(fs::read(root.join("history/sample-probe.jsonl"))?, before);
     assert_eq!(fs::read_to_string(&lock)?, "unverified owner");
     let elsewhere = tempfile::tempdir()?;
-    let output = Command::new(env!("CARGO_BIN_EXE_pm-rust"))
-        .current_dir(elsewhere.path())
+    let output = native_command(elsewhere.path())
         .env("PM_LOCK_WAIT_MS", "0")
         .arg("--workspace")
         .arg(directory.path())
@@ -247,12 +245,12 @@ fn unknown_declaration_reads_match_typed_oracle_refusals() -> TestResult {
     let published = published_cli::locate_published_cli().ok_or("oracle")?;
     for kind in ["measurement", "assertion", "gate"] {
         let args = ["assurance", "show", kind, "missing", "--json"];
-        let expected = published_cli::oracle_command("node")
+        let expected = oracle_command()
             .arg(&published.entry)
             .current_dir(directory.path())
             .args(args)
             .output()?;
-        let actual = Command::new(env!("CARGO_BIN_EXE_pm-rust"))
+        let actual = native_command(directory.path())
             .current_dir(directory.path())
             .args(args)
             .output()?;
@@ -283,7 +281,7 @@ fn plain_directory_linked_tests_never_invoke_git() -> TestResult {
         (&directory.path().join("empty-path"), "command=cargo check"),
     ] {
         fs::create_dir_all(path)?;
-        let output = Command::new(env!("CARGO_BIN_EXE_pm-rust"))
+        let output = native_command(directory.path())
             .current_dir(directory.path())
             .env("PATH", path)
             .env(
@@ -324,8 +322,8 @@ fn bounded_assurance_discovery_resumes_and_refuses_stale_snapshots() -> TestResu
     let mut first_cursor = None;
     let mut seen = std::collections::BTreeSet::new();
     for _ in 0..50 {
-        let mut command = Command::new(env!("CARGO_BIN_EXE_pm-rust"));
-        command.current_dir(directory.path()).args([
+        let mut command = native_command(directory.path());
+        command.args([
             "assurance",
             "list",
             "gate",
@@ -363,8 +361,7 @@ fn bounded_assurance_discovery_resumes_and_refuses_stale_snapshots() -> TestResu
         .push(json!({"id":"gate-new","assertion_ids":[],"triggers":["ci"]}));
     let changed = serde_json::to_vec(&document)?;
     fs::write(&path, &changed)?;
-    let output = Command::new(env!("CARGO_BIN_EXE_pm-rust"))
-        .current_dir(directory.path())
+    let output = native_command(directory.path())
         .args([
             "assurance",
             "list",
@@ -382,4 +379,26 @@ fn bounded_assurance_discovery_resumes_and_refuses_stale_snapshots() -> TestResu
     assert_eq!(refusal["refusal"]["surface"], "assurance");
     assert_eq!(fs::read(path)?, changed);
     Ok(())
+}
+
+/// Starts the published CLI without ambient tracker or agent context.
+fn oracle_command() -> Command {
+    let mut command = published_cli::oracle_command("node");
+    process_environment::isolate_environment(&mut command);
+    command
+}
+
+/// Starts a native fixture process without ambient tracker or agent context.
+fn native_command(root: &std::path::Path) -> Command {
+    let mut command = Command::new(env!("CARGO_BIN_EXE_pm-rust"));
+    process_environment::isolate_environment(&mut command);
+    command.current_dir(root);
+    command
+}
+
+/// Starts a process-level oracle tool with the same deterministic environment boundary.
+fn oracle_tool() -> Command {
+    let mut command = published_cli::oracle_tool("node");
+    process_environment::isolate_environment(&mut command);
+    command
 }
