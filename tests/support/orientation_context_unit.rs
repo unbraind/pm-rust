@@ -1431,3 +1431,26 @@ fn blocked_focus_stays_inside_its_cursor_page() -> Result<(), Box<dyn std::error
     assert!(after.is_none());
     Ok(())
 }
+/// Legacy dependency aliases retain resolved fallback evidence and ignore absent-target markers.
+#[test]
+fn legacy_blocker_aliases_keep_the_resolved_target() -> Result<(), Box<dyn std::error::Error>> {
+    let (_root, _workspace, lifecycle) = workspace()?;
+    let target = item("sample-target", "closed");
+    let mut inverse = item("sample-inverse", "open");
+    inverse["dependencies"] = json!([{"id":"sample-root","kind":" BLOCKS "}]);
+    for kind in ["depends_on", " DEPENDS-ON ", "blocked_by"] {
+        let mut root = item("sample-root", "blocked");
+        root["dependencies"] = json!([
+            {"id":"sample-target","kind":kind},
+            {"id":"no-active-blocker","kind":"blocked_by"},
+            {"id":" ","kind":"blocked_by"}
+        ]);
+        let corpus = vec![root.clone(), target.clone(), inverse.clone()];
+        assert_eq!(blockers(&root, &corpus, &lifecycle), vec!["sample-inverse"]);
+        assert_eq!(
+            blocker_ids(&root, &corpus, &lifecycle, true),
+            vec!["sample-inverse", "sample-target"]
+        );
+    }
+    Ok(())
+}

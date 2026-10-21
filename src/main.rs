@@ -1655,12 +1655,7 @@ fn search_error_json(
         }
     }
     let mut result = ownership_error_json(detail, &context, args);
-    result["recovery"]["normalized_args"] = serde_json::json!(
-        args.iter()
-            .map(|arg| arg.trim())
-            .filter(|arg| !arg.is_empty())
-            .collect::<Vec<_>>()
-    );
+    result["recovery"]["normalized_args"] = serde_json::json!(args);
     result["exit_code"] = serde_json::json!(exit_code);
     result["refusal"] = command_refusal_detail(detail, args, exit_code);
     if detail.starts_with("--output-budget ") || detail.starts_with("--output-limit ") {

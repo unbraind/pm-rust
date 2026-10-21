@@ -279,7 +279,7 @@ fn search_error_value_and_output_control_guidance() {
         let payload = super::command_error_json(detail, &serde_json::json!({}), &args, 2);
         assert_eq!(payload["code"], "invalid_argument_value");
         assert_eq!(payload["refusal"]["surface"], surface);
-        assert_eq!(payload["recovery"]["normalized_args"][1], "q");
+        assert_eq!(payload["recovery"]["normalized_args"][1], " q ");
         assert!(payload["next_steps"][0].is_string());
     }
 }
@@ -1350,6 +1350,23 @@ fn explicit_error_encoding_has_the_published_precedence() {
         assert_eq!(
             super::json_requested(&args.into_iter().map(str::to_owned).collect::<Vec<_>>()),
             expected
+        );
+    }
+}
+/// Search refusals retain empty and whitespace argument facts exactly as supplied.
+#[test]
+fn search_recovery_keeps_literal_argument_values() {
+    for value in ["", " ", " padded "] {
+        let args = vec!["search".to_owned(), value.to_owned(), "--json".to_owned()];
+        let result = super::search_error_json(
+            "Search query must not be empty",
+            &serde_json::json!({"code":"command_failed"}),
+            &args,
+            2,
+        );
+        assert_eq!(
+            result["recovery"]["normalized_args"],
+            serde_json::json!(args)
         );
     }
 }

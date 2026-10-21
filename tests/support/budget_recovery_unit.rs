@@ -5,7 +5,7 @@ use super::*;
 #[test]
 fn nonmonotone_minimum_is_proved_and_cached() {
     let mut calls = BTreeMap::<usize, usize>::new();
-    let result = find(1, 1, |tokens| {
+    let result = find(1, 1, &mut |tokens| {
         *calls.entry(tokens).or_default() += 1;
         if tokens == 7 || tokens >= 300 {
             Probe::Fits
@@ -23,18 +23,18 @@ fn nonmonotone_minimum_is_proved_and_cached() {
 #[test]
 fn unavailable_search_bounds_remain_explicit() {
     let mut calls = 0;
-    let result = find(1, 1_000_001, |_| {
+    let result = find(1, 1_000_001, &mut |_| {
         calls += 1;
         Probe::Fits
     });
     assert_eq!(calls, 0);
     assert_eq!(result["reason"], "query_cost_limit");
     for requested in [1, 9_007_199_254_740_991] {
-        let result = find(requested, 1, |_| Probe::Floor);
+        let result = find(requested, 1, &mut |_| Probe::Floor);
         assert_eq!(result["reason"], "search_limit");
         assert!(result["feasible_tokens"].is_null());
     }
-    let result = find(1, 0, |_| Probe::OutputConstraints);
+    let result = find(1, 0, &mut |_| Probe::OutputConstraints);
     assert_eq!(result["reason"], "output_constraints");
 }
 
@@ -46,7 +46,7 @@ fn partial_verification_never_claims_a_minimum() {
         (1, 1, 10_000),
         (9_000_000_000_000_000, 100_000, 4_000_000_000_000_000),
     ] {
-        let result = find(requested, work, |tokens| {
+        let result = find(requested, work, &mut |tokens| {
             if tokens >= threshold {
                 Probe::Fits
             } else {

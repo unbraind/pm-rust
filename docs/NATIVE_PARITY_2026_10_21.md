@@ -19,9 +19,9 @@ command into the native implementation.
 | GH-1512 completion boundaries | Integer counts define half-up completion rounding, including 29/200 = 15 percent. |
 | GH-1510 relationship cursor recovery | Recovery names the cursor flag used by the command rather than always naming `--after`. |
 | Rendered relationship budget recovery | Oversized root/evidence packets refuse with a typed usage receipt. Candidate budgets replay the preserved query; bounded verification distinguishes a proven minimum, a feasible candidate and unavailable advice. Canonical retry arguments preserve scope, traversal controls and encoding, and are accepted by the native CLI. Packet cost excludes hidden row-discovery metadata. |
-| GH-1509 legacy blockers | Existing scalar and relationship blocker resolution retains resolved fallback details and ignores the no-active-blocker sentinel; differential coverage checks the published outputs. |
+| GH-1509 legacy blockers | Scalar and relationship blocker resolution recognizes `depends_on` aliases, retains resolved fallback details and ignores absent-target markers. Differential coverage checks the published outputs. |
 | GH-1514 injected SDK author | The native SDK has no injected extension client. Explicit identity/author precedence remains owned by the native request and scoped attribution contracts. |
-| GH-1500/1501 JSON facts and brief output | Literal empty and whitespace closure arguments remain in recovery and rejected-value receipts. Brief list JSON uses compact wire bytes and matching budget estimates. TOON preserves explicit nulls and empty descendants inside data rows. Standard brief envelopes remove redundant declarations while retaining partial-page continuation, source completeness and effective sorting evidence. |
+| GH-1500/1501 JSON facts and brief output | Literal empty and whitespace closure/search arguments remain in recovery and rejected-value receipts. Brief list JSON uses compact wire bytes and matching budget estimates. TOON preserves explicit nulls and empty descendants inside data rows. Standard brief envelopes remove redundant declarations while retaining partial-page continuation, source completeness and effective sorting evidence. |
 
 The remaining release notes concern upstream dependency advisories, CI scheduling,
 review receipts, native SQLite startup, extension/MCP transport, generic item

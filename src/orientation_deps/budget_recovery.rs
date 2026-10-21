@@ -14,16 +14,16 @@ pub(super) enum Probe {
 }
 
 /// A cached search also retains the smallest candidate that actually delivered.
-struct Search<F> {
+struct Search<'a> {
     /// Deterministic canonical-query probe.
-    probe: F,
+    probe: &'a mut dyn FnMut(usize) -> Probe,
     /// Already observed candidate outcomes.
     cache: BTreeMap<usize, Probe>,
     /// Smallest observed feasible budget.
     feasible: Option<usize>,
 }
 
-impl<F: FnMut(usize) -> Probe> Search<F> {
+impl Search<'_> {
     /// Evaluates each candidate once, retaining positive feasibility evidence.
     fn observe(&mut self, budget: usize) -> Probe {
         let outcome = *self
@@ -59,7 +59,7 @@ fn unavailable(requested: usize, reason: &str) -> Value {
 }
 
 /// Proves exact minima only after checking every smaller positive candidate.
-pub(super) fn find(requested: usize, work: usize, probe: impl FnMut(usize) -> Probe) -> Value {
+pub(super) fn find(requested: usize, work: usize, probe: &mut dyn FnMut(usize) -> Probe) -> Value {
     if work > 1_000_000 {
         return unavailable(requested, "query_cost_limit");
     }

@@ -657,3 +657,26 @@ fn packet_budget_recovery_replays_preserved_queries() -> Result<(), Box<dyn std:
     );
     Ok(())
 }
+/// Retry classification preserves native floors, separate output constraints and valid delivery.
+#[test]
+fn packet_probe_classification_respects_refusal_boundaries() {
+    use crate::orientation_deps::budget_recovery::Probe;
+    let floor = crate::collections::refusal(
+        "Relationship context tokenBudget cannot fit one node",
+        1,
+        json!({"code":"unknown_error"}),
+    );
+    assert!(budget_floor(&floor));
+    assert!(probe_delivery(Err(floor)) == Probe::Floor);
+    assert!(!budget_floor(&crate::collections::refusal(
+        "Unrelated argument failure",
+        2,
+        json!({})
+    )));
+    assert!(!budget_floor(&PmRustError::ReadCursor {
+        code: "invalid_query_cursor",
+        detail: "bad cursor".to_owned()
+    }));
+    assert!(probe_delivery(Ok(json!({"context":{"nodes":[]}}).into())) == Probe::Fits);
+    assert!(probe_delivery(Ok(json!({"output_budget_exceeded":{"reason":"requested_budget_infeasible","omitted_result":true}}).into())) == Probe::OutputConstraints);
+}

@@ -705,7 +705,7 @@ pub(super) fn read(
         Err(error) if budget_floor(&error) => Err(budget_refusal(
             workspace, id, &graph, &query, &traversal, &evidence, options,
         )),
-        Err(PmRustError::ReadCursor { code, detail }) if code == "invalid_query_cursor" => {
+        Err(PmRustError::ReadCursor { code, detail }) => {
             let mut fresh = options.clone();
             fresh.cursor = None;
             let args = retry_args(workspace, id, &query, &fresh, query.tokens);
@@ -802,6 +802,16 @@ fn render_packet(
         } else {
             budget = next_budget(budget, query.tokens, measured);
         }
+    }
+}
+
+/// Classifies a retry after the preserved query has already passed argument preflight.
+fn probe_delivery(result: Result<ListOutput, PmRustError>) -> super::budget_recovery::Probe {
+    use super::budget_recovery::Probe;
+    match result {
+        Ok(result) if result.get("output_budget_exceeded").is_some() => Probe::OutputConstraints,
+        Ok(_) => Probe::Fits,
+        Err(_) => Probe::Floor,
     }
 }
 
@@ -905,7 +915,7 @@ fn budget_refusal(
     evidence: &[String],
     options: &DepsOptions,
 ) -> PmRustError {
-    use super::budget_recovery::{self, Probe};
+    use super::budget_recovery;
     let text_units = graph
         .details
         .values()
@@ -932,18 +942,13 @@ fn budget_refusal(
                     .sum::<usize>(),
             ),
     );
-    let bounds = budget_recovery::find(query.tokens, work, |budget| {
+    let bounds = budget_recovery::find(query.tokens, work, &mut |budget| {
         let mut candidate = query.clone();
         candidate.tokens = budget;
-        match render_packet(graph, id, &candidate, traversal, evidence, options)
-            .and_then(|result| disclose(result, options))
-        {
-            Ok(result) if result.get("output_budget_exceeded").is_some() => {
-                Probe::OutputConstraints
-            }
-            Ok(_) => Probe::Fits,
-            Err(_) => Probe::Floor,
-        }
+        probe_delivery(
+            render_packet(graph, id, &candidate, traversal, evidence, options)
+                .and_then(|result| disclose(result, options)),
+        )
     });
     let inspection_args = vec![
         "--pm-path".to_owned(),
