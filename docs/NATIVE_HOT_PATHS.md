@@ -69,8 +69,102 @@ supported list path without disguising those missing commands. Optimizations
 must preserve the baseline's observable behavior while those parity gaps
 remain separately tracked.
 
+## Implementation
+
+Mutation lookup uses directory-entry type information to skip unrelated regular
+files before live path metadata checks. Targets, directories, symlinks and
+unknown types retain the original live checks, recursive traversal, duplicate
+handling and error behavior. A moved-target regression remains in place; the
+new fallback test verifies that an unrelated corrupt file stays irrelevant
+when cached type information is unavailable.
+
+Ownership attribution builds an in-memory parent index in the same source
+order as the full corpus reader. Each item still passes the complete strict
+decoder, including unrelated payloads and duplicate detection. The index keeps
+IDs, source paths and parent links while full payloads are dropped between
+items. This preserves lineage and validation behavior while reducing peak RSS.
+The existing per-item locks, transaction recovery and durable history boundary
+continue to govern every mutation.
+
 ## Measured results
 
-The completed receipt and before/after tables are recorded below after the
-paired run. Shared-host contention limits the interpretation of tail latency;
-the complete samples and load averages remain part of the evidence.
+The [complete before/after tables](benchmarks/native-hot-path-tables-2026-10-21.md)
+include every command at all three sizes, p50/p95, maximum RSS, stdout/stderr
+bytes, exit status and exact current-oracle output/storage comparisons. The
+[raw receipt](benchmarks/native-hot-paths-2026-10-21.json) retains all 1,620
+measured samples, 54 syscall profiles, load averages and executable hashes.
+The [dedicated run](https://github.com/unbraind/pm-rust/actions/runs/39644972620)
+measured immutable main `8e32f85` against production source `124975a`, using
+twenty launches per runtime/case after two warmups. All 27 oracle cases exited
+successfully. Every native baseline/candidate output and target item/history
+comparison passed without normalization, including the known refusals.
+
+At 50,000 items:
+
+| Operation | Before p50 / p95 ms | Native p50 / p95 ms | Before / native peak RSS KiB |
+| --- | ---: | ---: | ---: |
+| claim | 3836.3 / 3881.5 | 2585.6 / 2602.1 | 508528 / 25080 |
+| comment | 762.4 / 766.0 | 62.9 / 63.8 | 11584 / 11976 |
+| update | 760.5 / 770.1 | 62.8 / 64.0 | 11544 / 11468 |
+
+Comment and update each reduce `statx` calls from **300,026 to 26**, retaining
+all **eight fsync calls**, the same opens/reads and the same durable item/history
+bytes. Claim reduces metadata calls from **400,042 to 100,042**, retains all
+**eleven fsync calls**, and lowers peak RSS by about **95.1%**. Its strict corpus
+validation retains the same 50,033 `openat` calls; it drops each full payload after decoding
+instead of retaining the entire corpus. On filesystems without cached directory
+entry types, type lookup can itself require metadata calls; the syscall counts
+above describe the measured runner.
+
+The evidence does not establish a uniform native speed advantage. At 50k, the
+oracle's claim p50 is 490.6 ms versus native 2585.6 ms; search is 1691.8 versus
+2592.5 ms; the supported list case is 327.0 versus 1022.9 ms. Strict validation
+and full scans remain substantial costs. Get measures 41.5 versus 316.3 ms.
+Current-oracle byte equality is achieved by the 1k search fixture; larger search
+rows and other raw command surfaces record mismatches explicitly. The release
+oracle remains independently pinned, and current-oracle certification is still
+owned by the separate parity work. Output-format or behavior differences must
+be resolved before claiming equivalent current-oracle performance.
+
+Native context at 10k/50k and all native next/list-open rows exit 2. Their timings
+are refusal costs and are excluded from successful-operation speed claims.
+History streams are verified before timing, read commands retain all
+authoritative hashes, and mutations start from identical target bytes. The
+measurements cover one dependency, four comments, one file and one test per item;
+they do not certify denser graphs, longer histories or every filesystem.
+
+## Behavioral revert proof
+
+`just perf-revert-proof` temporarily restores full payload retention in claim
+lineage and removes the unrelated-file fast path. It preserves the test
+observations, requires the two specific performance assertions to fail, restores
+the original source bytes in a `finally` block, and requires both tests to pass.
+This distinguishes an intended regression failure from a compiler or tool error.
+
+At `124975a`, both negative controls failed their intended assertion with one
+failed test each; both restored controls passed with one test each. The source
+hashes in the [receipt](benchmarks/native-hot-path-revert-2026-10-21.json) match
+the source that was benchmarked. The workflow retains only the structured
+receipt, with no raw compiler output or tracker contents.
+
+## Validation
+
+The [structured check receipt](benchmarks/native-hot-path-checks-2026-10-21.json)
+records local library/SDK checks, the strict 50-process no-git contract and the
+linked PM runner. Native writers run in a real `pm init` tracker with no Git
+executable on their PATH; all fifty must succeed, all unique markers must be
+present, and the 51-record history hash chain must agree.
+
+Inherited linked commands were reviewed and acknowledged locally, then run
+through `pm test --run --progress --fail-on-skipped --fail-on-empty-test-run`.
+The existing result-recording policy remains `tracking_disabled`; public
+receipts omit the runner's private execution-context paths. `.mts` scripts use
+Node's native type stripping and executable syntax/behavior checks; a standalone
+TypeScript compiler is not installed locally.
+
+The first complete Linux aggregate at `124975a` passed 524 ordinary and 524
+instrumented tests, with 100% lines, functions and regions. It refused its single
+uncovered branch at the locator fallback filename check (3159/3160 branches).
+The added test-only fallback case exercises that exact false arm. The unchanged
+full gate is required again with the repair; no threshold or source exclusion
+is altered.

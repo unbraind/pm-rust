@@ -54,6 +54,29 @@ fn locator_metadata_work_depends_on_directories_and_targets()
     Ok(())
 }
 
+/// A type-lookup fallback must still ignore an unrelated regular file's payload.
+#[test]
+fn locator_fallback_keeps_the_filename_boundary() -> Result<(), Box<dyn std::error::Error>> {
+    let (_directory, pm_root) = root("{}")?;
+    create_item(&pm_root, request())?;
+    let tasks = pm_root.join("tasks");
+    fs::write(tasks.join("unrelated.toon"), "invalid unrelated payload")?;
+    let entry = crate::workspace::read_directory(&tasks)?
+        .into_iter()
+        .find(|entry| entry.file_name() == "unrelated.toon")
+        .ok_or("missing unrelated fixture")?;
+    let mut found = Vec::new();
+    // Exercise the live fallback boundary directly: a filesystem without
+    // cached entry types can deliver an unrelated regular file here.
+    locate_item_entry(&entry, false, "sample-unit", "sample-unit.toon", &mut found)?;
+    assert!(found.is_empty());
+    assert_eq!(
+        locate_item(&pm_root, "sample-unit")?.1.metadata.id,
+        "sample-unit"
+    );
+    Ok(())
+}
+
 /// Lifecycle storage faults stop before mutation or retain a durable recovery journal.
 #[test]
 fn lifecycle_storage_faults_preserve_recovery_evidence() -> Result<(), Box<dyn std::error::Error>> {

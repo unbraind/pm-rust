@@ -1,0 +1,160 @@
+{
+  "candidate_commit": "124975a07b88fd4bcdb15cddcad8934152ec8925",
+  "linked_commands": 10,
+  "linked_tests_passed": 26,
+  "skipped": 0,
+  "evidence_recording": "tracking_disabled",
+  "results": [
+    {
+      "command": "node scripts/check-lookup.mts",
+      "status": "passed",
+      "exit_code": 0,
+      "counts": [
+        {
+          "passed": 2,
+          "failed": 0,
+          "ignored": 0
+        }
+      ]
+    },
+    {
+      "command": "node scripts/check-lookup.mts list::tests::context_timestamp_parse_work_is_linear",
+      "status": "passed",
+      "exit_code": 0,
+      "counts": [
+        {
+          "passed": 1,
+          "failed": 0,
+          "ignored": 0
+        }
+      ]
+    },
+    {
+      "command": "node scripts/check-lookup.mts search::tests::filtered_search_strictly_decodes_selected_payloads",
+      "status": "passed",
+      "exit_code": 0,
+      "counts": [
+        {
+          "passed": 1,
+          "failed": 0,
+          "ignored": 0
+        }
+      ]
+    },
+    {
+      "command": "node scripts/check-lookup.mts workspace::tests",
+      "status": "passed",
+      "exit_code": 0,
+      "counts": [
+        {
+          "passed": 15,
+          "failed": 0,
+          "ignored": 0
+        }
+      ]
+    },
+    {
+      "command": "node scripts/check-lookup.mts list::tests::sdk_page_contract_refusals_and_status_fingerprints",
+      "status": "passed",
+      "exit_code": 0,
+      "counts": [
+        {
+          "passed": 1,
+          "failed": 0,
+          "ignored": 0
+        }
+      ]
+    },
+    {
+      "command": "node scripts/check-lookup.mts workspace::tests::directory_snapshots",
+      "status": "passed",
+      "exit_code": 0,
+      "counts": [
+        {
+          "passed": 2,
+          "failed": 0,
+          "ignored": 0
+        }
+      ]
+    },
+    {
+      "command": "node scripts/check-lookup.mts ownership::tests::ownership_lineage_scans_corpus_once",
+      "status": "passed",
+      "exit_code": 0,
+      "counts": [
+        {
+          "passed": 1,
+          "failed": 0,
+          "ignored": 0
+        }
+      ]
+    },
+    {
+      "command": "node scripts/check-lookup.mts concurrent_comment_processes_preserve_every_accepted_mutation concurrency_contract",
+      "status": "passed",
+      "exit_code": 0,
+      "counts": [
+        {
+          "passed": 1,
+          "failed": 0,
+          "ignored": 0
+        }
+      ]
+    },
+    {
+      "command": "node scripts/check-lookup.mts mutation::tests::locator_metadata_work_depends_on_directories_and_targets",
+      "status": "passed",
+      "exit_code": 0,
+      "counts": [
+        {
+          "passed": 1,
+          "failed": 0,
+          "ignored": 0
+        }
+      ]
+    },
+    {
+      "command": "node scripts/check-lookup.mts mutation::tests::locator_fallback_keeps_the_filename_boundary",
+      "status": "passed",
+      "exit_code": 0,
+      "counts": [
+        {
+          "passed": 1,
+          "failed": 0,
+          "ignored": 0
+        }
+      ]
+    }
+  ],
+  "local_library": {
+    "command": "cargo +1.90.0 test --locked --lib",
+    "passed": 278,
+    "failed": 0,
+    "ignored": 0
+  },
+  "concurrency": {
+    "command": "cargo +1.90.0 test --locked --test concurrency_contract",
+    "passed": 1,
+    "writers": 50,
+    "accepted": 50,
+    "unique_comments": 50,
+    "history_records": 51,
+    "plain_directory": true,
+    "git_executable_on_path": false
+  },
+  "linux_ci": {
+    "run": 39644972720,
+    "job": 119378670409,
+    "command": "cargo test --locked --all-targets --all-features",
+    "passed": 524,
+    "failed": 0,
+    "ignored": 0,
+    "suites": 21
+  },
+  "additional_fallback_test": {
+    "command": "cargo +1.90.0 test --locked --lib mutation::tests::locator_fallback_keeps_the_filename_boundary",
+    "passed": 1,
+    "failed": 0,
+    "ignored": 0
+  }
+}

@@ -54,14 +54,14 @@ function generate(root: string, count: number, settings: string): void {
     const document = {
       id, title: `Generated ${index % 17 === 0 ? 'needle' : 'work'} item ${index}`,
       description: 'Synthetic description with agent context '.repeat(8),
-      type: 'Task', status: index % 5 === 0 ? 'closed' : 'open', priority: index % 5,
+      type: 'Task', status: index % 5 === 0 ? 'closed' : 'open', priority: (index % 5) as ItemDocument['metadata']['priority'],
       tags: ['benchmark', `group-${index % 10}`], created_at: clock, updated_at: clock,
       author: 'benchmark-agent',
       dependencies: index ? [{ id: previous, kind: 'related', created_at: clock }] : [],
       comments: Array.from({ length: 4 }, (_, row) => ({ created_at: clock, author: 'benchmark-agent', text: `Comment ${row}: ${'synthetic payload '.repeat(20)}` })),
       files: [{ path: 'src/example.rs', note: 'Synthetic file evidence', scope: 'project' }],
       tests: [{ command: 'true', scope: 'project' }], body: 'Synthetic body '.repeat(50),
-    };
+    } satisfies ItemDocument['metadata'] & { body: string };
     writeFileSync(join(tracker, 'tasks', `${id}.toon`), `${encode(document)}\n`);
     const { body, ...metadata } = document;
     const comments = metadata.comments;
@@ -214,6 +214,7 @@ function main(): void {
         const expected = references.get('oracle');
         const before = references.get('before');
         if (!expected) throw new Error('Missing oracle execution');
+        if (expected.sample.status !== 0) throw new Error(`Oracle ${args[0]} failed; refusal timings cannot represent successful operations`);
         for (const runtime of runtimes) {
           const measured = results.get(runtime.name) ?? [];
           const actual = references.get(runtime.name);
