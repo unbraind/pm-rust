@@ -2,15 +2,21 @@ id: pm-rust-cbaq
 title: Extend native list selection to configured lifecycle and hierarchy registries
 description: "Follow-up to the built-in list pagination slice. Native selection currently uses canonical lifecycle and parent/child relationship kinds. Add configured status buckets, terminal classification and custom hierarchy kinds using real disposable-tracker differentials against the pinned oracle. Preserve page fingerprints and full JSON/TOON envelopes."
 type: Task
-status: in_progress
+pm_format_version: 2
+status: closed
 priority: 3
 tags[3]: follow-up,read-parity,rust
 created_at: "2026-10-15T11:08:01.726Z"
-updated_at: "2026-10-16T01:55:27.381Z"
+updated_at: "2026-10-21T19:17:51.411Z"
+closed_at: "2026-10-21T19:17:48.806Z"
+completed_at: "2026-10-21T19:17:48.806Z"
 author: codex-agent
 acceptance_criteria: "Configured status and hierarchy definitions produce identical selected rows, sorting, fingerprints and multi-page JSON/TOON envelopes to the pinned oracle; preserve all four 100 percent coverage dimensions"
 parent: pm-rust-ufzy
-comments[20]{created_at,author,text}:
+resolution: Delivered by the audit-linked mainline implementation.
+expected_result: Extend native list selection to configured lifecycle and hierarchy registries.
+actual_result: "Re-verified current main c0154dbd7cd8: delivery ec83fe123659 remains in main ancestry; src/lib.rs, tests/branch_merge_contract.rs remain present."
+comments[21]{created_at,author,text}:
   "2026-10-15T11:26:11.524Z",codex-agent,Created after duplicate search during pm-rust-ufzy. The delivered pagination slice targets built-in lifecycle and hierarchy registries. This child retains configured-registry selection and cursor conformance as separate follow-up work; no implementation or closure claim.
   "2026-10-15T21:41:38.639Z",codex-agent,"Implement configured lifecycle buckets, terminal ordering and dependency hierarchy selection. Verify byte-exact JSON and TOON pages and continuations with disposable trackers against the locked oracle; record isolated behavioural revert proofs and full release gates."
   "2026-10-15T21:47:35.582Z",codex-agent,"The locked oracle resolves custom hierarchy kinds through extension registration, with no persisted definition format. Native selection reads a declarative schema.relationship_kinds snapshot using the oracle definition fields (kind, aliases, hierarchy, hierarchyDirection). Disposable oracle trackers activate a real schema extension registering those same definitions. No JavaScript is executed by native production code; arbitrary extension activation remains outside this slice."
@@ -31,6 +37,7 @@ comments[20]{created_at,author,text}:
   "2026-10-16T01:29:16.615Z",codex-agent,"Corrected-head CI run 38833447003: all three Rust jobs pass, including the exact workflow error regression on Windows (162/162 library tests). macOS and Ubuntu release aggregates and CodeQL pass. Windows release aggregate job 116757156990 hit its 20-minute job deadline after both full test passes succeeded and coverage passed at lines 6413/6413, functions 611/611, regions 9983/9983, branches 1382/1382; cancellation occurred as cargo audit began. This is missing aggregate evidence, not a pass. Increase only the Windows aggregate time budget to 30 minutes so audit, changelog and strict health can finish; preserve every command and threshold. Rust source remains a6bac79 and retains the complete clean-HOME local gate receipt. Validate the workflow change with the existing release-pipeline contract suite, then push and require a complete new CI run."
   "2026-10-16T01:30:40.226Z",codex-agent,"Workflow budget validation passes: cargo test --locked --test release_pipeline_contract ran through pm test --run --only-last --progress with 18 passed, zero failed or ignored. The existing contract suite parses both workflows and verifies gate/toolchain/history requirements. GitHub context availability permits matrix in jobs timeout-minutes, so the expression selects 30 minutes only for Windows and retains 20 for the other aggregate runners. Every release-check command and 100 percent threshold is unchanged. Rust production source remains identical to the locally certified a6bac79 tree; only the Windows aggregate job budget and tracker evidence changed after that complete local gate."
   "2026-10-16T01:55:23.882Z",codex-agent,"Complete corrected-platform CI receipt: head 08f34c1523553dd3d8bf1bb07aeeb160000f3f63, CI run 38835538531, all six jobs success: Rust ubuntu-latest, Rust macos-latest, Rust windows-latest, Release gate aggregate, Release gate aggregate macos-latest, Release gate aggregate windows-latest. CodeQL and Analyze Rust also pass. Windows aggregate completed in 21m22s, beyond the previous 20-minute deadline: 330 ordinary and 330 instrumented tests across 18 targets each, zero failed or ignored, all four unchanged coverage floors at 100 percent, followed by successful audit, changelog and strict tracker health. Evidence: https://github.com/unbraind/pm-rust/actions/runs/38835538531 . The previously failing exact workflow-path test passes on both platforms; behavioral negative controls and local Linux 338/338 receipts are recorded above. The final tracker-receipt commit changes no Rust source or workflow behavior and will receive another complete CI verification before delivery. Automated review services were skipped; no review approval claim. No new pm CLI/SDK bug found. Releasing ownership and retaining in_progress for orchestrator verification."
+  "2026-10-21T19:17:36.720Z",codex-agent,"Tracker reconciliation authorized for the audited verdict FIXED-STALE. Re-verified current main c0154dbd7cd8: delivery ec83fe123659 remains in main ancestry; src/lib.rs, tests/branch_merge_contract.rs remain present. Extend native list selection to configured lifecycle and hierarchy registries. [PR #87](https://github.com/unbraind/pm-rust/pull/87) (ec83fe1) adds configured lifecycle/hierarchy list selection and oracle differential pages. Scope: tracker state only; no new runtime certification or deployment claim."
 files[5]{path,scope}:
   .github/workflows/ci.yml,project
   src/list_registry.rs,project
@@ -73,4 +80,5 @@ tests[4]:
 docs[2]{path,scope}:
   docs/CONFIGURED_LIST_REGISTRIES.md,project
   docs/LIST_PAGINATION_2026_10_15.md,project
+close_reason: "Re-verified current main c0154dbd7cd8: delivery ec83fe123659 remains in main ancestry; src/lib.rs, tests/branch_merge_contract.rs remain present. Audit delivery: Extend native list selection to configured lifecycle and hierarchy registries. [PR #87](https://github.com/unbraind/pm-rust/pull/87) (ec83fe1) adds configured lifecycle/hierarchy list selection and oracle differential pages."
 body: ""
