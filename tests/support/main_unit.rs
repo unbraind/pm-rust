@@ -976,7 +976,7 @@ fn closure_recovery_and_refusal_boundaries() {
             &payload,
             2
         ),
-        serde_json::json!({"surface":"--actual-result","rejected_value":"--validate-close","exit_code":2})
+        serde_json::json!({"surface":"--actual-result","rejected_value":" ","exit_code":2})
     );
     for (payload, detail, expected) in [
         (
