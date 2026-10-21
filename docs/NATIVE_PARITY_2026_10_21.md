@@ -52,3 +52,8 @@ any remaining blockers. A version pin alone is not certification.
 The MSVC native executable reserves an 8 MiB virtual stack so LLVM-instrumented
 CLI mutations can run under the Windows aggregate. Stack pages remain committed
 on demand. This does not change the coverage scope or test thresholds.
+
+Independent test cases can be serialized locally with
+`RUST_TEST_THREADS=1 just release-check`. Each scenario retains its internal
+process concurrency and subprocess deadlines; the CI matrix runs the standard
+recipe.
