@@ -177,3 +177,23 @@ Use `cargo +1.90.0 test --locked` with these selectors:
 | Revert only `ownership_error_json` | `--test parity_1021_contract explicit_lock_retry_scopes_match_oracle`: attempted command contains `comment` instead of oracle `item comments`. |
 | Revert only `native_arguments` | `--bin pm-rust canonical_comment_retry_arguments_are_accepted`: canonical retry is rejected as an invalid subcommand. |
 | Apply only the requested `preserve_lock_scope` path expansion | `--test parity_1021_contract explicit_lock_retry_scopes_match_oracle`: attempted command contains the discovered tracker root instead of the supplied workspace directory. |
+
+Validation for source head `0029cf2e22e247b0cb806cf12a7dc6f022351482` is collected in
+[CI run 39641179755](https://github.com/unbraind/pm-rust/actions/runs/39641179755).
+The standalone suites pass 578 Linux, 567 macOS and 561 Windows tests across 22
+binaries each, with zero failed or ignored tests. CodeQL and all latency jobs pass.
+
+| Full `just release-check` | Stable + instrumented tests | Lines | Functions | Regions | Branches |
+| --- | ---: | ---: | ---: | ---: | ---: |
+| Linux | 578 + 578 | 14025/14025 | 1466/1466 | 23438/23438 | 3296/3296 |
+| macOS | 567 + 567 | 13940/13940 | 1453/1453 | 23288/23288 | 3258/3258 |
+| Windows | 561 + 561 | 13936/13936 | 1452/1452 | 23286/23286 | 3260/3260 |
+
+All nine CI jobs pass. Each aggregate executes 44 test binaries and retains the
+existing 100 percent thresholds in all four required coverage dimensions. The duplicate local
+aggregate was deliberately stopped after the full macOS CI pass; its serialized
+stable run on the loaded host is not counted as an aggregate pass or product
+failure. Targeted scope and parser regressions pass separately, including both
+pm-linked runs. Strict check-only tracker health passes with three existing
+advisories; it does not establish full-history integrity. The existing history
+investigation remains tracked separately in `pm-rust-b4yl`.
