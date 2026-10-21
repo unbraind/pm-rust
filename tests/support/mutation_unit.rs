@@ -25,6 +25,22 @@ std::thread_local! {
     pub(super) static SYNCED_PARENTS: std::cell::RefCell<Vec<PathBuf>> = const { std::cell::RefCell::new(Vec::new()) };
 }
 
+#[cfg(target_os = "linux")]
+std::thread_local! {
+    /// Applies a real directory-removal race only on the requesting test thread.
+    pub(super) static RECOVERY_SYNC_HOOK: std::cell::Cell<fn(&Path)> = const { std::cell::Cell::new(keep_recovery_directory) };
+}
+
+/// Leaves the real recovery directory in place for ordinary persistence tests.
+#[cfg(target_os = "linux")]
+fn keep_recovery_directory(_: &Path) {}
+
+/// Retains the written audit while making its old containing directory unavailable.
+#[cfg(target_os = "linux")]
+fn retain_recovery_directory(directory: &Path) {
+    assert!(fs::rename(directory, directory.with_extension("retained")).is_ok());
+}
+
 /// Lifecycle storage faults stop before mutation or retain a durable recovery journal.
 #[test]
 fn lifecycle_storage_faults_preserve_recovery_evidence() -> Result<(), Box<dyn std::error::Error>> {
@@ -4692,6 +4708,9 @@ fn unpublished_lock_payloads_are_not_stale() -> Result<(), Box<dyn std::error::E
 fn dead_owner_recovery_requires_a_durable_intent() -> Result<(), Box<dyn std::error::Error>> {
     let (_directory, pm_root) = root("{}")?;
     create_item(&pm_root, request())?;
+    let item = pm_root.join("tasks/sample-unit.toon");
+    let history = pm_root.join("history/sample-unit.jsonl");
+    let before = (fs::read(&item)?, fs::read(&history)?);
     fs::create_dir_all(pm_root.join("locks"))?;
     let path = pm_root.join("locks/sample-unit.lock");
     let mut owner = crate::lock_owner::capture();
@@ -4719,6 +4738,26 @@ fn dead_owner_recovery_requires_a_durable_intent() -> Result<(), Box<dyn std::er
     ));
     assert_eq!(fs::read_to_string(&path)?, raw);
     fs::remove_file(pm_root.join("locks/recoveries"))?;
+    RECOVERY_SYNC_HOOK.set(retain_recovery_directory);
+    let refused = acquire_lock(
+        &pm_root,
+        "sample-unit",
+        "alpha",
+        &LockSettings::default(),
+        false,
+        &now_iso(),
+        0,
+    );
+    RECOVERY_SYNC_HOOK.set(keep_recovery_directory);
+    assert!(
+        matches!(refused, Err(PmRustError::Io { source, .. }) if source.kind() == ErrorKind::NotFound)
+    );
+    assert_eq!(fs::read_to_string(&path)?, raw);
+    assert_eq!((fs::read(&item)?, fs::read(&history)?), before);
+    assert_eq!(
+        fs::read_dir(pm_root.join("locks/recoveries.retained"))?.count(),
+        1
+    );
     let guard = acquire_lock(
         &pm_root,
         "sample-unit",

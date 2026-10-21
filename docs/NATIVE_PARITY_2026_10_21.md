@@ -126,3 +126,15 @@ Use `cargo +1.90.0 test --locked` with the following selectors:
 
 There is no requested oracle divergence and no refusal. Thread replies and
 resolution remain with the orchestrator.
+
+The first Linux aggregate passed all 576 stable and 576 instrumented tests but
+correctly rejected one uncovered error-return region at the new recovery-directory
+flush. The threshold remained unchanged. The durable-intent regression now also
+renames the written audit directory immediately before the flush, using a
+thread-local test hook. This forces a real `NotFound` from directory persistence;
+the original lock, item and history must remain unchanged, and the audit remains
+available under its retained directory name. The normal production path has no
+hook. Run `cargo +1.90.0 test --locked --lib
+dead_owner_recovery_requires_a_durable_intent -- --nocapture` for this failure case.
+The tracker records the replacement aggregate results separately from the initial
+Linux coverage failure.

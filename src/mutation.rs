@@ -1126,6 +1126,8 @@ fn record_dead_owner(path: &Path, existing: &Value) -> Result<(), PmRustError> {
         });
     match write {
         Ok(()) => {
+            #[cfg(test)]
+            tests::RECOVERY_SYNC_HOOK.with(|hook| hook.get()(&directory));
             sync_parent(&receipt)?;
             // The recoveries directory itself may have been created above.
             sync_parent(&directory)
