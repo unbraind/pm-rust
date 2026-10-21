@@ -1430,6 +1430,22 @@ fn command_refusal_encoding_and_recovery_boundaries() -> Result<(), Box<dyn std:
         super::command_error_json("runtime failed", &context, &args, 1)["code"],
         "unknown_error"
     );
+    for command in ["close", "claim", "context", "search", "item"] {
+        let args = vec![
+            command.to_owned(),
+            "sample-one".to_owned(),
+            "--limit".to_owned(),
+            "bad".to_owned(),
+        ];
+        let payload = super::command_error_json(
+            "Invalid --limit.",
+            &serde_json::json!({"code":"invalid_argument_value"}),
+            &args,
+            2,
+        );
+        assert_eq!(payload["exit_code"], 2);
+        assert!(payload["refusal"].is_object());
+    }
     let bare_cursor = super::command_error_json(
         "cursor invalid",
         &serde_json::json!({"code":"invalid_query_cursor"}),

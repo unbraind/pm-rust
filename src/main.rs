@@ -1498,7 +1498,10 @@ fn command_error_json(
     if context["code"] == "unknown_error" {
         return unhandled_error_json(detail, exit_code);
     }
-    if context["code"] == "invalid_query_cursor" && context["recovery"].is_object() {
+    if let Some(recovery) = context["recovery"]
+        .as_object()
+        .filter(|_| context["code"] == "invalid_query_cursor")
+    {
         let mut payload = cursor_error_json("invalid_query_cursor", detail, args);
         let retry = context["recovery"]["suggested_retry"].clone();
         let steps = payload["next_steps"]
@@ -1509,7 +1512,7 @@ fn command_error_json(
             .chain([retry])
             .collect::<Vec<_>>();
         payload["next_steps"] = serde_json::json!(steps);
-        for (key, value) in context["recovery"].as_object().into_iter().flatten() {
+        for (key, value) in recovery {
             payload["recovery"][key] = value.clone();
         }
         return payload;
@@ -1520,10 +1523,8 @@ fn command_error_json(
         payload["refusal"] = serde_json::json!({"surface":"assurance","rejected_value":context["value"],"exit_code":exit_code});
         payload["changed"] = context["changed"].clone();
         payload["value"] = context["value"].clone();
-        if let Some(recovery) = context["recovery"].as_object() {
-            for (key, value) in recovery {
-                payload["recovery"][key] = value.clone();
-            }
+        for (key, value) in context["recovery"].as_object().into_iter().flatten() {
+            payload["recovery"][key] = value.clone();
         }
         return payload;
     }

@@ -552,3 +552,126 @@ fn parser_refusals_exit_with_diagnostics() -> Result<(), Box<dyn std::error::Err
     }
     Ok(())
 }
+
+/// Each command family refuses invalid preflight input without changing canonical item/history bytes.
+#[test]
+fn structured_preflight_refusals_preserve_stored_state() -> Result<(), Box<dyn std::error::Error>> {
+    let workspace = workspace()?;
+    expect_ok(
+        &workspace,
+        &[
+            "create",
+            "--id",
+            "sample-preflight",
+            "--title",
+            "Preflight",
+            "--type",
+            "Task",
+            "--author",
+            "cli-agent",
+        ],
+    )?;
+    let root = workspace.path().join(".agents/pm");
+    let item = root.join("tasks/sample-preflight.toon");
+    let history = root.join("history/sample-preflight.jsonl");
+    let before = (fs::read(&item)?, fs::read(&history)?);
+    for (args, code) in preflight_refusal_cases() {
+        let output = pm_rust(&workspace, &args)?;
+        assert_eq!(
+            output.status.code(),
+            Some(2),
+            "{args:?}: {}",
+            String::from_utf8_lossy(&output.stderr)
+        );
+        assert!(output.stdout.is_empty());
+        let payload: serde_json::Value =
+            serde_json::from_slice(&output.stderr).map_err(|error| {
+                format!(
+                    "{args:?}: {error}: {}",
+                    String::from_utf8_lossy(&output.stderr)
+                )
+            })?;
+        assert_eq!(payload["code"], code, "{args:?}: {payload}");
+        assert_eq!(payload["exit_code"], 2);
+        assert_eq!((fs::read(&item)?, fs::read(&history)?), before);
+    }
+    Ok(())
+}
+
+/// Lists invalid input contracts shared by native unit and process coverage.
+fn preflight_refusal_cases() -> [(Vec<&'static str>, &'static str); 7] {
+    [
+        (
+            vec!["context", "--limit", "bad", "--json"],
+            "invalid_argument_value",
+        ),
+        (
+            vec!["search", "Preflight", "--limit", "bad", "--json"],
+            "invalid_argument_value",
+        ),
+        (
+            vec![
+                "test",
+                "sample-preflight",
+                "--remove-index",
+                "bad",
+                "--json",
+            ],
+            "invalid_argument_value",
+        ),
+        (
+            vec![
+                "close",
+                "sample-preflight",
+                "--resolution",
+                "Fixed",
+                "--expected-result",
+                "Expected",
+                "--actual-result",
+                "Observed",
+                "--completed-at",
+                "bad",
+                "--author",
+                "cli-agent",
+                "--json",
+            ],
+            "invalid_argument_value",
+        ),
+        (
+            vec![
+                "claim",
+                "sample-preflight",
+                "--start",
+                "--next",
+                "--author",
+                "cli-agent",
+                "--json",
+            ],
+            "invalid_argument_value",
+        ),
+        (
+            vec![
+                "deps",
+                "sample-preflight",
+                "--format",
+                "context",
+                "--cursor",
+                "broken",
+                "--json",
+            ],
+            "invalid_query_cursor",
+        ),
+        (
+            vec![
+                "deps",
+                "sample-preflight",
+                "--format",
+                "context",
+                "--token-budget",
+                "1",
+                "--json",
+            ],
+            "invalid_argument_value",
+        ),
+    ]
+}
