@@ -1340,11 +1340,16 @@ fn packet_recovery_receipts_preserve_verified_evidence() -> Result<(), Box<dyn s
 #[test]
 fn explicit_error_encoding_has_the_published_precedence() {
     for (args, expected) in [
-        (vec![], false), (vec!["--json"], true),
+        (vec![], false),
+        (vec!["--json"], true),
         (vec!["--output-format", "json"], true),
         (vec!["--json", "--output-format", "toon"], false),
-        (vec!["--output-format=json"], true), (vec!["--output-format=toon"], false),
+        (vec!["--output-format=json"], true),
+        (vec!["--output-format=toon"], false),
     ] {
-        assert_eq!(super::json_requested(&args.into_iter().map(str::to_owned).collect::<Vec<_>>()), expected);
+        assert_eq!(
+            super::json_requested(&args.into_iter().map(str::to_owned).collect::<Vec<_>>()),
+            expected
+        );
     }
 }

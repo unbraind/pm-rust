@@ -1256,9 +1256,18 @@ fn native_arguments(args: impl IntoIterator<Item = std::ffi::OsString>) -> Vec<s
 
 /// Resolves explicit wire encoding before the legacy JSON switch for error output.
 fn json_requested(args: &[String]) -> bool {
-    let explicit = args.windows(2).find(|pair| pair[0] == "--output-format").map(|pair| pair[1].as_str())
-        .or_else(|| args.iter().find_map(|arg| arg.strip_prefix("--output-format=")));
-    explicit.map_or_else(|| args.iter().any(|arg| arg == "--json"), |format| format == "json")
+    let explicit = args
+        .windows(2)
+        .find(|pair| pair[0] == "--output-format")
+        .map(|pair| pair[1].as_str())
+        .or_else(|| {
+            args.iter()
+                .find_map(|arg| arg.strip_prefix("--output-format="))
+        });
+    explicit.map_or_else(
+        || args.iter().any(|arg| arg == "--json"),
+        |format| format == "json",
+    )
 }
 
 /// Parses the command line and maps success or failure to the process exit code.
@@ -1362,8 +1371,7 @@ fn main() -> ExitCode {
                 let args = published_read_arguments(std::env::args_os().skip(1));
                 let payload = command_error_json(detail, context, &args, *exit_code);
                 let mut stderr = std::io::stderr().lock();
-                let _ = if context["code"] == "unknown_error" && !json_requested(&args)
-                {
+                let _ = if context["code"] == "unknown_error" && !json_requested(&args) {
                     writeln!(stderr, "{detail}").map_err(Into::into)
                 } else if args.first().is_some_and(|s| {
                     s == "item" || s == "search" || s == "context" || s == "history" || s == "deps"
@@ -1390,9 +1398,7 @@ fn main() -> ExitCode {
                     );
                 }
                 let mut stderr = std::io::stderr().lock();
-                let _ = if args.first().is_some_and(|s| s == "item")
-                    && !json_requested(&args)
-                {
+                let _ = if args.first().is_some_and(|s| s == "item") && !json_requested(&args) {
                     write_cursor_refusal_to(&mut stderr, &payload)
                 } else {
                     write_json_to(&mut stderr, &payload)
