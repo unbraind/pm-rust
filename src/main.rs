@@ -1232,8 +1232,7 @@ fn close_payload(
 }
 
 /// Accepts the canonical item-deps spelling emitted by verified retry commands.
-fn native_arguments(args: impl IntoIterator<Item = std::ffi::OsString>) -> Vec<std::ffi::OsString> {
-    let mut args = args.into_iter().collect::<Vec<_>>();
+fn native_arguments(mut args: Vec<std::ffi::OsString>) -> Vec<std::ffi::OsString> {
     let mut index = 1;
     while let Some(arg) = args.get(index) {
         let arg = arg.to_string_lossy();
@@ -1273,7 +1272,7 @@ fn json_requested(args: &[String]) -> bool {
 /// Parses the command line and maps success or failure to the process exit code.
 #[allow(clippy::too_many_lines)]
 fn main() -> ExitCode {
-    let cli = match Cli::try_parse_from(native_arguments(std::env::args_os())) {
+    let cli = match Cli::try_parse_from(native_arguments(std::env::args_os().collect())) {
         Ok(cli) => cli,
         Err(error) => {
             let mut args = published_read_arguments(std::env::args_os().skip(1));

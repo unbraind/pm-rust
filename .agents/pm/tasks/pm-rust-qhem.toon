@@ -6,7 +6,7 @@ status: in_progress
 priority: 3
 tags[3]: conformance,follow-up,oracle
 created_at: "2026-10-20T09:07:30.168Z"
-updated_at: "2026-10-21T09:44:43.778Z"
+updated_at: "2026-10-21T10:02:54.621Z"
 deadline: "2026-10-27T00:00:00.000Z"
 assignee: codex-agent
 claim_principal: codex-agent
@@ -18,7 +18,7 @@ blocked_by: pm-rust-owzm
 dependencies[2]{id,kind,created_at,author,source_kind,author_source}:
   pm-rust-owzm,related,"2026-10-20T09:07:30.168Z",codex-agent,"cli:create:dep",detected
   pm-rust-owzm,blocked_by,"2026-10-20T11:05:13.191Z",codex-agent,"cli:update:blocked_by",detected
-comments[28]{created_at,author,text}:
+comments[29]{created_at,author,text}:
   "2026-10-20T09:07:30.168Z",codex-agent,Planning only. Implementation is deferred until the current delivery is reviewed.
   "2026-10-21T04:41:10.473Z",codex-agent,"Scope extended to published pm-cli 2026.10.21 as requested. Compare both releases against the October 19 native slice; implement applicable deltas, prove fail-before/pass-after behaviour, and require all four coverage dimensions plus the three-platform gates. No-git acceptance will require every real process write and history record to survive."
   "2026-10-21T04:47:20.325Z",codex-agent,"Implementation covers conservative same-host original-process death receipts and recovery intent, strict serialized mutation keys, invocation-preserving lock advice, effective default ordering, count-based completion rounding, and cursor page-local blocker focus. Test execution remains outside the native slice and unsupported run options are preflight-refused before linked-test edits. Assurance declaration reads gain typed missing-ID refusals and bounded read-only discovery."
@@ -47,6 +47,7 @@ comments[28]{created_at,author,text}:
   "2026-10-21T09:22:10.813Z",codex-agent,"The latest Linux aggregate still reports three branch outcomes and two regions in the common CLI refusal formatter. The combined source view hid gaps in separately compiled unit/native instantiations. Reworked equivalent optional recovery-map handling and added actual CLI preflight coverage across context, search, test, close, claim, cursor and budget refusals; the new process acceptance passes and verifies unchanged item/history bytes. Checking each compiled formatter instantiation before another aggregate run. The superseded local aggregate was stopped; no 100 percent gate is claimed."
   "2026-10-21T09:25:35.074Z",codex-agent,"Clean focused instrumentation passed 32 CLI unit tests, 15 CLI process tests and eight parity process tests. All 12 compiled command-refusal formatter functions/closures executed; each has zero missed branch outcomes and zero missed regions, including both unit/native instances. Strict Clippy and all 15 CLI process tests also pass after splitting the test-case table. Full-source, three-platform aggregate certification remains pending; no source exclusions or threshold changes were introduced."
   "2026-10-21T09:44:43.777Z",codex-agent,"The fresh local aggregate failed one large-edge differential case when its native subprocess reached the existing five-second deadline under parallel test load. The identical isolated test passed all cases in 59.55 seconds with the deadline intact. Current Linux/macOS CI functional suites passed it as well. Rerunning the local aggregate with RUST_TEST_THREADS=1 to serialize independent cases; each scenario retains its internal process concurrency, every deadline and all coverage thresholds. The CI matrix recipe is unchanged."
+  "2026-10-21T10:02:54.620Z",codex-agent,"The previous macOS aggregate narrowed the remaining CLI gaps to two startup-argument branch outcomes and one region. Added actual no-command, unsupported namespace, missing assurance operand, all scope alias and deterministically closed-stderr cases. Startup normalization now accepts the owned argument vector it already required, eliminating redundant generic instantiations. Clean focused instrumentation passed 32 CLI unit, 16 CLI process and eight parity process tests: all 22 compiled startup/refusal/error-writer functions and closures executed with zero missed branches or regions; both assurance dispatch instances are covered too. Latest strict Clippy and all 56 stable-toolchain tests pass. Restarting complete three-platform and serialized local aggregates; full-source 100 percent certification remains pending."
 notes[1]{created_at,author,text}:
   "2026-10-20T09:07:30.168Z",codex-agent,Published version 2026.10.20 was observed via npm view during the 2026.10.19 continuation.
 learnings[1]{created_at,author,text}:

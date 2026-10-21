@@ -1289,7 +1289,8 @@ fn canonical_packet_retry_arguments_are_accepted() -> Result<(), Box<dyn std::er
         let mut args = vec!["pm-rust"];
         args.extend(prefix);
         args.extend(["item", "deps", "sample-root", "--output-format", "json"]);
-        let normalized = super::native_arguments(args.into_iter().map(std::ffi::OsString::from));
+        let normalized =
+            super::native_arguments(args.into_iter().map(std::ffi::OsString::from).collect());
         let cli = <super::Cli as clap::Parser>::try_parse_from(normalized)?;
         assert!(
             matches!(cli.command, super::Command::Deps { output_format: Some(format), .. } if format == "json")

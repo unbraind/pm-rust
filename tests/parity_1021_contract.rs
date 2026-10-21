@@ -412,22 +412,23 @@ fn completion_overflow_preserves_refusal_encoding_before_mutation() -> TestResul
     let item = root.join("tasks/sample-probe.toon");
     let history = root.join("history/sample-probe.jsonl");
     let before = (fs::read(&item)?, fs::read(&history)?);
+    let args = [
+        "close",
+        "sample-probe",
+        "--author",
+        "test-agent",
+        "--resolution",
+        "Fixed",
+        "--expected-result",
+        "Expected",
+        "--actual-result",
+        "Observed",
+        "--completed-at",
+        "+9007199254740991w",
+    ];
     for json in [false, true] {
         let mut command = native_command(directory.path());
-        command.args([
-            "close",
-            "sample-probe",
-            "--author",
-            "test-agent",
-            "--resolution",
-            "Fixed",
-            "--expected-result",
-            "Expected",
-            "--actual-result",
-            "Observed",
-            "--completed-at",
-            "+9007199254740991w",
-        ]);
+        command.args(args);
         if json {
             command.arg("--json");
         }
@@ -448,5 +449,21 @@ fn completion_overflow_preserves_refusal_encoding_before_mutation() -> TestResul
         }
         assert_eq!((fs::read(&item)?, fs::read(&history)?), before);
     }
+    // Wait for the only reader to exit before giving its write end to stderr.
+    let mut reader = native_command(directory.path())
+        .arg("--version")
+        .stdin(std::process::Stdio::piped())
+        .stdout(std::process::Stdio::null())
+        .stderr(std::process::Stdio::null())
+        .spawn()?;
+    let closed_pipe = reader.stdin.take().ok_or("stdin pipe")?;
+    assert!(reader.wait()?.success());
+    let output = native_command(directory.path())
+        .args(args)
+        .stderr(std::process::Stdio::from(closed_pipe))
+        .output()?;
+    assert_eq!(output.status.code(), Some(1));
+    assert!(output.stdout.is_empty());
+    assert_eq!((fs::read(&item)?, fs::read(&history)?), before);
     Ok(())
 }

@@ -595,6 +595,11 @@ fn structured_preflight_refusals_preserve_stored_state() -> Result<(), Box<dyn s
         assert_eq!(payload["exit_code"], 2);
         assert_eq!((fs::read(&item)?, fs::read(&history)?), before);
     }
+    let human = pm_rust(&workspace, &["context", "--limit", "bad"])?;
+    assert_eq!(human.status.code(), Some(2));
+    assert!(human.stdout.is_empty());
+    assert!(String::from_utf8_lossy(&human.stderr).contains("Error:"));
+    assert_eq!((fs::read(&item)?, fs::read(&history)?), before);
     Ok(())
 }
 
@@ -651,6 +656,7 @@ fn preflight_refusal_cases() -> [(Vec<&'static str>, &'static str); 7] {
         ),
         (
             vec![
+                "item",
                 "deps",
                 "sample-preflight",
                 "--format",
@@ -674,4 +680,46 @@ fn preflight_refusal_cases() -> [(Vec<&'static str>, &'static str); 7] {
             "invalid_argument_value",
         ),
     ]
+}
+
+/// Startup normalization accepts scope aliases and refuses incomplete or unsupported namespaces.
+#[test]
+fn startup_argument_boundaries_are_read_only() -> Result<(), Box<dyn std::error::Error>> {
+    let workspace = workspace()?;
+    let settings = workspace.path().join(".agents/pm/settings.json");
+    let before = fs::read(&settings)?;
+    for args in [
+        vec![],
+        vec!["item"],
+        vec!["item", "files", "sample-missing"],
+        vec!["assurance", "show", "measurement"],
+    ] {
+        let output = pm_rust(&workspace, &args)?;
+        assert_eq!(output.status.code(), Some(2), "{args:?}");
+        assert!(output.stdout.is_empty());
+        assert!(!output.stderr.is_empty());
+        assert_eq!(fs::read(&settings)?, before);
+    }
+    for scope in [
+        vec!["--workspace", "."],
+        vec!["--pm-path", "."],
+        vec!["--path", "."],
+        vec!["--workspace=."],
+        vec!["--pm-path=."],
+        vec!["--path=."],
+    ] {
+        let output = Command::new(env!("CARGO_BIN_EXE_pm-rust"))
+            .current_dir(workspace.path())
+            .args(&scope)
+            .args(["context", "--json", "--no-extension-health"])
+            .output()?;
+        assert!(
+            output.status.success(),
+            "{scope:?}: {}",
+            String::from_utf8_lossy(&output.stderr)
+        );
+        assert!(serde_json::from_slice::<serde_json::Value>(&output.stdout)?.is_object());
+        assert_eq!(fs::read(&settings)?, before);
+    }
+    Ok(())
 }
