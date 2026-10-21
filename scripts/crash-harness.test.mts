@@ -153,7 +153,7 @@ test('live syscall injection kills a real writing child and restart preserves ea
     assert.equal(existsSync(join(root, '.git')), false);
   }));
 
-test('real pm corpus preserves acknowledged history and independently replays retained failures without git',
+test('real pm corpus recovers every measured boundary with exact history and receipts without git',
   { skip: process.platform !== 'linux', timeout: 120000 }, () => temporary(root => {
     const tools = join(root, 'tools');
     mkdirSync(tools);
@@ -169,23 +169,34 @@ test('real pm corpus preserves acknowledged history and independently replays re
       assert.equal(report.killed, report.boundaries.reduce((count, row) => count + row.count, 0));
       assert.ok(report.killed > 0);
       assert.ok(report.cases.every(row => row.historyPreserved && row.acknowledged));
-      assert.ok(report.cases.some(row => row.ok));
+      assert.equal(report.ok, true, JSON.stringify(report.cases.filter(row => !row.ok)));
+      assert.ok(report.cases.every(row => row.ok && row.restartStatus === 0 && row.receiptMatches));
       assert.ok(report.parity.every(row => row.bytes && row.acknowledgement));
-      const failed = report.cases.filter(row => !row.ok);
-      assert.ok(failed.every(row => row.implementation === 'native' && row.syscall === 'fsync' && row.boundary === 1 && row.restartStatus === 4), 'Only independently reproduced incomplete-lock restart refusals are expected');
-      assert.equal(report.failuresRetained, failed.length);
-      if (failed.length > 0) {
-        assert.equal(report.ok, false);
-        const caseName = readdirSync(options.artifacts)[0];
-        const evidence = join(options.artifacts, caseName, 'case.json');
-        const before = readFileSync(evidence);
-        const replay = replayCrashFailure({ ...options, artifacts: join(root, 'replay') }, evidence);
-        assert.equal(replay.killed, 1);
-        assert.equal(replay.ok, false);
-        assert.equal(replay.cases[0].historyPreserved, true);
-        assert.equal(replay.cases[0].durableSha256, JSON.parse(before.toString()).row.durableSha256);
-        assert.deepEqual(readFileSync(evidence), before);
-      }
+      assert.equal(report.failuresRetained, 0);
       assert.equal(existsSync(join(root, '.git')), false);
     } finally { process.env.PATH = savedPath; }
   }));
+
+for (const scenario of ['update', 'comment'] as const) {
+  test(`retained ${scenario} first-fsync reproduction recovers before TTL with exact bytes and receipt`,
+    { skip: process.platform !== 'linux', timeout: 120000 }, () => temporary(root => {
+      const evidence = resolve(`tests/fixtures/crash-restart/${scenario}.json`);
+      const before = snapshot(resolve('tests/fixtures/crash-restart'));
+      const report = replayCrashFailure({ native: resolve('target/debug/pm-rust'), artifacts: join(root, 'evidence') }, evidence);
+      assert.equal(report.ok, true, JSON.stringify(report.cases));
+      assert.equal(report.killed, 1);
+      assert.equal(report.cases.length, 1);
+      const row = report.cases[0];
+      assert.equal(row.scenario, scenario);
+      assert.equal(row.implementation, 'native');
+      assert.equal(row.syscall, 'fsync');
+      assert.equal(row.boundary, 1);
+      assert.equal(row.state, 'before');
+      assert.equal(row.restartStatus, 0);
+      assert.ok(row.acknowledged && row.historyPreserved && row.receiptMatches);
+      assert.ok(report.parity.every(parity => parity.bytes && parity.acknowledgement));
+      assert.equal(report.sourceUnchanged, true);
+      assert.equal(report.failuresRetained, 0);
+      assert.equal(sameBytes(before, snapshot(resolve('tests/fixtures/crash-restart'))), true);
+    }));
+}

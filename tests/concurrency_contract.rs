@@ -10,7 +10,7 @@
 use std::fs;
 use std::path::Path;
 use std::process::Command;
-use std::sync::Arc;
+use std::sync::{Arc, Barrier};
 use std::thread;
 
 use serde_json::Value;
@@ -20,7 +20,7 @@ mod process_environment;
 #[allow(dead_code)]
 mod published_cli;
 
-const PROCESSES: usize = 8;
+const PROCESSES: usize = 50;
 const MUTATIONS_PER_PROCESS: usize = 3;
 
 /// Builds the fixture workspace and seeds one shared item for contention.
@@ -125,11 +125,14 @@ fn concurrent_comment_processes_preserve_every_accepted_mutation()
         return Ok(());
     };
     let workspace = Arc::new(directory.path().to_path_buf());
+    let start = Arc::new(Barrier::new(PROCESSES));
 
     let mut handles = Vec::new();
     for process in 0..PROCESSES {
         let workspace = Arc::clone(&workspace);
+        let start = Arc::clone(&start);
         handles.push(thread::spawn(move || {
+            start.wait();
             let mut accepted = 0;
             let mut rejections = Vec::new();
             for mutation in 0..MUTATIONS_PER_PROCESS {

@@ -1,17 +1,37 @@
 id: pm-rust-crash-lock-restart
 title: Recover incomplete native lock initialization after process death
-description: "The live crash corpus kills the native writer at its first lock fsync. The acknowledged item/history remain byte exact, but same-family restart exits 4 because the incomplete lock cannot establish owner identity. Reproduce with just crash and the retained synthetic fsync ordinal 1 case; do not repair or rewrite histories. Implement a separately reviewed safe recovery policy without deleting live owners."
+description: "The first native lock fsync follows a complete owner payload but leaves a fresh empty publication gate on process death. That gate blocks existing confirmed-dead-owner recovery and causes update/comment restart exit 4 while acknowledged item/history bytes remain intact. Recover only under the kernel lease with verified same-host original-process death and identity-checked empty-gate reclamation. Preserve unknown/live-owner refusals, immutable histories, exact restart references and the 50-writer no-loss contract; builds on #104."
 type: Task
-status: open
+status: in_progress
 priority: 2
 tags[3]: crash-consistency,follow-up,locks
 created_at: "2026-10-21T22:16:11.158Z"
-updated_at: "2026-10-21T22:19:53.971Z"
+updated_at: "2026-10-21T23:29:45.183Z"
+assignee: codex-agent
+claim_principal: codex-agent
 author: codex-agent
-comments[1]{created_at,author,text}:
+comments[6]{created_at,author,text}:
   "2026-10-21T22:19:53.971Z",codex-agent,"Overlap check: lock and initialization searches found no open item covering safe recovery from incomplete lock publication. This is distinct from text ownership refusal parity and completed owner-death locking work. The two measured failures are native update/comment at fsync ordinal 1, restart exit 4; all acknowledged item/history bytes remain intact. Repair policy is deliberately separate from the crash evidence harness."
-files[1]{path,scope,note}:
+  "2026-10-21T23:04:13.757Z",codex-agent,"Read both retained same-family update/comment fsync ordinal 1 cases and #104. The first fsync follows a complete owner-payload write; the fresh empty publication gate prevents the existing confirmed-dead-owner recovery. Plan: while holding the existing kernel lease, admit identity-checked empty-gate reclamation only for a confirmed dead same-host owner; retain TTL and unknown/live/nonempty-gate refusals. Add permanent independent replay cases, require every measured boundary to recover, and verify 50 simultaneous writers without Git. Targeted checks locally; unchanged-threshold release-check matrix remains the full CI gate. This branch builds on #104 and must merge after it."
+  "2026-10-21T23:19:03.467Z",codex-agent,"The corrected synthetic corpus passes 20/20 injected kills with 20/20 acknowledged writes, history prefixes, exact reference states and restart receipts; both cross-runtime baseline byte and acknowledgement comparisons pass. The separate permanent update/comment first-fsync replay tests pass 2/2; the fresh-gate owner and lease guard unit test passes. The initial minimal fixture failed oracle settings validation and was corrected before proof. A default-budget standalone run timed out under local load; the supported 60000 ms process budget completed the corpus. No recovery invariant or coverage threshold was relaxed. Targeted Rust acceptance and behavioral revert proof are next."
+  "2026-10-21T23:27:21.449Z",codex-agent,"Behavioral revert proof complete: replaced only mutation::acquire_lock_attempt with the #104 implementation, rebuilt using CARGO_BUILD_JOBS=2 cargo +1.90.0 build --locked --bin pm-rust, and ran node --test --test-name-pattern='retained (update|comment)' scripts/crash-harness.test.mts. Reverted: 0 passed, 2 failed, both actual restart exits 4. Restored and rebuilt: 2 passed, 0 failed. Tests and fixtures were unchanged. Full harness via the pinned PM linked runner passes 16/16 with zero skips; gate-focused unit selection passes 6/6; 50 writers preserve all 150 comments and the exact history chain. Shared-path ownership JSON refusal comparison passes exactly. The separate pre-existing comment diagnostic mismatch is retained on pm-rust-comment-lock-receipt; native legacy formatting is unchanged here. No PM CLI/SDK defect was identified."
+  "2026-10-21T23:28:46.932Z",codex-agent,"Final pinned PM linked Rust acceptance passes: cargo +1.90.0 test --locked --test concurrency_contract --test parity_1021_contract with CARGO_BUILD_JOBS=2 and PM_RUST_REQUIRE_PUBLISHED_CLI=1 runs 2/2 concurrency tests plus 14/14 October 21 contract tests, zero failed or ignored. All 50 simultaneous writers retain 150/150 comments and history links without Git. Full harness 16/16, gate-focused unit selection 6/6 and restored independent replay tests 2/2 pass. Strict targeted Clippy, formatting, TypeScript checking, ESLint, changelog generation/check and immutable tracker-history prefix checks pass. Full unchanged-threshold release-check is delegated to the Linux/macOS/Windows CI matrix as requested; no merge or release."
+  "2026-10-21T23:29:45.182Z",codex-agent,Local check-only health reports inherited history-chain warnings for pm-rust-bj7a and pm-rust-unih. An independent plain-directory archive of the unchanged #104 head reports the same warnings. Guidance/provenance/stale-item advisories and shared configuration drift also remain. No existing history was repaired or rewritten; the original restart-item stream remains an exact prefix of the appended history. CI's existing clone-local health setup remains authoritative for its gate. This is separate from the passing recovery and concurrency evidence.
+files[8]{path,scope,note}:
   scripts/crash-harness.test.mts,project,Real incomplete-lock crash and replay reproduction
-docs[1]{path,scope,note}:
-  docs/CRASH_HARNESS.md,project,Replay protocol and safe history retention
+  src/mutation.rs,project,Lease-protected early empty-gate recovery for confirmed dead owners
+  tests/concurrency_contract.rs,project,Fifty writers retain all 150 comments and history chain
+  tests/fixtures/crash-restart/comment.json,project,Permanent first-fsync comment reproduction
+  tests/fixtures/crash-restart/fixture/.agents/pm/settings.json,project,Minimal synthetic fixture shared by permanent reproductions
+  tests/fixtures/crash-restart/update.json,project,Permanent first-fsync update reproduction
+  tests/parity_1021_contract.rs,project,Exact oracle refusal receipts and authoritative byte preservation
+  tests/support/mutation_unit.rs,project,Live unknown occupied and held-lease refusal controls
+tests[3]{command,scope,timeout_seconds,provenance{author,created_at,source_kind,source_ref}}:
+  node --test scripts/crash-harness.test.mts,project,300,codex-agent,"2026-10-21T23:11:31.260Z",local_mutation,fix/crash-restart-recovery
+  env CARGO_BUILD_JOBS=2 PM_RUST_REQUIRE_PUBLISHED_CLI=1 cargo +1.90.0 test --locked --test concurrency_contract --test parity_1021_contract,project,900,codex-agent,"2026-10-21T23:11:44.224Z",local_mutation,fix/crash-restart-recovery
+  env CARGO_BUILD_JOBS=2 cargo +1.90.0 test --locked --lib gate,project,900,codex-agent,"2026-10-21T23:12:22.808Z",local_mutation,fix/crash-restart-recovery
+docs[3]{path,scope,note}:
+  docs/CRASH_HARNESS.md,project,Early gate recovery policy independent replay commands and fifty-writer acceptance
+  docs/CRASH_RESTART_RECOVERY_2026_10_22.json,project,Twenty measured SIGKILL recoveries preserve exact state history prefixes and raw restart receipt hashes
+  docs/CRASH_RESTART_REVERT_PROOF_2026_10_22.json,project,Only acquire_lock_attempt reverted and rebuilt yields two restart-exit-4 failures; restored and rebuilt yields two passes
 body: ""

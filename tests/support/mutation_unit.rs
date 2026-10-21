@@ -459,6 +459,108 @@ fn initialization_gate_protects_a_lock_before_its_payload_is_published()
     Ok(())
 }
 
+/// Fresh gates need a verified dead owner; live, unknown and nonempty gates stay intact.
+#[cfg(target_os = "linux")]
+#[test]
+fn fresh_initialization_gate_requires_confirmed_death_and_an_empty_unchanged_gate()
+-> Result<(), Box<dyn std::error::Error>> {
+    let (_directory, pm_root) = root("{}")?;
+    let guard = acquire_lock(
+        &pm_root,
+        "sample-crash",
+        "original",
+        &locks(1_800),
+        false,
+        TS,
+        0,
+    )?;
+    let path = pm_root.join("locks/sample-crash.lock");
+    let mut owner: Value = serde_json::from_str(&fs::read_to_string(&path)?)?;
+    drop(guard);
+    let gate = pm_root.join("locks/sample-crash.lock.stale-cleanup");
+    fs::create_dir(&gate)?;
+    for raw in [
+        "{".to_owned(),
+        "{}".to_owned(),
+        serde_json::to_string(&owner)?,
+    ] {
+        fs::write(&path, &raw)?;
+        assert!(matches!(
+            acquire_lock_attempt(
+                &pm_root,
+                "sample-crash",
+                "successor",
+                1_800,
+                false,
+                TS,
+                false
+            ),
+            Err(PmRustError::LockConflict { .. })
+        ));
+        assert_eq!(fs::read_to_string(&path)?, raw);
+        assert!(gate.is_dir());
+    }
+    owner["process_start_identity"] = serde_json::json!("0");
+    let raw = serde_json::to_string(&owner)?;
+    fs::write(&path, &raw)?;
+    let evidence = gate.join("owner.json");
+    fs::write(&evidence, "foreign owner evidence")?;
+    assert!(matches!(
+        acquire_lock_attempt(
+            &pm_root,
+            "sample-crash",
+            "successor",
+            1_800,
+            false,
+            TS,
+            false
+        ),
+        Err(PmRustError::LockConflict { .. })
+    ));
+    assert_eq!(fs::read_to_string(&path)?, raw);
+    assert_eq!(fs::read_to_string(&evidence)?, "foreign owner evidence");
+    fs::remove_file(&evidence)?;
+    let lease = File::options()
+        .read(true)
+        .write(true)
+        .open(gate.with_extension("gate-lease"))?;
+    lease.try_lock()?;
+    assert!(matches!(
+        acquire_lock_attempt(
+            &pm_root,
+            "sample-crash",
+            "successor",
+            1_800,
+            false,
+            TS,
+            false
+        ),
+        Err(PmRustError::LockConflict { .. })
+    ));
+    assert_eq!(fs::read_to_string(&path)?, raw);
+    drop(GateLease(lease));
+    let guard = acquire_lock_attempt(
+        &pm_root,
+        "sample-crash",
+        "successor",
+        1_800,
+        false,
+        TS,
+        false,
+    )?;
+    assert!(!gate.exists());
+    let current: Value = serde_json::from_str(&fs::read_to_string(&path)?)?;
+    assert_eq!(current["owner"], "successor");
+    let receipts =
+        fs::read_dir(pm_root.join("locks/recoveries"))?.collect::<Result<Vec<_>, _>>()?;
+    assert_eq!(receipts.len(), 1);
+    let receipt: Value = serde_json::from_slice(&fs::read(receipts[0].path())?)?;
+    assert_eq!(receipt["event"], "owner_dead_recovery_attempt");
+    assert_eq!(receipt["lock"], owner);
+    drop(guard);
+    Ok(())
+}
+
 /// A paused stale observer cannot reclaim the gate installed by another writer.
 #[test]
 fn stale_gate_reclamation_preserves_a_concurrent_replacement()
