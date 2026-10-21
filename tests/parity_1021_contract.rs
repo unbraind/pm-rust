@@ -403,3 +403,50 @@ fn oracle_tool() -> Command {
     process_environment::isolate_environment(&mut command);
     command
 }
+
+#[test]
+/// Invalid completion arithmetic keeps its published human/JSON failure and preserves stored bytes.
+fn completion_overflow_preserves_refusal_encoding_before_mutation() -> TestResult {
+    let directory = tracker()?;
+    let root = directory.path().join(".agents/pm");
+    let item = root.join("tasks/sample-probe.toon");
+    let history = root.join("history/sample-probe.jsonl");
+    let before = (fs::read(&item)?, fs::read(&history)?);
+    for json in [false, true] {
+        let mut command = native_command(directory.path());
+        command.args([
+            "close",
+            "sample-probe",
+            "--author",
+            "test-agent",
+            "--resolution",
+            "Fixed",
+            "--expected-result",
+            "Expected",
+            "--actual-result",
+            "Observed",
+            "--completed-at",
+            "+9007199254740991w",
+        ]);
+        if json {
+            command.arg("--json");
+        }
+        let output = command.output()?;
+        assert_eq!(
+            output.status.code(),
+            Some(1),
+            "{}",
+            String::from_utf8_lossy(&output.stderr)
+        );
+        assert!(output.stdout.is_empty());
+        if json {
+            let payload: Value = serde_json::from_slice(&output.stderr)?;
+            assert_eq!(payload["code"], "unknown_error");
+            assert_eq!(payload["detail"], "Invalid time value");
+        } else {
+            assert_eq!(output.stderr, b"Invalid time value\n");
+        }
+        assert_eq!((fs::read(&item)?, fs::read(&history)?), before);
+    }
+    Ok(())
+}

@@ -376,6 +376,11 @@ fn collection_and_search_error_guidance_edges() -> Result<(), Box<dyn std::error
 /// A final rejected flag has no following value to include in its refusal.
 #[test]
 fn flag_only_refusals_do_not_invent_a_rejected_value() {
+    let exclusive = ["claim", "--next", "--start"].map(str::to_owned);
+    assert_eq!(
+        super::command_refusal_detail("Use --next or --start, not both.", &exclusive, 2),
+        serde_json::json!({"surface":"--next", "exit_code":2})
+    );
     let args = ["claim", "--next"].map(str::to_owned);
     assert_eq!(
         super::command_refusal_detail("Invalid --next.", &args, 2),
@@ -1422,9 +1427,22 @@ fn command_refusal_encoding_and_recovery_boundaries() -> Result<(), Box<dyn std:
     }
     let args = vec!["context".to_owned()];
     assert_eq!(
-        super::orientation_error_json("runtime failed", &context, &args, 1)["code"],
+        super::command_error_json("runtime failed", &context, &args, 1)["code"],
         "unknown_error"
     );
+    let bare_cursor = super::command_error_json(
+        "cursor invalid",
+        &serde_json::json!({"code":"invalid_query_cursor"}),
+        &[
+            "deps".to_owned(),
+            "sample-one".to_owned(),
+            "--cursor".to_owned(),
+            "bad".to_owned(),
+        ],
+        2,
+    );
+    assert_eq!(bare_cursor["code"], "invalid_query_cursor");
+    assert!(bare_cursor["recovery"].is_object());
     let context = serde_json::json!({"code":"invalid_query_cursor","recovery":{"suggested_retry":"pm item deps sample-one","scope":"sample-one"}});
     let args = vec![
         "item".to_owned(),

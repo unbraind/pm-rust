@@ -1495,6 +1495,9 @@ fn command_error_json(
     if context["recovery"]["token_budget"].is_object() {
         return context.clone();
     }
+    if context["code"] == "unknown_error" {
+        return unhandled_error_json(detail, exit_code);
+    }
     if context["code"] == "invalid_query_cursor" && context["recovery"].is_object() {
         let mut payload = cursor_error_json("invalid_query_cursor", detail, args);
         let retry = context["recovery"]["suggested_retry"].clone();
@@ -1536,9 +1539,6 @@ fn command_error_json(
     if args.first().is_some_and(|arg| arg == "item") {
         return collection_error_json(detail, context, args, exit_code);
     }
-    if context["code"] == "unknown_error" {
-        return unhandled_error_json(detail, exit_code);
-    }
     let mut payload = ownership_error_json(detail, context, args);
     payload["exit_code"] = serde_json::json!(exit_code);
     payload["refusal"] = if args.first().is_some_and(|command| command == "close") {
@@ -1570,9 +1570,6 @@ fn orientation_error_json(
     args: &[String],
     exit_code: u8,
 ) -> serde_json::Value {
-    if context["code"] == "unknown_error" {
-        return unhandled_error_json(detail, exit_code);
-    }
     let args = orientation_arguments(args);
     let command = &args[0];
     let mut context = context.clone();
