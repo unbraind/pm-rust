@@ -199,7 +199,8 @@ fn lock_contention_preserves_the_actual_invocation_without_force_advice() -> Tes
     assert_eq!(
         refusal["recovery"]["suggested_retry_args"],
         json!([
-            "comment",
+            "item",
+            "comments",
             "sample-probe",
             "contended note",
             "--author",
@@ -235,7 +236,8 @@ fn lock_contention_preserves_the_actual_invocation_without_force_advice() -> Tes
         json!([
             "--pm-path",
             directory.path().to_string_lossy(),
-            "comment",
+            "item",
+            "comments",
             "sample-probe",
             "scoped note",
             "--author",
@@ -243,6 +245,144 @@ fn lock_contention_preserves_the_actual_invocation_without_force_advice() -> Tes
         ])
     );
 
+    Ok(())
+}
+
+/// Explicit workspace and tracker retry paths retain the oracle's literal spelling.
+#[test]
+#[allow(clippy::too_many_lines)]
+fn explicit_lock_retry_scopes_match_oracle() -> TestResult {
+    let Some(directory) = tracker()? else {
+        return Ok(());
+    };
+    let published = published_cli::locate_published_cli().ok_or("oracle")?;
+    let workspace = directory.path().join("selected workspace");
+    fs::create_dir(&workspace)?;
+    fs::rename(directory.path().join(".agents"), workspace.join(".agents"))?;
+    let root = workspace.join(".agents/pm");
+    let lock = root.join("locks/sample-probe.lock");
+    fs::create_dir_all(root.join("locks"))?;
+    let receipt = serde_json::to_vec(&json!({
+        "id":"sample-probe", "pid":std::process::id(), "owner":"test-holder",
+        "token":"test-held", "ttl_seconds":1800,
+        "created_at":time::OffsetDateTime::now_utc().format(&time::format_description::well_known::Rfc3339)?
+    }))?;
+    fs::write(&lock, &receipt)?;
+    let before = (
+        fs::read(root.join("tasks/sample-probe.toon"))?,
+        fs::read(root.join("history/sample-probe.jsonl"))?,
+    );
+    let operation = [
+        "comment",
+        "sample-probe",
+        "scoped note",
+        "--author",
+        "test-agent",
+    ];
+    for scope in [
+        workspace.to_string_lossy().into_owned(),
+        root.to_string_lossy().into_owned(),
+        "selected workspace".to_owned(),
+        "selected workspace/.agents/pm".to_owned(),
+    ] {
+        let expected = oracle_command()
+            .arg(&published.entry)
+            .current_dir(directory.path())
+            .env("PM_LOCK_WAIT_MS", "0")
+            .args(["--pm-path", &scope])
+            .args(operation)
+            .arg("--json")
+            .output()?;
+        assert_eq!(
+            expected.status.code(),
+            Some(4),
+            "{}",
+            String::from_utf8_lossy(&expected.stderr)
+        );
+        let mut expected: Value = serde_json::from_slice(&expected.stderr)?;
+        // Native comment refusals already use JSON; remove the oracle-only encoding switch.
+        for field in ["normalized_args", "suggested_retry_args"] {
+            assert_eq!(
+                expected["recovery"][field]
+                    .as_array_mut()
+                    .ok_or("retry args")?
+                    .pop(),
+                Some(json!("--json"))
+            );
+        }
+        for field in ["attempted_command", "suggested_retry"] {
+            let command = expected["recovery"][field]
+                .as_str()
+                .ok_or("retry command")?
+                .strip_suffix(" --json")
+                .ok_or("encoding switch")?
+                .to_owned();
+            expected["recovery"][field] = json!(command);
+        }
+        expected["examples"] = json!([expected["recovery"]["suggested_retry"]]);
+        // The published CLI keeps the supplied directory even after discovering its tracker.
+        assert_eq!(expected["recovery"]["suggested_retry_args"][1], scope);
+        for flag in ["--workspace", "--pm-path", "--path"] {
+            for prefix in [
+                vec![flag.to_owned(), scope.clone()],
+                vec![format!("{flag}={scope}")],
+            ] {
+                let actual = native_command(directory.path())
+                    .env("PM_LOCK_WAIT_MS", "0")
+                    .args(&prefix)
+                    .args(operation)
+                    .output()?;
+                assert_eq!(
+                    actual.status.code(),
+                    Some(4),
+                    "{prefix:?}: {}",
+                    String::from_utf8_lossy(&actual.stderr)
+                );
+                let actual: Value = serde_json::from_slice(&actual.stderr)?;
+                for field in [
+                    "attempted_command",
+                    "normalized_args",
+                    "suggested_retry",
+                    "suggested_retry_args",
+                ] {
+                    assert_eq!(
+                        actual["recovery"][field], expected["recovery"][field],
+                        "{prefix:?}: {field}"
+                    );
+                }
+                assert_eq!(actual["examples"], expected["examples"]);
+                let retry = actual["recovery"]["suggested_retry_args"]
+                    .as_array()
+                    .ok_or("retry args")?
+                    .iter()
+                    .map(|arg| arg.as_str().ok_or("retry string"))
+                    .collect::<Result<Vec<_>, _>>()?;
+                let replay = native_command(directory.path())
+                    .env("PM_LOCK_WAIT_MS", "0")
+                    .args(retry)
+                    .output()?;
+                assert_eq!(
+                    replay.status.code(),
+                    Some(4),
+                    "{}",
+                    String::from_utf8_lossy(&replay.stderr)
+                );
+                let replay: Value = serde_json::from_slice(&replay.stderr)?;
+                assert_eq!(
+                    replay["recovery"]["suggested_retry_args"],
+                    actual["recovery"]["suggested_retry_args"]
+                );
+                assert_eq!(fs::read(&lock)?, receipt);
+                assert_eq!(
+                    (
+                        fs::read(root.join("tasks/sample-probe.toon"))?,
+                        fs::read(root.join("history/sample-probe.jsonl"))?
+                    ),
+                    before
+                );
+            }
+        }
+    }
     Ok(())
 }
 

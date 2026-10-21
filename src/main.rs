@@ -1231,7 +1231,7 @@ fn close_payload(
         .map_err(Into::into)
 }
 
-/// Accepts the canonical item-deps spelling emitted by verified retry commands.
+/// Accepts canonical item namespaces emitted by verified retry commands.
 fn native_arguments(mut args: Vec<std::ffi::OsString>) -> Vec<std::ffi::OsString> {
     let mut index = 1;
     while let Some(arg) = args.get(index) {
@@ -1244,8 +1244,17 @@ fn native_arguments(mut args: Vec<std::ffi::OsString>) -> Vec<std::ffi::OsString
         {
             index += 1;
         } else {
-            if arg == "item" && args.get(index + 1).is_some_and(|arg| arg == "deps") {
-                args.remove(index);
+            if arg == "item" {
+                match args.get(index + 1).and_then(|arg| arg.to_str()) {
+                    Some("deps") => {
+                        args.remove(index);
+                    }
+                    Some("comments") => {
+                        args.remove(index);
+                        args[index] = "comment".into();
+                    }
+                    _ => {}
+                }
             }
             break;
         }
@@ -1934,10 +1943,15 @@ fn ownership_error_json(
     context: &serde_json::Value,
     args: &[String],
 ) -> serde_json::Value {
+    let mut recovery_args = args.to_vec();
+    if context["code"] == "lock_conflict" && args.first().is_some_and(|arg| arg == "comment") {
+        "comments".clone_into(&mut recovery_args[0]);
+        recovery_args.insert(0, "item".to_owned());
+    }
     let mut payload = cursor_error_json(
         context["code"].as_str().unwrap_or("command_failed"),
         detail,
-        args,
+        &recovery_args,
     );
     match context["code"].as_str() {
         Some("ownership_conflict") => {

@@ -1323,6 +1323,28 @@ fn canonical_packet_retry_arguments_are_accepted() -> Result<(), Box<dyn std::er
     Ok(())
 }
 
+/// Canonical comment retry namespaces parse after scope aliases without changing literal text.
+#[test]
+fn canonical_comment_retry_arguments_are_accepted() -> Result<(), Box<dyn std::error::Error>> {
+    for prefix in [vec![], vec!["--pm-path", "."], vec!["--workspace=."]] {
+        let mut args = vec!["pm-rust"];
+        args.extend(prefix);
+        args.extend([
+            "item",
+            "comments",
+            "sample-one",
+            " note ",
+            "--author",
+            "test-agent",
+        ]);
+        let normalized =
+            super::native_arguments(args.into_iter().map(std::ffi::OsString::from).collect());
+        let cli = <super::Cli as clap::Parser>::try_parse_from(normalized)?;
+        assert!(matches!(cli.command, super::Command::Comment { text, .. } if text == " note "));
+    }
+    Ok(())
+}
+
 /// Budget receipts stay compact and distinguish unavailable advice from a proven minimum.
 #[test]
 fn packet_recovery_receipts_preserve_verified_evidence() -> Result<(), Box<dyn std::error::Error>> {

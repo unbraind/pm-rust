@@ -138,3 +138,42 @@ hook. Run `cargo +1.90.0 test --locked --lib
 dead_owner_recovery_requires_a_durable_intent -- --nocapture` for this failure case.
 The tracker records the replacement aggregate results separately from the initial
 Linux coverage failure.
+
+## PR 101 explicit-scope review follow-up
+
+| Thread | Disposition and evidence |
+| --- | --- |
+| `PRRT_kwDOTwgMRs6u3EZE` | Refused as an oracle divergence. With a valid unexpired lock, published pm-cli 2026.10.21 returns exit 4 and preserves the explicitly supplied workspace directory in `--pm-path`; it does not replace it with the discovered tracker root. The native path handling already matches. |
+
+For example, a supplied `selected workspace` produces retry arguments beginning
+`["--pm-path", "selected workspace", "item", "comments", ...]`; supplying
+`selected workspace/.agents/pm` retains that exact tracker spelling instead.
+The latest substantive CodeRabbit review has no outside-diff findings, and
+thread/comment pagination is complete.
+
+The full PR diff was checked for related scope, normalization, stale-owner
+identity, durability and fixture-admission defects. That check found one additional
+retry mismatch: native comment advice retained `comment` where the oracle emits
+`item comments`. Lock-conflict advice now uses the canonical namespace, and native
+startup accepts that namespace so the advertised retry can be replayed. The
+workspace spelling is preserved verbatim.
+
+`explicit_lock_retry_scopes_match_oracle` compares four path spellings (absolute
+workspace and tracker, relative workspace and tracker, including spaces), each
+with three native scope aliases in split and equals forms. It compares recovery
+commands, argument arrays and examples against the pinned oracle, replays every
+native retry against the held lock, and verifies unchanged lock, item and history
+bytes in a plain directory without Git. The oracle-only JSON encoding switch is
+removed from the expected invocation because native comment refusals already use
+JSON. `canonical_comment_retry_arguments_are_accepted` separately checks parsing
+and preservation of literal comment whitespace.
+
+Three isolated behavioral experiments each fail at runtime with exit 101; sources
+are restored after each run. No compilation failure is counted as proof.
+Use `cargo +1.90.0 test --locked` with these selectors:
+
+| Changed behavior | Regression selector and observed failure |
+| --- | --- |
+| Revert only `ownership_error_json` | `--test parity_1021_contract explicit_lock_retry_scopes_match_oracle`: attempted command contains `comment` instead of oracle `item comments`. |
+| Revert only `native_arguments` | `--bin pm-rust canonical_comment_retry_arguments_are_accepted`: canonical retry is rejected as an invalid subcommand. |
+| Apply only the requested `preserve_lock_scope` path expansion | `--test parity_1021_contract explicit_lock_retry_scopes_match_oracle`: attempted command contains the discovered tracker root instead of the supplied workspace directory. |
