@@ -1,0 +1,29 @@
+{
+  "controls": [
+    {
+      "function": "history preservation",
+      "negativeExit": 1,
+      "command": "node --test --test-name-pattern \"history preservation\" scripts/crash-harness.test.mts",
+      "restoredExit": 0
+    },
+    {
+      "function": "inventories include",
+      "negativeExit": 1,
+      "command": "node --test --test-name-pattern \"inventories include\" scripts/crash-harness.test.mts",
+      "restoredExit": 0
+    },
+    {
+      "function": "ordinary exits",
+      "negativeExit": 1,
+      "command": "node --test --test-name-pattern \"ordinary exits\" scripts/crash-harness.test.mts",
+      "restoredExit": 0
+    },
+    {
+      "function": "recoveredState",
+      "negativeExit": 1,
+      "restoredExit": 0,
+      "command": "node --test --test-name-pattern \"successful restart\" scripts/crash-harness.test.mts"
+    }
+  ],
+  "note": "Each control disables one production invariant; original bytes restored before its passing rerun."
+}

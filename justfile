@@ -41,6 +41,18 @@ export PM_NODE_CLI := env_var_or_default("PM_NODE_CLI", justfile_directory() / "
 oracle-install:
     npm ci --prefix tests/oracle --ignore-scripts
 
+# Run the standalone typed crash-conformance CLI (Linux and strace required).
+[positional-arguments]
+crash *args:
+    node scripts/crash-cli.mts "$@"
+
+# Targeted TypeScript harness checks; Rust tests/build remain separate.
+crash-check:
+    npm ci --prefix tests/harness --ignore-scripts
+    tests/harness/node_modules/.bin/tsc -p tests/harness/tsconfig.json
+    tests/harness/node_modules/.bin/eslint -c tests/harness/eslint.config.mjs scripts/crash-*.mts
+    node --test scripts/crash-harness.test.mts
+
 # Run the locked oracle through its shared test-environment launcher.
 [positional-arguments]
 oracle *args:
@@ -120,6 +132,7 @@ release-check: oracle-install
     cargo +1.90.0 clippy --locked --all-targets --all-features -- -D warnings
     RUSTDOCFLAGS='--document-private-items -D missing-docs' cargo +1.90.0 doc --locked --all-features --no-deps
     PM_RUST_REQUIRE_PUBLISHED_CLI=1 cargo +1.90.0 test --locked --all-targets --all-features
+    just crash-check
     test ! -e coverage-branch.json || unlink coverage-branch.json
     PM_RUST_REQUIRE_PUBLISHED_CLI=1 cargo +nightly-2026-08-06 llvm-cov --locked --branch --all-targets --all-features --json --output-path coverage-branch.json
     jq '.data[0].totals' coverage-branch.json
