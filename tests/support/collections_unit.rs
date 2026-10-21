@@ -836,3 +836,66 @@ fn sdk_collection_without_source_context() -> TestResult {
     assert!(result["tests"][0]["provenance"].get("source_ref").is_none());
     Ok(())
 }
+
+/// Optional provenance reads a real source branch and survives a missing Git executable.
+#[test]
+fn sdk_collection_git_source_context() -> TestResult {
+    const CHILD: &str = "PM_RUST_COLLECTION_GIT_CHILD";
+    if std::env::var_os(CHILD).is_none() {
+        let source = tempfile::tempdir()?;
+        let init = std::process::Command::new("git")
+            .args(["init", "--quiet", "--initial-branch=source-branch"])
+            .arg(source.path())
+            .output()?;
+        assert!(
+            init.status.success(),
+            "{}",
+            String::from_utf8_lossy(&init.stderr)
+        );
+        let empty = source.path().join("empty-bin");
+        fs::create_dir(&empty)?;
+        for mode in ["with-git", "without-git"] {
+            let mut command = std::process::Command::new(std::env::current_exe()?);
+            command
+                .args([
+                    "--exact",
+                    "collections::tests::sdk_collection_git_source_context",
+                ])
+                .env(CHILD, mode)
+                .env("GITHUB_HEAD_REF", "")
+                .env("GITHUB_REF_NAME", "")
+                .env("PM_SOURCE_WORKSPACE_ROOT", source.path())
+                .env_remove("PM_PATH");
+            if mode == "without-git" {
+                command.env("PATH", &empty);
+            }
+            let output = command.output()?;
+            assert!(
+                output.status.success(),
+                "{}",
+                String::from_utf8_lossy(&output.stdout)
+            );
+            assert!(String::from_utf8_lossy(&output.stdout).contains("test result: ok. 1 passed;"));
+        }
+        return Ok(());
+    }
+    let (directory, workspace) = tracker()?;
+    let result = workspace.collection(
+        "sample-one",
+        "tests",
+        &CollectionOptions {
+            author: "fixture".to_owned(),
+            timestamp: Some("2026-08-22T10:00:00.000Z".to_owned()),
+            add: vec!["command=cargo test".to_owned()],
+            ..CollectionOptions::default()
+        },
+        directory.path(),
+    )?;
+    let source = &result["tests"][0]["provenance"]["source_ref"];
+    if std::env::var(CHILD)? == "with-git" {
+        assert_eq!(source, "source-branch");
+    } else {
+        assert_eq!(source, &Value::Null);
+    }
+    Ok(())
+}

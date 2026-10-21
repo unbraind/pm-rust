@@ -1988,10 +1988,10 @@ fn blocked_focus_cursor_pages_match_october_21_oracle() -> TestResult {
             .status
             .success()
     );
-    let first = item("sample-one", "Task", "open", 1);
+    let first = item("sample-one", "Feature", "open", 1);
     let mut blocked = item("sample-two", "Task", "open", 2);
     blocked["blocked_by"] = json!("sample-missing");
-    let third = item("sample-three", "Task", "open", 3);
+    let third = item("sample-three", "Feature", "open", 3);
     fixture(root.path(), &[first, blocked, third])?;
     let mut cursor = None::<String>;
     let mut seen = std::collections::BTreeSet::new();

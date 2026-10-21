@@ -1386,6 +1386,9 @@ fn blocked_focus_stays_inside_its_cursor_page() -> Result<(), Box<dyn std::error
         ("sample-three", false),
     ] {
         let mut row = item(id, "open");
+        if !blocked {
+            row["type"] = json!("Feature");
+        }
         if blocked {
             row["blocked_by"] = json!("sample-missing");
         }

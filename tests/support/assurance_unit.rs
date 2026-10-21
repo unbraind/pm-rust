@@ -21,6 +21,16 @@ fn assurance_reads_are_typed_and_read_only() -> Result<(), Box<dyn std::error::E
         assert_eq!(context["changed"], false);
     }
     assert!(workspace.assurance_declarations("unknown").is_err());
+    assert!(
+        workspace
+            .assurance_declaration("unknown", "absent")
+            .is_err()
+    );
+    assert!(
+        workspace
+            .assurance_read("unknown", None, &crate::ListOptions::default())
+            .is_err()
+    );
     let path = root.join("assurance.json");
     for raw in ["broken", "{}"] {
         std::fs::write(&path, raw)?;
