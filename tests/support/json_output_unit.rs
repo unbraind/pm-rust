@@ -3,6 +3,44 @@
 use super::stringify_json;
 use serde_json::json;
 
+/// Brief list wire bytes are compact; other reads retain pretty JSON and explicit facts.
+#[test]
+fn read_json_uses_the_published_brief_list_encoding() {
+    let brief = super::ListOutput::from(
+        json!({"items":[{"id":"a","priority":null}],"projection":{"mode":"brief"}}),
+    );
+    let mut bytes = Vec::new();
+    assert!(brief.write_read_json(&mut bytes).is_ok());
+    assert_eq!(
+        format!("{}\n", String::from_utf8_lossy(&bytes)),
+        brief.stringify_read_json()
+    );
+    assert_eq!(
+        brief.stringify_read_json(),
+        "{\"items\":[{\"id\":\"a\",\"priority\":null}],\"projection\":{\"mode\":\"brief\"}}\n"
+    );
+    for value in [
+        json!({"items":[],"projection":{"mode":"full"}}),
+        json!({"item":null,"projection":{"mode":"brief"}}),
+    ] {
+        let mut bytes = Vec::new();
+        assert!(
+            super::ListOutput::from(value.clone())
+                .write_read_json(&mut bytes)
+                .is_ok()
+        );
+        assert_eq!(
+            super::ListOutput::from(value.clone()).stringify_read_json(),
+            format!("{}\n", stringify_json(&value, true))
+        );
+    }
+    let invalid = super::ListOutput::with_json_overrides(
+        json!({"items":["safe"],"projection":{"mode":"brief"}}),
+        std::collections::BTreeMap::from([("/items/0".to_owned(), "{".to_owned())]),
+    );
+    assert!(invalid.write_read_json(&mut Vec::new()).is_err());
+}
+
 #[test]
 fn numbers_use_javascript_thresholds_and_zero() {
     let value = json!([30.0, 30.5, 1e20, 1e-6, -0.0, 1e-7, 1e21]);

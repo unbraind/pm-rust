@@ -183,9 +183,9 @@ fn native_command(root: &Path, args: &[&str]) -> Command {
     let mut command = Command::new(env!("CARGO_BIN_EXE_pm-rust"));
     mutation_differential::isolate_environment(&mut command);
     command.env("DO_NOT_TRACK", "1");
+    // Match the oracle's invocation scope so recovery bytes compare the same operation.
     command
-        .arg("--workspace")
-        .arg(root)
+        .current_dir(root)
         .args(args)
         .arg(format!("--timestamp={CLOCK}"));
     command

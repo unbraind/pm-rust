@@ -69,6 +69,7 @@ fn seeded_workspace() -> Result<Option<tempfile::TempDir>, Box<dyn std::error::E
     settings["locks"]["wait_ms"] = serde_json::json!(60000);
     settings["agent_identity"]["probes_enabled"] = serde_json::json!(false);
     fs::write(root.join("settings.json"), serde_json::to_vec(&settings)?)?;
+    assert!(!directory.path().join(".git").exists());
     let output = native_command(directory.path())
         .args([
             "--workspace=.",
@@ -193,6 +194,20 @@ fn concurrent_comment_processes_preserve_every_accepted_mutation()
         .collect();
     assert_eq!(actual, expected.iter().map(String::as_str).collect());
 
+    let document = pm_rust::Workspace::discover(directory.path())?.get("sample-load")?;
+    let comments = document.metadata.extra["comments"]
+        .as_array()
+        .ok_or("comment array")?;
+    for process in 0..PROCESSES {
+        for mutation in 0..MUTATIONS_PER_PROCESS {
+            let marker = format!("concurrent note {process}-{mutation}");
+            assert_eq!(
+                comments.iter().filter(|row| row["text"] == marker).count(),
+                1
+            );
+        }
+    }
+
     // Every accepted mutation is present as exactly one history record, and
     // the hash chain proves each update built on the previous durable state.
     let records = history_records(directory.path())?;
@@ -229,6 +244,44 @@ fn concurrent_comment_processes_preserve_every_accepted_mutation()
             record["item_hash_version"], 3,
             "record {index} is not stamped with the published epoch"
         );
+    }
+    Ok(())
+}
+
+/// Optional oracle absence skips the real concurrency test; required absence fails closed.
+#[test]
+fn absent_concurrency_oracle_obeys_optional_and_required_modes()
+-> Result<(), Box<dyn std::error::Error>> {
+    let directory = tempfile::tempdir()?;
+    for required in [false, true] {
+        let mut command = Command::new(std::env::current_exe()?);
+        command
+            .args([
+                "--exact",
+                "concurrent_comment_processes_preserve_every_accepted_mutation",
+                "--nocapture",
+            ])
+            .env("PM_NODE_CLI", directory.path().join("absent-oracle"));
+        if required {
+            command.env("PM_RUST_REQUIRE_PUBLISHED_CLI", "1");
+        } else {
+            command.env_remove("PM_RUST_REQUIRE_PUBLISHED_CLI");
+        }
+        let output = command.output()?;
+        let stdout = String::from_utf8_lossy(&output.stdout);
+        let stderr = String::from_utf8_lossy(&output.stderr);
+        assert_eq!(output.status.success(), !required, "{stdout}{stderr}");
+        if required {
+            assert!(
+                stderr.contains("requires the published Node pm CLI"),
+                "{stdout}{stderr}"
+            );
+        } else {
+            assert!(
+                stdout.contains("skip: no published Node pm CLI found"),
+                "{stdout}{stderr}"
+            );
+        }
     }
     Ok(())
 }

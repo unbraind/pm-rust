@@ -21,7 +21,7 @@ permissions:
 env:
   PM_SENTRY_DISABLED: "1"
   PM_TELEMETRY_SOURCE_CONTEXT: test
-  BENCH_BASE_SHA: 8e32f851504c4169704d3af3cec4b91420c9d33c
+  BENCH_BASE_SHA: c0154dbd7cd8071ac52b891be13f956f7a0f21fd
   BENCH_HEAD_SHA: ${{ github.event.pull_request.head.sha || github.sha }}
 
 concurrency:

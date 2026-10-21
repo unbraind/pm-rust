@@ -18,7 +18,7 @@ fn measure(result: &ListOutput, toon: bool) -> usize {
     if toon {
         crate::toon_output::render_output(result).len().div_ceil(4)
     } else {
-        estimate(result, true)
+        result.stringify_read_json().len().div_ceil(4)
     }
 }
 

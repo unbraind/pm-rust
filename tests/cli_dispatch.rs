@@ -552,3 +552,212 @@ fn parser_refusals_exit_with_diagnostics() -> Result<(), Box<dyn std::error::Err
     }
     Ok(())
 }
+
+/// Each command family refuses invalid preflight input without changing canonical item/history bytes.
+#[test]
+fn structured_preflight_refusals_preserve_stored_state() -> Result<(), Box<dyn std::error::Error>> {
+    let workspace = workspace()?;
+    expect_ok(
+        &workspace,
+        &[
+            "create",
+            "--id",
+            "sample-preflight",
+            "--title",
+            "Preflight",
+            "--type",
+            "Task",
+            "--author",
+            "cli-agent",
+        ],
+    )?;
+    let root = workspace.path().join(".agents/pm");
+    let item = root.join("tasks/sample-preflight.toon");
+    let history = root.join("history/sample-preflight.jsonl");
+    let before = (fs::read(&item)?, fs::read(&history)?);
+    for (args, code) in preflight_refusal_cases() {
+        let output = pm_rust(&workspace, &args)?;
+        assert_eq!(
+            output.status.code(),
+            Some(2),
+            "{args:?}: {}",
+            String::from_utf8_lossy(&output.stderr)
+        );
+        assert!(output.stdout.is_empty());
+        let payload: serde_json::Value =
+            serde_json::from_slice(&output.stderr).map_err(|error| {
+                format!(
+                    "{args:?}: {error}: {}",
+                    String::from_utf8_lossy(&output.stderr)
+                )
+            })?;
+        assert_eq!(payload["code"], code, "{args:?}: {payload}");
+        assert_eq!(payload["exit_code"], 2);
+        assert_eq!((fs::read(&item)?, fs::read(&history)?), before);
+    }
+    let human = pm_rust(&workspace, &["context", "--limit", "bad"])?;
+    assert_eq!(human.status.code(), Some(2));
+    assert!(human.stdout.is_empty());
+    assert!(String::from_utf8_lossy(&human.stderr).contains("Error:"));
+    assert_eq!((fs::read(&item)?, fs::read(&history)?), before);
+    Ok(())
+}
+
+/// Lists invalid input contracts shared by native unit and process coverage.
+fn preflight_refusal_cases() -> [(Vec<&'static str>, &'static str); 7] {
+    [
+        (
+            vec!["context", "--limit", "bad", "--json"],
+            "invalid_argument_value",
+        ),
+        (
+            vec!["search", "Preflight", "--limit", "bad", "--json"],
+            "invalid_argument_value",
+        ),
+        (
+            vec![
+                "test",
+                "sample-preflight",
+                "--remove-index",
+                "bad",
+                "--json",
+            ],
+            "invalid_argument_value",
+        ),
+        (
+            vec![
+                "close",
+                "sample-preflight",
+                "--resolution",
+                "Fixed",
+                "--expected-result",
+                "Expected",
+                "--actual-result",
+                "Observed",
+                "--completed-at",
+                "bad",
+                "--author",
+                "cli-agent",
+                "--json",
+            ],
+            "invalid_argument_value",
+        ),
+        (
+            vec![
+                "claim",
+                "sample-preflight",
+                "--start",
+                "--next",
+                "--author",
+                "cli-agent",
+                "--json",
+            ],
+            "invalid_argument_value",
+        ),
+        (
+            vec![
+                "item",
+                "deps",
+                "sample-preflight",
+                "--format",
+                "context",
+                "--cursor",
+                "broken",
+                "--json",
+            ],
+            "invalid_query_cursor",
+        ),
+        (
+            vec![
+                "deps",
+                "sample-preflight",
+                "--format",
+                "context",
+                "--token-budget",
+                "1",
+                "--json",
+            ],
+            "invalid_argument_value",
+        ),
+    ]
+}
+
+/// Startup normalization accepts scope aliases and refuses incomplete or unsupported namespaces.
+#[test]
+fn startup_argument_boundaries_are_read_only() -> Result<(), Box<dyn std::error::Error>> {
+    let workspace = workspace()?;
+    let settings = workspace.path().join(".agents/pm/settings.json");
+    let before = fs::read(&settings)?;
+    for args in [
+        vec![],
+        vec!["item"],
+        vec!["item", "files", "sample-missing"],
+        vec!["assurance", "show", "measurement"],
+    ] {
+        let output = pm_rust(&workspace, &args)?;
+        assert_eq!(output.status.code(), Some(2), "{args:?}");
+        assert!(output.stdout.is_empty());
+        assert!(!output.stderr.is_empty());
+        assert_eq!(fs::read(&settings)?, before);
+    }
+    for scope in [
+        vec!["--workspace", "."],
+        vec!["--pm-path", "."],
+        vec!["--path", "."],
+        vec!["--workspace=."],
+        vec!["--pm-path=."],
+        vec!["--path=."],
+    ] {
+        let output = Command::new(env!("CARGO_BIN_EXE_pm-rust"))
+            .current_dir(workspace.path())
+            .args(&scope)
+            .args(["context", "--json", "--no-extension-health"])
+            .output()?;
+        assert!(
+            output.status.success(),
+            "{scope:?}: {}",
+            String::from_utf8_lossy(&output.stderr)
+        );
+        assert!(serde_json::from_slice::<serde_json::Value>(&output.stdout)?.is_object());
+        assert_eq!(fs::read(&settings)?, before);
+    }
+    Ok(())
+}
+
+/// Workspace aliases and canonical dependency commands preserve structured parser refusals.
+#[test]
+fn scoped_alias_refusals_match_the_native_command() -> Result<(), Box<dyn std::error::Error>> {
+    let workspace = workspace()?;
+    for flag in ["--workspace", "--pm-path", "--path"] {
+        for prefix in [
+            vec![flag.to_owned(), ".".to_owned()],
+            vec![format!("{flag}=.")],
+        ] {
+            for command in [
+                vec!["context"],
+                vec!["deps", "sample-a"],
+                vec!["item", "deps", "sample-a"],
+            ] {
+                let output = Command::new(env!("CARGO_BIN_EXE_pm-rust"))
+                    .current_dir(workspace.path())
+                    .args(&prefix)
+                    .args(&command)
+                    .args(["--bogus=value", "--json"])
+                    .output()?;
+                assert_eq!(output.status.code(), Some(2));
+                let payload: serde_json::Value = serde_json::from_slice(&output.stderr)?;
+                assert_eq!(payload["code"], "unsupported_native_option");
+                assert_eq!(payload["flag"], "--bogus");
+                assert_eq!(
+                    payload["recovery"]["normalized_args"][0],
+                    if command == ["context"] {
+                        "context"
+                    } else {
+                        "item"
+                    }
+                );
+            }
+        }
+    }
+    Ok(())
+}

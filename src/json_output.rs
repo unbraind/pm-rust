@@ -25,6 +25,32 @@ pub struct ListOutput {
 }
 
 impl ListOutput {
+    /// Reports whether the published renderer selects compact brief-list JSON.
+    fn brief_json(&self) -> bool {
+        self.value["projection"]["mode"] == "brief" && self.value["items"].is_array()
+    }
+
+    /// Renders published read JSON, using one compact line for brief list envelopes.
+    #[must_use]
+    pub fn stringify_read_json(&self) -> String {
+        format!("{}\n", stringify_json(self, !self.brief_json()))
+    }
+
+    /// Writes read JSON with the selected layout and JavaScript number spelling.
+    ///
+    /// # Errors
+    /// Returns encoding or writer failures without hiding malformed raw JSON overrides.
+    pub fn write_read_json(&self, writer: &mut dyn io::Write) -> Result<(), serde_json::Error> {
+        if self.brief_json() {
+            self.serialize(&mut serde_json::Serializer::with_formatter(
+                writer,
+                JsCompactFormatter,
+            ))
+        } else {
+            write_pretty_json(writer, self)
+        }
+    }
+
     /// Builds a Unicode-safe response with lossless raw JSON replacements.
     ///
     /// Keys are JSON pointers into `value`; replacements for absent paths are

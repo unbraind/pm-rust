@@ -1,8 +1,7 @@
 # Large tracker agent hot paths
 
 Run `just bench` on Linux with Node 24+, Rust 1.90 and GNU time. The benchmark
-installs its own lockfile-pinned pm-cli **2026.10.21** oracle. The release gate
-keeps its existing independent oracle until the parity prerequisite merges.
+installs its own lockfile-pinned pm-cli **2026.10.21** oracle. The release gate uses the same version after integrating the merged parity prerequisite.
 
 The default run generates 1,000, 10,000 and 50,000 real canonical TOON items in
 disposable plain directories initialized by `pm init`. Every item carries four
@@ -86,7 +85,12 @@ items. This preserves lineage and validation behavior while reducing peak RSS.
 The existing per-item locks, transaction recovery and durable history boundary
 continue to govern every mutation.
 
-## Measured results
+## Measurements before parity integration
+
+The measurements and gate tables below describe the original pre-parity source.
+PR #101 subsequently merged; the benchmark workflow now pins merged main
+`c0154dbd7cd8071ac52b891be13f956f7a0f21fd` as its baseline. Fresh combined-source
+measurements and gates are required before handoff.
 
 The [complete before/after tables](benchmarks/native-hot-path-tables-2026-10-21.md)
 include every command at all three sizes, p50/p95, maximum RSS, stdout/stderr

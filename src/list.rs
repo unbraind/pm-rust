@@ -22,6 +22,12 @@ pub(crate) fn terminal(status: &str) -> bool {
 /// Brief projection field names, with an explicit sort key retained once (GH-1481).
 pub(crate) fn brief_fields(sort: Option<&str>) -> Vec<&str> {
     let fields = ["id", "status", "type", "title"];
+    if sort.is_none() {
+        return fields
+            .into_iter()
+            .chain(std::iter::once("priority"))
+            .collect();
+    }
     match sort.filter(|field| *field != "title") {
         Some(field) => fields.into_iter().chain(std::iter::once(field)).collect(),
         None => fields.to_vec(),
@@ -30,7 +36,7 @@ pub(crate) fn brief_fields(sort: Option<&str>) -> Vec<&str> {
 
 /// Re-projects full rows to the explicit brief contract, retaining sort keys (GH-1481).
 fn project_brief_rows(result: &mut Value, sort: Option<&str>) {
-    let sort_field = sort.filter(|field| *field != "title");
+    let sort_field = sort.or(Some("priority")).filter(|field| *field != "title");
     result["items"] = json!(result["items"].as_array().into_iter().flatten().map(|row| {
         let mut brief = json!({"id":row["id"],"status":row["status"],"type":row["type"],"title":row["title"]});
         if let Some(field) = sort_field {
@@ -48,7 +54,7 @@ fn brief_row(metadata: &crate::ItemMetadata, sort: Option<&str>) -> Value {
         "id": metadata.id, "status": metadata.status,
         "type": metadata.item_type, "title": metadata.title,
     });
-    if let Some(field) = sort.filter(|field| *field != "title") {
+    if let Some(field) = sort.or(Some("priority")).filter(|field| *field != "title") {
         row[field] = match field {
             "priority" => json!(metadata.priority),
             "updated_at" => json!(metadata.updated_at),
@@ -223,6 +229,14 @@ fn read_selection(
         result["omission_receipt"] = omission;
     }
     crate::json_output::normalize_read_numbers(&mut result);
+    if options.sort.is_none() {
+        result["sorting"]["effective_keys"] = json!([
+            ["status_registry:nonterminal_before_terminal", "asc"],
+            ["priority", "asc"],
+            ["updated_at", "desc"],
+            ["id", "asc"]
+        ]);
+    }
     Ok(result)
 }
 

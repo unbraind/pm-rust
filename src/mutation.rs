@@ -2,7 +2,7 @@
 
 use serde_json::Map;
 use std::fs::{self, File, OpenOptions};
-use std::io::{ErrorKind, Write};
+use std::io::{ErrorKind, Read, Write};
 use std::path::{Path, PathBuf};
 use std::process;
 use std::sync::atomic::{AtomicU64, Ordering};
@@ -22,6 +22,7 @@ static TEMP_COUNTER: AtomicU64 = AtomicU64::new(0);
 
 /// Input accepted by the first native mutation surface.
 #[derive(Clone, Debug, Deserialize, PartialEq, Serialize)]
+#[serde(deny_unknown_fields)]
 pub struct CreateItem {
     /// Explicit stable identifier, including the configured project prefix.
     pub id: String,
@@ -63,6 +64,7 @@ pub struct CreateItem {
 
 /// Explicit-author ownership mutation shared by claim and release.
 #[derive(Clone, Debug, Deserialize, PartialEq, Serialize)]
+#[serde(deny_unknown_fields)]
 pub struct OwnershipItem {
     /// Stable identifier of the existing item.
     pub id: String,
@@ -134,6 +136,7 @@ pub struct CreateResult {
 
 /// Request accepted by the native update mutation surface.
 #[derive(Clone, Debug, Deserialize, PartialEq, Serialize)]
+#[serde(deny_unknown_fields)]
 pub struct UpdateItem {
     /// Exact stable identifier of the item to mutate.
     pub id: String,
@@ -173,6 +176,7 @@ pub struct UpdateItem {
 
 /// Request accepted by the native comment-append mutation surface.
 #[derive(Clone, Debug, Deserialize, PartialEq, Serialize)]
+#[serde(deny_unknown_fields)]
 pub struct CommentItem {
     /// Exact stable identifier of the item to mutate.
     pub id: String,
@@ -196,6 +200,7 @@ pub struct CommentItem {
 
 /// Request accepted by the native close mutation surface.
 #[derive(Clone, Debug, Deserialize, PartialEq, Serialize)]
+#[serde(deny_unknown_fields)]
 pub struct CloseItem {
     /// Exact stable identifier of the item to close.
     pub id: String,
@@ -220,6 +225,7 @@ pub struct CloseItem {
 
 /// Optional fields accepted by the published single-item close command.
 #[derive(Clone, Debug, Default, Deserialize, PartialEq, Serialize)]
+#[serde(deny_unknown_fields)]
 pub struct CloseFields {
     /// Trimmed resolution summary, also a fallback closing reason.
     pub resolution: Option<String>,
@@ -359,11 +365,14 @@ struct LockPayload {
     created_at: String,
     ttl_seconds: u64,
     token: String,
+    #[serde(flatten)]
+    identity: Value,
 }
 
 struct ItemLock {
     path: PathBuf,
     raw: String,
+    observed: Option<GateObservation>,
 }
 
 /// Releases a kernel gate lease independently of inherited file descriptors.
@@ -376,24 +385,38 @@ impl Drop for GateLease {
     }
 }
 
-/// Retains the metadata and native identity of one observed gate instance.
+/// Retains the metadata and native identity of one observed gate or owner file.
 struct GateObservation {
     metadata: fs::Metadata,
     #[cfg(windows)]
-    identity: same_file::Handle,
+    identity: (u64, u64),
 }
 
 impl GateObservation {
+    /// Captures identity from the opened owner file rather than a second pathname lookup.
+    fn from_file(file: File) -> std::io::Result<Self> {
+        let metadata = file.metadata();
+        #[cfg(windows)]
+        let observed = metadata.and_then(|metadata| {
+            winapi_util::file::information(&file).map(|information| Self {
+                metadata,
+                identity: (information.volume_serial_number(), information.file_index()),
+            })
+        });
+        #[cfg(not(windows))]
+        let observed = metadata.map(|metadata| Self { metadata });
+        // Retaining a Windows owner handle would leave removal pending and
+        // prevent immediate recreation while an earlier guard is still alive.
+        drop(file);
+        observed
+    }
+
     /// Reads age and identity from the same open directory handle on Windows.
     fn read(path: &Path) -> std::io::Result<Self> {
         #[cfg(windows)]
         {
-            same_file::Handle::from_path(path).and_then(|identity| {
-                identity
-                    .as_file()
-                    .metadata()
-                    .map(|metadata| Self { metadata, identity })
-            })
+            let handle = same_file::Handle::from_path(path)?;
+            handle.as_file().try_clone().and_then(Self::from_file)
         }
         #[cfg(not(windows))]
         {
@@ -404,9 +427,11 @@ impl GateObservation {
 }
 
 impl Drop for ItemLock {
-    /// Removes the lock only when its ownership token is still unchanged.
+    /// Removes the lock only when its ownership token and file identity are unchanged.
     fn drop(&mut self) {
-        if fs::read_to_string(&self.path).is_ok_and(|raw| raw == self.raw) {
+        if fs::read_to_string(&self.path).is_ok_and(|raw| raw == self.raw)
+            && lock_identity_unchanged(&self.path, self.observed.as_ref())
+        {
             let _ = fs::remove_file(&self.path);
         }
     }
@@ -812,7 +837,7 @@ fn append_history_line(path: &Path, line: &str) -> Result<(), PmRustError> {
     }
 }
 
-/// Acquires an item lock, retrying within the configured wait budget.
+/// Acquires an item lock within the resolved budget; zero permits one immediate attempt.
 fn acquire_lock(
     pm_root: &Path,
     id: &str,
@@ -820,6 +845,7 @@ fn acquire_lock(
     locks: &LockSettings,
     force_stale: bool,
     timestamp: &str,
+    wait_ms: u64,
 ) -> Result<ItemLock, PmRustError> {
     if id.is_empty()
         || !id
@@ -832,7 +858,7 @@ fn acquire_lock(
             "id must use ASCII letters, digits, and interior hyphens",
         ));
     }
-    let deadline = Instant::now() + Duration::from_millis(locks.wait_ms);
+    let deadline = Instant::now() + Duration::from_millis(wait_ms);
     loop {
         match acquire_lock_attempt(
             pm_root,
@@ -852,6 +878,15 @@ fn acquire_lock(
         }
         std::thread::sleep(Duration::from_millis(25));
     }
+}
+
+/// Resolves a bounded environment wait budget before falling back to tracker settings.
+fn lock_wait_budget(raw: Option<&str>, fallback: u64) -> u64 {
+    raw.map(str::trim)
+        .filter(|raw| !raw.is_empty() && raw.bytes().all(|byte| byte.is_ascii_digit()))
+        .and_then(|raw| raw.parse::<u64>().ok())
+        .filter(|value| *value <= 9_007_199_254_740_991)
+        .unwrap_or(fallback)
 }
 
 /// Attempts one immediate lock acquisition, optionally reclaiming an expired
@@ -883,6 +918,7 @@ fn acquire_lock_attempt(
         created_at: timestamp.to_owned(),
         ttl_seconds,
         token: unique_token(),
+        identity: crate::lock_owner::capture(),
     };
     let raw = format!(
         "{}\n",
@@ -975,7 +1011,7 @@ fn reclaim_stale_gate(gate: &Path, observed: Option<&GateObservation>) -> std::i
     fs::rename(gate, &tombstone).and_then(|()| fs::remove_dir(&tombstone))
 }
 
-/// Compares directory identity independently of its modification timestamp.
+/// Compares filesystem identity independently of its modification timestamp.
 fn same_gate_identity(observed: &GateObservation, current: &GateObservation) -> bool {
     #[cfg(unix)]
     {
@@ -1013,8 +1049,8 @@ fn create_or_reclaim_lock(
     // The same pending-delete window applies to reading the incumbent lock: the
     // create above failed because a lock was there, and the holder may release
     // it before this read runs.
-    let existing_raw = match fs::read_to_string(path) {
-        Ok(raw) => raw,
+    let (existing_raw, observed) = match read_lock_owner(path) {
+        Ok(observed) => observed,
         Err(source) if lock_error_is_contention(path, &source) => {
             return Err(PmRustError::LockConflict { id: id.to_owned() });
         }
@@ -1025,9 +1061,7 @@ fn create_or_reclaim_lock(
             });
         }
     };
-    let modified = fs::metadata(path)
-        .and_then(|metadata| metadata.modified())
-        .unwrap_or(UNIX_EPOCH);
+    let modified = observed.metadata.modified().unwrap_or(UNIX_EPOCH);
     let stale = if use_created_at {
         ownership_lock_stale(&existing_raw, timestamp, ttl_seconds)
     } else {
@@ -1036,10 +1070,73 @@ fn create_or_reclaim_lock(
             .unwrap_or_default()
             > Duration::from_secs(ttl_seconds)
     };
+    #[cfg(target_os = "linux")]
+    {
+        let existing: Value = serde_json::from_str(&existing_raw).unwrap_or(Value::Null);
+        if confirmed_dead_owner(&existing) {
+            record_dead_owner(path, &existing)?;
+            return remove_stale_lock(path, &existing_raw, Some(&observed), id)
+                .and_then(|()| create_lock_file(path, raw, id));
+        }
+    }
     if !stale || !force_stale {
         return Err(PmRustError::LockConflict { id: id.to_owned() });
     }
-    remove_stale_lock(path, &existing_raw, id).and_then(|()| create_lock_file(path, raw, id))
+    remove_stale_lock(path, &existing_raw, Some(&observed), id)
+        .and_then(|()| create_lock_file(path, raw, id))
+}
+
+/// Rejects malformed lock receipts before inspecting same-host original-process death.
+#[cfg(target_os = "linux")]
+fn confirmed_dead_owner(value: &Value) -> bool {
+    value["id"].is_string()
+        && value["pid"].is_number()
+        && value["owner"].is_string()
+        && value["ttl_seconds"].is_number()
+        && value
+            .get("token")
+            .is_none_or(|token| token.as_str().is_some_and(|token| !token.trim().is_empty()))
+        && value["created_at"]
+            .as_str()
+            .is_some_and(|created| OffsetDateTime::parse(created, &Rfc3339).is_ok())
+        && crate::lock_owner::inspect(value) == "dead"
+}
+
+/// Persists immutable recovery intent before removing an original owner's receipt.
+#[cfg(target_os = "linux")]
+fn record_dead_owner(path: &Path, existing: &Value) -> Result<(), PmRustError> {
+    let directory = path.with_file_name("recoveries");
+    let receipt = directory.join(format!("{}.json", unique_token()));
+    let mut options = OpenOptions::new();
+    options.write(true).create_new(true);
+    #[cfg(unix)]
+    {
+        use std::os::unix::fs::OpenOptionsExt;
+        options.mode(0o600);
+    }
+    let raw = format!(
+        "{}\n",
+        serde_json::json!({"event":"owner_dead_recovery_attempt","recorded_at":now_iso(),"lock":existing})
+    );
+    let write = fs::create_dir_all(&directory)
+        .and_then(|()| options.open(&receipt))
+        .and_then(|mut file| {
+            file.write_all(raw.as_bytes())
+                .and_then(|()| file.sync_all())
+        });
+    match write {
+        Ok(()) => {
+            #[cfg(test)]
+            tests::RECOVERY_SYNC_HOOK.with(|hook| hook.get()(&directory));
+            sync_parent(&receipt)?;
+            // The recoveries directory itself may have been created above.
+            sync_parent(&directory)
+        }
+        Err(source) => Err(PmRustError::Io {
+            path: receipt,
+            source,
+        }),
+    }
 }
 
 /// Decides whether a lock-path filesystem error means contention or a fault.
@@ -1115,12 +1212,15 @@ fn create_lock_file(path: &Path, raw: &str, id: &str) -> Result<ItemLock, PmRust
 
 /// Flushes a newly created lock payload before returning its ownership guard.
 fn write_lock_file(mut file: File, path: &Path, raw: &str) -> Result<ItemLock, PmRustError> {
+    let observed = file.try_clone().and_then(GateObservation::from_file).ok();
     if let Err(source) = file
         .write_all(raw.as_bytes())
         .and_then(|()| file.sync_all())
     {
         drop(file);
-        let _ = fs::remove_file(path);
+        if lock_identity_unchanged(path, observed.as_ref()) {
+            let _ = fs::remove_file(path);
+        }
         return Err(PmRustError::Io {
             path: path.to_path_buf(),
             source,
@@ -1129,15 +1229,38 @@ fn write_lock_file(mut file: File, path: &Path, raw: &str) -> Result<ItemLock, P
     Ok(ItemLock {
         path: path.to_path_buf(),
         raw: raw.to_owned(),
+        observed,
     })
 }
 
-/// Removes an expired lock only when its bytes still match the observed owner.
-fn remove_stale_lock(path: &Path, expected_raw: &str, id: &str) -> Result<(), PmRustError> {
-    // `match` instead of `.map_err(..)` avoids a per-instantiation closure
-    // function the coverage gate counts separately.
+/// Reads owner bytes and identity from one opened file.
+fn read_lock_owner(path: &Path) -> std::io::Result<(String, GateObservation)> {
+    let mut file = File::open(path)?;
+    let mut raw = String::new();
+    file.read_to_string(&mut raw)?;
+    GateObservation::from_file(file).map(|observed| (raw, observed))
+}
+
+/// Refuses replacement files even when their receipt bytes are identical.
+fn lock_identity_unchanged(path: &Path, observed: Option<&GateObservation>) -> bool {
+    match (observed, GateObservation::read(path)) {
+        (Some(observed), Ok(current)) => same_gate_identity(observed, &current),
+        _ => false,
+    }
+}
+
+/// Removes an expired lock only when its bytes and identity still match the observed owner.
+fn remove_stale_lock(
+    path: &Path,
+    expected_raw: &str,
+    observed: Option<&GateObservation>,
+    id: &str,
+) -> Result<(), PmRustError> {
     let current_raw = match fs::read_to_string(path) {
         Ok(raw) => raw,
+        Err(source) if lock_error_is_contention(path, &source) => {
+            return Err(PmRustError::LockConflict { id: id.to_owned() });
+        }
         Err(source) => {
             return Err(PmRustError::Io {
                 path: path.to_path_buf(),
@@ -1145,10 +1268,37 @@ fn remove_stale_lock(path: &Path, expected_raw: &str, id: &str) -> Result<(), Pm
             });
         }
     };
-    if current_raw != expected_raw {
+    if current_raw != expected_raw || !lock_identity_unchanged(path, observed) {
         return Err(PmRustError::LockConflict { id: id.to_owned() });
     }
-    remove_file(path)
+    finish_lock_removal(path, id, fs::remove_file(path))
+}
+
+/// Retries vanished or pending-delete lock observations and persists successful removal.
+fn finish_lock_removal(
+    path: &Path,
+    id: &str,
+    result: std::io::Result<()>,
+) -> Result<(), PmRustError> {
+    match result {
+        Err(source) if lock_error_is_contention(path, &source) => {
+            Err(PmRustError::LockConflict { id: id.to_owned() })
+        }
+        Err(source) => Err(PmRustError::Io {
+            path: path.to_path_buf(),
+            source,
+        }),
+        Ok(()) => {
+            #[cfg(unix)]
+            {
+                sync_parent(path)
+            }
+            #[cfg(not(unix))]
+            {
+                Ok(())
+            }
+        }
+    }
 }
 
 /// Removes a file and persists the containing-directory change where supported.
@@ -1189,7 +1339,11 @@ fn sync_parent(path: &Path) -> Result<(), PmRustError> {
         }
     };
     match directory.sync_all() {
-        Ok(()) => Ok(()),
+        Ok(()) => {
+            #[cfg(test)]
+            tests::SYNCED_PARENTS.with_borrow_mut(|paths| paths.push(parent.to_path_buf()));
+            Ok(())
+        }
         Err(source) => Err(PmRustError::Io {
             path: parent.to_path_buf(),
             source,
@@ -1649,6 +1803,10 @@ pub(crate) fn create_item(
         &settings.locks,
         request.force_stale_lock,
         &timestamp,
+        lock_wait_budget(
+            std::env::var("PM_LOCK_WAIT_MS").ok().as_deref(),
+            settings.locks.wait_ms,
+        ),
     )?;
     recover(pm_root, &request.id)?;
     let item_relative = PathBuf::from(folder).join(format!("{}.toon", request.id));
@@ -1746,6 +1904,10 @@ pub(crate) fn update_item(
         &settings.locks,
         request.force_stale_lock,
         &timestamp,
+        lock_wait_budget(
+            std::env::var("PM_LOCK_WAIT_MS").ok().as_deref(),
+            settings.locks.wait_ms,
+        ),
     )?;
     let (item_path, history_path, before_document) =
         recover_and_locate(pm_root, "update", &request.id)?;
@@ -1830,6 +1992,10 @@ pub(crate) fn comment_item(
         &settings.locks,
         request.force_stale_lock,
         &timestamp,
+        lock_wait_budget(
+            std::env::var("PM_LOCK_WAIT_MS").ok().as_deref(),
+            settings.locks.wait_ms,
+        ),
     )?;
     let (item_path, history_path, before_document) =
         recover_and_locate(pm_root, "comment", &request.id)?;
@@ -2280,6 +2446,10 @@ pub(crate) fn close_item(
             || request.fields.force
             || !settings.governance.stale_requires_force(),
         &timestamp,
+        lock_wait_budget(
+            std::env::var("PM_LOCK_WAIT_MS").ok().as_deref(),
+            settings.locks.wait_ms,
+        ),
     )?;
     let (item_path, history_path, before) = recover_and_locate(pm_root, "close", &request.id)?;
     if (crate::list::terminal(&before.metadata.status)
@@ -2613,9 +2783,13 @@ fn ownership_lock_refusal(
     } else {
         format!(" after waiting {waited_ms}ms")
     };
+    let owner_state = crate::lock_owner::inspect(&value);
     ownership_refusal(
-        format!("Item {} is locked{owner_suffix}{waited}", request.id),
-        serde_json::json!({"code":"lock_conflict","recovery":{"retry_after_ms":250}}),
+        format!(
+            "Item {} is locked{owner_suffix} (owner process {owner_state}){waited}",
+            request.id
+        ),
+        serde_json::json!({"code":"lock_conflict","item_id":request.id,"reason":format!("lock_owner_{owner_state}"),"required":"Wait for the owner to release the lock, then retry the same operation. Set PM_LOCK_WAIT_MS to a larger bounded millisecond budget when contention is expected. Inspect stale receipts with pm gc --scope locks --dry-run.","recovery":{"retry_after_ms":250}}),
     )
 }
 
@@ -2649,6 +2823,10 @@ pub(crate) fn collection_item(
         if_available: false,
         provenance_role: None,
     };
+    let wait_ms = lock_wait_budget(
+        std::env::var("PM_LOCK_WAIT_MS").ok().as_deref(),
+        settings.locks.wait_ms,
+    );
     let started = Instant::now();
     let _lock = acquire_lock(
         pm_root,
@@ -2657,6 +2835,7 @@ pub(crate) fn collection_item(
         &settings.locks,
         options.force || !settings.governance.stale_requires_force(),
         lock_clock,
+        wait_ms,
     )
     .map_err(|error| match error {
         PmRustError::LockConflict { .. } => ownership_lock_refusal(
@@ -2664,7 +2843,7 @@ pub(crate) fn collection_item(
             &request,
             &settings,
             lock_clock,
-            if settings.locks.wait_ms == 0 {
+            if wait_ms == 0 {
                 0
             } else {
                 started.elapsed().as_millis()
@@ -2709,7 +2888,7 @@ pub(crate) fn collection_item(
         ));
     }
     let source = if key == "tests" && !edit.adds.is_empty() {
-        crate::collections::source_ref()
+        crate::collections::source_ref(pm_root)
     } else {
         None
     };
@@ -2809,6 +2988,10 @@ pub(crate) fn ownership_item_with_options(
         return Err(invalid_mutation("timestamp must not be in the future"));
     }
     let operation = if claim { "claim" } else { "release" };
+    let wait_ms = lock_wait_budget(
+        std::env::var("PM_LOCK_WAIT_MS").ok().as_deref(),
+        settings.locks.wait_ms,
+    );
     let lock_started = Instant::now();
     let _lock = match acquire_lock(
         pm_root,
@@ -2817,6 +3000,7 @@ pub(crate) fn ownership_item_with_options(
         &settings.locks,
         request.force || !settings.governance.stale_requires_force(),
         &timestamp,
+        wait_ms,
     ) {
         Ok(lock) => lock,
         Err(PmRustError::LockConflict { .. }) => {
@@ -2825,7 +3009,7 @@ pub(crate) fn ownership_item_with_options(
                 request,
                 &settings,
                 &timestamp,
-                if settings.locks.wait_ms == 0 {
+                if wait_ms == 0 {
                     0
                 } else {
                     lock_started.elapsed().as_millis()
@@ -3069,6 +3253,10 @@ pub(crate) fn lifecycle_status(
         &settings.locks,
         request.force || !settings.governance.stale_requires_force(),
         &timestamp,
+        lock_wait_budget(
+            std::env::var("PM_LOCK_WAIT_MS").ok().as_deref(),
+            settings.locks.wait_ms,
+        ),
     )
     .map_err(|error| match error {
         PmRustError::LockConflict { .. } => ownership_refusal(
@@ -3249,6 +3437,10 @@ pub(crate) fn mutate_session_state(
         &settings,
         false,
         &timestamp,
+        lock_wait_budget(
+            std::env::var("PM_LOCK_WAIT_MS").ok().as_deref(),
+            settings.wait_ms,
+        ),
     ) {
         Ok(lock) => lock,
         Err(error) => {
