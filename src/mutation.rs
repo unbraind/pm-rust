@@ -395,20 +395,20 @@ struct GateObservation {
 impl GateObservation {
     /// Captures identity from the opened owner file rather than a second pathname lookup.
     fn from_file(file: File) -> std::io::Result<Self> {
-        let metadata = file.metadata()?;
+        let metadata = file.metadata();
         #[cfg(windows)]
-        let identity = {
-            let information = winapi_util::file::information(&file)?;
-            (information.volume_serial_number(), information.file_index())
-        };
+        let observed = metadata.and_then(|metadata| {
+            winapi_util::file::information(&file).map(|information| Self {
+                metadata,
+                identity: (information.volume_serial_number(), information.file_index()),
+            })
+        });
+        #[cfg(not(windows))]
+        let observed = metadata.map(|metadata| Self { metadata });
         // Retaining a Windows owner handle would leave removal pending and
         // prevent immediate recreation while an earlier guard is still alive.
         drop(file);
-        Ok(Self {
-            metadata,
-            #[cfg(windows)]
-            identity,
-        })
+        observed
     }
 
     /// Reads age and identity from the same open directory handle on Windows.
@@ -416,7 +416,7 @@ impl GateObservation {
         #[cfg(windows)]
         {
             let handle = same_file::Handle::from_path(path)?;
-            Self::from_file(handle.as_file().try_clone()?)
+            handle.as_file().try_clone().and_then(Self::from_file)
         }
         #[cfg(not(windows))]
         {
@@ -1232,7 +1232,7 @@ fn read_lock_owner(path: &Path) -> std::io::Result<(String, GateObservation)> {
     let mut file = File::open(path)?;
     let mut raw = String::new();
     file.read_to_string(&mut raw)?;
-    Ok((raw, GateObservation::from_file(file)?))
+    GateObservation::from_file(file).map(|observed| (raw, observed))
 }
 
 /// Refuses replacement files even when their receipt bytes are identical.
