@@ -1076,11 +1076,16 @@ fn create_or_reclaim_lock(
 /// Rejects malformed lock receipts before inspecting same-host original-process death.
 #[cfg(target_os = "linux")]
 fn confirmed_dead_owner(value: &Value) -> bool {
-    let Ok(payload) = serde_json::from_value::<LockPayload>(value.clone()) else {
-        return false;
-    };
-    !payload.token.trim().is_empty()
-        && OffsetDateTime::parse(&payload.created_at, &Rfc3339).is_ok()
+    value["id"].is_string()
+        && value["pid"].is_number()
+        && value["owner"].is_string()
+        && value["ttl_seconds"].is_number()
+        && value
+            .get("token")
+            .is_none_or(|token| token.as_str().is_some_and(|token| !token.trim().is_empty()))
+        && value["created_at"]
+            .as_str()
+            .is_some_and(|created| OffsetDateTime::parse(created, &Rfc3339).is_ok())
         && crate::lock_owner::inspect(value) == "dead"
 }
 

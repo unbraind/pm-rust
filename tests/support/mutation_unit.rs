@@ -3181,7 +3181,14 @@ fn future_ownership_preserves_held_lock(
     };
     assert_eq!(
         detail,
-        "Item sample-unit is locked (owner live-holder) (owner process alive)"
+        format!(
+            "Item sample-unit is locked (owner live-holder) (owner process {})",
+            if cfg!(target_os = "linux") {
+                "alive"
+            } else {
+                "unknown"
+            }
+        )
     );
     assert_eq!(context["code"], "lock_conflict");
     assert_eq!(paths.each_ref().map(|path| fs::read(path).ok()), before);
@@ -4694,12 +4701,33 @@ fn environment_lock_wait_budget_is_bounded() {
 #[cfg(target_os = "linux")]
 #[test]
 fn malformed_dead_owner_receipts_are_not_reclaimed() {
-    assert!(!confirmed_dead_owner(&serde_json::json!(null)));
-    let mut value = serde_json::json!({"id":"sample-one","owner":"alpha","pid":1,"token":"","created_at":"invalid","ttl_seconds":1800});
-    assert!(!confirmed_dead_owner(&value));
+    let mut value = crate::lock_owner::capture();
+    value["id"] = serde_json::json!("sample-one");
+    value["owner"] = serde_json::json!("alpha");
+    value["pid"] = serde_json::json!(process::id());
+    value["process_start_identity"] = serde_json::json!("0");
+    value["created_at"] = serde_json::json!(now_iso());
+    value["ttl_seconds"] = serde_json::json!(1800);
+    assert!(
+        confirmed_dead_owner(&value),
+        "legacy tokenless receipts remain valid"
+    );
     value["token"] = serde_json::json!("token");
-    assert!(!confirmed_dead_owner(&value));
-    value["created_at"] = serde_json::json!("2026-08-22T10:00:00Z");
+    assert!(confirmed_dead_owner(&value));
+    for field in ["id", "pid", "owner", "ttl_seconds", "created_at", "token"] {
+        let mut invalid = value.clone();
+        invalid[field] = Value::Null;
+        assert!(
+            !confirmed_dead_owner(&invalid),
+            "invalid {field} authorized recovery"
+        );
+    }
+    for (field, invalid) in [("token", ""), ("token", "  "), ("created_at", "invalid")] {
+        let mut candidate = value.clone();
+        candidate[field] = serde_json::json!(invalid);
+        assert!(!confirmed_dead_owner(&candidate));
+    }
+    value["process_start_identity"] = serde_json::json!("invalid");
     assert!(!confirmed_dead_owner(&value));
 }
 
