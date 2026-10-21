@@ -311,3 +311,75 @@ fn plain_directory_linked_tests_never_invoke_git() -> TestResult {
     }
     Ok(())
 }
+
+/// Bounded declaration discovery delivers every row once and refuses changed snapshots.
+#[test]
+fn bounded_assurance_discovery_resumes_and_refuses_stale_snapshots() -> TestResult {
+    let directory = tracker()?;
+    let path = directory.path().join(".agents/pm/assurance.json");
+    let mut document = json!({"version":1,"measurements":[],"assertions":[],"gates":(0..50).map(|index|json!({"id":format!("gate-{index:03}"),"assertion_ids":[],"triggers":["ci"],"description":"x".repeat(500)})).collect::<Vec<_>>()});
+    let before = serde_json::to_vec(&document)?;
+    fs::write(&path, &before)?;
+    let mut cursor = None::<String>;
+    let mut first_cursor = None;
+    let mut seen = std::collections::BTreeSet::new();
+    for _ in 0..50 {
+        let mut command = Command::new(env!("CARGO_BIN_EXE_pm-rust"));
+        command.current_dir(directory.path()).args([
+            "assurance",
+            "list",
+            "gate",
+            "--json",
+            "--output-budget",
+            "1000",
+        ]);
+        if let Some(cursor) = &cursor {
+            command.args(["--output-cursor", cursor]);
+        }
+        let output = command.output()?;
+        assert!(
+            output.status.success(),
+            "{}",
+            String::from_utf8_lossy(&output.stderr)
+        );
+        let page: Value = serde_json::from_slice(&output.stdout)?;
+        for row in page["items"].as_array().ok_or("items")? {
+            assert!(seen.insert(row["id"].as_str().ok_or("id")?.to_owned()));
+        }
+        cursor = page["next_cursor"].as_str().map(str::to_owned);
+        if first_cursor.is_none() {
+            first_cursor = cursor.clone();
+        }
+        if cursor.is_none() {
+            break;
+        }
+    }
+    assert_eq!(seen.len(), 50);
+    assert!(cursor.is_none());
+    assert_eq!(fs::read(&path)?, before);
+    document["gates"]
+        .as_array_mut()
+        .ok_or("gates")?
+        .push(json!({"id":"gate-new","assertion_ids":[],"triggers":["ci"]}));
+    let changed = serde_json::to_vec(&document)?;
+    fs::write(&path, &changed)?;
+    let output = Command::new(env!("CARGO_BIN_EXE_pm-rust"))
+        .current_dir(directory.path())
+        .args([
+            "assurance",
+            "list",
+            "gate",
+            "--json",
+            "--output-budget",
+            "1000",
+            "--output-cursor",
+            &first_cursor.ok_or("expected bounded continuation")?,
+        ])
+        .output()?;
+    assert_eq!(output.status.code(), Some(2));
+    let refusal: Value = serde_json::from_slice(&output.stderr)?;
+    assert_eq!(refusal["code"], "read_output_cursor_stale");
+    assert_eq!(refusal["refusal"]["surface"], "assurance");
+    assert_eq!(fs::read(path)?, changed);
+    Ok(())
+}

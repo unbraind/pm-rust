@@ -13,14 +13,14 @@ command into the native implementation.
 | Contention advice | Preserve the actual invocation, suggest a bounded `PM_LOCK_WAIT_MS` budget and read-only lock inspection, and never suggest a live-lock force override. The native admission loop honours a valid environment wait budget. |
 | GH-1520 unknown SDK mutation keys | Serialized create, update, comment, ownership and close requests reject unknown fields during decoding, before workspace access. Rust struct literals also reject unknown option fields at compile time. |
 | GH-1519 test option preflight | Test execution remains outside the native slice. Unsupported execution/context/timeout flags are refused by CLI parsing before any linked-test mutation. |
-| Unknown assurance declaration reads | Read-only discovery and lookup return typed usage refusals with `assurance_evaluation_refused`, unchanged state and a bounded discovery command. Gate evaluation, declaration writes and presets remain outside this slice. |
+| Unknown assurance declaration reads | Read-only discovery and lookup return typed usage refusals with `assurance_evaluation_refused`, unchanged state and a bounded discovery command; snapshot cursors resume bounded pages and refuse changed registries. Gate evaluation, declaration writes and presets remain outside this slice. |
 | GH-1507 default list ordering | Brief rows retain priority. Metadata explains nonterminal status, ascending priority, descending update time and ascending ID tie breakers. Complete brief TOON retains this sorting disclosure. |
 | GH-1511 context cursor boundaries | Active blocked candidates enter packing only through the current focus page. Nonactive blocked fallback candidates retain their separate admission. |
 | GH-1512 completion boundaries | Integer counts define half-up completion rounding, including 29/200 = 15 percent. |
 | GH-1510 relationship cursor recovery | Recovery names the cursor flag used by the command rather than always naming `--after`. |
 | GH-1509 legacy blockers | Existing scalar and relationship blocker resolution retains resolved fallback details and ignores the no-active-blocker sentinel; differential coverage checks the published outputs. |
 | GH-1514 injected SDK author | The native SDK has no injected extension client. Explicit identity/author precedence remains owned by the native request and scoped attribution contracts. |
-| GH-1500/1501 JSON facts and brief TOON | Existing lossless JSON facts and completeness-aware brief envelope tests run against the new oracle; ordering disclosure is updated with this change. |
+| GH-1500/1501 JSON facts and brief TOON | Literal empty and whitespace closure arguments remain in recovery and rejected-value receipts. Lossless JSON facts and completeness-aware brief envelopes run against the new oracle; default ordering disclosure is retained. |
 
 The remaining release notes concern upstream dependency advisories, CI scheduling,
 review receipts, native SQLite startup, extension/MCP transport, generic item

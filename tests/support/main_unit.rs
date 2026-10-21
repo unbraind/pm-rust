@@ -1255,3 +1255,24 @@ fn lock_recovery_keeps_explicit_workspace_scope() {
         assert_eq!(payload, serde_json::json!({}));
     }
 }
+
+/// Recovery envelopes preserve literal empty and whitespace values from the invocation.
+#[test]
+fn close_recovery_preserves_literal_argument_values() {
+    for value in [" ", "", " value "] {
+        let args = ["close", "sample-close", "--actual-result", value]
+            .map(str::to_owned)
+            .to_vec();
+        let payload = super::command_error_json(
+            "Cannot close: missing actual_result (--actual-result).",
+            &serde_json::json!({"code":"close_validation_missing_fields","recovery":{"missing":["--actual-result"]}}),
+            &args,
+            2,
+        );
+        assert_eq!(
+            payload["recovery"]["normalized_args"],
+            serde_json::json!(args)
+        );
+        assert_eq!(payload["refusal"]["rejected_value"], value);
+    }
+}

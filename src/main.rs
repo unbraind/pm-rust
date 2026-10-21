@@ -35,6 +35,12 @@ enum Command {
         /// Discovery output ceiling, accepted for bounded recovery commands.
         #[arg(long)]
         output_budget: Option<String>,
+        /// Maximum delivered declaration rows.
+        #[arg(long, allow_hyphen_values = true)]
+        output_limit: Option<String>,
+        /// Continue a snapshot-bound declaration page.
+        #[arg(long)]
+        output_cursor: Option<String>,
         /// Emit JSON.
         #[arg(long)]
         json: bool,
@@ -568,6 +574,8 @@ fn run(cli: Cli) -> Result<(), Box<dyn std::error::Error>> {
             kind,
             id,
             output_budget,
+            output_limit,
+            output_cursor,
             json,
         } => {
             let id = if action == "show" {
@@ -582,6 +590,8 @@ fn run(cli: Cli) -> Result<(), Box<dyn std::error::Error>> {
                 id.as_deref(),
                 &ListOptions {
                     output_budget,
+                    output_limit,
+                    output_cursor,
                     toon: !json,
                     ..ListOptions::default()
                 },
@@ -1795,22 +1805,6 @@ fn cursor_error_json(code: &str, detail: &str, args: &[String]) -> serde_json::V
     }
     let recovery_args = orientation_arguments(args);
     let mut payload = serde_json::json!({"code":code,"required":"Adjust command input or tracker state and retry.","recovery":{"attempted_command":format!("pm {}",recovery_args.iter().map(|arg| pm_rust::quote_command_arg(arg)).collect::<Vec<_>>().join(" ")),"normalized_args":recovery_args,"provided_fields":provided}});
-    if args.first().is_some_and(|command| command == "close") {
-        payload["recovery"]["attempted_command"] = serde_json::json!(format!(
-            "pm {}",
-            args.iter()
-                .map(|arg| pm_rust::quote_command_arg(arg))
-                .collect::<Vec<_>>()
-                .join(" ")
-        ));
-        payload["recovery"]["normalized_args"] = serde_json::json!(
-            args.iter()
-                .map(|arg| arg.trim())
-                .filter(|arg| !arg.is_empty())
-                .collect::<Vec<_>>()
-        );
-    }
-
     if code == "invalid_query_cursor" {
         let flag = if args
             .iter()
@@ -1844,7 +1838,7 @@ fn cursor_error_json(code: &str, detail: &str, args: &[String]) -> serde_json::V
         ),
         (
             "refusal",
-            serde_json::json!({"surface":args.first().filter(|command| matches!(command.as_str(),"context"|"deps"|"search")).map_or("list",String::as_str),"exit_code":2}),
+            serde_json::json!({"surface":args.first().filter(|command| matches!(command.as_str(),"context"|"deps"|"search"|"assurance")).map_or("list",String::as_str),"exit_code":2}),
         ),
     ] {
         payload[key] = value;
