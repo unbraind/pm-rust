@@ -114,6 +114,15 @@ pub(crate) fn source_ref(pm_root: &Path) -> Option<String> {
     let mut command = std::process::Command::new("git");
     command
         .current_dir(workspace)
+        // Hooks can export coordinates for a different repository. Resolve
+        // provenance solely from the selected workspace, including worktrees.
+        .env_remove("GIT_DIR")
+        .env_remove("GIT_WORK_TREE")
+        .env_remove("GIT_INDEX_FILE")
+        .env_remove("GIT_OBJECT_DIRECTORY")
+        .env_remove("GIT_ALTERNATE_OBJECT_DIRECTORIES")
+        .env_remove("GIT_COMMON_DIR")
+        .env_remove("GIT_NAMESPACE")
         .args(["symbolic-ref", "--quiet", "--short", "HEAD"]);
     let output = command.output().ok()?;
     let value = String::from_utf8_lossy(&output.stdout).trim().to_owned();

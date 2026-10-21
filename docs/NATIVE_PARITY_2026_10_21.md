@@ -37,6 +37,11 @@ three comments each. Every submission must succeed; every unique marker appears
 exactly once, all 25 history records remain, and every before/after hash link is
 checked. A lock-timeout rejection fails this acceptance test.
 
+Local linked-test provenance ignores inherited Git repository-location variables
+and resolves the branch from the selected workspace. A real two-repository hook
+fixture verifies both provenance and test-process isolation; missing Git remains
+an optional-provenance case.
+
 `tests/parity_1021_contract.rs` includes a real process that acquires a published
 lock and exits without releasing it. A native writer must recover that unexpired
 lock and preserve its original receipt in the immutable recovery audit. Unsupported

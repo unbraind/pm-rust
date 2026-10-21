@@ -2,6 +2,9 @@
 use super::*;
 type TestResult = Result<(), Box<dyn std::error::Error>>;
 
+#[path = "process_environment.rs"]
+mod process_environment;
+
 /// Exercises independent pair spellings, quoting and path anchoring.
 #[test]
 #[allow(clippy::too_many_lines)]
@@ -843,7 +846,9 @@ fn sdk_collection_git_source_context() -> TestResult {
     const CHILD: &str = "PM_RUST_COLLECTION_GIT_CHILD";
     if std::env::var_os(CHILD).is_none() {
         let source = tempfile::tempdir()?;
-        let init = std::process::Command::new("git")
+        let mut command = std::process::Command::new("git");
+        process_environment::isolate_environment(&mut command);
+        let init = command
             .args(["init", "--quiet", "--initial-branch=source-branch"])
             .arg(source.path())
             .output()?;
@@ -856,6 +861,7 @@ fn sdk_collection_git_source_context() -> TestResult {
         std::fs::create_dir(&empty)?;
         for mode in ["with-git", "without-git"] {
             let mut command = std::process::Command::new(std::env::current_exe()?);
+            process_environment::isolate_environment(&mut command);
             command
                 .args([
                     "--exact",
@@ -897,5 +903,75 @@ fn sdk_collection_git_source_context() -> TestResult {
     } else {
         assert_eq!(source, &Value::Null);
     }
+    Ok(())
+}
+
+/// Hook repository coordinates cannot redirect linked-test provenance or fixture setup.
+#[test]
+fn sdk_collection_git_source_ignores_hook_repository() -> TestResult {
+    const CHILD: &str = "PM_RUST_COLLECTION_HOOK_CHILD";
+    if std::env::var_os(CHILD).is_some() {
+        // This also proves the ordinary fixture's init and assertion children
+        // stay isolated when this process inherits a hook's repository context.
+        sdk_collection_git_source_context()?;
+        let (directory, workspace) = tracker()?;
+        let result = workspace.collection(
+            "sample-one",
+            "tests",
+            &CollectionOptions {
+                author: "fixture".to_owned(),
+                timestamp: Some("2026-08-22T10:00:00.000Z".to_owned()),
+                add: vec!["command=cargo test".to_owned()],
+                ..CollectionOptions::default()
+            },
+            directory.path(),
+        )?;
+        assert_eq!(
+            result["tests"][0]["provenance"]["source_ref"],
+            "source-branch"
+        );
+        return Ok(());
+    }
+    let source = tempfile::tempdir()?;
+    let other = tempfile::tempdir()?;
+    for (directory, branch) in [(&source, "source-branch"), (&other, "hook-branch")] {
+        let mut command = std::process::Command::new("git");
+        process_environment::isolate_environment(&mut command);
+        let output = command
+            .args(["init", "--quiet", "--initial-branch", branch])
+            .arg(directory.path())
+            .output()?;
+        assert!(
+            output.status.success(),
+            "{}",
+            String::from_utf8_lossy(&output.stderr)
+        );
+    }
+    let git_dir = other.path().join(".git");
+    let mut command = std::process::Command::new(std::env::current_exe()?);
+    process_environment::isolate_environment(&mut command);
+    let output = command
+        .args([
+            "--exact",
+            "collections::tests::sdk_collection_git_source_ignores_hook_repository",
+            "--nocapture",
+        ])
+        .env(CHILD, "1")
+        .env("PM_SOURCE_WORKSPACE_ROOT", source.path())
+        .env("GIT_DIR", &git_dir)
+        .env("GIT_WORK_TREE", other.path())
+        .env("GIT_INDEX_FILE", git_dir.join("index"))
+        .env("GIT_OBJECT_DIRECTORY", git_dir.join("objects"))
+        .env("GIT_ALTERNATE_OBJECT_DIRECTORIES", git_dir.join("objects"))
+        .env("GIT_COMMON_DIR", &git_dir)
+        .env("GIT_NAMESPACE", "hook-namespace")
+        .output()?;
+    assert!(
+        output.status.success(),
+        "{}{}",
+        String::from_utf8_lossy(&output.stdout),
+        String::from_utf8_lossy(&output.stderr)
+    );
+    assert!(String::from_utf8_lossy(&output.stdout).contains("test result: ok. 1 passed;"));
     Ok(())
 }
