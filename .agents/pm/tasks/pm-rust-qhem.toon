@@ -6,10 +6,8 @@ status: in_progress
 priority: 3
 tags[3]: conformance,follow-up,oracle
 created_at: "2026-10-20T09:07:30.168Z"
-updated_at: "2026-10-21T12:07:46.578Z"
+updated_at: "2026-10-21T12:41:30.280Z"
 deadline: "2026-10-27T00:00:00.000Z"
-assignee: codex-agent
-claim_principal: codex-agent
 author: codex-agent
 estimated_minutes: 240
 acceptance_criteria: Oracle pin and native compatibility version agree on 2026.10.21; both release deltas classified; behavioural revert proofs; every plain-directory process write and history entry preserved; unchanged 100 percent lines/functions/regions/branches; Linux/macOS/Windows gates pass.
@@ -18,7 +16,7 @@ blocked_by: pm-rust-owzm
 dependencies[2]{id,kind,created_at,author,source_kind,author_source}:
   pm-rust-owzm,related,"2026-10-20T09:07:30.168Z",codex-agent,"cli:create:dep",detected
   pm-rust-owzm,blocked_by,"2026-10-20T11:05:13.191Z",codex-agent,"cli:update:blocked_by",detected
-comments[40]{created_at,author,text}:
+comments[42]{created_at,author,text}:
   "2026-10-20T09:07:30.168Z",codex-agent,Planning only. Implementation is deferred until the current delivery is reviewed.
   "2026-10-21T04:41:10.473Z",codex-agent,"Scope extended to published pm-cli 2026.10.21 as requested. Compare both releases against the October 19 native slice; implement applicable deltas, prove fail-before/pass-after behaviour, and require all four coverage dimensions plus the three-platform gates. No-git acceptance will require every real process write and history record to survive."
   "2026-10-21T04:47:20.325Z",codex-agent,"Implementation covers conservative same-host original-process death receipts and recovery intent, strict serialized mutation keys, invocation-preserving lock advice, effective default ordering, count-based completion rounding, and cursor page-local blocker focus. Test execution remains outside the native slice and unsupported run options are preflight-refused before linked-test edits. Assurance declaration reads gain typed missing-ID refusals and bounded read-only discovery."
@@ -59,6 +57,8 @@ comments[40]{created_at,author,text}:
   "2026-10-21T12:05:48.062Z",codex-agent,"PR 101 new review round: remote head 94dab89 is current and contains main. Complete reviewThreads pagination contains one unresolved thread PRRT_kwDOTwgMRs6uwOSW with one comment and no omitted comments. Latest substantive CodeRabbit review has no Outside diff range findings. Verified inherited Git repository-location variables can redirect source_ref despite current_dir; isolate production provenance and fixture processes, add hostile-environment regression and behavioral revert proof, then run unchanged just release-check."
   "2026-10-21T12:07:42.707Z",codex-agent,"Thread PRRT_kwDOTwgMRs6uwOSW fixed: source_ref strips GIT_DIR, GIT_WORK_TREE, GIT_INDEX_FILE, GIT_OBJECT_DIRECTORY, GIT_ALTERNATE_OBJECT_DIRECTORIES, GIT_COMMON_DIR and GIT_NAMESPACE before symbolic-ref. Existing SDK source-context init and assertion children now use the shared isolated environment. Self-review examined the complete production PR diff and all Git subprocess call sites: source_ref is the sole production Git command, and the other newly added Git probe already isolates its environment. No further instance in the changed code."
   "2026-10-21T12:07:43.635Z",codex-agent,"Behavioral revert proofs: cargo +1.90.0 test --locked --lib sdk_collection_git_source_ignores_hook_repository -- --nocapture exits 101 when only production environment removals are reverted: provenance is hook-branch instead of source-branch. The same command exits 101 when only source-context fixture isolation is reverted: the real source fixture reports null instead of source-branch after redirected initialization. Both failures are runtime assertions, not compile failures. Restored changes pass cargo +1.90.0 test --locked --lib sdk_collection_git_source -- --nocapture (2 passed, 0 failed/ignored); strict all-target Clippy passes."
+  "2026-10-21T12:41:24.713Z",codex-agent,"Final Git-provenance review gate receipt at code head 724cff8663fbd5ae350e4ded744035868205fdfa: all nine CI jobs and CodeQL passed. Unchanged just release-check ran 44 binaries per platform (22 stable plus 22 instrumented): Linux 568+568, macOS 558+558, Windows 552+552 passed; zero failed or ignored. All four required coverage dimensions are exactly 100 percent, covered equals total: Linux lines 13974, functions 1458, regions 23337, branches 3288; macOS lines 13892, functions 1446, regions 23197, branches 3250; Windows lines 13891, functions 1447, regions 23197, branches 3252. Formatting, strict Clippy, private documentation, dependency audit, changelog, default clone-local tracker health and all latency gates passed."
+  "2026-10-21T12:41:26.270Z",codex-agent,"The supplemental fresh-home local aggregate with neutral Git config and RUST_TEST_THREADS=1 was intentionally stopped only after complete three-platform CI certification: 21 completed binaries, 551 passed and zero failed/ignored in completed binaries. It is not an aggregate pass; no timeout failure occurred this round. Separate full tracker health reconfirms only the existing pm-rust-bj7a and pm-rust-unih chain mismatches tracked by pm-rust-b4yl, with those item/history pairs unchanged from main. Existing history prefixes are preserved. Final evidence-only commit leaves certified production, test and build files unchanged. No thread replies/resolutions, merge or release were performed; claim is being released and item remains in progress."
 notes[1]{created_at,author,text}:
   "2026-10-20T09:07:30.168Z",codex-agent,Published version 2026.10.20 was observed via npm view during the 2026.10.19 continuation.
 learnings[1]{created_at,author,text}:
@@ -97,9 +97,11 @@ tests[5]{command,scope,timeout_seconds,provenance{author,created_at,source_kind,
   cargo +1.90.0 test --locked --lib --bin pm-rust --test parity_1021_contract --test cli_dispatch,project,600,codex-agent,"2026-10-21T11:06:52.102Z",local_mutation,feat/parity-pm-2026-10-21
   cargo +1.90.0 test --locked --test identity_audit,project,300,codex-agent,"2026-10-21T11:42:58.631Z",local_mutation,feat/parity-pm-2026-10-21
   cargo +1.90.0 test --locked --lib sdk_collection_git_source -- --nocapture,project,300,codex-agent,"2026-10-21T12:07:46.527Z",local_mutation,feat/parity-pm-2026-10-21
-docs[4]{path,scope}:
+docs[6]{path,scope}:
   docs/NATIVE_PARITY_2026_10_21.md,project
   "https://github.com/unbraind/pm-rust/actions/runs/39589911773",project
   "https://github.com/unbraind/pm-rust/actions/runs/39589911783",project
+  "https://github.com/unbraind/pm-rust/actions/runs/39597214331",project
+  "https://github.com/unbraind/pm-rust/actions/runs/39597214333",project
   "https://www.npmjs.com/package/@unbrained/pm-cli/v/2026.10.20",project
 body: "Certify native CLI and SDK behaviour against published pm-cli 2026.10.21 in PR 101, including applicable changes since 2026.10.19, plain-directory concurrent writers, behavioural revert proofs, unchanged 100 percent coverage thresholds, and Linux/macOS/Windows release gates. Resolve every valid review finding while retaining published oracle quirks and append-only history."
