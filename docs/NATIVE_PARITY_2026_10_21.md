@@ -48,3 +48,7 @@ The required aggregate is `just release-check`, including the unchanged 100 perc
 line, function, region and branch gate. CI applies it on Linux, macOS and Windows.
 The linked tracker item records measured results, behavioural revert proofs and
 any remaining blockers. A version pin alone is not certification.
+
+The MSVC native executable reserves an 8 MiB virtual stack so LLVM-instrumented
+CLI mutations can run under the Windows aggregate. Stack pages remain committed
+on demand. This does not change the coverage scope or test thresholds.

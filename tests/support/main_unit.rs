@@ -1190,6 +1190,7 @@ fn assurance_dispatch_is_read_only() -> Result<(), Box<dyn std::error::Error>> {
     std::fs::write(root.join("assurance.json"), r#"{"gates":[{"id":"known"}]}"#)?;
     for (flags, success) in [
         (vec!["assurance", "list", "gate", "--json"], true),
+        (vec!["assurance", "list", "gate"], true),
         (vec!["assurance", "show", "gate", "known", "--json"], true),
         (vec!["assurance", "show", "measurement"], false),
         (
@@ -1378,4 +1379,78 @@ fn search_recovery_keeps_literal_argument_values() {
             super::command_refusal_detail("--type requires at least one non-empty value", &args, 2);
         assert_eq!(result["rejected_value"], value);
     }
+}
+
+/// Unknown runtime failures preserve their human fallback and explicit JSON encoding.
+#[test]
+fn command_refusal_encoding_and_recovery_boundaries() -> Result<(), Box<dyn std::error::Error>> {
+    let context = serde_json::json!({"code":"unknown_error"});
+    for command in ["context", "assurance"] {
+        for json in [false, true] {
+            let mut args = vec![command.to_owned()];
+            if json {
+                args.push("--json".to_owned());
+            }
+            let payload = super::command_error_json("runtime failed", &context, &args, 1);
+            let mut output = Vec::new();
+            super::write_command_refusal_to(
+                &mut output,
+                "runtime failed",
+                &context,
+                &args,
+                &payload,
+            )?;
+            if json {
+                assert_eq!(
+                    serde_json::from_slice::<serde_json::Value>(&output)?["code"],
+                    "unknown_error"
+                );
+            } else {
+                assert_eq!(output, b"runtime failed\n");
+            }
+            assert!(
+                super::write_command_refusal_to(
+                    &mut WriteFailure,
+                    "runtime failed",
+                    &context,
+                    &args,
+                    &payload
+                )
+                .is_err()
+            );
+        }
+    }
+    let args = vec!["context".to_owned()];
+    assert_eq!(
+        super::orientation_error_json("runtime failed", &context, &args, 1)["code"],
+        "unknown_error"
+    );
+    let context = serde_json::json!({"code":"invalid_query_cursor","recovery":{"suggested_retry":"pm item deps sample-one","scope":"sample-one"}});
+    let args = vec![
+        "item".to_owned(),
+        "deps".to_owned(),
+        "sample-one".to_owned(),
+    ];
+    let payload = super::command_error_json("cursor invalid", &context, &args, 2);
+    assert_eq!(payload["recovery"]["scope"], "sample-one");
+    assert!(
+        payload["next_steps"]
+            .as_array()
+            .ok_or("steps")?
+            .iter()
+            .any(|step| step == "pm item deps sample-one")
+    );
+    super::write_command_refusal_to(&mut Vec::new(), "cursor invalid", &context, &args, &payload)?;
+    let list: pm_rust::ListOutput = serde_json::json!({"items":[],"count":0}).into();
+    assert!(
+        super::write_list_to(
+            &mut NewlineFailure {
+                document_complete: false
+            },
+            &list,
+            true
+        )
+        .is_err()
+    );
+    Ok(())
 }

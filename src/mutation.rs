@@ -1094,24 +1094,24 @@ fn confirmed_dead_owner(value: &Value) -> bool {
 fn record_dead_owner(path: &Path, existing: &Value) -> Result<(), PmRustError> {
     let directory = path.with_file_name("recoveries");
     let receipt = directory.join(format!("{}.json", unique_token()));
-    let write = || -> std::io::Result<()> {
-        fs::create_dir_all(&directory)?;
-        let mut options = OpenOptions::new();
-        options.write(true).create_new(true);
-        #[cfg(unix)]
-        {
-            use std::os::unix::fs::OpenOptionsExt;
-            options.mode(0o600);
-        }
-        let mut file = options.open(&receipt)?;
-        writeln!(
-            file,
-            "{}",
-            serde_json::json!({"event":"owner_dead_recovery_attempt","recorded_at":now_iso(),"lock":existing})
-        )?;
-        file.sync_all()
-    };
-    match write() {
+    let mut options = OpenOptions::new();
+    options.write(true).create_new(true);
+    #[cfg(unix)]
+    {
+        use std::os::unix::fs::OpenOptionsExt;
+        options.mode(0o600);
+    }
+    let raw = format!(
+        "{}\n",
+        serde_json::json!({"event":"owner_dead_recovery_attempt","recorded_at":now_iso(),"lock":existing})
+    );
+    let write = fs::create_dir_all(&directory)
+        .and_then(|()| options.open(&receipt))
+        .and_then(|mut file| {
+            file.write_all(raw.as_bytes())
+                .and_then(|()| file.sync_all())
+        });
+    match write {
         Ok(()) => Ok(()),
         Err(source) => Err(PmRustError::Io {
             path: receipt,

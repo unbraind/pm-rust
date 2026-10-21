@@ -599,7 +599,7 @@ fn run(cli: Cli) -> Result<(), Box<dyn std::error::Error>> {
                     ..ListOptions::default()
                 },
             )?;
-            write_search_to(&mut std::io::stdout().lock(), &result, json)?;
+            return write_search_to(&mut std::io::stdout().lock(), &result, json);
         }
         Command::Context {
             limit,
@@ -1371,16 +1371,7 @@ fn main() -> ExitCode {
                 let args = published_read_arguments(std::env::args_os().skip(1));
                 let payload = command_error_json(detail, context, &args, *exit_code);
                 let mut stderr = std::io::stderr().lock();
-                let _ = if context["code"] == "unknown_error" && !json_requested(&args) {
-                    writeln!(stderr, "{detail}").map_err(Into::into)
-                } else if args.first().is_some_and(|s| {
-                    s == "item" || s == "search" || s == "context" || s == "history" || s == "deps"
-                }) && !json_requested(&args)
-                {
-                    write_cursor_refusal_to(&mut stderr, &payload)
-                } else {
-                    write_json_to(&mut stderr, &payload)
-                };
+                let _ = write_command_refusal_to(&mut stderr, detail, context, &args, &payload);
                 return ExitCode::from(*exit_code);
             }
             if let Some(pm_rust::PmRustError::OwnershipRefusal { detail, context }) =
@@ -1469,6 +1460,31 @@ fn rejected_orientation_argument<'a>(
         .map_or("option", |arg| arg.split('=').next().unwrap_or_default())
 }
 
+/// Writes a command refusal using its requested encoding and published human fallback.
+fn write_command_refusal_to(
+    writer: &mut dyn Write,
+    detail: &str,
+    context: &serde_json::Value,
+    args: &[String],
+    payload: &serde_json::Value,
+) -> Result<(), Box<dyn std::error::Error>> {
+    if context["code"] == "unknown_error" && !json_requested(args) {
+        writeln!(writer, "{detail}")?;
+        return Ok(());
+    }
+    if args.first().is_some_and(|command| {
+        matches!(
+            command.as_str(),
+            "item" | "search" | "context" | "history" | "deps"
+        )
+    }) && !json_requested(args)
+    {
+        write_cursor_refusal_to(writer, payload)
+    } else {
+        write_json_to(writer, payload)
+    }
+}
+
 /// Preserves ordinary command refusals and the published unhandled-error envelope.
 fn command_error_json(
     detail: &str,
@@ -1482,9 +1498,14 @@ fn command_error_json(
     if context["code"] == "invalid_query_cursor" && context["recovery"].is_object() {
         let mut payload = cursor_error_json("invalid_query_cursor", detail, args);
         let retry = context["recovery"]["suggested_retry"].clone();
-        if let Some(steps) = payload["next_steps"].as_array_mut() {
-            steps.push(retry);
-        }
+        let steps = payload["next_steps"]
+            .as_array()
+            .into_iter()
+            .flatten()
+            .cloned()
+            .chain([retry])
+            .collect::<Vec<_>>();
+        payload["next_steps"] = serde_json::json!(steps);
         for (key, value) in context["recovery"].as_object().into_iter().flatten() {
             payload["recovery"][key] = value.clone();
         }
