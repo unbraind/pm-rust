@@ -1,5 +1,10 @@
 {
-  "candidate_commit": "fd836ba6b6b4e365714b4aa80aa2a07f180ef6fa",
+  "candidate_commit": "32c14792b2c041fb4bf30a265af328bb3742ca44",
+  "source_sha256": {
+    "src/mutation.rs": "54f54df0e8fb508e94fec21783e45a03f3ac4074d59be3721a9d8346d25b3d70",
+    "src/ownership.rs": "2557dde469f75dd326661f8da21e766bed66b883a2a1166d182c1732c3130dfb",
+    "src/workspace.rs": "c77d4d471dbdc56c9c8fc04aa037941c416bda3a6a43704df1578b89c00bbe73"
+  },
   "linked_commands": 10,
   "linked_tests_passed": 26,
   "skipped": 0,
@@ -126,38 +131,46 @@
       ]
     }
   ],
-  "local_library": {
-    "command": "cargo +1.90.0 test --locked --lib",
-    "passed": 278,
+  "failure_categories": {
+    "infra_collision": 0,
+    "trust_refusal": 0,
+    "config_refusal": 0,
+    "assertion_failure": 0,
+    "empty_run": 0,
+    "timeout": 0,
+    "max_buffer": 0,
+    "spawn_error": 0,
+    "signal": 0
+  },
+  "local_concurrency": {
+    "command": "PM_RUST_REQUIRE_PUBLISHED_CLI=1 cargo +1.90.0 test --locked --test concurrency_contract",
+    "passed": 2,
     "failed": 0,
     "ignored": 0,
-    "source_commit": "124975a07b88fd4bcdb15cddcad8934152ec8925"
-  },
-  "concurrency": {
-    "command": "cargo +1.90.0 test --locked --test concurrency_contract",
-    "passed": 1,
-    "writers": 50,
-    "accepted": 50,
+    "native_writers": 50,
     "unique_comments": 50,
     "history_records": 51,
     "plain_directory": true,
-    "git_executable_on_path": false
+    "git_executable_available": false
   },
-  "linux_ci": {
-    "run": 39644972720,
-    "job": 119378670409,
-    "command": "cargo test --locked --all-targets --all-features",
-    "passed": 524,
-    "failed": 0,
-    "ignored": 0,
-    "suites": 21,
-    "source_commit": "124975a07b88fd4bcdb15cddcad8934152ec8925"
+  "prior_attempt": {
+    "passed_commands": 7,
+    "failure_categories": {
+      "infra_collision": 0,
+      "trust_refusal": 0,
+      "config_refusal": 0,
+      "assertion_failure": 0,
+      "empty_run": 0,
+      "timeout": 3,
+      "max_buffer": 0,
+      "spawn_error": 0,
+      "signal": 0
+    },
+    "reason": "Compiler build and cargo-lock waits exceeded the linked runner budget on a contended development host. Integration target prebuilt before the successful rerun."
   },
-  "additional_fallback_test": {
-    "command": "cargo +1.90.0 test --locked --lib mutation::tests::locator_fallback_keeps_the_filename_boundary",
-    "passed": 1,
-    "failed": 0,
-    "ignored": 0,
-    "source_commit": "fd836ba6b6b4e365714b4aa80aa2a07f180ef6fa"
+  "interrupted_duplicate_local_run": {
+    "command": "cargo +1.90.0 test --locked --lib",
+    "counted_as_pass": false,
+    "reason": "Deliberately stopped under host contention; complete suites run in CI."
   }
 }

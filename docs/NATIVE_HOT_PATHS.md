@@ -85,113 +85,59 @@ items. This preserves lineage and validation behavior while reducing peak RSS.
 The existing per-item locks, transaction recovery and durable history boundary
 continue to govern every mutation.
 
-## Measurements before parity integration
+## Measured results
 
-The measurements and gate tables below describe the original pre-parity source.
-PR #101 subsequently merged; the benchmark workflow now pins merged main
-`c0154dbd7cd8071ac52b891be13f956f7a0f21fd` as its baseline. Fresh combined-source
-measurements and gates are required before handoff.
+The [complete before/after tables](benchmarks/native-hot-path-tables-2026-10-21.md) include every command at all three sizes, p50/p95, maximum RSS, stdout/stderr bytes, exit status and exact oracle output/storage comparisons. The [raw receipt](benchmarks/native-hot-paths-2026-10-21.json) retains all 1,620 measured samples, 54 syscall profiles, load averages and executable hashes.
 
-The [complete before/after tables](benchmarks/native-hot-path-tables-2026-10-21.md)
-include every command at all three sizes, p50/p95, maximum RSS, stdout/stderr
-bytes, exit status and exact current-oracle output/storage comparisons. The
-[raw receipt](benchmarks/native-hot-paths-2026-10-21.json) retains all 1,620
-measured samples, 54 syscall profiles, load averages and executable hashes.
-The [dedicated run](https://github.com/unbraind/pm-rust/actions/runs/39644972620)
-measured immutable main `8e32f85` against production source `124975a`, using
-twenty launches per runtime/case after two warmups. All 27 oracle cases exited
-successfully. Every native baseline/candidate output and target item/history
-comparison passed without normalization, including the known refusals.
+The [dedicated run](https://github.com/unbraind/pm-rust/actions/runs/39657720819) compares merged main `c0154dbd7cd8071ac52b891be13f956f7a0f21fd` (including PR #101) with candidate `32c14792b2c041fb4bf30a265af328bb3742ca44`. Each runtime/case has twenty measured launches after two warmups. All 27 oracle cases succeed. Every baseline/candidate output and target item/history comparison passes byte for byte, including known native refusals.
 
 At 50,000 items:
 
 | Operation | Before p50 / p95 ms | Native p50 / p95 ms | Before / native peak RSS KiB |
 | --- | ---: | ---: | ---: |
-| claim | 3836.3 / 3881.5 | 2585.6 / 2602.1 | 508528 / 25080 |
-| comment | 762.4 / 766.0 | 62.9 / 63.8 | 11584 / 11976 |
-| update | 760.5 / 770.1 | 62.8 / 64.0 | 11544 / 11468 |
+| claim | 3609.2 / 3630.5 | 2522.3 / 2543.3 | 508516 / 24824 |
+| comment | 682.0 / 693.4 | 64.3 / 66.8 | 11816 / 11496 |
+| update | 681.6 / 686.3 | 64.1 / 67.7 | 11352 / 11424 |
 
-Comment and update each reduce `statx` calls from **300,026 to 26**, retaining
-all **eight fsync calls**, the same opens/reads and the same durable item/history
-bytes. Claim reduces metadata calls from **400,042 to 100,042**, retains all
-**eleven fsync calls**, and lowers peak RSS by about **95.1%**. Its strict corpus
-validation retains the same 50,033 `openat` calls; it drops each full payload after decoding
-instead of retaining the entire corpus. On filesystems without cached directory
-entry types, type lookup can itself require metadata calls; the syscall counts
-above describe the measured runner.
+Comment and update reduce `statx` calls from **300,030 to 30**, retaining **8 fsync calls** each and the same durable item/history bytes. Claim reduces `statx` from **400,050 to 100,050**, retains **11 fsync calls**, and reduces peak RSS by **95.1%**. Strict corpus validation still reads every item; payloads are discarded after decoding. On filesystems without cached directory-entry types, type lookup can itself require metadata calls. These syscall counts describe the measured runner.
 
-The evidence does not establish a uniform native speed advantage. At 50k, the
-oracle's claim p50 is 490.6 ms versus native 2585.6 ms; search is 1691.8 versus
-2592.5 ms; the supported list case is 327.0 versus 1022.9 ms. Strict validation
-and full scans remain substantial costs. Get measures 41.5 versus 316.3 ms.
-Current-oracle byte equality is achieved by the 1k search fixture; larger search
-rows and other raw command surfaces record mismatches explicitly. The release
-oracle remains independently pinned, and current-oracle certification is still
-owned by the separate parity work. Output-format or behavior differences must
-be resolved before claiming equivalent current-oracle performance.
+The measurements do not establish a uniform native speed advantage. At 50k:
 
-Native context at 10k/50k and all native next/list-open rows exit 2. Their timings
-are refusal costs and are excluded from successful-operation speed claims.
-History streams are verified before timing, read commands retain all
-authoritative hashes, and mutations start from identical target bytes. The
-measurements cover one dependency, four comments, one file and one test per item;
-they do not certify denser graphs, longer histories or every filesystem.
+| Operation | Native p50 ms | Oracle p50 ms |
+| --- | ---: | ---: |
+| claim | 2522.3 | 495.1 |
+| comment | 64.3 | 368.0 |
+| update | 64.1 | 508.3 |
+| search | 2600.4 | 1592.8 |
+| list | 916.2 | 329.4 |
+| get | 40.9 | 326.9 |
+
+Exact current-oracle output equality holds in **2 of 27** fixture cases; the complete resource table identifies each one. The remaining format, behavior or command gaps are not parity claims. Storage equality is recorded separately for every mutation; all nine current-oracle artifact comparisons differ, so current-oracle mutation storage parity remains unestablished. Native context at 10k/50k and all next/list-open rows exit nonzero; those timings are refusal costs and are excluded from successful-operation speed claims. Strict validation and full scans remain substantial costs.
+
+History streams are verified before timing, read commands retain all authoritative hashes, and mutations start from identical target bytes. These fixtures cover one dependency, four comments, one file and one test per item; they do not certify denser graphs, longer histories or every filesystem.
 
 ## Behavioral revert proof
 
-`just perf-revert-proof` temporarily restores full payload retention in claim
-lineage and removes the unrelated-file fast path. It preserves the test
-observations, requires the two specific performance assertions to fail, restores
-the original source bytes in a `finally` block, and requires both tests to pass.
-This distinguishes an intended regression failure from a compiler or tool error.
+`just perf-revert-proof` temporarily restores full payload retention in claim lineage and removes the unrelated-file fast path. It preserves the test observations, requires the two specific performance assertions to fail, restores the original source bytes in a `finally` block, and requires both tests to pass. A compiler or tool error is not accepted as a regression proof.
 
-At `124975a`, both negative controls failed their intended assertion with one
-failed test each; both restored controls passed with one test each. The source
-hashes in the [receipt](benchmarks/native-hot-path-revert-2026-10-21.json) match
-the source that was benchmarked. The workflow retains only the structured
-receipt, with no raw compiler output or tracker contents.
+At `32c1479`, both negative controls fail their intended assertion with exit 101 and one failed test each; both restored controls pass with one test each. The [receipt](benchmarks/native-hot-path-revert-2026-10-21.json) records exact source restoration and hashes for the combined implementation. Only the structured receipt is retained publicly.
 
 ## Validation
 
-The [structured check receipt](benchmarks/native-hot-path-checks-2026-10-21.json)
-records local library/SDK checks, the strict 50-process no-git contract and the
-linked PM runner. Native writers run in a real `pm init` tracker with no Git
-executable on their PATH; all fifty must succeed, all unique markers must be
-present, and the 51-record history hash chain must agree.
+The [structured check receipt](benchmarks/native-hot-path-checks-2026-10-21.json) records ten linked PM commands, 26 passing test executions and zero skips. The direct concurrency suite passes both tests. Native writers run in a real `pm init` tracker with no Git executable on PATH; all fifty must succeed, all unique comments must be present, and the 51-record history hash chain must agree.
 
-Inherited linked commands were reviewed and acknowledged locally, then run
-through `pm test --run --progress --fail-on-skipped --fail-on-empty-test-run`.
-The existing result-recording policy remains `tracking_disabled`; public
-receipts omit the runner's private execution-context paths. `.mts` scripts use
-Node's native type stripping and executable syntax/behavior checks; a standalone
-TypeScript compiler is not installed locally.
+The first local linked run had three compiler-build or cargo-lock timeouts on a contended development host. A duplicate local library run was deliberately stopped and is not counted as a pass. After prebuilding the integration target, the linked rerun passes all commands. The existing evidence-recording policy remains `tracking_disabled`; public receipts omit private execution-context paths. Inherited commands were reviewed and acknowledged locally. `.mts` scripts use Node native type stripping and executable syntax/behavior checks; a standalone TypeScript compiler is not installed locally.
 
-The unchanged [full CI gate](https://github.com/unbraind/pm-rust/actions/runs/39650772379)
-passed at `fd836ba` on all three platforms. Each aggregate runs ordinary and
-branch-instrumented tests, formatting, strict Clippy, private-item rustdoc,
-dependency audit and changelog verification. The documented fresh-clone tracker
-preflight also passed. The dependency audit retains the repository's existing
-allowed `RUSTSEC-2024-0449` advisory.
+The unchanged [full CI gate](https://github.com/unbraind/pm-rust/actions/runs/39657720684) passes at `32c1479` on all three platforms. Each aggregate runs ordinary and instrumented suites, formatting, strict Clippy, private-item rustdoc, dependency audit and changelog verification. The documented fresh-clone tracker preflight passes. The audit retains the existing allowed `RUSTSEC-2024-0449` advisory.
 
 | Platform | Ordinary / instrumented tests | Lines | Functions | Regions | Branches |
 | --- | ---: | ---: | ---: | ---: | ---: |
-| Linux | 525 / 525 | 13218 / 13218 | 1370 / 1370 | 22077 / 22077 | 3160 / 3160 |
-| macOS | 521 / 521 | 13265 / 13265 | 1382 / 1382 | 22164 / 22164 | 3162 / 3162 |
-| Windows | 516 / 516 | 13264 / 13264 | 1383 / 1383 | 22165 / 22165 | 3164 / 3164 |
+| Linux | 582 / 582 | 14062 / 14062 | 1472 / 1472 | 23500 / 23500 | 3302 / 3302 |
+| macOS | 571 / 571 | 13977 / 13977 | 1459 / 1459 | 23350 / 23350 | 3264 / 3264 |
+| Windows | 565 / 565 | 13973 / 13973 | 1458 / 1458 | 23348 / 23348 | 3266 / 3266 |
 
-Every aggregate has 42 suite executions, zero failures/ignored tests, and 100%
-in all four required dimensions. The [gate receipt](benchmarks/native-hot-path-gates-2026-10-21.json)
-retains exact source hashes, counts, job links and all 270 existing latency-gate
-samples. All nine unchanged get/list/context p95 bounds pass.
+Every aggregate executes 44 test binaries with zero failures or ignored tests and 100% in all four required coverage dimensions. The [gate receipt](benchmarks/native-hot-path-gates-2026-10-21.json) retains source hashes, exact counts, job links and all 270 existing latency samples. All nine unchanged get/list/context p95 bounds pass. CodeQL also passes. Thresholds and exclusions are unchanged.
 
-The first aggregate exposed the locator fallback filename check's missing false
-arm. The added test-only case closes that branch without changing production
-Rust, coverage thresholds or exclusions. Both behavioral revert controls still
-fail at their intended assertions and pass restored.
+## Baseline transition
 
-The [repeat benchmark](https://github.com/unbraind/pm-rust/actions/runs/39650772378)
-also passes at `fd836ba`, with another 1,620 measured samples. Its baseline and
-native executable hashes are identical to the committed measurement run; the
-[reproduction receipt](benchmarks/native-hot-path-reproduction-2026-10-21.json)
-records that comparison. The final documentation and tracker handoff preserve
-the verified implementation and test source.
+PR #101 merged during the original validation. This branch then incorporated the merged parity baseline and repeated the complete paired matrix, revert controls, linked tests and platform gates. Primary tables and receipts above describe that combined implementation. The [earlier reproduction receipt](benchmarks/native-hot-path-reproduction-2026-10-21.json) is historical pre-parity evidence at `fd836ba`; it does not describe the current executable. Older full receipts remain available in Git history and their linked workflow artifacts.
