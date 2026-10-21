@@ -6,7 +6,7 @@ status: in_progress
 priority: 3
 tags[3]: conformance,follow-up,oracle
 created_at: "2026-10-20T09:07:30.168Z"
-updated_at: "2026-10-21T10:02:54.621Z"
+updated_at: "2026-10-21T11:09:43.560Z"
 deadline: "2026-10-27T00:00:00.000Z"
 assignee: codex-agent
 claim_principal: codex-agent
@@ -18,7 +18,7 @@ blocked_by: pm-rust-owzm
 dependencies[2]{id,kind,created_at,author,source_kind,author_source}:
   pm-rust-owzm,related,"2026-10-20T09:07:30.168Z",codex-agent,"cli:create:dep",detected
   pm-rust-owzm,blocked_by,"2026-10-20T11:05:13.191Z",codex-agent,"cli:update:blocked_by",detected
-comments[29]{created_at,author,text}:
+comments[34]{created_at,author,text}:
   "2026-10-20T09:07:30.168Z",codex-agent,Planning only. Implementation is deferred until the current delivery is reviewed.
   "2026-10-21T04:41:10.473Z",codex-agent,"Scope extended to published pm-cli 2026.10.21 as requested. Compare both releases against the October 19 native slice; implement applicable deltas, prove fail-before/pass-after behaviour, and require all four coverage dimensions plus the three-platform gates. No-git acceptance will require every real process write and history record to survive."
   "2026-10-21T04:47:20.325Z",codex-agent,"Implementation covers conservative same-host original-process death receipts and recovery intent, strict serialized mutation keys, invocation-preserving lock advice, effective default ordering, count-based completion rounding, and cursor page-local blocker focus. Test execution remains outside the native slice and unsupported run options are preflight-refused before linked-test edits. Assurance declaration reads gain typed missing-ID refusals and bounded read-only discovery."
@@ -48,11 +48,16 @@ comments[29]{created_at,author,text}:
   "2026-10-21T09:25:35.074Z",codex-agent,"Clean focused instrumentation passed 32 CLI unit tests, 15 CLI process tests and eight parity process tests. All 12 compiled command-refusal formatter functions/closures executed; each has zero missed branch outcomes and zero missed regions, including both unit/native instances. Strict Clippy and all 15 CLI process tests also pass after splitting the test-case table. Full-source, three-platform aggregate certification remains pending; no source exclusions or threshold changes were introduced."
   "2026-10-21T09:44:43.777Z",codex-agent,"The fresh local aggregate failed one large-edge differential case when its native subprocess reached the existing five-second deadline under parallel test load. The identical isolated test passed all cases in 59.55 seconds with the deadline intact. Current Linux/macOS CI functional suites passed it as well. Rerunning the local aggregate with RUST_TEST_THREADS=1 to serialize independent cases; each scenario retains its internal process concurrency, every deadline and all coverage thresholds. The CI matrix recipe is unchanged."
   "2026-10-21T10:02:54.620Z",codex-agent,"The previous macOS aggregate narrowed the remaining CLI gaps to two startup-argument branch outcomes and one region. Added actual no-command, unsupported namespace, missing assurance operand, all scope alias and deterministically closed-stderr cases. Startup normalization now accepts the owned argument vector it already required, eliminating redundant generic instantiations. Clean focused instrumentation passed 32 CLI unit, 16 CLI process and eight parity process tests: all 22 compiled startup/refusal/error-writer functions and closures executed with zero missed branches or regions; both assurance dispatch instances are covered too. Latest strict Clippy and all 56 stable-toolchain tests pass. Restarting complete three-platform and serialized local aggregates; full-source 100 percent certification remains pending."
+  "2026-10-21T11:01:38.832Z",codex-agent,"PR 101 review round: fetched all five unresolved threads with complete comments; latest CodeRabbit review has no Outside diff range findings. Branch is current and contains main. Verify workspace aliases, one lock wait budget, tracker scope, environment isolation, and oracle receipt retention; add behavioral revert proofs and run unchanged just release-check."
+  "2026-10-21T11:03:04.444Z",codex-agent,"Verified receipt cleanup against pinned pm-cli 2026.10.21: dist/core/lock/lock-gc.js runLockGc enumerates only direct locks entries ending in .lock; recordDeadLockRecovery writes locks/recoveries/*.json. Therefore upstream retains recovery receipts and no cleanup is added. Will capture an executable aged-receipt GC probe and document retained audit policy."
+  "2026-10-21T11:06:48.793Z",codex-agent,"Behavioral revert proofs completed: reverting only published_read_arguments fails published_refusal_arguments_strip_all_workspace_aliases; reverting only preserve_lock_scope fails lock_recovery_keeps_explicit_workspace_scope; reverting canonical item-deps normalization fails scoped_alias_refusals_match_the_native_command; restoring acquire_lock environment/settings reread fails resolved_zero_wait_budget_is_used_without_rereading_settings; restoring inherited Git config fails fixture_git_configuration_is_neutral; restoring only the old materialized body fails certification_tracker_body_matches_the_active_oracle. All six runs exited 101 with assertion failures, never compile failures. Every file was restored and no history record was edited. The actual pinned-oracle GC probe passed with an aged receipt unchanged and zero locks scanned/removed."
+  "2026-10-21T11:08:53.607Z",codex-agent,"Stopped the previous same-worktree release-check that started before this review round; its coverage compile overlapped changed sources, so it is not certification evidence. Cleaned workspace coverage artifacts. Fresh pm-managed focused acceptance and release-check are running with a fresh home, neutral global/system Git config and RUST_TEST_THREADS=1. The first managed invocation was safely refused because pm-context none requires isolated/snapshot workspace mode; reran using the supported default schema context without changing configuration. No PM CLI bug was identified."
+  "2026-10-21T11:09:43.560Z",codex-agent,"Restored-code pm-managed focused acceptance passed 359 tests: 298 library, 33 CLI unit, 17 CLI process and 11 parity process; zero failed or ignored. Formatting, strict all-target Clippy and private-item documentation passed in the fresh full release-check, which is now executing all tests. Existing history bytes remain an exact prefix. Pushing the review-fix candidate to start exact-head platform CI while the local aggregate continues."
 notes[1]{created_at,author,text}:
   "2026-10-20T09:07:30.168Z",codex-agent,Published version 2026.10.20 was observed via npm view during the 2026.10.19 continuation.
 learnings[1]{created_at,author,text}:
   "2026-10-20T09:07:30.168Z",codex-agent,Completing 2026.10.19 certification does not certify a later release.
-files[25]{path,scope}:
+files[27]{path,scope}:
   build.rs,project
   src/assurance.rs,project
   src/collections.rs,project
@@ -77,11 +82,14 @@ files[25]{path,scope}:
   tests/support/budget_recovery_unit.rs,project
   tests/support/collections_unit.rs,project
   tests/support/main_unit.rs,project
+  tests/support/mutation_unit.rs,project
   tests/support/orientation_context_unit.rs,project
-tests[2]{command,scope,timeout_seconds,provenance{author,created_at,source_kind,source_ref}}:
+  tests/support/process_environment.rs,project
+tests[3]{command,scope,timeout_seconds,provenance{author,created_at,source_kind,source_ref}}:
   just release-check,project,10800,codex-agent,"2026-10-20T09:07:30.168Z",local_mutation,chore/oracle-pm-cli-2026-10-19
   cargo test --locked --test parity_1021_contract --test concurrency_contract,project,600,codex-agent,"2026-10-21T04:50:48.589Z",local_mutation,feat/parity-pm-2026-10-21
+  cargo +1.90.0 test --locked --lib --bin pm-rust --test parity_1021_contract --test cli_dispatch,project,600,codex-agent,"2026-10-21T11:06:52.102Z",local_mutation,feat/parity-pm-2026-10-21
 docs[2]{path,scope}:
   docs/NATIVE_PARITY_2026_10_21.md,project
   "https://www.npmjs.com/package/@unbrained/pm-cli/v/2026.10.20",project
-body: The registry reports pm-cli 2026.10.20. Keep PR 100 scoped to the requested 2026.10.19 oracle. Update the oracle in a separate branch; classify published changes and retained quirks; prove regressions by behavioural revert; require full unchanged coverage and Linux/macOS/Windows CI. Full-field local search and GitHub issue/PR searches found no existing 2026.10.20 follow-up.
+body: "Certify native CLI and SDK behaviour against published pm-cli 2026.10.21 in PR 101, including applicable changes since 2026.10.19, plain-directory concurrent writers, behavioural revert proofs, unchanged 100 percent coverage thresholds, and Linux/macOS/Windows release gates. Resolve every valid review finding while retaining published oracle quirks and append-only history."

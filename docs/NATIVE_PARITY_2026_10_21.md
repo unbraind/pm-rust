@@ -42,6 +42,12 @@ lock and exits without releasing it. A native writer must recover that unexpired
 lock and preserve its original receipt in the immutable recovery audit. Unsupported
 hosts omit unverifiable coordinates and retain conservative TTL/force policy.
 
+Recovery receipts are retained as audit evidence, matching the 2026.10.21 oracle.
+Its `dist/core/lock/lock-gc.js` scans direct `locks/*.lock` entries; it does not
+collect `locks/recoveries/*.json`, even when their timestamps and modification
+times are old. `published_lock_gc_retains_recovery_receipts` verifies this with
+an actual published `gc --scope locks` run. No automatic receipt expiry is added.
+
 ## Verification
 
 The required aggregate is `just release-check`, including the unchanged 100 percent

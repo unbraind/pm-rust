@@ -820,7 +820,7 @@ fn append_history_line(path: &Path, line: &str) -> Result<(), PmRustError> {
     }
 }
 
-/// Acquires an item lock, retrying within the configured wait budget.
+/// Acquires an item lock within the resolved budget; zero permits one immediate attempt.
 fn acquire_lock(
     pm_root: &Path,
     id: &str,
@@ -828,6 +828,7 @@ fn acquire_lock(
     locks: &LockSettings,
     force_stale: bool,
     timestamp: &str,
+    wait_ms: u64,
 ) -> Result<ItemLock, PmRustError> {
     if id.is_empty()
         || !id
@@ -840,10 +841,6 @@ fn acquire_lock(
             "id must use ASCII letters, digits, and interior hyphens",
         ));
     }
-    let wait_ms = lock_wait_budget(
-        std::env::var("PM_LOCK_WAIT_MS").ok().as_deref(),
-        locks.wait_ms,
-    );
     let deadline = Instant::now() + Duration::from_millis(wait_ms);
     loop {
         match acquire_lock_attempt(
@@ -1739,6 +1736,10 @@ pub(crate) fn create_item(
         &settings.locks,
         request.force_stale_lock,
         &timestamp,
+        lock_wait_budget(
+            std::env::var("PM_LOCK_WAIT_MS").ok().as_deref(),
+            settings.locks.wait_ms,
+        ),
     )?;
     recover(pm_root, &request.id)?;
     let item_relative = PathBuf::from(folder).join(format!("{}.toon", request.id));
@@ -1836,6 +1837,10 @@ pub(crate) fn update_item(
         &settings.locks,
         request.force_stale_lock,
         &timestamp,
+        lock_wait_budget(
+            std::env::var("PM_LOCK_WAIT_MS").ok().as_deref(),
+            settings.locks.wait_ms,
+        ),
     )?;
     let (item_path, history_path, before_document) =
         recover_and_locate(pm_root, "update", &request.id)?;
@@ -1920,6 +1925,10 @@ pub(crate) fn comment_item(
         &settings.locks,
         request.force_stale_lock,
         &timestamp,
+        lock_wait_budget(
+            std::env::var("PM_LOCK_WAIT_MS").ok().as_deref(),
+            settings.locks.wait_ms,
+        ),
     )?;
     let (item_path, history_path, before_document) =
         recover_and_locate(pm_root, "comment", &request.id)?;
@@ -2370,6 +2379,10 @@ pub(crate) fn close_item(
             || request.fields.force
             || !settings.governance.stale_requires_force(),
         &timestamp,
+        lock_wait_budget(
+            std::env::var("PM_LOCK_WAIT_MS").ok().as_deref(),
+            settings.locks.wait_ms,
+        ),
     )?;
     let (item_path, history_path, before) = recover_and_locate(pm_root, "close", &request.id)?;
     if (crate::list::terminal(&before.metadata.status)
@@ -2743,6 +2756,10 @@ pub(crate) fn collection_item(
         if_available: false,
         provenance_role: None,
     };
+    let wait_ms = lock_wait_budget(
+        std::env::var("PM_LOCK_WAIT_MS").ok().as_deref(),
+        settings.locks.wait_ms,
+    );
     let started = Instant::now();
     let _lock = acquire_lock(
         pm_root,
@@ -2751,6 +2768,7 @@ pub(crate) fn collection_item(
         &settings.locks,
         options.force || !settings.governance.stale_requires_force(),
         lock_clock,
+        wait_ms,
     )
     .map_err(|error| match error {
         PmRustError::LockConflict { .. } => ownership_lock_refusal(
@@ -2758,11 +2776,7 @@ pub(crate) fn collection_item(
             &request,
             &settings,
             lock_clock,
-            if lock_wait_budget(
-                std::env::var("PM_LOCK_WAIT_MS").ok().as_deref(),
-                settings.locks.wait_ms,
-            ) == 0
-            {
+            if wait_ms == 0 {
                 0
             } else {
                 started.elapsed().as_millis()
@@ -2907,6 +2921,10 @@ pub(crate) fn ownership_item_with_options(
         return Err(invalid_mutation("timestamp must not be in the future"));
     }
     let operation = if claim { "claim" } else { "release" };
+    let wait_ms = lock_wait_budget(
+        std::env::var("PM_LOCK_WAIT_MS").ok().as_deref(),
+        settings.locks.wait_ms,
+    );
     let lock_started = Instant::now();
     let _lock = match acquire_lock(
         pm_root,
@@ -2915,6 +2933,7 @@ pub(crate) fn ownership_item_with_options(
         &settings.locks,
         request.force || !settings.governance.stale_requires_force(),
         &timestamp,
+        wait_ms,
     ) {
         Ok(lock) => lock,
         Err(PmRustError::LockConflict { .. }) => {
@@ -2923,11 +2942,7 @@ pub(crate) fn ownership_item_with_options(
                 request,
                 &settings,
                 &timestamp,
-                if lock_wait_budget(
-                    std::env::var("PM_LOCK_WAIT_MS").ok().as_deref(),
-                    settings.locks.wait_ms,
-                ) == 0
-                {
+                if wait_ms == 0 {
                     0
                 } else {
                     lock_started.elapsed().as_millis()
@@ -3171,6 +3186,10 @@ pub(crate) fn lifecycle_status(
         &settings.locks,
         request.force || !settings.governance.stale_requires_force(),
         &timestamp,
+        lock_wait_budget(
+            std::env::var("PM_LOCK_WAIT_MS").ok().as_deref(),
+            settings.locks.wait_ms,
+        ),
     )
     .map_err(|error| match error {
         PmRustError::LockConflict { .. } => ownership_refusal(
@@ -3351,6 +3370,10 @@ pub(crate) fn mutate_session_state(
         &settings,
         false,
         &timestamp,
+        lock_wait_budget(
+            std::env::var("PM_LOCK_WAIT_MS").ok().as_deref(),
+            settings.wait_ms,
+        ),
     ) {
         Ok(lock) => lock,
         Err(error) => {

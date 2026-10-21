@@ -467,3 +467,88 @@ fn completion_overflow_preserves_refusal_encoding_before_mutation() -> TestResul
     assert_eq!((fs::read(&item)?, fs::read(&history)?), before);
     Ok(())
 }
+
+/// Fixture children ignore hostile developer Git configuration and keep neutral CI values.
+#[test]
+fn fixture_git_configuration_is_neutral() -> TestResult {
+    const PROBE: &str = "PM_RUST_GIT_ISOLATION_PROBE";
+    if std::env::var_os(PROBE).is_some() {
+        let mut command = Command::new("git");
+        process_environment::isolate_environment(&mut command);
+        let output = command
+            .args(["config", "--global", "--get", "review.inherited"])
+            .output()?;
+        assert_eq!(output.status.code(), Some(1));
+        assert!(output.stdout.is_empty());
+        assert!(
+            command
+                .get_envs()
+                .any(|(key, value)| key == "GIT_CONFIG_NOSYSTEM"
+                    && value == Some(std::ffi::OsStr::new("1")))
+        );
+        return Ok(());
+    }
+    let directory = tempfile::tempdir()?;
+    let config = directory.path().join("hostile.gitconfig");
+    fs::write(&config, "[review]\n inherited = yes\n")?;
+    let output = Command::new(std::env::current_exe()?)
+        .args([
+            "--exact",
+            "fixture_git_configuration_is_neutral",
+            "--nocapture",
+        ])
+        .env(PROBE, "1")
+        .env("GIT_CONFIG_GLOBAL", config)
+        .env("GIT_CONFIG_NOSYSTEM", "0")
+        .output()?;
+    assert!(
+        output.status.success(),
+        "{}{}",
+        String::from_utf8_lossy(&output.stdout),
+        String::from_utf8_lossy(&output.stderr)
+    );
+    Ok(())
+}
+
+/// The pinned oracle preserves aged recovery receipts through actual lock garbage collection.
+#[test]
+fn published_lock_gc_retains_recovery_receipts() -> TestResult {
+    let directory = tracker()?;
+    let root = directory.path().join(".agents/pm");
+    let receipts = root.join("locks/recoveries");
+    fs::create_dir_all(&receipts)?;
+    let receipt = receipts.join("retention-probe.json");
+    let raw = br#"{"event":"owner_dead_recovery_attempt","recorded_at":"2000-01-01T00:00:00.000Z","lock":{}}"#;
+    fs::write(&receipt, raw)?;
+    fs::File::options()
+        .write(true)
+        .open(&receipt)?
+        .set_times(fs::FileTimes::new().set_modified(std::time::UNIX_EPOCH))?;
+    let published = published_cli::locate_published_cli().ok_or("oracle")?;
+    let output = oracle_command()
+        .arg(published.entry)
+        .current_dir(directory.path())
+        .args(["gc", "--scope", "locks", "--json"])
+        .output()?;
+    assert!(
+        output.status.success(),
+        "{}",
+        String::from_utf8_lossy(&output.stderr)
+    );
+    let result: Value = serde_json::from_slice(&output.stdout)?;
+    assert_eq!(result["locks"]["scanned"], 0);
+    assert_eq!(result["locks"]["removed"], 0);
+    assert_eq!(fs::read(&receipt)?, raw);
+    Ok(())
+}
+
+/// The active certification task body agrees with its title and oracle acceptance criteria.
+#[test]
+fn certification_tracker_body_matches_the_active_oracle() -> TestResult {
+    let task: Value =
+        toon_format::decode_default(include_str!("../.agents/pm/tasks/pm-rust-qhem.toon"))?;
+    let body = task["body"].as_str().ok_or("missing body")?;
+    assert!(body.contains("2026.10.21") && body.contains("PR 101"));
+    assert!(!body.contains("Keep PR 100 scoped"));
+    Ok(())
+}

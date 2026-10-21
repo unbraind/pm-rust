@@ -1758,11 +1758,20 @@ where
         .into_iter()
         .map(|arg| arg.as_ref().to_string_lossy().into_owned());
     while let Some(arg) = args.next() {
-        if arg == "--timestamp" || arg == "--workspace" {
+        if matches!(
+            arg.as_str(),
+            "--timestamp" | "--workspace" | "--pm-path" | "--path"
+        ) {
             args.next();
-        } else if !arg.starts_with("--timestamp=") && !arg.starts_with("--workspace=") {
+        } else if !["--timestamp=", "--workspace=", "--pm-path=", "--path="]
+            .iter()
+            .any(|prefix| arg.starts_with(prefix))
+        {
             arguments.push(arg);
         }
+    }
+    if arguments.starts_with(&["item".to_owned(), "deps".to_owned()]) {
+        arguments.remove(0);
     }
     if arguments.first().is_some_and(|command| command == "close") {
         for arg in &mut arguments {
@@ -1835,10 +1844,12 @@ fn collection_error_json(
 /// Maps an explicit native workspace into the published retry command's tracker scope.
 fn preserve_lock_scope(payload: &mut serde_json::Value, raw: &[String]) {
     let workspace = raw.iter().enumerate().find_map(|(index, arg)| {
-        if arg == "--workspace" {
+        if matches!(arg.as_str(), "--workspace" | "--pm-path" | "--path") {
             raw.get(index + 1).cloned()
         } else {
-            arg.strip_prefix("--workspace=").map(str::to_owned)
+            ["--workspace=", "--pm-path=", "--path="]
+                .iter()
+                .find_map(|prefix| arg.strip_prefix(prefix).map(str::to_owned))
         }
     });
     if let Some(workspace) = workspace {

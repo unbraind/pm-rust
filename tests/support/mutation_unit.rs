@@ -127,6 +127,7 @@ fn ownership_session_faults_and_contention_preserve_durable_steps()
         &locks,
         false,
         &now_iso(),
+        locks.wait_ms,
     )?;
     let called = std::cell::Cell::new(false);
     assert!(matches!(
@@ -365,7 +366,8 @@ fn initialization_gate_protects_a_lock_before_its_payload_is_published()
             "contender",
             &lock_settings,
             true,
-            TS
+            TS,
+            lock_settings.wait_ms,
         ),
         Err(PmRustError::LockConflict { .. })
     ));
@@ -378,6 +380,7 @@ fn initialization_gate_protects_a_lock_before_its_payload_is_published()
         &lock_settings,
         true,
         TS,
+        lock_settings.wait_ms,
     )?;
     assert!(matches!(
         acquire_lock(
@@ -386,7 +389,8 @@ fn initialization_gate_protects_a_lock_before_its_payload_is_published()
             "contender",
             &lock_settings,
             true,
-            TS
+            TS,
+            lock_settings.wait_ms,
         ),
         Err(PmRustError::LockConflict { .. })
     ));
@@ -403,6 +407,7 @@ fn initialization_gate_protects_a_lock_before_its_payload_is_published()
         },
         true,
         TS,
+        0,
     )?);
     assert!(!gate.exists());
     assert!(matches!(
@@ -538,9 +543,9 @@ fn stale_gate_reclamation_preserves_a_concurrent_replacement()
 fn lock_conflicts_and_forced_stale_cleanup_preserve_the_current_owner()
 -> Result<(), Box<dyn std::error::Error>> {
     let (_directory, pm_root) = root(&settings("sample-", "toon", 0))?;
-    let first = acquire_lock(&pm_root, "sample-unit", "first", &locks(0), false, TS)?;
+    let first = acquire_lock(&pm_root, "sample-unit", "first", &locks(0), false, TS, 0)?;
     assert!(matches!(
-        acquire_lock(&pm_root, "sample-unit", "second", &locks(0), false, TS),
+        acquire_lock(&pm_root, "sample-unit", "second", &locks(0), false, TS, 0,),
         Err(PmRustError::LockConflict { .. })
     ));
     let lock_path = pm_root.join("locks/sample-unit.lock");
@@ -549,12 +554,12 @@ fn lock_conflicts_and_forced_stale_cleanup_preserve_the_current_owner()
         fs::FileTimes::new().set_modified(SystemTime::now() + Duration::from_secs(60)),
     )?;
     assert!(matches!(
-        acquire_lock(&pm_root, "sample-unit", "second", &locks(0), true, TS),
+        acquire_lock(&pm_root, "sample-unit", "second", &locks(0), true, TS, 0,),
         Err(PmRustError::LockConflict { .. })
     ));
     lock_file.set_times(fs::FileTimes::new().set_modified(SystemTime::now()))?;
     thread::sleep(Duration::from_millis(2));
-    let second = acquire_lock(&pm_root, "sample-unit", "second", &locks(0), true, TS)?;
+    let second = acquire_lock(&pm_root, "sample-unit", "second", &locks(0), true, TS, 0)?;
     drop(first);
     assert!(pm_root.join("locks/sample-unit.lock").exists());
     drop(second);
@@ -570,10 +575,18 @@ fn lock_conflicts_and_forced_stale_cleanup_preserve_the_current_owner()
     fs::create_dir(&gate)?;
     thread::sleep(Duration::from_millis(2));
     assert!(matches!(
-        acquire_lock(&pm_root, "sample-gated", "third", &locks(1_800), true, TS),
+        acquire_lock(
+            &pm_root,
+            "sample-gated",
+            "third",
+            &locks(1_800),
+            true,
+            TS,
+            0,
+        ),
         Err(PmRustError::LockConflict { .. })
     ));
-    let recovered_gate = acquire_lock(&pm_root, "sample-gated", "third", &locks(0), true, TS)?;
+    let recovered_gate = acquire_lock(&pm_root, "sample-gated", "third", &locks(0), true, TS, 0)?;
     assert!(!gate.exists());
     drop(recovered_gate);
 
@@ -590,21 +603,30 @@ fn lock_conflicts_and_forced_stale_cleanup_preserve_the_current_owner()
             "third",
             &locks(0),
             true,
-            TS
+            TS,
+            0,
         ),
         Err(PmRustError::LockConflict { .. })
     ));
     let directory_lock = pm_root.join("locks/sample-directory.lock");
     fs::create_dir(&directory_lock)?;
     assert!(matches!(
-        acquire_lock(&pm_root, "sample-directory", "third", &locks(0), true, TS),
+        acquire_lock(
+            &pm_root,
+            "sample-directory",
+            "third",
+            &locks(0),
+            true,
+            TS,
+            0,
+        ),
         Err(PmRustError::Io { .. })
     ));
     #[cfg(unix)]
     {
         let oversized_id = "x".repeat(300);
         assert!(matches!(
-            acquire_lock(&pm_root, &oversized_id, "third", &locks(0), true, TS),
+            acquire_lock(&pm_root, &oversized_id, "third", &locks(0), true, TS, 0,),
             Err(PmRustError::Io { .. })
         ));
     }
@@ -865,7 +887,8 @@ fn filesystem_failures_are_typed_and_atomic_temps_are_cleaned()
             "agent",
             &LockSettings::default(),
             false,
-            TS
+            TS,
+            LockSettings::default().wait_ms,
         ),
         Err(PmRustError::Io { .. })
     ));
@@ -1019,6 +1042,7 @@ fn create_surfaces_lock_recovery_journal_and_item_stage_failures()
         &LockSettings::default(),
         false,
         TS,
+        LockSettings::default().wait_ms,
     )?;
     assert!(matches!(
         create_item(&lock_root, request()),
@@ -1207,7 +1231,15 @@ fn in_place_mutations_refuse_a_live_lock_within_the_budget()
 -> Result<(), Box<dyn std::error::Error>> {
     let (_directory, pm_root) = root(&mutation_settings(0))?;
     create_item(&pm_root, request())?;
-    let _held = acquire_lock(&pm_root, "sample-unit", "holder", &locks(1_800), false, TS)?;
+    let _held = acquire_lock(
+        &pm_root,
+        "sample-unit",
+        "holder",
+        &locks(1_800),
+        false,
+        TS,
+        0,
+    )?;
     let mut update = UpdateItem {
         id: "sample-unit".to_owned(),
         title: Some("Next".to_owned()),
@@ -2660,7 +2692,15 @@ fn remaining_portable_mutation_arms_are_covered_in_the_unit_binary()
 
     // acquire_lock retry loop: a held lock plus a non-zero wait budget
     // exercises the sleep arm before the deadline returns the conflict.
-    let held = acquire_lock(&pm_root, "sample-unit", "holder", &locks(1_800), false, TS)?;
+    let held = acquire_lock(
+        &pm_root,
+        "sample-unit",
+        "holder",
+        &locks(1_800),
+        false,
+        TS,
+        0,
+    )?;
     assert!(matches!(
         acquire_lock(
             &pm_root,
@@ -2673,6 +2713,7 @@ fn remaining_portable_mutation_arms_are_covered_in_the_unit_binary()
             },
             false,
             TS,
+            40,
         ),
         Err(PmRustError::LockConflict { .. })
     ));
@@ -3144,6 +3185,7 @@ fn future_ownership_preserves_held_lock(
         &lock_settings,
         false,
         &now_iso(),
+        lock_settings.wait_ms,
     )?;
     let paths = [
         pm_root.join("tasks/sample-unit.toon"),
@@ -4388,7 +4430,8 @@ fn closure_prelock_identifier_grammar() -> Result<(), Box<dyn std::error::Error>
                 "unit-agent",
                 &LockSettings::default(),
                 false,
-                TS
+                TS,
+                LockSettings::default().wait_ms,
             ),
             Err(PmRustError::InvalidMutationRequest { .. })
         ));
@@ -4520,6 +4563,7 @@ fn future_collection_preserves_held_lock() -> Result<(), Box<dyn std::error::Err
             },
             false,
             &now_iso(),
+            0,
         )?;
         let paths = [
             pm_root.join("tasks/sample-unit.toon"),
@@ -4661,7 +4705,8 @@ fn dead_owner_recovery_requires_a_durable_intent() -> Result<(), Box<dyn std::er
             "alpha",
             &LockSettings::default(),
             false,
-            &now_iso()
+            &now_iso(),
+            LockSettings::default().wait_ms,
         ),
         Err(PmRustError::Io { .. })
     ));
@@ -4674,6 +4719,7 @@ fn dead_owner_recovery_requires_a_durable_intent() -> Result<(), Box<dyn std::er
         &LockSettings::default(),
         false,
         &now_iso(),
+        LockSettings::default().wait_ms,
     )?;
     assert_eq!(fs::read_dir(pm_root.join("locks/recoveries"))?.count(), 1);
     drop(guard);
@@ -4760,5 +4806,39 @@ fn stale_owner_disappearance_is_contention_not_a_write_failure()
         remove_stale_lock(&path, "observed owner", "sample-vanished"),
         Err(PmRustError::Io { .. })
     ));
+    Ok(())
+}
+
+/// A resolved zero-wait override wins over the original tracker budget.
+#[test]
+fn resolved_zero_wait_budget_is_used_without_rereading_settings()
+-> Result<(), Box<dyn std::error::Error>> {
+    let (_directory, pm_root) = root(&mutation_settings(0))?;
+    create_item(&pm_root, request())?;
+    let configured = LockSettings {
+        wait_ms: 2_000,
+        ..locks(1_800)
+    };
+    let held = acquire_lock(&pm_root, "sample-unit", "holder", &configured, false, TS, 0)?;
+    // Keep the holder alive until the immediate attempt has observed contention.
+    // Re-reading the configured budget waits for the replacement and succeeds.
+    let outcome = thread::scope(|scope| {
+        let contender = scope.spawn(|| {
+            acquire_lock(
+                &pm_root,
+                "sample-unit",
+                "contender",
+                &configured,
+                false,
+                TS,
+                0,
+            )
+        });
+        thread::sleep(Duration::from_millis(100));
+        drop(held);
+        contender.join()
+    })
+    .map_err(|_| "contender panicked")?;
+    assert!(matches!(outcome, Err(PmRustError::LockConflict { .. })));
     Ok(())
 }

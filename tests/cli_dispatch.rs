@@ -723,3 +723,41 @@ fn startup_argument_boundaries_are_read_only() -> Result<(), Box<dyn std::error:
     }
     Ok(())
 }
+
+/// Workspace aliases and canonical dependency commands preserve structured parser refusals.
+#[test]
+fn scoped_alias_refusals_match_the_native_command() -> Result<(), Box<dyn std::error::Error>> {
+    let workspace = workspace()?;
+    for flag in ["--workspace", "--pm-path", "--path"] {
+        for prefix in [
+            vec![flag.to_owned(), ".".to_owned()],
+            vec![format!("{flag}=.")],
+        ] {
+            for command in [
+                vec!["context"],
+                vec!["deps", "sample-a"],
+                vec!["item", "deps", "sample-a"],
+            ] {
+                let output = Command::new(env!("CARGO_BIN_EXE_pm-rust"))
+                    .current_dir(workspace.path())
+                    .args(&prefix)
+                    .args(&command)
+                    .args(["--bogus=value", "--json"])
+                    .output()?;
+                assert_eq!(output.status.code(), Some(2));
+                let payload: serde_json::Value = serde_json::from_slice(&output.stderr)?;
+                assert_eq!(payload["code"], "unsupported_native_option");
+                assert_eq!(payload["flag"], "--bogus");
+                assert_eq!(
+                    payload["recovery"]["normalized_args"][0],
+                    if command == ["context"] {
+                        "context"
+                    } else {
+                        "item"
+                    }
+                );
+            }
+        }
+    }
+    Ok(())
+}

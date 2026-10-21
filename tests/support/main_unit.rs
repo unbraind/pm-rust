@@ -134,6 +134,7 @@ fn owned_published_argument_streams() {
                 "--json",
             ],
         ),
+        (&["item", "deps", "sample-a"], &["deps", "sample-a"]),
         (&["files", "sample-a"], &["item", "files", "sample-a"]),
         (&["docs", "sample-a"], &["item", "docs", "sample-a"]),
         (&["test", "sample-a"], &["item", "test", "sample-a"]),
@@ -1234,6 +1235,10 @@ fn lock_recovery_keeps_explicit_workspace_scope() {
     for raw in [
         vec!["--workspace", "tracker directory"],
         vec!["--workspace=tracker directory"],
+        vec!["--pm-path", "tracker directory"],
+        vec!["--pm-path=tracker directory"],
+        vec!["--path", "tracker directory"],
+        vec!["--path=tracker directory"],
     ] {
         let mut payload =
             serde_json::json!({"recovery":{"normalized_args":["comment","sample-one","note"]}});
@@ -1252,7 +1257,12 @@ fn lock_recovery_keeps_explicit_workspace_scope() {
             ])
         );
     }
-    for raw in [vec!["comment"], vec!["--workspace"]] {
+    for raw in [
+        vec!["comment"],
+        vec!["--workspace"],
+        vec!["--pm-path"],
+        vec!["--path"],
+    ] {
         let mut payload = serde_json::json!({});
         super::preserve_lock_scope(
             &mut payload,
@@ -1488,4 +1498,26 @@ fn command_refusal_encoding_and_recovery_boundaries() -> Result<(), Box<dyn std:
         .is_err()
     );
     Ok(())
+}
+
+/// Every discovery alias is removed before classifying published refusal arguments.
+#[test]
+fn published_refusal_arguments_strip_all_workspace_aliases() {
+    for flag in ["--workspace", "--pm-path", "--path"] {
+        for args in [
+            vec![
+                flag.to_owned(),
+                "tracker directory".to_owned(),
+                "context".to_owned(),
+                "--json".to_owned(),
+            ],
+            vec![
+                format!("{flag}=tracker directory"),
+                "context".to_owned(),
+                "--json".to_owned(),
+            ],
+        ] {
+            assert_eq!(super::published_read_arguments(args), ["context", "--json"]);
+        }
+    }
 }

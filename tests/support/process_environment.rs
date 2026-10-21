@@ -7,14 +7,13 @@ pub fn isolate_environment(command: &mut std::process::Command) {
     // few variables are load-bearing for the interpreter itself rather than for
     // the program under test. On Windows, node.exe fails to start without
     // SystemRoot, so clearing it breaks the launch before the published CLI
-    // ever runs. Restore those from the parent, then apply the deterministic
-    // overrides on top so they still win.
+    // ever runs. Restore runtime coordinates, then force neutral Git configuration
+    // rather than inheriting developer-selected config files. These values also
+    // preserve the neutral CI contract for fixtures that intentionally run Git.
     for name in [
         "LLVM_PROFILE_FILE",
         "PATH",
         "HOME",
-        "GIT_CONFIG_GLOBAL",
-        "GIT_CONFIG_NOSYSTEM",
         "SystemRoot",
         "SystemDrive",
         "windir",
@@ -30,4 +29,9 @@ pub fn isolate_environment(command: &mut std::process::Command) {
             command.env(name, value);
         }
     }
+    #[cfg(windows)]
+    command.env("GIT_CONFIG_GLOBAL", "NUL");
+    #[cfg(not(windows))]
+    command.env("GIT_CONFIG_GLOBAL", "/dev/null");
+    command.env("GIT_CONFIG_NOSYSTEM", "1");
 }
