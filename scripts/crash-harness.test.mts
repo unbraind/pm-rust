@@ -1,6 +1,6 @@
 import assert from 'node:assert/strict';
 import { spawnSync } from 'node:child_process';
-import { existsSync, mkdtempSync, mkdirSync, readdirSync, readFileSync, rmSync, symlinkSync, writeFileSync } from 'node:fs';
+import { chmodSync, existsSync, mkdtempSync, mkdirSync, readdirSync, readFileSync, rmSync, symlinkSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join, resolve } from 'node:path';
 import { test } from 'node:test';
@@ -91,6 +91,82 @@ test('invalid SDK options refuse before launching or reading any tracker', () =>
       (error: unknown) => error instanceof CrashRefusal && error.code === 'invalid_options' && error.remedy.length > 0);
   }
 });
+
+test('oracle metadata failures retain the typed SDK refusal and remedy', { skip: process.platform !== 'linux' }, () => temporary(root => {
+  const cases: { name: string; content?: string; absent?: boolean; directory?: boolean }[] = [
+    { name: 'missing-root', absent: true }, { name: 'missing-package' },
+    { name: 'unreadable-package', directory: true }, { name: 'malformed', content: '{"version":' },
+    { name: 'null', content: 'null' }, { name: 'array', content: '[]' },
+    { name: 'scalar', content: '"sensitive-sentinel"' }, { name: 'missing-version', content: '{}' },
+    { name: 'numeric-version', content: '{"version":42}' },
+    { name: 'wrong-version', content: '{"version":"2026.10.20"}' },
+  ];
+  const source = join(root, 'source');
+  mkdirSync(source);
+  writeFileSync(join(source, 'sentinel'), 'unchanged');
+  for (const entry of cases) {
+    const oracle = join(root, entry.name);
+    if (!entry.absent) mkdirSync(oracle);
+    if (entry.directory) mkdirSync(join(oracle, 'package.json'));
+    if (entry.content !== undefined) writeFileSync(join(oracle, 'package.json'), entry.content);
+    const artifacts = join(root, 'evidence');
+    assert.throws(() => runCrashCorpus({ native: 'unused', source, artifacts, oracle }),
+      (error: unknown) => error instanceof CrashRefusal && error.code === 'oracle_version' &&
+        error.remedy === 'Run just oracle-install to install the locked pm-cli 2026.10.21 oracle.', entry.name);
+    assert.equal(existsSync(artifacts), false);
+    assert.deepEqual(readdirSync(source), ['sentinel']);
+    assert.equal(readFileSync(join(source, 'sentinel'), 'utf8'), 'unchanged');
+  }
+}));
+
+test('oracle metadata CLI refusals expose the remedy without leaking inputs', { skip: process.platform !== 'linux' }, () => temporary(root => {
+  const oracle = join(root, 'sensitive-sentinel');
+  mkdirSync(oracle);
+  const cli = resolve('scripts/crash-cli.mts');
+  for (const malformed of [false, true]) {
+    if (malformed) writeFileSync(join(oracle, 'package.json'), '{"version":"private-sentinel"');
+    for (const json of [false, true]) {
+      const result = spawnSync(process.execPath, [cli, '--native', 'unused', '--oracle', oracle,
+        '--artifacts', join(root, 'evidence'), ...(json ? ['--json'] : [])], { encoding: 'utf8' });
+      assert.equal(result.error, undefined);
+      assert.equal(result.status, 2);
+      assert.equal(result.stderr, '');
+      assert.doesNotMatch(result.stdout, /sensitive-sentinel|private-sentinel|io_error/);
+      if (json) assert.deepEqual(JSON.parse(result.stdout), { ok: false, code: 'oracle_version',
+        remedy: 'Run just oracle-install to install the locked pm-cli 2026.10.21 oracle.' });
+      else assert.equal(result.stdout, 'ok: false\ncode: "oracle_version"\nremedy: "Run just oracle-install to install the locked pm-cli 2026.10.21 oracle."\n');
+    }
+  }
+  assert.equal(existsSync(join(root, 'evidence')), false);
+}));
+
+test('malformed source settings retain the typed source refusal without writes', { skip: process.platform !== 'linux' }, () => temporary(root => {
+  const source = join(root, 'source');
+  mkdirSync(source);
+  const artifacts = join(root, 'evidence');
+  for (const content of ['{"id_prefix":', 'null', '[]', '{}', '{"id_prefix":42}', '{"id_prefix":"INVALID-"}']) {
+    writeFileSync(join(source, 'settings.json'), content);
+    const before = snapshot(source);
+    assert.throws(() => runCrashCorpus({ native: 'unused', source, artifacts }),
+      (error: unknown) => error instanceof CrashRefusal && error.code === 'unsafe_source' &&
+        error.remedy === 'Use a tracker with a lowercase ASCII id_prefix.');
+    assert.equal(sameBytes(before, snapshot(source)), true);
+    assert.equal(existsSync(artifacts), false);
+  }
+}));
+
+test('malformed mutation acknowledgements retain the typed baseline refusal',
+  { skip: process.platform !== 'linux', timeout: 180000 }, () => temporary(root => {
+    const native = join(root, 'incompatible-native');
+    writeFileSync(native, '#!/bin/sh\nprintf "%s\\n" "synthetic invalid JSON"\n');
+    chmodSync(native, 0o755);
+    const artifacts = join(root, 'evidence');
+    assert.throws(() => runCrashCorpus({ native, artifacts, scenarios: ['update'], timeoutMs: 120000 }),
+      (error: unknown) => error instanceof CrashRefusal && error.code === 'baseline_failed' &&
+        error.remedy.includes('update id/status or comment id/comments acknowledgement'));
+    assert.equal(existsSync(artifacts), false);
+    assert.equal(existsSync(join(root, '.git')), false);
+  }));
 
 test('CLI help and refusals are bounded, structured and omit input path contents', () => {
   const cli = resolve('scripts/crash-cli.mts');

@@ -86,7 +86,8 @@ function receiptHash(receipt: ProcessReceipt): string {
 /** Build native or published command adapters with clocks pinned before CLI evaluation. */
 function adapters(options: CrashOptions): Record<'native' | 'published', Implementation> {
   const oracle = resolve(options.oracle ?? fileURLToPath(new URL('../tests/oracle/node_modules/@unbrained/pm-cli', import.meta.url)));
-  const metadata: unknown = JSON.parse(readFileSync(join(oracle, 'package.json'), 'utf8'));
+  let metadata: unknown;
+  try { metadata = JSON.parse(readFileSync(join(oracle, 'package.json'), 'utf8')); } catch { metadata = undefined; }
   if (typeof metadata !== 'object' || metadata === null || !('version' in metadata) || metadata.version !== '2026.10.21') {
     throw new CrashRefusal('oracle_version', 'Run just oracle-install to install the locked pm-cli 2026.10.21 oracle.');
   }
@@ -190,7 +191,8 @@ function run(options: CrashOptions, root: string, timeout: number, maximum: numb
   }
   const tracker = join(base, '.agents/pm');
   const original = snapshot(tracker);
-  const settings: unknown = JSON.parse(readFileSync(join(tracker, 'settings.json'), 'utf8'));
+  let settings: unknown;
+  try { settings = JSON.parse(readFileSync(join(tracker, 'settings.json'), 'utf8')); } catch { settings = undefined; }
   const prefix = typeof settings === 'object' && settings !== null && 'id_prefix' in settings ? settings.id_prefix : undefined;
   if (typeof prefix !== 'string' || !/^[a-z0-9-]+$/.test(prefix)) throw new CrashRefusal('unsafe_source', 'Use a tracker with a lowercase ASCII id_prefix.');
   const id = `${prefix}crash-probe`;
@@ -228,7 +230,8 @@ function run(options: CrashOptions, root: string, timeout: number, maximum: numb
       baselines.set(label, snapshot(join(directory, '.agents/pm')));
       // Native update/comment expose legacy full JSON; published mutations expose flat JSON.
       // Compare the shared update id/status or comment id/comments acknowledgement projection.
-      const decoded: unknown = JSON.parse(receipt.stdout.toString());
+      let decoded: unknown;
+      try { decoded = JSON.parse(receipt.stdout.toString()); } catch { decoded = undefined; }
       const record = typeof decoded === 'object' && decoded !== null ? decoded as Record<string, unknown> : {};
       const identity = typeof record.item === 'object' && record.item !== null ? record.item as Record<string, unknown> : record;
       if (identity.id !== id || (scenario === 'update' ? typeof identity.status !== 'string' : !Array.isArray(identity.comments))) {
