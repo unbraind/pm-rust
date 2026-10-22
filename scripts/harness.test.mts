@@ -1,9 +1,9 @@
 import assert from 'node:assert/strict';
 import { spawn, spawnSync } from 'node:child_process';
 import { createHash } from 'node:crypto';
-import { chmodSync, existsSync, readFileSync, mkdtempSync, mkdirSync, rmSync, writeFileSync } from 'node:fs';
+import { chmodSync, copyFileSync, existsSync, readFileSync, mkdtempSync, mkdirSync, rmSync, symlinkSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
-import { join } from 'node:path';
+import { basename, join } from 'node:path';
 import { test } from 'node:test';
 import { setTimeout } from 'node:timers/promises';
 import { fileURLToPath } from 'node:url';
@@ -185,6 +185,43 @@ test('authoritative snapshots exclude caches only at the tracker root', () => {
         assert.notEqual(authoritative(root).get(relative), before.get(relative));
         writeFileSync(join(root, relative), extension === 'toon' ? 'title: before\n' : '{}\n');
       }
+    }
+  } finally {
+    rmSync(root, { recursive: true, force: true });
+  }
+});
+
+test('hot-path paired benchmarks reject identical executables without CI metadata', () => {
+  const root = mkdtempSync(join(tmpdir(), 'pm-rust-identical-bench-'));
+  try {
+    mkdirSync(join(root, 'scripts'));
+    mkdirSync(join(root, 'before'));
+    const packages = join(root, 'tests/bench-oracle/node_modules/@unbrained');
+    mkdirSync(packages, { recursive: true });
+    // Use the real locked oracle already required by the release gate, with the
+    // benchmark's exact source and imports relocated into a disposable non-git root.
+    symlinkSync(fileURLToPath(new URL('../tests/oracle/node_modules/@unbrained/pm-cli', import.meta.url)),
+      join(packages, 'pm-cli'), 'junction');
+    for (const name of ['native-bench.mts', 'bench-oracle.mts', 'bench-schedule.mts', 'context-real-helpers.mts']) {
+      copyFileSync(new URL(name, import.meta.url), join(root, 'scripts', name));
+    }
+    const baseline = join(root, 'before', basename(process.execPath));
+    copyFileSync(process.execPath, baseline);
+    const output = join(root, 'receipt.json');
+    for (const metadata of [undefined, 'synthetic-commit']) {
+      const env = { ...process.env };
+      delete env.BENCH_BASE_SHA;
+      if (metadata !== undefined) env.BENCH_BASE_SHA = metadata;
+      const result = spawnSync(process.execPath, [join(root, 'scripts/native-bench.mts'),
+        '--baseline', baseline, '--binary', process.execPath, '--output', output,
+        '--sizes', '1', '--samples', '1', '--warmups', '1', '--commands', 'get'],
+      { cwd: root, env, encoding: 'utf8', timeout: 15000 });
+      assert.equal(result.error, undefined);
+      assert.equal(result.status, 1);
+      assert.match(result.stderr, /Paired CI builds produced the same executable; check target-directory isolation/);
+      assert.equal(result.stdout, '');
+      assert.equal(existsSync(output), false, 'self-comparison must not publish a measurement receipt');
+      assert.equal(existsSync(join(root, '.git')), false);
     }
   } finally {
     rmSync(root, { recursive: true, force: true });

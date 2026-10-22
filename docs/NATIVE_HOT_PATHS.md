@@ -47,9 +47,10 @@ and history hashes after each write. Write targets and runtime state are reset
 outside the timed interval, so every claim is a real first claim and every
 comment/update starts from the same item. Only generated state is removed.
 The paired executable filenames must match: CLI diagnostics expose the program
-name, so changing that name would itself change observable error bytes. CI
-builds baseline and candidate in independent Cargo target directories and
-rejects identical paired executables, preventing a shared build cache from
+name, so changing that name would itself change observable error bytes. Every
+paired run rejects identical executable fingerprints before creating measurements,
+including local runs without CI commit metadata. CI builds baseline and candidate
+in independent Cargo target directories, preventing a shared build cache from
 silently replacing the candidate with the baseline.
 
 The `Native hot-path benchmark` workflow runs this same twenty-sample matrix on

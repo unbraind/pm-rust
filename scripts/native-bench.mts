@@ -105,7 +105,7 @@ function main(): void {
     { name: 'oracle', program: process.execPath, prefix: [join(repo, 'scripts/bench-oracle.mts')], native: false },
   ];
   const fingerprints = runtimes.map(runtime => ({ runtime: runtime.name, sha256: hash(readFileSync(runtime.program)) }));
-  if (baseline && process.env.BENCH_BASE_SHA && fingerprints[0].sha256 === fingerprints[1].sha256) throw new Error('Paired CI builds produced the same executable; check target-directory isolation');
+  if (baseline && fingerprints[0].sha256 === fingerprints[1].sha256) throw new Error('Paired CI builds produced the same executable; check target-directory isolation');
   const scratch = mkdtempSync(join(tmpdir(), 'pm-rust-bench-'));
   const rows: Record<string, unknown>[] = [];
   const loads: number[][] = [];
