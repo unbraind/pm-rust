@@ -338,11 +338,21 @@ impl Workspace {
         request: &OwnershipItem,
         options: &OwnershipOptions,
     ) -> Result<OwnershipResult, PmRustError> {
+        let mut parents = BTreeMap::new();
         let receipt = with_identity(self.pm_root(), options, || {
-            crate::mutation::ownership_item_with_options(self.pm_root(), request, true, options)
+            crate::mutation::ownership_item_with_options(
+                self.pm_root(),
+                request,
+                true,
+                options,
+                &mut || {
+                    parents = ownership_parents(self, request)?;
+                    Ok(())
+                },
+            )
         })?;
         if receipt.skipped.is_none() {
-            record_semantics(self, request, options, true)?;
+            record_semantics(self, request, options, true, &parents)?;
         }
         Ok(receipt)
     }
@@ -356,10 +366,20 @@ impl Workspace {
         request: &OwnershipItem,
         options: &OwnershipOptions,
     ) -> Result<OwnershipResult, PmRustError> {
+        let mut parents = BTreeMap::new();
         let receipt = with_identity(self.pm_root(), options, || {
-            crate::mutation::ownership_item_with_options(self.pm_root(), request, false, options)
+            crate::mutation::ownership_item_with_options(
+                self.pm_root(),
+                request,
+                false,
+                options,
+                &mut || {
+                    parents = ownership_parents(self, request)?;
+                    Ok(())
+                },
+            )
         })?;
-        record_semantics(self, request, options, false)?;
+        record_semantics(self, request, options, false, &parents)?;
         Ok(receipt)
     }
 
@@ -426,12 +446,27 @@ pub(crate) fn with_identity<T>(
     }
 }
 
+/// Validates lineage under the item lock, after recovery and ownership refusals.
+fn ownership_parents(
+    workspace: &Workspace,
+    request: &OwnershipItem,
+) -> Result<BTreeMap<String, Option<String>>, PmRustError> {
+    let parents = workspace.read_parent_index()?;
+    if !parents.contains_key(&request.id) {
+        return Err(PmRustError::ItemNotFound {
+            id: request.id.clone(),
+        });
+    }
+    Ok(parents)
+}
+
 /// Stores ownership-derived role and topic for later attribution resolution.
 fn record_semantics(
     workspace: &Workspace,
     request: &OwnershipItem,
     options: &OwnershipOptions,
     claim: bool,
+    parents: &BTreeMap<String, Option<String>>,
 ) -> Result<(), PmRustError> {
     let principal = options
         .identity
@@ -449,11 +484,6 @@ fn record_semantics(
     } else {
         format!("author-{}", hex_prefix(principal.as_bytes(), 24))
     };
-    let parents: BTreeMap<String, Option<String>> = workspace
-        .read_items()?
-        .into_iter()
-        .map(|item| (item.metadata.id, item.metadata.parent))
-        .collect();
     let Some(mut current) = parents.get(&request.id).cloned() else {
         return Err(PmRustError::ItemNotFound {
             id: request.id.clone(),

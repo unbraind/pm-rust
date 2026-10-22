@@ -192,7 +192,38 @@ impl Workspace {
             }
             by_id.insert(document.metadata.id.clone(), (path, document));
         }
+        #[cfg(test)]
+        crate::ownership::tests::MATERIALIZED_ITEMS
+            .with(|count| count.set(count.get() + by_id.len()));
         Ok(by_id.into_values().map(|(_, document)| document).collect())
+    }
+
+    /// Validates the full corpus in the original order while retaining only lineage fields.
+    ///
+    /// Every document uses the full strict decoder. Unlike `read_items`, this
+    /// boundary drops comments, bodies and test payloads before opening the next
+    /// item; malformed unrelated payloads and duplicate IDs still refuse.
+    pub(crate) fn read_parent_index(
+        &self,
+    ) -> Result<BTreeMap<String, Option<String>>, PmRustError> {
+        #[cfg(test)]
+        crate::ownership::tests::READ_ITEMS_SCANS.with(|count| count.set(count.get() + 1));
+        let mut by_id: BTreeMap<String, (PathBuf, Option<String>)> = BTreeMap::new();
+        for path in self.item_paths()? {
+            let document = read_item(&path)?;
+            if let Some((first, _)) = by_id.get(&document.metadata.id) {
+                return Err(PmRustError::DuplicateItemId {
+                    id: document.metadata.id,
+                    first: first.clone(),
+                    second: path,
+                });
+            }
+            by_id.insert(document.metadata.id, (path, document.metadata.parent));
+        }
+        Ok(by_id
+            .into_iter()
+            .map(|(id, (_, parent))| (id, parent))
+            .collect())
     }
 
     /// Lists actual regular item paths without opening or decoding item contents.

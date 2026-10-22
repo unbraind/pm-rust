@@ -49,6 +49,8 @@ impl Workspace {
             identity.principal.clone_from(&request.author);
             identity.source = "asserted";
         }
+        #[cfg(test)]
+        tests::contend_after_ranking(self, &candidates);
         self.claim_ranked(request, &atomic_options, &candidates, max_attempts)
     }
 

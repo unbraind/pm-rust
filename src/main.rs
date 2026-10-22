@@ -1167,6 +1167,13 @@ fn ownership_request(
     args: OwnershipArgs,
     if_available: bool,
 ) -> Result<(OwnershipItem, OwnershipOptions), Box<dyn std::error::Error>> {
+    if let Some(author) = &args.author
+        && author.trim().is_empty()
+    {
+        return Err(Box::new(pm_rust::PmRustError::InvalidMutationRequest {
+            reason: "author must not be empty".to_owned(),
+        }));
+    }
     let settings: serde_json::Value =
         serde_json::from_slice(&std::fs::read(workspace.pm_root().join("settings.json"))?)?;
     let identity = mutation_identity(args.author.as_deref(), settings["author_default"].as_str());

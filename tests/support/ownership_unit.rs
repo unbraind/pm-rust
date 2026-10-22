@@ -5,6 +5,8 @@ use super::*;
 thread_local! {
     /// Counts actual corpus reads on the test caller's thread.
     pub(crate) static READ_ITEMS_SCANS: std::cell::Cell<usize> = const { std::cell::Cell::new(0) };
+    /// Counts full item payloads returned together by the materializing reader.
+    pub(crate) static MATERIALIZED_ITEMS: std::cell::Cell<usize> = const { std::cell::Cell::new(0) };
 }
 
 impl Workspace {
@@ -122,7 +124,8 @@ fn semantic_worksets_preserve_focus_and_bound_lineage() -> Result<(), Box<dyn st
         provenance_role: None,
     };
     let options = OwnershipOptions::default();
-    record_semantics(&workspace, &request, &options, true)?;
+    let parents = workspace.read_parent_index()?;
+    record_semantics(&workspace, &request, &options, true, &parents)?;
     let session = root.join("runtime/session.json");
     let mut state: Value = serde_json::from_slice(&fs::read(&session)?)?;
     let key = format!("author-{}", hex_prefix(b"alpha", 24));
@@ -141,7 +144,7 @@ fn semantic_worksets_preserve_focus_and_bound_lineage() -> Result<(), Box<dyn st
             .collect::<Vec<_>>()
     );
     fs::write(&session, crate::stringify_json(&state, false))?;
-    record_semantics(&workspace, &request, &options, true)?;
+    record_semantics(&workspace, &request, &options, true, &parents)?;
     let state: Value = serde_json::from_slice(&fs::read(&session)?)?;
     let semantic = &state["semantic_attribution"][&key];
     assert_eq!(
@@ -151,7 +154,7 @@ fn semantic_worksets_preserve_focus_and_bound_lineage() -> Result<(), Box<dyn st
     assert_eq!(semantic["evidence"].as_array().map(Vec::len), Some(32));
     assert_eq!(semantic["topic"], "sample-focus");
     assert_eq!(semantic["confidence"], "high");
-    record_semantics(&workspace, &request, &options, false)?;
+    record_semantics(&workspace, &request, &options, false, &parents)?;
     let mut state: Value = serde_json::from_slice(&fs::read(&session)?)?;
     assert_eq!(
         state["semantic_attribution"][&key]["role"],
@@ -159,7 +162,7 @@ fn semantic_worksets_preserve_focus_and_bound_lineage() -> Result<(), Box<dyn st
     );
     state["semantic_attribution"][&key]["active_item_ids"] = json!([]);
     fs::write(&session, crate::stringify_json(&state, false))?;
-    record_semantics(&workspace, &request, &options, false)?;
+    record_semantics(&workspace, &request, &options, false, &parents)?;
     let mut state: Value = serde_json::from_slice(&fs::read(&session)?)?;
     assert_eq!(state["semantic_attribution"][&key]["topic"], "sample-focus");
     state["semantic_attribution"][&key]
@@ -167,13 +170,13 @@ fn semantic_worksets_preserve_focus_and_bound_lineage() -> Result<(), Box<dyn st
         .ok_or("missing semantic object")?
         .remove("focused_item_id");
     fs::write(&session, crate::stringify_json(&state, false))?;
-    record_semantics(&workspace, &request, &options, false)?;
+    record_semantics(&workspace, &request, &options, false, &parents)?;
     let state: Value = serde_json::from_slice(&fs::read(&session)?)?;
     assert!(state.get("semantic_attribution").is_none());
-    record_semantics(&workspace, &request, &options, false)?;
+    record_semantics(&workspace, &request, &options, false, &parents)?;
     let mut missing = request.clone();
     missing.id = "sample-absent".to_owned();
-    assert!(record_semantics(&workspace, &missing, &options, true).is_err());
+    assert!(record_semantics(&workspace, &missing, &options, true, &parents).is_err());
     Ok(())
 }
 
@@ -566,6 +569,7 @@ fn external_runtime_schema_precedence_and_errors() -> Result<(), Box<dyn std::er
 /// A deep lineage costs one corpus read per explicit ownership command.
 #[test]
 fn ownership_lineage_scans_corpus_once() -> Result<(), Box<dyn std::error::Error>> {
+    MATERIALIZED_ITEMS.set(0);
     let directory = tempfile::tempdir()?;
     let root = directory.path().join(".agents/pm");
     fs::create_dir_all(root.join("tasks"))?;
@@ -597,6 +601,11 @@ fn ownership_lineage_scans_corpus_once() -> Result<(), Box<dyn std::error::Error
     let before = READ_ITEMS_SCANS.get();
     workspace.claim_with_options(&request, &OwnershipOptions::default())?;
     assert_eq!(READ_ITEMS_SCANS.get() - before, 1);
+    assert_eq!(
+        MATERIALIZED_ITEMS.get(),
+        0,
+        "lineage retained the full corpus payloads"
+    );
     let state: Value = serde_json::from_slice(&fs::read(root.join("runtime/session.json"))?)?;
     let key = format!("author-{}", hex_prefix(b"alpha", 24));
     let mut evidence = vec!["claim:sample-11".to_owned()];
@@ -622,7 +631,7 @@ fn ownership_lineage_scans_corpus_once() -> Result<(), Box<dyn std::error::Error
     let before = fs::read(&session)?;
     fs::write(root.join("tasks/sample-corrupt.toon"), "not a valid item")?;
     assert!(matches!(
-        record_semantics(&workspace, &request, &OwnershipOptions::default(), true),
+        workspace.claim_with_options(&request, &OwnershipOptions::default()),
         Err(PmRustError::InvalidItemDocument { .. })
     ));
     assert_eq!(fs::read(session)?, before);
@@ -661,6 +670,7 @@ updated_at: "2026-08-22T10:00:00.000Z"
         )?;
     }
     let workspace = Workspace::discover(&root)?;
+    let parents = workspace.read_parent_index()?;
     record_semantics(
         &workspace,
         &OwnershipItem {
@@ -674,6 +684,7 @@ updated_at: "2026-08-22T10:00:00.000Z"
         },
         &OwnershipOptions::default(),
         true,
+        &parents,
     )?;
     let state: Value = serde_json::from_slice(&fs::read(root.join("runtime/session.json"))?)?;
     let evidence = state["semantic_attribution"]

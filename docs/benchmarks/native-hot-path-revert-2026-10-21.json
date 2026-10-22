@@ -1,0 +1,39 @@
+{
+  "complete": true,
+  "candidate_commit": "32c14792b2c041fb4bf30a265af328bb3742ca44",
+  "source_restored": true,
+  "source_sha256": {
+    "ownership": "2557dde469f75dd326661f8da21e766bed66b883a2a1166d182c1732c3130dfb",
+    "mutation": "54f54df0e8fb508e94fec21783e45a03f3ac4074d59be3721a9d8346d25b3d70"
+  },
+  "results": [
+    {
+      "test": "ownership::tests::ownership_lineage_scans_corpus_once",
+      "mode": "behavior reverted",
+      "command": "cargo +1.90.0 test --quiet --locked --lib ownership::tests::ownership_lineage_scans_corpus_once",
+      "status": 101,
+      "expected_result": true
+    },
+    {
+      "test": "mutation::tests::locator_metadata_work_depends_on_directories_and_targets",
+      "mode": "behavior reverted",
+      "command": "cargo +1.90.0 test --quiet --locked --lib mutation::tests::locator_metadata_work_depends_on_directories_and_targets",
+      "status": 101,
+      "expected_result": true
+    },
+    {
+      "test": "ownership::tests::ownership_lineage_scans_corpus_once",
+      "mode": "restored",
+      "command": "cargo +1.90.0 test --quiet --locked --lib ownership::tests::ownership_lineage_scans_corpus_once",
+      "status": 0,
+      "expected_result": true
+    },
+    {
+      "test": "mutation::tests::locator_metadata_work_depends_on_directories_and_targets",
+      "mode": "restored",
+      "command": "cargo +1.90.0 test --quiet --locked --lib mutation::tests::locator_metadata_work_depends_on_directories_and_targets",
+      "status": 0,
+      "expected_result": true
+    }
+  ]
+}
