@@ -8,6 +8,12 @@ also runs these checks after its Rust tests. Rust's four 100% coverage threshold
 remain unchanged; those percentages describe Rust source, not the TypeScript
 harness.
 
+On Linux, missing, unreadable, malformed or mismatched oracle metadata refuses
+with `oracle_version` and the `just oracle-install` remedy. Malformed source
+settings refuse with `unsafe_source`; malformed mutation acknowledgements
+refuse with `baseline_failed`. These refusals preserve the input tracker and
+do not retain failure artifacts.
+
 ```typescript
 import { runCrashCorpus, replayCrashFailure } from '../scripts/crash-harness.mts';
 import type { CrashOptions, CrashReport } from '../scripts/crash-harness.mts';
