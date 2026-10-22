@@ -95,7 +95,9 @@ function main(): void {
   const binary = resolve(option('--binary', 'target/release/pm-rust'));
   const baseline = option('--baseline', '');
   if (baseline && basename(baseline) !== basename(binary)) throw new Error('Baseline and native executable filenames must match: use separate directories');
-  const profile = option('--profile', 'no') === 'yes';
+  const profileValue = option('--profile', 'no');
+  if (profileValue !== 'yes' && profileValue !== 'no') throw new Error('Profile must be yes or no');
+  const profile = profileValue === 'yes';
   const supported = ['context', 'next', 'list-open', 'search', 'get', 'list', 'claim', 'comment', 'update'];
   const selected = option('--commands', supported.join(',')).split(',');
   if (selected.some(command => !supported.includes(command))) throw new Error('Commands must be nonempty supported names: ' + supported.join(','));

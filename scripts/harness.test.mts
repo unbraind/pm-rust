@@ -281,6 +281,36 @@ test('hot-path benchmark command selections reject unsupported or empty names be
   }
 });
 
+test('hot-path benchmark rejects invalid profile values before fixtures or binary reads', () => {
+  const root = mkdtempSync(join(tmpdir(), 'pm-rust-profile-contract-'));
+  try {
+    mkdirSync(join(root, 'scripts'));
+    const packages = join(root, 'tests/bench-oracle/node_modules/@unbrained');
+    mkdirSync(packages, { recursive: true });
+    symlinkSync(fileURLToPath(new URL('../tests/oracle/node_modules/@unbrained/pm-cli', import.meta.url)),
+      join(packages, 'pm-cli'), 'junction');
+    for (const name of ['native-bench.mts', 'bench-oracle.mts', 'bench-oracle-version.mts', 'bench-schedule.mts', 'context-real-helpers.mts']) {
+      copyFileSync(new URL(name, import.meta.url), join(root, 'scripts', name));
+    }
+    const output = join(root, 'receipt.json');
+    for (const profile of ['true', 'maybe', 'false']) {
+      const result = spawnSync(process.execPath, [join(root, 'scripts/native-bench.mts'),
+        '--profile', profile, '--binary', join(root, 'missing-binary'), '--output', output,
+        '--sizes', '1', '--samples', '1', '--warmups', '1', '--commands', 'get'],
+      { cwd: root, encoding: 'utf8', timeout: 15000 });
+      assert.equal(result.error, undefined);
+      assert.equal(result.status, 1);
+      assert.match(result.stderr, /Profile must be yes or no/);
+      assert.equal(result.stdout, '');
+      assert.equal(existsSync(output), false, 'invalid profiles must not publish a receipt');
+      assert.equal(existsSync(join(root, '.agents')), false, 'invalid profiles must not create a tracker');
+      assert.equal(existsSync(join(root, '.git')), false);
+    }
+  } finally {
+    rmSync(root, { recursive: true, force: true });
+  }
+});
+
 test('hot-path reproduction identity flag agrees with the retained binary fingerprints', () => {
   const receipt: { identical_native_executables: boolean; fingerprints: { runtime: string; sha256: string }[] } =
     JSON.parse(readFileSync(new URL('../docs/benchmarks/native-hot-path-reproduction-2026-10-21.json', import.meta.url), 'utf8'));
