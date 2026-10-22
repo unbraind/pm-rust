@@ -2,19 +2,24 @@ id: pm-rust-p0no
 title: Match unbounded list JSON to PM CLI 2026.10.2
 description: "Add an explicit native unbounded-list JSON envelope with default brief projection, full metadata for all-status reads, published lifecycle/order/filter semantics, and golden tests comparing both real CLIs on the same tracker. Preserve the original native list SDK contract."
 type: Feature
-status: in_progress
+status: closed
 priority: 1
 tags[3]: conformance,read-parity,rust
 created_at: "2026-10-02T18:56:00.427Z"
-updated_at: "2026-10-02T20:26:06.657Z"
+updated_at: "2026-10-21T19:02:16.558Z"
 deadline: "2026-10-09T00:00:00.000Z"
+closed_at: "2026-10-21T19:02:09.799Z"
+completed_at: "2026-10-21T19:02:09.799Z"
 author: pi-glm-rust-parity
 estimated_minutes: 240
 acceptance_criteria: "Both unbounded flags are required with --json; Complete parsed JSON matches PM CLI 2026.10.2 golden envelopes for default, all, terminal status, type, ID, combined and empty selections; Ordering is terminal-last then priority ascending then updated_at descending then canonical ASCII ID; Unknown full metadata is preserved and body omitted; Rustdoc, strict Clippy, full tests and 100 percent line function region branch coverage pass without lowered gates; Matrix documents pagination runtime-schema and remaining command gaps"
 parent: pm-rust-u4al
+resolution: Delivered by the audit-linked mainline implementation.
+expected_result: Match unbounded list JSON to PM CLI 2026.10.2.
+actual_result: "Re-verified current main c0154dbd7cd8: delivery af6c0329586c, 1513967d9dfe remains in main ancestry; src/error.rs, tests/fixtures/list-2026-10-2.json remain present."
 dependencies[1]{id,kind,created_at,author,source_kind,author_source}:
   pm-rust-u4al,parent,"2026-10-02T18:56:00.427Z",pi-glm-rust-parity,"cli:create:dep",asserted
-comments[20]{created_at,author,text}:
+comments[21]{created_at,author,text}:
   "2026-10-02T18:56:00.427Z",pi-glm-rust-parity,"Plan: test-first golden differential vs real TS CLI 2026.10.2 with fixed Date driver; implement native list mode; keep SDK Workspace::list contract intact."
   "2026-10-02T18:59:38.814Z",pi-glm-rust-parity,"Ollama session limit interrupted implementation after contract research; no source changes yet. Orchestrator will continue the same unbounded-list slice on an allowed fallback provider after checking fresh quota. Item remains open for work, never closed."
   "2026-10-02T19:01:31.028Z",codex-sol,"Orchestrator continuing implementation directly after both GLM providers exhausted quota and Grok OAuth refresh failed; no additional Codex agent authorized under over-forecast policy. Scope: explicit unbounded full JSON list mode; native legacy list API stays stable; deterministic full-envelope golden tests compare published2026.10.2 and Rust on the same temporary tracker."
@@ -35,6 +40,7 @@ comments[20]{created_at,author,text}:
   "2026-10-02T20:23:42.115Z",codex-sol,"Round 2 on 4ed15e7: all hosted CI/gates/CodeQL pass; CodeRabbit explicitly verifies comparator, full projection and error-doc fixes in-thread but fresh full review is quota-limited. Cubic confirms the prior findings and reports one P3 repeated timestamp parsing during sorting. Add a red-first parse-count regression, replace comparison-time parsing with sort_by_cached_key (sort_by_key would still recalculate keys), preserve exact ordering/goldens and run unchanged release-check. This will be the third and final requested review round. Existing Sourcery quota and absent Greptile response remain missing evidence."
   "2026-10-02T20:24:27.677Z",codex-sol,"Red-first parse-count measurement failed on the old comparator: sorting 16 items parsed timestamps 30 times. Cached complete sort keys now parse exactly 16 times; timestamp/priority/id/terminal ordering and all golden envelopes are unchanged. sort_by_cached_key is used because sort_by_key would recompute expensive keys during comparisons."
   "2026-10-02T20:26:06.059Z",codex-sol,"Third-round candidate PASSED unchanged just release-check through pm test: 158 tests in normal and coverage runs, 100% lines/functions/regions/branches (1819/174/2591/312), fmt, strict Clippy, rustdoc, audit and changelog-check. Repeated timestamp parses are reduced from 30 to 16 for 16 selected items by cached complete sort keys. Original nine complete oracle/native/SDK envelopes and full-projection/mixed-validity regressions pass. Prior exact head 4ed15e7 has all required hosted CI/CodeQL green and CodeRabbit scoped in-thread fix verification; fresh whole-PR review is rate-limited, Sourcery is quota-limited, Greptile has not responded. All 19 prior threads are resolved; the final performance thread will receive this commit and be resolved before request round 3. read_output policy diagnostics remain documented under existing pm-rust-ufzy. No items closed or PR merged; coding claim released while final review/CI is monitored."
+  "2026-10-21T19:01:30.985Z",codex-agent,"Tracker reconciliation authorized for the audited verdict FIXED-STALE. Re-verified current main c0154dbd7cd8: delivery af6c0329586c, 1513967d9dfe remains in main ancestry; src/error.rs, tests/fixtures/list-2026-10-2.json remain present. Match unbounded list JSON to PM CLI 2026.10.2. [PR #58](https://github.com/unbraind/pm-rust/pull/58) delivers unbounded JSON/SDK envelope parity; #85 extends it to bounded pages and continuation receipts. Scope: tracker state only; no new runtime certification or deployment claim."
 notes[1]{created_at,author,text}:
   "2026-10-02T18:56:00.427Z",pi-glm-rust-parity,Slice scope deliberately narrow
 learnings[1]{created_at,author,text}:
@@ -121,4 +127,5 @@ tests[5]:
 docs[2]{path,scope}:
   docs/CLI_PARITY_2026_10_2.md,project
   "https://github.com/unbraind/pm-rust/pull/58",project
+close_reason: "Re-verified current main c0154dbd7cd8: delivery af6c0329586c, 1513967d9dfe remains in main ancestry; src/error.rs, tests/fixtures/list-2026-10-2.json remain present. Audit delivery: Match unbounded list JSON to PM CLI 2026.10.2. [PR #58](https://github.com/unbraind/pm-rust/pull/58) delivers unbounded JSON/SDK envelope parity; #85 extends it to bounded pages and continuation receipts."
 body: "Read parity slice: unbounded full list only. Defer limit, cursor, search, context, next, tree, full get."

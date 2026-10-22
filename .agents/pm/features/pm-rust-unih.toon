@@ -2,14 +2,19 @@ id: pm-rust-unih
 title: Implement native item file doc and test collections with oracle parity
 description: "Match collection list, add and remove receipts, canonical item and append-only history bytes, refusal semantics and serialized native writers against the locked oracle."
 type: Feature
-status: in_progress
+status: closed
 priority: 2
 tags[3]: collections,conformance,rust
 created_at: "2026-10-16T16:59:46.171Z"
-updated_at: "2026-10-17T12:59:06.974Z"
+updated_at: "2026-10-21T19:10:17.189Z"
+closed_at: "2026-10-21T19:10:11.206Z"
+completed_at: "2026-10-21T19:10:11.206Z"
 author: codex-agent
 parent: pm-rust-u4al
-comments[49]{created_at,author,text}:
+resolution: Delivered by the audit-linked mainline implementation.
+expected_result: Implement native item file doc and test collections with oracle parity.
+actual_result: "Re-verified current main c0154dbd7cd8: delivery 6d519ecc40f5 remains in main ancestry; src/collections.rs, tests/claim_release_differential.rs remain present."
+comments[50]{created_at,author,text}:
   "2026-10-16T17:00:05.045Z",codex-agent,"Plan: route collection edits through the existing per-item lock and journal, compare complete item and append-only history bytes at a fixed clock, and prove two concurrent writers preserve accepted additions. Match collection parsing, compact receipts and typed refusals."
   "2026-10-16T17:09:05.338Z",codex-agent,"Implemented collection list and transactional add/remove paths. The first differential run exposed optional artifact note visitation in canonical history patch ordering; item hashes already agreed, but patch order and record hashes differed. Added the missing normalized-row ordering behavior before continuing exact artifact comparisons."
   "2026-10-16T17:27:18.718Z",codex-agent,"Concurrency differential passed for native and oracle writers: both additions survive, adjacent document hashes chain, and complete item/history artifacts equal serial oracle replay in observed commit order. Expanded parser checks now include Markdown pairs, quoted commas, command aliases and documentation references. Oracle artifact collections have path selectors only; linked tests additionally expose 1-based indices."
@@ -59,6 +64,7 @@ comments[49]{created_at,author,text}:
   "2026-10-17T11:30:08.689Z",codex-agent,"First aggregate stopped in the existing claim race: 26 ownership tests passed and one valid lock_conflict after 3018ms did not match its serial already_claimed_by expectation. The new unpublished-payload differential passed in that run. Reused pm-rust-23ps for a fixture-only explicit 30-second writer wait on both replay trackers; all original race, byte and verifier assertions remain. Coverage was not reached in the failed aggregate; a complete rerun follows the focused race check. Tracker hash discontinuity is separately tracked in pm-rust-b4yl."
   "2026-10-17T12:11:10.796Z",codex-agent,"Full normal retry PASS: 385 tests, including all 27 ownership differentials, all 25 pagination differentials and all 17 search/collections differentials. The explicit 30-second race fixture retains its exact one-winner/loser envelope, durable-byte and oracle history assertions. New lease diagnostics, unpublished-payload and status-CSV regressions pass. Instrumented full-suite coverage validation is now running; no coverage or final aggregate claim is made yet."
   "2026-10-17T12:59:00.932Z",codex-agent,"Round 3 final local release-check PASS: 385 normal and 385 instrumented tests; 8892/8892 lines, 868/868 functions, 13907/13907 regions and 2150/2150 branches at unchanged thresholds. Lease I/O diagnostics and unpublished-payload regressions pass with behavioral revert proofs; exact JSON oracle output and durable artifacts agree. All six claim races pass after the fixture-only wait correction in pm-rust-23ps. Strict fmt/clippy/private docs, identity, oracle, dependency and changelog gates pass. The existing allowed unsafe-libyaml maintenance warning is unchanged. Releasing the claim before push and final-head CI. Tracker hash discontinuity at entry 74 remains open as pm-rust-b4yl; direct ownership text formatting is pm-rust-4jq3. No original history was rewritten."
+  "2026-10-21T19:09:33.620Z",codex-agent,"Tracker reconciliation authorized for the audited verdict FIXED-STALE. Re-verified current main c0154dbd7cd8: delivery 6d519ecc40f5 remains in main ancestry; src/collections.rs, tests/claim_release_differential.rs remain present. Implement native item file doc and test collections with oracle parity. [PR #91](https://github.com/unbraind/pm-rust/pull/91) (6d519ec) implements native search and item file/doc/test collections with differential tests and explicit writer-wait budgets in the concurrent acceptance fixture. Scope: tracker state only; no new runtime certification or deployment claim."
 files[21]{path,scope}:
   Cargo.lock,project
   Cargo.toml,project
@@ -94,4 +100,5 @@ docs[5]{path,scope}:
   docs/NATIVE_SEARCH_COLLECTIONS.md,project
   "https://github.com/unbraind/pm-rust/pull/91",project
   README.md,project
+close_reason: "Re-verified current main c0154dbd7cd8: delivery 6d519ecc40f5 remains in main ancestry; src/collections.rs, tests/claim_release_differential.rs remain present. Audit delivery: Implement native item file doc and test collections with oracle parity. [PR #91](https://github.com/unbraind/pm-rust/pull/91) (6d519ec) implements native search and item file/doc/test collections with differential tests and explicit writer-wait budgets in the concurrent acceptance fixture."
 body: ""

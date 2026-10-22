@@ -2,14 +2,19 @@ id: pm-rust-oqst
 title: Keep oracle test runs out of Sentry
 description: "GitHub issue https://github.com/unbraind/pm-rust/issues/86: centralize PM_SENTRY_DISABLED=1 and PM_TELEMETRY_SOURCE_CONTEXT=test for every oracle invocation, including CI, just recipes and Rust-spawned drivers; prove the spawned environment with a shim."
 type: Issue
-status: in_progress
+status: closed
 priority: 1
 tags[3]: ci,oracle,telemetry
 created_at: "2026-10-15T21:43:01.955Z"
-updated_at: "2026-10-16T03:33:08.386Z"
+updated_at: "2026-10-21T18:58:09.488Z"
+closed_at: "2026-10-21T18:58:01.553Z"
+completed_at: "2026-10-21T18:58:01.553Z"
 author: codex-agent
 parent: pm-rust-u4al
-comments[13]{created_at,author,text}:
+resolution: Delivered by the audit-linked mainline implementation.
+expected_result: Keep oracle test runs out of Sentry.
+actual_result: "Re-verified current main c0154dbd7cd8: delivery ec83fe123659 remains in main ancestry; src/lib.rs, tests/branch_merge_contract.rs remain present."
+comments[14]{created_at,author,text}:
   "2026-10-15T21:45:14.024Z",codex-agent,"All Rust oracle driver launches, clone-local CI health and merge setup now route through tests/oracle/launch.mts. It applies both test telemetry variables in the final spawned child even after env_clear; a disposable shim asserts the actual child environment, argument boundaries and exit propagation. just recipes also export the same test boundary."
   "2026-10-15T21:51:28.647Z",codex-agent,"Read-only oracle health passes all 8 checks with merge drivers in a clean HOME and neutral global Git configuration, matching CI. The normal host context reports an unrelated global pm-github 2026.10.15 versus locked host 2026.10.14 skew; no pin or shared extension was changed. Existing guidance, stale-item and provenance advisories are retained."
   "2026-10-15T21:58:31.024Z",codex-agent,"Behavioural revert proof: removing only PM_SENTRY_DISABLED from the final child environment made cargo test --locked --test oracle_launcher oracle_launcher_sets_child_telemetry_environment -- --exact --nocapture fail with Cargo exit 101 and the shim environment assertion. Independently removing only PM_TELEMETRY_SOURCE_CONTEXT failed identically. Neither control ran the real oracle. Both mutations were restored; the linked positive launcher test passed 1/1."
@@ -23,16 +28,22 @@ comments[13]{created_at,author,text}:
   "2026-10-16T03:31:56.611Z",codex-agent,"Final-head Windows CI on 29fc92c failed only the optional literal-apostrophe assertion in just_oracle_preserves_argument_boundaries: the shim received quoted instead of the supplied apostrophe-delimited value. The same observed argv preserved the spaced argument, empty argument, literal shell variable, both telemetry controls and exit propagation. The requested spaced-argument regression is retained on every OS; the additional apostrophe case is removed from this contract and tracked separately. Re-running focused local contracts and all final-head CI gates after the test correction; the prior local full aggregate receipt belongs to 29fc92c."
   "2026-10-16T03:32:59.173Z",codex-agent,"The additional Windows apostrophe behavior is tracked as pm-rust-373x with the failing job evidence. Final regression inputs retain the required spaced argument and spaced echo-shim path, empty argument, literal shell variable, both telemetry controls and exit 7. No recipe or launcher implementation changed after 29fc92c. Formatting and deny-warnings Clippy pass; combined launcher/pipeline tests pass 20/20. Repeating the recipe-only behavioural revert with this final test fails with Cargo exit 101; the linked pm test run verifies restoration. The complete local aggregate passed 339 ordinary and 339 instrumented tests before this test-input correction; final-head CI will rerun the full unchanged aggregate on all three OSes."
   "2026-10-16T03:33:06.249Z",codex-agent,"Final corrected-test receipt: pm test pm-rust-oqst --run --progress passes both linked commands (2/2 launcher tests and 20/20 combined launcher/pipeline tests); final recipe-only revert fails as required with Cargo exit 101 and is restored. No production source, recipe, coverage threshold or pin changed in this correction. Releasing ownership without closing; final-head platform gates will be reported on PR 87."
-files[5]{path,scope}:
+  "2026-10-21T18:22:12.078Z",codex-agent,"Tracker reconciliation authorized for the audited verdict FIXED-STALE. Re-verified unchanged main 8e32f851504c: delivery ec83fe123659 remains in main ancestry; src/lib.rs, tests/branch_merge_contract.rs remain present. Keep oracle test runs out of Sentry. [PR #87](https://github.com/unbraind/pm-rust/pull/87) (ec83fe1) centralizes oracle telemetry-isolation environment and tests spawned invocations; this audit changes no telemetry configuration. Scope: tracker state only; no new runtime certification or deployment claim."
+files[7]{path,scope}:
   .github/workflows/ci.yml,project
   justfile,project
+  src/lib.rs,project
+  tests/branch_merge_contract.rs,project
   tests/oracle_launcher.rs,project
   tests/oracle/launch.mts,project
   tests/support/published_cli.rs,project
-tests[2]{command,scope,provenance{author,created_at,source_kind,source_ref}}:
+tests[3]{command,scope,provenance{author,created_at,source_kind,source_ref}}:
   cargo test --locked --test oracle_launcher,project,codex-agent,"2026-10-15T21:47:06.998Z",local_mutation,feat/oracle-quiet-and-registry-selection
   cargo +1.90.0 test --locked --test oracle_launcher --test release_pipeline_contract,project,codex-agent,"2026-10-16T02:47:32.714Z",local_mutation,feat/oracle-quiet-and-registry-selection
-docs[2]{path,scope}:
+  git merge-base --is-ancestor ec83fe12365928cdd9116120e6a1343286389b6e HEAD,project,codex-agent,"2026-10-21T18:25:24.816Z",local_mutation,chore/reconcile-tracker-1021
+docs[3]{path,scope}:
+  CHANGELOG.md,project
   docs/CONFIGURED_LIST_REGISTRIES.md,project
   "https://github.com/unbraind/pm-rust/issues/86",project
+close_reason: "Re-verified current main c0154dbd7cd8: delivery ec83fe123659 remains in main ancestry; src/lib.rs, tests/branch_merge_contract.rs remain present. Audit delivery: Keep oracle test runs out of Sentry. [PR #87](https://github.com/unbraind/pm-rust/pull/87) (ec83fe1) centralizes oracle telemetry-isolation environment and tests spawned invocations; this audit changes no telemetry configuration."
 body: ""
