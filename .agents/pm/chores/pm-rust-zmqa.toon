@@ -2,18 +2,24 @@ id: pm-rust-zmqa
 title: Enable the gated pm-github issue sync
 description: "Add the pinned reusable issue-sync caller and verify the existing CI workflow_dispatch trigger. Related adoption task: pm-github-aiok. Rust-only package: no root package.json and no braces dependency work. Validate just release-check and the locked-oracle strict health check; never trigger sync or change repository settings."
 type: Chore
-status: blocked
+status: closed
 priority: 2
 tags[1]: changed
 created_at: "2026-10-15T07:37:36.274Z"
-updated_at: "2026-10-16T10:37:45.145Z"
+updated_at: "2026-10-21T19:13:47.112Z"
+closed_at: "2026-10-21T19:13:41.205Z"
+completed_at: "2026-10-21T19:13:41.205Z"
 author: codex-agent
-comments[5]{created_at,author,text}:
+resolution: Delivered by the audit-linked mainline implementation.
+expected_result: Enable the gated pm-github issue sync.
+actual_result: "Re-verified current main c0154dbd7cd8: .github/workflows/pm-github-sync.yml retain immutable reusable-workflow pins; runtime scheduled-job success is outside this closure."
+comments[6]{created_at,author,text}:
   "2026-10-15T07:38:15.834Z",codex-agent,Batch 3 uses the prescribed 2026.10.14 fallback because v2026.10.15 is not released. CI already has workflow_dispatch. The exact fallback workflow still assumes root npm dependencies and predates changelog regeneration and CI dispatch from pm-github PR 122; this Rust-only caller needs the later repin before operational use. No root package.json is added. No runtime code changed and no behavioural revert is applicable. Install and use the committed tests/oracle lockfile exactly as CI does.
   "2026-10-15T08:33:12.035Z",codex-agent,"Full isolated just release-check PASS: 318/318 regular tests and 318/318 instrumented tests across 17 suites each, zero failures and ignored cases. Coverage: lines 5647/5647, functions 522/522, regions 8631/8631, branches 1194/1194 (all 100% at unchanged floors). fmt, clippy -D warnings, private-item rustdoc, native identity audit, required published-oracle differentials and canonical changelog check passed. cargo audit exited 0 with its pre-existing allowed unmaintained unsafe-libyaml 0.2.11 warning RUSTSEC-2024-0449; no vulnerability findings were reported. Locked oracle 2026.10.14 was installed exactly as CI does. Isolated oracle health --check-only --require-merge-drivers --strict-exit passes with existing guidance, staleness and provenance advisories. No histories were rewritten."
   "2026-10-15T13:03:43.939Z",claude-hub,"Final repin recorded: .github/workflows/pm-github-sync.yml now pins unbraind/pm-github@3015930b351a3d9c1c03ee4a26f8404025287df7 (pm-github 2026.10.15) and passes pm-github-version 2026.10.15 with actions: write (commit 07b7891 on this branch). The earlier comment that said a later repin was still needed describes the 2026.10.14 interim state and is historical. The locked oracle stays 2026.10.14; it records the validation oracle, not the caller pin."
   "2026-10-15T15:34:31.850Z",claude-hub,"BLOCKED (review of PR 84, CodeRabbit on 357f548): the pinned reusable workflow runs npm ci at the caller root and this repository has no root package.json (oracle in tests/oracle), so the sync would stop at Install dependencies. Upstream fix tracked in https://github.com/unbraind/pm-github/issues/129 (npm-project-dir input). PR 84 is a draft until that pm-github release; then pass npm-project-dir: tests/oracle and repin."
   "2026-10-16T10:37:45.145Z",claude-orchestrator,"2026-10-16: pm-github 2026.10.16 (tag 67a5e3e) accepts npm-project-dir (pm-github#130, closes pm-github#129) and resolves the caller default branch through the API (#131). The sync caller now pins 2026.10.16 with npm-project-dir tests/oracle, post-import-script disabled (the oracle project has no npm scripts; just owns the changelog) and ci-workflows ci.yml. Added the daily gated closeout caller with the same pin and project directory."
+  "2026-10-21T19:13:16.146Z",codex-agent,"Tracker reconciliation authorized for the audited verdict FIXED-STALE. Re-verified current main c0154dbd7cd8: .github/workflows/pm-github-sync.yml retain immutable reusable-workflow pins; runtime scheduled-job success is outside this closure. Enable the gated pm-github issue sync. The SHA-pinned .github/workflows/pm-github-sync.yml caller is present on main. Toolchain manifests record adopted canonical tooling; later scheduled-job failures are separate from caller adoption. Scope: tracker state only; no new runtime certification or deployment claim."
 files[2]{path,scope,note}:
   .github/workflows/ci.yml,project,Existing workflow_dispatch confirmed without modification
   .github/workflows/pm-github-sync.yml,project,Pinned gated sync caller
@@ -21,4 +27,5 @@ tests[1]{command,scope,provenance{author,created_at,source_kind,source_ref}}:
   cargo +1.90.0 fmt --all -- --check,project,codex-agent,"2026-10-15T07:38:27.809Z",local_mutation,chore/gated-issue-sync-and-braces-free-gates
 docs[1]{path,scope,note}:
   CHANGELOG.md,project,Regenerated after tracker writes
+close_reason: "Re-verified current main c0154dbd7cd8: .github/workflows/pm-github-sync.yml retain immutable reusable-workflow pins; runtime scheduled-job success is outside this closure. Audit delivery: Enable the gated pm-github issue sync. The SHA-pinned .github/workflows/pm-github-sync.yml caller is present on main. Toolchain manifests record adopted canonical tooling; later scheduled-job failures are separate from caller adoption."
 body: ""

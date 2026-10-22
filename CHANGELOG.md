@@ -5,6 +5,10 @@
 ### Features
 
 - Read canonical pm workspaces without a JavaScript runtime ([pm-rust-o2yr](https://github.com/unbraind/pm-rust/blob/main/.agents/pm/features/pm-rust-o2yr.toon)) _type:Feature; status:closed; P1; release:0.1.0-alpha.1_
+- Implement native keyword search with pinned oracle parity ([pm-rust-bj7a](https://github.com/unbraind/pm-rust/blob/main/.agents/pm/features/pm-rust-bj7a.toon)) _type:Feature; status:closed; P2_
+- Implement native item file doc and test collections with oracle parity ([pm-rust-unih](https://github.com/unbraind/pm-rust/blob/main/.agents/pm/features/pm-rust-unih.toon)) _type:Feature; status:closed; P2_
+- Implement native context history and dependency orientation with oracle parity ([pm-rust-xb3s](https://github.com/unbraind/pm-rust/blob/main/.agents/pm/features/pm-rust-xb3s.toon)) _type:Feature; status:closed; P2_
+- Match unbounded list JSON to PM CLI 2026.10.2 ([pm-rust-p0no](https://github.com/unbraind/pm-rust/blob/main/.agents/pm/features/pm-rust-p0no.toon)) _type:Feature; status:closed; P1_
 - Persist native close resolution and completion metadata with oracle parity ([pm-rust-cqk7](https://github.com/unbraind/pm-rust/blob/main/.agents/pm/features/pm-rust-cqk7.toon)) _type:Feature; status:closed; P2_
 - Extend native ownership to selection and composed lifecycle commands ([pm-rust-rysu](https://github.com/unbraind/pm-rust/blob/main/.agents/pm/features/pm-rust-rysu.toon)) _type:Feature; status:closed; P2_
 - Implement native claim and release with published CLI parity ([pm-rust-zukw](https://github.com/unbraind/pm-rust/blob/main/.agents/pm/features/pm-rust-zukw.toon)) _type:Feature; status:closed; P1_
@@ -16,10 +20,15 @@
 
 ### Changes
 
+- Enable the gated pm-github issue sync ([pm-rust-zmqa](https://github.com/unbraind/pm-rust/blob/main/.agents/pm/chores/pm-rust-zmqa.toon)) _type:Chore; status:closed; P2_
 - Multi-process no-lost-update concurrency test ([pm-rust-nctu](https://github.com/unbraind/pm-rust/blob/main/.agents/pm/tasks/pm-rust-nctu.toon)) _type:Task; status:closed; P2_
 
 ### Bug Fixes
 
+- Match published history integrity and certify CLI 2026.9.7 ([pm-rust-ing0](https://github.com/unbraind/pm-rust/blob/main/.agents/pm/issues/pm-rust-ing0.toon)) _type:Issue; status:closed; P1_
+- Pin pm-rust CI and release tooling to current pm CLI and pm-changelog ([pm-rust-4ld8](https://github.com/unbraind/pm-rust/blob/main/.agents/pm/issues/pm-rust-4ld8.toon)) _type:Issue; status:closed; P1_
+- Preserve canonical numeric-string quoting with toon-format 0.6.1 ([pm-rust-guou](https://github.com/unbraind/pm-rust/blob/main/.agents/pm/issues/pm-rust-guou.toon)) _type:Issue; status:closed; P1_
+- Keep oracle test runs out of Sentry ([pm-rust-oqst](https://github.com/unbraind/pm-rust/blob/main/.agents/pm/issues/pm-rust-oqst.toon)) _type:Issue; status:closed; P1_
 - Stabilize the create lock-replacement fixture under parallel load ([pm-rust-ax0o](https://github.com/unbraind/pm-rust/blob/main/.agents/pm/issues/pm-rust-ax0o.toon)) _type:Issue; status:closed; P2_
 - Legacy list cursors without after_index publish the query fingerprint ([pm-rust-poen](https://github.com/unbraind/pm-rust/blob/main/.agents/pm/issues/pm-rust-poen.toon)) _type:Issue; status:closed; P2_
 - Match oracle semantic lineage depth and unresolved ancestor handling ([pm-rust-lcap](https://github.com/unbraind/pm-rust/blob/main/.agents/pm/issues/pm-rust-lcap.toon)) _type:Issue; status:closed; P2_
@@ -58,6 +67,10 @@
 
 ### Other
 
+- Extend native list selection to configured lifecycle and hierarchy registries ([pm-rust-cbaq](https://github.com/unbraind/pm-rust/blob/main/.agents/pm/tasks/pm-rust-cbaq.toon)) _type:Task; status:closed; P3_
+- Give concurrent claim acceptance explicit writer wait budgets ([pm-rust-23ps](https://github.com/unbraind/pm-rust/blob/main/.agents/pm/chores/pm-rust-23ps.toon)) _type:Chore; status:closed; P3_
+- Extend native list parity to pagination and bounded output contracts ([pm-rust-ufzy](https://github.com/unbraind/pm-rust/blob/main/.agents/pm/tasks/pm-rust-ufzy.toon)) _type:Task; status:closed; P2_
+- Track pm-cli 2026.10.19 as the parity oracle ([pm-rust-owzm](https://github.com/unbraind/pm-rust/blob/main/.agents/pm/tasks/pm-rust-owzm.toon)) _type:Task; status:closed; P1_
 - Resume native output-limit continuations after the last emitted row, matching pm-cli 2026.10.7 ([pm-rust-8qbo](https://github.com/unbraind/pm-rust/blob/main/.agents/pm/tasks/pm-rust-8qbo.toon)) _type:Task; status:closed; P1_
 - Install the published-CLI oracle from a committed lockfile in CI ([pm-rust-rnex](https://github.com/unbraind/pm-rust/blob/main/.agents/pm/tasks/pm-rust-rnex.toon)) _type:Task; status:closed; P1_
 - Auto-merge green Dependabot updates and group the pm toolchain into one daily PR ([pm-rust-p9bu](https://github.com/unbraind/pm-rust/blob/main/.agents/pm/tasks/pm-rust-p9bu.toon)) _type:Task; status:closed; P2_

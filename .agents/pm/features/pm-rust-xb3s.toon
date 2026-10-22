@@ -2,14 +2,19 @@ id: pm-rust-xb3s
 title: Implement native context history and dependency orientation with oracle parity
 description: "Brief context, verified history reads, dependency listing, large public tracker latency and exact gates against the pinned oracle."
 type: Feature
-status: in_progress
+status: closed
 priority: 2
 tags[3]: conformance,orientation,rust
 created_at: "2026-10-18T03:01:55.242Z"
-updated_at: "2026-10-18T16:51:03.969Z"
+updated_at: "2026-10-21T19:08:14.636Z"
+closed_at: "2026-10-21T19:08:03.740Z"
+completed_at: "2026-10-21T19:08:03.740Z"
 author: codex-agent
 parent: pm-rust-u4al
-comments[50]{created_at,author,text}:
+resolution: Delivered by the audit-linked mainline implementation.
+expected_result: Implement native context history and dependency orientation with oracle parity.
+actual_result: "Re-verified current main c0154dbd7cd8: delivery 368697864187 remains in main ancestry; src/error.rs, tests/cli_dispatch.rs remain present."
+comments[51]{created_at,author,text}:
   "2026-10-18T03:02:15.486Z",codex-agent,"Plan: implement native brief context focus selection and packing, append-only history reads, and dependency tree reads. Compare complete CLI bytes against the locked oracle on disposable trackers. Document unsupported flags explicitly, retain release disablement, and record revert controls, large public tracker latency and all local/platform gates. Pinned history reads do not verify by default; --verify returns a verification report rather than refusing on a broken record hash. Preserve this observable oracle behavior and document the distinction."
   "2026-10-18T03:15:21.835Z",codex-agent,"Implementation in progress: native brief relevance ordering and identity packing, compact/full history with strict integrity exit, and bounded dependency tree/graph reads. Initial local build succeeds. Added real-CLI fixed-clock differential fixtures; extending refusal and corruption cases before the aggregate gate. CLI orientation requires a complete initialized settings document; fixtures now use real pm init rather than a partial settings surrogate."
   "2026-10-18T03:39:06.493Z",codex-agent,"First real-CLI differential: history passed, including immutable-author tampering with --verify --strict-exit. Dependency truncation exposed an internal row-contract token estimate, now matched. Context exposed an oracle behavior: the 25 ms packing deadline can expire before the first selection when this shared host deschedules Node, returning zero focus rows and suggestions despite active candidates. The orientation fixture now pins the monotonic clock as well as Date to test deterministic bytes. Native packing completes deterministically; document this timing boundary and report it as an oracle UX gap rather than claiming scheduling equivalence."
@@ -60,6 +65,7 @@ comments[50]{created_at,author,text}:
   "2026-10-18T16:20:54.646Z",codex-agent,"Fourth-review evidence: context_explicit_global_root passes; restoring only context_state_boundary ambient root resolution makes it fail (cargo test --locked --lib context_explicit_global_root, exit 101) under a synthetic PM_GLOBAL_PATH scorer. Restored code passes all 238 library tests under the same contaminated global root, including no-extension-health SDK calls. The internal explicit-root path passes one captured root to the boundary and health diagnostics without process environment mutation. The mixed-case dependency fixture performs 32 real native/oracle comparisons across tree/graph, summary/full, JSON/TOON and depth/node/edge bounds. Oracle full output has 5 nodes and 2 missing display spellings; summary has 4 normalized nodes and 1 missing identity. Applying only the suggested normalized graph keys fails cargo test --locked --test orientation_differential deps_mixed_case_dangling_matches_oracle (101); restoring oracle-compatible keys passes (0). Suggestion declined to preserve byte parity. Compaction extraction preserves both finalizers: npm exec --yes --package=jscpd@4.0.5 -- jscpd src/read_output.rs --format rust --min-lines 5 --min-tokens 50 --threshold 0 --reporters json passes with 0 clones; reverting only that file to the preceding implementation fails (1), with 2 clones / 26 duplicated lines / 2.92 percent. This is duplication evidence, not a claimed behavioral failure for a pure extraction."
   "2026-10-18T16:24:01.601Z",codex-agent,"PM-linked runner passes all five commands: cargo test --locked --test orientation_differential (18 tests), cargo test --locked --test cli_dispatch (14), cargo test --locked --lib (238), cargo test --locked --test release_pipeline_contract (18), cargo test --locked --bin pm-rust (24): 312 passed, zero failures or ignored tests. Project policy keeps automatic evidence recording disabled (tracking_disabled), so this is the manual receipt. Fmt and pedantic deny-warnings Clippy pass. Beginning the isolated full Rust release gate with all source/test bytes frozen; normal host health still reproduces the inherited global extension version skew, which CI-isolated health avoids."
   "2026-10-18T16:51:03.189Z",codex-agent,"Fourth-review clean isolated RUST_TEST_THREADS=8 just release-check passes: 464 normal + 464 instrumented tests, 20 suites each, zero failures or ignored tests. Complete source coverage is 100 percent in all four dimensions at unchanged thresholds; exact counts are recorded with the PR receipt. Fmt, pedantic deny-warnings Clippy, private rustdoc, identity audit, cargo audit and changelog all pass; the existing allowed unsafe-libyaml unmaintained warning remains. All frozen Rust source/test digests match. The inherited broken item/history bytes are unchanged and this feature history retains its complete original prefix. Releasing the feature claim before the review commit; it remains in_progress for orchestrator verification. Next: exact-head fresh no-local clone health, push and all-OS CI with 60-second polling."
+  "2026-10-21T19:07:26.320Z",codex-agent,"Tracker reconciliation authorized for the audited verdict FIXED-STALE. Re-verified current main c0154dbd7cd8: delivery 368697864187 remains in main ancestry; src/error.rs, tests/cli_dispatch.rs remain present. Implement native context history and dependency orientation with oracle parity. [PR #92](https://github.com/unbraind/pm-rust/pull/92) (3686978) implements native context/history/dependency orientation with locked-oracle conformance. Scope: tracker state only; no new runtime certification or deployment claim."
 files[19]{path,scope}:
   .github/workflows/ci.yml,project
   src/error.rs,project
@@ -92,4 +98,5 @@ docs[5]{path,scope}:
   docs/benchmarks/native-orientation-gates-2026-10-18.json,project
   docs/NATIVE_ORIENTATION.md,project
   README.md,project
+close_reason: "Re-verified current main c0154dbd7cd8: delivery 368697864187 remains in main ancestry; src/error.rs, tests/cli_dispatch.rs remain present. Audit delivery: Implement native context history and dependency orientation with oracle parity. [PR #92](https://github.com/unbraind/pm-rust/pull/92) (3686978) implements native context/history/dependency orientation with locked-oracle conformance."
 body: ""
