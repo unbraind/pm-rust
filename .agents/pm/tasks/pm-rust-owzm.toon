@@ -2,18 +2,23 @@ id: pm-rust-owzm
 title: Track pm-cli 2026.10.19 as the parity oracle
 description: "Bump the tests/oracle pin from 2026.10.14 to 2026.10.19, keep native parity and full coverage green"
 type: Task
-status: in_progress
+status: closed
 priority: 1
 tags[4]: ci,conformance,oracle,toolchain
 created_at: "2026-10-20T05:19:59.230Z"
-updated_at: "2026-10-20T18:10:31.370Z"
+updated_at: "2026-10-21T18:55:50.514Z"
 deadline: "2026-10-24T00:00:00.000Z"
+closed_at: "2026-10-21T18:55:44.973Z"
+completed_at: "2026-10-21T18:55:44.973Z"
 author: pi-agent
 estimated_minutes: 240
 acceptance_criteria: tests/oracle package.json and lockfile pin @unbrained/pm-cli 2026.10.19; COMPATIBLE_PM_VERSION matches; just release-check green at unchanged thresholds; every parity delta classified
+resolution: Delivered by the audit-linked mainline implementation.
+expected_result: Track pm-cli 2026.10.19 as the parity oracle.
+actual_result: "Re-verified current main c0154dbd7cd8: delivery 8e32f851504c remains in main ancestry; src/json_output.rs, tests/fixtures/list-2026-10-2.json remain present."
 dependencies[1]{id,kind,created_at,author,source_kind,author_source}:
   pm-rust-4ld8,related,"2026-10-20T05:19:59.230Z",pi-agent,"cli:create:dep",detected
-comments[30]{created_at,author,text}:
+comments[31]{created_at,author,text}:
   "2026-10-20T05:19:59.230Z",pi-agent,"Created for the oracle-currency update: pin tests/oracle to @unbrained/pm-cli 2026.10.19, run the full gate, classify all parity deltas."
   "2026-10-20T05:21:45.866Z",pi-agent,"Oracle pin bump applied: tests/oracle manifest and lockfile now pin @unbrained/pm-cli 2026.10.19 (regenerated with npm; new integrity recorded; bundled deps gained semver and OpenTelemetry api pins), COMPATIBLE_PM_VERSION in src/lib.rs and README oracle references updated. Merge drivers installed for this worktree against the 2026.10.19 oracle; strict health passes. Next: full just release-check and parity-failure classification."
   "2026-10-20T06:28:03.033Z",pi-agent,"Full parity-failure classification against the 2026.10.19 oracle, all verified empirically against the published 10.14 and 10.19 packages: (a) intended upstream changes: GH-1457 in 10.15 (explicit --limit binds under --no-truncate; no-truncate disables only the implicit token ceiling and the 10k row guard), GH-1465 in 10.17 (foreign principal release under warn governance emits ownership_warning:assignee_conflict in the release envelope; forced and bypass releases stay silent, strict still refuses), GH-1464 in 10.17 (successful warn-mode close returns follow_up kind complete_close_evidence with suggested_command/suggested_command_args instead of failure-shaped recovery), GH-1478 in 10.17 (240 UTF-16-unit string compaction steps back one unit to preserve surrogate pairs in JSON and TOON; no lone-surrogate escapes; the retained malformed-override refusal stays), GH-1481 in 10.18 (explicit --sort keys appear once in brief rows and projection.fields; title excluded as already present), GH-1489 in 10.18 (all-status spellings and terminal-family status filters keep the brief default; explicit --full and raw SDK full reads stay full). No upstream bug from the parity list surfaced as a divergence; upstream issues 1507 and 1509-1514 remain byte-kept quirks with no native fixes smuggled in. Native defects: none found; every failure mapped to an upstream behaviour change. Fixes: release envelope warning in mutation.rs ownership path, close follow_up receipt, list projection model (all-status brief, sort key in brief, explicit producer limit under no-truncate), pair-preserving compact_strings; golden list fixture regenerated from the 10.19 oracle with new full and full-all labels; differential and unit tests updated to the new contracts."
@@ -44,6 +49,7 @@ comments[30]{created_at,author,text}:
   "2026-10-20T17:32:56.757Z",codex-agent,The loaded host is still progressing through the final ordinary search/collection suite with no failures. Publishing the reviewed implementation and current evidence so hosted CI can run the identical unchanged just release-check aggregate in parallel with the foreground local gate. Current full-gate validation is explicitly pending; focused regressions and behavioral revert proofs are already complete. Keep this item in progress and claimed until final verification results are recorded.
   "2026-10-20T17:48:10.407Z",codex-agent,"The clean-HOME local ordinary test pass is complete: all 21 binaries, 521 passed, zero failed or ignored tests. Local just release-check has entered the full nightly branch-instrumented pass. Hosted Linux Rust CI on implementation head 8bd7993e292e41badfcd598e0ef9ed356cc08bf4 independently confirms the same 521 passing tests and both new regressions; raw Rust jobs also pass on macOS and Windows. All three unchanged release aggregates remain pending. No runtime source changes since the pushed implementation."
   "2026-10-20T18:10:24.650Z",codex-agent,"PR 100 nullable-sort review verification complete for implementation 8bd7993e292e41badfcd598e0ef9ed356cc08bf4. All three unchanged just release-check aggregates passed in CI: Linux 521 ordinary plus 521 instrumented tests, macOS 517 plus 517, Windows 512 plus 512. Every pass ran all 21 binaries, zero failed or ignored tests. Lines/functions/regions/branches are 100 percent on every platform; Linux totals are 13181 lines, 1364 functions, 22015 regions and 3154 branches. Fmt, clippy, private-item rustdoc, audit, changelog and eight-check strict summary health passed. Existing audit and tracker advisories remain. Local clean-HOME ordinary pass also passed 521/521; its duplicate instrumented run was stopped after CI aggregate success, with its first 300 tests passed and no timeout. Both focused linked regressions pass 1/1 and both production-function-only revert proofs compiled and failed as recorded above. Latest review data still contains only PRRT_kwDOTwgMRs6uY9EN and no outside-diff findings. No new pm CLI/SDK defect found. macOS latency was canceled before runner allocation and is missing evidence; final-head CI will be checked separately. Final evidence edits change only documentation and this tracker, with production source and test files identical to the verified implementation. Release this claim and leave the item in progress for orchestrator verification; no thread replies or resolutions."
+  "2026-10-21T18:51:56.307Z",codex-agent,"Tracker reconciliation authorized for the audited verdict FIXED-STALE. Re-verified current main c0154dbd7cd8: delivery 8e32f851504c remains in main ancestry; src/json_output.rs, tests/fixtures/list-2026-10-2.json remain present. Track pm-cli 2026.10.19 as the parity oracle. [PR #100](https://github.com/unbraind/pm-rust/pull/100) (8e32f85), tests/oracle/package.json and COMPATIBLE_PM_VERSION pin and certify 2026.10.19. Newer parity is separate. Scope: tracker state only; no new runtime certification or deployment claim."
 notes[1]{created_at,author,text}:
   "2026-10-20T05:19:59.230Z",pi-agent,"Oracle currency: pm-rust must track the current published pm CLI; this item owns the 2026.10.19 pin update"
 learnings[1]{created_at,author,text}:
@@ -100,7 +106,7 @@ files[21]:
     scope: project
   - path: tests/support/toon_output_unit.rs
     scope: project
-tests[6]:
+tests[7]:
   - command: just release-check
     scope: project
     provenance:
@@ -154,7 +160,15 @@ tests[6]:
       created_at: "2026-10-20T15:43:43.841Z"
       source_kind: local_mutation
       source_ref: chore/oracle-pm-cli-2026-10-19
-docs[19]{path,scope}:
+  - command: git merge-base --is-ancestor 8e32f851504c4169704d3af3cec4b91420c9d33c HEAD
+    scope: project
+    provenance:
+      author: codex-agent
+      created_at: "2026-10-21T18:54:12.792Z"
+      source_kind: local_mutation
+      source_ref: chore/reconcile-tracker-1021
+docs[20]{path,scope}:
+  CHANGELOG.md,project
   docs/ORACLE_2026_10_19.md,project
   "https://github.com/unbraind/pm-cli/blob/main/.agents/pm/features/pm-gh1465.toon",project
   "https://github.com/unbraind/pm-cli/blob/main/.agents/pm/issues/pm-gh1457.toon",project
@@ -174,4 +188,5 @@ docs[19]{path,scope}:
   "https://github.com/unbraind/pm-rust/pull/100",project
   "https://github.com/unbraind/pm-rust/pull/100/checks",project
   README.md,project
+close_reason: "Re-verified current main c0154dbd7cd8: delivery 8e32f851504c remains in main ancestry; src/json_output.rs, tests/fixtures/list-2026-10-2.json remain present. Audit delivery: Track pm-cli 2026.10.19 as the parity oracle. [PR #100](https://github.com/unbraind/pm-rust/pull/100) (8e32f85), tests/oracle/package.json and COMPATIBLE_PM_VERSION pin and certify 2026.10.19. Newer parity is separate."
 body: "The parity oracle in tests/oracle is pinned to @unbrained/pm-cli 2026.10.14 while the current release is 2026.10.19. Owner rule: pm-rust must track the current pm CLI. This task bumps the oracle pin (package.json + committed lockfile), updates COMPATIBLE_PM_VERSION and docs references, runs the full gate, and classifies every parity delta between 10.14 and 10.19 as intended upstream change, upstream bug kept at parity, or native defect. Supersedes the open Dependabot oracle bumps."

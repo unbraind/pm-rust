@@ -2,14 +2,19 @@ id: pm-rust-bj7a
 title: Implement native keyword search with pinned oracle parity
 description: "Match keyword search ranking, filters, JSON and TOON pages, bounded output and refusals against the locked published oracle on real disposable trackers."
 type: Feature
-status: in_progress
+status: closed
 priority: 2
 tags[3]: conformance,rust,search
 created_at: "2026-10-16T16:59:45.140Z"
-updated_at: "2026-10-17T12:59:05.119Z"
+updated_at: "2026-10-21T19:12:09.250Z"
+closed_at: "2026-10-21T19:11:59.642Z"
+completed_at: "2026-10-21T19:11:59.642Z"
 author: codex-agent
 parent: pm-rust-u4al
-comments[29]{created_at,author,text}:
+resolution: Delivered by the audit-linked mainline implementation.
+expected_result: Implement native keyword search with pinned oracle parity.
+actual_result: "Re-verified current main c0154dbd7cd8: delivery 6d519ecc40f5 remains in main ancestry; src/collections.rs, tests/claim_release_differential.rs remain present."
+comments[30]{created_at,author,text}:
   "2026-10-16T17:00:03.554Z",codex-agent,"Plan: characterize the locked keyword search implementation, reuse native pagination and output controls, and compare full CLI bytes over real small and large trackers. Keep the oracle pin unchanged and record function-level behavioral revert proofs before the full release gate."
   "2026-10-16T17:09:01.674Z",codex-agent,"Implemented weighted keyword scoring and shared bounded-read delivery. Initial real-tracker comparisons passed literal token, Unicode, punctuation and basic filters; negative controls exposed the zero-limit empty-envelope branch and the exact semantic option set used in producer fingerprints. Both are corrected for the next differential run."
   "2026-10-16T17:34:08.226Z",codex-agent,"Exact bounded-search snapshot replay and changed-row refusal passed. Corpus expansion found that source normalization drops plan steps lacking required order and timestamps; the native corpus now applies that validity boundary. Added direct SDK tests for every searchable field, configured type aliases, Unicode whitespace, ranking thresholds and producer cursor fallback."
@@ -39,6 +44,7 @@ comments[29]{created_at,author,text}:
   "2026-10-17T11:01:25.777Z",codex-agent,"History verification FAIL: before_hash_mismatch at entry 44, the first new claim written with the changelog-only SDK 2026.10.9. That older parser normalized away linked-test updater metadata before hashing. Original 43-entry history prefix is unchanged; current item matches latest after_hash. Later writes use repo-pinned 2026.10.14. No historical records will be rewritten or re-anchored. Default strict health passes but explicitly skips history_drift; this is not a history-integrity pass."
   "2026-10-17T11:30:13.364Z",codex-agent,All new focused and linked regressions pass. The first aggregate stopped at a pre-existing claim-race fixture whose default 3-second budget expired during publication under storage load. pm-rust-23ps tracks the explicit fixture budget correction; production behavior and all coverage thresholds stay fixed. A complete release gate rerun follows the focused concurrency acceptance. History verification remains separately failed as tracked in pm-rust-b4yl.
   "2026-10-17T12:58:58.395Z",codex-agent,"Round 3 final local release-check PASS: 385 normal and 385 instrumented tests on Node 26.12.0 with isolated HOME/Git configuration. Required source coverage is 8892/8892 lines, 868/868 functions, 13907/13907 regions and 2150/2150 branches. Fmt, strict clippy, private rustdoc, identity audit, required pinned-oracle differentials, dependency audit and changelog verification pass at unchanged thresholds. Status CSV byte parity and its search-only revert failure are recorded above. Both outside-diff notes are accepted and corrected. Releasing the claim for orchestrator verification; push and final-head three-OS CI follow. Tracker history verification remains failed at entry 44, tracked in pm-rust-b4yl; no history was rewritten."
+  "2026-10-21T19:11:25.600Z",codex-agent,"Tracker reconciliation authorized for the audited verdict FIXED-STALE. Re-verified current main c0154dbd7cd8: delivery 6d519ecc40f5 remains in main ancestry; src/collections.rs, tests/claim_release_differential.rs remain present. Implement native keyword search with pinned oracle parity. [PR #91](https://github.com/unbraind/pm-rust/pull/91) (6d519ec) implements native search and item file/doc/test collections with differential tests and explicit writer-wait budgets in the concurrent acceptance fixture. Scope: tracker state only; no new runtime certification or deployment claim."
 files[11]{path,scope}:
   src/lib.rs,project
   src/list_registry.rs,project
@@ -89,4 +95,5 @@ docs[5]{path,scope}:
   docs/NATIVE_SEARCH_COLLECTIONS.md,project
   "https://github.com/unbraind/pm-rust/pull/91",project
   README.md,project
+close_reason: "Re-verified current main c0154dbd7cd8: delivery 6d519ecc40f5 remains in main ancestry; src/collections.rs, tests/claim_release_differential.rs remain present. Audit delivery: Implement native keyword search with pinned oracle parity. [PR #91](https://github.com/unbraind/pm-rust/pull/91) (6d519ec) implements native search and item file/doc/test collections with differential tests and explicit writer-wait budgets in the concurrent acceptance fixture."
 body: ""
