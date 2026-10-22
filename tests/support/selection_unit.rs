@@ -585,18 +585,18 @@ thread_local! {
 }
 
 /// Advances real ownership state after ranking without replacing any production result.
-pub(super) fn contend_after_ranking(
-    workspace: &Workspace,
-    ranked: &[ItemDocument],
-) -> Result<(), PmRustError> {
+pub(super) fn contend_after_ranking(workspace: &Workspace, ranked: &[ItemDocument]) {
     let count = CONTEND_AFTER_RANKING.replace(0);
     for document in ranked.iter().take(count) {
         let mut competing = request();
         competing.id.clone_from(&document.metadata.id);
         competing.author = "competing-agent".to_owned();
-        crate::mutation::ownership_item(workspace.pm_root(), &competing, true)?;
+        let result = crate::mutation::ownership_item(workspace.pm_root(), &competing, true);
+        assert!(
+            result.is_ok(),
+            "could not stage competing claim: {result:?}"
+        );
     }
-    Ok(())
 }
 
 /// The actual claim-next entry point reads the corpus once, rather than once per lost race.

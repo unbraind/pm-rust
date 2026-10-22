@@ -345,7 +345,7 @@ impl Workspace {
                 request,
                 true,
                 options,
-                || {
+                &mut || {
                     parents = ownership_parents(self, request)?;
                     Ok(())
                 },
@@ -373,7 +373,7 @@ impl Workspace {
                 request,
                 false,
                 options,
-                || {
+                &mut || {
                     parents = ownership_parents(self, request)?;
                     Ok(())
                 },

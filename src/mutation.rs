@@ -2972,7 +2972,7 @@ pub(crate) fn ownership_item(
         request,
         claim,
         &crate::OwnershipOptions::default(),
-        || Ok(()),
+        &mut || Ok(()),
     )
 }
 
@@ -2983,7 +2983,7 @@ pub(crate) fn ownership_item_with_options(
     request: &OwnershipItem,
     claim: bool,
     options: &crate::OwnershipOptions,
-    prepare: impl FnOnce() -> Result<(), PmRustError>,
+    prepare: &mut dyn FnMut() -> Result<(), PmRustError>,
 ) -> Result<OwnershipResult, PmRustError> {
     let mut settings = read_settings(pm_root)?;
     settings.locks.use_created_at = true;
