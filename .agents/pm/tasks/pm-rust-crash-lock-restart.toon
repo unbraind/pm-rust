@@ -6,9 +6,9 @@ status: in_progress
 priority: 2
 tags[3]: crash-consistency,follow-up,locks
 created_at: "2026-10-21T22:16:11.158Z"
-updated_at: "2026-10-22T12:12:20.661Z"
+updated_at: "2026-10-22T17:23:49.897Z"
 author: codex-agent
-comments[10]{created_at,author,text}:
+comments[13]{created_at,author,text}:
   "2026-10-21T22:19:53.971Z",codex-agent,"Overlap check: lock and initialization searches found no open item covering safe recovery from incomplete lock publication. This is distinct from text ownership refusal parity and completed owner-death locking work. The two measured failures are native update/comment at fsync ordinal 1, restart exit 4; all acknowledged item/history bytes remain intact. Repair policy is deliberately separate from the crash evidence harness."
   "2026-10-21T23:04:13.757Z",codex-agent,"Read both retained same-family update/comment fsync ordinal 1 cases and #104. The first fsync follows a complete owner-payload write; the fresh empty publication gate prevents the existing confirmed-dead-owner recovery. Plan: while holding the existing kernel lease, admit identity-checked empty-gate reclamation only for a confirmed dead same-host owner; retain TTL and unknown/live/nonempty-gate refusals. Add permanent independent replay cases, require every measured boundary to recover, and verify 50 simultaneous writers without Git. Targeted checks locally; unchanged-threshold release-check matrix remains the full CI gate. This branch builds on #104 and must merge after it."
   "2026-10-21T23:19:03.467Z",codex-agent,"The corrected synthetic corpus passes 20/20 injected kills with 20/20 acknowledged writes, history prefixes, exact reference states and restart receipts; both cross-runtime baseline byte and acknowledgement comparisons pass. The separate permanent update/comment first-fsync replay tests pass 2/2; the fresh-gate owner and lease guard unit test passes. The initial minimal fixture failed oracle settings validation and was corrected before proof. A default-budget standalone run timed out under local load; the supported 60000 ms process budget completed the corpus. No recovery invariant or coverage threshold was relaxed. Targeted Rust acceptance and behavioral revert proof are next."
@@ -19,15 +19,36 @@ comments[10]{created_at,author,text}:
   "2026-10-22T11:34:12.928Z",codex-agent,"PR 105 integration round: pulled the remote head, confirmed zero review threads and no substantive CodeRabbit review body, then merged current origin/main a600bd8 and the completed PR 104 branch at 328ff009483d754b3e25412580495378025d5d87. Both merges were clean; main contributes its audited tracker reconciliation and the harness contributes the three typed-refusal fixes with four regressions. No recovery code or thresholds were changed in this round. Preserved the strict every-boundary recovery assertions and both permanent first-fsync replays. Running current-binary build, strict TypeScript/lint and the pinned-PM linked full crash harness, then the unchanged full release gate in CI given the demonstrated local cold-build contention. Existing original recovery revert receipts remain immutable."
   "2026-10-22T11:42:02.323Z",codex-agent,"Merged-head local acceptance passes: current native binary build; strict erasable TypeScript, ESLint, Rust fmt, diff check and isolated pinned-PM health. The existing linked full crash-harness command passed 20/20, zero failed or skipped, in about 215 seconds within its unchanged stored 300-second budget. This includes every measured crash boundary, exact acknowledged bytes/history/receipts, both permanent first-fsync replays and all four merged refusal regressions. No recovery function, original history, fixture, dependency pin or threshold was changed by this integration round, so no new behavioral-revert control is required; the original recovery proof and PR 104 guard proofs remain linked. Pushing the integrated candidate for unchanged just release-check in CI; the full gate is not yet claimed as passed."
   "2026-10-22T12:12:14.934Z",codex-agent,"Integrated code head 46178e2dae6468d1f71e18a23c9e608e19a48a56 passed the full Linux just release-check gate (https://github.com/unbraind/pm-rust/actions/runs/39772686608/job/119803873398). Ordinary and instrumented Rust runs each passed 580 tests across 22 suites, zero failed or ignored. Rust lines 14030/14030, functions 1467/1467, regions 23449/23449 and branches 3298/3298 are all 100 percent at unchanged thresholds. Strict TypeScript, ESLint and the merged Linux crash harness passed 20/20, zero failed or skipped, inside that gate. Audit, changelog and strict tracker health passed; the existing allowed RUSTSEC-2024-0449 advisory remains. macOS full gate also passed. This round has no review findings and no new recovery-code edits; original two-failure/two-restored recovery proof and merged PR 104 guard proofs remain intact. Releasing the claim and retaining in_progress; final receipt-head CI will be linked from PR 105. No replies/resolutions, PR merge or release."
-files[8]{path,scope,note}:
-  scripts/crash-harness.test.mts,project,Real incomplete-lock crash and replay reproduction
-  src/mutation.rs,project,Lease-protected early empty-gate recovery for confirmed dead owners
-  tests/concurrency_contract.rs,project,Fifty writers retain all 150 comments and history chain
-  tests/fixtures/crash-restart/comment.json,project,Permanent first-fsync comment reproduction
-  tests/fixtures/crash-restart/fixture/.agents/pm/settings.json,project,Minimal synthetic fixture shared by permanent reproductions
-  tests/fixtures/crash-restart/update.json,project,Permanent first-fsync update reproduction
-  tests/parity_1021_contract.rs,project,Exact oracle refusal receipts and authoritative byte preservation
-  tests/support/mutation_unit.rs,project,Live unknown occupied and held-lease refusal controls
+  "2026-10-22T17:21:57.057Z",codex-agent,"Original stacked-PR instruction, follow-up to the completed PR 104 review round: pulled PR 105 remote head 53e4988, confirmed zero review threads and no substantive CodeRabbit review, verified main is already an ancestor, then merged PR 104 final head f555a4238fc4d0fa5768feaee0e81dce66031202 after all nine of its exact-head CI jobs passed. The merge is clean and brings the baseline_parity replay guide/docstring correction plus two documentation regressions and LF/CRLF checks. No Rust source changed in this integration. Existing recovery invariants, two permanent first-fsync replays and original independent recovery revert proof remain intact. Running current-binary build, strict TypeScript/lint and the unchanged 300-second linked full crash harness, followed by the full unchanged release gate."
+  "2026-10-22T17:23:48.746Z",codex-agent,"Merged-head acceptance passes: current native build, strict erasable TypeScript, ESLint, required check-only tracker health, and the existing pinned-PM linked full crash suite. node --test scripts/crash-harness.test.mts passes 22/22 with zero failed/canceled/skipped in about 16 seconds inside its unchanged 300-second budget. Every measured crash boundary, both permanent update/comment first-fsync replays, exact bytes/history/receipts and the two merged guidance checks pass. All Rust source is byte-identical to 53e4988, so this integration adds no runtime fix or new runtime revert requirement; original recovery and inherited PR 104 documentation revert proofs remain valid and linked. Existing result-tracking policy is disabled; results are recorded here without changing it."
+  "2026-10-22T17:23:49.343Z",codex-agent,"Releasing the integration claim with status retained in_progress for orchestrator verification. This branch now includes the completed PR 104 head f555a4238fc4d0fa5768feaee0e81dce66031202 and current main a600bd8. Fresh unchanged-threshold full just release-check CI will validate the pushed integration head; its exact receipts and counts will be recorded in PR https://github.com/unbraind/pm-rust/pull/105. Pending CI is not approval. No review reply/resolution, PR merge, release, dependency/threshold change or history rewrite."
+files[9]:
+  - path: scripts/crash-harness.mts
+    scope: project
+  - path: scripts/crash-harness.test.mts
+    scope: project
+    note: Real incomplete-lock crash and replay reproduction
+  - path: src/mutation.rs
+    scope: project
+    note: Lease-protected early empty-gate recovery for confirmed dead owners
+  - path: tests/concurrency_contract.rs
+    scope: project
+    note: Fifty writers retain all 150 comments and history chain
+  - path: tests/fixtures/crash-restart/comment.json
+    scope: project
+    note: Permanent first-fsync comment reproduction
+  - path: tests/fixtures/crash-restart/fixture/.agents/pm/settings.json
+    scope: project
+    note: Minimal synthetic fixture shared by permanent reproductions
+  - path: tests/fixtures/crash-restart/update.json
+    scope: project
+    note: Permanent first-fsync update reproduction
+  - path: tests/parity_1021_contract.rs
+    scope: project
+    note: Exact oracle refusal receipts and authoritative byte preservation
+  - path: tests/support/mutation_unit.rs
+    scope: project
+    note: Live unknown occupied and held-lease refusal controls
 tests[3]{command,scope,timeout_seconds,provenance{author,created_at,source_kind,source_ref}}:
   node --test scripts/crash-harness.test.mts,project,300,codex-agent,"2026-10-21T23:11:31.260Z",local_mutation,fix/crash-restart-recovery
   env CARGO_BUILD_JOBS=2 PM_RUST_REQUIRE_PUBLISHED_CLI=1 cargo +1.90.0 test --locked --test concurrency_contract --test parity_1021_contract,project,900,codex-agent,"2026-10-21T23:11:44.224Z",local_mutation,fix/crash-restart-recovery
