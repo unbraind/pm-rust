@@ -198,6 +198,24 @@ test('replay refuses unknown manifests without executing their stored commands',
   }
 }));
 
+test('retained replay guidance distinguishes boundary cases from baseline parity', () => {
+  const guide = readFileSync(new URL('../docs/CRASH_HARNESS.md', import.meta.url), 'utf8');
+  const example = /```typescript\n([\s\S]*?)```/.exec(guide)?.[1];
+  assert.ok(example, 'the retained-case SDK example must remain documented');
+  assert.match(example, /kind: 'baseline_parity'[\s\S]*?scenario across both implementations[\s\S]*?all their observed boundaries/);
+  assert.match(example, /whitelisted scenario\/implementation\/syscall\/ordinal/);
+  assert.match(example, /never stored commands/);
+});
+
+test('SDK replay guidance includes the baseline parity scenario exception', () => {
+  const sdk = readFileSync(new URL('./crash-harness.mts', import.meta.url), 'utf8');
+  const guidance = /\/\*\*((?:(?!\*\/)[\s\S])*)\*\/\s*export function replayCrashFailure/.exec(sdk)?.[1];
+  assert.ok(guidance, 'the public replay API must retain its docstring');
+  assert.match(guidance, /baseline_parity failure replays the scenario across both implementations[\s\S]*?all their observed boundaries/);
+  assert.match(guidance, /whitelisted scenario\/implementation\/syscall\/ordinal/);
+  assert.match(guidance, /never stored commands/);
+});
+
 test('artifact destinations cannot mutate the source through relative names or symlink aliases',
   { skip: process.platform !== 'linux' }, () => temporary(root => {
     const source = join(root, 'source');

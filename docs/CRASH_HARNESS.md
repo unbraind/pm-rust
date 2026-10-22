@@ -27,8 +27,10 @@ const options: CrashOptions = {
 };
 const receipt: CrashReport = runCrashCorpus(options);
 console.log(receipt.ok, receipt.killed, receipt.parity);
-// After a failure, select its retained case.json; this executes only the
-// whitelisted scenario/implementation/syscall/ordinal, never stored commands.
+// After a failure, select its retained case.json. Boundary failures replay only
+// the whitelisted scenario/implementation/syscall/ordinal, never stored commands.
+// Exception: kind: 'baseline_parity' replays the scenario across both implementations
+// and all their observed boundaries, rather than selecting a single case.
 // replayCrashFailure(options, '.crash-failures/failure-example/case.json');
 ```
 

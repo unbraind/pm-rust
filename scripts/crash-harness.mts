@@ -155,7 +155,12 @@ export function runCrashCorpus(options: CrashOptions): CrashReport {
   }
 }
 
-/** Replay only a retained failure's whitelisted selection on its minimal synthetic fixture. */
+/**
+ * Replay a retained failure on its minimal synthetic fixture, never stored commands.
+ * Boundary failures use their whitelisted scenario/implementation/syscall/ordinal.
+ * A baseline_parity failure replays the scenario across both implementations and
+ * all their observed boundaries, rather than selecting a single case.
+ */
 export function replayCrashFailure(options: Omit<CrashOptions, 'source' | 'only' | 'scenarios'>, evidence: string): CrashReport {
   let manifest: unknown;
   try { manifest = JSON.parse(readFileSync(evidence, 'utf8')); } catch {
