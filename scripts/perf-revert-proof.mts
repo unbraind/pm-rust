@@ -40,6 +40,7 @@ async function run(test: { name: string; failure: string }, reverted: boolean): 
   const child = await new Promise<{ status: number; stdout: string }>((resolve, reject) => {
     activeChild = execFile('cargo', args, { cwd: repo, encoding: 'utf8', maxBuffer: 16 * 1024 * 1024 }, (error, stdout) => {
       activeChild = undefined;
+      if (error?.signal === 'SIGINT' || error?.signal === 'SIGTERM') interrupt(error.signal);
       if (error && (typeof error.code !== 'number' || error.signal || error.killed)) {
         reject(new Error('Revert-control process could not complete'));
       } else {
@@ -61,12 +62,15 @@ function restore(): void {
   writeFileSync(mutationPath, originalMutation);
 }
 
+/** Restore and exit consistently whichever side of an interrupt is observed first. */
+function interrupt(signal: 'SIGINT' | 'SIGTERM'): never {
+  activeChild?.kill(signal);
+  restore();
+  process.exit(128 + (signal === 'SIGINT' ? 2 : 15));
+}
+
 for (const signal of ['SIGINT', 'SIGTERM'] as const) {
-  process.on(signal, () => {
-    activeChild?.kill(signal);
-    restore();
-    process.exit(128 + (signal === 'SIGINT' ? 2 : 15));
-  });
+  process.on(signal, () => interrupt(signal));
 }
 
 try {
