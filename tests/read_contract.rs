@@ -129,6 +129,49 @@ fn ownership_parent_index_keeps_unrelated_validation() -> Result<(), Box<dyn std
     Ok(())
 }
 
+/// A filename alias absent from the validated ID index cannot leave a partial claim or release.
+#[test]
+fn ownership_missing_index_target_refuses_without_writes() -> Result<(), Box<dyn std::error::Error>>
+{
+    for release in [false, true] {
+        let (directory, root) = tracker()?;
+        let mut original = ITEM_A.replace("id: demo-a", "id: demo-real");
+        if release {
+            original.push_str("assignee: fixture-agent\nclaim_principal: fixture-agent\n");
+        }
+        write(root.join("tasks/demo-a.toon"), &original)?;
+        let session = "{\"retained\":true}\n";
+        write(root.join("runtime/session.json"), session)?;
+        let workspace = Workspace::discover(directory.path())?;
+        let request = pm_rust::OwnershipItem {
+            id: "demo-a".to_owned(),
+            author: "fixture-agent".to_owned(),
+            timestamp: Some("2026-08-22T10:00:00.000Z".to_owned()),
+            message: None,
+            force: false,
+            if_available: false,
+            provenance_role: None,
+        };
+        let options = pm_rust::OwnershipOptions::default();
+        let result = if release {
+            workspace.release_with_options(&request, &options)
+        } else {
+            workspace.claim_with_options(&request, &options)
+        };
+        assert!(matches!(result, Err(PmRustError::ItemNotFound { .. })));
+        assert_eq!(
+            fs::read_to_string(root.join("tasks/demo-a.toon"))?,
+            original
+        );
+        assert!(!root.join("history/demo-a.jsonl").exists());
+        assert_eq!(
+            fs::read_to_string(root.join("runtime/session.json"))?,
+            session
+        );
+    }
+    Ok(())
+}
+
 /// Every public read refuses a listing fault instead of fabricating an empty selection.
 fn queries_refuse_broken_storage(workspace: &Workspace) -> Result<(), Box<dyn std::error::Error>> {
     let results = [

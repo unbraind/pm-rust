@@ -338,7 +338,7 @@ impl Workspace {
         request: &OwnershipItem,
         options: &OwnershipOptions,
     ) -> Result<OwnershipResult, PmRustError> {
-        let parents = self.read_parent_index()?;
+        let parents = ownership_parents(self, request)?;
         let receipt = with_identity(self.pm_root(), options, || {
             crate::mutation::ownership_item_with_options(self.pm_root(), request, true, options)
         })?;
@@ -357,7 +357,7 @@ impl Workspace {
         request: &OwnershipItem,
         options: &OwnershipOptions,
     ) -> Result<OwnershipResult, PmRustError> {
-        let parents = self.read_parent_index()?;
+        let parents = ownership_parents(self, request)?;
         let receipt = with_identity(self.pm_root(), options, || {
             crate::mutation::ownership_item_with_options(self.pm_root(), request, false, options)
         })?;
@@ -426,6 +426,20 @@ pub(crate) fn with_identity<T>(
     } else {
         operation()
     }
+}
+
+/// Validates the corpus and requested lineage target before ownership can write.
+fn ownership_parents(
+    workspace: &Workspace,
+    request: &OwnershipItem,
+) -> Result<BTreeMap<String, Option<String>>, PmRustError> {
+    let parents = workspace.read_parent_index()?;
+    if !parents.contains_key(&request.id) {
+        return Err(PmRustError::ItemNotFound {
+            id: request.id.clone(),
+        });
+    }
+    Ok(parents)
 }
 
 /// Stores ownership-derived role and topic for later attribution resolution.

@@ -6,13 +6,13 @@ status: in_progress
 priority: 3
 tags[3]: follow-up,performance,rust
 created_at: "2026-10-18T06:28:16.861Z"
-updated_at: "2026-10-22T18:20:00.677Z"
+updated_at: "2026-10-22T18:24:30.954Z"
 assignee: codex-agent
 claim_principal: codex-agent
 author: codex-agent
 acceptance_criteria: "Measure the same 30-run commands and retain byte parity, storage integrity and all coverage dimensions."
 parent: pm-rust-u4al
-comments[71]{created_at,author,text}:
+comments[72]{created_at,author,text}:
   "2026-10-18T18:05:58.773Z",codex-agent,"Prerequisite PR #92 is merged into main. Implemented directory-derived strict get lookup, streamed list and brief-context projections, metadata-first filtered search and bounded first-page hit retention. No persistent index is added; release approval remains unset. Plan: byte differential suites unchanged, generated 3000-item latency and portable item-open gates on Linux/macOS/Windows, copied-public-tracker 30-run measurements, exact release checks and an open PR under pm-rust-u4al."
   "2026-10-18T18:06:03.318Z",codex-agent,"Behavioural revert proof: reverted only Workspace::get to its original read_items-based lookup, rebuilt and ran cargo test --locked --lib workspace::tests::single_item_get. Exit 101, 0 passed, 2 failed: unrelated merge-marker damage broke the target read and duplicate filenames yielded the wrong refusal. Restored lookup: 2 passed, 0 failed. The real 3000-item regression observes exactly one authoritative file open for success and zero for missing or duplicate IDs. The unchanged committed history prefix is retained byte-for-byte. An unpublished local draft whose linked-test stderr captured compiler paths was quarantined unchanged; public task events were replayed from that prefix and linked tests now use a path-redacting wrapper."
   "2026-10-18T18:09:17.030Z",codex-agent,"Pre-PR evidence: 247 library tests passed, both restored lookup tests passed through the sanitized linked-test runner, fmt/pedantic clippy/private-item rustdoc/changelog checks passed, and cargo audit passed with the repository-allowed RUSTSEC-2024-0449 warning. Real public-copy strace: get item opens 2991 -> 1; total openat 3009 -> 19; history opens zero in both. Paired 30-run runtime measurements and the unchanged affected differential suites are in progress. Generated local latency samples exceeded the unchanged ceilings under shared-host contention; dedicated three-OS CI is the acceptance gate."
@@ -84,6 +84,7 @@ comments[71]{created_at,author,text}:
   "2026-10-22T18:07:47.032Z",codex-agent,"Additional whole-diff self-review found that scripts/bench-report.mts accepted complete receipts with no native rows and published heading-only tables. It now refuses both empty rows and oracle-only rows. New real-file non-git process regression also renders the retained complete historical receipt and checks its existing table (checkout line endings normalized). Reverting only the new report guard makes the regression fail with exit 1 because the empty receipt is accepted with exit 0; restoring passes 1/1. Initial local release-check stopped at Clippy because the new test used forbidden expect_err; replaced it with explicit error handling, with no lint or threshold relaxation. Required check-only pm health and changelog checks pass. Existing linked test-result storage policy remains tracking_disabled; results are recorded in these comments."
   "2026-10-22T18:18:00.032Z",codex-agent,"The corrected local full release attempt passed fmt, deny-warnings Clippy, private-item rustdoc, ownership/CLI/close/collection/concurrency and harness suites. During orientation differential testing, the unchanged relationship_large_edge_limit_finishes_at_budget_floor case reported a failure while its peers were still running. It has an existing five-second process deadline. Awaiting the complete diagnostic before classifying it; no thresholds or unrelated source changed."
   "2026-10-22T18:20:00.677Z",codex-agent,"The unchanged local packet case was terminated before emitting its refusal (no exit code versus expected 2) under its five-second child deadline. Exact retry at the same limit passes 1/1: cargo +1.90.0 test --locked --test orientation_differential relationship_large_edge_limit_finishes_at_budget_floor. The local full attempt remains incomplete and is not called a gate pass. Full unchanged just release-check evidence will come from exact-head CI. Final full Node harness and its pinned-PM linked execution pass 23/23, zero failures/cancellations/skips. The new Rust refusal regression also passes via pinned-PM linked execution. No thresholds, timeouts, dependency pins, scope or unrelated runtime code changed."
+  "2026-10-22T18:24:30.062Z",codex-agent,"Continued same-class review verified one additional ownership edge case: when a filename aliases a different stored item ID, corpus decoding succeeds but the requested lineage key is absent. A real non-git process reproduction returned ItemNotFound after persisting assignee metadata. Claim and release now share ownership_parents, which validates both the corpus and requested index target before either write. New ownership_missing_index_target_refuses_without_writes covers claim and release and preserves target bytes, absent history and existing session bytes. Reverting only the target-presence guard fails with exit 101 from persisted target-byte inequality; restored passes 1/1 (both actions). Both public ordering controls were repeated on the final helper: each still fails with exit 101 when moved after its write, then the restored regression passes. Both ownership acceptance regressions pass 2/2. Superseded head 8346494 CI is not final approval."
 files[28]{path,scope}:
   .github/workflows/ci.yml,project
   .github/workflows/native-bench.yml,project
@@ -113,7 +114,7 @@ files[28]{path,scope}:
   tests/support/read_projection_unit.rs,project
   tests/support/search_unit.rs,project
   tests/support/workspace_unit.rs,project
-tests[14]{command,scope,provenance{author,created_at,source_kind,source_ref}}:
+tests[15]{command,scope,provenance{author,created_at,source_kind,source_ref}}:
   node scripts/check-lookup.mts,project,codex-agent,"2026-10-18T18:06:07.687Z",local_mutation,perf/native-reads-touch-only-what-they-need
   "node scripts/check-lookup.mts list::tests::context_timestamp_parse_work_is_linear",project,codex-agent,"2026-10-18T19:20:39.964Z",local_mutation,perf/native-reads-touch-only-what-they-need
   "node scripts/check-lookup.mts search::tests::filtered_search_strictly_decodes_selected_payloads",project,codex-agent,"2026-10-18T19:20:44.115Z",local_mutation,perf/native-reads-touch-only-what-they-need
@@ -128,6 +129,7 @@ tests[14]{command,scope,provenance{author,created_at,source_kind,source_ref}}:
   "node --test --test-name-pattern=\"revert proof restores\" scripts/harness.test.mts",project,codex-agent,"2026-10-22T09:35:35.712Z",local_mutation,perf/native-hot-paths
   "node --test --test-name-pattern=\"paired benchmarks\" scripts/harness.test.mts",project,codex-agent,"2026-10-22T15:18:18.814Z",local_mutation,perf/native-hot-paths
   cargo +1.90.0 test --locked --test read_contract ownership_parent_index_keeps_unrelated_validation,project,codex-agent,"2026-10-22T18:05:31.132Z",local_mutation,perf/native-hot-paths
+  cargo +1.90.0 test --locked --test read_contract ownership_missing_index_target_refuses_without_writes,project,codex-agent,"2026-10-22T18:24:30.883Z",local_mutation,perf/native-hot-paths
 docs[13]{path,scope}:
   docs/benchmarks/native-hot-path-checks-2026-10-21.json,project
   docs/benchmarks/native-hot-path-gates-2026-10-21.json,project
