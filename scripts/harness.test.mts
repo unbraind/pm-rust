@@ -1,14 +1,56 @@
 import assert from 'node:assert/strict';
-import { spawnSync } from 'node:child_process';
+import { spawn, spawnSync } from 'node:child_process';
 import { createHash } from 'node:crypto';
-import { existsSync, readFileSync, mkdtempSync, mkdirSync, rmSync, writeFileSync } from 'node:fs';
+import { chmodSync, existsSync, readFileSync, mkdtempSync, mkdirSync, rmSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { test } from 'node:test';
+import { setTimeout } from 'node:timers/promises';
 import { fileURLToPath } from 'node:url';
 import { argument, authoritative, relationshipRoots } from './context-real-helpers.mts';
 import { measure } from './latency-measure.mts';
 import { measureRuntimes } from './bench-schedule.mts';
+
+for (const signal of ['SIGINT', 'SIGTERM'] as const) {
+  test(`revert proof restores both source files on ${signal}`, { skip: process.platform === 'win32', timeout: 15000 }, async () => {
+    // POSIX process groups model a terminal interrupt, including the blocked cargo child.
+    const root = mkdtempSync(join(tmpdir(), 'pm-rust-interrupt-'));
+    const originals = new Map(['ownership', 'mutation'].map(name => [name,
+      readFileSync(new URL(`../src/${name}.rs`, import.meta.url), 'utf8')]));
+    mkdirSync(join(root, 'src'));
+    mkdirSync(join(root, 'scripts'));
+    mkdirSync(join(root, 'bin'));
+    for (const [name, bytes] of originals) writeFileSync(join(root, `src/${name}.rs`), bytes);
+    const script = join(root, 'scripts/perf-revert-proof.mts');
+    writeFileSync(script, readFileSync(new URL('./perf-revert-proof.mts', import.meta.url)));
+    const cargo = join(root, 'bin/cargo');
+    writeFileSync(cargo, '#!/bin/sh\ntouch ready\nwhile :; do sleep 1; done\n');
+    chmodSync(cargo, 0o755);
+    const child = spawn(process.execPath, [script], {
+      cwd: root, detached: true, stdio: 'ignore',
+      env: { ...process.env, PATH: `${join(root, 'bin')}:${process.env.PATH ?? ''}` },
+    });
+    const completed = new Promise<{ code: number | null; signal: NodeJS.Signals | null }>((resolve, reject) => {
+      child.once('error', reject);
+      child.once('exit', (code, signal) => resolve({ code, signal }));
+    });
+    try {
+      for (let attempt = 0; !existsSync(join(root, 'ready')) && attempt < 500; attempt++) await setTimeout(10);
+      assert.ok(existsSync(join(root, 'ready')), 'cargo never reached the rewritten-source phase');
+      for (const [name, bytes] of originals) assert.notEqual(readFileSync(join(root, `src/${name}.rs`), 'utf8'), bytes);
+      assert.ok(child.pid);
+      process.kill(-child.pid, signal);
+      assert.deepEqual(await completed, { code: signal === 'SIGINT' ? 130 : 143, signal: null });
+      for (const [name, bytes] of originals) assert.equal(readFileSync(join(root, `src/${name}.rs`), 'utf8'), bytes);
+    } finally {
+      if (child.pid) {
+        try { process.kill(-child.pid, 'SIGKILL'); } catch { /* The process group already exited. */ }
+      }
+      await completed;
+      rmSync(root, { recursive: true, force: true });
+    }
+  });
+}
 
 test('README advertises every supported native context depth', () => {
   const readme = readFileSync(new URL('../README.md', import.meta.url), 'utf8');

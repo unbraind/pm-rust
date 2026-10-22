@@ -1,4 +1,4 @@
-import { spawnSync } from 'node:child_process';
+import { execFile, type ChildProcess } from 'node:child_process';
 import { createHash } from 'node:crypto';
 import { mkdirSync, readFileSync, writeFileSync } from 'node:fs';
 import { dirname, join } from 'node:path';
@@ -32,12 +32,21 @@ const cases = [
   { name: 'mutation::tests::locator_metadata_work_depends_on_directories_and_targets', failure: 'unrelated files reached live metadata checks' },
 ];
 const results: { test: string; mode: string; command: string; status: number | null; expected_result: boolean }[] = [];
+let activeChild: ChildProcess | undefined;
 
 /** Execute a real regression, distinguishing its assertion from compiler or tool failures. */
-function run(test: { name: string; failure: string }, reverted: boolean): void {
+async function run(test: { name: string; failure: string }, reverted: boolean): Promise<void> {
   const args = ['+1.90.0', 'test', '--quiet', '--locked', '--lib', test.name];
-  const child = spawnSync('cargo', args, { cwd: repo, encoding: 'utf8', maxBuffer: 16 * 1024 * 1024 });
-  if (child.error || child.signal) throw new Error('Revert-control process could not complete');
+  const child = await new Promise<{ status: number; stdout: string }>((resolve, reject) => {
+    activeChild = execFile('cargo', args, { cwd: repo, encoding: 'utf8', maxBuffer: 16 * 1024 * 1024 }, (error, stdout) => {
+      activeChild = undefined;
+      if (error && (typeof error.code !== 'number' || error.signal || error.killed)) {
+        reject(new Error('Revert-control process could not complete'));
+      } else {
+        resolve({ status: error ? Number(error.code) : 0, stdout });
+      }
+    });
+  });
   const expected = reverted
     ? child.status === 101 && child.stdout.includes(test.failure) && child.stdout.includes('0 passed; 1 failed;')
     : child.status === 0 && child.stdout.includes('1 passed; 0 failed;');
@@ -52,16 +61,24 @@ function restore(): void {
   writeFileSync(mutationPath, originalMutation);
 }
 
+for (const signal of ['SIGINT', 'SIGTERM'] as const) {
+  process.on(signal, () => {
+    activeChild?.kill(signal);
+    restore();
+    process.exit(128 + (signal === 'SIGINT' ? 2 : 15));
+  });
+}
+
 try {
   // Keep the test observations and all safety checks. Revert only the two
   // optimized behaviors: full payload retention and per-entry metadata work.
   writeFileSync(ownershipPath, originalOwnership.replace(lineage, materialize));
   writeFileSync(mutationPath, originalMutation.replace(fastPath, ''));
-  for (const test of cases) run(test, true);
+  for (const test of cases) await run(test, true);
 } finally {
   restore();
 }
-for (const test of cases) run(test, false);
+for (const test of cases) await run(test, false);
 if (readFileSync(ownershipPath, 'utf8') !== originalOwnership || readFileSync(mutationPath, 'utf8') !== originalMutation) {
   throw new Error('Candidate source bytes were not restored');
 }
