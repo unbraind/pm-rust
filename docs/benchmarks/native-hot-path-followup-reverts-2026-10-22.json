@@ -1,0 +1,190 @@
+{
+  "complete": true,
+  "results": [
+    {
+      "control": "refusal-contracts",
+      "mode": "behavior reverted",
+      "status": 101,
+      "command": "cargo +1.90.0 test --locked --test ownership_contract",
+      "expected_result": true,
+      "failed_regressions": [
+        "held_claim_skip_precedes_unrelated_corpus_validation",
+        "held_claim_refusal_precedes_unrelated_corpus_validation",
+        "ownership_argument_refusals_precede_missing_id",
+        "ownership_lock_refusal_precedes_corpus_validation",
+        "ownership_recovers_missing_item_before_lineage_validation"
+      ],
+      "test_counts": {
+        "passed": 4,
+        "failed": 5
+      }
+    },
+    {
+      "control": "refusal-contracts",
+      "mode": "restored",
+      "status": 0,
+      "command": "cargo +1.90.0 test --locked --test ownership_contract",
+      "expected_result": true,
+      "test_counts": {
+        "passed": 9,
+        "failed": 0
+      }
+    },
+    {
+      "control": "contended-next",
+      "mode": "behavior reverted",
+      "status": 101,
+      "command": "cargo +1.90.0 test --locked --lib selection::tests::contended_claim_next_does_not_rescan_rejected_candidates",
+      "expected_result": true,
+      "failed_regressions": [
+        "selection::tests::contended_claim_next_does_not_rescan_rejected_candidates"
+      ],
+      "test_counts": {
+        "passed": 0,
+        "failed": 1
+      }
+    },
+    {
+      "control": "contended-next",
+      "mode": "restored",
+      "status": 0,
+      "command": "cargo +1.90.0 test --locked --lib selection::tests::contended_claim_next_does_not_rescan_rejected_candidates",
+      "expected_result": true,
+      "test_counts": {
+        "passed": 1,
+        "failed": 0
+      }
+    },
+    {
+      "control": "journal-recovery",
+      "mode": "behavior reverted",
+      "status": 101,
+      "command": "cargo +1.90.0 test --locked --test ownership_contract ownership_recovers_missing_item_before_lineage_validation",
+      "expected_result": true,
+      "failed_regressions": [
+        "ownership_recovers_missing_item_before_lineage_validation"
+      ],
+      "test_counts": {
+        "passed": 0,
+        "failed": 1
+      }
+    },
+    {
+      "control": "journal-recovery",
+      "mode": "restored",
+      "status": 0,
+      "command": "cargo +1.90.0 test --locked --test ownership_contract ownership_recovers_missing_item_before_lineage_validation",
+      "expected_result": true,
+      "test_counts": {
+        "passed": 1,
+        "failed": 0
+      }
+    },
+    {
+      "control": "cli-empty-author",
+      "mode": "behavior reverted",
+      "status": 101,
+      "command": "cargo +1.90.0 test --locked --test ownership_contract ownership_argument_refusals_precede_missing_id",
+      "expected_result": true,
+      "failed_regressions": [
+        "ownership_argument_refusals_precede_missing_id"
+      ],
+      "test_counts": {
+        "passed": 0,
+        "failed": 1
+      }
+    },
+    {
+      "control": "cli-empty-author",
+      "mode": "restored",
+      "status": 0,
+      "command": "cargo +1.90.0 test --locked --test ownership_contract ownership_argument_refusals_precede_missing_id",
+      "expected_result": true,
+      "test_counts": {
+        "passed": 1,
+        "failed": 0
+      }
+    },
+    {
+      "control": "oracle-pin",
+      "mode": "behavior reverted",
+      "status": 1,
+      "command": "node --test --test-reporter=tap --test-name-pattern=\"oracle version follows\" scripts/harness.test.mts",
+      "expected_result": true,
+      "failed_regressions": [
+        "hot-path benchmark oracle version follows its manifest instead of a source literal"
+      ],
+      "test_counts": {
+        "passed": 0,
+        "failed": 1
+      }
+    },
+    {
+      "control": "oracle-pin",
+      "mode": "restored",
+      "status": 0,
+      "command": "node --test --test-reporter=tap --test-name-pattern=\"oracle version follows\" scripts/harness.test.mts",
+      "expected_result": true,
+      "test_counts": {
+        "passed": 1,
+        "failed": 0
+      }
+    },
+    {
+      "control": "fingerprint-before-oracle",
+      "mode": "behavior reverted",
+      "status": 1,
+      "command": "node --test --test-reporter=tap --test-name-pattern=\"paired benchmarks\" scripts/harness.test.mts",
+      "expected_result": true,
+      "failed_regressions": [
+        "hot-path paired benchmarks reject identical executables without CI metadata"
+      ],
+      "test_counts": {
+        "passed": 0,
+        "failed": 1
+      }
+    },
+    {
+      "control": "fingerprint-before-oracle",
+      "mode": "restored",
+      "status": 0,
+      "command": "node --test --test-reporter=tap --test-name-pattern=\"paired benchmarks\" scripts/harness.test.mts",
+      "expected_result": true,
+      "test_counts": {
+        "passed": 1,
+        "failed": 0
+      }
+    },
+    {
+      "mode": "behavior reverted",
+      "status": 1,
+      "failed_regression": "hot-path benchmark rejects invalid profile values before fixtures or binary reads",
+      "control": "profile-validation",
+      "command": "node --test --test-reporter=tap --test-name-pattern=\"invalid profile values\" scripts/harness.test.mts"
+    },
+    {
+      "mode": "restored",
+      "status": 0,
+      "control": "profile-validation",
+      "command": "node --test --test-reporter=tap --test-name-pattern=\"invalid profile values\" scripts/harness.test.mts"
+    }
+  ],
+  "source_sha256": {
+    "src/mutation.rs": "c49b33bae2004cfd7640eb7b178939746295b8a1aac0e77ccc8fce30406f2cb5",
+    "src/main.rs": "93780749c19370cc0deebf3f552b41b9f41077be7136feb5df8a5852975a0413",
+    "scripts/native-bench.mts": "7d560e968894d3d2d200e5db906aa07db8345fc0f7c3d67cf3aec8bd7a7a002b",
+    "scripts/bench-oracle-version.mts": "fe35a5411fafa63f454c9454811520cef4600ff5a69cee4295f5ba89ffb25fc0",
+    "src/ownership.rs": "f315c015e9af1178877c6830cbedc65a5282e2b982ff4c0c2073ef6cf085dc01",
+    "src/selection.rs": "01c74dbaaef6b5bb893828e070d362bdd7ef9dd1659d33e4e85e460d75b3976e"
+  },
+  "candidate_commit": "57845abdf2beb9087bfca25e674d56c32805a608",
+  "source_restored": true,
+  "rust_behavior_proved_at": "527ab0e2e04a491cabb605f43c60e537374a257d",
+  "rust_sources_identical": true,
+  "regression_source_sha256": {
+    "tests/ownership_contract.rs": "5c3bddf3d289e8404951f3d919578935c323ca93ce41fdca69e1a2c85ae7fc8d",
+    "tests/support/selection_unit.rs": "c1bb08e42358fb9758f6321b0fbd1223515c9c7dafcd825e205f9d6b714f284c",
+    "scripts/harness.test.mts": "b6192f02df673e55729ad147d049b088c72550f838455edfd1e485c1a88383c3"
+  },
+  "profile_thread": "PRRT_kwDOTwgMRs6vX_PV"
+}
