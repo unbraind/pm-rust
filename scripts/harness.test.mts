@@ -228,6 +228,73 @@ test('hot-path paired benchmarks reject identical executables without CI metadat
   }
 });
 
+test('hot-path benchmark command selections reject unsupported or empty names before fixtures', () => {
+  const root = mkdtempSync(join(tmpdir(), 'pm-rust-command-bench-'));
+  try {
+    mkdirSync(join(root, 'scripts'));
+    const packages = join(root, 'tests/bench-oracle/node_modules/@unbrained');
+    mkdirSync(packages, { recursive: true });
+    symlinkSync(fileURLToPath(new URL('../tests/oracle/node_modules/@unbrained/pm-cli', import.meta.url)),
+      join(packages, 'pm-cli'), 'junction');
+    for (const name of ['native-bench.mts', 'bench-oracle.mts', 'bench-schedule.mts', 'context-real-helpers.mts']) {
+      copyFileSync(new URL(name, import.meta.url), join(root, 'scripts', name));
+    }
+    const output = join(root, 'receipt.json');
+    for (const commands of ['unknown', 'get,unknown', ',', 'get,']) {
+      const result = spawnSync(process.execPath, [join(root, 'scripts/native-bench.mts'),
+        '--binary', process.execPath, '--output', output, '--sizes', '1',
+        '--samples', '1', '--warmups', '1', '--commands', commands],
+      { cwd: root, encoding: 'utf8', timeout: 15000 });
+      assert.equal(result.error, undefined);
+      assert.equal(result.status, 1);
+      assert.match(result.stderr, /Commands must be nonempty supported names/);
+      assert.equal(result.stdout, '');
+      assert.equal(existsSync(output), false, 'invalid selections must not publish a receipt');
+      assert.equal(existsSync(join(root, '.git')), false);
+    }
+  } finally {
+    rmSync(root, { recursive: true, force: true });
+  }
+});
+
+test('hot-path reproduction identity flag agrees with the retained binary fingerprints', () => {
+  const receipt: { identical_native_executables: boolean; fingerprints: { runtime: string; sha256: string }[] } =
+    JSON.parse(readFileSync(new URL('../docs/benchmarks/native-hot-path-reproduction-2026-10-21.json', import.meta.url), 'utf8'));
+  const before = receipt.fingerprints.find(row => row.runtime === 'before');
+  const native = receipt.fingerprints.find(row => row.runtime === 'native');
+  assert.ok(before && native);
+  assert.equal(receipt.identical_native_executables, before.sha256 === native.sha256);
+});
+
+test('hot-path reports reject empty measurements while rendering the retained real receipt', () => {
+  const root = mkdtempSync(join(tmpdir(), 'pm-rust-report-'));
+  try {
+    const input = join(root, 'receipt.json');
+    const output = join(root, 'report.md');
+    const historical: { rows: { runtime: string }[] } = JSON.parse(readFileSync(
+      new URL('../docs/benchmarks/native-hot-paths-2026-10-21.json', import.meta.url), 'utf8'));
+    for (const rows of [[], historical.rows.filter(row => row.runtime === 'oracle')]) {
+      writeFileSync(input, JSON.stringify({ complete: true, samples: 1, warmups: 1, rows }));
+      const result = spawnSync(process.execPath, [fileURLToPath(new URL('./bench-report.mts', import.meta.url)), input, output],
+        { cwd: root, encoding: 'utf8', timeout: 15000 });
+      assert.equal(result.error, undefined);
+      assert.equal(result.status, 1);
+      assert.match(result.stderr, /Cannot publish a benchmark receipt without native measurements/);
+      assert.equal(existsSync(output), false);
+    }
+    copyFileSync(new URL('../docs/benchmarks/native-hot-paths-2026-10-21.json', import.meta.url), input);
+    const result = spawnSync(process.execPath, [fileURLToPath(new URL('./bench-report.mts', import.meta.url)), input, output],
+      { cwd: root, encoding: 'utf8', timeout: 15000 });
+    assert.equal(result.error, undefined);
+    assert.equal(result.status, 0, result.stderr);
+    assert.equal(readFileSync(output, 'utf8'), readFileSync(
+      new URL('../docs/benchmarks/native-hot-path-tables-2026-10-21.md', import.meta.url), 'utf8').replace(/\r\n/g, '\n'));
+    assert.equal(existsSync(join(root, '.git')), false);
+  } finally {
+    rmSync(root, { recursive: true, force: true });
+  }
+});
+
 // These small contracts run inside the existing cross-platform Rust harness gate.
 test('hot-path samples retain the executed order after warmups with two or three runtimes', () => {
   for (const names of [['native', 'oracle'], ['before', 'native', 'oracle']]) {

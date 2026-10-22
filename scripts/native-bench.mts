@@ -95,7 +95,9 @@ function main(): void {
   const baseline = option('--baseline', '');
   if (baseline && basename(baseline) !== basename(binary)) throw new Error('Baseline and native executable filenames must match: use separate directories');
   const profile = option('--profile', 'no') === 'yes';
-  const selected = option('--commands', '').split(',').filter(Boolean);
+  const supported = ['context', 'next', 'list-open', 'search', 'get', 'list', 'claim', 'comment', 'update'];
+  const selected = option('--commands', supported.join(',')).split(',');
+  if (selected.some(command => !supported.includes(command))) throw new Error('Commands must be nonempty supported names: ' + supported.join(','));
   const oracleRoot = join(repo, 'tests/bench-oracle/node_modules/@unbrained/pm-cli');
   const oracleVersion = JSON.parse(readFileSync(join(oracleRoot, 'package.json'), 'utf8')).version;
   if (oracleVersion !== '2026.10.21') throw new Error('Benchmark requires oracle 2026.10.21');
@@ -180,7 +182,7 @@ function main(): void {
         ['comment', id, 'Measured synthetic comment', '--author', 'benchmark-agent'], ['update', id, '--title', 'Measured synthetic update', '--author', 'benchmark-agent'],
       ];
       for (const args of cases) {
-        if (selected.length && !selected.includes(args[0])) continue;
+        if (!selected.includes(args[0])) continue;
         const mutates = ['claim', 'comment', 'update'].includes(args[0]);
         if (args[0] === 'claim') {
           const after = authoritative(tracker);

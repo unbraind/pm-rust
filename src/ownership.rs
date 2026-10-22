@@ -338,11 +338,12 @@ impl Workspace {
         request: &OwnershipItem,
         options: &OwnershipOptions,
     ) -> Result<OwnershipResult, PmRustError> {
+        let parents = self.read_parent_index()?;
         let receipt = with_identity(self.pm_root(), options, || {
             crate::mutation::ownership_item_with_options(self.pm_root(), request, true, options)
         })?;
         if receipt.skipped.is_none() {
-            record_semantics(self, request, options, true)?;
+            record_semantics(self, request, options, true, &parents)?;
         }
         Ok(receipt)
     }
@@ -356,10 +357,11 @@ impl Workspace {
         request: &OwnershipItem,
         options: &OwnershipOptions,
     ) -> Result<OwnershipResult, PmRustError> {
+        let parents = self.read_parent_index()?;
         let receipt = with_identity(self.pm_root(), options, || {
             crate::mutation::ownership_item_with_options(self.pm_root(), request, false, options)
         })?;
-        record_semantics(self, request, options, false)?;
+        record_semantics(self, request, options, false, &parents)?;
         Ok(receipt)
     }
 
@@ -432,6 +434,7 @@ fn record_semantics(
     request: &OwnershipItem,
     options: &OwnershipOptions,
     claim: bool,
+    parents: &BTreeMap<String, Option<String>>,
 ) -> Result<(), PmRustError> {
     let principal = options
         .identity
@@ -449,7 +452,6 @@ fn record_semantics(
     } else {
         format!("author-{}", hex_prefix(principal.as_bytes(), 24))
     };
-    let parents = workspace.read_parent_index()?;
     let Some(mut current) = parents.get(&request.id).cloned() else {
         return Err(PmRustError::ItemNotFound {
             id: request.id.clone(),

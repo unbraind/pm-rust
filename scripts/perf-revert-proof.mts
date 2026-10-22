@@ -9,8 +9,8 @@ const ownershipPath = join(repo, 'src/ownership.rs');
 const mutationPath = join(repo, 'src/mutation.rs');
 const originalOwnership = readFileSync(ownershipPath, 'utf8');
 const originalMutation = readFileSync(mutationPath, 'utf8');
-const lineage = '    let parents = workspace.read_parent_index()?;';
-const materialize = `    let parents: BTreeMap<String, Option<String>> = workspace
+const lineage = '        let parents = self.read_parent_index()?;';
+const materialize = `        let parents: BTreeMap<String, Option<String>> = self
         .read_items()?
         .into_iter()
         .map(|item| (item.metadata.id, item.metadata.parent))
@@ -23,7 +23,7 @@ const fastPath = `        let name = entry.file_name().to_string_lossy().into_ow
             continue;
         }
 `;
-if (originalOwnership.split(lineage).length !== 2 || originalMutation.split(fastPath).length !== 2) {
+if (originalOwnership.split(lineage).length !== 3 || originalMutation.split(fastPath).length !== 2) {
   throw new Error('Revert proof does not match the candidate functions; no files changed');
 }
 
@@ -76,7 +76,7 @@ for (const signal of ['SIGINT', 'SIGTERM'] as const) {
 try {
   // Keep the test observations and all safety checks. Revert only the two
   // optimized behaviors: full payload retention and per-entry metadata work.
-  writeFileSync(ownershipPath, originalOwnership.replace(lineage, materialize));
+  writeFileSync(ownershipPath, originalOwnership.replaceAll(lineage, materialize));
   writeFileSync(mutationPath, originalMutation.replace(fastPath, ''));
   for (const test of cases) await run(test, true);
 } finally {

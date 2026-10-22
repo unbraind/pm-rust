@@ -18,6 +18,7 @@ export function report(receipt: Receipt): string {
   /** Retain one decimal place consistently across the complete table. */
   const timing = (row: Row | undefined): string => row ? `${row.p50_ms.toFixed(1)} / ${row.p95_ms.toFixed(1)}` : '—';
   const native = receipt.rows.filter(row => row.runtime === 'native');
+  if (!native.length) throw new Error('Cannot publish a benchmark receipt without native measurements');
   for (const row of native) {
     const before = receipt.rows.find(other => other.items === row.items && other.command === row.command && other.runtime === 'before');
     const oracle = receipt.rows.find(other => other.items === row.items && other.command === row.command && other.runtime === 'oracle');
