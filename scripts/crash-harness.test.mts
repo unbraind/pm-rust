@@ -199,12 +199,14 @@ test('replay refuses unknown manifests without executing their stored commands',
 }));
 
 test('retained replay guidance distinguishes boundary cases from baseline parity', () => {
-  const guide = readFileSync(new URL('../docs/CRASH_HARNESS.md', import.meta.url), 'utf8');
-  const example = /```typescript\n([\s\S]*?)```/.exec(guide)?.[1];
-  assert.ok(example, 'the retained-case SDK example must remain documented');
-  assert.match(example, /kind: 'baseline_parity'[\s\S]*?scenario across both implementations[\s\S]*?all their observed boundaries/);
-  assert.match(example, /whitelisted scenario\/implementation\/syscall\/ordinal/);
-  assert.match(example, /never stored commands/);
+  const guide = readFileSync(new URL('../docs/CRASH_HARNESS.md', import.meta.url), 'utf8').replace(/\r\n/g, '\n');
+  for (const text of [guide, guide.replace(/\n/g, '\r\n')]) {
+    const example = /```typescript\r?\n([\s\S]*?)```/.exec(text)?.[1];
+    assert.ok(example, 'the retained-case SDK example must remain documented with LF or CRLF');
+    assert.match(example, /kind: 'baseline_parity'[\s\S]*?scenario across both implementations[\s\S]*?all their observed boundaries/);
+    assert.match(example, /whitelisted scenario\/implementation\/syscall\/ordinal/);
+    assert.match(example, /never stored commands/);
+  }
 });
 
 test('SDK replay guidance includes the baseline parity scenario exception', () => {
