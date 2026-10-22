@@ -338,9 +338,18 @@ impl Workspace {
         request: &OwnershipItem,
         options: &OwnershipOptions,
     ) -> Result<OwnershipResult, PmRustError> {
-        let parents = ownership_parents(self, request)?;
+        let mut parents = BTreeMap::new();
         let receipt = with_identity(self.pm_root(), options, || {
-            crate::mutation::ownership_item_with_options(self.pm_root(), request, true, options)
+            crate::mutation::ownership_item_with_options(
+                self.pm_root(),
+                request,
+                true,
+                options,
+                || {
+                    parents = ownership_parents(self, request)?;
+                    Ok(())
+                },
+            )
         })?;
         if receipt.skipped.is_none() {
             record_semantics(self, request, options, true, &parents)?;
@@ -357,9 +366,18 @@ impl Workspace {
         request: &OwnershipItem,
         options: &OwnershipOptions,
     ) -> Result<OwnershipResult, PmRustError> {
-        let parents = ownership_parents(self, request)?;
+        let mut parents = BTreeMap::new();
         let receipt = with_identity(self.pm_root(), options, || {
-            crate::mutation::ownership_item_with_options(self.pm_root(), request, false, options)
+            crate::mutation::ownership_item_with_options(
+                self.pm_root(),
+                request,
+                false,
+                options,
+                || {
+                    parents = ownership_parents(self, request)?;
+                    Ok(())
+                },
+            )
         })?;
         record_semantics(self, request, options, false, &parents)?;
         Ok(receipt)
@@ -428,7 +446,7 @@ pub(crate) fn with_identity<T>(
     }
 }
 
-/// Validates the corpus and requested lineage target before ownership can write.
+/// Validates lineage under the item lock, after recovery and ownership refusals.
 fn ownership_parents(
     workspace: &Workspace,
     request: &OwnershipItem,

@@ -1,0 +1,16 @@
+id: pm-rust-bench-workflow
+title: Generalize native benchmark workflow beyond the performance branch
+description: "Orchestrator review identified branch-specific workflow gating, a fixed historical BENCH_BASE_SHA and snippet-sensitive negative controls. The current PR keeps this historical benchmark protocol; generalize future source-PR and dispatch behavior separately without confusing ordinary benchmarks with implementation-specific revert controls."
+type: Task
+status: open
+priority: 3
+tags[3]: ci,follow-up,performance
+created_at: "2026-10-22T20:38:30.250Z"
+updated_at: "2026-10-22T20:38:43.394Z"
+author: codex-agent
+acceptance_criteria: Ordinary source PRs can run an explicitly defined base/head benchmark; revert controls apply only to matching implementations and fail clearly when stale; workflow and regression evidence cover future branches and changed implementation snippets.
+parent: pm-rust-wdj4
+files[2]{path,scope}:
+  .github/workflows/native-bench.yml,project
+  scripts/perf-revert-proof.mts,project
+body: ""

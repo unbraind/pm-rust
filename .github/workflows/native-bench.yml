@@ -7,6 +7,7 @@ on:
       - scripts/native-bench.mts
       - scripts/bench-schedule.mts
       - scripts/bench-oracle.mts
+      - scripts/bench-oracle-version.mts
       - scripts/bench-report.mts
       - scripts/perf-revert-proof.mts
       - tests/bench-oracle/**

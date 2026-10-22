@@ -2967,7 +2967,13 @@ pub(crate) fn ownership_item(
     request: &OwnershipItem,
     claim: bool,
 ) -> Result<OwnershipResult, PmRustError> {
-    ownership_item_with_options(pm_root, request, claim, &crate::OwnershipOptions::default())
+    ownership_item_with_options(
+        pm_root,
+        request,
+        claim,
+        &crate::OwnershipOptions::default(),
+        || Ok(()),
+    )
 }
 
 /// Applies explicit principal and approved release bypass within the ownership lock.
@@ -2977,6 +2983,7 @@ pub(crate) fn ownership_item_with_options(
     request: &OwnershipItem,
     claim: bool,
     options: &crate::OwnershipOptions,
+    prepare: impl FnOnce() -> Result<(), PmRustError>,
 ) -> Result<OwnershipResult, PmRustError> {
     let mut settings = read_settings(pm_root)?;
     settings.locks.use_created_at = true;
@@ -3124,6 +3131,11 @@ pub(crate) fn ownership_item_with_options(
             warnings.push("released_unclaimed_in_progress".to_owned());
             suggestions.push(format!("{} remains in_progress and unclaimed. If work is paused, run pm release {} --pause to move it to open.", request.id, request.id));
         }
+    }
+    // Refused and skipped contenders never decode unrelated item payloads.
+    // Recovery and the target's atomic ownership checks already hold this lock.
+    if skipped.is_none() {
+        prepare()?;
     }
     // Claim skips history on no-op; release deliberately records even an empty patch.
     if !claim || changed > 0 {

@@ -3903,7 +3903,8 @@ fn ownership_refusals_and_interrupted_history_append_remain_recoverable()
         ..crate::OwnershipOptions::default()
     };
     assert_eq!(
-        ownership_item_with_options(&pm_root, &mutation, false, &bypass)?.changed_field_count,
+        ownership_item_with_options(&pm_root, &mutation, false, &bypass, || Ok(()))?
+            .changed_field_count,
         2
     );
     mutation.author = "unit-agent".to_owned();
@@ -4113,6 +4114,7 @@ fn closure_ownership_and_predecessor_storage() -> Result<(), Box<dyn std::error:
                 &owner,
                 true,
                 &crate::OwnershipOptions::default(),
+                || Ok(()),
             )?;
             let mut closing = closure_request();
             closing.fields.force = force;

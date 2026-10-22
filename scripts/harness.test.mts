@@ -10,6 +10,7 @@ import { fileURLToPath } from 'node:url';
 import { argument, authoritative, relationshipRoots } from './context-real-helpers.mts';
 import { measure } from './latency-measure.mts';
 import { measureRuntimes } from './bench-schedule.mts';
+import { benchmarkOracleVersion } from './bench-oracle-version.mts';
 
 for (const signal of ['SIGINT', 'SIGTERM'] as const) {
   for (const delivery of ['process group', 'parent only', 'cargo only'] as const) {
@@ -202,9 +203,12 @@ test('hot-path paired benchmarks reject identical executables without CI metadat
     // benchmark's exact source and imports relocated into a disposable non-git root.
     symlinkSync(fileURLToPath(new URL('../tests/oracle/node_modules/@unbrained/pm-cli', import.meta.url)),
       join(packages, 'pm-cli'), 'junction');
-    for (const name of ['native-bench.mts', 'bench-oracle.mts', 'bench-schedule.mts', 'context-real-helpers.mts']) {
+    for (const name of ['native-bench.mts', 'bench-oracle.mts', 'bench-oracle-version.mts', 'bench-schedule.mts', 'context-real-helpers.mts']) {
       copyFileSync(new URL(name, import.meta.url), join(root, 'scripts', name));
     }
+    // A parity-oracle pin bump can precede the benchmark-oracle bump. The
+    // executable-identity refusal must remain independent of either pin.
+    writeFileSync(join(root, 'tests/bench-oracle/package.json'), JSON.stringify({ dependencies: { '@unbrained/pm-cli': 'future-pin' } }));
     const baseline = join(root, 'before', basename(process.execPath));
     copyFileSync(process.execPath, baseline);
     const output = join(root, 'receipt.json');
@@ -228,6 +232,26 @@ test('hot-path paired benchmarks reject identical executables without CI metadat
   }
 });
 
+test('hot-path benchmark oracle version follows its manifest instead of a source literal', () => {
+  const root = mkdtempSync(join(tmpdir(), 'pm-rust-oracle-pin-'));
+  try {
+    const packageRoot = join(root, 'tests/bench-oracle/node_modules/@unbrained/pm-cli');
+    mkdirSync(packageRoot, { recursive: true });
+    // Advance real package metadata to model an independent dependency-pin update.
+    // The contract reads metadata only and never replaces or mocks SDK code.
+    const metadata: { version: string } = JSON.parse(readFileSync(
+      new URL('../tests/oracle/node_modules/@unbrained/pm-cli/package.json', import.meta.url), 'utf8'));
+    metadata.version = '2099.1.1';
+    writeFileSync(join(packageRoot, 'package.json'), JSON.stringify(metadata));
+    const manifest = join(root, 'tests/bench-oracle/package.json');
+    writeFileSync(manifest, JSON.stringify({ dependencies: { '@unbrained/pm-cli': metadata.version } }));
+    assert.equal(benchmarkOracleVersion(root), metadata.version);
+    writeFileSync(manifest, JSON.stringify({ dependencies: { '@unbrained/pm-cli': 'different-pin' } }));
+    assert.throws(() => benchmarkOracleVersion(root), /Benchmark oracle does not match its declared dependency pin/);
+    assert.equal(existsSync(join(root, '.git')), false);
+  } finally { rmSync(root, { recursive: true, force: true }); }
+});
+
 test('hot-path benchmark command selections reject unsupported or empty names before fixtures', () => {
   const root = mkdtempSync(join(tmpdir(), 'pm-rust-command-bench-'));
   try {
@@ -236,7 +260,7 @@ test('hot-path benchmark command selections reject unsupported or empty names be
     mkdirSync(packages, { recursive: true });
     symlinkSync(fileURLToPath(new URL('../tests/oracle/node_modules/@unbrained/pm-cli', import.meta.url)),
       join(packages, 'pm-cli'), 'junction');
-    for (const name of ['native-bench.mts', 'bench-oracle.mts', 'bench-schedule.mts', 'context-real-helpers.mts']) {
+    for (const name of ['native-bench.mts', 'bench-oracle.mts', 'bench-oracle-version.mts', 'bench-schedule.mts', 'context-real-helpers.mts']) {
       copyFileSync(new URL(name, import.meta.url), join(root, 'scripts', name));
     }
     const output = join(root, 'receipt.json');

@@ -8,6 +8,7 @@ import { fileURLToPath } from 'node:url';
 import { encode } from '../tests/bench-oracle/node_modules/@unbrained/pm-cli/node_modules/@toon-format/toon/dist/index.mjs';
 import { authoritative } from './context-real-helpers.mts';
 import { measureRuntimes } from './bench-schedule.mts';
+import { benchmarkOracleVersion } from './bench-oracle-version.mts';
 import { createHistoryEntry } from '../tests/bench-oracle/node_modules/@unbrained/pm-cli/dist/core/history/history.js';
 import type { ItemDocument } from '../tests/bench-oracle/node_modules/@unbrained/pm-cli/dist/types/index.js';
 
@@ -98,9 +99,6 @@ function main(): void {
   const supported = ['context', 'next', 'list-open', 'search', 'get', 'list', 'claim', 'comment', 'update'];
   const selected = option('--commands', supported.join(',')).split(',');
   if (selected.some(command => !supported.includes(command))) throw new Error('Commands must be nonempty supported names: ' + supported.join(','));
-  const oracleRoot = join(repo, 'tests/bench-oracle/node_modules/@unbrained/pm-cli');
-  const oracleVersion = JSON.parse(readFileSync(join(oracleRoot, 'package.json'), 'utf8')).version;
-  if (oracleVersion !== '2026.10.21') throw new Error('Benchmark requires oracle 2026.10.21');
   const runtimes: Runtime[] = [
     ...(baseline ? [{ name: 'before', program: resolve(baseline), prefix: [], native: true }] : []),
     { name: 'native', program: binary, prefix: [], native: true },
@@ -108,6 +106,7 @@ function main(): void {
   ];
   const fingerprints = runtimes.map(runtime => ({ runtime: runtime.name, sha256: hash(readFileSync(runtime.program)) }));
   if (baseline && fingerprints[0].sha256 === fingerprints[1].sha256) throw new Error('Paired CI builds produced the same executable; check target-directory isolation');
+  const oracleVersion = benchmarkOracleVersion(repo);
   const scratch = mkdtempSync(join(tmpdir(), 'pm-rust-bench-'));
   const rows: Record<string, unknown>[] = [];
   const loads: number[][] = [];
