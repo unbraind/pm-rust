@@ -2,6 +2,9 @@
   "name": "pm-rust-parity-oracle",
   "private": true,
   "version": "1.0.0",
+  "scripts": {
+    "changelog:full": "node ../../scripts/changelog.mts full"
+  },
   "dependencies": {
     "@unbrained/pm-cli": "2026.10.21"
   }
