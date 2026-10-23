@@ -65,8 +65,8 @@ The TypeScript SDK in [`scripts/crash-harness.mts`](scripts/crash-harness.mts)
 and `just crash` compare real native processes with the locked pm-cli 2026.10.21
 oracle. On Linux, strace injects SIGKILL at every declared per-task `rename` and
 `fsync` entry ordinal observed in uninterrupted update/comment reference runs.
-Each case starts after an acknowledged synthetic create, restarts through the
-same operation family, and checks exact item/history bytes, immutable history
+Each case starts after an acknowledged synthetic create, restarts through a
+different operation and returns to the original one, and checks exact item/history bytes, immutable history
 prefixes and recovery receipts. These commands work in plain directories without
 a Git executable. The source tracker is read only; all mutations use disposable
 non-git clones.
@@ -243,3 +243,7 @@ node tests/oracle/node_modules/@unbrained/pm-cli/dist/cli.js health --check-only
 ## License
 
 MIT. See [LICENSE](LICENSE).
+
+The expanded corpus includes history-path `openat` cuts and native runtime journals.
+The blocking cross-operation journal defect is tracked by `pm-rust-cross-operation-journal`;
+historical same-operation receipts do not establish full recovery conformance.

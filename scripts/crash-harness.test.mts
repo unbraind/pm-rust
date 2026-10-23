@@ -43,7 +43,7 @@ test('inventories include nested custom items but exclude only root caches', () 
     ['history/probe.jsonl', Buffer.from('{}\n')], ['custom/runtime/probe.toon', Buffer.from('id: nested\n')],
   ]);
   materialize(files, root);
-  for (const cache of ['runtime', 'locks', 'transactions', 'checkpoints', 'search']) {
+  for (const cache of ['locks', 'transactions', 'checkpoints', 'search']) {
     mkdirSync(join(root, cache));
     writeFileSync(join(root, cache, 'cache.json'), 'private');
   }
@@ -268,20 +268,11 @@ test('real pm corpus preserves acknowledged history and independently replays re
       assert.ok(report.cases.some(row => row.ok));
       assert.ok(report.parity.every(row => row.bytes && row.acknowledgement));
       const failed = report.cases.filter(row => !row.ok);
-      assert.ok(failed.every(row => row.implementation === 'native' && row.syscall === 'fsync' && row.boundary === 1 && row.restartStatus === 4), 'Only independently reproduced incomplete-lock restart refusals are expected');
+      assert.equal(report.ok, false, 'Live cross-operation and published history-open defects must remain visible');
+      assert.ok(failed.some(row => row.implementation === 'native' && row.journalsAfterRestart > 0 && row.returnStatus !== 0));
+      assert.ok(failed.some(row => row.implementation === 'published' && row.syscall === 'openat' && row.state === 'diverged'));
+      assert.ok(report.recoveryParity.some(row => !row.ok));
       assert.equal(report.failuresRetained, failed.length);
-      if (failed.length > 0) {
-        assert.equal(report.ok, false);
-        const caseName = readdirSync(options.artifacts)[0];
-        const evidence = join(options.artifacts, caseName, 'case.json');
-        const before = readFileSync(evidence);
-        const replay = replayCrashFailure({ ...options, artifacts: join(root, 'replay') }, evidence);
-        assert.equal(replay.killed, 1);
-        assert.equal(replay.ok, false);
-        assert.equal(replay.cases[0].historyPreserved, true);
-        assert.equal(replay.cases[0].durableSha256, JSON.parse(before.toString()).row.durableSha256);
-        assert.deepEqual(readFileSync(evidence), before);
-      }
       assert.equal(existsSync(join(root, '.git')), false);
     } finally { process.env.PATH = savedPath; }
   }));

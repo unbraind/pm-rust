@@ -10,7 +10,7 @@ export function snapshot(root: string, prefix = ''): Map<string, Buffer> {
   if (!prefix && lstatSync(root).isSymbolicLink()) throw new Error('symlink');
   const result = new Map<string, Buffer>();
   for (const entry of readdirSync(join(root, prefix), { withFileTypes: true })) {
-    if (!prefix && ['runtime', 'locks', 'transactions', 'checkpoints', 'search'].includes(entry.name)) continue;
+    if (!prefix && ['locks', 'transactions', 'checkpoints', 'search'].includes(entry.name)) continue;
     if (entry.isSymbolicLink()) throw new Error('symlink');
     const key = prefix ? `${prefix}/${entry.name}` : entry.name;
     if (entry.isDirectory()) {
@@ -53,6 +53,11 @@ export function preservesHistory(before: Snapshot, after: Snapshot): boolean {
 /** Compare the complete inventory, including deletions and newly created files. */
 export function sameBytes(left: Snapshot, right: Snapshot): boolean {
   return left.size === right.size && [...left].every(([key, bytes]) => right.get(key)?.equals(bytes));
+}
+
+/** Retain native recovery intent, including incomplete journal files, independently of derived caches. */
+export function journals(files: Snapshot): Map<string, Buffer> {
+  return new Map([...files].filter(([name]) => name.startsWith('runtime/transactions/') && name.endsWith('.json') && !name.split('/').at(-1)?.startsWith('.')));
 }
 
 /** Accept seed bytes only after a refused restart; successful restarts must match a complete reference. */
