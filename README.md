@@ -198,6 +198,17 @@ just release-check      # aggregate release gate (fmt, clippy, docs, tests, cove
 The changelog heading date is fixed (not clock-derived) so the gate produces
 identical output across all timezones.
 
+Runners without `just` can use `npm run changelog:full --prefix tests/oracle`
+and append `-- --check` to verify the result. Both entry points use
+`scripts/changelog.mts`, which reads the pins, fixed date, and item URL base
+from the justfile. Gated issue sync and closeout use this npm entry point.
+
+#### Without git
+
+Regular tracker reads and writes work in plain directories. Changelog generation
+from release tags needs Git history and a Git executable; the wrapper identifies
+this prerequisite before invoking the generator.
+
 Work is managed in this repository with the latest `pm` CLI under
 `.agents/pm/`. The ecosystem-level lineage is the private companion item
 `pm-cli-website-204t`.
