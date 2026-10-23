@@ -9,6 +9,47 @@ use std::path::{Path, PathBuf};
 use super::collect_directory_entries;
 use crate::PmRustError;
 
+/// Parent-only retention keeps full validation, duplicate diagnostics and source order.
+#[test]
+fn parent_index_matches_full_corpus_refusals() -> Result<(), Box<dyn std::error::Error>> {
+    let directory = tempfile::tempdir()?;
+    let tracker = directory.path().join(".agents/pm");
+    let tasks = tracker.join("tasks");
+    std::fs::create_dir_all(&tasks)?;
+    std::fs::write(tracker.join("settings.json"), "{}")?;
+    let item = "id: sample-one\ntitle: Example\ntype: Task\nstatus: open\npriority: 1\ncreated_at: date\nupdated_at: date\nparent: sample-parent\nbody: retained\n";
+    std::fs::write(tasks.join("sample-one.toon"), item)?;
+    let workspace = super::Workspace::discover(directory.path())?;
+    assert_eq!(
+        workspace.read_parent_index()?["sample-one"].as_deref(),
+        Some("sample-parent")
+    );
+    std::fs::write(tasks.join("sample-two.toon"), item)?;
+    let full = workspace
+        .read_items()
+        .err()
+        .ok_or("full reader accepted duplicate ID")?;
+    let projected = workspace
+        .read_parent_index()
+        .err()
+        .ok_or("parent reader accepted duplicate ID")?;
+    assert_eq!(full.to_string(), projected.to_string());
+    std::fs::write(tasks.join("sample-two.toon"), "invalid full payload")?;
+    assert_eq!(
+        workspace.read_items().err().map(|error| error.to_string()),
+        workspace
+            .read_parent_index()
+            .err()
+            .map(|error| error.to_string())
+    );
+    std::fs::remove_dir_all(&tracker)?;
+    assert!(matches!(
+        workspace.read_parent_index(),
+        Err(PmRustError::Io { .. })
+    ));
+    Ok(())
+}
+
 #[test]
 fn empty_discovery_paths_fail_before_filesystem_reads() -> Result<(), Box<dyn std::error::Error>> {
     let Err(PmRustError::Io { path, source }) = super::Workspace::discover(Path::new("")) else {

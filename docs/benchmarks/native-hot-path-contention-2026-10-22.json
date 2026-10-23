@@ -1,0 +1,79 @@
+{
+  "schema": 1,
+  "complete": true,
+  "candidate_commit": "57845abdf2beb9087bfca25e674d56c32805a608",
+  "command": "PM_RUST_CONTENTION_ITEMS=50000 cargo +1.90.0 test --locked --lib selection::tests::contended_claim_next_does_not_rescan_rejected_candidates -- --nocapture",
+  "fixture": {
+    "git_repository": false,
+    "items": 50000,
+    "build": "debug lib test",
+    "scheduling": "real locked competing mutations after ranking; test-only hook absent from production",
+    "wall_time_scope": "ranking, competing writes and requester retries on a contended development host; one diagnostic sample per case; no p50/p95 claim"
+  },
+  "source_sha256": {
+    "src/selection.rs": "01c74dbaaef6b5bb893828e070d362bdd7ef9dd1659d33e4e85e460d75b3976e",
+    "src/ownership.rs": "f315c015e9af1178877c6830cbedc65a5282e2b982ff4c0c2073ef6cf085dc01",
+    "src/mutation.rs": "c49b33bae2004cfd7640eb7b178939746295b8a1aac0e77ccc8fce30406f2cb5",
+    "tests/support/selection_unit.rs": "c1bb08e42358fb9758f6321b0fbd1223515c9c7dafcd825e205f9d6b714f284c"
+  },
+  "default_gate": {
+    "items": 1000,
+    "variants": 5,
+    "rust_tests_passed": 1,
+    "pinned_pm_run": "passed"
+  },
+  "rows": [
+    {
+      "benchmark": "contended claim --next",
+      "items": 50000,
+      "attempts": 10,
+      "if_available": false,
+      "accepted": false,
+      "corpus_reads": 1,
+      "elapsed_ms_including_competing_writes": 91395.603576
+    },
+    {
+      "benchmark": "contended claim --next",
+      "items": 50000,
+      "attempts": 10,
+      "if_available": true,
+      "accepted": false,
+      "corpus_reads": 1,
+      "elapsed_ms_including_competing_writes": 50429.888001
+    },
+    {
+      "benchmark": "contended claim --next",
+      "items": 50000,
+      "attempts": 100,
+      "if_available": false,
+      "accepted": false,
+      "corpus_reads": 1,
+      "elapsed_ms_including_competing_writes": 240773.40820399998
+    },
+    {
+      "benchmark": "contended claim --next",
+      "items": 50000,
+      "attempts": 100,
+      "if_available": true,
+      "accepted": false,
+      "corpus_reads": 1,
+      "elapsed_ms_including_competing_writes": 118761.94161
+    },
+    {
+      "benchmark": "contended claim --next",
+      "items": 50000,
+      "attempts": 100,
+      "if_available": false,
+      "accepted": true,
+      "corpus_reads": 2,
+      "elapsed_ms_including_competing_writes": 87043.93327200001
+    }
+  ],
+  "rust_tests": {
+    "passed": 1,
+    "failed": 0,
+    "ignored": 0
+  },
+  "compiled_rust_source_commit": "527ab0e2e04a491cabb605f43c60e537374a257d",
+  "rust_sources_identical": true
+}

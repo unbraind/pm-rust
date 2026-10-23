@@ -1,0 +1,398 @@
+{
+  "schema": 1,
+  "implementation_head": "57845abdf2beb9087bfca25e674d56c32805a608",
+  "implementation_source": {
+    "implementation_head": "57845abdf2beb9087bfca25e674d56c32805a608",
+    "tracked_source_files": 113,
+    "source_tree_sha256": "a1d7e90dc3be12f90a7801c38939e9bd8fdf5d74dc76388cca2b1a9799ab440c",
+    "source_sha256": {
+      ".github/approved-git-identities.txt": "ba655c94cc600501547a75a5614c41a92f225a89cd44d2cdd3524cf104efbbdf",
+      ".github/dependabot.yml": "1cf4e0fd3cdc7c237c3b69e4c4b82ab2e607bfaf760c89b7fc5e80a4ff8a9767",
+      ".github/workflows/ci.yml": "4b53de1c1c05c178b6f7f6e0ea5f906d13ad78be5bd452d11845714099facd13",
+      ".github/workflows/codeql.yml": "929eca1afb590ab85f88ac2cf4387f17627d6ad1542a13c605c29886912d279f",
+      ".github/workflows/dependabot-auto-merge.yml": "6372acd5580a53d7d495928069f41ff9fc48279bc2afcac3d41cd878e3b0fd85",
+      ".github/workflows/native-bench.yml": "04a2b49dfcff893fd67aa2702c4aa9f8237876869f304d5b88bbfd87f6e859c4",
+      ".github/workflows/pm-github-closeout.yml": "d697184fc211d4237e30c35af82403f000ff6d8974cfecae0ada07b3c4d01c75",
+      ".github/workflows/pm-github-sync.yml": "cb8b663576fb9f3e399ab5fa86843f780edc204ef62c34895f5290812bca6d76",
+      ".github/workflows/release.yml": "b2b51a0ee53ace36305b0a4789886cd99b74ccd84a359a4cc03d3d599a496962",
+      "Cargo.lock": "5499fc4eb8fed36d2488701cfba02b6879f78040846851dfc4a63ac4295d07ee",
+      "Cargo.toml": "37e2ba41c205583d4bd007fd04bdf1b489c066b0dd07346ad3ceaabb866fb662",
+      "justfile": "74f68787c5205a36ba4e973f13edf35ad02fe6f06147f05fe6fe9a982e801e05",
+      "scripts/bench-oracle-version.mts": "fe35a5411fafa63f454c9454811520cef4600ff5a69cee4295f5ba89ffb25fc0",
+      "scripts/bench-oracle.mts": "90218a5cc97e9d57bd47bd05fc1f0e8b2796b7f32543f0172171f57a57418b61",
+      "scripts/bench-report.mts": "7f492cb50decaa619de291409f2779c3017d6278b6e8c63f0ab69e63372413f9",
+      "scripts/bench-schedule.mts": "e2ac3729136e728243fe70aa8e47c357e973087c6723f8a0795ddb73e7376147",
+      "scripts/check-lookup.mts": "87e54ac4fef92f3ceed047150cc9d72255e681a4e950ef861a00f0fbc40dfb24",
+      "scripts/context-real-helpers.mts": "523b8b58658e9c8891d4870ba5249b0e5596cc16c1c43bd54f1472c9dcbc38f4",
+      "scripts/context-real.mts": "4b49bdf0d3d6a45bc2bbce10c781e137def2cddde289331e23e108d2f9b19901",
+      "scripts/harness.test.mts": "b6192f02df673e55729ad147d049b088c72550f838455edfd1e485c1a88383c3",
+      "scripts/latency-gate.mts": "719e3864d7066fac39a9625f0a9c191c111a3dce7d39b9eb8b5121ca7255f5ea",
+      "scripts/latency-measure.mts": "9cfeac265cc8afc37170c9aad2658770dd39dbddd598a9130d9d9be11ec81f96",
+      "scripts/native-bench.mts": "7d560e968894d3d2d200e5db906aa07db8345fc0f7c3d67cf3aec8bd7a7a002b",
+      "scripts/perf-revert-proof.mts": "148af0f4226ca9abaa011a67b6bc8ba6e585f1c173ad07090444070fe84802d4",
+      "src/assurance.rs": "908a85ef4dbadfe6ad51b0f67575381c2a89ccc5f485370b40b93393c114c0d0",
+      "src/collation.rs": "f177e71a4f8cd3cbad1b80ca8ce16b3ae810bb8c33ed23b2b9834b9917f053ba",
+      "src/collections.rs": "1bd3600e50eb054f0aaa69d80f533463e0e80c22c3fbd2bd917f5f6656d1cc3f",
+      "src/error.rs": "e0a2f21948e45d8fd6b66ea5b18f38037ba99d82d4be05e2106046a10afc1b98",
+      "src/history.rs": "a8612988d2624359be8c782e8fffe1fb8e7287706fe89b0dadd4d61b8e4dffa6",
+      "src/identity_probes.rs": "b8c68878c85abcc7922d1d319d1b349c1e524ba1167dcc9dfcb1b4897e76d32c",
+      "src/item.rs": "d27b92a03d7c910e06fe32981d882d66c2fbc2dadf8cf83a1070b8c2e3e252de",
+      "src/json_output.rs": "65b6e577e526127a4865c1d4d51c9d540072067dec634b8e39b7a7ee8dc3b301",
+      "src/lib.rs": "90cabe25940be6eb860f63d509735fbb3d5dfda189a04e85b206f2c074bf4667",
+      "src/list.rs": "a25ab2675ddd765d91eb0e70832fed5efe26a7501f879e73701ccd85c11f72e2",
+      "src/list_intent.rs": "533e3b40a5a3e457749de93362384f7ba45966b1cdc3c8eba349589ff1026fba",
+      "src/list_registry.rs": "68e7bb581df35b14b7487da0787e0cbce9162473fa158adab85f3d7374d21d2e",
+      "src/lock_owner.rs": "3e00484810a87d9a2abc57356538f784a6169a2fbb9a1440b8489ff07b5dac3a",
+      "src/main.rs": "93780749c19370cc0deebf3f552b41b9f41077be7136feb5df8a5852975a0413",
+      "src/mutation.rs": "c49b33bae2004cfd7640eb7b178939746295b8a1aac0e77ccc8fce30406f2cb5",
+      "src/orientation.rs": "895f2e93a0ec322585b6d7acd2eb3bf5a25141843f86bd0d853b2a41f07fe095",
+      "src/orientation_context.rs": "9880c84754619d1bcb6c4501398b6bdd13f0a76b44b733f5ad54b7754f29c9e6",
+      "src/orientation_context/sections.rs": "05f94b2702709f40121b4c91f873036ca2be4424c2a819949668c3049f5851be",
+      "src/orientation_deps.rs": "b04339646b6c1539c9ac8a25d7c8faacbd8d64143fc09481196653149952998b",
+      "src/orientation_deps/budget_recovery.rs": "d20a4ec88d4459e86e9aaf958c25133ef753ff8ec6cc28bdec224a08ce12e084",
+      "src/orientation_deps/packet.rs": "083ad9ded12ea4d2d34c7f19dc0b2f8defc0dd4a46cd3912d0f20d59386eb86f",
+      "src/ownership.rs": "f315c015e9af1178877c6830cbedc65a5282e2b982ff4c0c2073ef6cf085dc01",
+      "src/pagination.rs": "4ff9669319a225b6df466da5815cd6d99ce4527bc51a977cb8b2ae9caf278721",
+      "src/read_output.rs": "978faa4261f8c6531ecc4dd02432ba1b205dbccc429a62dd7663b54590569d35",
+      "src/read_projection.rs": "04b1c32d48c99e45456763cd75c7ca7d521b196795510687dd9e77f15278cda7",
+      "src/search.rs": "1f4743bf37664b26c8444c0b2afb1274f601d507586f3585123b4c7669df2591",
+      "src/selection.rs": "01c74dbaaef6b5bb893828e070d362bdd7ef9dd1659d33e4e85e460d75b3976e",
+      "src/toon_output.rs": "e9f4cc52860a74be15c452dfdb7ca721be6669a4bd999a1e7a559938928ce936",
+      "src/workspace.rs": "c77d4d471dbdc56c9c8fc04aa037941c416bda3a6a43704df1578b89c00bbe73",
+      "tests/bench-oracle/package-lock.json": "abedd9b892051a31e39d39f9d0d9a360fd3504e41eeb108879bb1d070812c925",
+      "tests/bench-oracle/package.json": "c58d9856c1fdb785ec8bfe723733fa7b31954728d8dc05724f2ce28ec735a74f",
+      "tests/branch_merge_contract.rs": "7a3a0ebc7f9dd0b5443c412930eed9da69ecee5af3650615061b57912474a271",
+      "tests/claim_release_differential.rs": "73bf051a8cd925b9ac4303fb1fa866e18de7eb4faa649f8b6734ddbbe270300a",
+      "tests/cli_dispatch.rs": "bbb8658940c55159e1b083067d69660d83864b63a193de695f7b7a65fba03382",
+      "tests/close_differential.rs": "a860f9639f334a524e8b5c9e7b8978a3112ce557f4ecfa3efdda27c2105b5abd",
+      "tests/concurrency_contract.rs": "0eabb37fbc8d469c2f0ec3e48f8943012e38d9ea1fb5086304b183102afcf7e8",
+      "tests/conformance_differential.rs": "62b0bf44d0204a039f8c33d530655acbc3ced943ce9a83d764a9c247888288d5",
+      "tests/create_contract.rs": "df22620096d6d50c1e345d949b5280f1cc7e9554832ae7dc692425788690598a",
+      "tests/fixtures/list-2026-10-2.json": "e075639075ace660943b530fa970afe7f835d58da7a2982c33ad92e8dd46f8d5",
+      "tests/fixtures/list-full-read-output-2026-10-2.json": "ec868a216715b1fb09f43e7b4d74d1b07d6e04ca081c6713141332d33ca8766c",
+      "tests/fixtures/list-settings.json": "ab2b77c94e314df826e59690ce763e8834a43e3cce0a1bfbfb5641245ffea812",
+      "tests/harness_contract.rs": "b9d5486850bf621a1a3b4fc0d17c92863071dddda319a8b5be5496595d179f05",
+      "tests/identity_audit.rs": "7a1b8b47f0ec39bdbff68c862b435bd7b089d089f4b3f6fcc97adf9c28580b85",
+      "tests/list_differential.rs": "b97f13034da02ac3fc9e617fa19fe8706ad232082a9a1a3b7b1414407f501248",
+      "tests/mutation_contract.rs": "373faa14226e1e131d6858b9b4b4a936ac430d261b2edf1260b9cc7a83a57c7a",
+      "tests/oracle/launch.mts": "88aa946abac20ac13e6fb396a5c26cd2a82526f41e5ba375a2dad49ba1df2d62",
+      "tests/oracle/package-lock.json": "4dab8fa9ce75881f978f5bae767e99190c5a9f43edf230d9b22a347012b0d0b9",
+      "tests/oracle/package.json": "26343a27cb8fd94d20a919c37f049db66e6fc8811643f7ee650c29a8d94c1334",
+      "tests/oracle_launcher.rs": "27b6f2fa03b4ece22241dd685fd62932561d6864cb3cdc92e8cb5f843c1dab82",
+      "tests/orientation_differential.rs": "ad2ced9ae75d4ba7766d5c36168db465c49c600f86f2e477801cb95355e5c3ba",
+      "tests/output_parity_differential.rs": "13cf4eed688a31b91afaf2d21de5cc9e8bc1a914bf245d10a4e00b714634846f",
+      "tests/ownership_contract.rs": "5c3bddf3d289e8404951f3d919578935c323ca93ce41fdca69e1a2c85ae7fc8d",
+      "tests/pagination_differential.rs": "9b77e8c7f4dc820d0a0c4629e35ea930a1a61d09044da7d3b5d4a49112a40c8c",
+      "tests/parity_1021_contract.rs": "94ec16ce063568e1ca2f5ca0fd7809f0727b04eadac81ce8e52d66595263213c",
+      "tests/read_contract.rs": "09bf1d0c6c4ddd23eae7e17a938b24996235948ec0a6fd027a67e34aab10fd57",
+      "tests/release_pipeline_contract.rs": "4fcfea7225030cfc79283085a0bde232b829b02c5800f95176064d5548a4902d",
+      "tests/search_collections_differential.rs": "7d14d0da75608454fd19105037eebf1b20efd39ebc9a0dae9a470126d4529a11",
+      "tests/support/assurance_unit.rs": "ac594d7fbc46f6cde0dc963e27ac6d361d0b4bd06486568b53ca65aa0c869466",
+      "tests/support/budget_recovery_unit.rs": "2030ba2743358a5636fd928871ae230b4ae82bfc17d016276b6bdba3fefac988",
+      "tests/support/collation_unit.rs": "48f0aef621f1fa40b4e266951cc02fd29077e797773169f398a32d37134c11f7",
+      "tests/support/collections_unit.rs": "34e4c0f51a373cb80a07ba382db9743b4b7c82a0f4915b98f692c2cea105d25d",
+      "tests/support/history_unit.rs": "9d5f5ba2d3d55fc6b2102c266014a7f9e94f1892135be0c499324c299aecbd96",
+      "tests/support/identity_probes_unit.rs": "3af0b84c63c58fdebb4627f4909cb8cb159d2faafaae0592c2ca232e88dae26c",
+      "tests/support/json_output_unit.rs": "4056cb1273c272b9b4f971c3a30978835f5dae873abdac58e64de6b36739fb7e",
+      "tests/support/list_intent_unit.rs": "b0c7225ad1743272b436d685d12505935dab161ec65692b53477fa672558ee67",
+      "tests/support/list_registry_unit.rs": "0de0840698244ca17d8d2467262800a497f9cd1af49cf07518410bc12efc387a",
+      "tests/support/list_unit.rs": "75a11f752f8fb948796f78f65d3fc3f04f2cae0b2fd08aae87cb09140845fb06",
+      "tests/support/lock_owner_unit.rs": "e377424e660be2b114dba1fb0a8aefa03fee3f050d9ce08e5bd16b2c846e0b3c",
+      "tests/support/main_unit.rs": "1f43eba5f886cdc86b64ecf4f07c48cd06f7df7d518599e57876c77c510c95c4",
+      "tests/support/mutation_differential.rs": "db0920ac445da67dbc961ce48afa30bd06455996aea6a05634b0a81f14a5f1c6",
+      "tests/support/mutation_unit.rs": "c5a56191d251e51c38cca5ed23602cad94ef191617459248d359a2774b9ba507",
+      "tests/support/node_harness.rs": "f0d69d8c1c3a89634bece317a2b5891ab2a50a63410330953c7d6f367ea733f1",
+      "tests/support/orientation_context_unit.rs": "57c977dad4ce679fb98bfcfec9ccc534566beac18d703212d6ab9738db01b6a0",
+      "tests/support/orientation_deps_unit.rs": "a29b462e055470ca278fe39075a7120606fd0414dd28e79de9aa9185b3444522",
+      "tests/support/orientation_packet_unit.rs": "310754df3d60c7764a42a5ba8d5d428ab500323c6ce2b537e774527cbc474264",
+      "tests/support/orientation_sections_unit.rs": "062d1507659a3a3dd131d1395867d814b09b6823664c70d4c4ef2ab4002aa729",
+      "tests/support/orientation_unit.rs": "5f1302cccafa84c003acd54fd5355905a230493fa0259f1a25de31d5dbaf4b97",
+      "tests/support/ownership_unit.rs": "37b71d400db92e9b4c916c4b70187fc7c86ba28688b61dfc2a3679c9f69809d9",
+      "tests/support/pagination_unit.rs": "bd2d96d02f7d065aee27c256d2936a85e667d7f9aca954b7cdef3143d5a11b07",
+      "tests/support/process_environment.rs": "d67ba6dfe9709791e7d2c7b2a7d613835d50eca8098b82cf51b3404f58f6031a",
+      "tests/support/published_cli.rs": "7f8a29c21a2947c637870ae884214f65600bff3ed111b315dd4c845a7634cb2c",
+      "tests/support/read_output_unit.rs": "7cff75c0fc74e102baa58f83f9a443762e88592f9c2b05cccd46c475b3dca873",
+      "tests/support/read_projection_unit.rs": "60ad820876d729448e14c241958e7a74ab2b3e42b319c0f9b270c687de925517",
+      "tests/support/search_unit.rs": "c987929e6ed2572d94a0bac532bd3bb98ac68e05c072352cd12bd8c35e44cf86",
+      "tests/support/selection_unit.rs": "c1bb08e42358fb9758f6321b0fbd1223515c9c7dafcd825e205f9d6b714f284c",
+      "tests/support/toon_output_unit.rs": "50ac99ed44183e003e5f8efcf5c2075c510ffa1ce12ee21885690235d30ba20a",
+      "tests/support/windows_acl.rs": "ce188ec59355c43f10b6e87c2ef03a32066e68f6fc6a2c7e7b56179c5ebf623d",
+      "tests/support/windows_fs.rs": "56c12ef72f6a0ed5b6afdd610f22bcf6502462776a3247932bb075776832e826",
+      "tests/support/workspace_unit.rs": "617c93b9578abbcba897e13a22dc7d0b73d70d4e2808caea794474db55935776"
+    }
+  },
+  "ci_run": 39860125982,
+  "url": "https://github.com/unbraind/pm-rust/actions/runs/39860125982",
+  "conclusion": "success",
+  "command": "just release-check",
+  "thresholds": {
+    "lines": 100,
+    "functions": 100,
+    "regions": 100,
+    "branches": 100
+  },
+  "source_scope_and_thresholds_unchanged": true,
+  "jobs": [
+    {
+      "name": "Rust macos-latest",
+      "id": 120108928727,
+      "conclusion": "success",
+      "url": "https://github.com/unbraind/pm-rust/actions/runs/39860125982/job/120108928727"
+    },
+    {
+      "name": "Native latency windows-latest",
+      "id": 120108929130,
+      "conclusion": "success",
+      "url": "https://github.com/unbraind/pm-rust/actions/runs/39860125982/job/120108929130"
+    },
+    {
+      "name": "Rust ubuntu-latest",
+      "id": 120108929140,
+      "conclusion": "success",
+      "url": "https://github.com/unbraind/pm-rust/actions/runs/39860125982/job/120108929140"
+    },
+    {
+      "name": "Release gate aggregate macos-latest",
+      "id": 120108929290,
+      "conclusion": "success",
+      "url": "https://github.com/unbraind/pm-rust/actions/runs/39860125982/job/120108929290"
+    },
+    {
+      "name": "Native latency macos-latest",
+      "id": 120108929316,
+      "conclusion": "success",
+      "url": "https://github.com/unbraind/pm-rust/actions/runs/39860125982/job/120108929316"
+    },
+    {
+      "name": "Rust windows-latest",
+      "id": 120108929345,
+      "conclusion": "success",
+      "url": "https://github.com/unbraind/pm-rust/actions/runs/39860125982/job/120108929345"
+    },
+    {
+      "name": "Release gate aggregate",
+      "id": 120108929367,
+      "conclusion": "success",
+      "url": "https://github.com/unbraind/pm-rust/actions/runs/39860125982/job/120108929367"
+    },
+    {
+      "name": "Native latency ubuntu-latest",
+      "id": 120108929444,
+      "conclusion": "success",
+      "url": "https://github.com/unbraind/pm-rust/actions/runs/39860125982/job/120108929444"
+    },
+    {
+      "name": "Release gate aggregate windows-latest",
+      "id": 120108929567,
+      "conclusion": "success",
+      "url": "https://github.com/unbraind/pm-rust/actions/runs/39860125982/job/120108929567"
+    }
+  ],
+  "metrics": {
+    "Rust macos-latest": {
+      "conclusion": "success",
+      "suites": 22,
+      "passed": 578,
+      "failed": 0,
+      "ignored": 0
+    },
+    "Rust ubuntu-latest": {
+      "conclusion": "success",
+      "suites": 22,
+      "passed": 589,
+      "failed": 0,
+      "ignored": 0
+    },
+    "Release gate aggregate macos-latest": {
+      "conclusion": "success",
+      "suites": 44,
+      "passed": 1156,
+      "failed": 0,
+      "ignored": 0,
+      "ordinary": 578,
+      "instrumented": 578,
+      "coverage": {
+        "lines": {
+          "count": 14021,
+          "covered": 14021,
+          "percent": 100
+        },
+        "functions": {
+          "count": 1463,
+          "covered": 1463,
+          "percent": 100
+        },
+        "regions": {
+          "count": 23395,
+          "covered": 23395,
+          "notcovered": 0,
+          "percent": 100
+        },
+        "branches": {
+          "count": 3272,
+          "covered": 3272,
+          "notcovered": 0,
+          "percent": 100
+        }
+      },
+      "existing_advisory_present": true
+    },
+    "Rust windows-latest": {
+      "conclusion": "success",
+      "suites": 22,
+      "passed": 572,
+      "failed": 0,
+      "ignored": 0
+    },
+    "Release gate aggregate": {
+      "conclusion": "success",
+      "suites": 44,
+      "passed": 1178,
+      "failed": 0,
+      "ignored": 0,
+      "ordinary": 589,
+      "instrumented": 589,
+      "coverage": {
+        "lines": {
+          "count": 14106,
+          "covered": 14106,
+          "percent": 100
+        },
+        "functions": {
+          "count": 1476,
+          "covered": 1476,
+          "percent": 100
+        },
+        "regions": {
+          "count": 23545,
+          "covered": 23545,
+          "notcovered": 0,
+          "percent": 100
+        },
+        "branches": {
+          "count": 3310,
+          "covered": 3310,
+          "notcovered": 0,
+          "percent": 100
+        }
+      },
+      "existing_advisory_present": true
+    },
+    "Release gate aggregate windows-latest": {
+      "conclusion": "success",
+      "suites": 44,
+      "passed": 1144,
+      "failed": 0,
+      "ignored": 0,
+      "ordinary": 572,
+      "instrumented": 572,
+      "coverage": {
+        "lines": {
+          "count": 14017,
+          "covered": 14017,
+          "percent": 100
+        },
+        "functions": {
+          "count": 1462,
+          "covered": 1462,
+          "percent": 100
+        },
+        "regions": {
+          "count": 23393,
+          "covered": 23393,
+          "notcovered": 0,
+          "percent": 100
+        },
+        "branches": {
+          "count": 3274,
+          "covered": 3274,
+          "notcovered": 0,
+          "percent": 100
+        }
+      },
+      "existing_advisory_present": true
+    }
+  },
+  "benchmark": {
+    "run": 39860125987,
+    "conclusion": "success",
+    "candidate_commit": "57845abdf2beb9087bfca25e674d56c32805a608",
+    "rows": 81,
+    "samples": 1620,
+    "distinct_native_executables": true,
+    "native_exit0": 19,
+    "native_oracle_byte_equal": 2,
+    "native_oracle_storage_equal": 0,
+    "known_parity_counts_unchanged_from_historical_receipt": true
+  },
+  "local": {
+    "ownership_contract": {
+      "passed": 9,
+      "failed": 0
+    },
+    "contention": {
+      "rust_tests_passed": 1,
+      "variants": 5,
+      "items": 50000
+    },
+    "node_harness": {
+      "passed": 25,
+      "failed": 0,
+      "skipped": 0,
+      "cancelled": 0,
+      "pinned_pm_run_passed": true
+    },
+    "strict_erasable_typescript": "passed",
+    "full_gate_attempt": {
+      "exit_code": 101,
+      "suites_run": 15,
+      "passed": 485,
+      "failed_deadlines": 1,
+      "failed_test": "relationship_large_edge_limit_finishes_at_budget_floor",
+      "native_deadline_seconds": 5,
+      "native_exit_code": null,
+      "targeted_retry_also_exceeded_deadline": true,
+      "same_test_passed_in_ci_ordinary_and_instrumented_suites_on_all_three_platforms": true,
+      "coverage_not_reached_locally": true
+    },
+    "other_attempts": {
+      "node_nested_process_deadlines": 2,
+      "node_deadline_seconds": 15,
+      "node_unchanged_case_passed_on_complete_25_test_retry": true,
+      "pm_startup_collision_with_oracle_installation": 1,
+      "pm_retry_after_setup_passed": true,
+      "superseded_local_attempts_intentionally_stopped": 2
+    }
+  },
+  "review": {
+    "unresolved_threads": [
+      "PRRT_kwDOTwgMRs6vX_PV"
+    ],
+    "profile_thread_fix": "validated yes/no before binary reads and fixtures; three invalid values; reverted assertion fails, restored passes",
+    "latest_coderabbit_review": "2026-10-22T20:53:52Z",
+    "reviewed_commit": "9337cb13e7ad68daa26ebaf609911d1b0b84eafb",
+    "outside_diff_findings": 0,
+    "no_fresh_bot_approval_claimed": true
+  },
+  "pm": {
+    "item": "pm-rust-wdj4",
+    "author": "codex-agent",
+    "followup": "pm-rust-bench-workflow",
+    "existing_history_prefixes_preserved": 76
+  },
+  "delivery_contract": "The following receipt commit changes only docs and PM records. Its exact head and completed checks are published in the PR delivery body; implementation source digests remain identical.",
+  "final_tracker_preflight": {
+    "strict_check_only_health": true,
+    "require_merge_drivers": true,
+    "advisory_count": 2,
+    "warnings": [
+      "agent_guidance_outdated:AGENTS.md",
+      "provenance_value_domain_invalid:claude-code:role:single_digit:19"
+    ],
+    "changelog_generation": "passed",
+    "changelog_check": "passed",
+    "claim_released": true,
+    "item_status": "in_progress",
+    "no_item_closed": true
+  }
+}

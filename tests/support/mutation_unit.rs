@@ -19,6 +19,64 @@ mod windows_acl;
 
 const TS: &str = "2026-08-07T10:06:30.183Z";
 
+thread_local! {
+    /// Counts entries that actually reach the locator's live metadata boundary.
+    pub(crate) static LOCATOR_METADATA_ENTRIES: std::cell::Cell<usize> = const { std::cell::Cell::new(0) };
+}
+
+/// Thousands of unrelated items must not require individual metadata probes.
+#[test]
+fn locator_metadata_work_depends_on_directories_and_targets()
+-> Result<(), Box<dyn std::error::Error>> {
+    let (_directory, pm_root) = root("{}")?;
+    create_item(&pm_root, request())?;
+    for index in 0..1000 {
+        fs::write(
+            pm_root.join(format!("tasks/unrelated-{index}.toon")),
+            "unrelated damage",
+        )?;
+    }
+    LOCATOR_METADATA_ENTRIES.set(0);
+    assert_eq!(
+        locate_item(&pm_root, "sample-unit")?.1.metadata.id,
+        "sample-unit"
+    );
+    assert!(
+        LOCATOR_METADATA_ENTRIES.get() < 20,
+        "unrelated files reached live metadata checks"
+    );
+    LOCATOR_METADATA_ENTRIES.set(0);
+    assert!(matches!(
+        locate_item(&pm_root, "sample-missing"),
+        Err(PmRustError::ItemNotFound { .. })
+    ));
+    assert!(LOCATOR_METADATA_ENTRIES.get() < 20);
+    Ok(())
+}
+
+/// A type-lookup fallback must still ignore an unrelated regular file's payload.
+#[test]
+fn locator_fallback_keeps_the_filename_boundary() -> Result<(), Box<dyn std::error::Error>> {
+    let (_directory, pm_root) = root("{}")?;
+    create_item(&pm_root, request())?;
+    let tasks = pm_root.join("tasks");
+    fs::write(tasks.join("unrelated.toon"), "invalid unrelated payload")?;
+    let entry = crate::workspace::read_directory(&tasks)?
+        .into_iter()
+        .find(|entry| entry.file_name() == "unrelated.toon")
+        .ok_or("missing unrelated fixture")?;
+    let mut found = Vec::new();
+    // Exercise the live fallback boundary directly: a filesystem without
+    // cached entry types can deliver an unrelated regular file here.
+    locate_item_entry(&entry, false, "sample-unit", "sample-unit.toon", &mut found)?;
+    assert!(found.is_empty());
+    assert_eq!(
+        locate_item(&pm_root, "sample-unit")?.1.metadata.id,
+        "sample-unit"
+    );
+    Ok(())
+}
+
 #[cfg(unix)]
 std::thread_local! {
     /// Records successful real directory flushes on this test thread.
@@ -3845,7 +3903,8 @@ fn ownership_refusals_and_interrupted_history_append_remain_recoverable()
         ..crate::OwnershipOptions::default()
     };
     assert_eq!(
-        ownership_item_with_options(&pm_root, &mutation, false, &bypass)?.changed_field_count,
+        ownership_item_with_options(&pm_root, &mutation, false, &bypass, &mut || Ok(()))?
+            .changed_field_count,
         2
     );
     mutation.author = "unit-agent".to_owned();
@@ -4055,6 +4114,7 @@ fn closure_ownership_and_predecessor_storage() -> Result<(), Box<dyn std::error:
                 &owner,
                 true,
                 &crate::OwnershipOptions::default(),
+                &mut || Ok(()),
             )?;
             let mut closing = closure_request();
             closing.fields.force = force;

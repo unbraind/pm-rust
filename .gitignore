@@ -22,3 +22,4 @@ cov-no-branch.json
 /tests/oracle/node_modules/
 /tests/harness/node_modules/
 /.crash-failures/
+/tests/bench-oracle/node_modules/

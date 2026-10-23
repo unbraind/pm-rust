@@ -7,8 +7,11 @@ native applications.
 The project is pre-release. Its current delivery slice reads workspaces and
 creates, updates, comments on, closes, claims, and releases canonical items
 against the published `pm` 2026.10.21 on-disk contract. Production code, tests, benchmarks,
-and build tooling are Rust; the distributed binary does not require Node.js,
+and build tooling use Rust and typed test harnesses; the distributed binary does not require Node.js,
 Bun, JavaScript, or TypeScript.
+
+See [large tracker hot-path benchmarks](docs/NATIVE_HOT_PATHS.md) for `just bench`,
+the generated 1k/10k/50k matrix, peak RSS, byte comparisons and known parity gaps.
 
 See the [command and storage parity matrix](docs/CLI_PARITY_2026_10_2.md) and
 [2026.10.7 pagination contract](docs/LIST_PAGINATION_2026_10_5.md) for supported
@@ -49,6 +52,9 @@ recovery, strict mutation admission, ordering and cursor changes.
 Workspace discovery, list/get/search/context/history/dependencies, item mutations,
 ownership and linked artifacts work in plain directories. Concurrent writers share
 the same tracker and retain every admitted item edit and append-only history entry.
+The multi-process write contract tests 50 writers against one such tracker without
+a Git executable. Native `context` refuses trackers with 10,000 or more items;
+see the [large tracker limits and benchmark protocol](docs/NATIVE_HOT_PATHS.md).
 Linked-test branch provenance is optional and inspects Git only when a repository
 marker exists. GitHub synchronization and Git history tooling require a Git
 repository and are outside the distributed native command slice.

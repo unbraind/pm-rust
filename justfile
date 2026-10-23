@@ -52,6 +52,19 @@ crash-check:
     tests/harness/node_modules/.bin/tsc -p tests/harness/tsconfig.json
     tests/harness/node_modules/.bin/eslint -c tests/harness/eslint.config.mjs scripts/crash-*.mts
     node --test scripts/crash-harness.test.mts
+# Reproduce large synthetic non-git trackers against the requested current oracle.
+bench-oracle-install:
+    npm ci --prefix tests/bench-oracle --ignore-scripts
+
+# GNU time provides per-process peak RSS; all generated state stays in scratch.
+[positional-arguments]
+bench *args: bench-oracle-install
+    cargo +1.90.0 build --release --locked
+    node scripts/native-bench.mts "$@"
+
+# Revert only the optimized behaviors, require assertion failures, then restore.
+perf-revert-proof:
+    node scripts/perf-revert-proof.mts
 
 # Run the locked oracle through its shared test-environment launcher.
 [positional-arguments]

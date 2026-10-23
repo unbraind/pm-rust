@@ -1,0 +1,14 @@
+id: pm-rust-wc8b
+title: Implement native next and list-open agent read commands
+description: The generated hot-path benchmark exposes that main accepts list but refuses the next and list-open command names. Add current-oracle byte contracts and real plain-directory acceptance before treating their short refusal timings as native speed evidence. Keep the existing supported list --status open path separately measured.
+type: Task
+status: open
+priority: 3
+tags[3]: conformance,follow-up,rust
+created_at: "2026-10-21T17:14:40.171Z"
+updated_at: "2026-10-21T17:24:26.260Z"
+author: codex-agent
+parent: pm-rust-u4al
+comments[1]{created_at,author,text}:
+  "2026-10-21T17:24:26.176Z",codex-agent,Discovered by the generated native hot-path benchmark under pm-rust-wdj4. Both command names exit 2 on current main while the 2026.10.21 oracle executes them successfully. Keep this follow-up open for current-oracle CLI and plain-directory acceptance; do not infer speed from the refusal rows.
+body: ""
