@@ -127,4 +127,5 @@ exercise real no-git initialization, a native PATH without Git or Node, empty
 trackers, output-budget continuations, peer cancellation before and after a real
 query, source length drift, schema symlink refusal, real query storage loss,
 explicit cancellation, drop, cleanup failures, disconnected consumers, bounded
-read/iterator faults, writer/flush faults and successful terminal cleanup.
+read/iterator faults, writer/flush faults, actual snapshot-creation refusal in a
+fresh SDK process, and successful terminal cleanup.

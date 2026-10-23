@@ -718,3 +718,44 @@ fn resource_session_continues_output_budget_pages_without_missing_rows() -> Test
     }
     Ok(())
 }
+
+/// A fresh native SDK process preserves real temporary-directory creation failures.
+#[test]
+fn snapshot_temp_creation_failure_is_typed() -> TestResult {
+    const SOURCE: &str = "PM_RUST_SESSION_TEMP_FAILURE_SOURCE";
+    if let Some(source) = std::env::var_os(SOURCE) {
+        let workspace = Workspace::discover(&PathBuf::from(source))?;
+        assert!(matches!(
+            workspace.read_session(
+                &ReadSessionLimits::default(),
+                SessionCancellation::default(),
+                CLOCK,
+            ),
+            Err(SessionRefusal::Storage(_))
+        ));
+        return Ok(());
+    }
+    let (directory, _workspace) = fixture(1)?;
+    let scratch = tempfile::tempdir()?;
+    let blocker = scratch.path().join("blocked-temp");
+    fs::write(&blocker, "not a directory")?;
+    let result = std::process::Command::new(std::env::current_exe()?)
+        .args([
+            "--exact",
+            "read_session::tests::snapshot_temp_creation_failure_is_typed",
+            "--nocapture",
+        ])
+        .env(SOURCE, directory.path())
+        .env("TMPDIR", &blocker)
+        .env("TMP", &blocker)
+        .env("TEMP", &blocker)
+        .output()?;
+    assert!(
+        result.status.success(),
+        "{}{}",
+        String::from_utf8_lossy(&result.stdout),
+        String::from_utf8_lossy(&result.stderr)
+    );
+    assert!(String::from_utf8(result.stdout)?.contains("1 passed"));
+    Ok(())
+}
