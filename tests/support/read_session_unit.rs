@@ -871,8 +871,8 @@ fn schema_invalid_path_preserves_canonical_lookup_error() -> TestResult {
     Ok(())
 }
 
-/// Distinct native filename bytes must remain distinct in the snapshot certificate.
-#[cfg(unix)]
+/// Linux filesystems admit raw names that macOS rejects before snapshot admission.
+#[cfg(target_os = "linux")]
 #[test]
 fn snapshot_digest_preserves_non_utf8_filename_and_directory_bytes() -> TestResult {
     use std::ffi::OsString;
@@ -906,6 +906,35 @@ fn snapshot_digest_preserves_non_utf8_filename_and_directory_bytes() -> TestResu
             assert!(session.next_page()?.is_some());
             assert!(session.receipt().complete);
             previous = path;
+        }
+    }
+    Ok(())
+}
+
+/// Digest encoding preserves native bytes even on filesystems that refuse raw names.
+#[cfg(unix)]
+#[test]
+fn snapshot_digest_preserves_non_utf8_path_bytes() -> TestResult {
+    use std::ffi::OsString;
+    use std::os::unix::ffi::OsStringExt;
+
+    let (_temporary, workspace) = fixture(1)?;
+    let source = workspace.pm_root().join("tasks/nested/demo-0.toon");
+    let scratch = tempfile::tempdir()?;
+    let target = scratch.path().join("copy.toon");
+    let token = SessionCancellation::default();
+    for directory in [false, true] {
+        let mut digests = BTreeSet::new();
+        for byte in [0x80, 0x81] {
+            let mut name = b"tasks/".to_vec();
+            name.push(byte);
+            name.extend_from_slice(if directory { b"/demo-0.toon" } else { b".toon" });
+            let relative = PathBuf::from(OsString::from_vec(name));
+            let mut ledger = admission(&token);
+            ledger.copy(&source, &target, &relative, true)?;
+            assert_eq!(ledger.items, 1);
+            assert_eq!(fs::read(&target)?, fs::read(&source)?);
+            assert!(digests.insert(ledger.hash.finalize().to_vec()));
         }
     }
     Ok(())
