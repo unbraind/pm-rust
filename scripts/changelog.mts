@@ -27,6 +27,11 @@ const flags = mode === 'full' ? [
   '--release-version', crateVersion(),
   '--date', constant('CHANGELOG_DATE'), ...extra,
 ] : process.argv.slice(2);
+if (flags.some(flag => ['--all-release-tags', '--since-previous-tag', '--until-release-tag'].includes(flag))
+    && spawnSync('git', ['rev-parse', '--show-toplevel'], { cwd: root, stdio: 'ignore' }).status !== 0) {
+  console.error('Changelog generation from release tags needs a git repository and an available Git executable; .agents/pm cannot resolve one. Tracker reads and writes still work without git.');
+  process.exit(1);
+}
 const windows = process.platform === 'win32';
 const result = spawnSync(windows ? 'npx.cmd' : 'npx', [
   '--yes', `--package=${constant('PM_CHANGELOG_PKG')}`, `--package=${constant('PM_CLI_PKG')}`,
