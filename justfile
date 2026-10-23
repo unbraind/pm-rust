@@ -1,8 +1,8 @@
 # pm-rust release and changelog targets.
 #
-# Since pm-rust has no package.json, these justfile recipes expose the
-# pm-changelog tooling that every other fleet package provides via npm
-# scripts. They are runnable in CI and documented in the README.
+# These native recipes expose pm-changelog and the Rust aggregate gate.
+# The root package.json provides npm and Bun aliases without replacing any
+# native checks. Recipes are runnable in CI and documented in the README.
 #
 # The `--date` parameter is fixed so the generated changelog heading does not
 # depend on the clock. This prevents CI from failing on a random day in a

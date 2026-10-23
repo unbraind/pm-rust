@@ -27,6 +27,7 @@ mod ownership;
 mod pagination;
 mod read_output;
 mod read_projection;
+mod read_session;
 mod search;
 mod selection;
 mod toon_output;
@@ -53,3 +54,8 @@ pub use workspace::{ItemFilter, ListResult, Workspace};
 
 /// Published canonical `pm` release used by this compatibility slice.
 pub const COMPATIBLE_PM_VERSION: &str = "2026.10.21";
+
+pub use read_session::{
+    ReadSession, ReadSessionLimits, SessionCancellation, SessionPage, SessionReceipt,
+    SessionRefusal,
+};

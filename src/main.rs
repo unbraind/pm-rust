@@ -23,6 +23,24 @@ struct Cli {
 
 #[derive(Debug, Subcommand)]
 enum Command {
+    /// Stream a strictly validated immutable tracker snapshot under resource admission limits.
+    ReadSession {
+        /// Accounted working-set ceiling in bytes (allocator RSS is measured separately).
+        #[arg(long, default_value_t = 536_870_912)]
+        memory_bytes: u64,
+        /// Maximum canonical rows per delivered page.
+        #[arg(long, default_value_t = 20)]
+        page_items: usize,
+        /// Existing per-page renderer token ceiling.
+        #[arg(long, default_value_t = 4000)]
+        output_tokens: usize,
+        /// Cancel at a page boundary when this caller-owned marker exists.
+        #[arg(long)]
+        cancel_file: Option<PathBuf>,
+        /// Emit one compact JSON frame per line instead of TOON documents.
+        #[arg(long)]
+        json: bool,
+    },
     /// Read configured assurance declarations without changing the registry.
     Assurance {
         /// Read one declaration or discover configured IDs.
@@ -572,6 +590,51 @@ mod tests;
 fn run(cli: Cli) -> Result<(), Box<dyn std::error::Error>> {
     let workspace = Workspace::discover(&cli.workspace)?;
     match cli.command {
+        Command::ReadSession {
+            memory_bytes,
+            page_items,
+            output_tokens,
+            cancel_file,
+            json,
+        } => {
+            let cancellation = pm_rust::SessionCancellation::default();
+            if cancel_file.as_ref().is_some_and(|path| path.exists()) {
+                cancellation.cancel();
+            }
+            let limits = pm_rust::ReadSessionLimits {
+                memory_bytes,
+                page_items,
+                output_tokens,
+                toon: !json,
+            };
+            let mut session = workspace.read_session(
+                &limits,
+                cancellation.clone(),
+                &pm_rust::current_timestamp(),
+            )?;
+            let mut stdout = std::io::stdout().lock();
+            loop {
+                if cancel_file.as_ref().is_some_and(|path| path.exists()) {
+                    cancellation.cancel();
+                }
+                let Some(page) = session.next_page()? else {
+                    break;
+                };
+                if json {
+                    writeln!(stdout, "{}", pm_rust::stringify_json(&page, false))?;
+                } else {
+                    let receipt = pm_rust::ListOutput::from(serde_json::to_value(&page.receipt)?);
+                    writeln!(
+                        stdout,
+                        "{}{}---",
+                        pm_rust::stringify_toon(&receipt)?,
+                        pm_rust::stringify_toon(&page.output)?
+                    )?;
+                }
+                stdout.flush()?;
+            }
+            return Ok(());
+        }
         Command::Assurance {
             action,
             kind,
@@ -1371,6 +1434,11 @@ fn main() -> ExitCode {
     match run(cli) {
         Ok(()) => ExitCode::SUCCESS,
         Err(error) => {
+            if let Some(refusal) = error.downcast_ref::<pm_rust::SessionRefusal>() {
+                let payload = serde_json::json!({"code":refusal.code(),"detail":refusal.to_string(),"required":refusal.to_string(),"exit_code":2});
+                let _ = write_json_to(&mut std::io::stderr().lock(), &payload);
+                return ExitCode::from(2);
+            }
             if matches!(
                 error.downcast_ref::<pm_rust::PmRustError>(),
                 Some(pm_rust::PmRustError::HistoryVerificationFailed)

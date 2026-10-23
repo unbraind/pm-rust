@@ -1,0 +1,32 @@
+id: pm-rust-bounded-read-sessions
+title: Stream certified native reads under caller resource limits
+description: "Embeddable bounded read sessions for non-Node hosts, reusing existing native query and output contracts."
+type: Feature
+status: in_progress
+priority: 2
+tags[3]: embedding,resources,sdk
+created_at: "2026-10-23T14:33:11.991Z"
+updated_at: "2026-10-23T14:48:34.131Z"
+assignee: codex-agent
+claim_principal: codex-agent
+author: codex-agent
+acceptance_criteria: "Large synthetic trackers respect a declared memory ceiling; cancellation releases resources; wire results remain oracle-conformant; compact JSON/TOON, typed refusals and remedies, README and example; read-only non-git public-tracker validation; unchanged CI gates."
+parent: pm-rust-u4al
+comments[2]{created_at,author,text}:
+  "2026-10-23T14:33:35.077Z",codex-agent,"Overlap audit: core SDK listAllComplete/certifyCompleteListResult own completeness and CLI list owns pagination. pm-context owns durable context packs and usage receipts; pm-web consumes complete SDK lists. Native pagination is pm-rust-ufzy and latency is pm-rust-wdj4. No existing embedding resource contract found. Reuse Workspace::list_page, strict decoding, lifecycle registries and JSON/TOON codecs. Add bounded private snapshot admission, cooperative cancellation and certified session receipts without another core query or parity pin. The crate remains native Rust; typed TypeScript is used for the validation harness."
+  "2026-10-23T14:44:13.698Z",codex-agent,"Implementation decision: immutable private disk snapshots isolate admitted reads from later writers while preserving original cursor identity. Admission accounts native working-set reserve and bounds every source read; the declared ledger ceiling is distinct from measured process RSS. Reuse canonical list_page, strict complete-item decoder and duplicate checks. Pull ownership supplies backpressure, cancellation is cooperative between copying/query boundaries, and completion/failure/cancel/drop remove snapshots. Add unchanged npm/Bun aliases for the existing Rust release gate and a Bun CI aggregate. Local work is restricted to targeted tests, lint/typecheck and focused validation because the host is saturated."
+files[6]{path,scope}:
+  scripts/read-session-validate.mts,project
+  src/main.rs,project
+  src/read_session.rs,project
+  src/workspace.rs,project
+  tests/read_session_contract.rs,project
+  tests/support/read_session_unit.rs,project
+tests[2]{command,scope,provenance{author,created_at,source_kind,source_ref}}:
+  "cargo test --locked --lib read_session::tests -- --test-threads=1",project,codex-agent,"2026-10-23T14:48:33.983Z",local_mutation,feat/bounded-read-sessions
+  cargo test --locked --test read_session_contract -- --test-threads=1,project,codex-agent,"2026-10-23T14:48:33.983Z",local_mutation,feat/bounded-read-sessions
+docs[3]{path,scope}:
+  docs/BOUNDED_READ_SESSIONS.md,project
+  examples/read_session.rs,project
+  README.md,project
+body: ""
