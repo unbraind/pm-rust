@@ -13,6 +13,8 @@ fn fixture() -> Result<tempfile::TempDir, Box<dyn std::error::Error>> {
     let initialized = Command::new("node")
         .arg(launcher)
         .current_dir(directory.path())
+        .arg("--path")
+        .arg(directory.path().join(".agents/pm"))
         .args(["init", "--defaults", "--agent-guidance", "skip"])
         .env(
             "GIT_CEILING_DIRECTORIES",
@@ -23,6 +25,10 @@ fn fixture() -> Result<tempfile::TempDir, Box<dyn std::error::Error>> {
         initialized.status.success(),
         "{}",
         String::from_utf8_lossy(&initialized.stderr)
+    );
+    assert!(
+        directory.path().join(".agents/pm/settings.json").is_file(),
+        "init must create the explicitly selected tracker"
     );
     fs::create_dir_all(directory.path().join(".agents/pm/tasks"))?;
     for index in 0..3 {
@@ -144,5 +150,34 @@ fn canonical_output_budget_continuations_do_not_skip_context_rows() -> TestResul
         assert!(session.receipt().complete);
         assert_eq!(ids.len(), 3);
     }
+    Ok(())
+}
+
+/// Public embedding admission refuses early and owns a source-independent snapshot.
+#[test]
+fn embedding_admission_and_snapshot_lifetime_are_enforced() -> TestResult {
+    let directory = fixture()?;
+    let workspace = Workspace::discover(directory.path())?;
+    assert!(matches!(
+        workspace.read_session(
+            &ReadSessionLimits {
+                memory_bytes: 1,
+                ..ReadSessionLimits::default()
+            },
+            SessionCancellation::default(),
+            "2026-10-21T12:00:00.000Z"
+        ),
+        Err(pm_rust::SessionRefusal::MemoryLimit)
+    ));
+    let mut session = workspace.read_session(
+        &ReadSessionLimits::default(),
+        SessionCancellation::default(),
+        "2026-10-21T12:00:00.000Z",
+    )?;
+    fs::remove_dir_all(workspace.pm_root().join("tasks"))?;
+    let page = session.next_page()?.ok_or("snapshot page missing")?;
+    assert_eq!(page.output["items"].as_array().map(Vec::len), Some(3));
+    assert!(page.receipt.complete);
+    assert!(session.next_page()?.is_none());
     Ok(())
 }

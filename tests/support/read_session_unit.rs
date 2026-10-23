@@ -351,3 +351,31 @@ fn unsupported_files_and_depth_refuse_with_recoverable_storage_errors() -> TestR
     }
     Ok(())
 }
+
+#[test]
+fn schema_directory_links_cannot_escape_snapshot_admission() -> TestResult {
+    let (directory, workspace) = fixture(1)?;
+    let outside = directory.path().join("outside-schema");
+    fs::create_dir(&outside)?;
+    fs::write(outside.join("statuses.json"), "{}")?;
+    #[cfg(unix)]
+    std::os::unix::fs::symlink(&outside, workspace.pm_root().join("schema"))?;
+    #[cfg(windows)]
+    {
+        let output = std::process::Command::new("cmd")
+            .args(["/C", "mklink", "/J"])
+            .arg(workspace.pm_root().join("schema"))
+            .arg(&outside)
+            .output()?;
+        assert!(output.status.success());
+    }
+    assert!(matches!(
+        workspace.read_session(
+            &ReadSessionLimits::default(),
+            SessionCancellation::default(),
+            CLOCK
+        ),
+        Err(SessionRefusal::UnsupportedSource)
+    ));
+    Ok(())
+}

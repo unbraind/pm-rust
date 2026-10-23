@@ -310,6 +310,10 @@ impl ReadSession {
             self.cleanup()?;
             return Err(error);
         }
+        if output["read_output"]["result_omitted"] == true {
+            self.cleanup()?;
+            return Err(PmRustError::OutputBudgetExceeded.into());
+        }
         self.options.after = output["next_cursor"].as_str().map(str::to_owned);
         self.options.output_cursor = None;
         if output["continuation_kind"] == "output_cursor" {
