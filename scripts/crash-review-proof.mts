@@ -1,7 +1,7 @@
 import assert from 'node:assert/strict';
 import { spawnSync } from 'node:child_process';
 import { createHash } from 'node:crypto';
-import { chmodSync, mkdirSync, mkdtempSync, readFileSync, readdirSync, rmSync, writeFileSync } from 'node:fs';
+import { chmodSync, existsSync, mkdirSync, mkdtempSync, readFileSync, readdirSync, rmSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join, resolve } from 'node:path';
 import { runCrashCorpus } from './crash-harness.mts';
@@ -57,7 +57,12 @@ try {
     { name: 'reduction-refusal', file: 'scripts/crash-harness.mts', before: 'reduceFailure(report, () => runCrashCorpus({ ...options, source: undefined }));', after: 'report.failuresRetained = runCrashCorpus({ ...options, source: undefined }).failuresRetained;', pattern: 'synthetic reduction refusal' },
   ];
   mkdirSync('docs/controls/crash-review', { recursive: true });
-  const results = [];
+  const resume = process.argv[2];
+  assert.ok(resume === undefined || resume === '--resume-controls', 'Use --resume-controls only with the owned local checkpoint.');
+  const checkpoint = '.crash-failures/review-controls.json';
+  const saved: unknown = resume && existsSync(checkpoint) ? JSON.parse(readFileSync(checkpoint, 'utf8')) : [];
+  assert.ok(Array.isArray(saved));
+  const results: { name: string; file: string; sourceSha256: string; patch: string; patchSha256: string; command: string[]; negativeExit: number; restoredExit: number }[] = [];
   for (const control of controls) {
     const original = readFileSync(control.file);
     const text = original.toString();
@@ -67,6 +72,15 @@ try {
     const patch = `docs/controls/crash-review/${control.name}.patch`;
     writeFileSync(patch, diff);
     const args = ['--test', `--test-name-pattern=${control.pattern}`, 'scripts/crash-review.test.mts'];
+    const recorded = saved.find((entry: unknown) => typeof entry === 'object' && entry !== null && 'name' in entry && entry.name === control.name);
+    const result = { name: control.name, file: control.file, sourceSha256: sha(original), patch, patchSha256: sha(diff),
+      command: ['node', ...args], negativeExit: 1, restoredExit: 0 };
+    if (recorded !== undefined) {
+      assert.deepEqual(recorded, result, 'A resumed control must match the exact source, patch, command and results.');
+      results.push(result);
+      console.log(`${control.name}: retained completed negative=1 restored=0`);
+      continue;
+    }
     let negative: string;
     try { writeFileSync(control.file, changed); negative = command(process.execPath, args, 1); }
     finally { writeFileSync(control.file, original); }
@@ -74,14 +88,15 @@ try {
     assert.match(negative, /(?:fail|not ok|✖)/);
     assert.match(restored, /(?:pass|ok|✔)/);
     assert.deepEqual(readFileSync(control.file), original);
-    results.push({ name: control.name, file: control.file, sourceSha256: sha(original), patch, patchSha256: sha(diff),
-      command: ['node', ...args], negativeExit: 1, restoredExit: 0 });
+    results.push(result);
+    mkdirSync('.crash-failures', { recursive: true });
+    writeFileSync(checkpoint, JSON.stringify(results, null, 2) + '\n');
     console.log(`${control.name}: negative=1 restored=0`);
   }
   const archive = join(root, 'public.tar'); const copy = join(root, 'public'); mkdirSync(copy);
   command('git', ['archive', '--format=tar', '--output', archive, publicCommit, '.agents/pm']);
   command('tar', ['-xf', archive, '-C', copy]); readOnly(join(copy, '.agents/pm'));
-  const report = runCrashCorpus({ native: resolve('target/debug/pm-rust'), source: join(copy, '.agents/pm'), artifacts: join(root, 'evidence') });
+  const report = runCrashCorpus({ native: resolve('target/debug/pm-rust'), source: join(copy, '.agents/pm'), artifacts: join(root, 'evidence'), timeoutMs: 60000 });
   assert.equal(report.sourceUnchanged, true); assert.equal(report.ok, false);
   const inputs = command('git', ['ls-files', 'scripts/crash-*.mts', 'tests/harness', 'tests/fixtures/crash-review', 'src', 'Cargo.toml', 'Cargo.lock', 'rust-toolchain.toml', 'justfile', 'README.md', 'docs/CRASH_HARNESS.md']).trim().split('\n');
   const provenance = { sourceRepository: 'https://github.com/unbraind/pm-rust', sourceCommit, publicTrackerCommit: publicCommit,
