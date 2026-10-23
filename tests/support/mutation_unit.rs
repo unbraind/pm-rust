@@ -757,6 +757,8 @@ fn recovery_completes_or_rolls_back_every_durable_presence_state()
                 .join("runtime/transactions/create-sample-unit.json")
                 .exists()
         );
+        // Retrying recovery after journal cleanup is a no-op for every state.
+        recover(&pm_root, "sample-unit")?;
         if keep_item || keep_history {
             assert_eq!(
                 fs::read_to_string(pm_root.join("tasks/sample-unit.toon"))?,
@@ -1548,6 +1550,346 @@ fn write_mutation_journal(
     let _ = fs::remove_file(&journal_path);
     let serialized = serde_json::to_string(&journal).map_err(|error| format!("{error}"))?;
     fs::write(&journal_path, format!("{serialized}\n"))?;
+    Ok(())
+}
+
+/// Updates the fixture title using the real native request path.
+fn cross_operation_update(
+    pm_root: &Path,
+    title: &str,
+) -> Result<MutationResult, Box<dyn std::error::Error>> {
+    Ok(update_item(
+        pm_root,
+        serde_json::from_value(serde_json::json!({
+            "id": "sample-unit", "title": title, "author": "unit-agent", "timestamp": TS
+        }))?,
+    )?)
+}
+
+/// Appends a fixture comment using the real native request path.
+fn cross_operation_comment(
+    pm_root: &Path,
+    text: &str,
+) -> Result<MutationResult, Box<dyn std::error::Error>> {
+    Ok(comment_item(
+        pm_root,
+        &serde_json::from_value(serde_json::json!({
+            "id": "sample-unit", "text": text, "author": "unit-agent", "timestamp": TS
+        }))?,
+    )?)
+}
+
+/// Constructs the exact first-rename crash state without stopping a process.
+/// The native mutator supplies canonical after bytes and its single history
+/// line; restoring both before images and writing the journal leaves precisely
+/// the durable state before `commit_mutation`'s first item rename.
+fn pending_cross_operation_journal(
+    pm_root: &Path,
+    operation: &str,
+) -> Result<PathBuf, Box<dyn std::error::Error>> {
+    let item_path = pm_root.join("tasks/sample-unit.toon");
+    let history_path = pm_root.join("history/sample-unit.jsonl");
+    let before_item = fs::read_to_string(&item_path)?;
+    let before_history = fs::read_to_string(&history_path)?;
+    match operation {
+        "update" => cross_operation_update(pm_root, "Recovered title")?,
+        "comment" => cross_operation_comment(pm_root, "Recovered comment")?,
+        _ => return Err("unsupported fixture operation".into()),
+    };
+    let item_bytes = fs::read_to_string(&item_path)?;
+    let after_history = fs::read_to_string(&history_path)?;
+    let history_bytes = after_history
+        .strip_prefix(&before_history)
+        .ok_or("history prefix")?;
+    fs::write(&item_path, before_item)?;
+    fs::write(&history_path, before_history)?;
+    write_mutation_journal(pm_root, operation, &item_bytes, history_bytes)?;
+    Ok(pm_root.join(format!("runtime/transactions/{operation}-sample-unit.json")))
+}
+
+/// Replayed transactions and later writes must form one complete hash chain.
+fn assert_cross_operation_history(pm_root: &Path) -> Result<(), Box<dyn std::error::Error>> {
+    let raw = fs::read_to_string(pm_root.join("history/sample-unit.jsonl"))?;
+    let entries = raw
+        .lines()
+        .map(serde_json::from_str::<Value>)
+        .collect::<Result<Vec<_>, _>>()?;
+    assert_eq!(entries.len(), 4);
+    for pair in entries.windows(2) {
+        assert!(pair[0]["after_hash"].is_string());
+        assert_eq!(pair[0]["after_hash"], pair[1]["before_hash"]);
+    }
+    let (_, document) = locate_item(pm_root, "sample-unit")?;
+    assert_eq!(
+        entries[3]["after_hash"],
+        history::document_hash(&OrderedDocument::from_document(&document))
+    );
+    Ok(())
+}
+
+#[test]
+/// An interrupted update must recover before a comment, allowing another update.
+fn cross_operation_journal_update_comment_update() -> Result<(), Box<dyn std::error::Error>> {
+    let (_directory, pm_root) = root(&mutation_settings(0))?;
+    create_item(&pm_root, request())?;
+    let journal = pending_cross_operation_journal(&pm_root, "update")?;
+    cross_operation_comment(&pm_root, "Later comment")?;
+    let result = cross_operation_update(&pm_root, "Final title")?;
+    assert_eq!(
+        result.item.metadata.extra["comments"][0]["text"],
+        "Later comment"
+    );
+    assert!(!journal.exists());
+    assert_cross_operation_history(&pm_root)
+}
+
+#[test]
+/// An interrupted comment must recover before an update, allowing another comment.
+fn cross_operation_journal_comment_update_comment() -> Result<(), Box<dyn std::error::Error>> {
+    let (_directory, pm_root) = root(&mutation_settings(0))?;
+    create_item(&pm_root, request())?;
+    let journal = pending_cross_operation_journal(&pm_root, "comment")?;
+    cross_operation_update(&pm_root, "Later title")?;
+    let result = cross_operation_comment(&pm_root, "Final comment")?;
+    assert_eq!(result.item.metadata.title, "Later title");
+    let comments = result.item.metadata.extra["comments"]
+        .as_array()
+        .ok_or("comments")?;
+    assert_eq!(comments.len(), 2);
+    assert!(
+        comments
+            .iter()
+            .any(|row| row["text"] == "Recovered comment")
+    );
+    assert!(!journal.exists());
+    assert_cross_operation_history(&pm_root)
+}
+
+#[test]
+/// Recovery drains this item's journal while preserving other items byte for byte.
+fn cross_operation_journal_leaves_other_items_untouched() -> Result<(), Box<dyn std::error::Error>>
+{
+    let (_directory, pm_root) = root(&mutation_settings(0))?;
+    create_item(&pm_root, request())?;
+    let mut other = request();
+    // The other ID deliberately ends with the target ID: suffix matching alone
+    // would select its journal too.
+    other.id = "sample-other-sample-unit".to_owned();
+    create_item(&pm_root, other)?;
+    let other_item = pm_root.join("tasks/sample-other-sample-unit.toon");
+    let other_history = pm_root.join("history/sample-other-sample-unit.jsonl");
+    let item_bytes = fs::read(&other_item)?;
+    let history_bytes = fs::read(&other_history)?;
+    let other_document = decode_item(&other_item, &fs::read_to_string(&other_item)?)?;
+    update_item(
+        &pm_root,
+        serde_json::from_value(serde_json::json!({
+            "id": "sample-other-sample-unit", "title": "Other pending title",
+            "author": "unit-agent", "timestamp": TS
+        }))?,
+    )?;
+    let after_history = fs::read_to_string(&other_history)?;
+    let other_journal = MutationJournal {
+        version: 1,
+        id: other_document.metadata.id.clone(),
+        item_type: "Task".to_owned(),
+        item_bytes: fs::read_to_string(&other_item)?,
+        history_bytes: after_history
+            .strip_prefix(std::str::from_utf8(&history_bytes)?)
+            .ok_or("other history prefix")?
+            .to_owned(),
+        before_item_hash: history::document_hash(&OrderedDocument::from_document(&other_document)),
+    };
+    fs::write(&other_item, &item_bytes)?;
+    fs::write(&other_history, &history_bytes)?;
+    let other_path = pm_root.join("runtime/transactions/update-sample-other-sample-unit.json");
+    let journal_bytes = serde_json::to_string_pretty(&other_journal)?;
+    fs::write(&other_path, &journal_bytes)?;
+    pending_cross_operation_journal(&pm_root, "update")?;
+    cross_operation_comment(&pm_root, "Target comment")?;
+    cross_operation_update(&pm_root, "Target title")?;
+    assert_eq!(fs::read(&other_item)?, item_bytes);
+    assert_eq!(fs::read(&other_history)?, history_bytes);
+    assert_eq!(fs::read_to_string(other_path)?, journal_bytes);
+    assert_cross_operation_history(&pm_root)
+}
+
+#[test]
+/// Every operation name is recovered, with multiple journals replayed in filename order.
+fn cross_operation_journal_drains_all_in_deterministic_order()
+-> Result<(), Box<dyn std::error::Error>> {
+    let (_directory, pm_root) = root(&mutation_settings(0))?;
+    create_item(&pm_root, request())?;
+    let item_path = pm_root.join("tasks/sample-unit.toon");
+    let history_path = pm_root.join("history/sample-unit.jsonl");
+    let before_item = fs::read(&item_path)?;
+    let before_history = fs::read(&history_path)?;
+    let first = pending_cross_operation_journal(&pm_root, "update")?;
+    let first_bytes = fs::read(&first)?;
+    recover_mutation(&pm_root, "update", "sample-unit")?;
+    let second = pending_cross_operation_journal(&pm_root, "comment")?;
+    let transactions = pm_root.join("runtime/transactions");
+    // Deliberately create zeta first: directory enumeration must not determine order.
+    let zeta = transactions.join("zeta-sample-unit.json");
+    fs::rename(second, &zeta)?;
+    let alpha = transactions.join("alpha-sample-unit.json");
+    fs::write(&alpha, first_bytes)?;
+    fs::write(&item_path, before_item)?;
+    fs::write(&history_path, before_history)?;
+    // Unrelated files, malformed foreign journals and similarly named suffixes
+    // must never be read or removed by this item's recovery.
+    for name in [
+        "README",
+        "update-sample-other.json",
+        "update-sample-unit.json.tmp",
+    ] {
+        fs::write(transactions.join(name), "unrelated")?;
+    }
+    let result = cross_operation_update(&pm_root, "Final title")?;
+    assert_eq!(
+        result.item.metadata.extra["comments"][0]["text"],
+        "Recovered comment"
+    );
+    assert!(!alpha.exists());
+    assert!(!zeta.exists());
+    assert_eq!(fs::read_dir(transactions)?.count(), 3);
+    assert_cross_operation_history(&pm_root)
+}
+
+#[test]
+/// A create attempt must drain other operation journals before refusing an existing ID.
+fn cross_operation_journal_create_drains_pending_comment() -> Result<(), Box<dyn std::error::Error>>
+{
+    let (_directory, pm_root) = root(&mutation_settings(0))?;
+    create_item(&pm_root, request())?;
+    let journal = pending_cross_operation_journal(&pm_root, "comment")?;
+    assert!(matches!(
+        create_item(&pm_root, request()),
+        Err(PmRustError::ItemAlreadyExists { .. })
+    ));
+    assert!(!journal.exists());
+    let (_, item) = locate_item(&pm_root, "sample-unit")?;
+    assert_eq!(
+        item.metadata.extra["comments"][0]["text"],
+        "Recovered comment"
+    );
+    assert_eq!(
+        fs::read_to_string(pm_root.join("history/sample-unit.jsonl"))?
+            .lines()
+            .count(),
+        2
+    );
+    Ok(())
+}
+
+#[test]
+/// A comment finishes a partially published create using the original create rules.
+fn cross_operation_journal_comment_finishes_create_history()
+-> Result<(), Box<dyn std::error::Error>> {
+    let (_directory, pm_root, _item, _history, journal) = completed_transaction()?;
+    write_journal(&pm_root, &journal)?;
+    let history_path = pm_root.join("history/sample-unit.jsonl");
+    fs::remove_file(&history_path)?;
+    cross_operation_comment(&pm_root, "After recovered create")?;
+    assert!(
+        !pm_root
+            .join("runtime/transactions/create-sample-unit.json")
+            .exists()
+    );
+    let raw = fs::read_to_string(history_path)?;
+    let entries = raw
+        .lines()
+        .map(serde_json::from_str::<Value>)
+        .collect::<Result<Vec<_>, _>>()?;
+    assert_eq!(entries.len(), 2);
+    assert_eq!(entries[0]["op"], "create");
+    assert_eq!(entries[0]["after_hash"], entries[1]["before_hash"]);
+    Ok(())
+}
+
+#[test]
+/// Foreign bytes refuse before the new operation and retain an actionable journal.
+fn cross_operation_journal_conflict_names_journal_and_remedy()
+-> Result<(), Box<dyn std::error::Error>> {
+    let (_directory, pm_root) = root(&mutation_settings(0))?;
+    create_item(&pm_root, request())?;
+    let journal = pending_cross_operation_journal(&pm_root, "update")?;
+    let journal_bytes = fs::read(&journal)?;
+    let history_path = pm_root.join("history/sample-unit.jsonl");
+    let history_bytes = fs::read(&history_path)?;
+    let item_path = pm_root.join("tasks/sample-unit.toon");
+    fs::write(&item_path, "foreign bytes")?;
+    let error = cross_operation_comment(&pm_root, "Must not commit")
+        .err()
+        .ok_or("expected conflict")?;
+    let Some(PmRustError::RecoveryConflict { id, reason }) = error.downcast_ref::<PmRustError>()
+    else {
+        return Err(format!("expected typed recovery conflict, got {error}").into());
+    };
+    assert_eq!(id, "sample-unit");
+    assert!(reason.contains("runtime/transactions/update-sample-unit.json"));
+    assert!(reason.contains("neither"));
+    assert!(reason.contains("reconcile"));
+    assert!(reason.contains("retry"));
+    assert_eq!(fs::read_to_string(item_path)?, "foreign bytes");
+    assert_eq!(fs::read(history_path)?, history_bytes);
+    assert_eq!(fs::read(journal)?, journal_bytes);
+    Ok(())
+}
+
+#[test]
+/// Discovery errors must refuse instead of skipping recovery and committing a mutation.
+fn cross_operation_journal_discovery_errors_preserve_item() -> Result<(), Box<dyn std::error::Error>>
+{
+    let (_directory, pm_root) = root(&mutation_settings(0))?;
+    create_item(&pm_root, request())?;
+    let transactions = pm_root.join("runtime/transactions");
+    fs::remove_dir(&transactions)?;
+    fs::write(&transactions, "not a directory")?;
+    let item_path = pm_root.join("tasks/sample-unit.toon");
+    let before = fs::read(&item_path)?;
+    let error = cross_operation_comment(&pm_root, "Must not commit")
+        .err()
+        .ok_or("expected I/O refusal")?;
+    assert!(
+        matches!(error.downcast_ref::<PmRustError>(), Some(PmRustError::Io { path, .. }) if path == &transactions)
+    );
+    assert_eq!(fs::read(item_path)?, before);
+    Ok(())
+}
+
+#[test]
+/// A contender cannot replay journals before acquiring the item's existing lock.
+fn cross_operation_journal_recovery_waits_for_item_lock() -> Result<(), Box<dyn std::error::Error>>
+{
+    let (_directory, pm_root) = root(&mutation_settings(0))?;
+    create_item(&pm_root, request())?;
+    let journal = pending_cross_operation_journal(&pm_root, "update")?;
+    let item_path = pm_root.join("tasks/sample-unit.toon");
+    let before = fs::read(&item_path)?;
+    let journal_bytes = fs::read(&journal)?;
+    let lock = acquire_lock(
+        &pm_root,
+        "sample-unit",
+        "incumbent",
+        &locks(1800),
+        false,
+        TS,
+        0,
+    )?;
+    let error = cross_operation_comment(&pm_root, "Contending comment")
+        .err()
+        .ok_or("expected lock refusal")?;
+    assert!(matches!(
+        error.downcast_ref::<PmRustError>(),
+        Some(PmRustError::LockConflict { .. })
+    ));
+    assert_eq!(fs::read(&item_path)?, before);
+    assert_eq!(fs::read(&journal)?, journal_bytes);
+    drop(lock);
+    let result = cross_operation_comment(&pm_root, "After lock release")?;
+    assert_eq!(result.item.metadata.title, "Recovered title");
+    assert!(!journal.exists());
     Ok(())
 }
 

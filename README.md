@@ -47,6 +47,10 @@ checks and independent revert proofs are documented in
 See the [October 21 parity contract](docs/NATIVE_PARITY_2026_10_21.md) for lock-owner
 recovery, strict mutation admission, ordering and cursor changes.
 
+Native item mutations recover pending journals across operation names before
+applying later edits. See [journal recovery](docs/CROSS_OPERATION_JOURNAL_RECOVERY.md)
+for crash-state regressions and operator conflict remedies.
+
 ## Without git
 
 Workspace discovery, list/get/search/context/history/dependencies, item mutations,

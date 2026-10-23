@@ -1641,6 +1641,53 @@ fn recover_mutation(
     Ok((item_path, history_path))
 }
 
+/// Drains every journal for one item under the caller's item lock.
+///
+/// Native operation names contain underscores, never hyphens. Splitting at the
+/// first hyphen therefore matches the full ID rather than an ambiguous suffix.
+/// Sorting filenames makes multiple pending transactions deterministic; unknown
+/// operation names retain the same in-place journal format and recovery rules.
+fn recover_pending_journals(pm_root: &Path, id: &str) -> Result<(), PmRustError> {
+    let transactions = pm_root.join("runtime/transactions");
+    let entries = match crate::workspace::read_directory(&transactions) {
+        Ok(entries) => entries,
+        Err(PmRustError::Io { source, .. }) if source.kind() == ErrorKind::NotFound => {
+            return Ok(());
+        }
+        Err(error) => return Err(error),
+    };
+    let mut names: Vec<_> = entries.iter().map(fs::DirEntry::file_name).collect();
+    names.sort();
+    let target = format!("{id}.json");
+    for name in names {
+        let name = name.to_string_lossy();
+        let Some((operation, item_filename)) = name.split_once('-') else {
+            continue;
+        };
+        if item_filename != target {
+            continue;
+        }
+        let recovery = if operation == "create" {
+            recover(pm_root, id)
+        } else {
+            recover_mutation(pm_root, operation, id).map(|_| ())
+        };
+        match recovery {
+            Ok(()) => {}
+            Err(PmRustError::RecoveryConflict { id, reason }) => {
+                return Err(PmRustError::RecoveryConflict {
+                    id,
+                    reason: format!(
+                        "journal runtime/transactions/{name}: {reason}; reconcile this journal with the item and history, then retry"
+                    ),
+                });
+            }
+            Err(error) => return Err(error),
+        }
+    }
+    Ok(())
+}
+
 /// Replays any durable journal and reads the locked document for an in-place
 /// mutation. Reading the stored document only after recovery and under the
 /// caller's lock guarantees no writer ever applies changes to stale bytes.
@@ -1649,6 +1696,7 @@ fn recover_and_locate(
     operation: &str,
     id: &str,
 ) -> Result<(PathBuf, PathBuf, ItemDocument), PmRustError> {
+    recover_pending_journals(pm_root, id)?;
     recover_mutation(pm_root, operation, id).and_then(|(item_path, history_path)| {
         locate_item(pm_root, id)
             .map(|(_item_path, before_document)| (item_path, history_path, before_document))
@@ -1808,7 +1856,7 @@ pub(crate) fn create_item(
             settings.locks.wait_ms,
         ),
     )?;
-    recover(pm_root, &request.id)?;
+    recover_pending_journals(pm_root, &request.id)?;
     let item_relative = PathBuf::from(folder).join(format!("{}.toon", request.id));
     let history_relative = PathBuf::from("history").join(format!("{}.jsonl", request.id));
     let item_path = pm_root.join(&item_relative);
