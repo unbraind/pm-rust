@@ -809,7 +809,7 @@ fn schema_parent_file_preserves_canonical_lookup_error() -> TestResult {
     Ok(())
 }
 
-/// Windows reports a file parent as NotFound, matching canonical schema defaults.
+/// Windows reports a file parent as `NotFound`, matching canonical schema defaults.
 #[cfg(windows)]
 #[test]
 fn schema_parent_file_matches_windows_canonical_defaults() -> TestResult {

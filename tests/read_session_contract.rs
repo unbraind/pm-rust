@@ -322,7 +322,7 @@ fn schema_parent_file_never_certifies_cli_completion() -> TestResult {
     Ok(())
 }
 
-/// Windows canonical NotFound fallback also completes through the CLI and cleans up.
+/// Windows canonical `NotFound` fallback also completes through the CLI and cleans up.
 #[cfg(windows)]
 #[test]
 fn schema_parent_file_cli_matches_windows_canonical_defaults() -> TestResult {
