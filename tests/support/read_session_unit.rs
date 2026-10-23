@@ -759,3 +759,51 @@ fn snapshot_temp_creation_failure_is_typed() -> TestResult {
     assert!(String::from_utf8(result.stdout)?.contains("1 passed"));
     Ok(())
 }
+
+/// Registry lookup faults preserve canonical errors instead of certifying defaults.
+#[test]
+fn schema_parent_file_preserves_canonical_lookup_error() -> TestResult {
+    for (name, configured) in [("statuses", false), ("statuses", true), ("workflows", true)] {
+        let (_directory, workspace) = fixture(1)?;
+        let mut settings: serde_json::Value =
+            serde_json::from_slice(&fs::read(workspace.pm_root().join("settings.json"))?)?;
+        if !configured {
+            settings["schema"]["files"] = serde_json::json!({});
+        }
+        if name == "workflows" {
+            settings["schema"]["files"]["statuses"] = serde_json::json!("statuses.json");
+            fs::write(workspace.pm_root().join("statuses.json"), "{}")?;
+        }
+        fs::write(
+            workspace.pm_root().join("settings.json"),
+            serde_json::to_vec(&settings)?,
+        )?;
+        let blocker = workspace.pm_root().join("schema");
+        fs::write(&blocker, "schema is a regular file")?;
+        let Err(PmRustError::Io {
+            path: expected_path,
+            source: expected_error,
+        }) = workspace.list_page(&ItemFilter::default(), &ListOptions::default(), CLOCK)
+        else {
+            return Err("canonical list must refuse the blocked schema parent".into());
+        };
+        assert_eq!(expected_error.kind(), io::ErrorKind::NotADirectory);
+        assert_eq!(
+            expected_path,
+            workspace.read_pm_root().join(format!("schema/{name}.json"))
+        );
+        let result = workspace.read_session(
+            &ReadSessionLimits::default(),
+            SessionCancellation::default(),
+            CLOCK,
+        );
+        let Err(SessionRefusal::Source(PmRustError::Io { path, source })) = result else {
+            return Err("schema lookup must refuse before session certification".into());
+        };
+        assert_eq!(path, expected_path);
+        assert_eq!(source.kind(), expected_error.kind());
+        assert_eq!(source.raw_os_error(), expected_error.raw_os_error());
+        assert_eq!(fs::read_to_string(blocker)?, "schema is a regular file");
+    }
+    Ok(())
+}

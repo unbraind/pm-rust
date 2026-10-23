@@ -284,3 +284,39 @@ fn disconnected_consumer_releases_session_and_storage_refusals_are_typed() -> Te
     }
     Ok(())
 }
+
+/// Schema lookup errors refuse CLI delivery and remove the partially copied snapshot.
+#[test]
+fn schema_parent_file_never_certifies_cli_completion() -> TestResult {
+    let directory = fixture()?;
+    let root = directory.path().join(".agents/pm");
+    fs::remove_dir_all(root.join("schema"))?;
+    fs::write(root.join("schema"), "schema is a regular file")?;
+    let scratch = tempfile::tempdir()?;
+    for json in [false, true] {
+        let mut command = Command::new(env!("CARGO_BIN_EXE_pm-rust"));
+        command
+            .current_dir(directory.path())
+            .arg("read-session")
+            .env("TMPDIR", scratch.path())
+            .env("TMP", scratch.path())
+            .env("TEMP", scratch.path());
+        if json {
+            command.arg("--json");
+        }
+        let result = command.output()?;
+        assert_eq!(result.status.code(), Some(2));
+        assert!(
+            result.stdout.is_empty(),
+            "refused source must emit no certificate"
+        );
+        let refusal: Value = serde_json::from_slice(&result.stderr)?;
+        assert_eq!(refusal["code"], "session_source_refused");
+        assert_eq!(fs::read_dir(scratch.path())?.count(), 0);
+    }
+    assert_eq!(
+        fs::read_to_string(root.join("schema"))?,
+        "schema is a regular file"
+    );
+    Ok(())
+}

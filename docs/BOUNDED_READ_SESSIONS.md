@@ -16,8 +16,10 @@ caller page size and the existing output token budget. Producer and output
 continuations retain the original tracker query identity. JSON overrides preserve
 unpaired UTF-16 compaction cuts; the existing TOON codec can refuse those cuts.
 Canonical list recovery flags refer to the ordinary `list` command; session
-controls are documented separately. The original tracker is never written. Git, extensions, JavaScript and telemetry
-are absent from the native path. The package's pinned oracle is unchanged.
+controls are documented separately. Optional registry lookup falls back only for
+`NotFound`. Other lookup failures retain the canonical list error path and operating-system error and refuse
+admission before any completion certificate. The original tracker is never written.
+Git, extensions, JavaScript and telemetry are absent from the native path. The package's pinned oracle is unchanged.
 
 The snapshot is an immutable capture of individually read files, not a database
 transaction or an atomic point-in-time view across concurrent source writers.
@@ -86,7 +88,10 @@ scratch paths are excluded.
 
 ## Acceptance evidence
 
-Measured with Rust 1.90.0, the unoptimized native binary and the pinned
+The following resource measurements are retained from the pre-review binary
+identified below. The subsequent schema-lookup refusal correction is verified by
+its focused regression and the PR CI gate. Measured with Rust 1.90.0, the
+unoptimized native binary and the pinned
 2026.10.21 oracle on a contended development host. Every source is a plain,
 non-git directory initialized through the real SDK or copied from public Git
 objects. Files and directories were read-only during native validation. Each
@@ -118,10 +123,11 @@ The measured native binary SHA-256, checked before and after validation, is
 Only text evidence is tracked; generated trackers, executable files and raw
 outputs remain disposable.
 
-Nine isolated behavioral reverts compiled and failed their targeted regression:
+Ten isolated behavioral reverts compiled and failed their targeted regression:
 admission charging, snapshot binding, registry isolation, cancellation cleanup,
 omission-only output refusal, clock-storage accounting, duplicate-file
-remedies, delivery cleanup ordering and output-cursor continuation. All functions
+remedies, delivery cleanup ordering, output-cursor continuation and refusal of
+registry lookup failures behind a regular-file schema parent. All functions
 were restored before successful validation. Tests also
 exercise real no-git initialization, a native PATH without Git or Node, empty
 trackers, output-budget continuations, peer cancellation before and after a real

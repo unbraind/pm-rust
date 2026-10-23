@@ -236,8 +236,16 @@ impl Workspace {
                     return Err(SessionRefusal::UnsupportedSource);
                 }
             }
-            if schema_source.exists() {
-                admission.copy(&schema_source, &target.join(relative), relative, false)?;
+            match fs::symlink_metadata(&schema_source) {
+                Ok(_) => admission.copy(&schema_source, &target.join(relative), relative, false)?,
+                Err(error) if error.kind() == io::ErrorKind::NotFound => {}
+                Err(source) => {
+                    return Err(PmRustError::Io {
+                        path: self.read_pm_root().join(relative),
+                        source,
+                    }
+                    .into());
+                }
             }
         }
         admission.walk(self.pm_root(), &target, Path::new(""), 0)?;
