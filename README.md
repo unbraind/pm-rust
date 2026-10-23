@@ -63,6 +63,38 @@ Linked-test branch provenance is optional and inspects Git only when a repositor
 marker exists. GitHub synchronization and Git history tooling require a Git
 repository and are outside the distributed native command slice.
 
+## Crash-consistency differential corpus
+
+The TypeScript SDK in [`scripts/crash-harness.mts`](scripts/crash-harness.mts)
+and `just crash` compare real native processes with the locked pm-cli 2026.10.21
+oracle. On Linux, strace injects SIGKILL at every declared per-task `rename` and
+`fsync` entry ordinal observed in uninterrupted update/comment reference runs.
+Each case starts after an acknowledged synthetic create, restarts through the
+same operation family, and checks exact item/history bytes, immutable history
+prefixes and recovery receipts. These commands work in plain directories without
+a Git executable. The source tracker is read only; all mutations use disposable
+non-git clones.
+
+```bash
+just oracle-install
+cargo build --locked --bin pm-rust
+just crash --native target/debug/pm-rust --artifacts .crash-failures --json
+```
+
+Default TOON and compact JSON contain bounded counts and per-case outcomes;
+`--full --json` adds durable-byte and receipt hashes. Exit codes are 0 for full
+conformance, 1 for measured failures, and 2 for typed setup/boundary refusals with
+remedies. Failures retain a minimal synthetic tracker, the acknowledged/recovered
+probe bytes and a replay manifest under the ignored artifact directory. Original
+histories are never repaired or rewritten. A read-copy failure is independently
+replayed on a synthetic tracker before retaining evidence.
+
+See the [SDK, read-copy and replay example](docs/CRASH_HARNESS.md) for the declared
+boundary scope and measured results. Process-kill evidence does not establish
+power-loss durability. Different syscall ordinals across runtimes do not denote
+the same semantic phase; the receipt reports each runtime's observed counts,
+including zero `fsync` calls in the published implementation.
+
 ## Current native slice
 
 ```bash

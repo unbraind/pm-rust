@@ -960,6 +960,16 @@ fn acquire_lock_attempt(
             .and_then(|observed| observed.metadata.modified().ok())
             .and_then(|modified| SystemTime::now().duration_since(modified).ok())
             .is_some_and(|age| age > Duration::from_secs(ttl_seconds));
+        // A crash during lock fsync leaves a fresh, empty gate beside the
+        // complete receipt. The kernel lease excludes a live native initializer;
+        // confirmed original-process death admits the existing audited recovery
+        // before TTL expiry. Unknown owners still require the ordinary policy,
+        // and reclaim_stale_gate retains nonempty or replaced gates.
+        #[cfg(target_os = "linux")]
+        let abandoned = abandoned
+            || read_lock_owner(&path).is_ok_and(|(raw, _)| {
+                confirmed_dead_owner(&serde_json::from_str(&raw).unwrap_or(Value::Null))
+            });
         if !abandoned {
             return Err(PmRustError::LockConflict { id: id.to_owned() });
         }

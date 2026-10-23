@@ -1,8 +1,9 @@
 //! Multi-process no-lost-update acceptance for native comment mutations.
 //!
 //! The test spawns many concurrent native CLI processes that each append a
-//! comment to one shared item, relying on the per-item lock and its configured
-//! wait budget rather than any test-side coordination. It then proves that
+//! comment to one shared item. A start barrier releases the writer threads
+//! together; each process relies on the per-item lock and its configured wait
+//! budget. The test then proves that
 //! every accepted mutation survived: the item's comment rows, the history
 //! stream length, and the history hash chain all agree with the set of
 //! processes that reported success.
@@ -21,7 +22,7 @@ mod process_environment;
 mod published_cli;
 
 const PROCESSES: usize = 50;
-const MUTATIONS_PER_PROCESS: usize = 1;
+const MUTATIONS_PER_PROCESS: usize = 3;
 
 /// Run the native executable in a plain tracker with no Git executable available.
 fn native_command(workspace: &Path) -> Command {
@@ -132,6 +133,16 @@ fn history_records(workspace: &Path) -> Result<Vec<Value>, Box<dyn std::error::E
         .collect::<Result<Vec<_>, _>>()?)
 }
 
+/// Enumerates every writer and mutation marker in the complete contention workload.
+fn expected_markers() -> std::collections::BTreeSet<String> {
+    (0..PROCESSES)
+        .flat_map(|process| {
+            (0..MUTATIONS_PER_PROCESS)
+                .map(move |mutation| format!("concurrent note {process}-{mutation}"))
+        })
+        .collect()
+}
+
 #[test]
 /// Proves concurrent native processes never lose an accepted mutation.
 fn concurrent_comment_processes_preserve_every_accepted_mutation()
@@ -189,9 +200,7 @@ fn concurrent_comment_processes_preserve_every_accepted_mutation()
         .iter()
         .filter_map(|comment| comment["text"].as_str())
         .collect();
-    let expected: std::collections::BTreeSet<_> = (0..PROCESSES)
-        .map(|process| format!("concurrent note {process}-0"))
-        .collect();
+    let expected = expected_markers();
     assert_eq!(actual, expected.iter().map(String::as_str).collect());
 
     let document = pm_rust::Workspace::discover(directory.path())?.get("sample-load")?;
