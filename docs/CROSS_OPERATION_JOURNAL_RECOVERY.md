@@ -68,4 +68,33 @@ The local aggregate is not counted as passing. The focused follow-up is
 
 Separate `cargo audit` passed for 136 dependencies, with the one existing allowed
 `RUSTSEC-2024-0449` warning. `just changelog-full` and `just changelog-check` passed.
-Full unchanged release-gate and coverage results will be recorded from CI.
+[Exact implementation CI](https://github.com/unbraind/pm-rust/actions/runs/39924710637)
+at `bb7cd2a` passed all **9 CI jobs**, including the complete unchanged
+`just release-check` on Linux, macOS and Windows.
+
+| Platform | Ordinary | Instrumented | Lines | Functions | Regions | Branches |
+| --- | ---: | ---: | ---: | ---: | ---: | ---: |
+| Linux | 598 | 598 | 14139/14139 | 1477/1477 | 23602/23602 | 3318/3318 |
+| macOS | 587 | 587 | 14054/14054 | 1464/1464 | 23452/23452 | 3280/3280 |
+| Windows | 581 | 581 | 14050/14050 | 1463/1463 | 23450/23450 | 3282/3282 |
+
+Every listed suite has zero failures and zero ignored tests. All four coverage
+columns are exactly **100%**, with source scope and floors unchanged. The gates
+also pass deny-warnings clippy, private-item documentation, cargo-audit (one
+existing allowed `RUSTSEC-2024-0449` warning), changelog verification and strict
+tracker health.
+
+The Linux mutation-facing differential suites pass **27 ownership + 6 close +
+2 conformance + 17 search/collection = 52 tests**; the current-oracle certification
+suite passes another **13 tests**. All nine new recovery regressions pass on every
+platform, ordinarily and under instrumentation.
+
+The isolated-HOME local `just release-check` attempt remains **494 passed,
+1 failed, 0 ignored**; the failure is the pre-existing five-second packet child
+deadline, also reproduced on a direct unchanged retry. It passes every CI
+platform, in both test passes. This separate local limitation is tracked by
+`pm-rust-local-packet-deadline`; it is not represented as a local aggregate pass.
+
+After the implementation was measured, only this evidence document and tracker
+receipts changed. All other tracked inputs are checked against `bb7cd2a` before
+handoff; the final tracker histories and changelog are verified again.
