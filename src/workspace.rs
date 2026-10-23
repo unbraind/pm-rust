@@ -180,6 +180,15 @@ impl Workspace {
             .unwrap_or_else(|| query_root_path(&self.query_pm_root, &self.pm_root, cfg!(windows)))
     }
 
+    /// Selects snapshot storage or the ordinary published read-path spelling.
+    pub(crate) fn read_pm_root(&self) -> &Path {
+        if self.session_query_identity.is_some() {
+            &self.pm_root
+        } else {
+            self.query_pm_root()
+        }
+    }
+
     /// Reads and validates every stored TOON item, sorted by identifier.
     ///
     /// # Errors

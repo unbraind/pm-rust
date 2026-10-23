@@ -91,8 +91,8 @@ than performance guarantees. Caller controls: 512 MiB admission ceiling,
 
 | Dataset | Items | Pages | Source bytes | Admission bytes | Peak RSS (KiB) | Wall (ms) | Output bytes |
 | --- | ---: | ---: | ---: | ---: | ---: | ---: | ---: |
-| SDK-generated tracker | 10,000 | 10 | 1,959,611 | 381,185,760 | 43,688 | 28,001 | 988,986 |
-| Public pm-rust tracker copy | 78 | 1 | 757,075 | 131,681,424 | 13,440 | 437 | 12,549 |
+| SDK-generated tracker | 10,000 | 10 | 1,959,611 | 381,185,760 | 43,396 | 23,797 | 988,986 |
+| Public pm-rust tracker copy | 78 | 1 | 757,075 | 131,681,424 | 13,568 | 167 | 12,549 |
 
 Both trackers passed the SDK's whole-corpus certificate. All identities matched;
 all 11 session pages preserved the published CLI's canonical JSON payloads,
@@ -109,7 +109,7 @@ Its unchanged source SHA-256 is
 its admitted snapshot SHA-256 is
 `f3401ddf796ef684cebaeac8ac130e4a277e90b7132c1ed963cf1655bf74d189`.
 The measured native binary SHA-256, checked before and after validation, is
-`2f66a145e0d038ab66731965e98b12c5eadd960babc5e05d9f1f854caf05751d`.
+`6d591b2a41c1edc0c02fb2f055f2fc0f35cc333eb8acdcee9447ac1c13c3d35a`.
 Only text evidence is tracked; generated trackers, executable files and raw
 outputs remain disposable.
 
