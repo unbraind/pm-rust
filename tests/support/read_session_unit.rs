@@ -1,5 +1,6 @@
 //! Session admission, immutable-source, terminal cleanup and refusal contracts.
 use super::*;
+use std::collections::BTreeSet;
 
 /// Shared fallible test return.
 type TestResult = Result<(), Box<dyn std::error::Error>>;
@@ -70,7 +71,7 @@ fn session_pages_reuse_canonical_output_and_freeze_source() -> TestResult {
     }
     let mut session = workspace.read_session(&limits, SessionCancellation::default(), CLOCK)?;
     let snapshot = session.workspace.pm_root().to_path_buf();
-    fs::remove_dir_all(workspace.pm_root().join("tasks"))?;
+    fs::remove_dir_all(workspace.pm_root())?;
     assert!(session.next_page()?.is_some());
     session.cancel()?;
     assert!(!snapshot.exists());
@@ -168,10 +169,14 @@ fn snapshot_validates_all_items_and_schema_before_delivery() -> TestResult {
     };
     let item = workspace.pm_root().join("tasks/nested/demo-0.toon");
     fs::copy(&item, workspace.pm_root().join("tasks/duplicate.toon"))?;
-    assert!(matches!(
-        open(),
-        Err(SessionRefusal::Source(PmRustError::DuplicateItemId { .. }))
-    ));
+    let Err(SessionRefusal::Source(PmRustError::DuplicateItemId { first, second, .. })) = open()
+    else {
+        return Err("duplicate source must refuse".into());
+    };
+    assert_ne!(
+        first, second,
+        "refusal must identify both conflicting files"
+    );
     fs::write(workspace.pm_root().join("tasks/duplicate.toon"), "invalid")?;
     assert!(matches!(
         open(),
@@ -259,7 +264,7 @@ fn admission(token: &SessionCancellation) -> Admission<'_> {
         bytes: 0,
         items: 0,
         hash: Sha256::new(),
-        ids: BTreeSet::new(),
+        ids: BTreeMap::new(),
         cancellation: token,
     }
 }
@@ -377,5 +382,45 @@ fn schema_directory_links_cannot_escape_snapshot_admission() -> TestResult {
         ),
         Err(SessionRefusal::UnsupportedSource)
     ));
+    Ok(())
+}
+
+/// Caller clock storage participates in admission before its owned copy is retained.
+#[test]
+fn clock_storage_is_admitted_before_session_construction() -> TestResult {
+    let (_directory, workspace) = fixture(1)?;
+    let limits = ReadSessionLimits {
+        memory_bytes: 16 * 1024 * 1024,
+        ..ReadSessionLimits::default()
+    };
+    assert!(matches!(
+        workspace.read_session(
+            &limits,
+            SessionCancellation::default(),
+            &"x".repeat(128 * 1024)
+        ),
+        Err(SessionRefusal::MemoryLimit)
+    ));
+    Ok(())
+}
+
+/// A real storage loss during a canonical query terminates and cleans the session.
+#[test]
+fn query_storage_failure_releases_snapshot_and_never_certifies_completion() -> TestResult {
+    let (_directory, workspace) = fixture(1)?;
+    let mut session = workspace.read_session(
+        &ReadSessionLimits::default(),
+        SessionCancellation::default(),
+        CLOCK,
+    )?;
+    let snapshot = session.workspace.pm_root().to_path_buf();
+    fs::remove_file(snapshot.join("settings.json"))?;
+    assert!(matches!(
+        session.next_page(),
+        Err(SessionRefusal::Source(_))
+    ));
+    assert!(!session.receipt().complete);
+    assert!(!snapshot.exists());
+    assert!(session.next_page()?.is_none());
     Ok(())
 }

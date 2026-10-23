@@ -4,11 +4,11 @@ use crate::{ItemFilter, ListOptions, ListOutput, PmRustError, Workspace};
 use serde::Serialize;
 use sha2::{Digest, Sha256};
 use std::{
-    collections::BTreeSet,
+    collections::BTreeMap,
     fmt::Write as _,
     fs,
     io::Read,
-    path::{Component, Path},
+    path::{Component, Path, PathBuf},
     sync::{
         Arc,
         atomic::{AtomicBool, Ordering},
@@ -175,14 +175,15 @@ impl Workspace {
         {
             return Err(SessionRefusal::InvalidLimits);
         }
-        let reserved = 8 * 1024 * 1024 + limits.output_tokens as u64 * 256;
+        let reserved = (8 * 1024 * 1024 + limits.output_tokens as u64 * 256)
+            .saturating_add((timestamp.len() as u64).saturating_mul(128));
         let mut admission = Admission {
             ceiling: limits.memory_bytes,
             used: reserved,
             bytes: 0,
             items: 0,
             hash: Sha256::new(),
-            ids: BTreeSet::new(),
+            ids: BTreeMap::new(),
             cancellation: &cancellation,
         };
         admission.charge(0)?;
@@ -345,7 +346,7 @@ struct Admission<'a> {
     /// Ordered snapshot digest.
     hash: Sha256,
     /// Strict global identity uniqueness.
-    ids: BTreeSet<String>,
+    ids: BTreeMap<String, PathBuf>,
     /// Cooperative cancellation boundary.
     cancellation: &'a SessionCancellation,
 }
@@ -392,14 +393,12 @@ impl Admission<'_> {
         if item {
             let text =
                 std::str::from_utf8(&bytes).map_err(|_| SessionRefusal::UnsupportedSource)?;
-            let document = crate::item::decode_item(source, text)?;
-            if !self.ids.insert(document.metadata.id.clone()) {
-                return Err(SessionRefusal::Source(PmRustError::DuplicateItemId {
-                    id: document.metadata.id,
-                    first: source.to_path_buf(),
-                    second: source.to_path_buf(),
-                }));
-            }
+            crate::workspace::decode_unique(
+                source,
+                text,
+                crate::read_projection::Projection::Full,
+                &mut self.ids,
+            )?;
             self.items += 1;
         }
         fs::create_dir_all(target.parent().ok_or(SessionRefusal::UnsupportedSource)?)?;

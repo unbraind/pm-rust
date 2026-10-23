@@ -4,6 +4,7 @@ import { createHash } from 'node:crypto';
 import { chmodSync, cpSync, mkdirSync, mkdtempSync, readFileSync, readdirSync, rmSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { dirname, join, resolve } from 'node:path';
+import { fileURLToPath, pathToFileURL } from 'node:url';
 import { performance } from 'node:perf_hooks';
 import { PmClient, certifyCompleteListResult, serializeItemDocument } from '../tests/oracle/node_modules/@unbrained/pm-cli/dist/sdk/index.js';
 import type { ItemDocument } from '../tests/oracle/node_modules/@unbrained/pm-cli/dist/sdk/index.js';
@@ -12,6 +13,8 @@ interface Receipt { protocol: string; source_items: number; source_bytes: number
 interface Frame { output: { items: { id: string }[]; next_cursor?: string; continuation_kind?: string }; receipt: Receipt }
 const clock = '2026-10-21T12:00:00.000Z';
 const ceiling = 512 * 1024 * 1024;
+const pageItems = option('--page-items', '1000');
+assert.ok(Number.isSafeInteger(Number(pageItems)) && Number(pageItems) > 0);
 
 /** Read an explicit argument or a safe default. */
 function option(flag: string, fallback: string): string {
@@ -54,8 +57,9 @@ async function measure(root: string, label: string, binary: string, scratch: str
   const before = fingerprint(tracker);
   permissions(tracker, true);
   const rssFile = join(scratch, `${label}-rss.txt`);
+  console.error(JSON.stringify({ phase: 'native', label, source_items: complete.complete_list.item_count }));
   const started = performance.now();
-  const result = spawnSync('/usr/bin/time', ['-f', '%M', '-o', rssFile, binary, '--workspace', root, 'read-session', '--memory-bytes', String(ceiling), '--page-items', '1000', '--output-tokens', '100000', '--json'], {
+  const result = spawnSync('/usr/bin/time', ['-f', '%M', '-o', rssFile, binary, '--workspace', root, 'read-session', '--memory-bytes', String(ceiling), '--page-items', pageItems, '--output-tokens', '100000', '--timestamp', clock, '--json'], {
     env: { ...process.env, GIT_CEILING_DIRECTORIES: dirname(root) }, maxBuffer: 64 * 1024 * 1024,
   });
   const elapsedMs = performance.now() - started;
@@ -66,10 +70,19 @@ async function measure(root: string, label: string, binary: string, scratch: str
   const ids = frames.flatMap(frame => frame.output.items.map(row => row.id));
   assert.equal(new Set(ids).size, complete.complete_list.item_count);
   assert.deepEqual([...ids].sort(), complete.items.map(row => row.id).sort());
+  console.error(JSON.stringify({ phase: 'oracle-pages', label, pages: frames.length }));
   let after: string | undefined;
+  let sdkAfter: string | undefined;
+  const oracleLauncher = fileURLToPath(new URL('../tests/oracle/launch.mts', import.meta.url));
+  const clockPreload = pathToFileURL(fileURLToPath(new URL('./read-session-clock.mts', import.meta.url))).href;
   for (const frame of frames) {
-    const expected = await client.list({ excludeTerminal: false, brief: true, limit: '1000', outputBudget: '100000', ...(after ? { after } : {}) });
-    assert.deepEqual(frame.output, JSON.parse(JSON.stringify(expected)), 'Native page must match the real SDK');
+    const expected = await client.list({ excludeTerminal: false, brief: true, limit: pageItems, outputBudget: '100000', ...(sdkAfter ? { after: sdkAfter } : {}) });
+    assert.ok('items' in expected, 'SDK page must not be omitted');
+    assert.deepEqual(frame.output.items.map(row => row.id), expected.items.map(row => row.id), 'Native rows must match the real SDK');
+    sdkAfter = expected.next_cursor ?? undefined;
+    const oracle = spawnSync(process.execPath, [oracleLauncher, '--path', tracker, 'list', '--all', '--brief', '--limit', pageItems, '--output-budget', '100000', '--json', ...(after ? ['--after', after] : [])], { cwd: root, env: { ...process.env, NODE_OPTIONS: `--import=${clockPreload}`, FIXED_CLOCK: clock }, maxBuffer: 64 * 1024 * 1024 });
+    assert.equal(oracle.status, 0, 'Published CLI oracle must succeed');
+    assert.equal(JSON.stringify(frame.output), JSON.stringify(JSON.parse(oracle.stdout.toString())), 'Compact native frame must preserve the published CLI JSON payload');
     after = frame.output.next_cursor;
   }
   const last = frames.at(-1);

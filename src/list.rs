@@ -160,7 +160,7 @@ fn read_selection(
     };
     let documents = query_documents(workspace, projection, filters, options)?;
     let warnings = unknown_tags(&documents, options.tag.as_deref());
-    let lifecycle = crate::list_registry::Lifecycle::load(workspace.query_pm_root())?;
+    let lifecycle = crate::list_registry::Lifecycle::load(workspace.pm_root())?;
     let mut documents = select_documents(
         documents,
         filters,

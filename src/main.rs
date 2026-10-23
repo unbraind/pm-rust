@@ -25,6 +25,9 @@ struct Cli {
 enum Command {
     /// Stream a strictly validated immutable tracker snapshot under resource admission limits.
     ReadSession {
+        /// Reproducible read clock for conformance fixtures.
+        #[arg(long, hide = true)]
+        timestamp: Option<String>,
         /// Accounted working-set ceiling in bytes (allocator RSS is measured separately).
         #[arg(long, default_value_t = 536_870_912)]
         memory_bytes: u64,
@@ -591,6 +594,7 @@ fn run(cli: Cli) -> Result<(), Box<dyn std::error::Error>> {
     let workspace = Workspace::discover(&cli.workspace)?;
     match cli.command {
         Command::ReadSession {
+            timestamp,
             memory_bytes,
             page_items,
             output_tokens,
@@ -610,7 +614,7 @@ fn run(cli: Cli) -> Result<(), Box<dyn std::error::Error>> {
             let mut session = workspace.read_session(
                 &limits,
                 cancellation.clone(),
-                &pm_rust::current_timestamp(),
+                &timestamp.unwrap_or_else(pm_rust::current_timestamp),
             )?;
             let mut stdout = std::io::stdout().lock();
             loop {

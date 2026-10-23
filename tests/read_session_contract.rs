@@ -55,7 +55,7 @@ fn read_session_cli_needs_no_git_or_node_and_emits_bounded_frames() -> TestResul
             .args(["read-session", "--page-items", "1", "--cancel-file"])
             .arg(directory.path().join("absent-cancel-marker"));
         if json {
-            command.arg("--json");
+            command.args(["--json", "--timestamp", "2026-10-21T12:00:00.000Z"]);
         }
         let result = command
             .env("PATH", no_executables.path())
@@ -82,7 +82,7 @@ fn read_session_cli_needs_no_git_or_node_and_emits_bounded_frames() -> TestResul
             }
         } else {
             assert_eq!(output.matches("---\n").count(), 3);
-            assert!(output.contains("protocol: pm-rust/read-session/v1"));
+            assert!(output.contains("pm-rust/read-session/v1"));
         }
     }
     let marker = directory.path().join("cancel");
@@ -174,10 +174,59 @@ fn embedding_admission_and_snapshot_lifetime_are_enforced() -> TestResult {
         SessionCancellation::default(),
         "2026-10-21T12:00:00.000Z",
     )?;
-    fs::remove_dir_all(workspace.pm_root().join("tasks"))?;
+    fs::remove_dir_all(workspace.pm_root())?;
     let page = session.next_page()?.ok_or("snapshot page missing")?;
     assert_eq!(page.output["items"].as_array().map(Vec::len), Some(3));
     assert!(page.receipt.complete);
     assert!(session.next_page()?.is_none());
+    Ok(())
+}
+
+/// The CLI polls cancellation at delivery boundaries and removes its scratch snapshot.
+#[test]
+fn cli_cancellation_and_success_remove_private_storage() -> TestResult {
+    use std::io::{BufRead, BufReader};
+    use std::process::Stdio;
+    let directory = fixture()?;
+    let tasks = directory.path().join(".agents/pm/tasks");
+    let template = fs::read_to_string(tasks.join("demo-0.toon"))?;
+    for index in 3..200 {
+        fs::write(
+            tasks.join(format!("demo-{index}.toon")),
+            template.replace("demo-0", &format!("demo-{index}")),
+        )?;
+    }
+    let scratch = tempfile::tempdir()?;
+    let marker = directory.path().join("cancel-after-page");
+    let mut child = Command::new(env!("CARGO_BIN_EXE_pm-rust"))
+        .current_dir(directory.path())
+        .args([
+            "read-session",
+            "--page-items",
+            "1",
+            "--json",
+            "--cancel-file",
+        ])
+        .arg(&marker)
+        .env("TMPDIR", scratch.path())
+        .env("TMP", scratch.path())
+        .env("TEMP", scratch.path())
+        .stdout(Stdio::piped())
+        .stderr(Stdio::piped())
+        .spawn()?;
+    let mut stdout = BufReader::new(child.stdout.take().ok_or("missing stdout")?);
+    let mut first = String::new();
+    stdout.read_line(&mut first)?;
+    let frame: Value = serde_json::from_str(&first)?;
+    assert_eq!(frame["receipt"]["complete"], false);
+    fs::write(&marker, "cancel")?;
+    // Drain after setting the marker, so even a full pipe cannot block cancellation.
+    let mut remaining = String::new();
+    std::io::Read::read_to_string(&mut stdout, &mut remaining)?;
+    let result = child.wait_with_output()?;
+    assert_eq!(result.status.code(), Some(2));
+    let refusal: Value = serde_json::from_slice(&result.stderr)?;
+    assert_eq!(refusal["code"], "session_cancelled");
+    assert_eq!(fs::read_dir(scratch.path())?.count(), 0);
     Ok(())
 }
