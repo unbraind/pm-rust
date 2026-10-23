@@ -68,17 +68,7 @@ crate-version := `sed -n 's/^version *= *"\([^"]*\)"/\1/p' Cargo.toml`
 
 # Runs pm-changelog with the common flags shared by all recipes.
 _pm-changelog *flags:
-    npx --yes --package={{PM_CHANGELOG_PKG}} --package={{PM_CLI_PKG}} -- pm-changelog \
-        --pm-root .agents/pm \
-        --pm-arg=--output-budget --pm-arg=unbounded \
-        --pm-arg=--output-limit --pm-arg=unbounded \
-        --item-url-base {{ITEM_URL_BASE}} \
-        --respect-item-release \
-        --conventional \
-        --include-links \
-        --item-ref-style toon \
-        --include-metadata \
-        {{flags}}
+    node scripts/changelog.mts {{flags}}
 
 # Regenerate the full changelog from all release tags (prepend mode).
 changelog:
@@ -92,13 +82,7 @@ changelog:
 
 # Rebuild the complete changelog from all release tag windows.
 changelog-full *extra:
-    just _pm-changelog \
-        --mode replace \
-        --output CHANGELOG.md \
-        --all-release-tags \
-        --release-version "{{crate-version}}" \
-        --date {{CHANGELOG_DATE}} \
-        {{extra}}
+    node scripts/changelog.mts full --date {{CHANGELOG_DATE}} {{extra}}
 
 # Verify the committed changelog matches the generated one (CI gate).
 # Runs in a fresh `just` process WITHOUT forwarding CHANGELOG_DATE: whatever a
