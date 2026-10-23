@@ -870,3 +870,43 @@ fn schema_invalid_path_preserves_canonical_lookup_error() -> TestResult {
     }
     Ok(())
 }
+
+/// Distinct native filename bytes must remain distinct in the snapshot certificate.
+#[cfg(unix)]
+#[test]
+fn snapshot_digest_preserves_non_utf8_filename_and_directory_bytes() -> TestResult {
+    use std::ffi::OsString;
+    use std::os::unix::ffi::OsStringExt;
+
+    for directory in [false, true] {
+        let (_temporary, workspace) = fixture(1)?;
+        let tasks = workspace.pm_root().join("tasks");
+        let original = if directory {
+            tasks.join("nested")
+        } else {
+            tasks.join("nested/demo-0.toon")
+        };
+        let parent = original.parent().ok_or("filename parent")?.to_path_buf();
+        let mut digests = BTreeSet::new();
+        let mut previous = original;
+        for byte in [0x80, 0x81] {
+            let mut name = vec![byte];
+            if !directory {
+                name.extend_from_slice(b".toon");
+            }
+            let path = parent.join(OsString::from_vec(name));
+            fs::rename(&previous, &path)?;
+            let mut session = workspace.read_session(
+                &ReadSessionLimits::default(),
+                SessionCancellation::default(),
+                CLOCK,
+            )?;
+            assert_eq!(session.receipt().source_items, 1);
+            assert!(digests.insert(session.receipt().snapshot_sha256.clone()));
+            assert!(session.next_page()?.is_some());
+            assert!(session.receipt().complete);
+            previous = path;
+        }
+    }
+    Ok(())
+}

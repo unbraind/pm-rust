@@ -27,7 +27,9 @@ Git, extensions, JavaScript and telemetry are absent from the native path. The p
 The snapshot is an immutable capture of individually read files, not a database
 transaction or an atomic point-in-time view across concurrent source writers.
 Its SHA-256 commits to the deterministic sequence of relative names, byte lengths
-and admitted bytes. It certifies validated source items, including terminal items;
+and admitted bytes. Relative names use the platform-native lossless OS-string
+encoding, so distinct non-UTF-8 names remain distinct; digests are platform-local.
+It certifies validated source items, including terminal items;
 `complete` becomes true only on the final delivered page. Field compaction and
 brief-field omissions remain explicit in each canonical page. This is not the
 SDK's unbounded full-field `complete_list` certificate. An interrupted or refused

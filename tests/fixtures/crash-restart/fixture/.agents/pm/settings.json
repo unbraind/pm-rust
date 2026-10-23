@@ -1,0 +1,80 @@
+{
+  "version": 1,
+  "id_prefix": "crash-",
+  "author_default": "conformance-agent",
+  "item_format": "toon",
+  "locks": {
+    "ttl_seconds": 1800,
+    "wait_ms": 3000
+  },
+  "output": {
+    "default_format": "toon"
+  },
+  "extensions": {
+    "enabled": [],
+    "disabled": [],
+    "policy": {
+      "mode": "off",
+      "trust_mode": "off",
+      "require_provenance": false,
+      "trusted_extensions": [],
+      "default_sandbox_profile": "none",
+      "allowed_extensions": [],
+      "blocked_extensions": [],
+      "allowed_capabilities": [],
+      "blocked_capabilities": [],
+      "allowed_surfaces": [],
+      "blocked_surfaces": [],
+      "allowed_commands": [],
+      "blocked_commands": [],
+      "allowed_actions": [],
+      "blocked_actions": [],
+      "allowed_services": [],
+      "blocked_services": [],
+      "extension_overrides": []
+    }
+  },
+  "search": {
+    "score_threshold": 0,
+    "hybrid_semantic_weight": 0.7,
+    "max_results": 50,
+    "embedding_model": "",
+    "embedding_batch_size": 32,
+    "embedding_timeout_ms": 30000,
+    "scanner_max_batch_retries": 3,
+    "provider": "",
+    "default_mode": "auto",
+    "mutation_refresh_policy": "semantic_configured",
+    "query_expansion": {
+      "enabled": false,
+      "provider": ""
+    },
+    "rerank": {
+      "enabled": false,
+      "model": "",
+      "top_k": 20
+    }
+  },
+  "providers": {
+    "openai": {
+      "base_url": "",
+      "api_key": "",
+      "model": ""
+    },
+    "ollama": {
+      "base_url": "",
+      "model": ""
+    }
+  },
+  "vector_store": {
+    "adapter": "",
+    "collection_name": "pm_items",
+    "qdrant": {
+      "url": "",
+      "api_key": ""
+    },
+    "lancedb": {
+      "path": ""
+    }
+  }
+}

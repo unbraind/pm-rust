@@ -427,7 +427,7 @@ impl Admission<'_> {
         fs::write(target, &bytes)?;
         #[cfg(test)]
         tests::AFTER_COPY_HOOK.with(|hook| hook.get()(source, target));
-        self.hash.update(relative.to_string_lossy().as_bytes());
+        self.hash.update(relative.as_os_str().as_encoded_bytes());
         self.hash.update([0]);
         self.hash.update(size.to_le_bytes());
         self.hash.update(&bytes);
