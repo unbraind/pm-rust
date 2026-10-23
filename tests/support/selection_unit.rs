@@ -578,3 +578,108 @@ fn readiness_index_preserves_case_cycles_and_existential_roles() {
     assert!(index.has_active_descendants("sample-a"));
     assert!(index.has_active_descendants("sample-b"));
 }
+
+thread_local! {
+    /// Injects actual competing mutations after a captured ranking in this test thread only.
+    static CONTEND_AFTER_RANKING: std::cell::Cell<usize> = const { std::cell::Cell::new(0) };
+}
+
+/// Advances real ownership state after ranking without replacing any production result.
+pub(super) fn contend_after_ranking(workspace: &Workspace, ranked: &[ItemDocument]) {
+    let count = CONTEND_AFTER_RANKING.replace(0);
+    for document in ranked.iter().take(count) {
+        let mut competing = request();
+        competing.id.clone_from(&document.metadata.id);
+        competing.author = "competing-agent".to_owned();
+        let result = crate::mutation::ownership_item(workspace.pm_root(), &competing, true);
+        assert!(
+            result.is_ok(),
+            "could not stage competing claim: {result:?}"
+        );
+    }
+}
+
+/// The actual claim-next entry point reads the corpus once, rather than once per lost race.
+/// Set `PM_RUST_CONTENTION_ITEMS=50000` with nocapture for a large-tracker diagnostic benchmark.
+#[test]
+fn contended_claim_next_does_not_rescan_rejected_candidates()
+-> Result<(), Box<dyn std::error::Error>> {
+    let (_directory, workspace) = tracker()?;
+    let size =
+        std::env::var("PM_RUST_CONTENTION_ITEMS").map_or(Ok(1000), |raw| raw.parse::<usize>())?;
+    assert!(size >= 100);
+    fs::create_dir_all(workspace.pm_root().join("tasks"))?;
+    fs::create_dir_all(workspace.pm_root().join("history"))?;
+    let mut originals = Vec::new();
+    for index in 0..size {
+        let mut document = item(&format!("sample-{index:05}"));
+        document.body = "Synthetic retained payload. ".repeat(32);
+        let bytes = toon_format::encode_default(&document)?;
+        let path = workspace
+            .pm_root()
+            .join(format!("tasks/{}.toon", document.metadata.id));
+        fs::write(&path, &bytes)?;
+        if index < 100 {
+            originals.push((document.metadata.id, path, bytes));
+        }
+    }
+    for (limit, skip, contenders) in [
+        (10, false, 10),
+        (10, true, 10),
+        (100, false, 100),
+        (100, true, 100),
+        (100, false, 99),
+    ] {
+        for (id, path, bytes) in &originals {
+            fs::write(path, bytes)?;
+            let history = workspace.pm_root().join(format!("history/{id}.jsonl"));
+            if history.exists() {
+                fs::remove_file(history)?;
+            }
+        }
+        let mut caller = request();
+        caller.if_available = skip;
+        CONTEND_AFTER_RANKING.set(contenders);
+        let before = crate::ownership::tests::READ_ITEMS_SCANS.get();
+        let start = std::time::Instant::now();
+        let result = workspace.claim_next(
+            &caller,
+            &OwnershipOptions::default(),
+            &SelectionOptions {
+                max_attempts: Some(limit),
+                ..SelectionOptions::default()
+            },
+        );
+        let elapsed = start.elapsed();
+        let reads = crate::ownership::tests::READ_ITEMS_SCANS.get() - before;
+        let accepted = contenders < limit;
+        assert_eq!(
+            reads,
+            if accepted { 2 } else { 1 },
+            "contended claim --next rescanned corpus for rejected candidates"
+        );
+        if accepted || skip {
+            let receipt = result?;
+            assert_eq!(receipt["available"], accepted);
+            assert_eq!(receipt["attempts"], limit);
+        } else {
+            assert!(
+                matches!(result, Err(PmRustError::CommandRefusal {exit_code:4,context,..}) if context["code"]=="no_available_next_item")
+            );
+        }
+        println!(
+            "{}",
+            json!({"benchmark":"contended claim --next", "items":size,"attempts":limit,"if_available":skip,"accepted":accepted,"corpus_reads":reads,"elapsed_ms_including_competing_writes":elapsed.as_secs_f64()*1000.0})
+        );
+    }
+    assert!(
+        !workspace
+            .pm_root()
+            .parent()
+            .and_then(std::path::Path::parent)
+            .ok_or("tracker root")?
+            .join(".git")
+            .exists()
+    );
+    Ok(())
+}

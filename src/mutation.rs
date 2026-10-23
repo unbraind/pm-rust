@@ -1651,6 +1651,53 @@ fn recover_mutation(
     Ok((item_path, history_path))
 }
 
+/// Drains every journal for one item under the caller's item lock.
+///
+/// Native operation names contain underscores, never hyphens. Splitting at the
+/// first hyphen therefore matches the full ID rather than an ambiguous suffix.
+/// Sorting filenames makes multiple pending transactions deterministic; unknown
+/// operation names retain the same in-place journal format and recovery rules.
+fn recover_pending_journals(pm_root: &Path, id: &str) -> Result<(), PmRustError> {
+    let transactions = pm_root.join("runtime/transactions");
+    let entries = match crate::workspace::read_directory(&transactions) {
+        Ok(entries) => entries,
+        Err(PmRustError::Io { source, .. }) if source.kind() == ErrorKind::NotFound => {
+            return Ok(());
+        }
+        Err(error) => return Err(error),
+    };
+    let mut names: Vec<_> = entries.iter().map(fs::DirEntry::file_name).collect();
+    names.sort();
+    let target = format!("{id}.json");
+    for name in names {
+        let name = name.to_string_lossy();
+        let Some((operation, item_filename)) = name.split_once('-') else {
+            continue;
+        };
+        if item_filename != target {
+            continue;
+        }
+        let recovery = if operation == "create" {
+            recover(pm_root, id)
+        } else {
+            recover_mutation(pm_root, operation, id).map(|_| ())
+        };
+        match recovery {
+            Ok(()) => {}
+            Err(PmRustError::RecoveryConflict { id, reason }) => {
+                return Err(PmRustError::RecoveryConflict {
+                    id,
+                    reason: format!(
+                        "journal runtime/transactions/{name}: {reason}; reconcile this journal with the item and history, then retry"
+                    ),
+                });
+            }
+            Err(error) => return Err(error),
+        }
+    }
+    Ok(())
+}
+
 /// Replays any durable journal and reads the locked document for an in-place
 /// mutation. Reading the stored document only after recovery and under the
 /// caller's lock guarantees no writer ever applies changes to stale bytes.
@@ -1659,6 +1706,7 @@ fn recover_and_locate(
     operation: &str,
     id: &str,
 ) -> Result<(PathBuf, PathBuf, ItemDocument), PmRustError> {
+    recover_pending_journals(pm_root, id)?;
     recover_mutation(pm_root, operation, id).and_then(|(item_path, history_path)| {
         locate_item(pm_root, id)
             .map(|(_item_path, before_document)| (item_path, history_path, before_document))
@@ -1713,36 +1761,52 @@ fn locate_item_entries(
 ) -> Result<(), PmRustError> {
     let target = format!("{id}.toon");
     for entry in entries {
-        let entry_path = entry.path();
-        if entry_path.is_symlink() {
-            continue;
-        }
         let name = entry.file_name().to_string_lossy().into_owned();
-        if at_root && crate::workspace::NON_ITEM_DIRECTORIES.contains(&name.as_str()) {
+        // The listing already knows these are unrelated regular files. Keep
+        // live metadata checks for targets, directories, symlinks and unknown
+        // types, including a target moved after this directory snapshot.
+        if name != target && entry.file_type().is_ok_and(|kind| kind.is_file()) {
             continue;
         }
-        if entry_path.is_dir() {
-            locate_item_recursive(&entry_path, false, id, found)?;
-        } else if entry_path.is_file() && name == target {
-            // `read_optional` returns `Ok(None)` only on `NotFound`. The
-            // `is_file()` check just succeeded, so a `None` here means the
-            // entry vanished between the directory listing and the read — a
-            // race the per-item lock prevents for tracked items. Propagating
-            // the IO error (rather than silently skipping) keeps the locator
-            // free of an unreachable `None` branch and surfaces the unlikely
-            // race instead of hiding it.
-            let raw = match fs::read_to_string(&entry_path) {
-                Ok(raw) => raw,
-                Err(source) => {
-                    return Err(PmRustError::Io {
-                        path: entry_path.clone(),
-                        source,
-                    });
-                }
-            };
-            let document = crate::item::decode_item(&entry_path, &raw)?;
-            found.push((entry_path, document));
-        }
+        locate_item_entry(&entry, at_root, id, &target, found)?;
+    }
+    Ok(())
+}
+
+/// Applies the original live checks to a possible target or traversable entry.
+fn locate_item_entry(
+    entry: &fs::DirEntry,
+    at_root: bool,
+    id: &str,
+    target: &str,
+    found: &mut Vec<(PathBuf, ItemDocument)>,
+) -> Result<(), PmRustError> {
+    #[cfg(test)]
+    tests::LOCATOR_METADATA_ENTRIES.with(|count| count.set(count.get() + 1));
+    let entry_path = entry.path();
+    if entry_path.is_symlink() {
+        return Ok(());
+    }
+    let name = entry.file_name().to_string_lossy().into_owned();
+    if at_root && crate::workspace::NON_ITEM_DIRECTORIES.contains(&name.as_str()) {
+        return Ok(());
+    }
+    if entry_path.is_dir() {
+        locate_item_recursive(&entry_path, false, id, found)?;
+    } else if entry_path.is_file() && name == target {
+        // A matching item that vanishes after metadata remains a typed I/O
+        // failure. Mutators still call this locator under their item lock.
+        let raw = match fs::read_to_string(&entry_path) {
+            Ok(raw) => raw,
+            Err(source) => {
+                return Err(PmRustError::Io {
+                    path: entry_path.clone(),
+                    source,
+                });
+            }
+        };
+        let document = crate::item::decode_item(&entry_path, &raw)?;
+        found.push((entry_path, document));
     }
     Ok(())
 }
@@ -1802,7 +1866,7 @@ pub(crate) fn create_item(
             settings.locks.wait_ms,
         ),
     )?;
-    recover(pm_root, &request.id)?;
+    recover_pending_journals(pm_root, &request.id)?;
     let item_relative = PathBuf::from(folder).join(format!("{}.toon", request.id));
     let history_relative = PathBuf::from("history").join(format!("{}.jsonl", request.id));
     let item_path = pm_root.join(&item_relative);
@@ -2961,7 +3025,13 @@ pub(crate) fn ownership_item(
     request: &OwnershipItem,
     claim: bool,
 ) -> Result<OwnershipResult, PmRustError> {
-    ownership_item_with_options(pm_root, request, claim, &crate::OwnershipOptions::default())
+    ownership_item_with_options(
+        pm_root,
+        request,
+        claim,
+        &crate::OwnershipOptions::default(),
+        &mut || Ok(()),
+    )
 }
 
 /// Applies explicit principal and approved release bypass within the ownership lock.
@@ -2971,6 +3041,7 @@ pub(crate) fn ownership_item_with_options(
     request: &OwnershipItem,
     claim: bool,
     options: &crate::OwnershipOptions,
+    prepare: &mut dyn FnMut() -> Result<(), PmRustError>,
 ) -> Result<OwnershipResult, PmRustError> {
     let mut settings = read_settings(pm_root)?;
     settings.locks.use_created_at = true;
@@ -3118,6 +3189,11 @@ pub(crate) fn ownership_item_with_options(
             warnings.push("released_unclaimed_in_progress".to_owned());
             suggestions.push(format!("{} remains in_progress and unclaimed. If work is paused, run pm release {} --pause to move it to open.", request.id, request.id));
         }
+    }
+    // Refused and skipped contenders never decode unrelated item payloads.
+    // Recovery and the target's atomic ownership checks already hold this lock.
+    if skipped.is_none() {
+        prepare()?;
     }
     // Claim skips history on no-op; release deliberately records even an empty patch.
     if !claim || changed > 0 {

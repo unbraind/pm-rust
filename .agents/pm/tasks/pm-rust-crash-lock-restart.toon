@@ -4,11 +4,11 @@ description: "The first native lock fsync follows a complete owner payload but l
 type: Task
 status: in_progress
 priority: 2
-tags[3]: crash-consistency,follow-up,locks
+tags[4]: crash-consistency,follow-up,"gh:unbraind/pm-rust#105",locks
 created_at: "2026-10-21T22:16:11.158Z"
-updated_at: "2026-10-22T17:23:49.897Z"
+updated_at: "2026-10-23T20:23:16.259Z"
 author: codex-agent
-comments[13]{created_at,author,text}:
+comments[16]{created_at,author,text}:
   "2026-10-21T22:19:53.971Z",codex-agent,"Overlap check: lock and initialization searches found no open item covering safe recovery from incomplete lock publication. This is distinct from text ownership refusal parity and completed owner-death locking work. The two measured failures are native update/comment at fsync ordinal 1, restart exit 4; all acknowledged item/history bytes remain intact. Repair policy is deliberately separate from the crash evidence harness."
   "2026-10-21T23:04:13.757Z",codex-agent,"Read both retained same-family update/comment fsync ordinal 1 cases and #104. The first fsync follows a complete owner-payload write; the fresh empty publication gate prevents the existing confirmed-dead-owner recovery. Plan: while holding the existing kernel lease, admit identity-checked empty-gate reclamation only for a confirmed dead same-host owner; retain TTL and unknown/live/nonempty-gate refusals. Add permanent independent replay cases, require every measured boundary to recover, and verify 50 simultaneous writers without Git. Targeted checks locally; unchanged-threshold release-check matrix remains the full CI gate. This branch builds on #104 and must merge after it."
   "2026-10-21T23:19:03.467Z",codex-agent,"The corrected synthetic corpus passes 20/20 injected kills with 20/20 acknowledged writes, history prefixes, exact reference states and restart receipts; both cross-runtime baseline byte and acknowledgement comparisons pass. The separate permanent update/comment first-fsync replay tests pass 2/2; the fresh-gate owner and lease guard unit test passes. The initial minimal fixture failed oracle settings validation and was corrected before proof. A default-budget standalone run timed out under local load; the supported 60000 ms process budget completed the corpus. No recovery invariant or coverage threshold was relaxed. Targeted Rust acceptance and behavioral revert proof are next."
@@ -22,7 +22,14 @@ comments[13]{created_at,author,text}:
   "2026-10-22T17:21:57.057Z",codex-agent,"Original stacked-PR instruction, follow-up to the completed PR 104 review round: pulled PR 105 remote head 53e4988, confirmed zero review threads and no substantive CodeRabbit review, verified main is already an ancestor, then merged PR 104 final head f555a4238fc4d0fa5768feaee0e81dce66031202 after all nine of its exact-head CI jobs passed. The merge is clean and brings the baseline_parity replay guide/docstring correction plus two documentation regressions and LF/CRLF checks. No Rust source changed in this integration. Existing recovery invariants, two permanent first-fsync replays and original independent recovery revert proof remain intact. Running current-binary build, strict TypeScript/lint and the unchanged 300-second linked full crash harness, followed by the full unchanged release gate."
   "2026-10-22T17:23:48.746Z",codex-agent,"Merged-head acceptance passes: current native build, strict erasable TypeScript, ESLint, required check-only tracker health, and the existing pinned-PM linked full crash suite. node --test scripts/crash-harness.test.mts passes 22/22 with zero failed/canceled/skipped in about 16 seconds inside its unchanged 300-second budget. Every measured crash boundary, both permanent update/comment first-fsync replays, exact bytes/history/receipts and the two merged guidance checks pass. All Rust source is byte-identical to 53e4988, so this integration adds no runtime fix or new runtime revert requirement; original recovery and inherited PR 104 documentation revert proofs remain valid and linked. Existing result-tracking policy is disabled; results are recorded here without changing it."
   "2026-10-22T17:23:49.343Z",codex-agent,"Releasing the integration claim with status retained in_progress for orchestrator verification. This branch now includes the completed PR 104 head f555a4238fc4d0fa5768feaee0e81dce66031202 and current main a600bd8. Fresh unchanged-threshold full just release-check CI will validate the pushed integration head; its exact receipts and counts will be recorded in PR https://github.com/unbraind/pm-rust/pull/105. Pending CI is not approval. No review reply/resolution, PR merge, release, dependency/threshold change or history rewrite."
-files[9]:
+  "2026-10-23T20:08:49.952Z",codex-agent,"PR 105 review round starts only after PR 110 completed its full exact-head CI gates and push. Pulled remote recovery head ca52b3608505542519781d6709799c163d9e01de. GraphQL returns zero review threads and no CodeRabbit review body; the latest CodeRabbit issue comment explicitly skips automatic review. The branch is four main commits behind and GitHub reports conflicts. Merge origin/main before code review, preserve both append-only tracker streams and the recovery/harness stack, regenerate the changelog inside the merge, then verify the complete PR diff, focused regressions and unchanged native release gate. Existing recovery and crash-boundary evidence remains historical until checked against the integrated candidate."
+  "2026-10-23T20:17:51.120Z",codex-agent,"Merged main 300eaa9a9d06f0e2cfc6afcfa8b66492a960a77b with three conflicts resolved: retain both ignore lists and crash/benchmark recipes; retain the main non-git native process helper plus the branch requirement of 50 concurrent writers and three comments each. Expanded the expected marker set to all 150 entries so the merged test remains coherent and strict. Behavioral negative control restored only the old expected-set behavior in the concurrency test function: it compiled and failed with exit 101, actual 150 markers versus expected 50; restored the full set afterward. The integrated recovery negative control removed only the early confirmed-dead-owner gate admission from acquire_lock_attempt, rebuilt, and ran node --test --test-name-pattern=\"retained (update|comment)\" scripts/crash-harness.test.mts: two failures, both restart exit 4. Restored source/binary passed both cases (2/2). Whole-PR review retained lock identity/lease/refusal controls, exact receipt/history checks, typed harness refusals and no-git execution. Updated one stale harness comment to describe fixed reference invocations after main introduced shared journal recovery. All 78 branch and 80 main history streams remain exact byte prefixes; no history rewrite or repair. Strict TypeScript, ESLint, merge-time changelog check, and isolated required check-only health pass. Full linked acceptance and unchanged full CI gate follow."
+  "2026-10-23T20:23:14.015Z",codex-agent,"Final integrated acceptance: all three pinned-PM linked commands passed, totaling 22 Linux crash-harness tests, 2 concurrency tests, 14 parity tests and 6 gate-focused unit tests (44 cases, zero failed or skipped). The concurrency assertion covers all 150 unique comments exactly once plus the complete 151-record history chain. Clippy retained its 100-line function limit: extracted the full expected marker set into documented expected_markers rather than relaxing lint. Repeating the helper-only stale-set behavioral control compiled and failed with exit 101, actual 150 versus expected 50; restored helper passed the linked 2+14 Rust acceptance again. Recovery proof remains two restart-exit-4 failures with only early dead-owner admission reverted, then two passes after restoring/rebuilding. Final strict all-target/all-feature Clippy, formatting, private rustdoc, strict erasable TypeScript, ESLint and isolated required tracker health pass. Merge-time changelog generation/check will be repeated after this final tracker write. Original JSON receipts and fixtures are untouched. The full unchanged just release-check matrix will run on the pushed integration head; no pending or skipped reviewer is counted as approval. Release the claim and retain in_progress for orchestrator verification."
+files[11]:
+  - path: .gitignore
+    scope: project
+  - path: justfile
+    scope: project
   - path: scripts/crash-harness.mts
     scope: project
   - path: scripts/crash-harness.test.mts
@@ -53,8 +60,16 @@ tests[3]{command,scope,timeout_seconds,provenance{author,created_at,source_kind,
   node --test scripts/crash-harness.test.mts,project,300,codex-agent,"2026-10-21T23:11:31.260Z",local_mutation,fix/crash-restart-recovery
   env CARGO_BUILD_JOBS=2 PM_RUST_REQUIRE_PUBLISHED_CLI=1 cargo +1.90.0 test --locked --test concurrency_contract --test parity_1021_contract,project,900,codex-agent,"2026-10-21T23:11:44.224Z",local_mutation,fix/crash-restart-recovery
   env CARGO_BUILD_JOBS=2 cargo +1.90.0 test --locked --lib gate,project,900,codex-agent,"2026-10-21T23:12:22.808Z",local_mutation,fix/crash-restart-recovery
-docs[3]{path,scope,note}:
-  docs/CRASH_HARNESS.md,project,Early gate recovery policy independent replay commands and fifty-writer acceptance
-  docs/CRASH_RESTART_RECOVERY_2026_10_22.json,project,Twenty measured SIGKILL recoveries preserve exact state history prefixes and raw restart receipt hashes
-  docs/CRASH_RESTART_REVERT_PROOF_2026_10_22.json,project,Only acquire_lock_attempt reverted and rebuilt yields two restart-exit-4 failures; restored and rebuilt yields two passes
+docs[4]:
+  - path: docs/CRASH_HARNESS.md
+    scope: project
+    note: Early gate recovery policy independent replay commands and fifty-writer acceptance
+  - path: docs/CRASH_RESTART_RECOVERY_2026_10_22.json
+    scope: project
+    note: Twenty measured SIGKILL recoveries preserve exact state history prefixes and raw restart receipt hashes
+  - path: docs/CRASH_RESTART_REVERT_PROOF_2026_10_22.json
+    scope: project
+    note: Only acquire_lock_attempt reverted and rebuilt yields two restart-exit-4 failures; restored and rebuilt yields two passes
+  - path: docs/CROSS_OPERATION_JOURNAL_RECOVERY.md
+    scope: project
 body: ""

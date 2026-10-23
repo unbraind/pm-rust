@@ -964,13 +964,21 @@ fn changelog_toolchain_pins_the_sdk_exactly() -> Result<(), BoxError> {
         justfile.contains("PM_CLI_PKG := \"@unbrained/pm-cli@2026.10.9\""),
         "the justfile must pin @unbrained/pm-cli exactly; the floating range resolves to latest and truncates tracker reads (pm-rust-yilr)"
     );
+    let wrapper = read_repo_file("scripts/changelog.mts")?;
     assert!(
-        justfile.contains("--package={{PM_CHANGELOG_PKG}} --package={{PM_CLI_PKG}}"),
-        "the shared pm-changelog recipe must install both pinned packages into one npx prefix"
+        justfile_recipe_body(&justfile, "_pm-changelog")?
+            .iter()
+            .any(|line| line == "node scripts/changelog.mts {{flags}}"),
+        "the shared recipe must delegate to the npm-compatible wrapper"
     );
     assert!(
-        justfile.contains("--pm-arg=--output-budget --pm-arg=unbounded")
-            && justfile.contains("--pm-arg=--output-limit --pm-arg=unbounded"),
+        wrapper.contains("--package=${constant('PM_CHANGELOG_PKG')}")
+            && wrapper.contains("--package=${constant('PM_CLI_PKG')}"),
+        "the wrapper must install both justfile pins into one npx prefix"
+    );
+    assert!(
+        wrapper.contains("'--pm-arg=--output-budget', '--pm-arg=unbounded'")
+            && wrapper.contains("'--pm-arg=--output-limit', '--pm-arg=unbounded'"),
         "the shared pm-changelog recipe must request an unbounded, untruncated workspace read"
     );
 
@@ -999,6 +1007,39 @@ fn changelog_toolchain_pins_the_sdk_exactly() -> Result<(), BoxError> {
             }
         }
     }
+    Ok(())
+}
+
+/// Gated tracker mutations must regenerate through the same recipe as local just.
+#[test]
+fn gated_tracker_changes_share_the_npm_changelog_wrapper() -> Result<(), BoxError> {
+    let package: serde_json::Value =
+        serde_json::from_str(&read_repo_file("tests/oracle/package.json")?)?;
+    assert_eq!(
+        package["scripts"]["changelog:full"],
+        "node ../../scripts/changelog.mts full"
+    );
+    for (file, job, input) in [
+        ("pm-github-sync.yml", "gated-sync", "post-import-script"),
+        (
+            "pm-github-closeout.yml",
+            "gated-closeout",
+            "post-closeout-script",
+        ),
+    ] {
+        let workflow = parse_workflow(&format!(".github/workflows/{file}"))?;
+        let inputs = &workflow["jobs"][job]["with"];
+        assert_eq!(inputs["npm-project-dir"].as_str(), Some("tests/oracle"));
+        assert_eq!(inputs[input].as_str(), Some("changelog:full"));
+    }
+    let justfile = read_repo_file("justfile")?;
+    assert!(
+        justfile_recipe_body(&justfile, "changelog-full")?
+            .iter()
+            .any(|line| line
+                == "node scripts/changelog.mts full --date {{CHANGELOG_DATE}} {{extra}}"),
+        "just and npm must share the full-generation wrapper"
+    );
     Ok(())
 }
 

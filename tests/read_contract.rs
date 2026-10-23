@@ -61,6 +61,117 @@ fn tracker() -> Result<(TempDir, PathBuf), Box<dyn std::error::Error>> {
     Ok((directory, fs::canonicalize(root)?))
 }
 
+/// Claim lineage retains full-corpus duplicate and payload validation through the public SDK.
+#[test]
+fn ownership_parent_index_keeps_unrelated_validation() -> Result<(), Box<dyn std::error::Error>> {
+    let (directory, root) = tracker()?;
+    let workspace = Workspace::discover(directory.path())?;
+    let request = pm_rust::OwnershipItem {
+        id: "demo-a".to_owned(),
+        author: "fixture-agent".to_owned(),
+        timestamp: Some("2026-08-22T10:00:00.000Z".to_owned()),
+        message: None,
+        force: false,
+        if_available: false,
+        provenance_role: None,
+    };
+    let original_item = fs::read(root.join("tasks/demo-a.toon"))?;
+    write(root.join("tasks/unrelated.toon"), ITEM_B)?;
+    assert!(matches!(
+        workspace.claim_with_options(&request, &pm_rust::OwnershipOptions::default()),
+        Err(PmRustError::DuplicateItemId { .. })
+    ));
+    assert_eq!(fs::read(root.join("tasks/demo-a.toon"))?, original_item);
+    assert!(!root.join("history/demo-a.jsonl").exists());
+    assert!(!root.join("runtime/session.json").exists());
+    write(
+        root.join("tasks/unrelated.toon"),
+        "invalid unrelated payload",
+    )?;
+    assert!(matches!(
+        workspace.claim_with_options(&request, &pm_rust::OwnershipOptions::default()),
+        Err(PmRustError::InvalidItemDocument { .. })
+    ));
+    assert_eq!(fs::read(root.join("tasks/demo-a.toon"))?, original_item);
+    assert!(!root.join("history/demo-a.jsonl").exists());
+    assert!(!root.join("runtime/session.json").exists());
+    fs::remove_file(root.join("tasks/unrelated.toon"))?;
+    workspace.claim_with_options(&request, &pm_rust::OwnershipOptions::default())?;
+    let state: Value = serde_json::from_slice(&fs::read(root.join("runtime/session.json"))?)?;
+    assert!(state["semantic_attribution"].is_object());
+    let claimed_item = fs::read(root.join("tasks/demo-a.toon"))?;
+    let claimed_history = fs::read(root.join("history/demo-a.jsonl"))?;
+    let claimed_session = fs::read(root.join("runtime/session.json"))?;
+    for (payload, duplicate) in [(ITEM_B, true), ("invalid unrelated payload", false)] {
+        write(root.join("tasks/unrelated.toon"), payload)?;
+        let Err(error) =
+            workspace.release_with_options(&request, &pm_rust::OwnershipOptions::default())
+        else {
+            return Err("invalid corpus must refuse before release".into());
+        };
+        if duplicate {
+            assert!(matches!(error, PmRustError::DuplicateItemId { .. }));
+        } else {
+            assert!(matches!(error, PmRustError::InvalidItemDocument { .. }));
+        }
+        assert_eq!(fs::read(root.join("tasks/demo-a.toon"))?, claimed_item);
+        assert_eq!(
+            fs::read(root.join("history/demo-a.jsonl"))?,
+            claimed_history
+        );
+        assert_eq!(
+            fs::read(root.join("runtime/session.json"))?,
+            claimed_session
+        );
+    }
+    fs::remove_file(root.join("tasks/unrelated.toon"))?;
+    workspace.release_with_options(&request, &pm_rust::OwnershipOptions::default())?;
+    Ok(())
+}
+
+/// A filename alias absent from the validated ID index cannot leave a partial claim or release.
+#[test]
+fn ownership_missing_index_target_refuses_without_writes() -> Result<(), Box<dyn std::error::Error>>
+{
+    for release in [false, true] {
+        let (directory, root) = tracker()?;
+        let mut original = ITEM_A.replace("id: demo-a", "id: demo-real");
+        if release {
+            original.push_str("assignee: fixture-agent\nclaim_principal: fixture-agent\n");
+        }
+        write(root.join("tasks/demo-a.toon"), &original)?;
+        let session = "{\"retained\":true}\n";
+        write(root.join("runtime/session.json"), session)?;
+        let workspace = Workspace::discover(directory.path())?;
+        let request = pm_rust::OwnershipItem {
+            id: "demo-a".to_owned(),
+            author: "fixture-agent".to_owned(),
+            timestamp: Some("2026-08-22T10:00:00.000Z".to_owned()),
+            message: None,
+            force: false,
+            if_available: false,
+            provenance_role: None,
+        };
+        let options = pm_rust::OwnershipOptions::default();
+        let result = if release {
+            workspace.release_with_options(&request, &options)
+        } else {
+            workspace.claim_with_options(&request, &options)
+        };
+        assert!(matches!(result, Err(PmRustError::ItemNotFound { .. })));
+        assert_eq!(
+            fs::read_to_string(root.join("tasks/demo-a.toon"))?,
+            original
+        );
+        assert!(!root.join("history/demo-a.jsonl").exists());
+        assert_eq!(
+            fs::read_to_string(root.join("runtime/session.json"))?,
+            session
+        );
+    }
+    Ok(())
+}
+
 /// Every public read refuses a listing fault instead of fabricating an empty selection.
 fn queries_refuse_broken_storage(workspace: &Workspace) -> Result<(), Box<dyn std::error::Error>> {
     let results = [

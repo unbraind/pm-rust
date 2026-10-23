@@ -324,3 +324,197 @@ fn sdk_selection_preserves_identity_and_refusal_boundaries() -> TestResult {
     );
     Ok(())
 }
+
+#[path = "support/process_environment.rs"]
+mod process_environment;
+
+/// Executes the actual ownership CLI in the same disposable non-git tracker.
+fn ownership_cli(
+    workspace: &Workspace,
+    args: &[&str],
+) -> Result<std::process::Output, std::io::Error> {
+    let mut command = std::process::Command::new(env!("CARGO_BIN_EXE_pm-rust"));
+    process_environment::isolate_environment(&mut command);
+    command
+        .current_dir(
+            workspace
+                .pm_root()
+                .parent()
+                .and_then(std::path::Path::parent)
+                .unwrap_or(workspace.pm_root()),
+        )
+        .env("HOME", workspace.pm_root().join("runtime/test-home"))
+        .env("USERPROFILE", workspace.pm_root().join("runtime/test-home"))
+        .args(args)
+        .output()
+}
+
+/// A held item's if-available receipt takes precedence over unrelated malformed payloads.
+#[test]
+fn held_claim_skip_precedes_unrelated_corpus_validation() -> TestResult {
+    let (_directory, workspace) = fixture()?;
+    workspace.claim(&request("alpha"))?;
+    let target = workspace.pm_root().join("tasks/sample-one.toon");
+    let before = fs::read(&target)?;
+    fs::write(
+        workspace.pm_root().join("tasks/unrelated.toon"),
+        "invalid payload",
+    )?;
+    let mut beta = request("beta");
+    beta.if_available = true;
+    assert_eq!(workspace.claim(&beta)?.skipped, Some(true));
+    let output = ownership_cli(
+        &workspace,
+        &[
+            "claim",
+            "sample-one",
+            "--author",
+            "beta",
+            "--if-available",
+            "--json",
+        ],
+    )?;
+    assert_eq!(
+        output.status.code(),
+        Some(0),
+        "{}",
+        String::from_utf8_lossy(&output.stderr)
+    );
+    let receipt: Value = serde_json::from_slice(&output.stdout)?;
+    assert_eq!(receipt["skipped"], true);
+    assert_eq!(fs::read(target)?, before);
+    Ok(())
+}
+
+/// A held item's hard refusal retains `already_claimed_by` and exit four despite unrelated damage.
+#[test]
+fn held_claim_refusal_precedes_unrelated_corpus_validation() -> TestResult {
+    let (_directory, workspace) = fixture()?;
+    workspace.claim(&request("alpha"))?;
+    fs::write(
+        workspace.pm_root().join("tasks/unrelated.toon"),
+        "invalid payload",
+    )?;
+    assert!(
+        matches!(workspace.claim(&request("beta")), Err(PmRustError::OwnershipRefusal {context,..}) if context["code"]=="already_claimed_by")
+    );
+    let output = ownership_cli(
+        &workspace,
+        &["claim", "sample-one", "--author", "beta", "--json"],
+    )?;
+    assert_eq!(output.status.code(), Some(4));
+    let refusal: Value = serde_json::from_slice(&output.stderr)?;
+    assert_eq!(refusal["code"], "already_claimed_by");
+    Ok(())
+}
+
+/// Argument errors precede missing-ID lookup for both ownership operations.
+#[test]
+fn ownership_argument_refusals_precede_missing_id() -> TestResult {
+    let (_directory, workspace) = fixture()?;
+    for operation in ["claim", "release"] {
+        for (author, timestamp, reason) in [
+            ("", CLOCK, "author must not be empty"),
+            (
+                "alpha",
+                "2999-01-01T00:00:00.000Z",
+                "timestamp must not be in the future",
+            ),
+        ] {
+            let mut invalid = request(author);
+            invalid.id = "sample-missing".to_owned();
+            invalid.timestamp = Some(timestamp.to_owned());
+            let result = if operation == "claim" {
+                workspace.claim(&invalid)
+            } else {
+                workspace.release(&invalid)
+            };
+            assert!(
+                matches!(result, Err(PmRustError::InvalidMutationRequest {reason: actual}) if actual==reason)
+            );
+            let output = ownership_cli(
+                &workspace,
+                &[
+                    operation,
+                    "sample-missing",
+                    "--author",
+                    author,
+                    "--timestamp",
+                    timestamp,
+                ],
+            )?;
+            assert_eq!(output.status.code(), Some(2));
+            assert!(
+                String::from_utf8_lossy(&output.stderr).contains(reason),
+                "{}",
+                String::from_utf8_lossy(&output.stderr)
+            );
+        }
+    }
+    Ok(())
+}
+
+/// Lost item bytes roll forward under the lock before the lineage snapshot is captured.
+#[test]
+fn ownership_recovers_missing_item_before_lineage_validation() -> TestResult {
+    for operation in ["claim", "release"] {
+        let (_directory, workspace) = fixture()?;
+        let root = workspace.pm_root();
+        let alpha = request("alpha");
+        if operation == "release" {
+            workspace.claim(&alpha)?;
+        }
+        let history = root.join("history/sample-one.jsonl");
+        let before_history = fs::read_to_string(&history)?;
+        if operation == "claim" {
+            workspace.claim(&alpha)?;
+        } else {
+            workspace.release(&alpha)?;
+        }
+        let target = root.join("tasks/sample-one.toon");
+        let item_bytes = fs::read_to_string(&target)?;
+        let committed_history = fs::read_to_string(&history)?;
+        let history_bytes = committed_history
+            .strip_prefix(&before_history)
+            .ok_or("history prefix changed")?;
+        assert_eq!(history_bytes.lines().count(), 1);
+        fs::remove_file(&target)?;
+        fs::write(&history, before_history)?;
+        let journal = root.join(format!("runtime/transactions/{operation}-sample-one.json"));
+        fs::write(
+            &journal,
+            serde_json::to_vec(
+                &json!({"version":1,"id":"sample-one","item_type":"Task","item_bytes":item_bytes,"history_bytes":history_bytes,"before_item_hash":""}),
+            )?,
+        )?;
+        if operation == "claim" {
+            workspace.claim(&alpha)?;
+        } else {
+            workspace.release(&alpha)?;
+        }
+        assert_eq!(fs::read_to_string(target)?, item_bytes);
+        assert!(fs::read_to_string(history)?.starts_with(&committed_history));
+        assert!(!journal.exists());
+    }
+    Ok(())
+}
+
+/// An actual busy item lock wins over unrelated corpus errors before any snapshot read.
+#[test]
+fn ownership_lock_refusal_precedes_corpus_validation() -> TestResult {
+    let (_directory, workspace) = fixture()?;
+    fs::write(
+        workspace.pm_root().join("tasks/unrelated.toon"),
+        "invalid payload",
+    )?;
+    fs::write(
+        workspace.pm_root().join("locks/sample-one.lock"),
+        serde_json::to_vec(
+            &json!({"created_at":pm_rust::current_timestamp(),"author":"competing-agent"}),
+        )?,
+    )?;
+    assert!(
+        matches!(workspace.claim(&request("alpha")), Err(PmRustError::OwnershipRefusal {context,..}) if context["code"]=="lock_conflict")
+    );
+    Ok(())
+}

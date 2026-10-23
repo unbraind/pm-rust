@@ -1,8 +1,9 @@
 //! Multi-process no-lost-update acceptance for native comment mutations.
 //!
 //! The test spawns many concurrent native CLI processes that each append a
-//! comment to one shared item, relying on the per-item lock and its configured
-//! wait budget rather than any test-side coordination. It then proves that
+//! comment to one shared item. A start barrier releases the writer threads
+//! together; each process relies on the per-item lock and its configured wait
+//! budget. The test then proves that
 //! every accepted mutation survived: the item's comment rows, the history
 //! stream length, and the history hash chain all agree with the set of
 //! processes that reported success.
@@ -23,32 +24,52 @@ mod published_cli;
 const PROCESSES: usize = 50;
 const MUTATIONS_PER_PROCESS: usize = 3;
 
+/// Run the native executable in a plain tracker with no Git executable available.
+fn native_command(workspace: &Path) -> Command {
+    let mut command = Command::new(env!("CARGO_BIN_EXE_pm-rust"));
+    process_environment::isolate_environment(&mut command);
+    command
+        .current_dir(workspace)
+        .env("HOME", workspace.join("isolated-home"))
+        .env("USERPROFILE", workspace.join("isolated-home"))
+        .env(
+            "GIT_CEILING_DIRECTORIES",
+            workspace.parent().unwrap_or(workspace),
+        )
+        .env("PATH", workspace.join("no-tools"));
+    command
+}
+
 /// Builds the fixture workspace and seeds one shared item for contention.
 fn seeded_workspace() -> Result<Option<tempfile::TempDir>, Box<dyn std::error::Error>> {
-    let Some(published) = published_cli::published_cli_or_skip("no-git concurrency") else {
+    let Some(published) = published_cli::published_cli_or_skip("50-writer non-git contract") else {
         return Ok(None);
     };
     let directory = tempfile::tempdir()?;
     let root = directory.path().join(".agents/pm");
-    let init = oracle_command()
+    let interpreter = std::env::var_os("PM_NODE_INTERPRETER").unwrap_or_else(|| "node".into());
+    let mut init = published_cli::oracle_command(interpreter);
+    process_environment::isolate_environment(&mut init);
+    let output = init
         .arg(published.entry)
+        .args(["init", "sample-", "--defaults", "--agent-guidance", "skip"])
         .current_dir(directory.path())
+        .env("HOME", directory.path().join("isolated-home"))
+        .env("USERPROFILE", directory.path().join("isolated-home"))
         .env(
             "GIT_CEILING_DIRECTORIES",
             directory.path().parent().ok_or("temp parent")?,
         )
-        .args(["init", "sample-", "--defaults", "--agent-guidance", "skip"])
         .output()?;
     assert!(
-        init.status.success(),
-        "{}",
-        String::from_utf8_lossy(&init.stderr)
+        output.status.success(),
+        "oracle init failed: {}",
+        String::from_utf8_lossy(&output.stderr)
     );
-    fs::write(
-        root.join("settings.json"),
-        r#"{"id_prefix":"sample-","item_format":"toon","locks":{"ttl_seconds":1800,"wait_ms":180000}}"#,
-    )?;
-    fs::create_dir(directory.path().join("empty-path"))?;
+    let mut settings: Value = serde_json::from_slice(&fs::read(root.join("settings.json"))?)?;
+    settings["locks"]["wait_ms"] = serde_json::json!(60000);
+    settings["agent_identity"]["probes_enabled"] = serde_json::json!(false);
+    fs::write(root.join("settings.json"), serde_json::to_vec(&settings)?)?;
     assert!(!directory.path().join(".git").exists());
     let output = native_command(directory.path())
         .args([
@@ -76,11 +97,6 @@ fn seeded_workspace() -> Result<Option<tempfile::TempDir>, Box<dyn std::error::E
 fn append_comment(workspace: &Path, marker: &str) -> Result<(), String> {
     let text = format!("concurrent note {marker}");
     let output = native_command(workspace)
-        .env("PATH", workspace.join("empty-path"))
-        .env(
-            "GIT_CEILING_DIRECTORIES",
-            workspace.parent().unwrap_or(workspace),
-        )
         .args([
             "--workspace=.",
             "comment",
@@ -115,6 +131,16 @@ fn history_records(workspace: &Path) -> Result<Vec<Value>, Box<dyn std::error::E
         .filter(|line| !line.trim().is_empty())
         .map(serde_json::from_str)
         .collect::<Result<Vec<_>, _>>()?)
+}
+
+/// Enumerates every writer and mutation marker in the complete contention workload.
+fn expected_markers() -> std::collections::BTreeSet<String> {
+    (0..PROCESSES)
+        .flat_map(|process| {
+            (0..MUTATIONS_PER_PROCESS)
+                .map(move |mutation| format!("concurrent note {process}-{mutation}"))
+        })
+        .collect()
 }
 
 #[test]
@@ -156,7 +182,7 @@ fn concurrent_comment_processes_preserve_every_accepted_mutation()
     }
     assert!(
         rejections.is_empty(),
-        "every submitted write must succeed: {rejections:?}"
+        "every writer must succeed: {rejections:?}"
     );
     assert_eq!(accepted_total, PROCESSES * MUTATIONS_PER_PROCESS);
 
@@ -167,6 +193,15 @@ fn concurrent_comment_processes_preserve_every_accepted_mutation()
         .filter(|line| line.starts_with("  \"") && line.contains("concurrent note"))
         .count();
     assert_eq!(row_count, accepted_total, "lost comment rows in the item");
+    let document = pm_rust::Workspace::discover(directory.path())?.get("sample-load")?;
+    let actual: std::collections::BTreeSet<_> = document.metadata.extra["comments"]
+        .as_array()
+        .ok_or("missing comment array")?
+        .iter()
+        .filter_map(|comment| comment["text"].as_str())
+        .collect();
+    let expected = expected_markers();
+    assert_eq!(actual, expected.iter().map(String::as_str).collect());
 
     let document = pm_rust::Workspace::discover(directory.path())?.get("sample-load")?;
     let comments = document.metadata.extra["comments"]
@@ -258,19 +293,4 @@ fn absent_concurrency_oracle_obeys_optional_and_required_modes()
         }
     }
     Ok(())
-}
-
-/// Starts the published CLI without ambient tracker or agent context.
-fn oracle_command() -> Command {
-    let mut command = published_cli::oracle_command("node");
-    process_environment::isolate_environment(&mut command);
-    command
-}
-
-/// Starts a native fixture process without ambient tracker or agent context.
-fn native_command(root: &std::path::Path) -> Command {
-    let mut command = Command::new(env!("CARGO_BIN_EXE_pm-rust"));
-    process_environment::isolate_environment(&mut command);
-    command.current_dir(root);
-    command
 }

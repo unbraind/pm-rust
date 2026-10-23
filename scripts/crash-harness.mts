@@ -223,7 +223,7 @@ function run(options: CrashOptions, root: string, timeout: number, maximum: numb
   }
   for (const scenario of scenarios) {
     const mutation = scenario === 'update' ? ['update', id, '--description', 'Interrupted synthetic write'] : ['comment', id, 'Interrupted synthetic comment'];
-    // Re-enter the same operation family: native journals are operation-specific.
+    // Use the same restart invocation for interrupted and uninterrupted references.
     const restart = scenario === 'update' ? ['update', id, '--priority', '1', ...common] :
       ['comment', id, 'Restart synthetic sentinel', ...common];
     const baselines = new Map<string, Snapshot>();

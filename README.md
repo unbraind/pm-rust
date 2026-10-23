@@ -7,8 +7,11 @@ native applications.
 The project is pre-release. Its current delivery slice reads workspaces and
 creates, updates, comments on, closes, claims, and releases canonical items
 against the published `pm` 2026.10.21 on-disk contract. Production code, tests, benchmarks,
-and build tooling are Rust; the distributed binary does not require Node.js,
+and build tooling use Rust and typed test harnesses; the distributed binary does not require Node.js,
 Bun, JavaScript, or TypeScript.
+
+See [large tracker hot-path benchmarks](docs/NATIVE_HOT_PATHS.md) for `just bench`,
+the generated 1k/10k/50k matrix, peak RSS, byte comparisons and known parity gaps.
 
 See the [command and storage parity matrix](docs/CLI_PARITY_2026_10_2.md) and
 [2026.10.7 pagination contract](docs/LIST_PAGINATION_2026_10_5.md) for supported
@@ -44,11 +47,18 @@ checks and independent revert proofs are documented in
 See the [October 21 parity contract](docs/NATIVE_PARITY_2026_10_21.md) for lock-owner
 recovery, strict mutation admission, ordering and cursor changes.
 
+Native item mutations recover pending journals across operation names before
+applying later edits. See [journal recovery](docs/CROSS_OPERATION_JOURNAL_RECOVERY.md)
+for crash-state regressions and operator conflict remedies.
+
 ## Without git
 
 Workspace discovery, list/get/search/context/history/dependencies, item mutations,
 ownership and linked artifacts work in plain directories. Concurrent writers share
 the same tracker and retain every admitted item edit and append-only history entry.
+The multi-process write contract tests 50 writers against one such tracker without
+a Git executable. Native `context` refuses trackers with 10,000 or more items;
+see the [large tracker limits and benchmark protocol](docs/NATIVE_HOT_PATHS.md).
 Linked-test branch provenance is optional and inspects Git only when a repository
 marker exists. GitHub synchronization and Git history tooling require a Git
 repository and are outside the distributed native command slice.
@@ -196,6 +206,17 @@ just release-check      # aggregate release gate (fmt, clippy, docs, tests, cove
 
 The changelog heading date is fixed (not clock-derived) so the gate produces
 identical output across all timezones.
+
+Runners without `just` can use `npm run changelog:full --prefix tests/oracle`
+and append `-- --check` to verify the result. Both entry points use
+`scripts/changelog.mts`, which reads the pins, fixed date, and item URL base
+from the justfile. Gated issue sync and closeout use this npm entry point.
+
+#### Without git
+
+Regular tracker reads and writes work in plain directories. Changelog generation
+from release tags needs Git history and a Git executable; the wrapper identifies
+this prerequisite before invoking the generator.
 
 Work is managed in this repository with the latest `pm` CLI under
 `.agents/pm/`. The ecosystem-level lineage is the private companion item
