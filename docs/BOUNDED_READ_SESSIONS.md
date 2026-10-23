@@ -2,7 +2,8 @@
 
 The v1 embedding surface is `Workspace::read_session`, `ReadSessionLimits`,
 `ReadSession::next_page`, `ReadSession::receipt`, `ReadSession::cancel`,
-`SessionCancellation`, `SessionPage`, `SessionReceipt` and `SessionRefusal`.
+`SessionCancellation`, `SessionPage` (including `stringify_toon`),
+`SessionReceipt` and `SessionRefusal`.
 The [runnable Rust host](../examples/read_session.rs) prints each canonical page
 and then drops it. Applications retain ownership of returned pages and cancellation
 handles; accumulating pages consumes application memory outside session accounting.
@@ -61,11 +62,15 @@ at page boundaries; it is not an OS signal handler.
 | `session_cancelled` | Reopen with a fresh cancellation token |
 | `session_memory_limit` | Increase the admitted byte ceiling or use a smaller tracker |
 | `session_invalid_limits` | Use positive controls; row/token controls are at most 1,000,000 |
-| `session_unsupported_source` | Use regular files, at most 32 directory levels, tracker-relative schema files |
+| `session_unsupported_source` | Use stable UTF-8 regular files, valid settings JSON, at most 32 directory levels, tracker-relative schema files |
 | `session_source_refused` | Repair tracker integrity or increase the per-page token budget |
 | `session_storage_failed` | Check temporary storage permissions and free space |
 
-All failures terminate delivery and release admitted snapshot resources. Refusals
+Terminal outcomes remove private storage when the operating system permits it.
+Cleanup I/O failures terminate delivery, keep an undelivered final page uncertified,
+and may require the host to remove remaining private files after repairing scratch
+storage permissions. Drop attempts cleanup; use explicit cancellation or a pull
+result to observe cleanup errors. Refusals
 are typed in Rust and emitted as compact structured JSON on CLI stderr with exit
 code 2. An output writer failure drops the session through ordinary Rust unwinding.
 The source tracker remains unchanged after cancellation and failed admission.
@@ -91,8 +96,8 @@ than performance guarantees. Caller controls: 512 MiB admission ceiling,
 
 | Dataset | Items | Pages | Source bytes | Admission bytes | Peak RSS (KiB) | Wall (ms) | Output bytes |
 | --- | ---: | ---: | ---: | ---: | ---: | ---: | ---: |
-| SDK-generated tracker | 10,000 | 10 | 1,959,611 | 381,185,760 | 43,396 | 23,797 | 988,986 |
-| Public pm-rust tracker copy | 78 | 1 | 757,075 | 131,681,424 | 13,568 | 167 | 12,549 |
+| SDK-generated tracker | 10,000 | 10 | 1,959,611 | 381,185,760 | 43,652 | 131,120 | 988,986 |
+| Public pm-rust tracker copy | 78 | 1 | 757,075 | 131,681,424 | 13,824 | 782 | 12,549 |
 
 Both trackers passed the SDK's whole-corpus certificate. All identities matched;
 all 11 session pages preserved the published CLI's canonical JSON payloads,
@@ -109,15 +114,17 @@ Its unchanged source SHA-256 is
 its admitted snapshot SHA-256 is
 `f3401ddf796ef684cebaeac8ac130e4a277e90b7132c1ed963cf1655bf74d189`.
 The measured native binary SHA-256, checked before and after validation, is
-`6d591b2a41c1edc0c02fb2f055f2fc0f35cc333eb8acdcee9447ac1c13c3d35a`.
+`b521fc24870ac80b095e3f417af765e58c0a50a616b455b04b8b0c7e430bfa71`.
 Only text evidence is tracked; generated trackers, executable files and raw
 outputs remain disposable.
 
-Seven isolated behavioral reverts compiled and failed their targeted regression:
+Nine isolated behavioral reverts compiled and failed their targeted regression:
 admission charging, snapshot binding, registry isolation, cancellation cleanup,
-omission-only output refusal, clock-storage accounting and duplicate-file
-remedies. All functions were restored before successful validation. Tests also
+omission-only output refusal, clock-storage accounting, duplicate-file
+remedies, delivery cleanup ordering and output-cursor continuation. All functions
+were restored before successful validation. Tests also
 exercise real no-git initialization, a native PATH without Git or Node, empty
 trackers, output-budget continuations, peer cancellation before and after a real
 query, source length drift, schema symlink refusal, real query storage loss,
-explicit cancellation, drop and successful terminal cleanup.
+explicit cancellation, drop, cleanup failures, disconnected consumers, bounded
+read/iterator faults, writer/flush faults and successful terminal cleanup.

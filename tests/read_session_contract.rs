@@ -230,3 +230,57 @@ fn cli_cancellation_and_success_remove_private_storage() -> TestResult {
     assert_eq!(fs::read_dir(scratch.path())?.count(), 0);
     Ok(())
 }
+
+/// A disconnected native consumer terminates delivery and removes private storage.
+#[test]
+fn disconnected_consumer_releases_session_and_storage_refusals_are_typed() -> TestResult {
+    use std::process::Stdio;
+    let directory = fixture()?;
+    let scratch = tempfile::tempdir()?;
+    for json in [false, true] {
+        let mut command = Command::new(env!("CARGO_BIN_EXE_pm-rust"));
+        command
+            .current_dir(directory.path())
+            .args(["read-session", "--page-items", "1"])
+            .env("TMPDIR", scratch.path())
+            .env("TMP", scratch.path())
+            .env("TEMP", scratch.path())
+            .stdout(Stdio::piped())
+            .stderr(Stdio::piped());
+        if json {
+            command.arg("--json");
+        }
+        let mut child = command.spawn()?;
+        drop(child.stdout.take());
+        let result = child.wait_with_output()?;
+        assert!(!result.status.success());
+        assert_eq!(fs::read_dir(scratch.path())?.count(), 0);
+    }
+    let blocker = scratch.path().join("blocked-temp");
+    fs::write(&blocker, "not a directory")?;
+    let result = Command::new(env!("CARGO_BIN_EXE_pm-rust"))
+        .current_dir(directory.path())
+        .arg("read-session")
+        .env("TMPDIR", &blocker)
+        .env("TMP", &blocker)
+        .env("TEMP", &blocker)
+        .output()?;
+    assert_eq!(result.status.code(), Some(2));
+    let refusal: Value = serde_json::from_slice(&result.stderr)?;
+    assert_eq!(refusal["code"], "session_storage_failed");
+    let source = directory.path().join(".agents/pm/tasks/demo-0.toon");
+    for (bytes, code) in [
+        (&b"invalid"[..], "session_source_refused"),
+        (&b"\xff"[..], "session_unsupported_source"),
+    ] {
+        fs::write(&source, bytes)?;
+        let result = Command::new(env!("CARGO_BIN_EXE_pm-rust"))
+            .current_dir(directory.path())
+            .arg("read-session")
+            .output()?;
+        assert_eq!(result.status.code(), Some(2));
+        let refusal: Value = serde_json::from_slice(&result.stderr)?;
+        assert_eq!(refusal["code"], code);
+    }
+    Ok(())
+}

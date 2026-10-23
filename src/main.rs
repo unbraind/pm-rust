@@ -584,6 +584,24 @@ fn write_json_to(
         .map_err(|error| -> Box<dyn std::error::Error> { Box::new(error) })
 }
 
+/// Writes a complete session frame and propagates codec, pipe and flush failures.
+fn write_session_page_to(
+    writer: &mut dyn std::io::Write,
+    page: &pm_rust::SessionPage,
+    json: bool,
+) -> Result<(), Box<dyn std::error::Error>> {
+    let bytes = if json {
+        let mut bytes = pm_rust::stringify_json(page, false);
+        bytes.push('\n');
+        bytes
+    } else {
+        page.stringify_toon()?
+    };
+    writer.write_all(bytes.as_bytes())?;
+    writer.flush()?;
+    Ok(())
+}
+
 #[cfg(test)]
 #[path = "../tests/support/main_unit.rs"]
 mod tests;
@@ -624,18 +642,7 @@ fn run(cli: Cli) -> Result<(), Box<dyn std::error::Error>> {
                 let Some(page) = session.next_page()? else {
                     break;
                 };
-                if json {
-                    writeln!(stdout, "{}", pm_rust::stringify_json(&page, false))?;
-                } else {
-                    let receipt = pm_rust::ListOutput::from(serde_json::to_value(&page.receipt)?);
-                    writeln!(
-                        stdout,
-                        "{}{}---",
-                        pm_rust::stringify_toon(&receipt)?,
-                        pm_rust::stringify_toon(&page.output)?
-                    )?;
-                }
-                stdout.flush()?;
+                write_session_page_to(&mut stdout, &page, json)?;
             }
             return Ok(());
         }

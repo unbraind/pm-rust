@@ -1543,3 +1543,39 @@ fn published_refusal_arguments_strip_all_workspace_aliases() {
         }
     }
 }
+
+/// Session frames retain canonical payloads and propagate real writer/codec failures.
+#[test]
+fn session_frame_writer_preserves_errors_and_framing() -> Result<(), Box<dyn std::error::Error>> {
+    let mut page = pm_rust::SessionPage {
+        output: serde_json::json!({"items":[{"title":"example"}],"count":1}).into(),
+        receipt: pm_rust::SessionReceipt {
+            protocol: "pm-rust/read-session/v1",
+            snapshot_sha256: "synthetic".to_owned(),
+            source_items: 1,
+            source_bytes: 100,
+            admitted_memory_bytes: 1000,
+            memory_ceiling_bytes: 2000,
+            pages: 1,
+            complete: true,
+        },
+    };
+    for json in [false, true] {
+        let mut bytes = Vec::new();
+        super::write_session_page_to(&mut bytes, &page, json)?;
+        if json {
+            let parsed: serde_json::Value = serde_json::from_slice(&bytes)?;
+            assert_eq!(parsed["receipt"]["complete"], true);
+        } else {
+            assert!(String::from_utf8(bytes)?.ends_with("---\n"));
+        }
+        assert!(super::write_session_page_to(&mut WriteFailure, &page, json).is_err());
+        assert!(super::write_session_page_to(&mut FlushFailure, &page, json).is_err());
+    }
+    page.output = pm_rust::ListOutput::with_json_overrides(
+        (*page.output).clone(),
+        std::collections::BTreeMap::from([("/items/0/title".to_owned(), "\"\\ud83d\"".to_owned())]),
+    );
+    assert!(super::write_session_page_to(&mut Vec::new(), &page, false).is_err());
+    Ok(())
+}

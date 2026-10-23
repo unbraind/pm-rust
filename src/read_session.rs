@@ -7,7 +7,7 @@ use std::{
     collections::BTreeMap,
     fmt::Write as _,
     fs,
-    io::Read,
+    io::{self, Read},
     path::{Component, Path, PathBuf},
     sync::{
         Arc,
@@ -76,7 +76,7 @@ pub enum SessionRefusal {
     InvalidLimits,
     /// A source cannot be safely frozen under this bounded contract.
     #[error(
-        "unsupported session source; use regular files, at most 32 directory levels, and tracker-relative schema files"
+        "unsupported session source; use stable UTF-8 regular files, valid settings JSON, at most 32 directory levels, and tracker-relative schema files"
     )]
     UnsupportedSource,
     /// The canonical reader rejected source or output data.
@@ -134,6 +134,21 @@ pub struct SessionPage {
     pub receipt: SessionReceipt,
 }
 
+impl SessionPage {
+    /// Renders one framed TOON page using the canonical codecs.
+    ///
+    /// # Errors
+    /// Returns the canonical TOON refusal for unsupported JSON string overrides.
+    pub fn stringify_toon(&self) -> Result<String, PmRustError> {
+        let receipt = ListOutput::from(serde_json::json!(&self.receipt));
+        Ok(format!(
+            "{}{}---\n",
+            crate::toon_output::render_output(&receipt),
+            crate::stringify_toon(&self.output)?
+        ))
+    }
+}
+
 /// A pull-based, disk-backed read session. Drop removes private snapshot storage.
 ///
 /// Retaining returned pages is the caller's responsibility. Cancellation is
@@ -188,6 +203,8 @@ impl Workspace {
         };
         admission.charge(0)?;
         let snapshot = tempfile::tempdir()?;
+        #[cfg(test)]
+        tests::SNAPSHOT_CREATED_HOOK.with(|hook| hook.get()(snapshot.path()));
         let target = snapshot.path().join(".agents/pm");
         fs::create_dir_all(&target)?;
         admission.copy(
@@ -320,12 +337,12 @@ impl ReadSession {
         if output["continuation_kind"] == "output_cursor" {
             self.options.output_cursor = self.options.after.take();
         }
-        self.receipt.pages += 1;
-        self.receipt.complete =
-            self.options.after.is_none() && self.options.output_cursor.is_none();
-        if self.receipt.complete {
+        let complete = self.options.after.is_none() && self.options.output_cursor.is_none();
+        if complete {
             self.cleanup()?;
         }
+        self.receipt.pages += 1;
+        self.receipt.complete = complete;
         Ok(Some(SessionPage {
             output,
             receipt: self.receipt.clone(),
@@ -382,10 +399,7 @@ impl Admission<'_> {
         )?;
         #[cfg(test)]
         tests::BEFORE_COPY_HOOK.with(|hook| hook.get()(source, self.cancellation));
-        let mut bytes = Vec::new();
-        fs::File::open(source)?
-            .take(size.saturating_add(1))
-            .read_to_end(&mut bytes)?;
+        let bytes = read_source_file(source, size)?;
         if bytes.len() as u64 != size {
             return Err(SessionRefusal::UnsupportedSource);
         }
@@ -403,6 +417,8 @@ impl Admission<'_> {
         }
         fs::create_dir_all(target.parent().ok_or(SessionRefusal::UnsupportedSource)?)?;
         fs::write(target, &bytes)?;
+        #[cfg(test)]
+        tests::AFTER_COPY_HOOK.with(|hook| hook.get()(source, target));
         self.hash.update(relative.to_string_lossy().as_bytes());
         self.hash.update([0]);
         self.hash.update(size.to_le_bytes());
@@ -423,33 +439,71 @@ impl Admission<'_> {
         if depth > 32 {
             return Err(SessionRefusal::UnsupportedSource);
         }
+        let mut directory = fs::read_dir(source)?;
+        let mut entries = self.collect_entries(&mut directory)?;
+        entries.sort_by_key(std::fs::DirEntry::file_name);
+        for entry in entries {
+            let kind = entry.file_type();
+            self.visit_entry(&entry, kind, target, relative, depth)?;
+        }
+        Ok(())
+    }
+
+    /// Charges directory entries before retaining them and preserves iterator faults.
+    fn collect_entries(
+        &mut self,
+        directory: &mut dyn Iterator<Item = io::Result<fs::DirEntry>>,
+    ) -> Result<Vec<fs::DirEntry>, SessionRefusal> {
         let mut entries = Vec::new();
-        for entry in fs::read_dir(source)? {
+        for entry in directory {
             self.cancellation.check()?;
             self.charge(1024)?;
             entries.push(entry?);
         }
-        entries.sort_by_key(std::fs::DirEntry::file_name);
-        for entry in entries {
-            let name = entry.file_name();
-            let kind = entry.file_type()?;
-            if depth == 0
-                && crate::workspace::NON_ITEM_DIRECTORIES.contains(&name.to_string_lossy().as_ref())
-            {
-                continue;
-            }
-            if kind.is_symlink() {
-                return Err(SessionRefusal::UnsupportedSource);
-            }
-            let relative = relative.join(&name);
-            if kind.is_dir() {
-                self.walk(&entry.path(), &target.join(&name), &relative, depth + 1)?;
-            } else if depth > 0 && entry.path().extension().is_some_and(|ext| ext == "toon") {
-                self.copy(&entry.path(), &target.join(name), &relative, true)?;
-            }
+        Ok(entries)
+    }
+
+    /// Visits one real directory record and preserves its authoritative type result.
+    fn visit_entry(
+        &mut self,
+        entry: &fs::DirEntry,
+        kind: io::Result<fs::FileType>,
+        target: &Path,
+        relative: &Path,
+        depth: usize,
+    ) -> Result<(), SessionRefusal> {
+        let name = entry.file_name();
+        let kind = kind?;
+        if depth == 0
+            && crate::workspace::NON_ITEM_DIRECTORIES.contains(&name.to_string_lossy().as_ref())
+        {
+            return Ok(());
+        }
+        if kind.is_symlink() {
+            return Err(SessionRefusal::UnsupportedSource);
+        }
+        let relative = relative.join(&name);
+        if kind.is_dir() {
+            self.walk(&entry.path(), &target.join(&name), &relative, depth + 1)?;
+        } else if depth > 0 && entry.path().extension().is_some_and(|ext| ext == "toon") {
+            self.copy(&entry.path(), &target.join(name), &relative, true)?;
         }
         Ok(())
     }
+}
+
+/// Opens and bounds one admitted source, retaining ordinary I/O failures.
+fn read_source_file(path: &Path, size: u64) -> io::Result<Vec<u8>> {
+    match fs::File::open(path) {
+        Ok(file) => read_source_bytes(&mut file.take(size.saturating_add(1))),
+        Err(error) => Err(error),
+    }
+}
+
+/// Consumes a bounded reader without replacing read failures with partial bytes.
+fn read_source_bytes(reader: &mut dyn Read) -> io::Result<Vec<u8>> {
+    let mut bytes = Vec::new();
+    reader.read_to_end(&mut bytes).map(|_| bytes)
 }
 
 #[cfg(test)]

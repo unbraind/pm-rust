@@ -70,7 +70,7 @@ receipt and canonical page followed by `---`. An optional `--cancel-file` marker
 requests cancellation before admission or between pages; removing it allows a new
 CLI invocation. SDK callers can share `SessionCancellation` across threads or call
 `ReadSession::cancel()` for immediate cleanup while idle. Drop and terminal pulls
-remove the snapshot. See the [embedding contract](docs/BOUNDED_READ_SESSIONS.md) for
+attempt snapshot cleanup; explicit calls report storage failures. See the [embedding contract](docs/BOUNDED_READ_SESSIONS.md) for
 accounting limits, cancellation latency, integrity boundaries and typed remedies.
 
 ## Without git
