@@ -760,7 +760,8 @@ fn snapshot_temp_creation_failure_is_typed() -> TestResult {
     Ok(())
 }
 
-/// Registry lookup faults preserve canonical errors instead of certifying defaults.
+/// Unix registry lookup faults preserve canonical errors instead of certifying defaults.
+#[cfg(unix)]
 #[test]
 fn schema_parent_file_preserves_canonical_lookup_error() -> TestResult {
     for (name, configured) in [("statuses", false), ("statuses", true), ("workflows", true)] {
@@ -804,6 +805,68 @@ fn schema_parent_file_preserves_canonical_lookup_error() -> TestResult {
         assert_eq!(source.kind(), expected_error.kind());
         assert_eq!(source.raw_os_error(), expected_error.raw_os_error());
         assert_eq!(fs::read_to_string(blocker)?, "schema is a regular file");
+    }
+    Ok(())
+}
+
+/// Windows reports a file parent as NotFound, matching canonical schema defaults.
+#[cfg(windows)]
+#[test]
+fn schema_parent_file_matches_windows_canonical_defaults() -> TestResult {
+    let (_directory, workspace) = fixture(1)?;
+    fs::write(
+        workspace.pm_root().join("schema"),
+        "schema is a regular file",
+    )?;
+    let mut session = workspace.read_session(
+        &ReadSessionLimits::default(),
+        SessionCancellation::default(),
+        CLOCK,
+    )?;
+    let expected = workspace.list_page(&ItemFilter::default(), &session.options, CLOCK)?;
+    let page = session.next_page()?.ok_or("missing defaults page")?;
+    assert_eq!(
+        page.output.stringify_read_json(),
+        expected.stringify_read_json()
+    );
+    assert!(page.receipt.complete);
+    assert!(session.snapshot.is_none());
+    Ok(())
+}
+
+/// Invalid schema filenames retain canonical I/O failures on every platform.
+#[test]
+fn schema_invalid_path_preserves_canonical_lookup_error() -> TestResult {
+    for name in ["statuses", "workflows"] {
+        let (_directory, workspace) = fixture(1)?;
+        let mut settings: serde_json::Value =
+            serde_json::from_slice(&fs::read(workspace.pm_root().join("settings.json"))?)?;
+        let relative = format!("schema/{name}\0.json");
+        settings["schema"]["files"][name] = serde_json::json!(relative);
+        fs::write(
+            workspace.pm_root().join("settings.json"),
+            serde_json::to_vec(&settings)?,
+        )?;
+        let Err(PmRustError::Io {
+            path: expected_path,
+            source: expected_error,
+        }) = workspace.list_page(&ItemFilter::default(), &ListOptions::default(), CLOCK)
+        else {
+            return Err("canonical list must refuse the invalid schema path".into());
+        };
+        assert_eq!(expected_error.kind(), io::ErrorKind::InvalidInput);
+        assert_eq!(expected_path, workspace.read_pm_root().join(&relative));
+        let result = workspace.read_session(
+            &ReadSessionLimits::default(),
+            SessionCancellation::default(),
+            CLOCK,
+        );
+        let Err(SessionRefusal::Source(PmRustError::Io { path, source })) = result else {
+            return Err("invalid schema path must refuse before session certification".into());
+        };
+        assert_eq!(path, expected_path);
+        assert_eq!(source.kind(), expected_error.kind());
+        assert_eq!(source.raw_os_error(), expected_error.raw_os_error());
     }
     Ok(())
 }

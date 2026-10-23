@@ -18,7 +18,10 @@ unpaired UTF-16 compaction cuts; the existing TOON codec can refuse those cuts.
 Canonical list recovery flags refer to the ordinary `list` command; session
 controls are documented separately. Optional registry lookup falls back only for
 `NotFound`. Other lookup failures retain the canonical list error path and operating-system error and refuse
-admission before any completion certificate. The original tracker is never written.
+admission before any completion certificate. A regular-file schema parent produces
+`NotADirectory` on Unix and refuses admission; Windows reports `NotFound` for
+that lookup and retains the canonical reader's default-registry behavior. Separate
+SDK and CLI regressions verify both platform contracts. The original tracker is never written.
 Git, extensions, JavaScript and telemetry are absent from the native path. The package's pinned oracle is unchanged.
 
 The snapshot is an immutable capture of individually read files, not a database

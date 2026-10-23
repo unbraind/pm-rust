@@ -1,5 +1,5 @@
 //! Public CLI and SDK session contracts against genuine non-git trackers.
-use pm_rust::{ReadSessionLimits, SessionCancellation, Workspace};
+use pm_rust::{ItemFilter, ListOptions, ReadSessionLimits, SessionCancellation, Workspace};
 use serde_json::Value;
 use std::{fs, path::Path, process::Command};
 
@@ -285,7 +285,8 @@ fn disconnected_consumer_releases_session_and_storage_refusals_are_typed() -> Te
     Ok(())
 }
 
-/// Schema lookup errors refuse CLI delivery and remove the partially copied snapshot.
+/// Unix schema lookup errors refuse delivery and remove the partially copied snapshot.
+#[cfg(unix)]
 #[test]
 fn schema_parent_file_never_certifies_cli_completion() -> TestResult {
     let directory = fixture()?;
@@ -318,5 +319,96 @@ fn schema_parent_file_never_certifies_cli_completion() -> TestResult {
         fs::read_to_string(root.join("schema"))?,
         "schema is a regular file"
     );
+    Ok(())
+}
+
+/// Windows canonical NotFound fallback also completes through the CLI and cleans up.
+#[cfg(windows)]
+#[test]
+fn schema_parent_file_cli_matches_windows_canonical_defaults() -> TestResult {
+    let directory = fixture()?;
+    let root = directory.path().join(".agents/pm");
+    fs::remove_dir_all(root.join("schema"))?;
+    fs::write(root.join("schema"), "schema is a regular file")?;
+    let scratch = tempfile::tempdir()?;
+    for json in [false, true] {
+        let mut command = Command::new(env!("CARGO_BIN_EXE_pm-rust"));
+        command
+            .current_dir(directory.path())
+            .arg("read-session")
+            .env("TMPDIR", scratch.path())
+            .env("TMP", scratch.path())
+            .env("TEMP", scratch.path());
+        if json {
+            command.arg("--json");
+        }
+        let result = command.output()?;
+        assert!(
+            result.status.success(),
+            "{}",
+            String::from_utf8_lossy(&result.stderr)
+        );
+        if json {
+            let page: Value = serde_json::from_slice(&result.stdout)?;
+            assert_eq!(page["receipt"]["complete"], true);
+            assert_eq!(page["output"]["items"].as_array().map(Vec::len), Some(3));
+        } else {
+            assert!(String::from_utf8(result.stdout)?.contains("complete: true"));
+        }
+        assert_eq!(fs::read_dir(scratch.path())?.count(), 0);
+    }
+    Ok(())
+}
+
+/// Invalid filenames refuse admission with source diagnostics rather than snapshot paths.
+#[test]
+fn schema_invalid_path_preserves_cli_source_diagnostics() -> TestResult {
+    for name in ["statuses", "workflows"] {
+        let directory = fixture()?;
+        let root = directory.path().join(".agents/pm");
+        let mut settings: Value = serde_json::from_slice(&fs::read(root.join("settings.json"))?)?;
+        settings["schema"]["files"][name] = serde_json::json!(format!("schema/{name}\0.json"));
+        fs::write(root.join("settings.json"), serde_json::to_vec(&settings)?)?;
+        let expected = Workspace::discover(directory.path())?
+            .list_page(
+                &ItemFilter::default(),
+                &ListOptions::default(),
+                "2026-10-21T12:00:00.000Z",
+            )
+            .err()
+            .ok_or("canonical list must refuse the invalid filename")?
+            .to_string();
+        let scratch = tempfile::tempdir()?;
+        for json in [false, true] {
+            let mut command = Command::new(env!("CARGO_BIN_EXE_pm-rust"));
+            command
+                .current_dir(directory.path())
+                .arg("--workspace")
+                .arg(directory.path())
+                .arg("read-session")
+                .env("TMPDIR", scratch.path())
+                .env("TMP", scratch.path())
+                .env("TEMP", scratch.path());
+            if json {
+                command.arg("--json");
+            }
+            let result = command.output()?;
+            assert_eq!(result.status.code(), Some(2));
+            assert!(
+                result.stdout.is_empty(),
+                "refused source must emit no certificate"
+            );
+            let refusal: Value = serde_json::from_slice(&result.stderr)?;
+            assert_eq!(refusal["code"], "session_source_refused");
+            assert!(
+                refusal["detail"]
+                    .as_str()
+                    .ok_or("missing detail")?
+                    .contains(&expected),
+                "admission must retain the canonical source diagnostic: {refusal}"
+            );
+            assert_eq!(fs::read_dir(scratch.path())?.count(), 0);
+        }
+    }
     Ok(())
 }

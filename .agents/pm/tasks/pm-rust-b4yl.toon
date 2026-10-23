@@ -6,10 +6,11 @@ status: open
 priority: 1
 tags[3]: conformance,follow-up,history
 created_at: "2026-10-17T11:01:24.761Z"
-updated_at: "2026-10-21T11:12:40.193Z"
+updated_at: "2026-10-23T19:09:49.301Z"
 author: codex-agent
 parent: pm-rust-u4al
-comments[2]{created_at,author,text}:
+comments[3]{created_at,author,text}:
   "2026-10-18T13:11:30.015Z",codex-agent,"PR #92 second-review check reconfirms the existing discontinuities: full health --strict-exit reports history_drift_chain_mismatch for pm-rust-bj7a and pm-rust-unih. A fresh no-local clone of prior head c511d607579d746e201a15e54a37b287c79b1195 reproduces both; those items and history streams remain unchanged by this review. The documented CI command health --check-only --require-merge-drivers --strict-exit passes and must not be reported as verification of these older chains. Preserve this existing follow-up open; no re-anchor, repair or rewrite performed."
   "2026-10-21T11:12:40.192Z",codex-agent,"PR 101 review-round supplementary full health with pinned pm-cli 2026.10.21 confirms the same two existing chain mismatches in pm-rust-bj7a and pm-rust-unih. Both item/history files are unchanged relative to origin/main and the review candidate. Full health checks 74 items and reports two chain mismatches, zero hash mismatches, zero workspace-state mismatches. No existing records were rewritten. This is independent of the release-check and default CI health gates, which do not establish full history integrity."
+  "2026-10-23T19:09:49.301Z",codex-agent,PR 110 review round confirms the two already tracked chain mismatches for pm-rust-bj7a and pm-rust-unih. Both item/history pairs are unchanged from origin/main. Full local health authority remains ok but reports these historical advisories plus local extension and merge-driver configuration warnings. No append-only history was repaired or rewritten. Release and CI check-only health evidence is separate from verification of these older chains.
 body: ""
