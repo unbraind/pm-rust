@@ -75,6 +75,7 @@ pub struct ListResult {
 pub struct Workspace {
     pm_root: PathBuf,
     query_pm_root: PathBuf,
+    session_query_identity: Option<PathBuf>,
 }
 
 /// Two workspaces are equal when they name the same canonical tracker.
@@ -137,6 +138,7 @@ impl Workspace {
                 return Ok(Self {
                     pm_root: current,
                     query_pm_root: query_current,
+                    session_query_identity: None,
                 });
             }
             let candidate = current.join(".agents/pm");
@@ -144,6 +146,7 @@ impl Workspace {
                 return Ok(Self {
                     pm_root: candidate,
                     query_pm_root: query_current.join(".agents").join("pm"),
+                    session_query_identity: None,
                 });
             }
             if !current.pop() {
@@ -155,6 +158,15 @@ impl Workspace {
         }
     }
 
+    /// Rebinds private snapshot storage while retaining published cursor identity.
+    pub(crate) fn with_read_snapshot(&self, pm_root: PathBuf) -> Self {
+        Self {
+            pm_root,
+            query_pm_root: self.query_pm_root.clone(),
+            session_query_identity: Some(self.query_pm_root().to_path_buf()),
+        }
+    }
+
     /// Returns the canonical tracker root.
     #[must_use]
     pub fn pm_root(&self) -> &Path {
@@ -163,7 +175,18 @@ impl Workspace {
 
     /// Returns the platform's working-directory spelling for published query hashes.
     pub(crate) fn query_pm_root(&self) -> &Path {
-        query_root_path(&self.query_pm_root, &self.pm_root, cfg!(windows))
+        self.session_query_identity
+            .as_deref()
+            .unwrap_or_else(|| query_root_path(&self.query_pm_root, &self.pm_root, cfg!(windows)))
+    }
+
+    /// Selects snapshot storage or the ordinary published read-path spelling.
+    pub(crate) fn read_pm_root(&self) -> &Path {
+        if self.session_query_identity.is_some() {
+            &self.pm_root
+        } else {
+            self.query_pm_root()
+        }
     }
 
     /// Reads and validates every stored TOON item, sorted by identifier.

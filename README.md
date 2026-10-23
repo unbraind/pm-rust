@@ -51,9 +51,31 @@ Native item mutations recover pending journals across operation names before
 applying later edits. See [journal recovery](docs/CROSS_OPERATION_JOURNAL_RECOVERY.md)
 for crash-state regressions and operator conflict remedies.
 
+## Embeddable bounded read sessions
+
+`Workspace::read_session` freezes a private disk-backed snapshot, strictly decodes
+all items and checks unique identities before serving any context. Native hosts
+pull `SessionPage` values with backpressure; no Node, Bun, Git or background worker
+is required. The session reuses canonical list pagination, lifecycle registries,
+output budgeting and lossless JSON/TOON codecs. Its receipt certifies the admitted
+snapshot and completion of **brief projected context**, not full-field delivery.
+
+```sh
+cargo run -- read-session --memory-bytes 536870912 --page-items 20 --output-tokens 4000 --json
+cargo run --example read_session -- path/to/project
+```
+
+JSON emits one compact `{output,receipt}` frame per line. Default TOON emits a
+receipt and canonical page followed by `---`. An optional `--cancel-file` marker
+requests cancellation before admission or between pages; removing it allows a new
+CLI invocation. SDK callers can share `SessionCancellation` across threads or call
+`ReadSession::cancel()` for immediate cleanup while idle. Drop and terminal pulls
+attempt snapshot cleanup; explicit calls report storage failures. See the [embedding contract](docs/BOUNDED_READ_SESSIONS.md) for
+accounting limits, cancellation latency, integrity boundaries and typed remedies.
+
 ## Without git
 
-Workspace discovery, list/get/search/context/history/dependencies, item mutations,
+Read sessions and workspace discovery, list/get/search/context/history/dependencies, item mutations,
 ownership and linked artifacts work in plain directories. Concurrent writers share
 the same tracker and retain every admitted item edit and append-only history entry.
 The multi-process write contract tests 50 writers against one such tracker without
@@ -193,8 +215,9 @@ evidence about refs, not about the whole upstream object database.
 
 ### Changelog and release tooling
 
-Since pm-rust has no root `package.json`, changelog and release-note targets are
-exposed via a [`justfile`](justfile):
+The root `package.json` exposes `npm run release:check` and
+`bun run release:check` aliases for the unchanged native gate. Changelog and
+release-note targets remain available through the [`justfile`](justfile):
 
 ```bash
 just changelog          # prepend new release section to CHANGELOG.md

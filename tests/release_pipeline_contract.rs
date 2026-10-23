@@ -1161,3 +1161,34 @@ fn ci_pm_cli_pin_is_single_and_current() -> Result<(), BoxError> {
     );
     Ok(())
 }
+
+/// Both package-manager entrypoints execute the unchanged native release gate.
+#[test]
+fn npm_and_bun_share_the_full_native_aggregate() -> Result<(), BoxError> {
+    let package: serde_json::Value = serde_json::from_str(&read_repo_file("package.json")?)?;
+    assert_eq!(package["scripts"]["release:check"], "just release-check");
+    let workflow = parse_workflow(".github/workflows/ci.yml")?;
+    let jobs = map_get(&workflow, "jobs").ok_or("missing jobs")?;
+    let release = map_get(jobs, "release-check").ok_or("missing release job")?;
+    let matrix = map_get(
+        map_get(release, "strategy").ok_or("missing strategy")?,
+        "matrix",
+    )
+    .ok_or("missing matrix")?;
+    let entries = map_get(matrix, "include")
+        .and_then(Value::as_sequence)
+        .ok_or("missing release matrix")?;
+    for runtime in ["npm", "bun"] {
+        assert!(
+            entries
+                .iter()
+                .any(|entry| map_get(entry, "runtime").and_then(Value::as_str) == Some(runtime))
+        );
+    }
+    let steps = job_steps(&workflow, "release-check")?;
+    assert_eq!(
+        step_run(&steps, "Run release:check aggregate gate")?,
+        "${{ matrix.runtime }} run release:check"
+    );
+    Ok(())
+}

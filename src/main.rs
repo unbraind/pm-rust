@@ -23,6 +23,27 @@ struct Cli {
 
 #[derive(Debug, Subcommand)]
 enum Command {
+    /// Stream a strictly validated immutable tracker snapshot under resource admission limits.
+    ReadSession {
+        /// Reproducible read clock for conformance fixtures.
+        #[arg(long, hide = true)]
+        timestamp: Option<String>,
+        /// Accounted working-set ceiling in bytes (allocator RSS is measured separately).
+        #[arg(long, default_value_t = 536_870_912)]
+        memory_bytes: u64,
+        /// Maximum canonical rows per delivered page.
+        #[arg(long, default_value_t = 20)]
+        page_items: usize,
+        /// Existing per-page renderer token ceiling.
+        #[arg(long, default_value_t = 4000)]
+        output_tokens: usize,
+        /// Cancel at a page boundary when this caller-owned marker exists.
+        #[arg(long)]
+        cancel_file: Option<PathBuf>,
+        /// Emit one compact JSON frame per line instead of TOON documents.
+        #[arg(long)]
+        json: bool,
+    },
     /// Read configured assurance declarations without changing the registry.
     Assurance {
         /// Read one declaration or discover configured IDs.
@@ -563,6 +584,24 @@ fn write_json_to(
         .map_err(|error| -> Box<dyn std::error::Error> { Box::new(error) })
 }
 
+/// Writes a complete session frame and propagates codec, pipe and flush failures.
+fn write_session_page_to(
+    writer: &mut dyn std::io::Write,
+    page: &pm_rust::SessionPage,
+    json: bool,
+) -> Result<(), Box<dyn std::error::Error>> {
+    let bytes = if json {
+        let mut bytes = pm_rust::stringify_json(page, false);
+        bytes.push('\n');
+        bytes
+    } else {
+        page.stringify_toon()?
+    };
+    writer.write_all(bytes.as_bytes())?;
+    writer.flush()?;
+    Ok(())
+}
+
 #[cfg(test)]
 #[path = "../tests/support/main_unit.rs"]
 mod tests;
@@ -572,6 +611,41 @@ mod tests;
 fn run(cli: Cli) -> Result<(), Box<dyn std::error::Error>> {
     let workspace = Workspace::discover(&cli.workspace)?;
     match cli.command {
+        Command::ReadSession {
+            timestamp,
+            memory_bytes,
+            page_items,
+            output_tokens,
+            cancel_file,
+            json,
+        } => {
+            let cancellation = pm_rust::SessionCancellation::default();
+            if cancel_file.as_ref().is_some_and(|path| path.exists()) {
+                cancellation.cancel();
+            }
+            let limits = pm_rust::ReadSessionLimits {
+                memory_bytes,
+                page_items,
+                output_tokens,
+                toon: !json,
+            };
+            let mut session = workspace.read_session(
+                &limits,
+                cancellation.clone(),
+                &timestamp.unwrap_or_else(pm_rust::current_timestamp),
+            )?;
+            let mut stdout = std::io::stdout().lock();
+            loop {
+                if cancel_file.as_ref().is_some_and(|path| path.exists()) {
+                    cancellation.cancel();
+                }
+                let Some(page) = session.next_page()? else {
+                    break;
+                };
+                write_session_page_to(&mut stdout, &page, json)?;
+            }
+            return Ok(());
+        }
         Command::Assurance {
             action,
             kind,
@@ -1371,6 +1445,11 @@ fn main() -> ExitCode {
     match run(cli) {
         Ok(()) => ExitCode::SUCCESS,
         Err(error) => {
+            if let Some(refusal) = error.downcast_ref::<pm_rust::SessionRefusal>() {
+                let payload = serde_json::json!({"code":refusal.code(),"detail":refusal.to_string(),"required":refusal.to_string(),"exit_code":2});
+                let _ = write_json_to(&mut std::io::stderr().lock(), &payload);
+                return ExitCode::from(2);
+            }
             if matches!(
                 error.downcast_ref::<pm_rust::PmRustError>(),
                 Some(pm_rust::PmRustError::HistoryVerificationFailed)
