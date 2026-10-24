@@ -5,6 +5,8 @@
 ### Features
 
 - Read canonical pm workspaces without a JavaScript runtime ([pm-rust-o2yr](https://github.com/unbraind/pm-rust/blob/main/.agents/pm/features/pm-rust-o2yr.toon)) _type:Feature; status:closed; P1; release:0.1.0-alpha.1_
+- Use authorized remote backends through a portable native adapter ABI ([pm-rust-portable-native-adapter-abi](https://github.com/unbraind/pm-rust/blob/main/.agents/pm/features/pm-rust-portable-native-adapter-abi.toon)) _type:Feature; status:closed; P2_
+- Stream certified native reads under caller resource limits ([pm-rust-bounded-read-sessions](https://github.com/unbraind/pm-rust/blob/main/.agents/pm/features/pm-rust-bounded-read-sessions.toon)) _type:Feature; status:closed; P2_
 - Implement native keyword search with pinned oracle parity ([pm-rust-bj7a](https://github.com/unbraind/pm-rust/blob/main/.agents/pm/features/pm-rust-bj7a.toon)) _type:Feature; status:closed; P2_
 - Implement native item file doc and test collections with oracle parity ([pm-rust-unih](https://github.com/unbraind/pm-rust/blob/main/.agents/pm/features/pm-rust-unih.toon)) _type:Feature; status:closed; P2_
 - Implement native context history and dependency orientation with oracle parity ([pm-rust-xb3s](https://github.com/unbraind/pm-rust/blob/main/.agents/pm/features/pm-rust-xb3s.toon)) _type:Feature; status:closed; P2_
@@ -25,6 +27,8 @@
 
 ### Bug Fixes
 
+- Regenerate changelogs after gated sync and closeout ([pm-rust-closeout-changelog](https://github.com/unbraind/pm-rust/blob/main/.agents/pm/issues/pm-rust-closeout-changelog.toon)) _type:Issue; status:closed; P2_
+- Recover pending item journals before every native mutation ([pm-rust-cross-operation-journal](https://github.com/unbraind/pm-rust/blob/main/.agents/pm/tasks/pm-rust-cross-operation-journal.toon)) _type:Task; status:closed; P1_
 - Match published history integrity and certify CLI 2026.9.7 ([pm-rust-ing0](https://github.com/unbraind/pm-rust/blob/main/.agents/pm/issues/pm-rust-ing0.toon)) _type:Issue; status:closed; P1_
 - Pin pm-rust CI and release tooling to current pm CLI and pm-changelog ([pm-rust-4ld8](https://github.com/unbraind/pm-rust/blob/main/.agents/pm/issues/pm-rust-4ld8.toon)) _type:Issue; status:closed; P1_
 - Preserve canonical numeric-string quoting with toon-format 0.6.1 ([pm-rust-guou](https://github.com/unbraind/pm-rust/blob/main/.agents/pm/issues/pm-rust-guou.toon)) _type:Issue; status:closed; P1_
@@ -67,6 +71,7 @@
 
 ### Other
 
+- Recover incomplete native lock initialization after process death ([pm-rust-crash-lock-restart](https://github.com/unbraind/pm-rust/blob/main/.agents/pm/tasks/pm-rust-crash-lock-restart.toon)) _type:Task; status:closed; P2_
 - Extend native list selection to configured lifecycle and hierarchy registries ([pm-rust-cbaq](https://github.com/unbraind/pm-rust/blob/main/.agents/pm/tasks/pm-rust-cbaq.toon)) _type:Task; status:closed; P3_
 - Give concurrent claim acceptance explicit writer wait budgets ([pm-rust-23ps](https://github.com/unbraind/pm-rust/blob/main/.agents/pm/chores/pm-rust-23ps.toon)) _type:Chore; status:closed; P3_
 - Extend native list parity to pagination and bounded output contracts ([pm-rust-ufzy](https://github.com/unbraind/pm-rust/blob/main/.agents/pm/tasks/pm-rust-ufzy.toon)) _type:Task; status:closed; P2_
