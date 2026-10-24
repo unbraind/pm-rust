@@ -220,7 +220,8 @@ fn unquote(value: &str) -> String {
         .strip_prefix('"')
         .and_then(|value| value.strip_suffix('"'))
     {
-        serde_json::from_str::<String>(value).unwrap_or_else(|_| inner.replace("\\\"", "\""))
+        crate::strict_json::from_str::<String>(value)
+            .unwrap_or_else(|_| inner.replace("\\\"", "\""))
     } else {
         value.to_owned()
     }
@@ -489,7 +490,7 @@ fn normalize_test_fields(row: &mut Value) -> Result<(), PmRustError> {
         }
         row.as_object_mut().map(|map| map.shift_remove("timeout"));
         row["timeout_seconds"] =
-            serde_json::from_str(&crate::history::javascript_float(number.floor()))
+            crate::strict_json::from_str(&crate::history::javascript_float(number.floor()))
                 .unwrap_or_default();
     }
     for (key, domain) in [

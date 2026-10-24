@@ -37,7 +37,7 @@ impl Workspace {
         };
         let path = self.pm_root().join("assurance.json");
         let document: Value = match std::fs::read_to_string(&path) {
-            Ok(raw) => match serde_json::from_str(&raw) {
+            Ok(raw) => match crate::strict_json::from_str(&raw) {
                 Ok(value) => value,
                 Err(_) => return Err(invalid_registry()),
             },

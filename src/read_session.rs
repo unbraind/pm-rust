@@ -214,7 +214,7 @@ impl Workspace {
             false,
         )?;
         let settings: serde_json::Value =
-            serde_json::from_slice(&fs::read(target.join("settings.json"))?)
+            crate::strict_json::from_slice(&fs::read(target.join("settings.json"))?)
                 .map_err(|_| SessionRefusal::UnsupportedSource)?;
         for name in ["statuses", "workflows"] {
             let fallback = format!("schema/{name}.json");

@@ -20,6 +20,7 @@ mod list_intent;
 mod list_registry;
 mod lock_owner;
 mod mutation;
+pub mod native_adapter;
 mod orientation;
 mod orientation_context;
 mod orientation_deps;
@@ -30,6 +31,7 @@ mod read_projection;
 mod read_session;
 mod search;
 mod selection;
+pub mod strict_json;
 mod toon_output;
 mod workspace;
 

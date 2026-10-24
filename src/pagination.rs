@@ -31,7 +31,7 @@ fn decode(raw: &str, code: &'static str, detail: &str) -> Result<Value, PmRustEr
     let bytes = URL_SAFE_NO_PAD
         .decode(raw)
         .map_err(|_| refusal(code, detail))?;
-    serde_json::from_slice(&bytes).map_err(|_| refusal(code, detail))
+    crate::strict_json::from_slice(&bytes).map_err(|_| refusal(code, detail))
 }
 
 /// Decodes and validates the public query-cursor shape and semantic fingerprint.

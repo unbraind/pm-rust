@@ -75,7 +75,8 @@ accounting limits, cancellation latency, integrity boundaries and typed remedies
 
 ## Without git
 
-Read sessions and workspace discovery, list/get/search/context/history/dependencies, item mutations,
+Adapter compatibility checks work without a tracker or Git. Read sessions and
+workspace discovery, list/get/search/context/history/dependencies, item mutations,
 ownership and linked artifacts work in plain directories. Concurrent writers share
 the same tracker and retain every admitted item edit and append-only history entry.
 The multi-process write contract tests 50 writers against one such tracker without
@@ -281,3 +282,39 @@ node tests/oracle/node_modules/@unbrained/pm-cli/dist/cli.js health --check-only
 ## License
 
 MIT. See [LICENSE](LICENSE).
+
+## Portable native adapter ABI
+
+Rust embeddings can use an explicitly supplied `NativeAdapter` through
+`native_adapter::NativeAdapterClient`. The `pm-native-adapter/1` contract
+exchanges bounded UTF-8 JSON bytes, with typed get, paginated list, claim and
+release requests. It requires neither Git nor Node. The caller supplies an
+existing authorized backend transport; core SDK semantics and pm-web/MCP
+transports retain their ownership.
+
+The client checks the exact ABI, declared capability, arguments and frame
+ceiling before dispatch. It makes one exchange, preserves canonical backend
+output (including refusal, omission and mutation receipts), and never retries.
+A successful response can describe a skipped claim or a peer's success; inspect
+the canonical receipt before proceeding. `AdapterRefusal.dispatched` distinguishes
+preflight refusal from an uncertain dispatched outcome. Reconcile authoritative
+receipts before retrying an interrupted mutation.
+
+`pm-rust adapter-check [--json]` reads a transcript from stdin and emits a compact
+TOON or JSON compatibility receipt. It works without a tracker. It validates
+recorded responses supplied as exact `reply_bytes` arrays without replaying them; `dispatched: false` and
+`receipt_scope: abi_compatibility_only` are explicit. It does not certify backend
+authorization, durable writes or corpus completeness.
+
+```sh
+pm-rust adapter-check --json <<'JSON'
+{"manifest":{"abi":"pm-native-adapter/1","capabilities":["get"],"max_frame_bytes":1048576},"request":{"abi":"pm-native-adapter/1","request_id":"read-1","operation":{"action":"get","id":"demo-1"}}}
+JSON
+```
+
+See the [ABI and adapter obligations](docs/native-adapter-abi.md) and the
+[compilable read adapter example](examples/native_adapter.rs). Build the example
+with `cargo build --locked --example native_adapter`, then pass an explicitly
+authorized tracker directory as its argument and one `AdapterRequest` on stdin.
+Replace its `exchange` implementation with the existing authorized transport
+when embedding against a remote backend. The example grants only get and list.

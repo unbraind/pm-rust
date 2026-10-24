@@ -1,0 +1,130 @@
+id: pm-rust-portable-native-adapter-abi
+title: Use authorized remote backends through a portable native adapter ABI
+description: "Core owns backend contracts; pm-web and MCP own transports. Rust interoperability only: no new backend or replacement pm-web client."
+type: Feature
+pm_format_version: 2
+status: in_progress
+priority: 2
+tags[4]: adapter,"gh:unbraind/pm-rust#113",interop,sdk
+created_at: "2026-10-24T11:48:18.127Z"
+updated_at: "2026-10-24T16:58:04.700Z"
+author: codex-agent
+acceptance_criteria: "Synthetic remote adapters preserve refusal and receipt semantics; Unsupported capabilities fail before writes; ABI compatibility is checked; Typed SDK and bounded TOON/JSON CLI with actionable refusals, docs and example; Read-only public tracker copy validated without Git; npm and Bun release gates pass"
+parent: pm-rust-u4al
+comments[17]{created_at,author,text}:
+  "2026-10-24T11:48:21.365Z",codex-agent,"Overlap check: searched existing tracker items for adapter ABI and portable; no duplicate. Inspected pinned SDK 2026.10.21, current 2026.10.24 public exports, core workspace/runtime contracts, pm-web PmRunResult/complete-list receipt handling, and core MCP adapters. Core owns command/backend semantics, authorization and mutation receipts; pm-web/MCP own network transports. Implement a versioned bounded JSON byte boundary for caller-supplied authorized native adapters. No backend, HTTP client, shared cache, persistent lease or outbox is introduced. Rust SDK changes follow this native repository; validation tooling remains erasable TypeScript."
+  "2026-10-24T12:02:04.204Z",codex-agent,"Implemented the versioned bounded JSON byte ABI, typed get/list/claim/release operations, pre-dispatch admission, unchanged backend envelopes, and explicit dispatched/unknown-outcome refusals with no retries. Added offline adapter-check CLI; it reports compatibility only, never execution. No shared tracker state is written by the boundary. The authoritative native release SDK follows tracker policy, so release capability requires strict owner enforcement; the synthetic remote adapter tests enforce this inside core locking. Tests inject competing claims and release-and-claim handoffs at every one of six adapter boundaries on one non-git tracker. Added readonly public-copy validation using the real complete-list SDK certificate and native children without Git or Node."
+  "2026-10-24T12:07:55.763Z",codex-agent,"Read-only public-copy validation passed at public source ec39af2b06d3884c466b5770b41e1cdb745f1cd6: 83 certified items, 172 authoritative files, 4234972 bytes, 9 pages, 92 adapter calls, 184 JSON/TOON CLI checks, 880680 response bytes, 88935-byte largest frame, 193-byte largest CLI receipt, 5687 ms. Native children had neither Git nor Node on PATH. Source SHA-256 remained 4efdd31a9fd67caefced2b9852a38c6709f4452e2ecb519433be00bbd61d3607. Targeted suite now has 8 passing tests including 12 shared-tracker interleavings and a foreign-owner release guard. Revert proof independently removed capability admission, exact ABI comparison and outcome preservation; each selected regression failed by assertion, then source was restored. Cargo check, deny-warning clippy, fmt, strict TypeScript and ESLint pass. No SDK bump or shared state was introduced. Full npm/Bun gates will run in CI because local CPU is saturated."
+  "2026-10-24T12:31:21.192Z",codex-agent,"Initial CI run 40092834320 passed all three platform test suites and all latency checks, but release coverage refused two unexecuted manifest-error propagation regions in the new ABI client/preflight. Keep all thresholds unchanged; add targeted incompatible-manifest constructor/admission paths and rerun CI. No production mutation or receipt regression was reported."
+  "2026-10-24T12:45:53.397Z",codex-agent,"Coverage correction complete: incompatible manifest constructor/preflight paths now prove zero backend dispatch. Added two CLI tests covering all 19 missing-tracker command paths and injected stdin, initial write, trailing newline, flush and codec failures. CLI writes now propagate pipe errors. Generic clients delegate to one shared validated exchange path without changing the public API or wire ABI. Targeted instrumented run passes 8 ABI tests plus 2 CLI tests; native_adapter.rs has 146/146 lines, 17/17 functions, 211/211 regions and 20/20 branches covered. New CLI helper regions and tracker-discovery error propagations are covered; full-repository coverage remains for CI. Read-only public-copy validation repeated: identical 83 items, 9 pages, 92 calls, 184 checks, 193-byte maximum CLI receipt and unchanged source hash; latest elapsed sample 5301 ms."
+  "2026-10-24T12:50:25.942Z",codex-agent,"Final behavioral proof expansion passed 5/5: removing capability admission, exact ABI checking, canonical outcome preservation, tracker-free CLI dispatch, or CLI flush-error propagation each causes the selected regression to fail by assertion. Both source files are restored byte-for-byte after proof; the 8-test ABI suite and 2-test CLI suite pass. Strict TypeScript and ESLint pass for both validation tools. Retaining unchanged full release gates for final CI."
+  "2026-10-24T13:14:09.954Z",codex-agent,"Final-head CI 40095607106 confirms ABI coverage passes, but the complete gate reports 21 uncovered CLI regions despite pooled source spans showing none. Diagnosis: adapter command dispatch and successful receipt paths were exercised only by CLI processes, while unit tests covered only refusal paths. Added direct dispatcher tests with caller-owned streams for successful and refused JSON/TOON checks in a plain directory. All existing workspace behavior remains delegated unchanged. Rechecking the complete CLI unit target and ABI target under instrumentation before another full CI run; thresholds remain unchanged."
+  "2026-10-24T13:21:24.608Z",codex-agent,"Dispatcher correction verified: direct JSON/TOON command-dispatch success and refusal cases now exercise the same injected-stream path as process dispatch. Targeted instrumentation passes the complete CLI unit target (37), black-box CLI dispatch (17) and ABI contract (8); ABI module remains 100 percent in all four required dimensions. All four linked pm test commands pass, including 5/5 behavioral revert proofs and the two focused adapter CLI tests. Rebuilt both native CLI and example, then repeated readonly public-copy validation: unchanged 83 items, 172 files, 4234972 bytes, 9 pages, 92 adapter calls, 184 CLI checks, 880680 response bytes, largest frame 88935, largest CLI receipt 193; elapsed sample 4117 ms; authoritative source hash unchanged. Static checks and formatting pass. Full repository npm/Bun evidence remains the CI acceptance gate."
+  "2026-10-24T13:46:42.181Z",codex-agent,"CI 40097795157 passed all platform tests and latency checks, but full coverage identified 18 remaining discovery-error regions in the process executable. Added a black-box matrix of all 19 workspace commands in one plain directory with neither Git nor Node on PATH. All nine ABI contract tests pass. Targeted instrumentation now confirms all 19 discovery-error propagation points have nonzero counts in BOTH dispatcher instances, addressing the exact remaining CI gaps. Production source and public-data measurements are unchanged. Retain unchanged gate thresholds and rerun full CI."
+  "2026-10-24T15:58:48.802Z",codex-agent,"Review round: reproduce offline/live frame admission divergence, replace decoded transcript replies with exact recorded reply_bytes, and route both paths through check_adapter_reply. Add a deterministic raw-byte differential corpus, prove failure with only the fix reverted, run targeted Rust gates locally, and use CI for full npm/Bun release gates. Existing branch is current with origin/main; no merge needed."
+  "2026-10-24T16:02:16.006Z",codex-agent,"Raw-byte review fix: check_adapter_transcript and NativeAdapterClient now share check_adapter_reply on exact recorded reply_bytes. No response re-encoding occurs before size/UTF-8/JSON/schema/ABI/correlation admission. Decoded reply transcripts are refused; the validation harness records response.stdout directly. A separate bounded 16 MiB transcript envelope permits a full 1 MiB frame encoded as a decimal byte array. Differential test raw_frame_seeded_corpus_matches_live_client covers 768 frames with seed 0x05eed113, 240 accepted and 528 refused, including limit -1/0/+1, the 5094-byte padded reproduction, escapes, Unicode, invalid UTF-8, truncation, oversized nesting, trailing data, duplicate/unknown fields, recursion, ABI and correlation errors. Verdict and refusal code match for every offline/live pair; live dispatch uncertainty remains explicit. Revert proof: node scripts/native-adapter-revert.mts temporarily restores ONLY offline decode/re-encode behavior; the corpus fails an assertion at frame 2 (4097 bytes at a 4096-byte ceiling: offline accepted versus live FrameLimit). It restores exact source bytes in finally. All 6 behavioral proofs failed as required, then the restored ABI suite passed 11/11; native CLI unit checks passed 2/2. Full npm/Bun release gates will run in CI at unchanged thresholds."
+  "2026-10-24T16:03:18.887Z",codex-agent,"Local verification complete: pm test --run --progress executed all 6 linked commands successfully: ABI contract 11 passed, targeted native CLI 2 passed, black-box CLI dispatch 17 passed, all 6 behavioral revert assertions failed as required with restoration, deny-warning clippy passed, fmt passed. Strict TypeScript and ESLint also passed. Tracker test-result tracking is disabled, so the sanitized results are recorded here. No item closure or merge; release the claim for orchestrator verification and push this review fix for full CI gates."
+  "2026-10-24T16:41:00.776Z",codex-agent,"Round 2: pulled the current PR head; origin/main is already contained. Audit every production JSON decode, add one recursive strict value reader before typed deserialization, extend offline/live differential coverage for duplicate keys at all depths, then demonstrate fix-only revert failures. Run targeted Rust tests, clippy and fmt locally; use CI for the full aggregate gates. No merge or review-thread replies."
+  "2026-10-24T16:47:03.037Z",codex-agent,"Implemented strict_json::from_slice/from_str: recursive JSON value admission compares decoded keys before insertion, preserves parser recursion limits and requires end-of-input, then uses serde_json::from_value for typed deserialization. Routed every production raw JSON decode (36 sites across 17 source/example files) through it. Added 392 offline/live/direct corpus frames (196 accepted, 196 refused), plus escaped transcript/request duplicates and strict tracker tests on a real non-git directory. Adapter tests pass 13/13; strict reader/tracker tests pass 3/3. Fix-only behavioral reverts and local quality checks are next. Local pinned-oracle health reports extension version skew and merge-driver configuration drift; track CI independently."
+  "2026-10-24T16:47:52.783Z",codex-agent,"Revert proof: node scripts/native-adapter-revert.mts passed 9/9 independent behavioral cases. For each of the three new cases, reverted only strict_json::from_slice to serde_json::from_slice while keeping tests and all routed call sites unchanged. Rebuilt targeted tests failed by assertion (not compilation): strict_json_duplicate_corpus_matches_live_client accepted a duplicate receipt instead of InvalidFrame; strict_json_validates_before_typed_fields_are_ignored accepted a duplicate inside an ignored field; strict_json_tracker_decodes_refuse_duplicates_without_git accepted ambiguous settings. The script restores exact original source bytes in finally. The six earlier regression reverts also failed as required. Decode audit correction: 34 raw JSON decode sites across 16 production source/example files (the earlier estimate of 36/17 was incorrect). No external input decoder remains outside the strict reader; output-only RawValue serialization retains the existing scalar escape contract."
+  "2026-10-24T16:54:50.336Z",codex-agent,"The PM-linked repeat of the revert harness hit its inherited 120-second timeout under local build contention, after the earlier direct 9/9 proof passed. Inspected source diffs immediately and restored the single in-progress ABI-comparison sentinel; all intended JSON routing remained intact. Increased only the linked revert-command timeout to 600 seconds and will rerun serially, then rerun admission tests and quality checks after restoration. No test failure is being counted as a successful proof."
+  "2026-10-24T16:58:03.171Z",codex-agent,"Final local verification: serial pm test --run --progress passes all 8 linked commands with zero failure categories. ABI tests 13/13, strict reader/tracker integration 3/3, strict reader unit 1/1, native CLI unit selection 2/2, CLI dispatch 17/17; node scripts/native-adapter-revert.mts completes all 9 assertion proofs and restores the intended implementation. Restored tests pass. Deny-warning clippy, fmt, private-item documentation, strict TypeScript and ESLint pass. Targeted instrumentation covers strict_json.rs at 100% lines/functions/regions/branches: 50/12/79/6. The earlier timeout is superseded by the serial 75-second successful proof with its documented 600-second allowance. Whole-repository npm/Bun and platform gates remain CI evidence for the pushed revision. Retain in_progress for orchestrator verification; no merge or closure."
+files[10]:
+  - path: scripts/native-adapter-revert.mts
+    scope: project
+  - path: scripts/native-adapter-validate.mts
+    scope: project
+  - path: src/main.rs
+    scope: project
+  - path: src/native_adapter.rs
+    scope: project
+  - path: src/strict_json.rs
+    scope: project
+    note: Shared recursive strict JSON admission
+  - path: tests/cli_dispatch.rs
+    scope: project
+  - path: tests/native_adapter_contract.rs
+    scope: project
+  - path: tests/strict_json_contract.rs
+    scope: project
+    note: Reader and non-git tracker regressions
+  - path: tests/support/main_unit.rs
+    scope: project
+  - path: tests/support/strict_json_unit.rs
+    scope: project
+    note: Unsupported serde input error contract
+tests[8]:
+  - command: CARGO_BUILD_JOBS=1 cargo test --locked --test native_adapter_contract
+    scope: project
+    provenance:
+      author: codex-agent
+      created_at: "2026-10-24T12:02:06.859Z"
+      source_kind: local_mutation
+      source_ref: feat/portable-native-adapter-abi
+  - command: node scripts/native-adapter-revert.mts
+    scope: project
+    timeout_seconds: 600
+    provenance:
+      author: codex-agent
+      created_at: "2026-10-24T12:07:11.592Z"
+      source_kind: local_mutation
+      source_ref: feat/portable-native-adapter-abi
+    updated_by: codex-agent
+    updated_at: "2026-10-24T16:54:48.505Z"
+  - command: CARGO_BUILD_JOBS=1 cargo test --locked --bin pm-rust native_adapter
+    scope: project
+    provenance:
+      author: codex-agent
+      created_at: "2026-10-24T12:37:25.039Z"
+      source_kind: local_mutation
+      source_ref: feat/portable-native-adapter-abi
+  - command: CARGO_BUILD_JOBS=1 cargo test --locked --test cli_dispatch
+    scope: project
+    provenance:
+      author: codex-agent
+      created_at: "2026-10-24T13:19:06.879Z"
+      source_kind: local_mutation
+      source_ref: feat/portable-native-adapter-abi
+  - command: CARGO_BUILD_JOBS=1 cargo clippy --locked --all-targets --all-features -- -D warnings
+    scope: project
+    provenance:
+      author: codex-agent
+      created_at: "2026-10-24T16:01:31.558Z"
+      source_kind: local_mutation
+      source_ref: feat/portable-native-adapter-abi
+  - command: cargo fmt --all -- --check
+    scope: project
+    provenance:
+      author: codex-agent
+      created_at: "2026-10-24T16:01:32.625Z"
+      source_kind: local_mutation
+      source_ref: feat/portable-native-adapter-abi
+  - command: cargo +1.90.0 test --locked --test native_adapter_contract --test strict_json_contract
+    scope: project
+    timeout_seconds: 300
+    provenance:
+      author: codex-agent
+      created_at: "2026-10-24T16:47:54.283Z"
+      source_kind: local_mutation
+      source_ref: feat/portable-native-adapter-abi
+  - command: cargo +1.90.0 test --locked --lib strict_json
+    scope: project
+    timeout_seconds: 300
+    provenance:
+      author: codex-agent
+      created_at: "2026-10-24T16:52:01.725Z"
+      source_kind: local_mutation
+      source_ref: feat/portable-native-adapter-abi
+docs[5]:
+  - path: docs/evidence/native-adapter-2026-10-24.md
+    scope: project
+  - path: docs/json-decode-audit.md
+    scope: project
+    note: Complete production decode audit and corpus design
+  - path: docs/native-adapter-abi.md
+    scope: project
+  - path: examples/native_adapter.rs
+    scope: project
+  - path: README.md
+    scope: project
+body: ""

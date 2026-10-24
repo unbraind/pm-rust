@@ -155,7 +155,7 @@ fn optional_schema(root: &Path, schema: &Value, name: &str) -> Result<Value, PmR
     let fallback = format!("schema/{name}.json");
     let path = root.join(schema["files"][name].as_str().unwrap_or(&fallback));
     match fs::read(&path) {
-        Ok(bytes) => Ok(serde_json::from_slice(&bytes).unwrap_or(Value::Null)),
+        Ok(bytes) => Ok(crate::strict_json::from_slice(&bytes).unwrap_or(Value::Null)),
         Err(error) if error.kind() == std::io::ErrorKind::NotFound => Ok(if name == "statuses" {
             json!({"statuses": defaults()})
         } else {

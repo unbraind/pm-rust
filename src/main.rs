@@ -1,6 +1,6 @@
 //! `pm-rust` command-line interface.
 
-use std::io::Write;
+use std::io::{Read, Write};
 use std::path::PathBuf;
 use std::process::ExitCode;
 
@@ -23,6 +23,12 @@ struct Cli {
 
 #[derive(Debug, Subcommand)]
 enum Command {
+    /// Validate a native adapter transcript from stdin without executing backend operations.
+    AdapterCheck {
+        /// Emit compact JSON instead of TOON.
+        #[arg(long)]
+        json: bool,
+    },
     /// Stream a strictly validated immutable tracker snapshot under resource admission limits.
     ReadSession {
         /// Reproducible read clock for conformance fixtures.
@@ -606,11 +612,63 @@ fn write_session_page_to(
 #[path = "../tests/support/main_unit.rs"]
 mod tests;
 
-/// Dispatches one parsed command against its discovered workspace.
-#[allow(clippy::too_many_lines)]
+/// Checks stdin with bounded admission and renders a compact receipt or typed refusal.
+fn run_adapter_check(
+    reader: &mut dyn std::io::Read,
+    writer: &mut dyn Write,
+    json: bool,
+) -> Result<(), Box<dyn std::error::Error>> {
+    let mut bytes = Vec::new();
+    reader
+        .take((pm_rust::native_adapter::NATIVE_ADAPTER_MAX_TRANSCRIPT_BYTES + 1) as u64)
+        .read_to_end(&mut bytes)?;
+    let result = pm_rust::native_adapter::check_adapter_transcript(&bytes);
+    let value = match &result {
+        Ok(value) => value.clone(),
+        Err(error) => serde_json::json!({"ok": false, "refusal": error}),
+    };
+    let output = pm_rust::ListOutput::from(value);
+    write_adapter_receipt_to(writer, &output, json)?;
+    result?;
+    Ok(())
+}
+
+/// Writes a compact ABI receipt, propagating codec, pipe and flush failures.
+fn write_adapter_receipt_to(
+    writer: &mut dyn Write,
+    output: &pm_rust::ListOutput,
+    json: bool,
+) -> Result<(), Box<dyn std::error::Error>> {
+    let rendered = if json {
+        pm_rust::stringify_json(output, false)
+    } else {
+        pm_rust::stringify_toon(output)?
+    };
+    writer.write_all(rendered.as_bytes())?;
+    writer.write_all(b"\n")?;
+    writer.flush()?;
+    Ok(())
+}
+
+/// Dispatches one parsed command using process-owned standard streams.
 fn run(cli: Cli) -> Result<(), Box<dyn std::error::Error>> {
-    let workspace = Workspace::discover(&cli.workspace)?;
+    run_with_io(
+        cli,
+        &mut std::io::stdin().lock(),
+        &mut std::io::stdout().lock(),
+    )
+}
+
+/// Dispatches workspace commands or an adapter check with caller-owned streams.
+#[allow(clippy::too_many_lines)]
+fn run_with_io(
+    cli: Cli,
+    reader: &mut dyn Read,
+    writer: &mut dyn Write,
+) -> Result<(), Box<dyn std::error::Error>> {
+    let discover = || Workspace::discover(&cli.workspace);
     match cli.command {
+        Command::AdapterCheck { json } => run_adapter_check(reader, writer, json)?,
         Command::ReadSession {
             timestamp,
             memory_bytes,
@@ -619,6 +677,7 @@ fn run(cli: Cli) -> Result<(), Box<dyn std::error::Error>> {
             cancel_file,
             json,
         } => {
+            let workspace = discover()?;
             let cancellation = pm_rust::SessionCancellation::default();
             if cancel_file.as_ref().is_some_and(|path| path.exists()) {
                 cancellation.cancel();
@@ -655,6 +714,7 @@ fn run(cli: Cli) -> Result<(), Box<dyn std::error::Error>> {
             output_cursor,
             json,
         } => {
+            let workspace = discover()?;
             let id = if action == "show" {
                 Some(id.ok_or_else(|| pm_rust::PmRustError::InvalidReadRequest {
                     reason: "assurance show requires an id".to_owned(),
@@ -685,6 +745,7 @@ fn run(cli: Cli) -> Result<(), Box<dyn std::error::Error>> {
             json,
             timestamp,
         } => {
+            let workspace = discover()?;
             let now = timestamp.unwrap_or_else(pm_rust::current_timestamp);
             let result = workspace.context(
                 &pm_rust::ContextOptions {
@@ -709,6 +770,7 @@ fn run(cli: Cli) -> Result<(), Box<dyn std::error::Error>> {
             strict_exit,
             json,
         } => {
+            let workspace = discover()?;
             if full && compact {
                 return Err(Box::new(pm_rust::PmRustError::CommandRefusal {detail:"History projection options are mutually exclusive. Use --compact, --provenance, or --full.".to_owned(),exit_code:2,context:serde_json::json!({})}));
             }
@@ -752,6 +814,7 @@ fn run(cli: Cli) -> Result<(), Box<dyn std::error::Error>> {
             output_format,
             json,
         } => {
+            let workspace = discover()?;
             let json = output_format
                 .as_deref()
                 .map_or(json, |format| format == "json");
@@ -786,6 +849,7 @@ fn run(cli: Cli) -> Result<(), Box<dyn std::error::Error>> {
             output_limit,
             json,
         } => {
+            let workspace = discover()?;
             let result = workspace.search(
                 &query.join(" "),
                 &pm_rust::SearchOptions {
@@ -805,9 +869,9 @@ fn run(cli: Cli) -> Result<(), Box<dyn std::error::Error>> {
             )?;
             return write_search_to(&mut std::io::stdout().lock(), &result, json);
         }
-        Command::Files(args) => run_collection(&workspace, "files", args)?,
-        Command::Docs(args) => run_collection(&workspace, "docs", args)?,
-        Command::Test(args) => run_collection(&workspace, "tests", args)?,
+        Command::Files(args) => run_collection(&discover()?, "files", args)?,
+        Command::Docs(args) => run_collection(&discover()?, "docs", args)?,
+        Command::Test(args) => run_collection(&discover()?, "tests", args)?,
         Command::List {
             json,
             output_budget,
@@ -831,6 +895,7 @@ fn run(cli: Cli) -> Result<(), Box<dyn std::error::Error>> {
             sort,
             order,
         } => {
+            let workspace = discover()?;
             let filters = ItemFilter {
                 status,
                 item_type,
@@ -868,7 +933,7 @@ fn run(cli: Cli) -> Result<(), Box<dyn std::error::Error>> {
                 }
             }
         }
-        Command::Get { id } => write_json(&workspace.get(&id)?)?,
+        Command::Get { id } => write_json(&discover()?.get(&id)?)?,
         Command::Create {
             id,
             title,
@@ -883,6 +948,7 @@ fn run(cli: Cli) -> Result<(), Box<dyn std::error::Error>> {
             message,
             force_stale_lock,
         } => {
+            let workspace = discover()?;
             write_json(&create_payload(
                 &workspace,
                 CreateItem {
@@ -915,6 +981,7 @@ fn run(cli: Cli) -> Result<(), Box<dyn std::error::Error>> {
             message,
             force_stale_lock,
         } => {
+            let workspace = discover()?;
             write_json(&update_payload(
                 &workspace,
                 UpdateItem {
@@ -953,6 +1020,7 @@ fn run(cli: Cli) -> Result<(), Box<dyn std::error::Error>> {
             message,
             force_stale_lock,
         } => {
+            let workspace = discover()?;
             write_json(&comment_payload(
                 &workspace,
                 &CommentItem {
@@ -973,6 +1041,7 @@ fn run(cli: Cli) -> Result<(), Box<dyn std::error::Error>> {
             start,
             selection,
         } => {
+            let workspace = discover()?;
             if start && args.id.is_none() {
                 return Err(Box::new(pm_rust::PmRustError::CommandRefusal {
                     detail: "Specify an item id or pass --next".to_owned(),
@@ -1024,6 +1093,7 @@ fn run(cli: Cli) -> Result<(), Box<dyn std::error::Error>> {
             return write_json(&workspace.claim_with_options(&request, &options)?);
         }
         Command::Release { args, pause } => {
+            let workspace = discover()?;
             let (request, options) = ownership_request(&workspace, args, false)?;
             if pause {
                 return write_json(&workspace.pause_task(&request, &options)?);
@@ -1031,11 +1101,13 @@ fn run(cli: Cli) -> Result<(), Box<dyn std::error::Error>> {
             return write_json(&workspace.release_with_options(&request, &options)?);
         }
         Command::StartTask(args) => {
+            let workspace = discover()?;
             let (mut request, options) = ownership_request(&workspace, args, false)?;
             request.provenance_role = None;
             return write_json(&workspace.start_task(&request, &options)?);
         }
         Command::PauseTask(args) => {
+            let workspace = discover()?;
             let (mut request, options) = ownership_request(&workspace, args, false)?;
             request.provenance_role = None;
             return write_json(&workspace.pause_task(&request, &options)?);
@@ -1049,6 +1121,7 @@ fn run(cli: Cli) -> Result<(), Box<dyn std::error::Error>> {
             force_stale_lock,
             fields,
         } => {
+            let workspace = discover()?;
             let close_author = author.clone();
             let result = close_payload(
                 &workspace,
@@ -1124,7 +1197,7 @@ fn run_collection_with_cwd(
     args: CollectionArgs,
     cwd: std::io::Result<PathBuf>,
 ) -> Result<(), Box<dyn std::error::Error>> {
-    let settings: serde_json::Value = serde_json::from_str(&std::fs::read_to_string(
+    let settings: serde_json::Value = pm_rust::strict_json::from_str(&std::fs::read_to_string(
         workspace.pm_root().join("settings.json"),
     )?)?;
     let identity = mutation_identity(args.author.as_deref(), settings["author_default"].as_str());
@@ -1248,8 +1321,9 @@ fn ownership_request(
             reason: "author must not be empty".to_owned(),
         }));
     }
-    let settings: serde_json::Value =
-        serde_json::from_slice(&std::fs::read(workspace.pm_root().join("settings.json"))?)?;
+    let settings: serde_json::Value = pm_rust::strict_json::from_slice(&std::fs::read(
+        workspace.pm_root().join("settings.json"),
+    )?)?;
     let identity = mutation_identity(args.author.as_deref(), settings["author_default"].as_str());
     let request = OwnershipItem {
         id: args.id.unwrap_or_default(),
