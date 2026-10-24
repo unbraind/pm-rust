@@ -1632,7 +1632,7 @@ fn native_adapter_workspace_discovery_refusals() -> Result<(), Box<dyn std::erro
 
 /// Adapter stdin and output failures are recoverable errors, including broken pipes.
 #[test]
-fn native_adapter_stdio_refusals() {
+fn native_adapter_stdio_refusals() -> Result<(), Box<dyn std::error::Error>> {
     /// A caller-owned stream that fails before yielding any input bytes.
     struct ReadFailure;
     impl io::Read for ReadFailure {
@@ -1640,11 +1640,34 @@ fn native_adapter_stdio_refusals() {
             Err(io::Error::other("synthetic read failure"))
         }
     }
+    let directory = tempfile::tempdir()?;
     assert!(super::run_adapter_check(&mut ReadFailure, &mut Vec::new(), true).is_err());
     for json in [false, true] {
         assert!(super::run_adapter_check(&mut &b"{}"[..], &mut WriteFailure, json).is_err());
         let valid = br#"{"manifest":{"abi":"pm-native-adapter/1","capabilities":["get"],"max_frame_bytes":4096},"request":{"abi":"pm-native-adapter/1","request_id":"call-1","operation":{"action":"get","id":"demo-1"}}}"#;
         assert!(super::run_adapter_check(&mut &valid[..], &mut FlushFailure, json).is_err());
+        for (input, ok) in [(&b"{}"[..], false), (&valid[..], true)] {
+            let mut output = Vec::new();
+            let result = super::run_with_io(
+                Cli {
+                    workspace: directory.path().to_path_buf(),
+                    command: Command::AdapterCheck { json },
+                },
+                &mut &input[..],
+                &mut output,
+            );
+            assert_eq!(result.is_ok(), ok);
+            if json {
+                let value: serde_json::Value = serde_json::from_slice(&output)?;
+                assert_eq!(value["ok"], ok);
+            } else {
+                assert!(String::from_utf8(output)?.contains(if ok {
+                    "ok: true"
+                } else {
+                    "ok: false"
+                }));
+            }
+        }
         let output = serde_json::json!({"ok":true}).into();
         // Fail only the trailing newline, after successful frame emission.
         let mut only_frame = vec![0u8; pm_rust::stringify_json(&output, false).len()];
@@ -1660,4 +1683,6 @@ fn native_adapter_stdio_refusals() {
         std::collections::BTreeMap::from([("/title".to_owned(), "\"\\ud83d\"".to_owned())]),
     );
     assert!(super::write_adapter_receipt_to(&mut Vec::new(), &cut, false).is_err());
+    assert!(!directory.path().join(".agents").exists());
+    Ok(())
 }

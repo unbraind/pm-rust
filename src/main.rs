@@ -650,16 +650,25 @@ fn write_adapter_receipt_to(
     Ok(())
 }
 
-/// Dispatches one parsed command against its discovered workspace.
-#[allow(clippy::too_many_lines)]
+/// Dispatches one parsed command using process-owned standard streams.
 fn run(cli: Cli) -> Result<(), Box<dyn std::error::Error>> {
+    run_with_io(
+        cli,
+        &mut std::io::stdin().lock(),
+        &mut std::io::stdout().lock(),
+    )
+}
+
+/// Dispatches workspace commands or an adapter check with caller-owned streams.
+#[allow(clippy::too_many_lines)]
+fn run_with_io(
+    cli: Cli,
+    reader: &mut dyn Read,
+    writer: &mut dyn Write,
+) -> Result<(), Box<dyn std::error::Error>> {
     let discover = || Workspace::discover(&cli.workspace);
     match cli.command {
-        Command::AdapterCheck { json } => run_adapter_check(
-            &mut std::io::stdin().lock(),
-            &mut std::io::stdout().lock(),
-            json,
-        )?,
+        Command::AdapterCheck { json } => run_adapter_check(reader, writer, json)?,
         Command::ReadSession {
             timestamp,
             memory_bytes,

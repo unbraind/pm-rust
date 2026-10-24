@@ -24,7 +24,7 @@ neither Git nor Node and a Git discovery ceiling above the scratch project.
 | Total adapter response bytes | 880,680 |
 | Largest response frame | 88,935 bytes |
 | Largest CLI compatibility receipt | 193 bytes |
-| Validation elapsed time | 5,301 ms |
+| Validation elapsed time | 4,117 ms |
 | Source changed | No |
 
 Unchanged authoritative source SHA-256:
@@ -47,8 +47,10 @@ real native SDK on a tracker initialized by the pinned CLI. The seven other
 protocol tests exercise outcomes, admission, ABI versions, field/frame limits,
 uncertain outcomes/no retries, offline transcript validation and the CLI without
 Git, Node or tracker prerequisites. Two additional CLI unit tests cover all
-19 missing-tracker dispatch paths plus injected stdin, broken-pipe, trailing
-newline, flush and TOON codec failures. Constructor/preflight refusal tests also
+19 missing-tracker dispatch paths, successful and refused full command dispatch
+with caller-owned streams in JSON and TOON, plus injected stdin, broken-pipe,
+trailing newline, flush and TOON codec failures. The complete CLI unit target
+passes 37 tests, and black-box CLI dispatch passes 17 tests. Constructor/preflight refusal tests also
 prove an incompatible manifest never reaches the backend.
 
 `node scripts/native-adapter-revert.mts` independently replaces only the relevant
