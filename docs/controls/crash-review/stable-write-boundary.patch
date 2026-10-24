@@ -1,0 +1,13 @@
+diff --git a/scripts/crash-process.mts b/scripts/crash-process.mts
+index 1e8221b..af941c5 100644
+--- a/scripts/crash-process.mts
++++ b/scripts/crash-process.mts
+@@ -28,7 +28,7 @@ export function execute(implementation: Implementation, args: readonly string[],
+         COMSPEC: process.env.COMSPEC, PATHEXT: process.env.PATHEXT,
+         TEMP: process.env.TEMP, TMP: process.env.TMP,
+         PM_AUTHOR: 'conformance-agent', PM_SENTRY_DISABLED: '1', PM_TELEMETRY_SOURCE_CONTEXT: 'test',
+-        DO_NOT_TRACK: '1', NODE_DISABLE_COMPILE_CACHE: '1', UV_THREADPOOL_SIZE: '1',
++        DO_NOT_TRACK: '1', NODE_DISABLE_COMPILE_CACHE: '1',
+         GIT_CEILING_DIRECTORIES: cwd, GIT_CONFIG_GLOBAL: '/dev/null', GIT_CONFIG_NOSYSTEM: '1',
+         LC_ALL: 'C', TZ: 'UTC',
+       },

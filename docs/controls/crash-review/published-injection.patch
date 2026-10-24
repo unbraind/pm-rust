@@ -1,9 +1,9 @@
 diff --git a/scripts/crash-harness.mts b/scripts/crash-harness.mts
-index 8544220..7e5652e 100644
+index 80ab1e6..cad350c 100644
 --- a/scripts/crash-harness.mts
 +++ b/scripts/crash-harness.mts
-@@ -285,7 +285,7 @@ function run(options: CrashOptions, root: string, timeout: number, maximum: numb
-         join(historyDirectory, 'history.trace'), undefined, options.strace, join(historyDirectory, `.agents/pm/history/${id}.jsonl`)));
+@@ -287,7 +287,7 @@ function run(options: CrashOptions, root: string, timeout: number, maximum: numb
+       rmSync(historyDirectory, { recursive: true, force: true });
        const counts: { syscall: Boundary['syscall']; count: number }[] = CRASH_SYSCALLS.map(syscall => ({ syscall, count: boundaryCount(receipt.trace, syscall) }));
        if (boundaryCount(historyReceipt.trace, 'openat') < 1) throw new CrashRefusal('boundary_unreached', 'Enable history-path openat tracing; the post-publication history boundary must be observed.');
 -      counts.push({ syscall: 'openat', count: 1 });

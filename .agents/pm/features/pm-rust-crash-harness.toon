@@ -2,17 +2,16 @@ id: pm-rust-crash-harness
 title: Compare native and published crash recovery with a reusable kill corpus
 description: "Reusable TypeScript process-kill/restart differential SDK and command against the locked published oracle; compare acknowledged durable bytes, append-only histories and restart receipts on disposable plain-directory trackers."
 type: Feature
+pm_format_version: 2
 status: in_progress
 priority: 2
 tags[3]: conformance,crash-consistency,harness
 created_at: "2026-10-21T21:59:35.474Z"
-updated_at: "2026-10-24T23:35:01.616Z"
-assignee: codex-agent
-claim_principal: codex-agent
+updated_at: "2026-10-24T23:49:21.894Z"
 author: codex-agent
 acceptance_criteria: Every declared crash boundary preserves acknowledged writes; failures retain minimized synthetic reproductions and never rewrite original history.; Typed SDK and CLI with bounded TOON/JSON receipts and actionable refusals; documented example; public tracker read-copy validation with measured counts; exact-head CI release-check passes.
 unblock_note: Native cross-operation recovery is integrated from main and both live permanent replays pass with zero pending journals and successful return operations.
-comments[25]{created_at,author,text}:
+comments[27]{created_at,author,text}:
   "2026-10-21T21:59:37.843Z",codex-agent,"Overlap recheck: published CLI 2026.10.21 matches the locked oracle. Native tests cover normal command differentials and manually reconstructed durable journals; they do not run a reusable live kill/restart corpus. pm-ops assurance reports measurements; pm-vcs writer publication is backend-specific. This feature adds cross-implementation crash evidence beyond lock/parity work. Reconciliation PR 103 closures and performance PR 102 items are excluded. TypeScript-only SDK/command; synthetic failures; targeted local checks; full gate in CI."
   "2026-10-21T22:16:09.535Z",codex-agent,"Implemented the typed TypeScript SDK and standalone just crash CLI. Declared boundaries are all observed rename/fsync task-local ordinals: event-loop write calls were rejected as unstable storage boundaries after real tracing. Two mutation families run on disposable non-git clones; same-family restart checks exact durable bytes and raw per-runtime restart receipts, with explicit shared cross-runtime acknowledgement projections. Synthetic probing measured 20 real kills, 20 preserved acknowledged writes/history prefixes, two successful baseline byte/acknowledgement comparisons and two early native lock-initialization restart refusals. Those refusals are retained as minimal one-item synthetic cases; no original stream is repaired. Full runtime crash conformance is not claimed. Adding independent replay/no-git regressions and public-copy measurements before CI."
   "2026-10-21T22:19:48.804Z",codex-agent,"Read-only public-copy validation: public main c0154dbd7cd8071ac52b891be13f956f7a0f21fd, 74 items and 154 authoritative files in a non-git copy with read-only permissions. Measured 20 injected kills, 20 acknowledged-write preservations, 20 exact retained-history prefixes, two cross-runtime baseline byte/acknowledgement matches, 18 successful restart state/receipt checks, two independently reproduced native incomplete-lock restart refusals. Source fingerprint unchanged. Retained evidence is synthetic only. Follow-up pm-rust-crash-lock-restart covers the safe recovery policy, outside this harness change. Behavioral controls disabling history-prefix checking, exact inventory comparison and injected-kill admission each fail their targeted regression with exit 1 and pass after exact byte restoration."
@@ -38,6 +37,8 @@ comments[25]{created_at,author,text}:
   "2026-10-24T23:28:19.587Z",codex-agent,"Fresh behavioral revert proof: node scripts/crash-review-proof.mts independently disables single-worker scheduling, runtime snapshot capture, different-operation restart, history-open admission, paired recovery comparison, clock disclosure and secondary-refusal preservation. All seven negative runs exit 1 from their targeted regression, all seven exact restorations exit 0, with original source bytes verified after each. Patches and source hashes are retained under docs/controls/crash-review. Native runtime recovery remains inherited unchanged from main. The published divergence follow-up is pm-rust-published-history-open."
   "2026-10-24T23:31:06.778Z",codex-agent,"Review findings PRRT_kwDOTwgMRs6vW0BC, PRRT_kwDOTwgMRs6vW0BM and PRRT_kwDOTwgMRs6vW0BU are valid. Replay/source options now use presence checks; default output includes baseline parity and actionable case/recovery failure details; completed reference and killed workspaces are removed during the run. Added real CLI and live-process scratch-budget regressions, with independent behavioral controls in the recorder. Fresh public-copy evidence measures 26 kills, 26 acknowledged-write preservations, 26 history-prefix preservations, 24 successful local recovery cases, two published history-open divergences, four cross-runtime outcome mismatches and four minimized synthetic reproductions. Source fingerprint is unchanged. Harness correctness and package gates are distinct from runtime recovery conformance."
   "2026-10-24T23:35:01.614Z",codex-agent,Preservation audit confirms all 85 main history streams remain byte-identical prefixes; both independently created original defect artifacts are byte-identical to their saved branch snapshots. Targeted native cross_operation_journal tests pass 9/9 and isolated-HOME check-only strict health passes. The evidence recorder emits applicable control patches without trailing whitespace and retains exact source/toolchain hashes. Final full harness and linked commands will run after all negative-control source bytes are restored.
+  "2026-10-24T23:45:23.540Z",codex-agent,"Linked execution passed commands 1, 2, 3 and 5: 22/22 harness tests, 4/4 typed refusal regressions, 2/2 replay guidance regressions and 9/9 native journal tests. The expanded combined suite hit the runner default 120-second outer budget after its first file passed 22/22; no assertion failed. Retrying only that combined command with --timeout 300. Per-test process deadlines, CI aggregate timeout, coverage thresholds and scope are unchanged. Result tracking remains disabled by project policy; evidence is recorded in comments."
+  "2026-10-24T23:49:09.238Z",codex-agent,"Final local acceptance: all five linked commands pass, totaling 71 test executions including repeated subsets (22 + 4 + 2 + 34 + 9). The complete Linux crash suite passes 34/34, zero failed/canceled/skipped, in 166 seconds under the 300-second outer runner budget. The old 120-second outer-budget interruption remains explicit; individual test/process deadlines and all native release/coverage gates are unchanged. Strict erasable TypeScript, ESLint, native build, targeted Clippy, fmt, isolated strict health and changelog generation/check pass. All 11 behavioral controls plus receipt-schema control fail when independently reverted and pass after exact byte restoration. The final receipt pins source commit 881f550 and all recorded source bytes match that commit. Full exact-head npm and Bun native release-check CI is the remaining readiness gate; its URL and measured counts will be recorded in PR 104."
 files[7]:
   - path: scripts/crash-cli.mts
     scope: project
@@ -55,17 +56,52 @@ files[7]:
     note: Reproducible control patches and public-copy receipt
   - path: scripts/crash-review.test.mts
     scope: project
-    note: Independent review regressions
+    note: Permanent native and published replays plus CLI and scratch-budget regressions
   - path: scripts/crash-storage.mts
     scope: project
     note: Byte inventories and immutable history checks
-tests[4]{command,scope,provenance{author,created_at,source_kind,source_ref}}:
-  node --test scripts/crash-harness.test.mts,project,codex-agent,"2026-10-21T22:17:14.334Z",local_mutation,feat/crash-consistency-harness
-  "node --test --test-name-pattern=\"oracle metadata|malformed source settings|malformed mutation acknowledgements\" scripts/crash-harness.test.mts",project,codex-agent,"2026-10-22T10:42:11.763Z",local_mutation,feat/crash-consistency-harness
-  "node --test --test-name-pattern=\"replay guidance\" scripts/crash-harness.test.mts",project,codex-agent,"2026-10-22T16:40:13.066Z",local_mutation,feat/crash-consistency-harness
-  node --test --test-concurrency=1 scripts/crash-*.test.mts,project,codex-agent,"2026-10-23T06:52:38.997Z",local_mutation,feat/crash-consistency-harness
-docs[3]{path,scope,note}:
+tests[5]:
+  - command: node --test scripts/crash-harness.test.mts
+    scope: project
+    provenance:
+      author: codex-agent
+      created_at: "2026-10-21T22:17:14.334Z"
+      source_kind: local_mutation
+      source_ref: feat/crash-consistency-harness
+  - command: "node --test --test-name-pattern=\"oracle metadata|malformed source settings|malformed mutation acknowledgements\" scripts/crash-harness.test.mts"
+    scope: project
+    provenance:
+      author: codex-agent
+      created_at: "2026-10-22T10:42:11.763Z"
+      source_kind: local_mutation
+      source_ref: feat/crash-consistency-harness
+  - command: "node --test --test-name-pattern=\"replay guidance\" scripts/crash-harness.test.mts"
+    scope: project
+    provenance:
+      author: codex-agent
+      created_at: "2026-10-22T16:40:13.066Z"
+      source_kind: local_mutation
+      source_ref: feat/crash-consistency-harness
+  - command: node --test --test-concurrency=1 scripts/crash-*.test.mts
+    scope: project
+    timeout_seconds: 300
+    provenance:
+      author: codex-agent
+      created_at: "2026-10-23T06:52:38.997Z"
+      source_kind: local_mutation
+      source_ref: feat/crash-consistency-harness
+    updated_by: codex-agent
+    updated_at: "2026-10-24T23:48:22.064Z"
+  - command: cargo +1.90.0 test --locked --lib cross_operation_journal -j 2
+    scope: project
+    provenance:
+      author: codex-agent
+      created_at: "2026-10-24T23:35:41.264Z"
+      source_kind: local_mutation
+      source_ref: feat/crash-consistency-harness
+docs[4]{path,scope,note}:
   docs/CRASH_HARNESS.md,project,SDK CLI replay and no-git examples
   docs/CRASH_PUBLIC_COPY_2026_10_22.json,project,Measured public tracker copy receipt
   docs/CRASH_REVERT_PROOF_2026_10_22.json,project,Independent behavioral negative controls
+  docs/CRASH_REVIEW_2026_10_23.json,project,Versioned public-copy measurements and independent behavioral control patches
 body: ""

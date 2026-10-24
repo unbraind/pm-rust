@@ -1,0 +1,11 @@
+diff --git a/docs/CRASH_REVIEW_2026_10_23.json b/docs/CRASH_REVIEW_2026_10_23.json
+index 1937380..1add48f 100644
+--- a/docs/CRASH_REVIEW_2026_10_23.json
++++ b/docs/CRASH_REVIEW_2026_10_23.json
+@@ -1,5 +1,5 @@
+ {
+-  "schema": "pm-rust/crash-review-v1",
++  "schema": "legacy-receipt",
+   "provenance": {
+     "sourceRepository": "https://github.com/unbraind/pm-rust",
+     "sourceCommit": "881f5500802645b3348fbba17ffbdf05ea8e3892",
