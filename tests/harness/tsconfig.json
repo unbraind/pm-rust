@@ -9,5 +9,5 @@
     "types": ["node"],
     "skipLibCheck": true
   },
-  "include": ["../../scripts/crash-*.mts"]
+  "include": ["../../scripts/crash-*.mts", "../../scripts/native-adapter-*.mts"]
 }

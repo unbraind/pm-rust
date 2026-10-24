@@ -50,7 +50,7 @@ crash *args:
 crash-check:
     npm ci --prefix tests/harness --ignore-scripts
     tests/harness/node_modules/.bin/tsc -p tests/harness/tsconfig.json
-    tests/harness/node_modules/.bin/eslint -c tests/harness/eslint.config.mjs scripts/crash-*.mts
+    tests/harness/node_modules/.bin/eslint -c tests/harness/eslint.config.mjs scripts/crash-*.mts scripts/native-adapter-*.mts
     node --test scripts/crash-harness.test.mts
 
 # Reproduce large synthetic non-git trackers against the requested current oracle.

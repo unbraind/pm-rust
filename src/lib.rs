@@ -20,6 +20,7 @@ mod list_intent;
 mod list_registry;
 mod lock_owner;
 mod mutation;
+pub mod native_adapter;
 mod orientation;
 mod orientation_context;
 mod orientation_deps;
