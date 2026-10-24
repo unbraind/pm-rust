@@ -2,11 +2,11 @@ id: pm-rust-qhem
 title: Certify native parity with pm-cli 2026.10.21
 description: "Certify native CLI and SDK parity with published pm-cli 2026.10.20 and 2026.10.21, including plain-directory writer acceptance and unchanged coverage and platform gates."
 type: Task
-status: in_progress
+status: open
 priority: 3
 tags[3]: conformance,follow-up,oracle
 created_at: "2026-10-20T09:07:30.168Z"
-updated_at: "2026-10-21T19:27:21.696Z"
+updated_at: "2026-10-24T21:48:11.635Z"
 deadline: "2026-10-27T00:00:00.000Z"
 author: codex-agent
 estimated_minutes: 240
@@ -16,7 +16,7 @@ blocked_by: pm-rust-owzm
 dependencies[2]{id,kind,created_at,author,source_kind,author_source}:
   pm-rust-owzm,related,"2026-10-20T09:07:30.168Z",codex-agent,"cli:create:dep",detected
   pm-rust-owzm,blocked_by,"2026-10-20T11:05:13.191Z",codex-agent,"cli:update:blocked_by",detected
-comments[73]{created_at,author,text}:
+comments[74]{created_at,author,text}:
   "2026-10-20T09:07:30.168Z",codex-agent,Planning only. Implementation is deferred until the current delivery is reviewed.
   "2026-10-21T04:41:10.473Z",codex-agent,"Scope extended to published pm-cli 2026.10.21 as requested. Compare both releases against the October 19 native slice; implement applicable deltas, prove fail-before/pass-after behaviour, and require all four coverage dimensions plus the three-platform gates. No-git acceptance will require every real process write and history record to survive."
   "2026-10-21T04:47:20.325Z",codex-agent,"Implementation covers conservative same-host original-process death receipts and recovery intent, strict serialized mutation keys, invocation-preserving lock advice, effective default ordering, count-based completion rounding, and cursor page-local blocker focus. Test execution remains outside the native slice and unsupported run options are preflight-refused before linked-test edits. Assurance declaration reads gain typed missing-ID refusals and bounded read-only discovery."
@@ -90,6 +90,7 @@ comments[73]{created_at,author,text}:
   "2026-10-21T17:34:03.261Z",codex-agent,"Full Linux just release-check passes at source head 0029cf2e22e247b0cb806cf12a7dc6f022351482 in CI run 39641179755: 578 stable plus 578 instrumented tests, 44 binary executions, zero failed or ignored. Required coverage remains 100 percent: lines 14025/14025, functions 1466/1466, regions 23438/23438, branches 3296/3296. Full macOS aggregate already passes 567 plus 567 at 100 percent. Windows standalone passes 561 tests; its full aggregate remains the only pending validation job. No source, test, build-control or threshold changes after the certified source commit."
   "2026-10-21T17:40:35.924Z",codex-agent,"Final certification at source head 0029cf2e22e247b0cb806cf12a7dc6f022351482: all nine jobs in CI run 39641179755 and CodeQL run 39641179753 pass. Full just release-check totals: Linux 578 stable + 578 instrumented, lines 14025/14025, functions 1466/1466, regions 23438/23438, branches 3296/3296; macOS 567 + 567, lines 13940/13940, functions 1453/1453, regions 23288/23288, branches 3258/3258; Windows 561 + 561, lines 13936/13936, functions 1452/1452, regions 23286/23286, branches 3260/3260. Each aggregate executes 44 test binaries, zero failed or ignored, unchanged 100 percent thresholds in all four dimensions. Both targeted regressions pass directly and through pm test. Two isolated function reverts and the requested path-expansion experiment fail at runtime with exit 101, restoring sources afterward. Final review fetch confirms only PRRT_kwDOTwgMRs6u3EZE remains unresolved, complete comments, latest review unchanged and no outside-diff findings. Refuse that path rewrite using oracle evidence; canonical comment advice is fixed. The published alias contract confirms CRUD root names remain unchanged and existing collection helpers already emit canonical names. No new pm CLI/SDK defect. Existing history issue pm-rust-b4yl and three health advisories remain outside scope. Release the claim without closing; final evidence commit changes only the receipt, this item and its appended history. No thread reply, resolution, merge, software release or history rewrite."
   "2026-10-21T19:27:21.696Z",codex-agent,"Fresh benchmark follow-up after merged parity baseline: the default hot-path invocations match pm-cli 2026.10.21 output bytes in 2 of 27 generated fixture cases (1k context and 1k search). Other default read/write outputs and all nine target item/history oracle-storage comparisons record differences without normalization; native before/after outputs and storage remain identical. This is compatibility evidence for the existing parity task, not a claim that every difference is a newly introduced defect. Review the raw flags and documented command scope in docs/benchmarks/native-hot-paths-2026-10-21.json and docs/NATIVE_HOT_PATHS.md before claiming equivalent current-oracle performance. Unsupported next/list-open names remain separately tracked in pm-rust-wc8b; large-context refusal remains with pm-rust-s6j4."
+  "2026-10-24T21:48:11.635Z",codex-agent,"Returned to open in the 2026-10-24 sweep: PR 101 certifies its targeted parity suite, but later item comments record native/oracle differences in ordinary read/write outputs and all nine write artifacts. Complete parity acceptance remains ambiguous and is retained for review."
 notes[1]{created_at,author,text}:
   "2026-10-20T09:07:30.168Z",codex-agent,Published version 2026.10.20 was observed via npm view during the 2026.10.19 continuation.
 learnings[1]{created_at,author,text}:

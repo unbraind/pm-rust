@@ -2,14 +2,19 @@ id: pm-rust-cross-operation-journal
 title: Recover pending item journals before every native mutation
 description: "Blocking review finding on PR #104: an interrupted native operation leaves a journal that a different mutation skips, permanently conflicting with later retries."
 type: Task
-status: in_progress
+status: closed
 priority: 1
 tags[3]: durability,regression,rust
 created_at: "2026-10-23T07:14:34.866Z"
-updated_at: "2026-10-23T09:03:15.706Z"
+updated_at: "2026-10-24T23:14:00.802Z"
+closed_at: "2026-10-24T21:48:10.066Z"
+completed_at: "2026-10-23T10:08:59.000Z"
 author: codex-agent
 acceptance_criteria: "Directly constructed pending journals cover update-comment-update, comment-update-comment, and isolation of another item; each cross-operation regression has a behavioral revert proof. All native item mutations recover all matching journals under the item lock in deterministic order. Divergent bytes yield a typed refusal naming the journal and remedy. Preserve create and single-operation recovery behavior and refusal codes. just release-check passes unchanged 100 percent floors and mutation oracle parity passes. Open a review-ready PR; leave this item in progress."
 parent: pm-rust-u4al
+resolution: Every native mutation recovers matching pending journals deterministically under the item lock; cross-operation/isolation/divergence regressions and full native platform/oracle gates pass.
+expected_result: "Directly constructed pending journals cover update-comment-update, comment-update-comment, and isolation of another item; each cross-operation regression has a behavioral revert proof. All native item mutations recover all matching journals under the item lock in deterministic order. Divergent bytes yield a typed refusal naming the journal and remedy. Preserve create and single-operation recovery behavior and refusal codes. just release-check passes unchanged 100 percent floors and mutation oracle parity passes. Open a review-ready PR; leave this item in progress."
+actual_result: "https://github.com/unbraind/pm-rust/pull/109, merged 2026-10-23T10:08:59Z, merge 5862034d9618aba23ee909d7a9f9bbdd1b78e252: Every native mutation recovers matching pending journals deterministically under the item lock; cross-operation/isolation/divergence regressions and full native platform/oracle gates pass."
 comments[11]{created_at,author,text}:
   "2026-10-23T07:14:40.694Z",codex-agent,"Plan: construct first-rename crash states directly using the native journal format in non-git temporary trackers; prove cross-operation failures before changing recovery; drain matching operation journals under the existing item lock and preserve create recovery semantics; run unchanged crate release gates and mutation parity before opening a PR. No process tracing or edits to PR #104/#105 branches."
   "2026-10-23T07:20:04.539Z",codex-agent,"Added three deterministic regressions that reconstruct exact native before images and pending journals from native-produced after bytes/history, without stopping a process. Fixtures use ordinary non-git temporary trackers. The isolation regression includes another identifier ending in the target identifier, guarding against overly broad suffix matching. Initial Rust dependency compilation is running before the expected-failure run."
@@ -32,4 +37,5 @@ tests[3]{command,scope,provenance{author,created_at,source_kind,source_ref}}:
   cargo +1.90.0 test --locked --test conformance_differential --test claim_release_differential --test close_differential --test search_collections_differential,project,codex-agent,"2026-10-23T07:29:12.740Z",local_mutation,fix/cross-operation-journal-recovery
 docs[1]{path,scope}:
   docs/CROSS_OPERATION_JOURNAL_RECOVERY.md,project
+close_reason: "https://github.com/unbraind/pm-rust/pull/109, merged 2026-10-23T10:08:59Z, merge 5862034d9618aba23ee909d7a9f9bbdd1b78e252: Every native mutation recovers matching pending journals deterministically under the item lock; cross-operation/isolation/divergence regressions and full native platform/oracle gates pass."
 body: ""
