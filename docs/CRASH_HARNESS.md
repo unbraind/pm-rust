@@ -31,6 +31,7 @@ console.log(receipt.ok, receipt.killed, receipt.parity);
 // the whitelisted scenario/implementation/syscall/ordinal, never stored commands.
 // Exception: kind: 'baseline_parity' replays the scenario across both implementations
 // and all their observed boundaries, rather than selecting a single case.
+// A recovery_parity manifest likewise replays its complete paired scenario.
 // replayCrashFailure(options, '.crash-failures/failure-example/case.json');
 ```
 
@@ -47,8 +48,11 @@ or comment `id/comments`, because native mutation commands emit full legacy JSON
 while the published CLI emits flat mutation or collection receipts. Durable
 item/history comparisons remain exact bytes.
 
-The declared boundaries are all observed task-local entry ordinals of `rename`
-and `fsync` for each runtime/scenario, up to the configured maximum. An additional
+The declared native boundaries are all observed task-local entry ordinals of
+`rename` and `fsync`, up to the configured maximum. Published rename tracing is
+scoped to the probe item path: unrelated cache publications can land on the same
+or different libuv workers between runs and cannot define a stable per-thread
+ordinal. Derived cache publication is outside this corpus. An additional
 `openat` ordinal 1 cut is traced with strace `-P` scoped to the item history
 stream, including published execution after item publication but before history
 append. strace ordinals count per thread; libuv worker assignment does not make

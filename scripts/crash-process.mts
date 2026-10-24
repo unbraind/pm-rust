@@ -13,11 +13,11 @@ export interface Implementation { executable: string; args: readonly string[]; t
 
 /** Spawn one bounded isolated process, optionally injecting SIGKILL at a per-task syscall entry. */
 export function execute(implementation: Implementation, args: readonly string[], cwd: string,
-  timeout: number, traceFile?: string, boundary?: Boundary, strace = 'strace', tracePath?: string): ProcessReceipt {
+  timeout: number, traceFile?: string, boundary?: Boundary, strace = 'strace', tracePath?: string, traceSyscall: Boundary['syscall'] = 'openat'): ProcessReceipt {
   const argv = [...implementation.args, ...args, ...(implementation.trailing ?? [])];
   const traced = traceFile !== undefined;
   const result = spawnSync(traced ? strace : implementation.executable,
-    traced ? ['-f', '--kill-on-exit', '-qq', '-o', traceFile, '-e', `trace=${tracePath ? 'openat' : CRASH_SYSCALLS.join(',')}`,
+    traced ? ['-f', '--kill-on-exit', '-qq', '-o', traceFile, '-e', `trace=${tracePath ? traceSyscall : CRASH_SYSCALLS.join(',')}`,
       ...(tracePath ? ['-P', tracePath] : []),
       ...(boundary ? ['-e', `inject=${boundary.syscall}:signal=SIGKILL:when=${boundary.ordinal}`] : []),
       '--', implementation.executable, ...argv] : argv, {

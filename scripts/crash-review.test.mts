@@ -5,6 +5,7 @@ import { chmodSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from 'nod
 import { tmpdir } from 'node:os';
 import { join, resolve } from 'node:path';
 import { test } from 'node:test';
+import { boundaryCount, execute, killedAtBoundary } from './crash-process.mts';
 import { CLOCK_POLICY, compareRecovery, replayCrashFailure } from './crash-harness.mts';
 import { journals, materialize, sameBytes, snapshot } from './crash-storage.mts';
 
@@ -113,7 +114,7 @@ test('review receipt provides source toolchain and independently applicable cont
   assert.match(receipt.provenance.publicTrackerCommit, /^[a-f0-9]{40}$/);
   for (const name of ['node', 'rustc', 'nightly', 'cargo', 'strace']) assert.ok(receipt.provenance.toolchain[name]);
   assert.ok(receipt.provenance.reproduction.includes('node scripts/crash-review-proof.mts'));
-  assert.equal(receipt.controls.length, 6);
+  assert.equal(receipt.controls.length, 7);
   for (const control of receipt.controls) {
     const patch = readFileSync(control.patch);
     assert.equal(createHash('sha256').update(patch).digest('hex'), control.patchSha256);
@@ -129,3 +130,15 @@ test('review receipt provides source toolchain and independently applicable cont
   assert.equal(artifact.restoredExit, 0);
   assert.equal(spawnSync('git', ['apply', '--check', artifact.patch], { encoding: 'utf8' }).status, 0);
 });
+
+
+test('path-scoped rename boundary excludes unrelated worker publications',
+  { skip: process.platform !== 'linux' }, () => temporary(root => {
+    const code = 'const fs=require("node:fs");fs.writeFileSync("cache.tmp","derived");fs.renameSync("cache.tmp","cache");fs.writeFileSync("item.tmp","durable");fs.renameSync("item.tmp","item");';
+    const child = { executable: process.execPath, args: ['-e', code] };
+    const reference = execute(child, [], root, 15000, join(root, 'reference.trace'), undefined, 'strace', join(root, 'item'), 'rename');
+    assert.equal(reference.status, 0);
+    assert.equal(boundaryCount(reference.trace, 'rename'), 1);
+    const interrupted = execute(child, [], root, 15000, join(root, 'interrupt.trace'), { syscall: 'rename', ordinal: 1 }, 'strace', join(root, 'item'), 'rename');
+    assert.equal(killedAtBoundary(interrupted, { syscall: 'rename', ordinal: 1 }), true);
+  }));

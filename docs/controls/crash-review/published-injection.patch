@@ -1,0 +1,13 @@
+diff --git a/scripts/crash-harness.mts b/scripts/crash-harness.mts
+index 8544220..7e5652e 100644
+--- a/scripts/crash-harness.mts
++++ b/scripts/crash-harness.mts
+@@ -285,7 +285,7 @@ function run(options: CrashOptions, root: string, timeout: number, maximum: numb
+         join(historyDirectory, 'history.trace'), undefined, options.strace, join(historyDirectory, `.agents/pm/history/${id}.jsonl`)));
+       const counts: { syscall: Boundary['syscall']; count: number }[] = CRASH_SYSCALLS.map(syscall => ({ syscall, count: boundaryCount(receipt.trace, syscall) }));
+       if (boundaryCount(historyReceipt.trace, 'openat') < 1) throw new CrashRefusal('boundary_unreached', 'Enable history-path openat tracing; the post-publication history boundary must be observed.');
+-      counts.push({ syscall: 'openat', count: 1 });
++      // Disabled history-open boundary (negative control).
+       report.boundaries.push(...counts.map(entry => ({ scenario, implementation: label, ...entry })));
+       if (counts.every(entry => entry.count === 0) || counts.some(entry => entry.count > maximum)) {
+         const refusal = new CrashRefusal('boundary_unreached', 'Allow ptrace/syscall tracing and set maxBoundaries high enough for every measured per-task rename/fsync ordinal (maximum 64).');

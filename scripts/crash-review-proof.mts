@@ -49,6 +49,7 @@ try {
   const sourceCommit = command('git', ['rev-parse', 'HEAD']).trim();
   const publicCommit = command('git', ['rev-parse', 'origin/main']).trim();
   const controls = [
+    { name: 'stable-write-boundary', file: 'scripts/crash-process.mts', before: "tracePath ? traceSyscall : CRASH_SYSCALLS.join(',')", after: "tracePath ? 'openat' : CRASH_SYSCALLS.join(',')", pattern: 'path-scoped rename boundary' },
     { name: 'runtime-snapshot', file: 'scripts/crash-storage.mts', before: "['locks', 'transactions', 'checkpoints', 'search']", after: "['runtime', 'locks', 'transactions', 'checkpoints', 'search']", pattern: 'runtime transaction' },
     { name: 'cross-operation', file: 'scripts/crash-harness.mts', before: "scenario === 'update' ? ['comment', id, 'Restart synthetic sentinel', ...common] :\n      ['update', id, '--description', 'Restart synthetic description', ...common]", after: "scenario === 'update' ? ['update', id, '--priority', '1', ...common] :\n      ['comment', id, 'Restart synthetic sentinel', ...common]", pattern: 'independent update cross-operation' },
     { name: 'published-injection', file: 'scripts/crash-harness.mts', before: "counts.push({ syscall: 'openat', count: 1 });", after: "// Disabled history-open boundary (negative control).", pattern: 'published history-open' },
@@ -72,11 +73,10 @@ try {
     const patch = `docs/controls/crash-review/${control.name}.patch`;
     writeFileSync(patch, diff);
     const args = ['--test', `--test-name-pattern=${control.pattern}`, 'scripts/crash-review.test.mts'];
-    const recorded = saved.find((entry: unknown) => typeof entry === 'object' && entry !== null && 'name' in entry && entry.name === control.name);
+    const recorded: unknown = saved.find((entry: unknown) => typeof entry === 'object' && entry !== null && 'name' in entry && entry.name === control.name);
     const result = { name: control.name, file: control.file, sourceSha256: sha(original), patch, patchSha256: sha(diff),
       command: ['node', ...args], negativeExit: 1, restoredExit: 0 };
-    if (recorded !== undefined) {
-      assert.deepEqual(recorded, result, 'A resumed control must match the exact source, patch, command and results.');
+    if (JSON.stringify(recorded) === JSON.stringify(result)) {
       results.push(result);
       console.log(`${control.name}: retained completed negative=1 restored=0`);
       continue;

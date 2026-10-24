@@ -1,0 +1,13 @@
+diff --git a/scripts/crash-harness.mts b/scripts/crash-harness.mts
+index 8544220..3245ab8 100644
+--- a/scripts/crash-harness.mts
++++ b/scripts/crash-harness.mts
+@@ -416,7 +416,7 @@ function run(options: CrashOptions, root: string, timeout: number, maximum: numb
+     report.ok &&= report.sourceUnchanged;
+     if (!report.ok) {
+       // Independently replay the same corpus on a minimal synthetic tracker, never copy public histories into evidence.
+-      reduceFailure(report, () => runCrashCorpus({ ...options, source: undefined }));
++      report.failuresRetained = runCrashCorpus({ ...options, source: undefined }).failuresRetained;
+     }
+   }
+   return report;

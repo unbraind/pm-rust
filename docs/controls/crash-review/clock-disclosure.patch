@@ -1,0 +1,13 @@
+diff --git a/scripts/crash-harness.mts b/scripts/crash-harness.mts
+index 8544220..7333135 100644
+--- a/scripts/crash-harness.mts
++++ b/scripts/crash-harness.mts
+@@ -81,7 +81,7 @@ export interface CrashReport {
+ }
+ 
+ /** The metadata clock also freezes Date.now-based elapsed time; external process deadlines remain real. */
+-export const CLOCK_POLICY = { metadata: CRASH_CLOCK, dateNow: 'fixed', performanceNow: 'real',
++export const CLOCK_POLICY = { metadata: CRASH_CLOCK, dateNow: 'real', performanceNow: 'real',
+   limitation: 'Published Date.now lock TTL/wait ages are frozen; only the real external timeout bounds those waits. This corpus does not certify elapsed-time or stale-gate parity.' } as const;
+ 
+ /** A paired recovery comparison never treats an unpaired syscall as cross-runtime evidence. */
