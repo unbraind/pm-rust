@@ -60,6 +60,8 @@ exact source bytes in a finally block:
 | Pre-dispatch capability admission | `admission_refuses_before_transport_or_writes` | Failed as required |
 | Exact ABI compatibility | `versions_fields_and_limits_are_fail_closed` | Failed as required |
 | Unmodified canonical backend outcome | `canonical_outcomes_survive_the_byte_boundary` | Failed as required |
+| Tracker-free CLI entry point | `cli_validates_without_tracker_git_node_or_backend_execution` | Failed as required |
+| CLI flush-error propagation | `tests::native_adapter_stdio_refusals` | Failed as required |
 
 The targeted instrumented run covers the ABI module at 100 percent in every
 required dimension: 146 lines, 17 functions, 211 regions and 20 branches, all
