@@ -128,10 +128,16 @@ jobs:
         include:
           - os: ubuntu-latest
             gate: Release gate aggregate
+            runtime: npm
           - os: macos-latest
             gate: Release gate aggregate macos-latest
+            runtime: npm
           - os: windows-latest
             gate: Release gate aggregate windows-latest
+            runtime: npm
+          - os: ubuntu-latest
+            gate: Release gate aggregate bun
+            runtime: bun
     defaults:
       run:
         shell: bash
@@ -180,13 +186,18 @@ jobs:
           npm ci --prefix tests/oracle --ignore-scripts
           oracle_root=$(node -p "require('node:path').resolve('tests/oracle/node_modules/@unbrained/pm-cli')")
           echo "PM_NODE_CLI=$oracle_root" >> "$GITHUB_ENV"
+      - name: Install Bun for the Bun aggregate
+        if: matrix.runtime == 'bun'
+        uses: oven-sh/setup-bun@0c5077e51419868618aeaa5fe8019c62421857d6
+        with:
+          bun-version: latest
       - name: Install syscall injection for the Linux crash corpus
         if: runner.os == 'Linux'
         run: |
           sudo apt-get update
           sudo apt-get install --yes strace
       - name: Run release:check aggregate gate
-        run: just release-check
+        run: ${{ matrix.runtime }} run release:check
 
       - name: Install clone-local pm merge drivers
         run: node tests/oracle/launch.mts merge install

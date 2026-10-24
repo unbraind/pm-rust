@@ -523,7 +523,7 @@ fn read_settings(pm_root: &Path) -> Result<MutationSettings, PmRustError> {
             });
         }
     };
-    match serde_json::from_str(&raw) {
+    match crate::strict_json::from_str(&raw) {
         Ok(settings) => Ok(settings),
         Err(error) => Err(invalid(format!("invalid settings.json: {error}"))),
     }
@@ -960,6 +960,16 @@ fn acquire_lock_attempt(
             .and_then(|observed| observed.metadata.modified().ok())
             .and_then(|modified| SystemTime::now().duration_since(modified).ok())
             .is_some_and(|age| age > Duration::from_secs(ttl_seconds));
+        // A crash during lock fsync leaves a fresh, empty gate beside the
+        // complete receipt. The kernel lease excludes a live native initializer;
+        // confirmed original-process death admits the existing audited recovery
+        // before TTL expiry. Unknown owners still require the ordinary policy,
+        // and reclaim_stale_gate retains nonempty or replaced gates.
+        #[cfg(target_os = "linux")]
+        let abandoned = abandoned
+            || read_lock_owner(&path).is_ok_and(|(raw, _)| {
+                confirmed_dead_owner(&crate::strict_json::from_str(&raw).unwrap_or(Value::Null))
+            });
         if !abandoned {
             return Err(PmRustError::LockConflict { id: id.to_owned() });
         }
@@ -1072,7 +1082,7 @@ fn create_or_reclaim_lock(
     };
     #[cfg(target_os = "linux")]
     {
-        let existing: Value = serde_json::from_str(&existing_raw).unwrap_or(Value::Null);
+        let existing: Value = crate::strict_json::from_str(&existing_raw).unwrap_or(Value::Null);
         if confirmed_dead_owner(&existing) {
             record_dead_owner(path, &existing)?;
             return remove_stale_lock(path, &existing_raw, Some(&observed), id)
@@ -1480,7 +1490,7 @@ fn recover(pm_root: &Path, id: &str) -> Result<(), PmRustError> {
     let Some(raw) = read_optional(&journal_path)? else {
         return Ok(());
     };
-    let journal: MutationJournal = match serde_json::from_str(&raw) {
+    let journal: MutationJournal = match crate::strict_json::from_str(&raw) {
         Ok(value) => value,
         Err(error) => {
             return Err(PmRustError::RecoveryConflict {
@@ -1550,7 +1560,7 @@ fn recover_mutation(
             )
         });
     };
-    let journal: MutationJournal = match serde_json::from_str(&raw) {
+    let journal: MutationJournal = match crate::strict_json::from_str(&raw) {
         Ok(value) => value,
         Err(error) => {
             return Err(PmRustError::RecoveryConflict {
@@ -1641,6 +1651,53 @@ fn recover_mutation(
     Ok((item_path, history_path))
 }
 
+/// Drains every journal for one item under the caller's item lock.
+///
+/// Native operation names contain underscores, never hyphens. Splitting at the
+/// first hyphen therefore matches the full ID rather than an ambiguous suffix.
+/// Sorting filenames makes multiple pending transactions deterministic; unknown
+/// operation names retain the same in-place journal format and recovery rules.
+fn recover_pending_journals(pm_root: &Path, id: &str) -> Result<(), PmRustError> {
+    let transactions = pm_root.join("runtime/transactions");
+    let entries = match crate::workspace::read_directory(&transactions) {
+        Ok(entries) => entries,
+        Err(PmRustError::Io { source, .. }) if source.kind() == ErrorKind::NotFound => {
+            return Ok(());
+        }
+        Err(error) => return Err(error),
+    };
+    let mut names: Vec<_> = entries.iter().map(fs::DirEntry::file_name).collect();
+    names.sort();
+    let target = format!("{id}.json");
+    for name in names {
+        let name = name.to_string_lossy();
+        let Some((operation, item_filename)) = name.split_once('-') else {
+            continue;
+        };
+        if item_filename != target {
+            continue;
+        }
+        let recovery = if operation == "create" {
+            recover(pm_root, id)
+        } else {
+            recover_mutation(pm_root, operation, id).map(|_| ())
+        };
+        match recovery {
+            Ok(()) => {}
+            Err(PmRustError::RecoveryConflict { id, reason }) => {
+                return Err(PmRustError::RecoveryConflict {
+                    id,
+                    reason: format!(
+                        "journal runtime/transactions/{name}: {reason}; reconcile this journal with the item and history, then retry"
+                    ),
+                });
+            }
+            Err(error) => return Err(error),
+        }
+    }
+    Ok(())
+}
+
 /// Replays any durable journal and reads the locked document for an in-place
 /// mutation. Reading the stored document only after recovery and under the
 /// caller's lock guarantees no writer ever applies changes to stale bytes.
@@ -1649,6 +1706,7 @@ fn recover_and_locate(
     operation: &str,
     id: &str,
 ) -> Result<(PathBuf, PathBuf, ItemDocument), PmRustError> {
+    recover_pending_journals(pm_root, id)?;
     recover_mutation(pm_root, operation, id).and_then(|(item_path, history_path)| {
         locate_item(pm_root, id)
             .map(|(_item_path, before_document)| (item_path, history_path, before_document))
@@ -1808,7 +1866,7 @@ pub(crate) fn create_item(
             settings.locks.wait_ms,
         ),
     )?;
-    recover(pm_root, &request.id)?;
+    recover_pending_journals(pm_root, &request.id)?;
     let item_relative = PathBuf::from(folder).join(format!("{}.toon", request.id));
     let history_relative = PathBuf::from("history").join(format!("{}.jsonl", request.id));
     let item_path = pm_root.join(&item_relative);
@@ -2714,7 +2772,7 @@ fn ownership_refusal(detail: String, context: Value) -> PmRustError {
 fn ownership_phrase(history_path: &Path, assignee: &str) -> Result<String, PmRustError> {
     let raw = read_optional(history_path)?.unwrap_or_default();
     for line in raw.lines().rev() {
-        let Ok(entry) = serde_json::from_str::<Value>(line) else {
+        let Ok(entry) = crate::strict_json::from_str::<Value>(line) else {
             continue;
         };
         if let Some(Value::Array(patches)) = entry.get("patch") {
@@ -2737,7 +2795,7 @@ fn ownership_phrase(history_path: &Path, assignee: &str) -> Result<String, PmRus
 
 /// Uses the published lock payload clock, including malformed-lock expiry.
 fn ownership_lock_stale(raw: &str, timestamp: &str, ttl_seconds: u64) -> bool {
-    let entry: Value = serde_json::from_str(raw).unwrap_or(Value::Null);
+    let entry: Value = crate::strict_json::from_str(raw).unwrap_or(Value::Null);
     let created = entry["created_at"].as_str().unwrap_or_default();
     match OffsetDateTime::parse(created, &Rfc3339) {
         Ok(created) => {
@@ -2771,7 +2829,7 @@ fn ownership_lock_refusal(
             serde_json::json!({}),
         );
     }
-    let value: Value = serde_json::from_str(&raw).unwrap_or(Value::Null);
+    let value: Value = crate::strict_json::from_str(&raw).unwrap_or(Value::Null);
     let owner = value["owner"].as_str().unwrap_or_default();
     let owner_suffix = if owner.is_empty() {
         String::new()
@@ -3399,7 +3457,7 @@ fn session_lock_refusal(
         return error;
     }
     let raw = fs::read_to_string(pm_root.join("locks/session-state.lock")).unwrap_or_default();
-    let warning = match serde_json::from_str::<Value>(&raw) {
+    let warning = match crate::strict_json::from_str::<Value>(&raw) {
         Err(_) => Some("lock_info_invalid_json"),
         Ok(value) => {
             if value["id"].is_string()
@@ -3467,7 +3525,7 @@ pub(crate) fn mutate_session_state(
     let path = pm_root.join("runtime/session.json");
     let mut state = fs::read_to_string(&path)
         .ok()
-        .and_then(|text| serde_json::from_str::<serde_json::Map<String, Value>>(&text).ok())
+        .and_then(|text| crate::strict_json::from_str::<serde_json::Map<String, Value>>(&text).ok())
         .unwrap_or_default();
     update(&mut state);
     atomic_replace(&path, &crate::stringify_json(&Value::Object(state), false))

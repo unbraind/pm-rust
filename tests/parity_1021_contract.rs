@@ -173,6 +173,65 @@ fn dead_same_host_owner_is_recovered_before_ttl_with_audit() -> TestResult {
 }
 
 #[test]
+/// Fresh empty and occupied gates preserve the oracle's complete refusal receipt and bytes.
+fn fresh_gate_refusals_match_oracle_and_preserve_authoritative_bytes() -> TestResult {
+    let Some(directory) = tracker()? else {
+        return Ok(());
+    };
+    let published = published_cli::locate_published_cli().ok_or("oracle")?;
+    let root = directory.path().join(".agents/pm");
+    let locks = root.join("locks");
+    fs::create_dir_all(&locks)?;
+    let lock = locks.join("sample-probe.lock");
+    let gate = locks.join("sample-probe.lock.stale-cleanup");
+    fs::create_dir(&gate)?;
+    let receipt = serde_json::to_vec(&json!({
+        "id":"sample-probe", "pid":std::process::id(), "owner":"test-holder",
+        "token":"test-held", "ttl_seconds":1800,
+        "created_at":time::OffsetDateTime::now_utc().format(&time::format_description::well_known::Rfc3339)?
+    }))?;
+    fs::write(&lock, &receipt)?;
+    let item = root.join("tasks/sample-probe.toon");
+    let history = root.join("history/sample-probe.jsonl");
+    let before = (fs::read(&item)?, fs::read(&history)?);
+    let args = ["claim", "sample-probe", "--author", "test-agent", "--json"];
+    for contents in [None, Some("foreign owner evidence")] {
+        if let Some(contents) = contents {
+            fs::write(gate.join("owner.json"), contents)?;
+        }
+        #[cfg(unix)]
+        fs::File::open(&gate)?.set_times(
+            fs::FileTimes::new()
+                .set_modified(std::time::SystemTime::now() + std::time::Duration::from_secs(60)),
+        )?;
+        let expected = oracle_command()
+            .arg(&published.entry)
+            .current_dir(directory.path())
+            .env("PM_LOCK_WAIT_MS", "0")
+            .args(args)
+            .output()?;
+        let actual = native_command(directory.path())
+            .env("PM_LOCK_WAIT_MS", "0")
+            .args(args)
+            .output()?;
+        assert_eq!(expected.status.code(), Some(4));
+        assert_eq!(actual.status.code(), expected.status.code());
+        let expected: Value = serde_json::from_slice(&expected.stderr)?;
+        let actual: Value = serde_json::from_slice(&actual.stderr)?;
+        assert_eq!(actual, expected);
+        assert_eq!(actual["code"], "lock_conflict");
+        assert_eq!(fs::read(&lock)?, receipt);
+        assert_eq!((fs::read(&item)?, fs::read(&history)?), before);
+        assert!(gate.is_dir());
+    }
+    assert_eq!(
+        fs::read_to_string(gate.join("owner.json"))?,
+        "foreign owner evidence"
+    );
+    Ok(())
+}
+
+#[test]
 /// Retry advice retains the operation and workspace without introducing a force override.
 fn lock_contention_preserves_the_actual_invocation_without_force_advice() -> TestResult {
     let Some(directory) = tracker()? else {

@@ -1,0 +1,30 @@
+id: pm-rust-closeout-changelog
+title: Regenerate changelogs after gated sync and closeout
+description: Share the pinned changelog wrapper between npm callers and just recipes so tracker changes produce a current changelog without requiring just on reusable workflow runners.
+type: Issue
+status: in_progress
+priority: 2
+tags[1]: "gh:unbraind/pm-rust#90"
+created_at: "2026-10-23T14:45:42.717Z"
+updated_at: "2026-10-23T15:05:31.054Z"
+author: codex-agent
+comments[4]{created_at,author,text}:
+  "2026-10-23T14:46:20.181Z",codex-agent,"The sync and closeout callers disable post-change generation. Both will call the oracle changelog:full npm script, backed by the same Node wrapper used by just. Pins and dates remain literal justfile constants; release overrides remain supported."
+  "2026-10-23T14:53:19.597Z",codex-agent,"The real scratch-copy acceptance passed: create and close a synthetic item, regenerate through npm from tests/oracle, assert the item appears, and verify through --check. Removing only the npm script reproduces the original Missing script failure. The initial linked run overlapped this deliberate revert and the Rust cold build exceeded the default timeout; rerunning serially with an explicit timeout."
+  "2026-10-23T14:58:54.073Z",codex-agent,"Final linked verification passes with an explicit 2400-second limit: the scratch closeout acceptance passes 1/1 and release_pipeline_contract passes 19/19, with no ignored tests. The npm --check equivalent also passes. The fixture pins PM_PATH to its cloned tracker so linked-test context cannot redirect its mutations. Revert proof: removing only changelog:full causes the acceptance to fail with Missing script. Broader release gates will be verified by PR CI."
+  "2026-10-23T15:05:15.795Z",codex-agent,"Added the required plain-tracker refusal at the wrapper boundary. Final linked tests pass: 2 Node acceptance tests plus 19 release-pipeline contract tests, zero failures or ignored tests. The no-git test creates a real tracker with pm init, sets GIT_CEILING_DIRECTORIES, and also removes Git from PATH. A disposable copy with only the prerequisite guard removed fails that regression with the original generic git rev-parse diagnostic. The closeout acceptance and npm-script-only revert proof remain valid."
+files[7]{path,scope}:
+  .github/workflows/pm-github-closeout.yml,project
+  .github/workflows/pm-github-sync.yml,project
+  justfile,project
+  scripts/changelog.mts,project
+  scripts/changelog.test.mts,project
+  tests/oracle/package.json,project
+  tests/release_pipeline_contract.rs,project
+tests[2]{command,scope,provenance{author,created_at,source_kind,source_ref}}:
+  node --test scripts/changelog.test.mts,project,codex-agent,"2026-10-23T14:48:46.179Z",local_mutation,fix/closeout-regenerates-changelog
+  cargo +1.90.0 test --locked --test release_pipeline_contract,project,codex-agent,"2026-10-23T14:48:46.179Z",local_mutation,fix/closeout-regenerates-changelog
+docs[2]{path,scope}:
+  "https://github.com/unbraind/pm-rust/issues/90",project
+  README.md,project
+body: ""

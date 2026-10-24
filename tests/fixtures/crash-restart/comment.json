@@ -1,0 +1,4 @@
+{
+  "schema": "pm-rust/crash-v1",
+  "only": { "scenario": "comment", "implementation": "native", "syscall": "fsync", "ordinal": 1 }
+}

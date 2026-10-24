@@ -1,0 +1,21 @@
+{
+  "schema": "pm-rust/crash-restart-revert-v1",
+  "function": "mutation::acquire_lock_attempt",
+  "control": "Replace only this function with the #104 version; rebuild the native binary; keep all regression tests and fixtures unchanged.",
+  "build_command": "CARGO_BUILD_JOBS=2 cargo +1.90.0 build --locked --bin pm-rust",
+  "test_command": "node --test --test-name-pattern='retained (update|comment)' scripts/crash-harness.test.mts",
+  "reverted": {
+    "test_exit": 1,
+    "passed": 0,
+    "failed": 2,
+    "restart_exit_codes": [
+      4,
+      4
+    ]
+  },
+  "restored": {
+    "test_exit": 0,
+    "passed": 2,
+    "failed": 0
+  }
+}

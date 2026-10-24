@@ -180,7 +180,7 @@ impl AuthorIdentity {
         let mut identity = self.clone();
         let state = fs::read_to_string(pm_root.join("runtime/session.json"))
             .ok()
-            .and_then(|text| serde_json::from_str::<Value>(&text).ok());
+            .and_then(|text| crate::strict_json::from_str::<Value>(&text).ok());
         if let Some(instance) = &identity.instance
             && let Some(semantic) = state
                 .as_ref()
@@ -245,7 +245,7 @@ pub(crate) fn read_json(path: &Path) -> Result<Value, PmRustError> {
             });
         }
     };
-    match serde_json::from_slice::<Value>(&bytes) {
+    match crate::strict_json::from_slice::<Value>(&bytes) {
         Ok(value) if value.is_object() => Ok(value),
         Ok(_) => Err(PmRustError::InvalidReadRequest {
             reason: "Expected a settings or schema object".to_owned(),

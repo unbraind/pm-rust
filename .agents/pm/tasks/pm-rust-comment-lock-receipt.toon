@@ -1,0 +1,11 @@
+id: pm-rust-comment-lock-receipt
+title: Match native comment lock-conflict JSON diagnostics to the oracle
+description: "A fresh initialization gate and a valid unverified owner receipt cause both native comment and oracle 2026.10.21 comment to refuse with exit 4 and code lock_conflict, preserving item and history bytes. After removing the oracle-only --json encoding switch, native detail and required guidance remain generic and refusal.surface is comment instead of comments. The generic formatter predates and is unchanged by the crash restart fix. This differs from pm-rust-4jq3, which covers text output for direct claim/release. Add a dedicated complete-receipt regression and repair the native diagnostic surface separately."
+type: Task
+status: open
+priority: 3
+tags[3]: conformance,follow-up,locks
+created_at: "2026-10-21T23:26:23.084Z"
+updated_at: "2026-10-21T23:26:23.084Z"
+author: codex-agent
+body: "Found while verifying pm-rust-crash-lock-restart. Reproduce in a disposable non-git tracker with one sample-probe Task, a fresh locks/sample-probe.lock.stale-cleanup directory and a sample-probe.lock JSON receipt containing id, a live fixture PID, owner test-holder, token test-held, ttl_seconds 1800 and a current created_at, without host/start identity. Set PM_LOCK_WAIT_MS=0. Compare native comment sample-probe \"refused note\" --author test-agent with the oracle invocation plus --json. Normalize only that encoding flag in retry metadata. Both refuse safely; detail, required and refusal.surface differ. The ownership JSON refusal comparison on the shared gate path passes exactly and is retained with the recovery regression."

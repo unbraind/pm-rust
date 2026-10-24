@@ -1,0 +1,10 @@
+{
+  "name": "pm-rust-development",
+  "private": true,
+  "version": "0.0.0",
+  "scripts": {
+    "release:check": "just release-check",
+    "changelog:full": "just changelog-full",
+    "changelog:check": "just changelog-check"
+  }
+}

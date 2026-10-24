@@ -20,6 +20,7 @@ mod list_intent;
 mod list_registry;
 mod lock_owner;
 mod mutation;
+pub mod native_adapter;
 mod orientation;
 mod orientation_context;
 mod orientation_deps;
@@ -27,8 +28,10 @@ mod ownership;
 mod pagination;
 mod read_output;
 mod read_projection;
+mod read_session;
 mod search;
 mod selection;
+pub mod strict_json;
 mod toon_output;
 mod workspace;
 
@@ -53,3 +56,8 @@ pub use workspace::{ItemFilter, ListResult, Workspace};
 
 /// Published canonical `pm` release used by this compatibility slice.
 pub const COMPATIBLE_PM_VERSION: &str = "2026.10.21";
+
+pub use read_session::{
+    ReadSession, ReadSessionLimits, SessionCancellation, SessionPage, SessionReceipt,
+    SessionRefusal,
+};

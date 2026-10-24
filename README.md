@@ -47,9 +47,36 @@ checks and independent revert proofs are documented in
 See the [October 21 parity contract](docs/NATIVE_PARITY_2026_10_21.md) for lock-owner
 recovery, strict mutation admission, ordering and cursor changes.
 
+Native item mutations recover pending journals across operation names before
+applying later edits. See [journal recovery](docs/CROSS_OPERATION_JOURNAL_RECOVERY.md)
+for crash-state regressions and operator conflict remedies.
+
+## Embeddable bounded read sessions
+
+`Workspace::read_session` freezes a private disk-backed snapshot, strictly decodes
+all items and checks unique identities before serving any context. Native hosts
+pull `SessionPage` values with backpressure; no Node, Bun, Git or background worker
+is required. The session reuses canonical list pagination, lifecycle registries,
+output budgeting and lossless JSON/TOON codecs. Its receipt certifies the admitted
+snapshot and completion of **brief projected context**, not full-field delivery.
+
+```sh
+cargo run -- read-session --memory-bytes 536870912 --page-items 20 --output-tokens 4000 --json
+cargo run --example read_session -- path/to/project
+```
+
+JSON emits one compact `{output,receipt}` frame per line. Default TOON emits a
+receipt and canonical page followed by `---`. An optional `--cancel-file` marker
+requests cancellation before admission or between pages; removing it allows a new
+CLI invocation. SDK callers can share `SessionCancellation` across threads or call
+`ReadSession::cancel()` for immediate cleanup while idle. Drop and terminal pulls
+attempt snapshot cleanup; explicit calls report storage failures. See the [embedding contract](docs/BOUNDED_READ_SESSIONS.md) for
+accounting limits, cancellation latency, integrity boundaries and typed remedies.
+
 ## Without git
 
-Workspace discovery, list/get/search/context/history/dependencies, item mutations,
+Adapter compatibility checks work without a tracker or Git. Read sessions and
+workspace discovery, list/get/search/context/history/dependencies, item mutations,
 ownership and linked artifacts work in plain directories. Concurrent writers share
 the same tracker and retain every admitted item edit and append-only history entry.
 The multi-process write contract tests 50 writers against one such tracker without
@@ -189,8 +216,9 @@ evidence about refs, not about the whole upstream object database.
 
 ### Changelog and release tooling
 
-Since pm-rust has no root `package.json`, changelog and release-note targets are
-exposed via a [`justfile`](justfile):
+The root `package.json` exposes `npm run release:check` and
+`bun run release:check` aliases for the unchanged native gate. Changelog and
+release-note targets remain available through the [`justfile`](justfile):
 
 ```bash
 just changelog          # prepend new release section to CHANGELOG.md
@@ -202,6 +230,17 @@ just release-check      # aggregate release gate (fmt, clippy, docs, tests, cove
 
 The changelog heading date is fixed (not clock-derived) so the gate produces
 identical output across all timezones.
+
+Runners without `just` can use `npm run changelog:full --prefix tests/oracle`
+and append `-- --check` to verify the result. Both entry points use
+`scripts/changelog.mts`, which reads the pins, fixed date, and item URL base
+from the justfile. Gated issue sync and closeout use this npm entry point.
+
+#### Without git
+
+Regular tracker reads and writes work in plain directories. Changelog generation
+from release tags needs Git history and a Git executable; the wrapper identifies
+this prerequisite before invoking the generator.
 
 Work is managed in this repository with the latest `pm` CLI under
 `.agents/pm/`. The ecosystem-level lineage is the private companion item
@@ -244,6 +283,42 @@ node tests/oracle/node_modules/@unbrained/pm-cli/dist/cli.js health --check-only
 
 MIT. See [LICENSE](LICENSE).
 
-The expanded corpus includes history-path `openat` cuts and native runtime journals.
-The blocking cross-operation journal defect is tracked by `pm-rust-cross-operation-journal`;
-historical same-operation receipts do not establish full recovery conformance.
+## Portable native adapter ABI
+
+Rust embeddings can use an explicitly supplied `NativeAdapter` through
+`native_adapter::NativeAdapterClient`. The `pm-native-adapter/1` contract
+exchanges bounded UTF-8 JSON bytes, with typed get, paginated list, claim and
+release requests. It requires neither Git nor Node. The caller supplies an
+existing authorized backend transport; core SDK semantics and pm-web/MCP
+transports retain their ownership.
+
+The client checks the exact ABI, declared capability, arguments and frame
+ceiling before dispatch. It makes one exchange, preserves canonical backend
+output (including refusal, omission and mutation receipts), and never retries.
+A successful response can describe a skipped claim or a peer's success; inspect
+the canonical receipt before proceeding. `AdapterRefusal.dispatched` distinguishes
+preflight refusal from an uncertain dispatched outcome. Reconcile authoritative
+receipts before retrying an interrupted mutation.
+
+`pm-rust adapter-check [--json]` reads a transcript from stdin and emits a compact
+TOON or JSON compatibility receipt. It works without a tracker. It validates
+recorded responses supplied as exact `reply_bytes` arrays without replaying them; `dispatched: false` and
+`receipt_scope: abi_compatibility_only` are explicit. It does not certify backend
+authorization, durable writes or corpus completeness.
+
+```sh
+pm-rust adapter-check --json <<'JSON'
+{"manifest":{"abi":"pm-native-adapter/1","capabilities":["get"],"max_frame_bytes":1048576},"request":{"abi":"pm-native-adapter/1","request_id":"read-1","operation":{"action":"get","id":"demo-1"}}}
+JSON
+```
+
+See the [ABI and adapter obligations](docs/native-adapter-abi.md) and the
+[compilable read adapter example](examples/native_adapter.rs). Build the example
+with `cargo build --locked --example native_adapter`, then pass an explicitly
+authorized tracker directory as its argument and one `AdapterRequest` on stdin.
+Replace its `exchange` implementation with the existing authorized transport
+when embedding against a remote backend. The example grants only get and list.
+
+The expanded crash corpus includes history-path `openat` cuts and native runtime
+journals. Historical same-operation receipts do not establish complete recovery
+conformance; the locked published oracle still has measured history-open failures.

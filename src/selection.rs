@@ -385,7 +385,7 @@ fn recency(workspace: &Workspace, item: &ItemDocument) -> String {
         history
             .lines()
             .rev()
-            .filter_map(|line| serde_json::from_str::<Value>(line).ok())
+            .filter_map(|line| crate::strict_json::from_str::<Value>(line).ok())
             .find(|entry| entry["event_class"] == "substantive")
             .and_then(|entry| entry["ts"].as_str().map(str::to_owned))
     })

@@ -98,9 +98,8 @@ authoritative files. All 20 real kills preserve acknowledged item bytes and
 history prefixes, both baseline byte/acknowledgement comparisons pass, and 18
 restart state/receipt comparisons pass. Two native first-fsync lock-initialization
 kills refuse restart with exit 4; both reproduce on minimal synthetic fixtures.
-The source fingerprint remains unchanged. The safe recovery policy is tracked
-separately in `pm-rust-crash-lock-restart`; complete runtime crash conformance
-remains unproven. Four [behavioral negative controls](CRASH_REVERT_PROOF_2026_10_22.json)
+The source fingerprint remains unchanged. The native lock recovery fix is now integrated from main; the receipt above
+remains historical. Complete cross-runtime crash conformance remains unproven. Four [behavioral negative controls](CRASH_REVERT_PROOF_2026_10_22.json)
 fail their regression with the production invariant disabled and pass restored.
 
 Exact-head CI evidence is recorded in the PR.
@@ -149,3 +148,41 @@ source hashes, exact toolchain versions, build/reproduction commands and exact
 negative-control patches under `docs/controls/crash-review/`. Each patch is
 applied independently, must fail its regression, and is restored byte-for-byte
 before the passing control. Original receipts are not rewritten.
+
+## Integrated native recovery
+
+The recovery fix permits an unexpired empty publication gate to be reclaimed only
+while holding its kernel lease and after confirming the lock's original process
+is dead on the same Linux host/namespace. The lock payload is already complete at
+the first fsync entry. Reclamation checks the gate's identity and emptiness;
+nonempty, replaced, live-owner and unverified gates retain their refusal policy.
+The existing durable recovery-intent receipt is written before removing the dead
+owner's lock. Item/history serialization and journal recovery are unchanged.
+
+Both minimized reproductions are permanent, independent replay cases:
+
+```bash
+just crash --native target/debug/pm-rust --artifacts .crash-failures \
+  --replay tests/fixtures/crash-restart/update.json --json
+just crash --native target/debug/pm-rust --artifacts .crash-failures \
+  --replay tests/fixtures/crash-restart/comment.json --json
+```
+
+The fixtures contain only the whitelisted selection and minimal synthetic
+settings. The locked oracle creates their acknowledged seed, and each real
+injected kill must restart successfully with exact reference item/history bytes
+and the corresponding raw restart receipt. The permanent native first-fsync regressions require successful recovery.
+The expanded corpus separately reports published history-open divergences. Separate ownership JSON refusal comparisons on the shared gate path
+retain the oracle's complete error receipt and authoritative bytes. The no-git
+contention contract runs 50 simultaneous
+writers, three comments each, and verifies all 150 comments and the history chain.
+
+The [post-fix synthetic receipt](CRASH_RESTART_RECOVERY_2026_10_22.json) records
+20/20 measured kills with exact reference states, preserved acknowledged history
+and matching raw restart receipt hashes, including both first-fsync cases.
+Both cross-runtime baseline byte and acknowledgement comparisons pass. A 60000 ms
+per-process timeout was used for this local run; the SDK default remains 15000 ms.
+The [rebuild-based revert proof](CRASH_RESTART_REVERT_PROOF_2026_10_22.json)
+replaces only the recovery function with its original implementation: both
+permanent replays fail with restart exit 4, then both pass after restoration.
+

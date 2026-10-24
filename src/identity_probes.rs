@@ -230,7 +230,7 @@ fn row(raw: &str, codex: bool, found: &mut BTreeMap<String, String>) {
     if raw.is_empty() || raw.encode_utf16().count() > 262_144 {
         return;
     }
-    let Ok(value) = serde_json::from_str::<Value>(raw) else {
+    let Ok(value) = crate::strict_json::from_str::<Value>(raw) else {
         return;
     };
     if codex {

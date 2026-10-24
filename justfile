@@ -1,8 +1,8 @@
 # pm-rust release and changelog targets.
 #
-# Since pm-rust has no package.json, these justfile recipes expose the
-# pm-changelog tooling that every other fleet package provides via npm
-# scripts. They are runnable in CI and documented in the README.
+# These native recipes expose pm-changelog and the Rust aggregate gate.
+# The root package.json provides npm and Bun aliases without replacing any
+# native checks. Recipes are runnable in CI and documented in the README.
 #
 # The `--date` parameter is fixed so the generated changelog heading does not
 # depend on the clock. This prevents CI from failing on a random day in a
@@ -50,8 +50,9 @@ crash *args:
 crash-check:
     npm ci --prefix tests/harness --ignore-scripts
     tests/harness/node_modules/.bin/tsc -p tests/harness/tsconfig.json
-    tests/harness/node_modules/.bin/eslint -c tests/harness/eslint.config.mjs scripts/crash-*.mts
+    tests/harness/node_modules/.bin/eslint -c tests/harness/eslint.config.mjs scripts/crash-*.mts scripts/native-adapter-*.mts
     node --test --test-concurrency=1 scripts/crash-*.test.mts
+
 # Reproduce large synthetic non-git trackers against the requested current oracle.
 bench-oracle-install:
     npm ci --prefix tests/bench-oracle --ignore-scripts
@@ -79,17 +80,7 @@ crate-version := `sed -n 's/^version *= *"\([^"]*\)"/\1/p' Cargo.toml`
 
 # Runs pm-changelog with the common flags shared by all recipes.
 _pm-changelog *flags:
-    npx --yes --package={{PM_CHANGELOG_PKG}} --package={{PM_CLI_PKG}} -- pm-changelog \
-        --pm-root .agents/pm \
-        --pm-arg=--output-budget --pm-arg=unbounded \
-        --pm-arg=--output-limit --pm-arg=unbounded \
-        --item-url-base {{ITEM_URL_BASE}} \
-        --respect-item-release \
-        --conventional \
-        --include-links \
-        --item-ref-style toon \
-        --include-metadata \
-        {{flags}}
+    node scripts/changelog.mts {{flags}}
 
 # Regenerate the full changelog from all release tags (prepend mode).
 changelog:
@@ -103,13 +94,7 @@ changelog:
 
 # Rebuild the complete changelog from all release tag windows.
 changelog-full *extra:
-    just _pm-changelog \
-        --mode replace \
-        --output CHANGELOG.md \
-        --all-release-tags \
-        --release-version "{{crate-version}}" \
-        --date {{CHANGELOG_DATE}} \
-        {{extra}}
+    node scripts/changelog.mts full --date {{CHANGELOG_DATE}} {{extra}}
 
 # Verify the committed changelog matches the generated one (CI gate).
 # Runs in a fresh `just` process WITHOUT forwarding CHANGELOG_DATE: whatever a

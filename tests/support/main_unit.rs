@@ -1543,3 +1543,146 @@ fn published_refusal_arguments_strip_all_workspace_aliases() {
         }
     }
 }
+
+/// Session frames retain canonical payloads and propagate real writer/codec failures.
+#[test]
+fn session_frame_writer_preserves_errors_and_framing() -> Result<(), Box<dyn std::error::Error>> {
+    let mut page = pm_rust::SessionPage {
+        output: serde_json::json!({"items":[{"title":"example"}],"count":1}).into(),
+        receipt: pm_rust::SessionReceipt {
+            protocol: "pm-rust/read-session/v1",
+            snapshot_sha256: "synthetic".to_owned(),
+            source_items: 1,
+            source_bytes: 100,
+            admitted_memory_bytes: 1000,
+            memory_ceiling_bytes: 2000,
+            pages: 1,
+            complete: true,
+        },
+    };
+    for json in [false, true] {
+        let mut bytes = Vec::new();
+        super::write_session_page_to(&mut bytes, &page, json)?;
+        if json {
+            let parsed: serde_json::Value = serde_json::from_slice(&bytes)?;
+            assert_eq!(parsed["receipt"]["complete"], true);
+        } else {
+            assert!(String::from_utf8(bytes)?.ends_with("---\n"));
+        }
+        assert!(super::write_session_page_to(&mut WriteFailure, &page, json).is_err());
+        assert!(super::write_session_page_to(&mut FlushFailure, &page, json).is_err());
+    }
+    page.output = pm_rust::ListOutput::with_json_overrides(
+        (*page.output).clone(),
+        std::collections::BTreeMap::from([("/items/0/title".to_owned(), "\"\\ud83d\"".to_owned())]),
+    );
+    assert!(super::write_session_page_to(&mut Vec::new(), &page, false).is_err());
+    Ok(())
+}
+
+/// Every workspace operation still refuses missing trackers before reading or writing data.
+#[test]
+fn native_adapter_workspace_discovery_refusals() -> Result<(), Box<dyn std::error::Error>> {
+    use clap::Parser as _;
+    let directory = tempfile::tempdir()?;
+    let cases: &[&[&str]] = &[
+        &["read-session"],
+        &["assurance", "list", "schema"],
+        &["context"],
+        &["history", "demo-1"],
+        &["deps", "demo-1"],
+        &["search", "keyword"],
+        &["files", "demo-1"],
+        &["docs", "demo-1"],
+        &["test", "demo-1"],
+        &["list"],
+        &["get", "demo-1"],
+        &[
+            "create", "--id", "demo-1", "--title", "Example", "--type", "Task", "--author",
+            "caller",
+        ],
+        &["update", "demo-1", "--author", "caller"],
+        &["comment", "demo-1", "text", "--author", "caller"],
+        &["claim", "demo-1"],
+        &["release", "demo-1"],
+        &["start-task", "demo-1"],
+        &["pause-task", "demo-1"],
+        &["close", "demo-1", "done", "--author", "caller"],
+    ];
+    for args in cases {
+        let mut arguments = vec![
+            "pm-rust".to_owned(),
+            "--workspace".to_owned(),
+            directory.path().to_string_lossy().into_owned(),
+        ];
+        arguments.extend(args.iter().map(ToString::to_string));
+        let error = run(Cli::try_parse_from(arguments)?)
+            .err()
+            .ok_or("missing tracker must refuse")?;
+        assert!(
+            error
+                .downcast_ref::<pm_rust::PmRustError>()
+                .is_some_and(|error| matches!(error, pm_rust::PmRustError::TrackerNotFound { .. })),
+            "{args:?}: {error}"
+        );
+    }
+    assert!(!directory.path().join(".agents").exists());
+    Ok(())
+}
+
+/// Adapter stdin and output failures are recoverable errors, including broken pipes.
+#[test]
+fn native_adapter_stdio_refusals() -> Result<(), Box<dyn std::error::Error>> {
+    /// A caller-owned stream that fails before yielding any input bytes.
+    struct ReadFailure;
+    impl io::Read for ReadFailure {
+        fn read(&mut self, _: &mut [u8]) -> io::Result<usize> {
+            Err(io::Error::other("synthetic read failure"))
+        }
+    }
+    let directory = tempfile::tempdir()?;
+    assert!(super::run_adapter_check(&mut ReadFailure, &mut Vec::new(), true).is_err());
+    for json in [false, true] {
+        assert!(super::run_adapter_check(&mut &b"{}"[..], &mut WriteFailure, json).is_err());
+        let valid = br#"{"manifest":{"abi":"pm-native-adapter/1","capabilities":["get"],"max_frame_bytes":4096},"request":{"abi":"pm-native-adapter/1","request_id":"call-1","operation":{"action":"get","id":"demo-1"}}}"#;
+        assert!(super::run_adapter_check(&mut &valid[..], &mut FlushFailure, json).is_err());
+        for (input, ok) in [(&b"{}"[..], false), (&valid[..], true)] {
+            let mut output = Vec::new();
+            let result = super::run_with_io(
+                Cli {
+                    workspace: directory.path().to_path_buf(),
+                    command: Command::AdapterCheck { json },
+                },
+                &mut &input[..],
+                &mut output,
+            );
+            assert_eq!(result.is_ok(), ok);
+            if json {
+                let value: serde_json::Value = serde_json::from_slice(&output)?;
+                assert_eq!(value["ok"], ok);
+            } else {
+                assert!(String::from_utf8(output)?.contains(if ok {
+                    "ok: true"
+                } else {
+                    "ok: false"
+                }));
+            }
+        }
+        let output = serde_json::json!({"ok":true}).into();
+        // Fail only the trailing newline, after successful frame emission.
+        let mut only_frame = vec![0u8; pm_rust::stringify_json(&output, false).len()];
+        if json {
+            assert!(
+                super::write_adapter_receipt_to(&mut only_frame.as_mut_slice(), &output, json)
+                    .is_err()
+            );
+        }
+    }
+    let cut = pm_rust::ListOutput::with_json_overrides(
+        serde_json::json!({"title":"cut"}),
+        std::collections::BTreeMap::from([("/title".to_owned(), "\"\\ud83d\"".to_owned())]),
+    );
+    assert!(super::write_adapter_receipt_to(&mut Vec::new(), &cut, false).is_err());
+    assert!(!directory.path().join(".agents").exists());
+    Ok(())
+}

@@ -107,7 +107,7 @@ pub(crate) fn attach(
     let cursor = raw.and_then(|raw| {
         let bytes =
             base64::Engine::decode(&base64::engine::general_purpose::URL_SAFE_NO_PAD, raw).ok()?;
-        let cursor = serde_json::from_slice::<Value>(&bytes).ok()?;
+        let cursor = crate::strict_json::from_slice::<Value>(&bytes).ok()?;
         // A legacy cursor may omit after_index. Treating the omission as zero
         // rebases a final page onto the first rows; the published CLI skips
         // compaction unless the index is present.

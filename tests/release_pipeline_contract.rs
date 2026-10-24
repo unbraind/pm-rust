@@ -964,13 +964,21 @@ fn changelog_toolchain_pins_the_sdk_exactly() -> Result<(), BoxError> {
         justfile.contains("PM_CLI_PKG := \"@unbrained/pm-cli@2026.10.9\""),
         "the justfile must pin @unbrained/pm-cli exactly; the floating range resolves to latest and truncates tracker reads (pm-rust-yilr)"
     );
+    let wrapper = read_repo_file("scripts/changelog.mts")?;
     assert!(
-        justfile.contains("--package={{PM_CHANGELOG_PKG}} --package={{PM_CLI_PKG}}"),
-        "the shared pm-changelog recipe must install both pinned packages into one npx prefix"
+        justfile_recipe_body(&justfile, "_pm-changelog")?
+            .iter()
+            .any(|line| line == "node scripts/changelog.mts {{flags}}"),
+        "the shared recipe must delegate to the npm-compatible wrapper"
     );
     assert!(
-        justfile.contains("--pm-arg=--output-budget --pm-arg=unbounded")
-            && justfile.contains("--pm-arg=--output-limit --pm-arg=unbounded"),
+        wrapper.contains("--package=${constant('PM_CHANGELOG_PKG')}")
+            && wrapper.contains("--package=${constant('PM_CLI_PKG')}"),
+        "the wrapper must install both justfile pins into one npx prefix"
+    );
+    assert!(
+        wrapper.contains("'--pm-arg=--output-budget', '--pm-arg=unbounded'")
+            && wrapper.contains("'--pm-arg=--output-limit', '--pm-arg=unbounded'"),
         "the shared pm-changelog recipe must request an unbounded, untruncated workspace read"
     );
 
@@ -999,6 +1007,39 @@ fn changelog_toolchain_pins_the_sdk_exactly() -> Result<(), BoxError> {
             }
         }
     }
+    Ok(())
+}
+
+/// Gated tracker mutations must regenerate through the same recipe as local just.
+#[test]
+fn gated_tracker_changes_share_the_npm_changelog_wrapper() -> Result<(), BoxError> {
+    let package: serde_json::Value =
+        serde_json::from_str(&read_repo_file("tests/oracle/package.json")?)?;
+    assert_eq!(
+        package["scripts"]["changelog:full"],
+        "node ../../scripts/changelog.mts full"
+    );
+    for (file, job, input) in [
+        ("pm-github-sync.yml", "gated-sync", "post-import-script"),
+        (
+            "pm-github-closeout.yml",
+            "gated-closeout",
+            "post-closeout-script",
+        ),
+    ] {
+        let workflow = parse_workflow(&format!(".github/workflows/{file}"))?;
+        let inputs = &workflow["jobs"][job]["with"];
+        assert_eq!(inputs["npm-project-dir"].as_str(), Some("tests/oracle"));
+        assert_eq!(inputs[input].as_str(), Some("changelog:full"));
+    }
+    let justfile = read_repo_file("justfile")?;
+    assert!(
+        justfile_recipe_body(&justfile, "changelog-full")?
+            .iter()
+            .any(|line| line
+                == "node scripts/changelog.mts full --date {{CHANGELOG_DATE}} {{extra}}"),
+        "just and npm must share the full-generation wrapper"
+    );
     Ok(())
 }
 
@@ -1117,6 +1158,37 @@ fn ci_pm_cli_pin_is_single_and_current() -> Result<(), BoxError> {
                 |update| update.get("package-ecosystem").and_then(Value::as_str) == Some("npm")
                     && update.get("directory").and_then(Value::as_str) == Some("/tests/oracle")
             )
+    );
+    Ok(())
+}
+
+/// Both package-manager entrypoints execute the unchanged native release gate.
+#[test]
+fn npm_and_bun_share_the_full_native_aggregate() -> Result<(), BoxError> {
+    let package: serde_json::Value = serde_json::from_str(&read_repo_file("package.json")?)?;
+    assert_eq!(package["scripts"]["release:check"], "just release-check");
+    let workflow = parse_workflow(".github/workflows/ci.yml")?;
+    let jobs = map_get(&workflow, "jobs").ok_or("missing jobs")?;
+    let release = map_get(jobs, "release-check").ok_or("missing release job")?;
+    let matrix = map_get(
+        map_get(release, "strategy").ok_or("missing strategy")?,
+        "matrix",
+    )
+    .ok_or("missing matrix")?;
+    let entries = map_get(matrix, "include")
+        .and_then(Value::as_sequence)
+        .ok_or("missing release matrix")?;
+    for runtime in ["npm", "bun"] {
+        assert!(
+            entries
+                .iter()
+                .any(|entry| map_get(entry, "runtime").and_then(Value::as_str) == Some(runtime))
+        );
+    }
+    let steps = job_steps(&workflow, "release-check")?;
+    assert_eq!(
+        step_run(&steps, "Run release:check aggregate gate")?,
+        "${{ matrix.runtime }} run release:check"
     );
     Ok(())
 }
