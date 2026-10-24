@@ -523,7 +523,7 @@ fn read_settings(pm_root: &Path) -> Result<MutationSettings, PmRustError> {
             });
         }
     };
-    match serde_json::from_str(&raw) {
+    match crate::strict_json::from_str(&raw) {
         Ok(settings) => Ok(settings),
         Err(error) => Err(invalid(format!("invalid settings.json: {error}"))),
     }
@@ -968,7 +968,7 @@ fn acquire_lock_attempt(
         #[cfg(target_os = "linux")]
         let abandoned = abandoned
             || read_lock_owner(&path).is_ok_and(|(raw, _)| {
-                confirmed_dead_owner(&serde_json::from_str(&raw).unwrap_or(Value::Null))
+                confirmed_dead_owner(&crate::strict_json::from_str(&raw).unwrap_or(Value::Null))
             });
         if !abandoned {
             return Err(PmRustError::LockConflict { id: id.to_owned() });
@@ -1082,7 +1082,7 @@ fn create_or_reclaim_lock(
     };
     #[cfg(target_os = "linux")]
     {
-        let existing: Value = serde_json::from_str(&existing_raw).unwrap_or(Value::Null);
+        let existing: Value = crate::strict_json::from_str(&existing_raw).unwrap_or(Value::Null);
         if confirmed_dead_owner(&existing) {
             record_dead_owner(path, &existing)?;
             return remove_stale_lock(path, &existing_raw, Some(&observed), id)
@@ -1490,7 +1490,7 @@ fn recover(pm_root: &Path, id: &str) -> Result<(), PmRustError> {
     let Some(raw) = read_optional(&journal_path)? else {
         return Ok(());
     };
-    let journal: MutationJournal = match serde_json::from_str(&raw) {
+    let journal: MutationJournal = match crate::strict_json::from_str(&raw) {
         Ok(value) => value,
         Err(error) => {
             return Err(PmRustError::RecoveryConflict {
@@ -1560,7 +1560,7 @@ fn recover_mutation(
             )
         });
     };
-    let journal: MutationJournal = match serde_json::from_str(&raw) {
+    let journal: MutationJournal = match crate::strict_json::from_str(&raw) {
         Ok(value) => value,
         Err(error) => {
             return Err(PmRustError::RecoveryConflict {
@@ -2772,7 +2772,7 @@ fn ownership_refusal(detail: String, context: Value) -> PmRustError {
 fn ownership_phrase(history_path: &Path, assignee: &str) -> Result<String, PmRustError> {
     let raw = read_optional(history_path)?.unwrap_or_default();
     for line in raw.lines().rev() {
-        let Ok(entry) = serde_json::from_str::<Value>(line) else {
+        let Ok(entry) = crate::strict_json::from_str::<Value>(line) else {
             continue;
         };
         if let Some(Value::Array(patches)) = entry.get("patch") {
@@ -2795,7 +2795,7 @@ fn ownership_phrase(history_path: &Path, assignee: &str) -> Result<String, PmRus
 
 /// Uses the published lock payload clock, including malformed-lock expiry.
 fn ownership_lock_stale(raw: &str, timestamp: &str, ttl_seconds: u64) -> bool {
-    let entry: Value = serde_json::from_str(raw).unwrap_or(Value::Null);
+    let entry: Value = crate::strict_json::from_str(raw).unwrap_or(Value::Null);
     let created = entry["created_at"].as_str().unwrap_or_default();
     match OffsetDateTime::parse(created, &Rfc3339) {
         Ok(created) => {
@@ -2829,7 +2829,7 @@ fn ownership_lock_refusal(
             serde_json::json!({}),
         );
     }
-    let value: Value = serde_json::from_str(&raw).unwrap_or(Value::Null);
+    let value: Value = crate::strict_json::from_str(&raw).unwrap_or(Value::Null);
     let owner = value["owner"].as_str().unwrap_or_default();
     let owner_suffix = if owner.is_empty() {
         String::new()
@@ -3457,7 +3457,7 @@ fn session_lock_refusal(
         return error;
     }
     let raw = fs::read_to_string(pm_root.join("locks/session-state.lock")).unwrap_or_default();
-    let warning = match serde_json::from_str::<Value>(&raw) {
+    let warning = match crate::strict_json::from_str::<Value>(&raw) {
         Err(_) => Some("lock_info_invalid_json"),
         Ok(value) => {
             if value["id"].is_string()
@@ -3525,7 +3525,7 @@ pub(crate) fn mutate_session_state(
     let path = pm_root.join("runtime/session.json");
     let mut state = fs::read_to_string(&path)
         .ok()
-        .and_then(|text| serde_json::from_str::<serde_json::Map<String, Value>>(&text).ok())
+        .and_then(|text| crate::strict_json::from_str::<serde_json::Map<String, Value>>(&text).ok())
         .unwrap_or_default();
     update(&mut state);
     atomic_replace(&path, &crate::stringify_json(&Value::Object(state), false))

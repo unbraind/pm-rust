@@ -22,12 +22,21 @@ and Rust compatibility pins remain unchanged.
 All frames are single UTF-8 JSON objects. The exact ABI string is
 `pm-native-adapter/1`; any different revision refuses. Unknown envelope and
 operation fields refuse; backend output/details remain opaque JSON and retain
-extension fields. Duplicate fields, trailing non-whitespace and invalid JSON
-refuse. Frame lengths count encoded bytes, with a hard ceiling of 1,048,576.
+extension fields. Duplicate object keys refuse at every nesting depth, including
+inside opaque output/details and objects in arrays. Keys are compared after JSON
+unescaping, so `"a"` and `"\u0061"` conflict. Trailing non-whitespace and invalid
+JSON also refuse. Frame lengths count encoded bytes, with a hard ceiling of 1,048,576.
 The adapter may declare a smaller positive ceiling. Transport implementations
 must stop reading once that ceiling is exceeded, before allocating an unbounded
 response. The offline CLI envelope has a separate 16 MiB ceiling plus one
 detection byte, allowing decimal byte-array expansion without reducing the 1 MiB frame ceiling.
+
+The shared frame validator uses `strict_json::from_slice`: it reads one complete
+recursive value, rejects duplicates before insertion, checks end-of-input, then
+deserializes typed structs from that validated value. Typed field filtering
+cannot hide ambiguous nested data. The transcript, example request decoder and
+all tracker JSON readers use the same admission reader; see the
+[decode audit](json-decode-audit.md). Size admission still precedes JSON parsing.
 
 Manifest fields are `abi`, `capabilities`, and `max_frame_bytes`. Capability
 values are `get`, `list`, `claim`, and `release`; absent capabilities refuse

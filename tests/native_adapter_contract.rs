@@ -8,7 +8,7 @@ use pm_rust::native_adapter::{
 };
 use pm_rust::{OwnershipItem, PmRustError, Workspace};
 use serde_json::{Value, json};
-use std::{cell::Cell, fs, io, path::Path, process::Command, rc::Rc};
+use std::{cell::Cell, fmt::Write as _, fs, io, path::Path, process::Command, rc::Rc};
 
 /// Fallible assertion result.
 type TestResult = Result<(), Box<dyn std::error::Error>>;
@@ -538,6 +538,163 @@ fn raw_frame_seeded_corpus_matches_live_client() -> TestResult {
         }
     }
     assert_eq!(accepted, 240);
+    Ok(())
+}
+
+/// Checks the shared validator, offline recording and dispatched client independently.
+fn strict_frame_verdict(frame: &[u8], valid: bool) -> TestResult {
+    let call = request(Operation::Claim {
+        id: "demo-1".into(),
+        author: "caller".into(),
+    });
+    let direct = check_adapter_reply(&manifest(), &call, frame);
+    let offline = check_adapter_transcript(&bytes(&json!({
+        "manifest":manifest(), "request":call, "reply_bytes":frame
+    })));
+    let calls = Rc::new(Cell::new(0));
+    let mut client = NativeAdapterClient::new(Peer {
+        declaration: manifest(),
+        response: Some(frame.to_vec()),
+        calls: calls.clone(),
+    })?;
+    let live = client.call(&call);
+    let expected = if valid {
+        Ok(())
+    } else {
+        Err(Code::InvalidFrame)
+    };
+    assert_eq!(direct.as_ref().map(|_| ()).map_err(|e| e.code), expected);
+    assert_eq!(offline.as_ref().map(|_| ()).map_err(|e| e.code), expected);
+    assert_eq!(live.as_ref().map(|_| ()).map_err(|e| e.code), expected);
+    assert_eq!(calls.get(), 1);
+    if valid {
+        let original: Value = pm_rust::strict_json::from_slice(frame)?;
+        assert_eq!(serde_json::to_value(live?)?, original);
+        assert_eq!(offline?["dispatched"], false);
+    } else {
+        assert!(!direct.err().ok_or("direct refusal")?.dispatched);
+        assert!(!offline.err().ok_or("offline refusal")?.dispatched);
+        let error = live.err().ok_or("live refusal")?;
+        assert!(error.dispatched);
+        assert!(error.remedy.contains("reconcile"));
+    }
+    Ok(())
+}
+
+/// Encodes payload text verbatim so duplicate keys cannot disappear in test setup.
+fn raw_payload_frame(payload: &str, refused: bool) -> Vec<u8> {
+    let outcome = if refused {
+        format!(
+            r#"{{"status":"refused","code":"denied","message":"held","remedy":"skip","details":{payload}}}"#
+        )
+    } else {
+        format!(r#"{{"status":"success","output":{payload}}}"#)
+    };
+    format!(r#"{{"abi":"{ABI}","request_id":"call-1","outcome":{outcome}}}"#).into_bytes()
+}
+
+/// Extends differential admission to recursive, escaped, array and wide duplicates.
+#[test]
+fn strict_json_duplicate_corpus_matches_live_client() -> TestResult {
+    // Envelope duplicates at depths zero and one, including escaped-equal fields.
+    for valid in [true, false] {
+        let extra_id = if valid {
+            ""
+        } else {
+            r#", "request\u005fid":"call-1""#
+        };
+        let extra_status = if valid {
+            ""
+        } else {
+            r#", "st\u0061tus":"success""#
+        };
+        strict_frame_verdict(&format!(r#"{{"abi":"{ABI}","request_id":"call-1"{extra_id},"outcome":{{"status":"success","output":{{}}}}}}"#).into_bytes(), valid)?;
+        strict_frame_verdict(&format!(r#"{{"abi":"{ABI}","request_id":"call-1","outcome":{{"status":"success"{extra_status},"output":{{}}}}}}"#).into_bytes(), valid)?;
+    }
+    // Payload depths 0..5 (wire depths 2..7), with identical and escaped-equal keys.
+    for depth in 0..=5 {
+        for (first, duplicate) in [
+            ("skipped", "skipped"),
+            ("a", r"\u0061"),
+            (r"\u0061", "a"),
+            ("雪", r"\u96ea"),
+        ] {
+            for array in [false, true] {
+                for refused in [false, true] {
+                    for valid in [true, false] {
+                        let second = if valid { "different" } else { duplicate };
+                        let mut payload = format!(r#"{{"{first}":true,"{second}":false}}"#);
+                        for _ in 0..depth {
+                            payload = format!(r#"{{"child":{payload}}}"#);
+                        }
+                        if array {
+                            payload = format!(r#"[{{"safe":true}},{payload},{{"safe":false}}]"#);
+                        }
+                        strict_frame_verdict(&raw_payload_frame(&payload, refused), valid)?;
+                    }
+                }
+            }
+        }
+    }
+    // The repeated first key occurs after 16,384 unrelated fields, below the byte cap.
+    let mut fields = String::new();
+    for index in 0..16_384 {
+        write!(fields, r#""field{index}":{index},"#)?;
+    }
+    for refused in [false, true] {
+        for valid in [true, false] {
+            let last = if valid { "tail" } else { "field0" };
+            let payload = format!(r#"{{{fields}"{last}":false}}"#);
+            strict_frame_verdict(&raw_payload_frame(&payload, refused), valid)?;
+        }
+    }
+    Ok(())
+}
+
+/// Refuses duplicate transcript, manifest and request keys before compatibility admission.
+#[test]
+fn strict_json_transcripts_and_requests_reject_escaped_duplicates() -> TestResult {
+    let call = bytes(&request(Operation::Get {
+        id: "demo-1".into(),
+    }));
+    let call = String::from_utf8(call)?;
+    let declaration = String::from_utf8(bytes(&manifest()))?;
+    for (manifest_text, request_text, extra) in [
+        (
+            declaration.clone(),
+            call.clone(),
+            format!(r#", "manif\u0065st":{declaration}"#),
+        ),
+        (
+            declaration.replacen('{', r#"{"max\u005fframe_bytes":1,"#, 1),
+            call.clone(),
+            String::new(),
+        ),
+        (
+            declaration.clone(),
+            call.replacen('{', r#"{"request\u005fid":"peer","#, 1),
+            String::new(),
+        ),
+        (
+            declaration,
+            call.replace(r#""action":"get""#, r#""action":"get","act\u0069on":"get""#),
+            String::new(),
+        ),
+    ] {
+        let raw = format!(r#"{{"manifest":{manifest_text},"request":{request_text}{extra}}}"#);
+        let error = check_adapter_transcript(raw.as_bytes())
+            .err()
+            .ok_or("duplicate transcript")?;
+        assert_eq!(error.code, Code::InvalidFrame);
+        assert!(!error.dispatched);
+        let result = assert_cmd::Command::new(env!("CARGO_BIN_EXE_pm-rust"))
+            .args(["adapter-check", "--json"])
+            .write_stdin(raw)
+            .output()?;
+        assert!(!result.status.success());
+        let receipt: Value = pm_rust::strict_json::from_slice(&result.stdout)?;
+        assert_eq!(receipt["refusal"]["code"], "invalid_frame");
+    }
     Ok(())
 }
 

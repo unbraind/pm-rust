@@ -4,8 +4,14 @@ import { readFileSync, writeFileSync } from 'node:fs';
 
 const abi = new URL('../src/native_adapter.rs', import.meta.url);
 const cli = new URL('../src/main.rs', import.meta.url);
-const originals = new Map([abi, cli].map(path => [path, readFileSync(path, 'utf8')]));
+const strict = new URL('../src/strict_json.rs', import.meta.url);
+const originals = new Map([abi, cli, strict].map(path => [path, readFileSync(path, 'utf8')]));
+const strictBefore = '    let mut reader = serde_json::Deserializer::from_slice(bytes);\n    let StrictValue(value) = StrictValue::deserialize(&mut reader)?;\n    reader.end()?;\n    serde_json::from_value(value)';
+const strictAfter = '    serde_json::from_slice(bytes)';
 const cases = [
+  { path: strict, target: ['--test', 'native_adapter_contract'], name: 'recursive duplicate admission', test: 'strict_json_duplicate_corpus_matches_live_client', before: strictBefore, after: strictAfter },
+  { path: strict, target: ['--test', 'strict_json_contract'], name: 'validation before typed field filtering', test: 'strict_json_validates_before_typed_fields_are_ignored', before: strictBefore, after: strictAfter },
+  { path: strict, target: ['--test', 'strict_json_contract'], name: 'strict tracker decode audit', test: 'strict_json_tracker_decodes_refuse_duplicates_without_git', before: strictBefore, after: strictAfter },
   { path: abi, target: ['--test', 'native_adapter_contract'], name: 'raw reply admission', test: 'raw_frame_seeded_corpus_matches_live_client',
     before: 'let checked =\n                check_adapter_reply(&transcript.manifest, &transcript.request, &recorded)?;',
     after: 'let decoded: AdapterReply = serde_json::from_slice(&recorded).map_err(|_| refusal(AdapterRefusalCode::InvalidFrame))?;\n            let encoded = crate::stringify_json(&decoded, false).into_bytes();\n            let checked = check_adapter_reply(&transcript.manifest, &transcript.request, &encoded)?;' },

@@ -427,7 +427,7 @@ fn capture(result: &Value, options: &ListOptions, cursor: Option<&Value>) -> Con
             let bytes =
                 base64::Engine::decode(&base64::engine::general_purpose::URL_SAFE_NO_PAD, raw)
                     .ok()?;
-            let cursor: Value = serde_json::from_slice(&bytes).ok()?;
+            let cursor: Value = crate::strict_json::from_slice(&bytes).ok()?;
             cursor["after_index"].as_u64()?;
             cursor["fingerprint"].as_str()?;
             Some(cursor)

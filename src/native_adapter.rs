@@ -300,8 +300,8 @@ pub fn check_adapter_reply(
 ) -> Result<AdapterReply, AdapterRefusal> {
     prepare_adapter_request(manifest, request)?;
     check_size(bytes.len(), manifest.max_frame_bytes)?;
-    let reply: AdapterReply =
-        serde_json::from_slice(bytes).map_err(|_| refusal(AdapterRefusalCode::InvalidFrame))?;
+    let reply: AdapterReply = crate::strict_json::from_slice(bytes)
+        .map_err(|_| refusal(AdapterRefusalCode::InvalidFrame))?;
     check_abi(&reply.abi)?;
     if reply.request_id != request.request_id {
         return Err(refusal(AdapterRefusalCode::InvalidFrame));
@@ -369,8 +369,8 @@ pub struct AdapterTranscript {
 /// Refuses malformed input, unsupported capabilities, or incompatible recorded replies.
 pub fn check_adapter_transcript(bytes: &[u8]) -> Result<Value, AdapterRefusal> {
     check_size(bytes.len(), NATIVE_ADAPTER_MAX_TRANSCRIPT_BYTES)?;
-    let transcript: AdapterTranscript =
-        serde_json::from_slice(bytes).map_err(|_| refusal(AdapterRefusalCode::InvalidFrame))?;
+    let transcript: AdapterTranscript = crate::strict_json::from_slice(bytes)
+        .map_err(|_| refusal(AdapterRefusalCode::InvalidFrame))?;
     let request_bytes = prepare_adapter_request(&transcript.manifest, &transcript.request)?;
     let outcome = match transcript.reply_bytes {
         Some(recorded) => {

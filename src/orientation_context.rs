@@ -148,7 +148,7 @@ fn affinity(workspace: &Workspace, identity: &crate::AuthorIdentity, now: &str) 
     let runtime = workspace.pm_root().join("runtime");
     let session = std::fs::read(runtime.join("session.json"))
         .ok()
-        .and_then(|bytes| serde_json::from_slice::<Value>(&bytes).ok())
+        .and_then(|bytes| crate::strict_json::from_slice::<Value>(&bytes).ok())
         .unwrap_or(Value::Null);
     let key = identity.instance.clone().unwrap_or_else(|| {
         format!(
@@ -207,7 +207,7 @@ fn affinity(workspace: &Workspace, identity: &crate::AuthorIdentity, now: &str) 
     let now = crate::list::timestamp_key(now).0.unwrap_or(0);
     let retained: Vec<Value> = raw
         .lines()
-        .filter_map(|line| serde_json::from_str::<Value>(line).ok())
+        .filter_map(|line| crate::strict_json::from_str::<Value>(line).ok())
         .filter(|event| {
             crate::list::timestamp_key(text(event, "at"))
                 .0
@@ -872,7 +872,7 @@ fn context_state_boundary(
             }
             let manifest = std::fs::read(entry.path().join("manifest.json"))
                 .ok()
-                .and_then(|bytes| serde_json::from_slice::<Value>(&bytes).ok())
+                .and_then(|bytes| crate::strict_json::from_slice::<Value>(&bytes).ok())
                 .unwrap_or(Value::Null);
             if manifest["contributions"]["service_overrides"]
                 .as_array()
@@ -894,7 +894,7 @@ fn context_state_boundary(
     let load = |name: &str| {
         std::fs::read(runtime.join(name))
             .ok()
-            .and_then(|bytes| serde_json::from_slice::<Value>(&bytes).ok())
+            .and_then(|bytes| crate::strict_json::from_slice::<Value>(&bytes).ok())
     };
     let snapshot = load("context-signals-context.json");
     let invalid = runtime.join("context-signals-context.json").is_file()
@@ -994,7 +994,7 @@ fn extension_health(
             }
             let manifest = std::fs::read(path.join("manifest.json"))
                 .ok()
-                .and_then(|bytes| serde_json::from_slice::<Value>(&bytes).ok())
+                .and_then(|bytes| crate::strict_json::from_slice::<Value>(&bytes).ok())
                 .unwrap_or(Value::Null);
             let configured = ["enabled", "disabled"].iter().any(|key| {
                 settings["extensions"][key]

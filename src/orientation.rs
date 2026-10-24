@@ -178,7 +178,7 @@ pub(crate) fn records(workspace: &Workspace, id: &str) -> Result<Vec<Value>, PmR
                 json!({"code":"history_merge_conflict_markers_detected","required":"Repair the history stream by resolving merge-conflict markers.","why":"Conflict markers break JSONL parsing and invalidate deterministic audit history.","examples":[format!("pm history {id}"),format!("pm restore {id} <timestamp-or-version>")],"next_steps":["Resolve or restore the history file, then rerun the command."]}),
             ));
         }
-        result.push(serde_json::from_str(line).map_err(|_| refusal(format!("History for {id} contains invalid JSON at line {}. Repair or restore the history stream and retry.",index+1),1,json!({"code":"history_json_invalid","next_steps":[format!("Run pm history-repair {id} --salvage-tail --dry-run to check whether only an invalid suffix is damaged.")]})))?);
+        result.push(crate::strict_json::from_str(line).map_err(|_| refusal(format!("History for {id} contains invalid JSON at line {}. Repair or restore the history stream and retry.",index+1),1,json!({"code":"history_json_invalid","next_steps":[format!("Run pm history-repair {id} --salvage-tail --dry-run to check whether only an invalid suffix is damaged.")]})))?);
     }
     Ok(result)
 }

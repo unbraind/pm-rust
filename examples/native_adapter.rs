@@ -24,7 +24,7 @@ impl NativeAdapter for AuthorizedReadAdapter {
     }
 
     fn exchange(&mut self, bytes: &[u8], response_limit: usize) -> io::Result<Vec<u8>> {
-        let request: AdapterRequest = serde_json::from_slice(bytes)?;
+        let request: AdapterRequest = pm_rust::strict_json::from_slice(bytes)?;
         let result = match request.operation {
             AdapterOperation::Get { id } => self.0.get(&id).map(|item| serde_json::json!(item)),
             AdapterOperation::List {
@@ -87,7 +87,7 @@ fn main() -> Result<(), Box<dyn Error>> {
     if bytes.len() > NATIVE_ADAPTER_MAX_BYTES {
         return Err("request limit exceeded".into());
     }
-    let request: AdapterRequest = serde_json::from_slice(&bytes)?;
+    let request: AdapterRequest = pm_rust::strict_json::from_slice(&bytes)?;
     let reply = client.call(&request)?;
     println!("{}", pm_rust::stringify_json(&reply, false));
     Ok(())

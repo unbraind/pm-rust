@@ -1197,7 +1197,7 @@ fn run_collection_with_cwd(
     args: CollectionArgs,
     cwd: std::io::Result<PathBuf>,
 ) -> Result<(), Box<dyn std::error::Error>> {
-    let settings: serde_json::Value = serde_json::from_str(&std::fs::read_to_string(
+    let settings: serde_json::Value = pm_rust::strict_json::from_str(&std::fs::read_to_string(
         workspace.pm_root().join("settings.json"),
     )?)?;
     let identity = mutation_identity(args.author.as_deref(), settings["author_default"].as_str());
@@ -1321,8 +1321,9 @@ fn ownership_request(
             reason: "author must not be empty".to_owned(),
         }));
     }
-    let settings: serde_json::Value =
-        serde_json::from_slice(&std::fs::read(workspace.pm_root().join("settings.json"))?)?;
+    let settings: serde_json::Value = pm_rust::strict_json::from_slice(&std::fs::read(
+        workspace.pm_root().join("settings.json"),
+    )?)?;
     let identity = mutation_identity(args.author.as_deref(), settings["author_default"].as_str());
     let request = OwnershipItem {
         id: args.id.unwrap_or_default(),

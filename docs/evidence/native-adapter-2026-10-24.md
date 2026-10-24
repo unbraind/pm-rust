@@ -113,3 +113,38 @@ behavioral revert cases fail as required; after restoration the ABI suite passes
 **11/11** and targeted native CLI unit checks pass **2/2**. Deny-warning clippy,
 formatting, strict TypeScript and ESLint pass locally. Full release-gate evidence
 for this revision belongs to its CI run, rather than the earlier run above.
+
+## Recursive strict JSON review regression
+
+The shared frame validator now uses the same strict JSON reader as all other
+production raw decoders: 34 sites across 16 source/example files. It rejects
+duplicate decoded keys recursively before constructing typed structs from the
+validated value. The [decode audit](../json-decode-audit.md) lists each site and
+documents optional-input fallback behavior and the output-only scalar serializer.
+
+`strict_json_duplicate_corpus_matches_live_client` adds **392 frames** with
+**196 accepted and 196 refused**, checking direct admission, offline admission
+and live client results against independent expectations. It covers wire depths
+0 through 7 (including payload depths 0 through 5), escaped-equal ASCII and
+Unicode keys, arrays of objects, both output and refusal details, and 16,384-field
+objects with late duplicates. Accepted values retain the complete backend
+envelope. Dispatched failures retain uncertainty and never retry. The earlier
+768 seeded frames remain unchanged, for **1,160 differential frames total**
+(436 accepted, 724 refused).
+
+`strict_json_transcripts_and_requests_reject_escaped_duplicates` also checks four
+raw transcript/manifest/request/operation duplicates through SDK and CLI entry
+points. The three tests in `strict_json_contract` cover primitive preservation,
+invalid syntax/UTF-8/trailing data/recursion, typed-field filtering and typed maps,
+and real non-git settings/history/registry reads that retain source bytes on refusal.
+
+The revert script now has **9 independent proofs**. Its three new cases replace
+only the shared reader with serde's default decoder, retain every routed call
+site and test, rebuild and require assertion failures. The recursive corpus,
+ignored-field and tracker-input regressions each fail as required; exact source
+bytes are restored in `finally`. Revert evidence is recorded in the PM item.
+
+The targeted strict-reader instrumented run passes six selected tests and covers
+`src/strict_json.rs` at **100% lines/functions/regions/branches**: **50 lines,
+12 functions, 79 regions, 6 branches**. This scoped result does not claim
+whole-repository coverage; unchanged full-release thresholds run in CI.
