@@ -24,7 +24,7 @@ neither Git nor Node and a Git discovery ceiling above the scratch project.
 | Total adapter response bytes | 880,680 |
 | Largest response frame | 88,935 bytes |
 | Largest CLI compatibility receipt | 193 bytes |
-| Validation elapsed time | 5,687 ms |
+| Validation elapsed time | 5,301 ms |
 | Source changed | No |
 
 Unchanged authoritative source SHA-256:
@@ -46,7 +46,10 @@ boundaries, plus a foreign-owner release guard. It delegates mutations to the
 real native SDK on a tracker initialized by the pinned CLI. The seven other
 protocol tests exercise outcomes, admission, ABI versions, field/frame limits,
 uncertain outcomes/no retries, offline transcript validation and the CLI without
-Git, Node or tracker prerequisites.
+Git, Node or tracker prerequisites. Two additional CLI unit tests cover all
+19 missing-tracker dispatch paths plus injected stdin, broken-pipe, trailing
+newline, flush and TOON codec failures. Constructor/preflight refusal tests also
+prove an incompatible manifest never reaches the backend.
 
 `node scripts/native-adapter-revert.mts` independently replaces only the relevant
 behavior for each proof, requires a real failed test assertion, and restores the
@@ -57,6 +60,11 @@ exact source bytes in a finally block:
 | Pre-dispatch capability admission | `admission_refuses_before_transport_or_writes` | Failed as required |
 | Exact ABI compatibility | `versions_fields_and_limits_are_fail_closed` | Failed as required |
 | Unmodified canonical backend outcome | `canonical_outcomes_survive_the_byte_boundary` | Failed as required |
+
+The targeted instrumented run covers the ABI module at 100 percent in every
+required dimension: 146 lines, 17 functions, 211 regions and 20 branches, all
+covered. New CLI helper regions and missing-tracker propagation paths were
+checked separately; this scoped run does not claim full-repository coverage.
 
 Local validation also includes `cargo check --locked --all-targets`,
 `cargo clippy --locked --all-targets --all-features -- -D warnings`, formatting,

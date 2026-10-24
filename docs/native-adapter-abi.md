@@ -109,6 +109,7 @@ Run targeted checks with:
 
 ```sh
 cargo test --locked --test native_adapter_contract
+cargo test --locked --bin pm-rust native_adapter
 node scripts/native-adapter-revert.mts
 cargo check --locked --all-targets
 cargo clippy --locked --all-targets --all-features -- -D warnings

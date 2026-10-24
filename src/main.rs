@@ -1,6 +1,6 @@
 //! `pm-rust` command-line interface.
 
-use std::io::Write;
+use std::io::{Read, Write};
 use std::path::PathBuf;
 use std::process::ExitCode;
 
@@ -613,11 +613,13 @@ fn write_session_page_to(
 mod tests;
 
 /// Checks stdin with bounded admission and renders a compact receipt or typed refusal.
-fn run_adapter_check(json: bool) -> Result<(), Box<dyn std::error::Error>> {
-    use std::io::Read;
+fn run_adapter_check(
+    reader: &mut dyn std::io::Read,
+    writer: &mut dyn Write,
+    json: bool,
+) -> Result<(), Box<dyn std::error::Error>> {
     let mut bytes = Vec::new();
-    std::io::stdin()
-        .lock()
+    reader
         .take((pm_rust::native_adapter::NATIVE_ADAPTER_MAX_BYTES + 1) as u64)
         .read_to_end(&mut bytes)?;
     let result = pm_rust::native_adapter::check_adapter_transcript(&bytes);
@@ -626,13 +628,25 @@ fn run_adapter_check(json: bool) -> Result<(), Box<dyn std::error::Error>> {
         Err(error) => serde_json::json!({"ok": false, "refusal": error}),
     };
     let output = pm_rust::ListOutput::from(value);
-    let rendered = if json {
-        pm_rust::stringify_json(&output, false)
-    } else {
-        pm_rust::stringify_toon(&output)?
-    };
-    println!("{rendered}");
+    write_adapter_receipt_to(writer, &output, json)?;
     result?;
+    Ok(())
+}
+
+/// Writes a compact ABI receipt, propagating codec, pipe and flush failures.
+fn write_adapter_receipt_to(
+    writer: &mut dyn Write,
+    output: &pm_rust::ListOutput,
+    json: bool,
+) -> Result<(), Box<dyn std::error::Error>> {
+    let rendered = if json {
+        pm_rust::stringify_json(output, false)
+    } else {
+        pm_rust::stringify_toon(output)?
+    };
+    writer.write_all(rendered.as_bytes())?;
+    writer.write_all(b"\n")?;
+    writer.flush()?;
     Ok(())
 }
 
@@ -641,7 +655,11 @@ fn run_adapter_check(json: bool) -> Result<(), Box<dyn std::error::Error>> {
 fn run(cli: Cli) -> Result<(), Box<dyn std::error::Error>> {
     let discover = || Workspace::discover(&cli.workspace);
     match cli.command {
-        Command::AdapterCheck { json } => run_adapter_check(json)?,
+        Command::AdapterCheck { json } => run_adapter_check(
+            &mut std::io::stdin().lock(),
+            &mut std::io::stdout().lock(),
+            json,
+        )?,
         Command::ReadSession {
             timestamp,
             memory_bytes,

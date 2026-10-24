@@ -51,6 +51,8 @@ fn bytes(value: &impl serde::Serialize) -> Vec<u8> {
 
 /// Protocol peer for malformed-frame tests; it does not mock any SDK operation.
 struct Peer {
+    /// Explicit declaration, including incompatible-constructor test cases.
+    declaration: AdapterManifest,
     /// Exact response or a disconnected transport.
     response: Option<Vec<u8>>,
     /// Number of dispatches observed across client ownership.
@@ -58,7 +60,7 @@ struct Peer {
 }
 impl NativeAdapter for Peer {
     fn manifest(&self) -> AdapterManifest {
-        manifest()
+        self.declaration.clone()
     }
     fn exchange(&mut self, _: &[u8], limit: usize) -> io::Result<Vec<u8>> {
         assert_eq!(limit, MAX);
@@ -87,6 +89,7 @@ fn canonical_outcomes_survive_the_byte_boundary() -> TestResult {
         let response = reply(outcome);
         let calls = Rc::new(Cell::new(0));
         let mut client = NativeAdapterClient::new(Peer {
+            declaration: manifest(),
             response: Some(bytes(&response)),
             calls: calls.clone(),
         })?;
@@ -119,6 +122,7 @@ fn admission_refuses_before_transport_or_writes() -> TestResult {
     }
     let calls = Rc::new(Cell::new(0));
     let mut client = NativeAdapterClient::new(ReadOnly(Peer {
+        declaration: manifest(),
         response: None,
         calls: calls.clone(),
     }))?;
@@ -161,6 +165,32 @@ fn admission_refuses_before_transport_or_writes() -> TestResult {
 
 #[test]
 fn versions_fields_and_limits_are_fail_closed() -> TestResult {
+    let invalid = AdapterManifest {
+        abi: "other".into(),
+        ..manifest()
+    };
+    assert_eq!(
+        prepare_adapter_request(
+            &invalid,
+            &request(Operation::Get {
+                id: "demo-1".into()
+            })
+        )
+        .err()
+        .ok_or("manifest must refuse")?
+        .code,
+        Code::IncompatibleAbi
+    );
+    let calls = Rc::new(Cell::new(0));
+    assert!(
+        NativeAdapterClient::new(Peer {
+            declaration: invalid,
+            response: None,
+            calls: calls.clone()
+        })
+        .is_err()
+    );
+    assert_eq!(calls.get(), 0);
     for abi in [
         "",
         "pm-native-adapter/0",
@@ -319,6 +349,7 @@ fn dispatched_failures_are_never_retried_or_reported_as_no_write() -> TestResult
     ] {
         let calls = Rc::new(Cell::new(0));
         let mut client = NativeAdapterClient::new(Peer {
+            declaration: manifest(),
             response,
             calls: calls.clone(),
         })?;

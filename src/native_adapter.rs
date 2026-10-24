@@ -321,8 +321,7 @@ impl<A: NativeAdapter> NativeAdapterClient<A> {
     /// Refuses incompatible ABI declarations and invalid frame ceilings.
     pub fn new(adapter: A) -> Result<Self, AdapterRefusal> {
         let manifest = adapter.manifest();
-        check_adapter_manifest(&manifest)?;
-        Ok(Self { adapter, manifest })
+        check_adapter_manifest(&manifest).map(|()| Self { adapter, manifest })
     }
 
     /// Dispatches once after preflight, preserving authoritative results and refusals.
@@ -331,13 +330,21 @@ impl<A: NativeAdapter> NativeAdapterClient<A> {
     /// Refuses invalid or unsupported calls before dispatch. Any failure after
     /// exchange starts must be reconciled at the backend before mutation retry.
     pub fn call(&mut self, request: &AdapterRequest) -> Result<AdapterReply, AdapterRefusal> {
-        let bytes = prepare_adapter_request(&self.manifest, request)?;
-        let response = self
-            .adapter
-            .exchange(&bytes, self.manifest.max_frame_bytes)
-            .map_err(|_| dispatched_refusal(refusal(AdapterRefusalCode::OutcomeUnknown)))?;
-        check_adapter_reply(&self.manifest, request, &response).map_err(dispatched_refusal)
+        exchange_adapter(&mut self.adapter, &self.manifest, request)
     }
+}
+
+/// Applies one shared admission/receipt path to every native transport implementation.
+fn exchange_adapter(
+    adapter: &mut dyn NativeAdapter,
+    manifest: &AdapterManifest,
+    request: &AdapterRequest,
+) -> Result<AdapterReply, AdapterRefusal> {
+    let bytes = prepare_adapter_request(manifest, request)?;
+    let response = adapter
+        .exchange(&bytes, manifest.max_frame_bytes)
+        .map_err(|_| dispatched_refusal(refusal(AdapterRefusalCode::OutcomeUnknown)))?;
+    check_adapter_reply(manifest, request, &response).map_err(dispatched_refusal)
 }
 
 /// Offline CLI transcript: validates compatibility without executing any operation.
