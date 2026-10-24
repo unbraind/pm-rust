@@ -266,8 +266,7 @@ function run(options: CrashOptions, root: string, timeout: number, maximum: numb
     for (const [label, implementation] of Object.entries(implementations)) {
       const directory = clone(seed);
       const trace = join(directory, 'baseline.trace');
-      const receipt = acknowledged(execute(implementation, [...mutation, ...common], directory, timeout, trace, undefined, options.strace,
-        label === 'published' ? join(directory, `.agents/pm/tasks/${id}.toon`) : undefined, 'rename'));
+      const receipt = acknowledged(execute(implementation, [...mutation, ...common], directory, timeout, trace, undefined, options.strace));
       baselines.set(label, snapshot(join(directory, '.agents/pm')));
       // Native update/comment expose legacy full JSON; published mutations expose flat JSON.
       // Compare the shared update id/status or comment id/comments acknowledgement projection.
@@ -305,8 +304,7 @@ function run(options: CrashOptions, root: string, timeout: number, maximum: numb
           const killedDirectory = clone(seed);
           const crashed = execute(implementation, [...mutation, ...common], killedDirectory, timeout,
             join(killedDirectory, 'kill.trace'), { syscall, ordinal }, options.strace,
-            syscall === 'openat' ? join(killedDirectory, `.agents/pm/history/${id}.jsonl`) :
-              label === 'published' ? join(killedDirectory, `.agents/pm/tasks/${id}.toon`) : undefined, syscall);
+            syscall === 'openat' ? join(killedDirectory, `.agents/pm/history/${id}.jsonl`) : undefined);
           if (!killedAtBoundary(crashed, { syscall, ordinal })) {
             const refusal = new CrashRefusal('boundary_unreached', 'Use strace with SIGKILL injection support; a requested boundary must be observed, never skipped.');
             refusal.cause = { label, syscall, ordinal, receipt: crashed };

@@ -48,11 +48,11 @@ or comment `id/comments`, because native mutation commands emit full legacy JSON
 while the published CLI emits flat mutation or collection receipts. Durable
 item/history comparisons remain exact bytes.
 
-The declared native boundaries are all observed task-local entry ordinals of
-`rename` and `fsync`, up to the configured maximum. Published rename tracing is
-scoped to the probe item path: unrelated cache publications can land on the same
-or different libuv workers between runs and cannot define a stable per-thread
-ordinal. Derived cache publication is outside this corpus. An additional
+The declared boundaries are all observed task-local entry ordinals of
+`rename` and `fsync`, up to the configured maximum. Child processes set
+`UV_THREADPOOL_SIZE=1` so successive published publications use one libuv worker
+and their observed ordinals remain reproducible. Cache renames remain in scope;
+this configuration does not certify other worker-pool sizes. An additional
 `openat` ordinal 1 cut is traced with strace `-P` scoped to the item history
 stream, including published execution after item publication but before history
 append. strace ordinals count per thread; libuv worker assignment does not make

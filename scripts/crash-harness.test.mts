@@ -269,7 +269,7 @@ test('real pm corpus preserves acknowledged history and independently replays re
       assert.ok(report.parity.every(row => row.bytes && row.acknowledgement));
       const failed = report.cases.filter(row => !row.ok);
       assert.equal(report.ok, false, 'Live cross-operation and published history-open defects must remain visible');
-      assert.ok(failed.some(row => row.implementation === 'native' && row.journalsAfterRestart > 0 && row.returnStatus !== 0));
+      assert.ok(report.cases.filter(row => row.implementation === 'native').every(row => row.ok && row.journalsAfterRestart === 0 && row.returnStatus === 0));
       assert.ok(failed.some(row => row.implementation === 'published' && row.syscall === 'openat' && row.state === 'diverged'));
       assert.ok(report.recoveryParity.some(row => !row.ok));
       assert.equal(report.failuresRetained, failed.length);

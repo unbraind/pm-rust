@@ -54,21 +54,27 @@ test('clock disclosure matches frozen Date.now and live performance elapsed time
 });
 
 for (const scenario of ['update', 'comment'] as const) {
-  test(`independent ${scenario} cross-operation replay proves pending journal and later refusal`,
+  test(`independent ${scenario} cross-operation replay recovers journals before return`,
     { skip: process.platform !== 'linux', timeout: 180000 }, () => temporary(root => {
       const source = resolve('tests/fixtures/crash-review');
       const before = snapshot(source);
-      const report = replayCrashFailure({ native: resolve('target/debug/pm-rust'), artifacts: join(root, 'evidence') }, join(source, `${scenario}.json`));
-      assert.equal(report.ok, false);
+      const wrapper = join(root, 'native');
+      const calls = join(root, 'native-calls.jsonl');
+      writeFileSync(wrapper, `#!${process.execPath}\nconst fs=require('node:fs');const cp=require('node:child_process');fs.appendFileSync(${JSON.stringify(calls)},JSON.stringify(process.argv.slice(2))+'\\n');const r=cp.spawnSync(${JSON.stringify(resolve('target/debug/pm-rust'))},process.argv.slice(2),{stdio:'inherit'});process.exit(r.status??1);\n`);
+      chmodSync(wrapper, 0o755);
+      const report = replayCrashFailure({ native: wrapper, artifacts: join(root, 'evidence') }, join(source, `${scenario}.json`));
+      assert.equal(report.ok, true, JSON.stringify(report.cases));
       assert.equal(report.killed, 1);
       const row = report.cases[0];
       assert.equal(row.restartStatus, 0);
-      assert.ok(row.returnStatus !== 0);
+      assert.equal(row.returnStatus, 0);
+      const commands = readFileSync(calls, 'utf8').trim().split('\n').map(line => JSON.parse(line)[0]);
+      assert.deepEqual(commands.slice(-2), [scenario === 'update' ? 'comment' : 'update', scenario]);
       assert.equal(row.journalsAtKill, 1);
-      assert.equal(row.journalsAfterRestart, 1);
-      assert.equal(row.journalsAfterReturn, 1);
-      assert.equal(row.failure?.code, 'pending_journal');
-      assert.equal(report.failuresRetained, 1);
+      assert.equal(row.journalsAfterRestart, 0);
+      assert.equal(row.journalsAfterReturn, 0);
+      assert.equal(row.failure, undefined);
+      assert.equal(report.failuresRetained, 0);
       assert.ok(row.acknowledged && row.historyPreserved);
       assert.equal(report.sourceUnchanged, true);
       assert.ok(sameBytes(before, snapshot(source)));
@@ -95,12 +101,12 @@ test('synthetic reduction refusal preserves measured failure and CLI exit one',
     writeFileSync(wrapper, '#!/bin/sh\nparent="${PWD%/*}"\nsaved="${0}.root"\nif [ -f "$saved" ]; then\n read -r previous < "$saved"\n if [ "$previous" != "$parent" ]; then exit 79; fi\nelse\n printf "%s\\n" "$parent" > "$saved"\nfi\nexec strace "$@"\n');
     chmodSync(wrapper, 0o755);
     const result = spawnSync(process.execPath, [resolve('scripts/crash-cli.mts'), '--native', resolve('target/debug/pm-rust'),
-      '--artifacts', join(root, 'evidence'), '--replay', resolve('tests/fixtures/crash-review/update.json'), '--strace', wrapper, '--json', '--full'],
+      '--artifacts', join(root, 'evidence'), '--replay', resolve('tests/fixtures/crash-review/published-history.json'), '--strace', wrapper, '--json', '--full'],
     { encoding: 'utf8', timeout: 120000 });
     assert.equal(result.status, 1, result.stderr + result.stdout);
     const report = JSON.parse(result.stdout);
     assert.equal(report.killed, 1);
-    assert.equal(report.cases[0].journalsAfterRestart, 1);
+    assert.equal(report.cases[0].state, 'diverged');
     assert.equal(report.reduction.status, 'refused');
     assert.equal(report.reduction.code, 'baseline_failed');
     assert.equal(report.failuresRetained, 0);
@@ -132,13 +138,13 @@ test('review receipt provides source toolchain and independently applicable cont
 });
 
 
-test('path-scoped rename boundary excludes unrelated worker publications',
+test('single-worker published boundary keeps successive async publications on one traced task',
   { skip: process.platform !== 'linux' }, () => temporary(root => {
-    const code = 'const fs=require("node:fs");fs.writeFileSync("cache.tmp","derived");fs.renameSync("cache.tmp","cache");fs.writeFileSync("item.tmp","durable");fs.renameSync("item.tmp","item");';
+    const code = `const assert=require('node:assert/strict');const fs=require('node:fs/promises');assert.equal(process.env.UV_THREADPOOL_SIZE,'1');(async()=>{await fs.writeFile('cache.tmp','derived');await fs.rename('cache.tmp','cache');await fs.writeFile('item.tmp','durable');await fs.rename('item.tmp','item');})().catch(()=>process.exitCode=1);`;
     const child = { executable: process.execPath, args: ['-e', code] };
-    const reference = execute(child, [], root, 15000, join(root, 'reference.trace'), undefined, 'strace', join(root, 'item'), 'rename');
-    assert.equal(reference.status, 0);
-    assert.equal(boundaryCount(reference.trace, 'rename'), 1);
-    const interrupted = execute(child, [], root, 15000, join(root, 'interrupt.trace'), { syscall: 'rename', ordinal: 1 }, 'strace', join(root, 'item'), 'rename');
-    assert.equal(killedAtBoundary(interrupted, { syscall: 'rename', ordinal: 1 }), true);
+    const reference = execute(child, [], root, 15000, join(root, 'reference.trace'));
+    assert.equal(reference.status, 0, reference.stderr.toString());
+    assert.equal(boundaryCount(reference.trace, 'rename'), 2);
+    const interrupted = execute(child, [], root, 15000, join(root, 'interrupt.trace'), { syscall: 'rename', ordinal: 2 });
+    assert.equal(killedAtBoundary(interrupted, { syscall: 'rename', ordinal: 2 }), true);
   }));

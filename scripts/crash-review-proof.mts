@@ -49,7 +49,7 @@ try {
   const sourceCommit = command('git', ['rev-parse', 'HEAD']).trim();
   const publicCommit = command('git', ['rev-parse', 'origin/main']).trim();
   const controls = [
-    { name: 'stable-write-boundary', file: 'scripts/crash-process.mts', before: "tracePath ? traceSyscall : CRASH_SYSCALLS.join(',')", after: "tracePath ? 'openat' : CRASH_SYSCALLS.join(',')", pattern: 'path-scoped rename boundary' },
+    { name: 'stable-write-boundary', file: 'scripts/crash-process.mts', before: ", UV_THREADPOOL_SIZE: '1'", after: "", pattern: 'single-worker published boundary' },
     { name: 'runtime-snapshot', file: 'scripts/crash-storage.mts', before: "['locks', 'transactions', 'checkpoints', 'search']", after: "['runtime', 'locks', 'transactions', 'checkpoints', 'search']", pattern: 'runtime transaction' },
     { name: 'cross-operation', file: 'scripts/crash-harness.mts', before: "scenario === 'update' ? ['comment', id, 'Restart synthetic sentinel', ...common] :\n      ['update', id, '--description', 'Restart synthetic description', ...common]", after: "scenario === 'update' ? ['update', id, '--priority', '1', ...common] :\n      ['comment', id, 'Restart synthetic sentinel', ...common]", pattern: 'independent update cross-operation' },
     { name: 'published-injection', file: 'scripts/crash-harness.mts', before: "counts.push({ syscall: 'openat', count: 1 });", after: "// Disabled history-open boundary (negative control).", pattern: 'published history-open' },
