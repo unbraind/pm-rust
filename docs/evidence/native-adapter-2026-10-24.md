@@ -77,3 +77,39 @@ Local validation also includes `cargo check --locked --all-targets`,
 `cargo clippy --locked --all-targets --all-features -- -D warnings`, formatting,
 and the existing strict TypeScript and ESLint harness checks. Full npm and Bun
 release evidence is provided by the PR's CI run at unchanged thresholds.
+
+## Raw-byte review regression
+
+The offline transcript now records `reply_bytes` as a byte array, rather than a
+decoded `reply` object. Offline checks and live client calls invoke the same
+`check_adapter_reply` function on the exact recorded bytes. Size admission
+precedes UTF-8/JSON parsing, schema, ABI and correlation checks. The CLI's
+separate bounded 16 MiB transcript envelope accommodates decimal byte-array
+expansion without reducing the 1 MiB response-frame ceiling. The public-data
+validation harness supplies the actual response stdout bytes.
+
+`raw_frame_seeded_corpus_matches_live_client` generates **768 frames**, seed
+**0x05eed113**, using a fixed wrapping LCG. Every frame goes through the offline
+checker and a `NativeAdapterClient` transport exchange; both verdict and refusal
+code must agree, and each verdict is also checked against its expected result.
+There are **240 accepted and 528 refused** frames. Categories include 4,096-byte
+limit minus one/exact/plus one, the 5,094-byte whitespace-padded reproduction,
+escapes, Unicode, invalid UTF-8, truncation, oversized nested values, trailing
+data, ABI mismatch, correlation mismatch, duplicate fields, unknown fields,
+excess recursion and backend refusals. Live failures retain `dispatched: true`;
+offline compatibility receipts remain `dispatched: false`.
+
+`cli_transcript_preserves_full_frame_limit_and_raw_errors` separately checks
+that an exact 1 MiB recorded reply fits the CLI envelope, that an oversized
+reply returns `FrameLimit`, invalid UTF-8 returns `InvalidFrame`, and the decoded
+legacy `reply` field refuses rather than silently certifying normalized data.
+
+The sixth case in `node scripts/native-adapter-revert.mts` (listed first)
+restores only offline decode/re-encode behavior, retaining the new transcript
+format and every live check. The differential test fails by assertion on frame
+2: 4,097 recorded bytes with a 4,096-byte limit, offline accepted versus live
+`FrameLimit`. The script restores exact source bytes in `finally`. All **6/6**
+behavioral revert cases fail as required; after restoration the ABI suite passes
+**11/11** and targeted native CLI unit checks pass **2/2**. Deny-warning clippy,
+formatting, strict TypeScript and ESLint pass locally. Full release-gate evidence
+for this revision belongs to its CI run, rather than the earlier run above.

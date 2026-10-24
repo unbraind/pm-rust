@@ -6,6 +6,9 @@ const abi = new URL('../src/native_adapter.rs', import.meta.url);
 const cli = new URL('../src/main.rs', import.meta.url);
 const originals = new Map([abi, cli].map(path => [path, readFileSync(path, 'utf8')]));
 const cases = [
+  { path: abi, target: ['--test', 'native_adapter_contract'], name: 'raw reply admission', test: 'raw_frame_seeded_corpus_matches_live_client',
+    before: 'let checked =\n                check_adapter_reply(&transcript.manifest, &transcript.request, &recorded)?;',
+    after: 'let decoded: AdapterReply = serde_json::from_slice(&recorded).map_err(|_| refusal(AdapterRefusalCode::InvalidFrame))?;\n            let encoded = crate::stringify_json(&decoded, false).into_bytes();\n            let checked = check_adapter_reply(&transcript.manifest, &transcript.request, &encoded)?;' },
   { path: abi, target: ['--test', 'native_adapter_contract'], name: 'capability admission', test: 'admission_refuses_before_transport_or_writes',
     before: '!manifest\n        .capabilities\n        .contains(&request.operation.capability())', after: 'manifest.capabilities.is_empty()' },
   { path: abi, target: ['--test', 'native_adapter_contract'], name: 'ABI compatibility', test: 'versions_fields_and_limits_are_fail_closed',

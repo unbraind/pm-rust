@@ -26,7 +26,8 @@ extension fields. Duplicate fields, trailing non-whitespace and invalid JSON
 refuse. Frame lengths count encoded bytes, with a hard ceiling of 1,048,576.
 The adapter may declare a smaller positive ceiling. Transport implementations
 must stop reading once that ceiling is exceeded, before allocating an unbounded
-response. The CLI admits at most the hard ceiling plus one detection byte.
+response. The offline CLI envelope has a separate 16 MiB ceiling plus one
+detection byte, allowing decimal byte-array expansion without reducing the 1 MiB frame ceiling.
 
 Manifest fields are `abi`, `capabilities`, and `max_frame_bytes`. Capability
 values are `get`, `list`, `claim`, and `release`; absent capabilities refuse
@@ -81,8 +82,14 @@ fallback writes or client-side compensation. Read authoritative receipts before
 deciding how to recover.
 
 `adapter-check` validates an offline transcript containing `manifest`, `request`,
-and optional `reply`. Its small compatibility receipt intentionally excludes
-backend bodies, secrets and large histories. A recorded backend refusal is valid
+and optional `reply_bytes`, an array of integers from 0 through 255 containing
+the exact recorded frame. Omit it or use null when no reply was recorded. The
+previous decoded `reply` field is rejected: re-encoding a JSON object loses wire
+size, whitespace, duplicate fields and encoding errors. Both offline checking
+and live calls pass the original bytes to `check_adapter_reply`, which checks
+size before UTF-8/JSON decoding, schema, ABI and correlation. Padding, escapes,
+trailing data and invalid UTF-8 are never normalized before admission. Its small
+compatibility receipt intentionally excludes backend bodies, secrets and large histories. A recorded backend refusal is valid
 ABI data and exits successfully with `reply_status: refused`; malformed ABI input
 exits nonzero with a typed local refusal. The CLI's `dispatched: false` describes
 this offline check, not whether a recorded operation previously ran.

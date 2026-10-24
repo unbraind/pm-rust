@@ -61,7 +61,7 @@ function exchange(operation: Record<string, unknown>): Record<string, unknown> {
   // Check every transcript in both CLI encodings, without leaking result bodies.
   for (const json of [false, true]) {
     const checked = spawnSync(binary, ['adapter-check', ...(json ? ['--json'] : [])], {
-      input: JSON.stringify({ manifest, request, reply }), cwd: root, timeout: 30000,
+      input: JSON.stringify({ manifest, request, reply_bytes: [...response.stdout] }), cwd: root, timeout: 30000,
       env: { PATH: scratch, GIT_CEILING_DIRECTORIES: dirname(root) },
     });
     assert.equal(checked.status, 0, 'ABI transcript must validate');

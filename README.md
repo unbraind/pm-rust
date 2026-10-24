@@ -302,7 +302,7 @@ receipts before retrying an interrupted mutation.
 
 `pm-rust adapter-check [--json]` reads a transcript from stdin and emits a compact
 TOON or JSON compatibility receipt. It works without a tracker. It validates
-recorded responses without replaying them; `dispatched: false` and
+recorded responses supplied as exact `reply_bytes` arrays without replaying them; `dispatched: false` and
 `receipt_scope: abi_compatibility_only` are explicit. It does not certify backend
 authorization, durable writes or corpus completeness.
 

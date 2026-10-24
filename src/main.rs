@@ -620,7 +620,7 @@ fn run_adapter_check(
 ) -> Result<(), Box<dyn std::error::Error>> {
     let mut bytes = Vec::new();
     reader
-        .take((pm_rust::native_adapter::NATIVE_ADAPTER_MAX_BYTES + 1) as u64)
+        .take((pm_rust::native_adapter::NATIVE_ADAPTER_MAX_TRANSCRIPT_BYTES + 1) as u64)
         .read_to_end(&mut bytes)?;
     let result = pm_rust::native_adapter::check_adapter_transcript(&bytes);
     let value = match &result {

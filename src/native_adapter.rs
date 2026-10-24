@@ -7,6 +7,9 @@ use serde_json::Value;
 pub const NATIVE_ADAPTER_ABI: &str = "pm-native-adapter/1";
 /// Hard admission bound for each JSON frame, independent of adapter claims.
 pub const NATIVE_ADAPTER_MAX_BYTES: usize = 1_048_576;
+/// Offline envelope ceiling, allowing byte-array expansion of full-sized frames.
+/// This bounds transcript input independently of each frame's admission ceiling.
+pub const NATIVE_ADAPTER_MAX_TRANSCRIPT_BYTES: usize = 16 * NATIVE_ADAPTER_MAX_BYTES;
 
 /// Narrow SDK capabilities; an adapter grants each operation explicitly.
 #[derive(Clone, Copy, Debug, Deserialize, Eq, PartialEq, Serialize)]
@@ -355,8 +358,9 @@ pub struct AdapterTranscript {
     pub manifest: AdapterManifest,
     /// Prospective operation.
     pub request: AdapterRequest,
-    /// Optional recorded response; never replayed against the backend.
-    pub reply: Option<AdapterReply>,
+    /// Exact recorded response bytes, including padding and malformed encodings.
+    /// Never decode or normalize these before shared frame admission.
+    pub reply_bytes: Option<Vec<u8>>,
 }
 
 /// Validates a bounded transcript and returns an agent-sized compatibility receipt.
@@ -364,14 +368,14 @@ pub struct AdapterTranscript {
 /// # Errors
 /// Refuses malformed input, unsupported capabilities, or incompatible recorded replies.
 pub fn check_adapter_transcript(bytes: &[u8]) -> Result<Value, AdapterRefusal> {
-    check_size(bytes.len(), NATIVE_ADAPTER_MAX_BYTES)?;
+    check_size(bytes.len(), NATIVE_ADAPTER_MAX_TRANSCRIPT_BYTES)?;
     let transcript: AdapterTranscript =
         serde_json::from_slice(bytes).map_err(|_| refusal(AdapterRefusalCode::InvalidFrame))?;
     let request_bytes = prepare_adapter_request(&transcript.manifest, &transcript.request)?;
-    let outcome = match transcript.reply {
-        Some(reply) => {
-            let encoded = crate::stringify_json(&reply, false).into_bytes();
-            let checked = check_adapter_reply(&transcript.manifest, &transcript.request, &encoded)?;
+    let outcome = match transcript.reply_bytes {
+        Some(recorded) => {
+            let checked =
+                check_adapter_reply(&transcript.manifest, &transcript.request, &recorded)?;
             match checked.outcome {
                 AdapterOutcome::Success { .. } => "success",
                 AdapterOutcome::Refused { .. } => "refused",

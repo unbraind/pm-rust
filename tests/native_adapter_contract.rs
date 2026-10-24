@@ -2,7 +2,8 @@
 use pm_rust::native_adapter::{
     AdapterCapability as Capability, AdapterManifest, AdapterOperation as Operation,
     AdapterOutcome, AdapterRefusalCode as Code, AdapterReply, AdapterRequest,
-    NATIVE_ADAPTER_ABI as ABI, NATIVE_ADAPTER_MAX_BYTES as MAX, NativeAdapter, NativeAdapterClient,
+    NATIVE_ADAPTER_ABI as ABI, NATIVE_ADAPTER_MAX_BYTES as MAX,
+    NATIVE_ADAPTER_MAX_TRANSCRIPT_BYTES as TRANSCRIPT_MAX, NativeAdapter, NativeAdapterClient,
     check_adapter_manifest, check_adapter_reply, check_adapter_transcript, prepare_adapter_request,
 };
 use pm_rust::{OwnershipItem, PmRustError, Workspace};
@@ -63,7 +64,7 @@ impl NativeAdapter for Peer {
         self.declaration.clone()
     }
     fn exchange(&mut self, _: &[u8], limit: usize) -> io::Result<Vec<u8>> {
-        assert_eq!(limit, MAX);
+        assert_eq!(limit, self.declaration.max_frame_bytes);
         self.calls.set(self.calls.get() + 1);
         self.response
             .clone()
@@ -384,9 +385,9 @@ fn transcript_checks_do_not_confuse_validation_with_execution() -> TestResult {
             details: json!({"exit_code":3}),
         }),
     ] {
-        let recorded = outcome.map(reply);
+        let recorded = outcome.map(|outcome| bytes(&reply(outcome)));
         let receipt = check_adapter_transcript(&bytes(
-            &json!({"manifest":manifest(),"request":call,"reply":recorded}),
+            &json!({"manifest":manifest(),"request":call,"reply_bytes":recorded}),
         ))?;
         assert_eq!(receipt["dispatched"], false);
         assert_eq!(receipt["receipt_scope"], "abi_compatibility_only");
@@ -394,7 +395,7 @@ fn transcript_checks_do_not_confuse_validation_with_execution() -> TestResult {
     }
     for invalid in [
         json!({}),
-        json!({"manifest":manifest(),"request":call,"reply":null,"foreign":true}),
+        json!({"manifest":manifest(),"request":call,"reply_bytes":null,"foreign":true}),
         json!({"manifest":manifest(),"request":{"abi":ABI,"request_id":"call-1","operation":{"action":"get","id":"demo-1","force":true}}}),
     ] {
         assert_eq!(
@@ -406,7 +407,7 @@ fn transcript_checks_do_not_confuse_validation_with_execution() -> TestResult {
         );
     }
     assert_eq!(
-        check_adapter_transcript(&vec![b' '; MAX + 1])
+        check_adapter_transcript(&vec![b' '; TRANSCRIPT_MAX + 1])
             .err()
             .ok_or("size")?
             .code,
@@ -421,10 +422,153 @@ fn transcript_checks_do_not_confuse_validation_with_execution() -> TestResult {
     recorded.request_id = "different".into();
     assert!(
         check_adapter_transcript(&bytes(
-            &json!({"manifest":manifest(),"request":call,"reply":recorded})
+            &json!({"manifest":manifest(),"request":call,"reply_bytes":bytes(&recorded)})
         ))
         .is_err()
     );
+    Ok(())
+}
+
+/// Generates reproducible wire frames without depending on random-library versions.
+fn corpus_word(state: &mut u64) -> String {
+    *state = state
+        .wrapping_mul(6_364_136_223_846_793_005)
+        .wrapping_add(1);
+    format!("{state:016x}")
+}
+
+/// Compares exact recorded bytes through offline admission and a real client call.
+#[test]
+fn raw_frame_seeded_corpus_matches_live_client() -> TestResult {
+    const SEED: u64 = 0x05ee_d113;
+    const LIMIT: usize = 4096;
+    const COUNT: usize = 768;
+    let declaration = AdapterManifest {
+        max_frame_bytes: LIMIT,
+        ..manifest()
+    };
+    let call = request(Operation::Get {
+        id: "demo-1".into(),
+    });
+    let mut state = SEED;
+    let mut accepted = 0;
+    for index in 0..COUNT {
+        let word = corpus_word(&mut state);
+        let base = bytes(&reply(AdapterOutcome::Success {
+            output: json!({"word":word}),
+        }));
+        let (frame, expected) = match index % 16 {
+            // Boundary lengths include every original padding byte in admission.
+            boundary @ 0..=2 => {
+                let mut frame = base.clone();
+                frame.resize(LIMIT - 1 + boundary, b' ');
+                (frame, if boundary == 2 { Err(Code::FrameLimit) } else { Ok(()) })
+            }
+            3 => {
+                let mut frame = base.clone();
+                frame.splice(1..1, vec![b' '; 5094 - base.len()]);
+                (frame, Err(Code::FrameLimit))
+            }
+            4 => (format!(r#"{{"abi":"{ABI}","request_id":"call-1","outcome":{{"status":"success","output":"\u96ea\n\t\"\\{word}"}}}}"#).into_bytes(), Ok(())),
+            5 => (bytes(&reply(AdapterOutcome::Success { output: json!(["雪ä🦀", word]) })), Ok(())),
+            6 => {
+                let mut frame = base.clone();
+                let offset = frame.iter().position(|byte| *byte == b'w').ok_or("word offset")?;
+                frame[offset] = 0xff;
+                (frame, Err(Code::InvalidFrame))
+            }
+            7 => {
+                let length = usize::from(word.as_bytes()[0]) % (base.len() - 1);
+                (base[..length].to_vec(), Err(Code::InvalidFrame))
+            }
+            8 => (bytes(&reply(AdapterOutcome::Success { output: json!({"nested":{"large":word.repeat(300)}}) })), Err(Code::FrameLimit)),
+            9 => {
+                let mut frame = base.clone();
+                frame.extend_from_slice(b" {} trailing");
+                (frame, Err(Code::InvalidFrame))
+            }
+            10 => {
+                let mut response = reply(AdapterOutcome::Success { output: json!(word) });
+                response.abi = "future".into();
+                (bytes(&response), Err(Code::IncompatibleAbi))
+            }
+            11 => {
+                let mut response = reply(AdapterOutcome::Success { output: json!(word) });
+                response.request_id = word;
+                (bytes(&response), Err(Code::InvalidFrame))
+            }
+            12 => {
+                let mut frame = base.clone();
+                frame.splice(1..1, b"\"request_id\":\"call-1\",".iter().copied());
+                (frame, Err(Code::InvalidFrame))
+            }
+            13 => {
+                let mut frame = base.clone();
+                frame.splice(1..1, b"\"unknown\":true,".iter().copied());
+                (frame, Err(Code::InvalidFrame))
+            }
+            14 => (format!(r#"{{"abi":"{ABI}","request_id":"call-1","outcome":{{"status":"success","output":{}"{word}"{}}}}}"#, "[".repeat(140), "]".repeat(140)).into_bytes(), Err(Code::InvalidFrame)),
+            _ => (bytes(&reply(AdapterOutcome::Refused { code: word, message: "denied".into(), remedy: "request access".into(), details: json!({"unicode":"雪"}) })), Ok(())),
+        };
+        let offline = check_adapter_transcript(&bytes(&json!({
+            "manifest":declaration, "request":call, "reply_bytes":frame
+        })));
+        let calls = Rc::new(Cell::new(0));
+        let mut client = NativeAdapterClient::new(Peer {
+            declaration: declaration.clone(),
+            response: Some(frame.clone()),
+            calls: calls.clone(),
+        })?;
+        let live = client.call(&call);
+        let offline_verdict = offline.as_ref().map(|_| ()).map_err(|error| error.code);
+        let live_verdict = live.as_ref().map(|_| ()).map_err(|error| error.code);
+        assert_eq!(
+            offline_verdict,
+            live_verdict,
+            "seed={SEED:#x} frame={index} bytes={}",
+            frame.len()
+        );
+        assert_eq!(live_verdict, expected, "seed={SEED:#x} frame={index}");
+        assert_eq!(calls.get(), 1);
+        if let Ok(receipt) = offline {
+            assert_eq!(receipt["dispatched"], false);
+            accepted += 1;
+        } else {
+            assert!(live.err().ok_or("live refusal")?.dispatched);
+        }
+    }
+    assert_eq!(accepted, 240);
+    Ok(())
+}
+
+/// Admits a maximum-size recorded frame through the bounded CLI envelope.
+#[test]
+fn cli_transcript_preserves_full_frame_limit_and_raw_errors() -> TestResult {
+    let call = request(Operation::Get {
+        id: "demo-1".into(),
+    });
+    let mut frame = bytes(&reply(AdapterOutcome::Success { output: json!({}) }));
+    frame.resize(MAX, b' ');
+    for (recorded, code) in [
+        (frame, None),
+        (vec![b' '; MAX + 1], Some(Code::FrameLimit)),
+        (vec![0xff], Some(Code::InvalidFrame)),
+    ] {
+        let input = bytes(&json!({"manifest":manifest(),"request":call,"reply_bytes":recorded}));
+        let result = assert_cmd::Command::new(env!("CARGO_BIN_EXE_pm-rust"))
+            .args(["adapter-check", "--json"])
+            .write_stdin(input)
+            .output()?;
+        assert_eq!(result.status.success(), code.is_none());
+        let receipt: Value = serde_json::from_slice(&result.stdout)?;
+        if let Some(code) = code {
+            assert_eq!(receipt["refusal"]["code"], serde_json::to_value(code)?);
+        }
+    }
+    // A decoded reply cannot prove the original wire frame's size or encoding.
+    assert!(check_adapter_transcript(&bytes(&json!({
+        "manifest":manifest(),"request":call,"reply":reply(AdapterOutcome::Success {output:json!({})})
+    }))).is_err());
     Ok(())
 }
 
