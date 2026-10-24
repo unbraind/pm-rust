@@ -6,9 +6,9 @@ status: closed
 priority: 1
 tags[3]: durability,regression,rust
 created_at: "2026-10-23T07:14:34.866Z"
-updated_at: "2026-10-24T21:48:10.089Z"
+updated_at: "2026-10-24T23:14:00.802Z"
 closed_at: "2026-10-24T21:48:10.066Z"
-completed_at: "2026-10-24T21:48:10.066Z"
+completed_at: "2026-10-23T10:08:59.000Z"
 author: codex-agent
 acceptance_criteria: "Directly constructed pending journals cover update-comment-update, comment-update-comment, and isolation of another item; each cross-operation regression has a behavioral revert proof. All native item mutations recover all matching journals under the item lock in deterministic order. Divergent bytes yield a typed refusal naming the journal and remedy. Preserve create and single-operation recovery behavior and refusal codes. just release-check passes unchanged 100 percent floors and mutation oracle parity passes. Open a review-ready PR; leave this item in progress."
 parent: pm-rust-u4al

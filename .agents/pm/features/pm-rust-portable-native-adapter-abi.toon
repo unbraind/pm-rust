@@ -7,9 +7,9 @@ status: closed
 priority: 2
 tags[4]: adapter,"gh:unbraind/pm-rust#113",interop,sdk
 created_at: "2026-10-24T11:48:18.127Z"
-updated_at: "2026-10-24T21:48:10.219Z"
+updated_at: "2026-10-24T23:14:01.500Z"
 closed_at: "2026-10-24T21:48:10.205Z"
-completed_at: "2026-10-24T21:48:10.205Z"
+completed_at: "2026-10-24T17:38:43.000Z"
 author: codex-agent
 acceptance_criteria: "Synthetic remote adapters preserve refusal and receipt semantics; Unsupported capabilities fail before writes; ABI compatibility is checked; Typed SDK and bounded TOON/JSON CLI with actionable refusals, docs and example; Read-only public tracker copy validated without Git; npm and Bun release gates pass"
 parent: pm-rust-u4al

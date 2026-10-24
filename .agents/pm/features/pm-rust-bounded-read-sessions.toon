@@ -6,9 +6,9 @@ status: closed
 priority: 2
 tags[4]: embedding,"gh:unbraind/pm-rust#110",resources,sdk
 created_at: "2026-10-23T14:33:11.991Z"
-updated_at: "2026-10-24T21:48:10.291Z"
+updated_at: "2026-10-24T23:14:02.408Z"
 closed_at: "2026-10-24T21:48:10.270Z"
-completed_at: "2026-10-24T21:48:10.270Z"
+completed_at: "2026-10-23T22:54:51.000Z"
 author: codex-agent
 acceptance_criteria: "Large synthetic trackers respect a declared memory ceiling; cancellation releases resources; wire results remain oracle-conformant; compact JSON/TOON, typed refusals and remedies, README and example; read-only non-git public-tracker validation; unchanged CI gates."
 parent: pm-rust-u4al

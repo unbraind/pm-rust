@@ -6,9 +6,9 @@ status: closed
 priority: 2
 tags[4]: crash-consistency,follow-up,"gh:unbraind/pm-rust#105",locks
 created_at: "2026-10-21T22:16:11.158Z"
-updated_at: "2026-10-24T21:48:10.487Z"
+updated_at: "2026-10-24T23:14:03.134Z"
 closed_at: "2026-10-24T21:48:10.461Z"
-completed_at: "2026-10-24T21:48:10.461Z"
+completed_at: "2026-10-23T21:02:58.000Z"
 author: codex-agent
 resolution: "Verified dead-owner restart reclaims only identity-checked incomplete native lock initialization under kernel ownership, preserving live/unknown-owner refusals and 50-writer no-loss histories."
 expected_result: "The first native lock fsync follows a complete owner payload but leaves a fresh empty publication gate on process death. That gate blocks existing confirmed-dead-owner recovery and causes update/comment restart exit 4 while acknowledged item/history bytes remain intact. Recover only under the kernel lease with verified same-host original-process death and identity-checked empty-gate reclamation. Preserve unknown/live-owner refusals, immutable histories, exact restart references and the 50-writer no-loss contract; builds on #104."
