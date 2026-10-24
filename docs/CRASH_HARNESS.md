@@ -186,4 +186,3 @@ per-process timeout was used for this local run; the SDK default remains 15000 m
 The [rebuild-based revert proof](CRASH_RESTART_REVERT_PROOF_2026_10_22.json)
 replaces only the recovery function with its original implementation: both
 permanent replays fail with restart exit 4, then both pass after restoration.
-

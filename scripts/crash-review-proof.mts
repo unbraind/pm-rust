@@ -21,7 +21,8 @@ function controlPatch(file: string, original: Buffer | string, changed: string, 
   writeFileSync(oldFile, original); writeFileSync(newFile, changed);
   return command('git', ['diff', '--no-index', '--no-ext-diff', oldFile, newFile], 1)
     .replace(/^diff --git .*$/m, `diff --git a/${file} b/${file}`)
-    .replace(/^--- .*$/m, `--- a/${file}`).replace(/^\+\+\+ .*$/m, `+++ b/${file}`);
+    .replace(/^--- .*$/m, `--- a/${file}`).replace(/^\+\+\+ .*$/m, `+++ b/${file}`)
+    .replace(/^ $/gm, '');
 }
 /** Make only the private archived input read-only. */
 function readOnly(path: string): void {
