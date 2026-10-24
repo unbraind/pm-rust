@@ -192,6 +192,7 @@ export function runCrashCorpus(options: CrashOptions): CrashReport {
  * Boundary failures use their whitelisted scenario/implementation/syscall/ordinal.
  * A baseline_parity failure replays the scenario across both implementations and
  * all their observed boundaries, rather than selecting a single case.
+ * A recovery_parity failure likewise replays its complete paired scenario.
  */
 export function replayCrashFailure(options: Omit<CrashOptions, 'source' | 'only' | 'scenarios'>, evidence: string): CrashReport {
   let manifest: unknown;
@@ -283,6 +284,7 @@ function run(options: CrashOptions, root: string, timeout: number, maximum: numb
       const historyDirectory = clone(seed);
       const historyReceipt = acknowledged(execute(implementation, [...mutation, ...common], historyDirectory, timeout,
         join(historyDirectory, 'history.trace'), undefined, options.strace, join(historyDirectory, `.agents/pm/history/${id}.jsonl`)));
+      rmSync(historyDirectory, { recursive: true, force: true });
       const counts: { syscall: Boundary['syscall']; count: number }[] = CRASH_SYSCALLS.map(syscall => ({ syscall, count: boundaryCount(receipt.trace, syscall) }));
       if (boundaryCount(historyReceipt.trace, 'openat') < 1) throw new CrashRefusal('boundary_unreached', 'Enable history-path openat tracing; the post-publication history boundary must be observed.');
       counts.push({ syscall: 'openat', count: 1 });
@@ -295,9 +297,11 @@ function run(options: CrashOptions, root: string, timeout: number, maximum: numb
       // The reference restart uses precisely the same invocation as interrupted cases.
       const committedReceipt = acknowledged(execute(implementation, restart, directory, timeout));
       const committed = snapshot(join(directory, '.agents/pm'));
+      rmSync(directory, { recursive: true, force: true });
       const beforeDirectory = clone(seed);
       const beforeReceipt = acknowledged(execute(implementation, restart, beforeDirectory, timeout));
       const before = snapshot(join(beforeDirectory, '.agents/pm'));
+      rmSync(beforeDirectory, { recursive: true, force: true });
       for (const { syscall, count } of counts) {
         for (let ordinal = 1; ordinal <= count; ordinal++) {
           if (options.only && (options.only.scenario !== scenario || options.only.implementation !== label || options.only.syscall !== syscall || options.only.ordinal !== ordinal)) continue;
@@ -365,6 +369,7 @@ function run(options: CrashOptions, root: string, timeout: number, maximum: numb
               report.failuresRetained++;
             }
           }
+          rmSync(killedDirectory, { recursive: true, force: true });
         }
       }
     }

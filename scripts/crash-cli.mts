@@ -16,11 +16,11 @@ function main(): void {
       return;
     }
     if (!values.native || !values.artifacts) throw new CrashRefusal('invalid_options', 'Supply --native and --artifacts; use --help for the full command.');
-    if (values.source && values.replay) throw new CrashRefusal('invalid_options', 'Supply only one of --source and --replay.');
+    if (values.source !== undefined && values.replay !== undefined) throw new CrashRefusal('invalid_options', 'Supply only one of --source and --replay.');
     const options = { native: values.native, artifacts: values.artifacts, oracle: values.oracle,
       source: values.source, strace: values.strace, maxBoundaries: values['max-boundaries'] === undefined ? undefined : Number(values['max-boundaries']),
       timeoutMs: values.timeout === undefined ? undefined : Number(values.timeout) };
-    const report = values.replay ? replayCrashFailure(options, values.replay) : runCrashCorpus(options);
+    const report = values.replay !== undefined ? replayCrashFailure(options, values.replay) : runCrashCorpus(options);
     if (json) console.log(JSON.stringify(values.full ? report : { ...report,
       cases: report.cases.map(row => ({ scenario: row.scenario, implementation: row.implementation,
         syscall: row.syscall, boundary: row.boundary, state: row.state, acknowledged: row.acknowledged,
@@ -30,6 +30,10 @@ function main(): void {
     else {
       console.log(`schema: ${JSON.stringify(report.schema)}\nok: ${report.ok}\noracle_version: ${JSON.stringify(report.oracleVersion)}\nsource_items: ${report.sourceItems}\nsource_unchanged: ${report.sourceUnchanged}\nacknowledged_comparisons: ${report.acknowledgedComparisons}\nkilled: ${report.killed}\nfailures_retained: ${report.failuresRetained}`);
       console.log(`clock_date_now: ${report.clock.dateNow}\nclock_limitation: ${JSON.stringify(report.clock.limitation)}\nrecovery_comparisons: ${report.recoveryParity.length}\nrecovery_mismatches: ${report.recoveryParity.filter(row => !row.ok).length}\nreduction: ${report.reduction?.status ?? 'none'}`);
+      console.log(`parity[${report.parity.length}]{scenario,bytes,acknowledgement}:`);
+      for (const row of report.parity) console.log(`  ${row.scenario},${row.bytes},${row.acknowledgement}`);
+      for (const row of report.cases.filter(row => row.failure)) console.log(`failure: ${JSON.stringify({ scenario: row.scenario, implementation: row.implementation, syscall: row.syscall, boundary: row.boundary, ...row.failure })}`);
+      for (const row of report.recoveryParity.filter(row => !row.ok)) console.log(`recovery_failure: ${JSON.stringify(row)}`);
       console.log(`cases[${report.cases.length}]{scenario,implementation,syscall,boundary,state,history_preserved,return_status,pending_journals,failure,ok}:`);
       for (const row of report.cases) console.log(`  ${row.scenario},${row.implementation},${row.syscall},${row.boundary},${row.state},${row.historyPreserved},${row.returnStatus},${row.journalsAfterRestart},${row.failure?.code ?? 'none'},${row.ok}`);
     }

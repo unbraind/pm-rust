@@ -111,10 +111,11 @@ it does not turn a failed crash conformance report into runtime approval.
 The historical receipts above excluded runtime journals and used same-operation
 restart. They remain immutable and do not establish cross-operation conformance.
 The current corpus records pending journals and tests a different operation plus
-return to the original one. Priority-zero `pm-rust-cross-operation-journal` blocks
-PR 104: the real native rename-1 kill leaves a journal, the different operation
-exits zero, then the original operation refuses with RecoveryConflict. PR 105's
-first-fsync gate fix does not repair this separate defect.
+return to the original one. Main now includes the separate `pm-rust-cross-operation-journal` fix as well
+as first-fsync lock recovery. Permanent live rename-1 replays require the other
+operation to drain the journal and the original operation to succeed afterward.
+The locked published oracle still diverges at history-open cuts; that versioned
+behavior is tracked separately by `pm-rust-published-history-open`.
 
 Recovered item/history bytes, shared receipt projections, states and pending
 journals are compared across runtimes for every common measured cut. A mismatch

@@ -6,7 +6,7 @@ import { tmpdir } from 'node:os';
 import { join, resolve } from 'node:path';
 import { test } from 'node:test';
 import { boundaryCount, execute, killedAtBoundary } from './crash-process.mts';
-import { CLOCK_POLICY, compareRecovery, replayCrashFailure } from './crash-harness.mts';
+import { CLOCK_POLICY, compareRecovery, replayCrashFailure, runCrashCorpus } from './crash-harness.mts';
 import { journals, materialize, sameBytes, snapshot } from './crash-storage.mts';
 
 /** Own a disposable directory, never a source tracker. */
@@ -120,7 +120,7 @@ test('review receipt provides source toolchain and independently applicable cont
   assert.match(receipt.provenance.publicTrackerCommit, /^[a-f0-9]{40}$/);
   for (const name of ['node', 'rustc', 'nightly', 'cargo', 'strace']) assert.ok(receipt.provenance.toolchain[name]);
   assert.ok(receipt.provenance.reproduction.includes('node scripts/crash-review-proof.mts'));
-  assert.equal(receipt.controls.length, 7);
+  assert.equal(receipt.controls.length, 11);
   for (const control of receipt.controls) {
     const patch = readFileSync(control.patch);
     assert.equal(createHash('sha256').update(patch).digest('hex'), control.patchSha256);
@@ -148,3 +148,31 @@ test('single-worker published boundary keeps successive async publications on on
     const interrupted = execute(child, [], root, 15000, join(root, 'interrupt.trace'), { syscall: 'rename', ordinal: 2 });
     assert.equal(killedAtBoundary(interrupted, { syscall: 'rename', ordinal: 2 }), true);
   }));
+
+test('empty replay options refuse before normal corpus admission', () => temporary(root => {
+  for (const args of [['--replay', ''], ['--source', '', '--replay', ''], ['--source', '', '--replay', 'missing']]) {
+    const result = spawnSync(process.execPath, [resolve('scripts/crash-cli.mts'), '--native', 'missing', '--artifacts', join(root, 'evidence'), ...args, '--json'], { encoding: 'utf8' });
+    assert.equal(result.status, 2, result.stderr);
+    const refusal = JSON.parse(result.stdout);
+    assert.equal(refusal.code, 'invalid_options');
+    assert.match(refusal.remedy, args.length === 2 ? /readable retained case/ : /only one/);
+  }
+}));
+
+test('default crash output explains parity and case failure remedies',
+  { skip: process.platform !== 'linux', timeout: 180000 }, () => temporary(root => {
+    const result = spawnSync(process.execPath, [resolve('scripts/crash-cli.mts'), '--native', resolve('target/debug/pm-rust'), '--artifacts', join(root, 'evidence'), '--replay', resolve('tests/fixtures/crash-review/published-history.json')], { encoding: 'utf8', timeout: 120000 });
+    assert.equal(result.status, 1, result.stderr + result.stdout);
+    assert.match(result.stdout, /parity\[1\]\{scenario,bytes,acknowledgement\}/);
+    assert.match(result.stdout, /failure: .*"code":"durable_divergence".*"remedy":"Replay/);
+}));
+
+test('completed case workspaces are removed before later process admission',
+  { skip: process.platform !== 'linux', timeout: 180000 }, () => temporary(root => {
+    const wrapper = join(root, 'bounded-native');
+    writeFileSync(wrapper, `#!${process.execPath}\nconst fs=require('node:fs');const path=require('node:path');const cp=require('node:child_process');const cases=fs.readdirSync(path.dirname(process.cwd()),{withFileTypes:true}).filter(e=>e.isDirectory()&&/^case-[0-9]+$/.test(e.name));if(cases.length>2)process.exit(79);const r=cp.spawnSync(${JSON.stringify(resolve('target/debug/pm-rust'))},process.argv.slice(2),{stdio:'inherit'});process.exit(r.status??1);\n`);
+    chmodSync(wrapper, 0o755);
+    const report = runCrashCorpus({ native: wrapper, artifacts: join(root, 'evidence'), scenarios: ['update'] });
+    assert.ok(report.cases.filter(row => row.implementation === 'native').every(row => row.ok), JSON.stringify(report.cases));
+    assert.ok(report.killed > 1);
+}));
