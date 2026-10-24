@@ -40,17 +40,20 @@ node scripts/native-adapter-validate.mts --source <public-tracker-copy> \
   --example <native-adapter-example> --binary <native-cli>
 ```
 
-The targeted ABI suite passes eight tests. Its shared-tracker test executes
+The targeted ABI suite passes nine tests. Its shared-tracker test executes
 12 deterministic interleavings: both ownership mutation paths at all six adapter
 boundaries, plus a foreign-owner release guard. It delegates mutations to the
-real native SDK on a tracker initialized by the pinned CLI. The seven other
+real native SDK on a tracker initialized by the pinned CLI. The eight other
 protocol tests exercise outcomes, admission, ABI versions, field/frame limits,
 uncertain outcomes/no retries, offline transcript validation and the CLI without
 Git, Node or tracker prerequisites. Two additional CLI unit tests cover all
 19 missing-tracker dispatch paths, successful and refused full command dispatch
 with caller-owned streams in JSON and TOON, plus injected stdin, broken-pipe,
 trailing newline, flush and TOON codec failures. The complete CLI unit target
-passes 37 tests, and black-box CLI dispatch passes 17 tests. Constructor/preflight refusal tests also
+passes 37 tests, and black-box CLI dispatch passes 17 tests. A separate CLI
+process matrix checks all 19 missing-tracker commands without Git or Node;
+instrumentation confirms every discovery error propagation point executes in
+both process and unit-test dispatcher instances. Constructor/preflight refusal tests also
 prove an incompatible manifest never reaches the backend.
 
 `node scripts/native-adapter-revert.mts` independently replaces only the relevant

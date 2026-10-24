@@ -71,6 +71,7 @@ impl NativeAdapter for Peer {
     }
 }
 
+/// Retains complete canonical success and refusal envelopes across the byte ABI.
 #[test]
 fn canonical_outcomes_survive_the_byte_boundary() -> TestResult {
     let output = json!({"claimed_by":"peer", "skipped":true,"warnings":["claim_skipped_held_by:peer"],"mutation_receipt":{"changed_count":0},"omission_receipt":{"has_omissions":true},"next_cursor":"opaque","large":9_007_199_254_740_991_u64,"unicode":"ä\n雪"});
@@ -105,6 +106,7 @@ fn canonical_outcomes_survive_the_byte_boundary() -> TestResult {
     Ok(())
 }
 
+/// Rejects unsupported or invalid requests without invoking a backend.
 #[test]
 fn admission_refuses_before_transport_or_writes() -> TestResult {
     /// A read-only adapter cannot receive a mutating operation.
@@ -163,6 +165,7 @@ fn admission_refuses_before_transport_or_writes() -> TestResult {
     Ok(())
 }
 
+/// Refuses incompatible declarations before transport access.
 #[test]
 fn versions_fields_and_limits_are_fail_closed() -> TestResult {
     let invalid = AdapterManifest {
@@ -230,6 +233,7 @@ fn versions_fields_and_limits_are_fail_closed() -> TestResult {
     Ok(())
 }
 
+/// Checks typed operation fields and exact encoded frame ceilings.
 #[test]
 fn operation_fields_and_lengths_fail_closed() -> TestResult {
     for operation in [
@@ -330,6 +334,7 @@ fn operation_fields_and_lengths_fail_closed() -> TestResult {
     Ok(())
 }
 
+/// Preserves uncertainty after dispatch and never repeats a transport call.
 #[test]
 fn dispatched_failures_are_never_retried_or_reported_as_no_write() -> TestResult {
     let call = request(Operation::Claim {
@@ -363,6 +368,7 @@ fn dispatched_failures_are_never_retried_or_reported_as_no_write() -> TestResult
     Ok(())
 }
 
+/// Keeps offline compatibility receipts separate from operation success.
 #[test]
 fn transcript_checks_do_not_confuse_validation_with_execution() -> TestResult {
     let call = request(Operation::Get {
@@ -542,6 +548,7 @@ impl NativeAdapter for RacingPeer<'_> {
     }
 }
 
+/// Injects real competing ownership transitions at every adapter boundary.
 #[test]
 fn every_adapter_boundary_preserves_authoritative_claim_and_release() -> TestResult {
     let directory = tracker()?;
@@ -643,6 +650,7 @@ fn every_adapter_boundary_preserves_authoritative_claim_and_release() -> TestRes
     Ok(())
 }
 
+/// Runs both CLI encodings without a tracker, Git, Node or backend execution.
 #[test]
 fn cli_validates_without_tracker_git_node_or_backend_execution() -> TestResult {
     let directory = tempfile::tempdir()?;
@@ -680,6 +688,57 @@ fn cli_validates_without_tracker_git_node_or_backend_execution() -> TestResult {
                 }));
             }
         }
+    }
+    assert!(!directory.path().join(".agents").exists());
+    Ok(())
+}
+
+/// Exercises every discovery refusal in real CLI processes without Git or Node.
+#[test]
+fn cli_workspace_commands_refuse_missing_trackers_without_git() -> TestResult {
+    let directory = tempfile::tempdir()?;
+    let cases: &[&[&str]] = &[
+        &["read-session"],
+        &["assurance", "list", "schema"],
+        &["context"],
+        &["history", "demo-1"],
+        &["deps", "demo-1"],
+        &["search", "keyword"],
+        &["files", "demo-1"],
+        &["docs", "demo-1"],
+        &["test", "demo-1"],
+        &["list"],
+        &["get", "demo-1"],
+        &[
+            "create", "--id", "demo-1", "--title", "Example", "--type", "Task", "--author",
+            "caller",
+        ],
+        &["update", "demo-1", "--author", "caller"],
+        &["comment", "demo-1", "text", "--author", "caller"],
+        &["claim", "demo-1"],
+        &["release", "demo-1"],
+        &["start-task", "demo-1"],
+        &["pause-task", "demo-1"],
+        &["close", "demo-1", "done", "--author", "caller"],
+    ];
+    for args in cases {
+        let output = Command::new(env!("CARGO_BIN_EXE_pm-rust"))
+            .current_dir(directory.path())
+            .args(["--workspace", "."])
+            .args(*args)
+            .env("PATH", directory.path())
+            .env(
+                "GIT_CEILING_DIRECTORIES",
+                directory.path().parent().ok_or("parent")?,
+            )
+            .output()?;
+        assert!(!output.status.success(), "{args:?}");
+        assert!(
+            String::from_utf8_lossy(&output.stderr).contains("no pm tracker found"),
+            "{args:?}: {}",
+            String::from_utf8_lossy(&output.stderr)
+        );
+        assert!(output.stdout.is_empty());
     }
     assert!(!directory.path().join(".agents").exists());
     Ok(())
