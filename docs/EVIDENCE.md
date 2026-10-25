@@ -32,7 +32,9 @@ source and dependency locks against that preserved source commit.
 `node scripts/crash-evidence-commits.mts` runs inside `just crash-check` and hence
 `just release-check` for npm and Bun. It enumerates tracked JSON documents beneath
 `docs/`, recursively collects commit/head fields, historical `reverted_to` and
-`rust_behavior_proved_at` fields, and repository commit URLs, then performs a fresh
+`rust_behavior_proved_at` fields, and repository commit URLs. It also collects full
+commit IDs from Markdown receipts in `docs/evidence/`, excluding longer content
+digests. New prose receipts belong in that directory. It then performs a fresh
 full `git clone --no-local --no-checkout --no-tags` of origin. It resolves every
 reference as a commit and checks main/evidence ancestry. A failure names the
 receipt, field and commit. Git tree digests and SHA-256 content hashes are not

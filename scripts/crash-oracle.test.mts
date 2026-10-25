@@ -164,7 +164,12 @@ test('phase oracle receipt pins mutation tables and independently applicable rev
     const checked = spawnSync('git', ['apply', '--check', proof.patch], { encoding: 'utf8' });
     assert.equal(checked.status, 0, checked.stderr);
   }
-  for (const [file, hash] of Object.entries(receipt.sourceFiles)) assert.equal(createHash('sha256').update(readFileSync(file)).digest('hex'), hash);
+  for (const [file, hash] of Object.entries(receipt.sourceFiles)) {
+    // Receipts certify their preserved source commit, including after later documentation edits.
+    const historical = spawnSync('git', ['show', `${receipt.sourceCommit}:${file}`]);
+    assert.equal(historical.status, 0);
+    assert.equal(createHash('sha256').update(historical.stdout).digest('hex'), hash, file);
+  }
   assert.equal(receipt.publicCopy.sourceUnchanged, true);
   assert.ok(receipt.publicCopy.cases.every((row: { phase: string }) => receipt.phases.includes(row.phase)));
 });

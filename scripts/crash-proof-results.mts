@@ -1,11 +1,17 @@
 import { spawnSync } from 'node:child_process';
 
+/** Canonical mutations whose names identify independent observed checks. */
 export const MUTATIONS = ['delete-item', 'truncate-event', 'drop-field', 'reorder-history'] as const;
+/** Required real-state subtests; this inventory declares obligations, not successes. */
 export const REAL_CHECKS = ['update', 'comment'].flatMap(scenario => ['post', 'restart', 'return'].flatMap(stage =>
   MUTATIONS.map(mutation => `real exact oracle kills ${scenario} ${stage} ${mutation}`)));
+/** Required live-process restart and return checks. */
 export const LIVE_CHECKS = ['restart', 'return'].flatMap(stage => MUTATIONS.map(mutation => `live exact oracle kills ${stage} ${mutation} despite exit zero`));
+/** The required independent phase-pairing regression. */
 export const PHASE_CHECK = 'phase parity pairs equivalent cuts with different ordinals and rejects ordinal aliases';
+/** Complete certification obligations joined to actual runner observations. */
 export const EXPECTED_CHECKS = [...REAL_CHECKS, ...LIVE_CHECKS, PHASE_CHECK];
+/** Select both synthetic parents, every live mutation and phase parity. */
 export const PROOF_PATTERN = 'exact state oracle kills all|live exact oracle kills|phase parity';
 
 /** A named terminal result; skipped/todo tests provide no executed evidence. */

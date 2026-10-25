@@ -21,6 +21,12 @@ export function receiptCommits(value: unknown, receipt: string, field = ''): Rec
   });
 }
 
+/** Collect full commit IDs from prose receipts, excluding longer content digests. */
+export function proseReceiptCommits(contents: string, receipt: string): ReceiptCommit[] {
+  return contents.split('\n').flatMap((line, index) => [...line.matchAll(/(?<![a-f0-9])[a-f0-9]{40}(?![a-f0-9])/g)]
+    .map(match => ({ receipt, field: `line:${index + 1}`, commit: match[0] })));
+}
+
 /** Verify remote availability and squash-safe retention without borrowing local objects. */
 export function verifyEvidenceCommits(directory: string, additional: ReceiptCommit[] = []): { receipts: number; commits: number; retainedBy: Record<string, string> } {
   const env = { ...process.env };
@@ -32,8 +38,10 @@ export function verifyEvidenceCommits(directory: string, additional: ReceiptComm
   if (git(directory, ['rev-parse', '--show-toplevel']).status !== 0) throw new Error('evidence-commits needs a git repository and Git executable; plain tracker operations still work without git.');
   const listing = git(directory, ['ls-files', '-z', '--', 'docs']);
   if (listing.status !== 0) throw new Error('evidence-commits needs readable tracked docs.');
-  const references = listing.stdout!.toString().split('\0').filter(path => path.endsWith('.json')).flatMap(receipt =>
-    receiptCommits(JSON.parse(readFileSync(join(directory, receipt), 'utf8')), receipt)).concat(additional);
+  const references = listing.stdout!.toString().split('\0').filter(path => path.endsWith('.json') || path.startsWith('docs/evidence/') && path.endsWith('.md')).flatMap(receipt => {
+    const contents = readFileSync(join(directory, receipt), 'utf8');
+    return receipt.endsWith('.json') ? receiptCommits(JSON.parse(contents), receipt) : proseReceiptCommits(contents, receipt);
+  }).concat(additional);
   if (!references.length) throw new Error('evidence_commit_empty: no receipt commit fields found');
   const origin = git(directory, ['remote', 'get-url', 'origin']);
   if (origin.status !== 0) throw new Error('evidence-commits needs an origin remote for a fresh full clone.');

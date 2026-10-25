@@ -6,13 +6,15 @@ status: open
 priority: 3
 tags[3]: follow-up,latency,testing
 created_at: "2026-10-23T08:24:12.287Z"
-updated_at: "2026-10-23T09:03:14.776Z"
+updated_at: "2026-10-25T15:12:03.693Z"
 author: codex-agent
 acceptance_criteria: "Reproduce and explain the local versus CI deadline variance using synthetic trackers; preserve the existing five-second limit, coverage floors and oracle comparison unless the owner explicitly approves a separate policy change. Keep deadline failures distinct from behavioral parity failures and retain exact failure and retry evidence."
 parent: pm-rust-s6j4
-comments[2]{created_at,author,text}:
+comments[4]{created_at,author,text}:
   "2026-10-23T08:26:10.116Z",codex-agent,"Direct unchanged-harness retry confirmed the documented deadline signature: relationship_large_edge_limit_finishes_at_budget_floor --exact --nocapture ran 1 test and failed (0 passed, 1 failed). The native child had no exit code versus the expected refusal exit 2, under the existing five-second assert_cmd timeout. The same signature and targeted retry failures are documented on main in docs/NATIVE_HOT_PATHS.md. No test limit or orientation behavior changed."
   "2026-10-23T09:03:14.776Z",codex-agent,"CI at journal implementation bb7cd2a confirms this unchanged five-second deadline case passes ordinary and instrumented suites on Linux, macOS and Windows. Full release aggregates passed 598/598, 587/587 and 581/581 tests respectively in each pass, with unchanged 100 percent coverage floors. The local direct retry and full local attempt still failed with no native exit code versus expected refusal code 2. Evidence: https://github.com/unbraind/pm-rust/actions/runs/39924710637. This follow-up remains open; no deadline or orientation source changed."
+  "2026-10-25T14:55:48.649Z",codex-agent,"Recurred during pm-rust-crash-oracle-recorder validation: clean-HOME npm run release:check exited 101 with 531 passed, 1 failed, 0 ignored across 16 completed Rust suites. relationship_large_edge_limit_finishes_at_budget_floor again had no native exit code versus expected refusal code 2 at the unchanged five-second limit. Native orientation source and the test are unchanged in that task. The recorder item retains the gate status separately from its passing mutation proofs."
+  "2026-10-25T15:12:03.693Z",codex-agent,"Bun aggregate repeats the same unchanged five-second child deadline signature during pm-rust-crash-oracle-recorder: 531 Rust tests passed, 1 failed, 0 ignored across 16 completed suites; release:check exited 101. No orientation code or limit changed. Standalone crash-check independently passed all 82 tests and its release subgates."
 files[1]{path,scope}:
   tests/orientation_differential.rs,project
 docs[1]{path,scope}:

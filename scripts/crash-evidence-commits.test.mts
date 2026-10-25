@@ -4,7 +4,7 @@ import { mkdirSync, mkdtempSync, rmSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { dirname, join, resolve } from 'node:path';
 import { test } from 'node:test';
-import { receiptCommits, verifyEvidenceCommits } from './crash-evidence-commits.mts';
+import { proseReceiptCommits, receiptCommits, verifyEvidenceCommits } from './crash-evidence-commits.mts';
 
 test('fresh clone rejects branch-only and tag-only receipt sources, accepts preserved evidence and main', () => {
   const root = mkdtempSync(join(tmpdir(), 'pm-evidence-gate-'));
@@ -25,15 +25,21 @@ test('fresh clone rejects branch-only and tag-only receipt sources, accepts pres
     mkdirSync(join(root, 'docs'));
     const receipt = join(root, 'docs', 'receipt.json');
     writeFileSync(receipt, JSON.stringify({ provenance: { sourceCommit: branch }, publicTrackerCommit: main }));
-    git('add', 'docs/receipt.json');
+    mkdirSync(join(root, 'docs', 'evidence'));
+    const prose = join(root, 'docs', 'evidence', 'proof.md');
+    writeFileSync(prose, `Source: ${main}\n`);
+    git('add', 'docs/receipt.json', 'docs/evidence/proof.md');
     assert.throws(() => verifyEvidenceCommits(root), /evidence_commit_unretained: docs\/receipt.json provenance.sourceCommit/);
     git('branch', 'evidence/test', branch);
-    assert.deepEqual(verifyEvidenceCommits(root), { receipts: 1, commits: 2, retainedBy: { [branch]: 'evidence/test', [main]: 'main' } });
+    writeFileSync(prose, `Source: ${branch}\n`);
+    assert.deepEqual(verifyEvidenceCommits(root), { receipts: 2, commits: 3, retainedBy: { [branch]: 'evidence/test', [main]: 'main' } });
     git('tag', 'test-evidence-tag', branch);
     git('branch', '-D', 'feature', 'evidence/test');
-    assert.throws(() => verifyEvidenceCommits(root), /evidence_commit_unresolvable: docs\/receipt.json provenance.sourceCommit/);
+    assert.throws(() => verifyEvidenceCommits(root), /evidence_commit_unresolvable: docs\/evidence\/proof.md line:1/);
     writeFileSync(receipt, JSON.stringify({ sourceCommit: main }));
-    assert.equal(verifyEvidenceCommits(root).commits, 1);
+    assert.throws(() => verifyEvidenceCommits(root), /evidence_commit_unresolvable: docs\/evidence\/proof.md line:1/);
+    writeFileSync(prose, `Source: ${main}\n`);
+    assert.equal(verifyEvidenceCommits(root).commits, 2);
     writeFileSync(receipt, JSON.stringify({ sourceCommit: 'bad' }));
     assert.throws(() => verifyEvidenceCommits(root), /evidence_commit_invalid: docs\/receipt.json sourceCommit/);
   } finally { rmSync(root, { recursive: true, force: true }); }
@@ -43,6 +49,8 @@ test('receipt scanner includes nested and array commit fields without confusing 
   const commit = 'a'.repeat(40);
   assert.deepEqual(receiptCommits({ hashes: { file: 'b'.repeat(64) }, rows: [{ sourceCommit: commit }] }, 'docs/nested.json'),
     [{ receipt: 'docs/nested.json', field: 'rows.0.sourceCommit', commit }]);
+  assert.deepEqual(proseReceiptCommits(`Hash: ${'b'.repeat(64)}\nSource: ${commit}`, 'docs/evidence/proof.md'),
+    [{ receipt: 'docs/evidence/proof.md', field: 'line:2', commit }]);
 });
 
 test('repository-only evidence gate names missing git and preserves plain trackers', () => {
