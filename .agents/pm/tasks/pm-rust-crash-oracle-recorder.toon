@@ -1,0 +1,43 @@
+id: pm-rust-crash-oracle-recorder
+title: Certify only observed crash-oracle checks and durable evidence commits
+description: "Replace asserted proof successes with observed Node test outcomes, refuse omitted checks, re-record the oracle receipt, and verify every evidence commit in a fresh full clone across squash merges."
+type: Task
+status: in_progress
+priority: 2
+tags[3]: crash-consistency,evidence,regression
+created_at: "2026-10-25T14:20:39.649Z"
+updated_at: "2026-10-25T15:12:05.338Z"
+author: codex-agent
+parent: pm-rust-crash-harness
+comments[9]{created_at,author,text}:
+  "2026-10-25T14:20:44.804Z",codex-agent,"Confirmed the old filter selected only two live return cases while the receipt asserted all eight. Plan: parse Node test events, name every mutation check, require complete execution, test subset refusal and behavioral revert, and add a fresh remote clone evidence-commit gate. Historical review source is preserved on evidence/crash-review-2026-10-23. Dependency pins remain unchanged."
+  "2026-10-25T14:27:59.151Z",codex-agent,"Implemented observed Node terminal events and 33 named expectations (24 real-state mutations, 8 live mutations, 1 phase regression). Subset certification reports missing checks as not_run. The fresh-clone gate also found historical benchmark sources lost after squash merges; preserved their existing commits on four evidence branches without rewriting receipts or creating tags. Gate currently resolves 34 references across 19 receipts."
+  "2026-10-25T14:28:41.551Z",codex-agent,"Behavioral revert proof: replaced only reconcileResults observation lookup with hard-coded passed, ran node --test --test-reporter=tap scripts/crash-proof-results.test.mts: exit 1, 1 passed and 2 failed; restored original bytes and reran: exit 0, 3 passed. Independently omitted only evidence commit resolution/retention validation: evidence suite exit 1, 2 passed and 1 failed; restored: exit 0, 3 passed. No history was rewritten."
+  "2026-10-25T14:29:18.388Z",codex-agent,"Real subset run with the original live return delete-item/truncate-event filter: runner exit 0, recorder exit 1; expected 33, executed/passed 2, not_run 31, including all six omitted live checks. Typecheck and ESLint pass. Linked regression run through pm test passed all 6 tests; tracking is disabled by project policy, so results are documented here."
+  "2026-10-25T14:38:50.750Z",codex-agent,"Re-recorded docs/CRASH_ORACLE_2026_10_25.json from a complete real run at preserved source 02ab410: 33 expected, 33 executed and passed, 0 failed or not_run (24 real-state mutations, 8 live mutations, 1 phase check). Exact-state revert observed 24 failed and 8 passed; restored 32 passed. Phase revert failed 1; restored passed 1. Public copy: 26 measured kills, 24 passing cases, 10/20 passing phase pairs, 2 retained reproductions, 86 source items unchanged. Published divergence remains a measured failure, not certification. Source hash validation uses the preserved commit, so subsequent documentation-only edits do not invalidate historical evidence."
+  "2026-10-25T14:50:06.645Z",codex-agent,"Extended the remote retention gate to Markdown receipts in docs/evidence as well as structured JSON docs; regression covers receipt/line failure labels and excludes longer content hashes. Fresh clone now resolves 36 references across 20 receipts, including the native-adapter source already on main. All 3 evidence regressions, strict TypeScript and ESLint pass. Clean-HOME npm aggregate is running; no implementation or threshold changes are planned."
+  "2026-10-25T14:55:47.506Z",codex-agent,"Clean-HOME npm run release:check exited 101 after 16 Rust suites: 531 passed, 1 failed, 0 ignored. The unchanged relationship_large_edge_limit_finishes_at_budget_floor test exceeded the existing five-second native child deadline (no exit code versus expected 2), matching the already tracked pm-rust-local-packet-deadline signature. Aggregate stages after that failure did not run and are not claimed. Running just crash-check separately, then Bun aggregate; no deadline or orientation code changed."
+  "2026-10-25T14:58:49.100Z",codex-agent,"Standalone just crash-check passed: strict TypeScript, ESLint, 82 tests passed with 0 failed/skipped/cancelled/todo, byte-prefix history gate (1 existing stream checked and 1 branch-only stream), and fresh full remote clone verification (36 references across 20 receipts). This separately verifies all crash checks despite the unrelated npm aggregate deadline failure. Bun aggregate is now running."
+  "2026-10-25T15:12:04.566Z",codex-agent,"Implementation and evidence are ready for review. npm (clean HOME, no global Git config) and Bun release aggregates each exited 101 with 531 passed, 1 failed, 0 ignored across 16 completed Rust suites at the existing pm-rust-local-packet-deadline failure; later aggregate stages did not run and are not claimed. Standalone just crash-check passed 82/82, strict typecheck, ESLint, history-prefix validation, and all 36 commit references across 20 receipts. Targeted Rust identity and release-pipeline contracts passed 7 and 20 tests. Frozen source 02ab410 remains on its evidence branch. Releasing the claim for orchestrator review without closing either item; exact-head CI results will be attached to the PR description."
+files[11]{path,scope}:
+  docs/controls/crash-oracle/exact-state.patch,project
+  justfile,project
+  README.md,project
+  scripts/crash-evidence-commits.mts,project
+  scripts/crash-evidence-commits.test.mts,project
+  scripts/crash-oracle-proof.mts,project
+  scripts/crash-oracle.test.mts,project
+  scripts/crash-proof-results.mts,project
+  scripts/crash-proof-results.test.mts,project
+  scripts/crash-review-proof.mts,project
+  scripts/crash-test-reporter.mts,project
+tests[4]{command,scope,provenance{author,created_at,source_kind,source_ref}}:
+  node --test scripts/crash-proof-results.test.mts scripts/crash-evidence-commits.test.mts,project,codex-agent,"2026-10-25T14:28:11.283Z",local_mutation,fix/crash-oracle-recorder
+  "npm run release:check",project,codex-agent,"2026-10-25T14:50:11.457Z",local_mutation,fix/crash-oracle-recorder
+  "bun run release:check",project,codex-agent,"2026-10-25T14:50:11.457Z",local_mutation,fix/crash-oracle-recorder
+  just crash-check,project,codex-agent,"2026-10-25T14:58:50.255Z",local_mutation,fix/crash-oracle-recorder
+docs[3]{path,scope}:
+  docs/CRASH_HARNESS.md,project
+  docs/CRASH_ORACLE_2026_10_25.json,project
+  docs/EVIDENCE.md,project
+body: ""

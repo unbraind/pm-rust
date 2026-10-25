@@ -5,6 +5,7 @@ import { chmodSync, existsSync, mkdtempSync, readFileSync, rmSync, writeFileSync
 import { tmpdir } from 'node:os';
 import { join, resolve } from 'node:path';
 import { test } from 'node:test';
+import { counts, EXPECTED_CHECKS, LIVE_CHECKS, REAL_CHECKS } from './crash-proof-results.mts';
 import { exactState, phasePairs, transactionPhase } from './crash-oracle.mts';
 import type { TransactionPhase } from './crash-oracle.mts';
 import { CRASH_CLOCK_IMPORT, execute } from './crash-process.mts';
@@ -31,36 +32,46 @@ function damage(state: Snapshot, mutation: string): Snapshot {
 }
 
 for (const scenario of ['update', 'comment'] as const) {
-  test(`exact state oracle kills all recovered and returned ${scenario} data-loss mutations`, { timeout: 60000 }, () => temporary(root => {
-    const implementation = { executable: process.execPath, args: ['--import', CRASH_CLOCK_IMPORT,
-      resolve('tests/oracle/node_modules/@unbrained/pm-cli/dist/cli.js')], trailing: ['--json', '--no-extensions'] };
-    /** Run real acknowledged operations in a tracker with Git discovery disabled by execute. */
-    function command(args: string[]): Snapshot {
-      const result = execute(implementation, args, root, 15000);
-      assert.equal(result.status, 0, result.stderr.toString());
-      return snapshot(join(root, '.agents/pm'));
-    }
-    command(['init', '--defaults', '--prefix', 'oracle-', '--agent-guidance', 'skip']);
-    const pre = command(['create', 'task', 'Oracle probe', '--id', 'oracle-probe', '--priority', '1', '--create-mode', 'progressive']);
-    const post = command(scenario === 'update' ? ['update', 'oracle-probe', '--description', 'Committed change'] : ['comment', 'oracle-probe', 'Committed comment']);
-    const recovered = command(scenario === 'update' ? ['comment', 'oracle-probe', 'Acknowledged restart'] : ['update', 'oracle-probe', '--description', 'Acknowledged restart']);
-    const returned = command(scenario === 'update' ? ['update', 'oracle-probe', '--priority', '2'] : ['comment', 'oracle-probe', 'Acknowledged return']);
-    assert.equal(existsSync(join(root, '.git')), false);
-    assert.equal(exactState(pre, post), false);
-    for (const state of [post, recovered, returned]) {
-      assert.equal(exactState(state, new Map(state)), true);
-      for (const mutation of ['delete-item', 'truncate-event', 'drop-field', 'reorder-history']) damage(state, mutation);
-      const journal = new Map(state); journal.set('runtime/transactions/unexpected.json', Buffer.from('{}'));
-      assert.equal(exactState(state, journal), false);
-      const other = new Map(state); other.set('tasks/other.toon', Buffer.from('id: other\n'));
-      assert.equal(exactState(state, other), false);
-      const runtime = new Map(state); runtime.set('runtime/owned.json', Buffer.from('{}'));
-      assert.equal(exactState(state, runtime), false);
-    }
-    // A zero-exit final return may not truncate the already acknowledged restart event.
-    assert.equal(exactState(returned, recovered), false);
-    assert.equal(exactState(post, pre), false);
-  }));
+  test(`exact state oracle kills all recovered and returned ${scenario} data-loss mutations`, { timeout: 60000 }, async t => {
+    const pending: Promise<void>[] = [];
+    temporary(root => {
+      const implementation = { executable: process.execPath, args: ['--import', CRASH_CLOCK_IMPORT,
+        resolve('tests/oracle/node_modules/@unbrained/pm-cli/dist/cli.js')], trailing: ['--json', '--no-extensions'] };
+      /** Run real acknowledged operations in a tracker with Git discovery disabled by execute. */
+      function command(args: string[]): Snapshot {
+        const result = execute(implementation, args, root, 15000);
+        assert.equal(result.status, 0, result.stderr.toString());
+        return snapshot(join(root, '.agents/pm'));
+      }
+      command(['init', '--defaults', '--prefix', 'oracle-', '--agent-guidance', 'skip']);
+      const pre = command(['create', 'task', 'Oracle probe', '--id', 'oracle-probe', '--priority', '1', '--create-mode', 'progressive']);
+      const post = command(scenario === 'update' ? ['update', 'oracle-probe', '--description', 'Committed change'] : ['comment', 'oracle-probe', 'Committed comment']);
+      const recovered = command(scenario === 'update' ? ['comment', 'oracle-probe', 'Acknowledged restart'] : ['update', 'oracle-probe', '--description', 'Acknowledged restart']);
+      const returned = command(scenario === 'update' ? ['update', 'oracle-probe', '--priority', '2'] : ['comment', 'oracle-probe', 'Acknowledged return']);
+      assert.equal(existsSync(join(root, '.git')), false);
+      for (const [stage, state] of [['post', post], ['restart', recovered], ['return', returned]] as const) {
+        assert.equal(exactState(state, new Map(state)), true);
+        for (const mutation of ['delete-item', 'truncate-event', 'drop-field', 'reorder-history']) {
+          pending.push(t.test(`real exact oracle kills ${scenario} ${stage} ${mutation}`, () => { damage(state, mutation); }));
+        }
+      }
+      pending.push(t.test(`exact ${scenario} inventory and acknowledged operations remain distinct`, () => {
+        for (const state of [post, recovered, returned]) {
+          assert.equal(exactState(state, new Map(state)), true);
+          const journal = new Map(state); journal.set('runtime/transactions/unexpected.json', Buffer.from('{}'));
+          assert.equal(exactState(state, journal), false);
+          const other = new Map(state); other.set('tasks/other.toon', Buffer.from('id: other\n'));
+          assert.equal(exactState(state, other), false);
+          const runtime = new Map(state); runtime.set('runtime/owned.json', Buffer.from('{}'));
+          assert.equal(exactState(state, runtime), false);
+        }
+        // A zero-exit final return may not truncate the already acknowledged restart event.
+        assert.equal(exactState(returned, recovered), false);
+        assert.equal(exactState(post, pre), false);
+      }));
+    });
+    await Promise.all(pending);
+  });
 }
 
 test('transaction phase comes from commit events, including resumed calls and history write opens', () => {
@@ -130,26 +141,35 @@ for (const stage of ['restart', 'return']) for (const mutation of ['delete-item'
 
 test('phase oracle receipt pins mutation tables and independently applicable reverts', () => {
   const receipt = JSON.parse(readFileSync('docs/CRASH_ORACLE_2026_10_25.json', 'utf8'));
-  assert.equal(receipt.schema, 'pm-rust/crash-oracle-v1');
-  assert.equal(receipt.mutations.length, 4);
+  assert.equal(receipt.schema, 'pm-rust/crash-oracle-v2');
+  const checks = receipt.proofs.flatMap((proof: { restored: { checks: { name: string; status: 'passed' | 'failed' | 'not_run' }[] } }) => proof.restored.checks);
+  assert.deepEqual(checks.map((row: { name: string }) => row.name).sort(), [...EXPECTED_CHECKS].sort());
+  assert.deepEqual(receipt.counts, counts(checks));
+  assert.equal(receipt.counts.not_run, 0);
+  assert.equal(receipt.counts.failed, 0);
   for (const row of receipt.mutations) {
-    assert.equal(row.realStateChecks, 6);
-    assert.equal(row.realStateKilled, 6);
-    assert.equal(row.liveRestartKilled, 1);
-    assert.equal(row.liveReturnKilled, 1);
-    assert.equal(row.survived, 0);
+    const matching = checks.filter((check: { name: string }) => check.name.includes(row.mutation));
+    assert.equal(row.realStateKilled, matching.filter((check: { name: string; status: string }) => REAL_CHECKS.includes(check.name) && check.status === 'passed').length);
+    assert.equal(row.liveRestartKilled + row.liveReturnKilled, matching.filter((check: { name: string; status: string }) => LIVE_CHECKS.includes(check.name) && check.status === 'passed').length);
   }
-  assert.equal(receipt.equivalence.length, 4);
-  assert.ok(receipt.equivalence.every((row: { pass: boolean }) => row.pass));
+  assert.equal(receipt.equivalence.status, 'passed');
   for (const proof of receipt.proofs) {
     assert.equal(proof.negativeExit, 1);
     assert.equal(proof.restoredExit, 0);
+    assert.ok(proof.negative.checks.every((row: { status: string }) => row.status !== 'not_run'));
+    assert.ok(proof.negative.checks.some((row: { status: string }) => row.status === 'failed'));
+    assert.ok(proof.restored.checks.every((row: { status: string }) => row.status === 'passed'));
     assert.equal(createHash('sha256').update(readFileSync(proof.file)).digest('hex'), proof.sourceSha256);
     assert.equal(createHash('sha256').update(readFileSync(proof.patch)).digest('hex'), proof.patchSha256);
     const checked = spawnSync('git', ['apply', '--check', proof.patch], { encoding: 'utf8' });
     assert.equal(checked.status, 0, checked.stderr);
   }
-  for (const [file, hash] of Object.entries(receipt.sourceFiles)) assert.equal(createHash('sha256').update(readFileSync(file)).digest('hex'), hash);
+  for (const [file, hash] of Object.entries(receipt.sourceFiles)) {
+    // Receipts certify their preserved source commit, including after later documentation edits.
+    const historical = spawnSync('git', ['show', `${receipt.sourceCommit}:${file}`]);
+    assert.equal(historical.status, 0);
+    assert.equal(createHash('sha256').update(historical.stdout).digest('hex'), hash, file);
+  }
   assert.equal(receipt.publicCopy.sourceUnchanged, true);
   assert.ok(receipt.publicCopy.cases.every((row: { phase: string }) => receipt.phases.includes(row.phase)));
 });

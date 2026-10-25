@@ -1,5 +1,5 @@
 diff --git a/scripts/crash-oracle.mts b/scripts/crash-oracle.mts
-index b810035..3bf6156 100644
+index b810035..5e1ab9b 100644
 --- a/scripts/crash-oracle.mts
 +++ b/scripts/crash-oracle.mts
 @@ -13,7 +13,10 @@ export function transactionState(files: Snapshot): Snapshot {
@@ -8,9 +8,9 @@ index b810035..3bf6156 100644
  export function exactState(expected: Snapshot, actual: Snapshot): boolean {
 -  return sameBytes(transactionState(expected), transactionState(actual));
 +  return [...expected].filter(([name]) => name.startsWith('history/')).every(([name, bytes]) => {
-+    const seed = Buffer.from(bytes.toString().split('\n')[0] + '\n');
-+    return actual.get(name)?.subarray(0, seed.length).equals(seed);
-+  });
++      const seed = Buffer.from(bytes.toString().split('\n')[0] + '\n');
++      return actual.get(name)?.subarray(0, seed.length).equals(seed);
++    });
  }
  /** Join strace's per-task resumed lines before inspecting successful commit events. */
  function completedCalls(trace: string): string[] {

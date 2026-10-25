@@ -53,6 +53,7 @@ crash-check:
     tests/harness/node_modules/.bin/eslint -c tests/harness/eslint.config.mjs scripts/crash-*.mts scripts/native-adapter-*.mts
     node --test --test-concurrency=1 scripts/crash-*.test.mts
     node scripts/crash-history-prefix.mts
+    node scripts/crash-evidence-commits.mts
 
 # Reproduce large synthetic non-git trackers against the requested current oracle.
 bench-oracle-install:

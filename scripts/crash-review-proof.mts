@@ -4,6 +4,7 @@ import { createHash } from 'node:crypto';
 import { chmodSync, existsSync, mkdirSync, mkdtempSync, readFileSync, readdirSync, rmSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join, resolve } from 'node:path';
+import { verifyEvidenceCommits } from './crash-evidence-commits.mts';
 import { runCrashCorpus } from './crash-harness.mts';
 
 /** Run one bounded tool and require its declared exit code. */
@@ -48,6 +49,8 @@ if (git.status !== 0) throw new Error('crash-review-proof needs a git repository
 const root = mkdtempSync(join(tmpdir(), 'pm-crash-controls-'));
 try {
   const sourceCommit = command('git', ['rev-parse', 'HEAD']).trim();
+  command('git', ['diff', '--quiet', 'HEAD', '--', 'scripts', 'src', 'tests', 'Cargo.toml', 'Cargo.lock']);
+  verifyEvidenceCommits(process.cwd(), [{ receipt: 'docs/CRASH_REVIEW_2026_10_23.json', field: 'provenance.sourceCommit', commit: sourceCommit }]);
   const publicCommit = command('git', ['rev-parse', 'origin/main']).trim();
   const controls = [
     { name: 'stable-write-boundary', file: 'scripts/crash-process.mts', before: ", UV_THREADPOOL_SIZE: '1'", after: "", pattern: 'single-worker published boundary' },

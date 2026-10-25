@@ -160,7 +160,11 @@ regressions accept equivalent cuts with different ordinals and exclude identical
 ordinals from different phases. `node scripts/crash-oracle-proof.mts` records
 independent seed-prefix and ordinal-pairing behavioral reverts, a mutation table,
 a phase-equivalence table, and a fresh public-copy report in
-[the phase-oracle receipt](CRASH_ORACLE_2026_10_25.json). Earlier receipts remain
+[the phase-oracle receipt](CRASH_ORACLE_2026_10_25.json). Counts in the corrected
+v2 receipt come from Node terminal test events: 24 named real-state mutation
+checks, eight live mutations and one phase check. Missing, skipped or todo checks
+are `not_run` and refuse certification. The [evidence guide](EVIDENCE.md) describes
+the subset regression, source retention and fresh-clone release gate. Earlier receipts remain
 historical and their old ordinal mismatches are superseded by this measurement.
 
 The metadata constructor and Date.now() are both frozen at CRASH_CLOCK. This also

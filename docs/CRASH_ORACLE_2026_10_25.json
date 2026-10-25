@@ -1,11 +1,71 @@
 {
-  "schema": "pm-rust/crash-oracle-v1",
-  "publicTrackerCommit": "e9b88ab368d5854ec541bbd41ed4e2f5dc0ee84a",
+  "schema": "pm-rust/crash-oracle-v2",
+  "sourceCommit": "02ab41021f637444575c97e52ee3f9803e8ac696",
+  "publicTrackerCommit": "fdd6285763baa90ef6c1ec9952b715b7e455879f",
+  "parsingSource": "Node test:pass/test:fail events via scripts/crash-test-reporter.mts (JSON lines); skip/todo/absent = not_run",
+  "counts": {
+    "expected": 33,
+    "executed": 33,
+    "passed": 33,
+    "failed": 0,
+    "not_run": 0
+  },
   "sourceFiles": {
-    "scripts/crash-oracle.mts": "5f1f9dfde89ef38adc2c8191dfb86b06dc52a191b0db1b1aab89179979fe5a86",
-    "scripts/crash-oracle.test.mts": "f2e6ad48789bb121d518eaa22958326d6a79c9cdfcce970b5a4eb9905de6a20f",
+    "Cargo.lock": "5499fc4eb8fed36d2488701cfba02b6879f78040846851dfc4a63ac4295d07ee",
+    "Cargo.toml": "af19a32a77cb4d8bb43da470ad22ba42ad0ba7556810895cc516b92d22b1489a",
+    "scripts/crash-cli.mts": "ad93e4ef39b31fb7d6617aa0b520365b678601d9c1ffc9eeb7e39ab203dda47f",
+    "scripts/crash-clock.mts": "aa001dd0b3ce57c073875bbc94589ac83e655b78ea4a72eac992fc9b91df21fb",
+    "scripts/crash-evidence-commits.mts": "fe480532a7b0cab4af8c08ac033e866d7fa48dd355b723dbaa589abe7d12387e",
+    "scripts/crash-evidence-commits.test.mts": "0952128894fb26c5c3e0d3cbbbddfed545829e6e745177a2e00817f12c183fa3",
     "scripts/crash-harness.mts": "ff93ee020e2edf403057acaee00a49dd454e21384e98f207727dab9000725c7b",
-    "scripts/crash-process.mts": "0f728090b13d421d17cc68e8bcaea925fdd3eb5269ef648ef917bd33b4c34ffb"
+    "scripts/crash-harness.test.mts": "c18b9c68b601596522f86a4d33deaca517b37fced588278da32bf355dcee34eb",
+    "scripts/crash-history-prefix.mts": "7c14b90327ac7073ce0a7e8a1272ae1109e4eaa6569ea8af23be68483a114f16",
+    "scripts/crash-history-prefix.test.mts": "60bf069fedde467a02faf7eafe03b2030adff1d4eacabf71d3ea72f57f0cf053",
+    "scripts/crash-oracle-proof.mts": "8c48902e70d1604ed53ef7ed9b11ff01b368f501f46a07e308f2d615634449d4",
+    "scripts/crash-oracle.mts": "5f1f9dfde89ef38adc2c8191dfb86b06dc52a191b0db1b1aab89179979fe5a86",
+    "scripts/crash-oracle.test.mts": "02325063539037605205d9d03d91ed8c249bba97c400aefcd5da2f903c01f283",
+    "scripts/crash-output.mts": "4073271a4eb55a7230bb7769e419d1060e3b95c682096659f840386145b9fc46",
+    "scripts/crash-process.mts": "0f728090b13d421d17cc68e8bcaea925fdd3eb5269ef648ef917bd33b4c34ffb",
+    "scripts/crash-proof-results.mts": "4f988094a29adae790658ce0cd3bd8fa1638869691aab83ac553a20419f0383d",
+    "scripts/crash-proof-results.test.mts": "f267ecfdc924c8505f67fe6a0f0353630d2e1eb27d5e23cb930da1f6575ce629",
+    "scripts/crash-review-proof.mts": "5d95aefb16de889c031dcb8d92852f70150b513db5cb6ce9d40459ed233256b8",
+    "scripts/crash-review.test.mts": "688053ad1088103cefa0fde8f9d136144958d8fbb55db148ea071802d64f924e",
+    "scripts/crash-storage.mts": "ed7baf9f8b44b70979cec241379e3a63ab5dd3ea18416efeaf56f1c5148d5c23",
+    "scripts/crash-test-reporter.mts": "933665be9bed8339d05aeccb342e155e128300da8854272885859b8b9e32b26e",
+    "src/assurance.rs": "a598e33f3b402caf35d02223bd0447b58baec56a644c79526bdd1533817ec0a5",
+    "src/collation.rs": "f177e71a4f8cd3cbad1b80ca8ce16b3ae810bb8c33ed23b2b9834b9917f053ba",
+    "src/collections.rs": "453eedcea7789161571e4dc2f3680b83c7254e42cc6e2480ef3b7fe0ed7fa613",
+    "src/error.rs": "e0a2f21948e45d8fd6b66ea5b18f38037ba99d82d4be05e2106046a10afc1b98",
+    "src/history.rs": "a8612988d2624359be8c782e8fffe1fb8e7287706fe89b0dadd4d61b8e4dffa6",
+    "src/identity_probes.rs": "cee177bc04c3126f9b73a3874ac27a457afd611b59900da2ca52aa637eb2c871",
+    "src/item.rs": "d27b92a03d7c910e06fe32981d882d66c2fbc2dadf8cf83a1070b8c2e3e252de",
+    "src/json_output.rs": "65b6e577e526127a4865c1d4d51c9d540072067dec634b8e39b7a7ee8dc3b301",
+    "src/lib.rs": "457e189c57775c959982849e08c7de79a7ff29c2e6fcc55f3d40712c9ba05503",
+    "src/list.rs": "5ca7624bc04da29a566023e1668c387a0ea41faeeb178ed29ae736cfda0332a0",
+    "src/list_intent.rs": "5d7d522abc1f1d8711f725da6e6babd5045a25022400753e3733bef68f35c060",
+    "src/list_registry.rs": "892356a955c4af267dce744cf97a0b8ce3832a4b046e8d318fc14a2d262e3e38",
+    "src/lock_owner.rs": "3e00484810a87d9a2abc57356538f784a6169a2fbb9a1440b8489ff07b5dac3a",
+    "src/main.rs": "1126fba0179cabef49077f464f84bf854c7f7a324fdd6e3c44c6186e8b080da2",
+    "src/mutation.rs": "d1db4a148a6de8b8163bc397d97a1c81172d03a0deb061a04e2bbbebd7c03f3d",
+    "src/native_adapter.rs": "2854ee1303ba71a273ef4223745e351384d5a30ab855d484f9758cd018497112",
+    "src/orientation.rs": "4b6816fafa8de8781cb2b0980fd6d55236fb0f00515595aec8226555993360bc",
+    "src/orientation_context.rs": "a1dbbe5be05bf40955d85b3ef0b63ac00139c9cb39c0a042f59511d3c394de8c",
+    "src/orientation_context/sections.rs": "05f94b2702709f40121b4c91f873036ca2be4424c2a819949668c3049f5851be",
+    "src/orientation_deps.rs": "b04339646b6c1539c9ac8a25d7c8faacbd8d64143fc09481196653149952998b",
+    "src/orientation_deps/budget_recovery.rs": "d20a4ec88d4459e86e9aaf958c25133ef753ff8ec6cc28bdec224a08ce12e084",
+    "src/orientation_deps/packet.rs": "083ad9ded12ea4d2d34c7f19dc0b2f8defc0dd4a46cd3912d0f20d59386eb86f",
+    "src/ownership.rs": "2e3c61956ce07f21711fd4ea8e2082257ebfaa7c48cb7666ebdd8173e04ae2e9",
+    "src/pagination.rs": "15453428c7561a9aa2e0a55d1395488ac3afd877e0014a4e781103968a0d4830",
+    "src/read_output.rs": "3fa86acf83462ecf49074c5983d9c8be44925736e28fccd70cc6a3db4387a23a",
+    "src/read_projection.rs": "04b1c32d48c99e45456763cd75c7ca7d521b196795510687dd9e77f15278cda7",
+    "src/read_session.rs": "6f8d4154d2c831ac723ae69db451a7280dc6af100e19438683814e2ac356b4f2",
+    "src/search.rs": "1f4743bf37664b26c8444c0b2afb1274f601d507586f3585123b4c7669df2591",
+    "src/selection.rs": "12fbf274173e1f560df1521730ce8ee6f7379242ac2d1448609c3e9a78250613",
+    "src/strict_json.rs": "dbcc6d16a815cacb8de4f179c312daa3ffc24b3bee81ada25d0fbd71e3a9ba06",
+    "src/toon_output.rs": "e9f4cc52860a74be15c452dfdb7ca721be6669a4bd999a1e7a559938928ce936",
+    "src/workspace.rs": "a124604816ef06536d4464da0815de9594443906b5591600b8bfaf77ac3c9d0b",
+    "tests/harness/package-lock.json": "d1a9db8d1c705fc6e1f9d1d3f2336b5c38c5eef1e9845055aac8996db3757af8",
+    "tests/oracle/package-lock.json": "4dab8fa9ce75881f978f5bae767e99190c5a9f43edf230d9b22a347012b0d0b9"
   },
   "definition": "Exact canonical tracker inventory and bytes, including every complete history and pending journal; phase chooses the clean PRE or POST plus the acknowledged restart and return operations.",
   "phases": [
@@ -20,7 +80,8 @@
       "realStateKilled": 6,
       "liveRestartKilled": 1,
       "liveReturnKilled": 1,
-      "survived": 0
+      "failed": 0,
+      "not_run": 0
     },
     {
       "mutation": "truncate-event",
@@ -28,7 +89,8 @@
       "realStateKilled": 6,
       "liveRestartKilled": 1,
       "liveReturnKilled": 1,
-      "survived": 0
+      "failed": 0,
+      "not_run": 0
     },
     {
       "mutation": "drop-field",
@@ -36,7 +98,8 @@
       "realStateKilled": 6,
       "liveRestartKilled": 1,
       "liveReturnKilled": 1,
-      "survived": 0
+      "failed": 0,
+      "not_run": 0
     },
     {
       "mutation": "reorder-history",
@@ -44,51 +107,605 @@
       "realStateKilled": 6,
       "liveRestartKilled": 1,
       "liveReturnKilled": 1,
-      "survived": 0
+      "failed": 0,
+      "not_run": 0
     }
   ],
-  "equivalence": [
-    {
-      "phase": "before-commit",
-      "nativeCut": "fsync/1",
-      "publishedCut": "rename/1",
-      "pass": true
-    },
-    {
-      "phase": "after-commit",
-      "nativeCut": "rename/1",
-      "publishedCut": "openat/9",
-      "pass": true
-    },
-    {
-      "phase": "after-commit",
-      "nativeCut": "rename/1",
-      "publishedCut": "rename/2",
-      "pass": true
-    },
-    {
-      "phase": "during-cleanup",
-      "nativeCut": "fsync/6",
-      "publishedCut": "rename/12",
-      "pass": true
-    }
-  ],
-  "equivalenceNote": "Synthetic phase-key regression; live measured pairs and unpaired phase counts are in publicCopy.",
+  "equivalence": {
+    "name": "phase parity pairs equivalent cuts with different ordinals and rejects ordinal aliases",
+    "status": "passed"
+  },
   "proofs": [
     {
       "name": "exact-state",
       "file": "scripts/crash-oracle.mts",
       "sourceSha256": "5f1f9dfde89ef38adc2c8191dfb86b06dc52a191b0db1b1aab89179979fe5a86",
       "patch": "docs/controls/crash-oracle/exact-state.patch",
-      "patchSha256": "a4043a50e4f65538576276cf81a7cb69dfccbca7c624d2aca2d13203d8742636",
+      "patchSha256": "505b55b1ef087df55a15a37252a45396564b630320e2b4a77e69d38600963c91",
       "command": [
         "node",
         "--test",
-        "--test-name-pattern=exact state oracle kills all|live exact oracle kills return (delete-item|truncate-event)",
+        "--test-concurrency=1",
+        "--test-reporter=./scripts/crash-test-reporter.mts",
+        "--test-name-pattern=exact state oracle kills all|live exact oracle kills",
         "scripts/crash-oracle.test.mts"
       ],
       "negativeExit": 1,
-      "restoredExit": 0
+      "restoredExit": 0,
+      "negative": {
+        "command": [
+          "node",
+          "--test",
+          "--test-concurrency=1",
+          "--test-reporter=./scripts/crash-test-reporter.mts",
+          "--test-name-pattern=exact state oracle kills all|live exact oracle kills",
+          "scripts/crash-oracle.test.mts"
+        ],
+        "exit": 1,
+        "observed": [
+          {
+            "name": "real exact oracle kills update post delete-item",
+            "status": "failed"
+          },
+          {
+            "name": "real exact oracle kills update post truncate-event",
+            "status": "failed"
+          },
+          {
+            "name": "real exact oracle kills update post drop-field",
+            "status": "failed"
+          },
+          {
+            "name": "real exact oracle kills update post reorder-history",
+            "status": "passed"
+          },
+          {
+            "name": "real exact oracle kills update restart delete-item",
+            "status": "failed"
+          },
+          {
+            "name": "real exact oracle kills update restart truncate-event",
+            "status": "failed"
+          },
+          {
+            "name": "real exact oracle kills update restart drop-field",
+            "status": "failed"
+          },
+          {
+            "name": "real exact oracle kills update restart reorder-history",
+            "status": "passed"
+          },
+          {
+            "name": "real exact oracle kills update return delete-item",
+            "status": "failed"
+          },
+          {
+            "name": "real exact oracle kills update return truncate-event",
+            "status": "failed"
+          },
+          {
+            "name": "real exact oracle kills update return drop-field",
+            "status": "failed"
+          },
+          {
+            "name": "real exact oracle kills update return reorder-history",
+            "status": "passed"
+          },
+          {
+            "name": "exact update inventory and acknowledged operations remain distinct",
+            "status": "failed"
+          },
+          {
+            "name": "exact state oracle kills all recovered and returned update data-loss mutations",
+            "status": "failed"
+          },
+          {
+            "name": "real exact oracle kills comment post delete-item",
+            "status": "failed"
+          },
+          {
+            "name": "real exact oracle kills comment post truncate-event",
+            "status": "failed"
+          },
+          {
+            "name": "real exact oracle kills comment post drop-field",
+            "status": "failed"
+          },
+          {
+            "name": "real exact oracle kills comment post reorder-history",
+            "status": "passed"
+          },
+          {
+            "name": "real exact oracle kills comment restart delete-item",
+            "status": "failed"
+          },
+          {
+            "name": "real exact oracle kills comment restart truncate-event",
+            "status": "failed"
+          },
+          {
+            "name": "real exact oracle kills comment restart drop-field",
+            "status": "failed"
+          },
+          {
+            "name": "real exact oracle kills comment restart reorder-history",
+            "status": "passed"
+          },
+          {
+            "name": "real exact oracle kills comment return delete-item",
+            "status": "failed"
+          },
+          {
+            "name": "real exact oracle kills comment return truncate-event",
+            "status": "failed"
+          },
+          {
+            "name": "real exact oracle kills comment return drop-field",
+            "status": "failed"
+          },
+          {
+            "name": "real exact oracle kills comment return reorder-history",
+            "status": "passed"
+          },
+          {
+            "name": "exact comment inventory and acknowledged operations remain distinct",
+            "status": "failed"
+          },
+          {
+            "name": "exact state oracle kills all recovered and returned comment data-loss mutations",
+            "status": "failed"
+          },
+          {
+            "name": "live exact oracle kills restart delete-item despite exit zero",
+            "status": "failed"
+          },
+          {
+            "name": "live exact oracle kills restart truncate-event despite exit zero",
+            "status": "failed"
+          },
+          {
+            "name": "live exact oracle kills restart drop-field despite exit zero",
+            "status": "failed"
+          },
+          {
+            "name": "live exact oracle kills restart reorder-history despite exit zero",
+            "status": "passed"
+          },
+          {
+            "name": "live exact oracle kills return delete-item despite exit zero",
+            "status": "failed"
+          },
+          {
+            "name": "live exact oracle kills return truncate-event despite exit zero",
+            "status": "failed"
+          },
+          {
+            "name": "live exact oracle kills return drop-field despite exit zero",
+            "status": "failed"
+          },
+          {
+            "name": "live exact oracle kills return reorder-history despite exit zero",
+            "status": "passed"
+          }
+        ],
+        "checks": [
+          {
+            "name": "real exact oracle kills update post delete-item",
+            "status": "failed"
+          },
+          {
+            "name": "real exact oracle kills update post truncate-event",
+            "status": "failed"
+          },
+          {
+            "name": "real exact oracle kills update post drop-field",
+            "status": "failed"
+          },
+          {
+            "name": "real exact oracle kills update post reorder-history",
+            "status": "passed"
+          },
+          {
+            "name": "real exact oracle kills update restart delete-item",
+            "status": "failed"
+          },
+          {
+            "name": "real exact oracle kills update restart truncate-event",
+            "status": "failed"
+          },
+          {
+            "name": "real exact oracle kills update restart drop-field",
+            "status": "failed"
+          },
+          {
+            "name": "real exact oracle kills update restart reorder-history",
+            "status": "passed"
+          },
+          {
+            "name": "real exact oracle kills update return delete-item",
+            "status": "failed"
+          },
+          {
+            "name": "real exact oracle kills update return truncate-event",
+            "status": "failed"
+          },
+          {
+            "name": "real exact oracle kills update return drop-field",
+            "status": "failed"
+          },
+          {
+            "name": "real exact oracle kills update return reorder-history",
+            "status": "passed"
+          },
+          {
+            "name": "real exact oracle kills comment post delete-item",
+            "status": "failed"
+          },
+          {
+            "name": "real exact oracle kills comment post truncate-event",
+            "status": "failed"
+          },
+          {
+            "name": "real exact oracle kills comment post drop-field",
+            "status": "failed"
+          },
+          {
+            "name": "real exact oracle kills comment post reorder-history",
+            "status": "passed"
+          },
+          {
+            "name": "real exact oracle kills comment restart delete-item",
+            "status": "failed"
+          },
+          {
+            "name": "real exact oracle kills comment restart truncate-event",
+            "status": "failed"
+          },
+          {
+            "name": "real exact oracle kills comment restart drop-field",
+            "status": "failed"
+          },
+          {
+            "name": "real exact oracle kills comment restart reorder-history",
+            "status": "passed"
+          },
+          {
+            "name": "real exact oracle kills comment return delete-item",
+            "status": "failed"
+          },
+          {
+            "name": "real exact oracle kills comment return truncate-event",
+            "status": "failed"
+          },
+          {
+            "name": "real exact oracle kills comment return drop-field",
+            "status": "failed"
+          },
+          {
+            "name": "real exact oracle kills comment return reorder-history",
+            "status": "passed"
+          },
+          {
+            "name": "live exact oracle kills restart delete-item despite exit zero",
+            "status": "failed"
+          },
+          {
+            "name": "live exact oracle kills restart truncate-event despite exit zero",
+            "status": "failed"
+          },
+          {
+            "name": "live exact oracle kills restart drop-field despite exit zero",
+            "status": "failed"
+          },
+          {
+            "name": "live exact oracle kills restart reorder-history despite exit zero",
+            "status": "passed"
+          },
+          {
+            "name": "live exact oracle kills return delete-item despite exit zero",
+            "status": "failed"
+          },
+          {
+            "name": "live exact oracle kills return truncate-event despite exit zero",
+            "status": "failed"
+          },
+          {
+            "name": "live exact oracle kills return drop-field despite exit zero",
+            "status": "failed"
+          },
+          {
+            "name": "live exact oracle kills return reorder-history despite exit zero",
+            "status": "passed"
+          }
+        ]
+      },
+      "restored": {
+        "command": [
+          "node",
+          "--test",
+          "--test-concurrency=1",
+          "--test-reporter=./scripts/crash-test-reporter.mts",
+          "--test-name-pattern=exact state oracle kills all|live exact oracle kills",
+          "scripts/crash-oracle.test.mts"
+        ],
+        "exit": 0,
+        "observed": [
+          {
+            "name": "real exact oracle kills update post delete-item",
+            "status": "passed"
+          },
+          {
+            "name": "real exact oracle kills update post truncate-event",
+            "status": "passed"
+          },
+          {
+            "name": "real exact oracle kills update post drop-field",
+            "status": "passed"
+          },
+          {
+            "name": "real exact oracle kills update post reorder-history",
+            "status": "passed"
+          },
+          {
+            "name": "real exact oracle kills update restart delete-item",
+            "status": "passed"
+          },
+          {
+            "name": "real exact oracle kills update restart truncate-event",
+            "status": "passed"
+          },
+          {
+            "name": "real exact oracle kills update restart drop-field",
+            "status": "passed"
+          },
+          {
+            "name": "real exact oracle kills update restart reorder-history",
+            "status": "passed"
+          },
+          {
+            "name": "real exact oracle kills update return delete-item",
+            "status": "passed"
+          },
+          {
+            "name": "real exact oracle kills update return truncate-event",
+            "status": "passed"
+          },
+          {
+            "name": "real exact oracle kills update return drop-field",
+            "status": "passed"
+          },
+          {
+            "name": "real exact oracle kills update return reorder-history",
+            "status": "passed"
+          },
+          {
+            "name": "exact update inventory and acknowledged operations remain distinct",
+            "status": "passed"
+          },
+          {
+            "name": "exact state oracle kills all recovered and returned update data-loss mutations",
+            "status": "passed"
+          },
+          {
+            "name": "real exact oracle kills comment post delete-item",
+            "status": "passed"
+          },
+          {
+            "name": "real exact oracle kills comment post truncate-event",
+            "status": "passed"
+          },
+          {
+            "name": "real exact oracle kills comment post drop-field",
+            "status": "passed"
+          },
+          {
+            "name": "real exact oracle kills comment post reorder-history",
+            "status": "passed"
+          },
+          {
+            "name": "real exact oracle kills comment restart delete-item",
+            "status": "passed"
+          },
+          {
+            "name": "real exact oracle kills comment restart truncate-event",
+            "status": "passed"
+          },
+          {
+            "name": "real exact oracle kills comment restart drop-field",
+            "status": "passed"
+          },
+          {
+            "name": "real exact oracle kills comment restart reorder-history",
+            "status": "passed"
+          },
+          {
+            "name": "real exact oracle kills comment return delete-item",
+            "status": "passed"
+          },
+          {
+            "name": "real exact oracle kills comment return truncate-event",
+            "status": "passed"
+          },
+          {
+            "name": "real exact oracle kills comment return drop-field",
+            "status": "passed"
+          },
+          {
+            "name": "real exact oracle kills comment return reorder-history",
+            "status": "passed"
+          },
+          {
+            "name": "exact comment inventory and acknowledged operations remain distinct",
+            "status": "passed"
+          },
+          {
+            "name": "exact state oracle kills all recovered and returned comment data-loss mutations",
+            "status": "passed"
+          },
+          {
+            "name": "live exact oracle kills restart delete-item despite exit zero",
+            "status": "passed"
+          },
+          {
+            "name": "live exact oracle kills restart truncate-event despite exit zero",
+            "status": "passed"
+          },
+          {
+            "name": "live exact oracle kills restart drop-field despite exit zero",
+            "status": "passed"
+          },
+          {
+            "name": "live exact oracle kills restart reorder-history despite exit zero",
+            "status": "passed"
+          },
+          {
+            "name": "live exact oracle kills return delete-item despite exit zero",
+            "status": "passed"
+          },
+          {
+            "name": "live exact oracle kills return truncate-event despite exit zero",
+            "status": "passed"
+          },
+          {
+            "name": "live exact oracle kills return drop-field despite exit zero",
+            "status": "passed"
+          },
+          {
+            "name": "live exact oracle kills return reorder-history despite exit zero",
+            "status": "passed"
+          }
+        ],
+        "checks": [
+          {
+            "name": "real exact oracle kills update post delete-item",
+            "status": "passed"
+          },
+          {
+            "name": "real exact oracle kills update post truncate-event",
+            "status": "passed"
+          },
+          {
+            "name": "real exact oracle kills update post drop-field",
+            "status": "passed"
+          },
+          {
+            "name": "real exact oracle kills update post reorder-history",
+            "status": "passed"
+          },
+          {
+            "name": "real exact oracle kills update restart delete-item",
+            "status": "passed"
+          },
+          {
+            "name": "real exact oracle kills update restart truncate-event",
+            "status": "passed"
+          },
+          {
+            "name": "real exact oracle kills update restart drop-field",
+            "status": "passed"
+          },
+          {
+            "name": "real exact oracle kills update restart reorder-history",
+            "status": "passed"
+          },
+          {
+            "name": "real exact oracle kills update return delete-item",
+            "status": "passed"
+          },
+          {
+            "name": "real exact oracle kills update return truncate-event",
+            "status": "passed"
+          },
+          {
+            "name": "real exact oracle kills update return drop-field",
+            "status": "passed"
+          },
+          {
+            "name": "real exact oracle kills update return reorder-history",
+            "status": "passed"
+          },
+          {
+            "name": "real exact oracle kills comment post delete-item",
+            "status": "passed"
+          },
+          {
+            "name": "real exact oracle kills comment post truncate-event",
+            "status": "passed"
+          },
+          {
+            "name": "real exact oracle kills comment post drop-field",
+            "status": "passed"
+          },
+          {
+            "name": "real exact oracle kills comment post reorder-history",
+            "status": "passed"
+          },
+          {
+            "name": "real exact oracle kills comment restart delete-item",
+            "status": "passed"
+          },
+          {
+            "name": "real exact oracle kills comment restart truncate-event",
+            "status": "passed"
+          },
+          {
+            "name": "real exact oracle kills comment restart drop-field",
+            "status": "passed"
+          },
+          {
+            "name": "real exact oracle kills comment restart reorder-history",
+            "status": "passed"
+          },
+          {
+            "name": "real exact oracle kills comment return delete-item",
+            "status": "passed"
+          },
+          {
+            "name": "real exact oracle kills comment return truncate-event",
+            "status": "passed"
+          },
+          {
+            "name": "real exact oracle kills comment return drop-field",
+            "status": "passed"
+          },
+          {
+            "name": "real exact oracle kills comment return reorder-history",
+            "status": "passed"
+          },
+          {
+            "name": "live exact oracle kills restart delete-item despite exit zero",
+            "status": "passed"
+          },
+          {
+            "name": "live exact oracle kills restart truncate-event despite exit zero",
+            "status": "passed"
+          },
+          {
+            "name": "live exact oracle kills restart drop-field despite exit zero",
+            "status": "passed"
+          },
+          {
+            "name": "live exact oracle kills restart reorder-history despite exit zero",
+            "status": "passed"
+          },
+          {
+            "name": "live exact oracle kills return delete-item despite exit zero",
+            "status": "passed"
+          },
+          {
+            "name": "live exact oracle kills return truncate-event despite exit zero",
+            "status": "passed"
+          },
+          {
+            "name": "live exact oracle kills return drop-field despite exit zero",
+            "status": "passed"
+          },
+          {
+            "name": "live exact oracle kills return reorder-history despite exit zero",
+            "status": "passed"
+          }
+        ]
+      }
     },
     {
       "name": "phase-pairing",
@@ -99,21 +716,69 @@
       "command": [
         "node",
         "--test",
+        "--test-concurrency=1",
+        "--test-reporter=./scripts/crash-test-reporter.mts",
         "--test-name-pattern=phase parity",
         "scripts/crash-oracle.test.mts"
       ],
       "negativeExit": 1,
-      "restoredExit": 0
+      "restoredExit": 0,
+      "negative": {
+        "command": [
+          "node",
+          "--test",
+          "--test-concurrency=1",
+          "--test-reporter=./scripts/crash-test-reporter.mts",
+          "--test-name-pattern=phase parity",
+          "scripts/crash-oracle.test.mts"
+        ],
+        "exit": 1,
+        "observed": [
+          {
+            "name": "phase parity pairs equivalent cuts with different ordinals and rejects ordinal aliases",
+            "status": "failed"
+          }
+        ],
+        "checks": [
+          {
+            "name": "phase parity pairs equivalent cuts with different ordinals and rejects ordinal aliases",
+            "status": "failed"
+          }
+        ]
+      },
+      "restored": {
+        "command": [
+          "node",
+          "--test",
+          "--test-concurrency=1",
+          "--test-reporter=./scripts/crash-test-reporter.mts",
+          "--test-name-pattern=phase parity",
+          "scripts/crash-oracle.test.mts"
+        ],
+        "exit": 0,
+        "observed": [
+          {
+            "name": "phase parity pairs equivalent cuts with different ordinals and rejects ordinal aliases",
+            "status": "passed"
+          }
+        ],
+        "checks": [
+          {
+            "name": "phase parity pairs equivalent cuts with different ordinals and rejects ordinal aliases",
+            "status": "passed"
+          }
+        ]
+      }
     }
   ],
   "publicCopy": {
     "schema": "pm-rust/crash-v1",
     "ok": false,
     "oracleVersion": "2026.10.21",
-    "nativeSha256": "cfd5598c3c957ca0cb7ed47636ba6662d0727ba5dfd5a2cddf12beff701a6e0c",
-    "sourceFiles": 176,
-    "sourceItems": 85,
-    "sourceSha256": "a1ed87dcbf95d4bf7c48348bceb91b7710b0db7b8071461b48828ac5cc49011e",
+    "nativeSha256": "d942235c2aa39765315db1c695b9c7f370a2f72b2eed98565e6c31c98af8e492",
+    "sourceFiles": 178,
+    "sourceItems": 86,
+    "sourceSha256": "46504a280e50fb00d01b804aa66301d6346f26fd79f2f67e38d8d11450141b24",
     "sourceUnchanged": true,
     "acknowledgedComparisons": 2,
     "killed": 26,
