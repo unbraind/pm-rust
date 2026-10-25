@@ -322,3 +322,8 @@ when embedding against a remote backend. The example grants only get and list.
 The expanded crash corpus includes history-path `openat` cuts and native runtime
 journals. Historical same-operation receipts do not establish complete recovery
 conformance; the locked published oracle still has measured history-open failures.
+
+The repository check `node scripts/crash-history-prefix.mts` requires Git and
+compares every changed history stream with `origin/main` as exact bytes. Main
+history must remain a prefix; new item streams are permitted. Tracker commands
+and `just crash` continue to work in plain directories without Git.
