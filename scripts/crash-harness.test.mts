@@ -4,9 +4,10 @@ import { chmodSync, existsSync, mkdtempSync, mkdirSync, readdirSync, readFileSyn
 import { tmpdir } from 'node:os';
 import { join, resolve } from 'node:path';
 import { test } from 'node:test';
+import { exactState } from './crash-oracle.mts';
 import { CrashRefusal, replayCrashFailure, runCrashCorpus } from './crash-harness.mts';
 import { boundaryCount, execute, killedAtBoundary } from './crash-process.mts';
-import { fingerprint, materialize, preservesHistory, recoveredState, sameBytes, snapshot } from './crash-storage.mts';
+import { fingerprint, materialize, preservesHistory, sameBytes, snapshot } from './crash-storage.mts';
 
 /** Own and clean a real plain-directory tracker fixture. */
 function temporary(callback: (root: string) => void): void {
@@ -24,17 +25,18 @@ test('history preservation rejects truncation, replacement and missing streams b
   assert.equal(preservesHistory(before, new Map()), false);
 });
 
-test('successful restart cannot lose its own history while a safe refusal may retain the seed', () => temporary(root => {
+test('successful restart must match the selected complete history and cannot retain only the seed', () => temporary(root => {
   materialize(new Map([['history/probe.jsonl', Buffer.from('seed\n')]]), root);
   const seed = snapshot(root);
   writeFileSync(join(root, 'history/probe.jsonl'), 'seed\nrestart\n');
   const before = snapshot(root);
   writeFileSync(join(root, 'history/probe.jsonl'), 'seed\nmutation\nrestart\n');
   const committed = snapshot(root);
-  assert.equal(recoveredState(seed, before, committed, seed, 0), 'diverged');
-  assert.equal(recoveredState(seed, before, committed, seed, 4), 'before');
-  assert.equal(recoveredState(seed, before, committed, before, 0), 'before');
-  assert.equal(recoveredState(seed, before, committed, committed, 0), 'committed');
+  assert.equal(exactState(before, seed), false);
+  assert.equal(exactState(committed, seed), false);
+  assert.equal(exactState(committed, before), false);
+  assert.equal(exactState(before, before), true);
+  assert.equal(exactState(committed, committed), true);
 }));
 
 test('inventories include nested custom items but exclude only root caches', () => temporary(root => {
@@ -268,11 +270,19 @@ test('real pm corpus preserves acknowledged history and independently replays re
       assert.ok(report.cases.some(row => row.ok));
       assert.ok(report.parity.every(row => row.bytes && row.acknowledgement));
       const failed = report.cases.filter(row => !row.ok);
-      assert.equal(report.ok, false, 'Published history-open divergence and differing cross-runtime cuts must remain visible');
+      assert.equal(report.ok, false, 'Published history-open divergence must remain visible without pairing different phases');
       assert.ok(report.cases.filter(row => row.implementation === 'native').every(row => row.ok && row.journalsAfterRestart === 0 && row.returnStatus === 0));
       assert.ok(failed.some(row => row.implementation === 'published' && row.syscall === 'openat' && row.state === 'diverged'));
       assert.ok(report.recoveryParity.some(row => !row.ok));
-      assert.equal(report.failuresRetained, failed.length + 2);
+      for (const scenario of ['update', 'comment']) {
+        const native = report.cases.find(row => row.scenario === scenario && row.implementation === 'native' && row.syscall === 'rename' && row.boundary === 1)!;
+        const published = report.cases.find(row => row.scenario === scenario && row.implementation === 'published' && row.syscall === 'rename' && row.boundary === 1)!;
+        assert.ok(native.ok && published.ok);
+        assert.equal(native.phase, 'after-commit');
+        assert.equal(published.phase, 'before-commit');
+        assert.ok(!report.recoveryParity.some(pair => pair.scenario === scenario && pair.syscall === 'rename' && pair.boundary === 1 && pair.publishedSyscall === 'rename' && pair.publishedBoundary === 1));
+      }
+      assert.equal(report.failuresRetained, failed.length);
       assert.equal(existsSync(join(root, '.git')), false);
     } finally { process.env.PATH = savedPath; }
   }));

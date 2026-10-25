@@ -5,8 +5,10 @@ import { basename, dirname, isAbsolute, join, relative, resolve, sep } from 'nod
 import { fileURLToPath } from 'node:url';
 import { CRASH_CLOCK_IMPORT, CRASH_SYSCALLS, boundaryCount, execute, killedAtBoundary } from './crash-process.mts';
 import type { Boundary, Implementation, ProcessReceipt } from './crash-process.mts';
-import { fingerprint, journals, materialize, preservesHistory, recoveredState, sameBytes, snapshot } from './crash-storage.mts';
+import { fingerprint, journals, materialize, preservesHistory, sameBytes, snapshot } from './crash-storage.mts';
 import type { Snapshot } from './crash-storage.mts';
+import { exactState, phasePairs, transactionPhase, transactionState } from './crash-oracle.mts';
+import type { TransactionPhase } from './crash-oracle.mts';
 
 /** Public clock used by both real implementations. */
 export const CRASH_CLOCK = '2026-10-21T12:00:00.000Z';
@@ -43,6 +45,9 @@ export interface CrashCase {
   implementation: 'native' | 'published';
   syscall: Boundary['syscall'];
   boundary: number;
+  phase: TransactionPhase;
+  restartExact: boolean;
+  returnExact: boolean;
   killed: boolean;
   acknowledged: boolean;
   historyPreserved: boolean;
@@ -76,6 +81,7 @@ export interface CrashReport {
   failuresRetained: number;
   parity: { scenario: CrashScenario; bytes: boolean; acknowledgement: boolean }[];
   recoveryParity: RecoveryComparison[];
+  phaseCoverage?: { scenario: CrashScenario; phase: TransactionPhase; native: number; published: number; paired: boolean }[];
   clock: typeof CLOCK_POLICY;
   reduction?: { status: 'completed' | 'refused'; code?: RefusalCode; remedy?: string };
 }
@@ -85,11 +91,11 @@ export const CLOCK_POLICY = { metadata: CRASH_CLOCK, dateNow: 'fixed', performan
   limitation: 'Published Date.now lock TTL/wait ages are frozen; only the real external timeout bounds those waits. This corpus does not certify elapsed-time or stale-gate parity.' } as const;
 
 /** A paired recovery comparison never treats an unpaired syscall as cross-runtime evidence. */
-export interface RecoveryComparison { scenario: CrashScenario; syscall: Boundary['syscall']; boundary: number; bytes: boolean; receipt: boolean; state: boolean; journals: boolean; ok: boolean }
+export interface RecoveryComparison { scenario: CrashScenario; syscall: Boundary['syscall']; boundary: number; phase: TransactionPhase; publishedSyscall: Boundary['syscall']; publishedBoundary: number; bytes: boolean; receipt: boolean; state: boolean; journals: boolean; ok: boolean }
 
 /** Compare recovered bytes and shared acknowledgement projections at a common observed cut. */
 export function compareRecovery(native: Snapshot, published: Snapshot, nativeReceipt: string, publishedReceipt: string,
-  nativeState: CrashCase['state'], publishedState: CrashCase['state'], nativeJournals: Snapshot, publishedJournals: Snapshot): Omit<RecoveryComparison, 'scenario' | 'syscall' | 'boundary'> {
+  nativeState: CrashCase['state'], publishedState: CrashCase['state'], nativeJournals: Snapshot, publishedJournals: Snapshot): Omit<RecoveryComparison, 'scenario' | 'syscall' | 'boundary' | 'phase' | 'publishedSyscall' | 'publishedBoundary'> {
   const result = { bytes: sameBytes(native, published), receipt: nativeReceipt === publishedReceipt,
     state: nativeState === publishedState, journals: sameBytes(nativeJournals, publishedJournals) };
   return { ...result, ok: Object.values(result).every(Boolean) };
@@ -245,7 +251,7 @@ function run(options: CrashOptions, root: string, timeout: number, maximum: numb
     schema: 'pm-rust/crash-v1', ok: true, oracleVersion: '2026.10.21',
     nativeSha256: createHash('sha256').update(readFileSync(resolve(options.native))).digest('hex'),
     sourceFiles: original.size, sourceItems: [...original.keys()].filter(name => name.endsWith('.toon')).length, sourceSha256: fingerprint(original),
-    sourceUnchanged: true, acknowledgedComparisons: 0, killed: 0, boundaries: [], cases: [], failuresRetained: 0, parity: [], recoveryParity: [], clock: CLOCK_POLICY,
+    sourceUnchanged: true, acknowledgedComparisons: 0, killed: 0, boundaries: [], cases: [], failuresRetained: 0, parity: [], recoveryParity: [], phaseCoverage: [], clock: CLOCK_POLICY,
   };
   let sequence = 0;
   /** Make a unique workspace from an immutable snapshot. */
@@ -259,11 +265,11 @@ function run(options: CrashOptions, root: string, timeout: number, maximum: numb
     // A different operation must observe/recover every pending journal before it writes.
     const restart = scenario === 'update' ? ['comment', id, 'Restart synthetic sentinel', ...common] :
       ['update', id, '--description', 'Restart synthetic description', ...common];
-    const returnCommand = scenario === 'update' ? ['update', id, '--priority', '1', ...common] :
+    const returnCommand = scenario === 'update' ? ['update', id, '--priority', '2', ...common] :
       ['comment', id, 'Return synthetic sentinel', ...common];
     const baselines = new Map<string, Snapshot>();
     const receipts = new Map<string, string>();
-    const recoveries = new Map<string, { row: CrashCase; bytes: Snapshot; receipt: string; journals: Snapshot }>();
+    const recoveries: { row: CrashCase; phase: TransactionPhase; implementation: 'native' | 'published'; syscall: Boundary['syscall']; boundary: number; bytes: Snapshot; receipt: string; journals: Snapshot }[] = [];
     for (const [label, implementation] of Object.entries(implementations)) {
       const directory = clone(seed);
       const trace = join(directory, 'baseline.trace');
@@ -297,10 +303,14 @@ function run(options: CrashOptions, root: string, timeout: number, maximum: numb
       // The reference restart uses precisely the same invocation as interrupted cases.
       const committedReceipt = acknowledged(execute(implementation, restart, directory, timeout));
       const committed = snapshot(join(directory, '.agents/pm'));
+      acknowledged(execute(implementation, returnCommand, directory, timeout));
+      const committedReturn = snapshot(join(directory, '.agents/pm'));
       rmSync(directory, { recursive: true, force: true });
       const beforeDirectory = clone(seed);
       const beforeReceipt = acknowledged(execute(implementation, restart, beforeDirectory, timeout));
       const before = snapshot(join(beforeDirectory, '.agents/pm'));
+      acknowledged(execute(implementation, returnCommand, beforeDirectory, timeout));
+      const beforeReturn = snapshot(join(beforeDirectory, '.agents/pm'));
       rmSync(beforeDirectory, { recursive: true, force: true });
       for (const { syscall, count } of counts) {
         for (let ordinal = 1; ordinal <= count; ordinal++) {
@@ -315,13 +325,18 @@ function run(options: CrashOptions, root: string, timeout: number, maximum: numb
             throw refusal;
           }
           const atKill = snapshot(join(killedDirectory, '.agents/pm'));
+          const phase = transactionPhase(crashed.trace, label as 'native' | 'published', id);
+          const expected = phase === 'before-commit' ? before : committed;
+          const expectedReturn = phase === 'before-commit' ? beforeReturn : committedReturn;
           const recovered = execute(implementation, restart, killedDirectory, timeout);
           const after = snapshot(join(killedDirectory, '.agents/pm'));
           const returned = recovered.status === 0 ? execute(implementation, returnCommand, killedDirectory, timeout) : undefined;
           const afterReturn = returned ? snapshot(join(killedDirectory, '.agents/pm')) : after;
           const pending = journals(after);
           const pendingAfterReturn = journals(afterReturn);
-          const state = recoveredState(probe(seed, id), probe(before, id), probe(committed, id), probe(after, id), recovered.status);
+          const restartExact = exactState(expected, after);
+          const returnExact = exactState(expectedReturn, afterReturn);
+          const state: CrashCase['state'] = restartExact ? phase === 'before-commit' ? 'before' : 'committed' : 'diverged';
           const historyPreserved = preservesHistory(seed, after);
           const itemName = `tasks/${id}.toon`;
           const itemPreserved = [seed, before, committed, baselines.get(label)!].some(reference => after.get(itemName)?.equals(reference.get(itemName)!));
@@ -329,15 +344,15 @@ function run(options: CrashOptions, root: string, timeout: number, maximum: numb
           const receiptMatches = state === 'before' ? receiptHash(recovered) === receiptHash(beforeReceipt) :
             state === 'committed' && receiptHash(recovered) === receiptHash(committedReceipt);
           const row: CrashCase = {
-            scenario, implementation: label as 'native' | 'published', syscall, boundary: ordinal, killed: true,
+            scenario, implementation: label as 'native' | 'published', syscall, boundary: ordinal, phase, restartExact, returnExact, killed: true,
             acknowledged: acknowledgedWrite, historyPreserved, restartStatus: recovered.status, state,
             durableSha256: fingerprint(probe(after, id)), receiptSha256: receiptHash(recovered),
             receiptMatches, returnStatus: returned?.status ?? null, journalsAtKill: journals(atKill).size,
             journalsAfterRestart: pending.size, journalsAfterReturn: pendingAfterReturn.size, journalSha256: fingerprint(pending),
-            ok: recovered.status === 0 && returned?.status === 0 && acknowledgedWrite && state !== 'diverged' && receiptMatches && pending.size === 0 && pendingAfterReturn.size === 0 && preservesHistory(seed, afterReturn),
+            ok: recovered.status === 0 && returned?.status === 0 && acknowledgedWrite && state !== 'diverged' && receiptMatches && pending.size === 0 && pendingAfterReturn.size === 0 && restartExact && returnExact,
           };
           if (!row.ok) row.failure = {
-            code: recovered.status !== 0 ? 'restart_refused' : pending.size > 0 ? 'pending_journal' : returned?.status !== 0 ? 'return_refused' : !historyPreserved ? 'history_rewritten' : state === 'diverged' ? 'durable_divergence' : 'receipt_mismatch',
+            code: recovered.status !== 0 ? 'restart_refused' : pending.size > 0 ? 'pending_journal' : returned?.status !== 0 ? 'return_refused' : !historyPreserved ? 'history_rewritten' : !restartExact || !returnExact ? 'durable_divergence' : 'receipt_mismatch',
             remedy: 'Replay the retained synthetic case and inspect its lock, journal, bytes and receipt; preserve all original history. Runtime repairs need separate implementation work.',
           };
           report.cases.push(row);
@@ -346,7 +361,7 @@ function run(options: CrashOptions, root: string, timeout: number, maximum: numb
           const outer = projected !== null && typeof projected === 'object' ? projected as Record<string, unknown> : {};
           const entity = outer.item !== null && typeof outer.item === 'object' ? outer.item as Record<string, unknown> : outer;
           const projectedReceipt = JSON.stringify([recovered.status, entity.id, scenario === 'update' ? entity.comments : entity.status, returned?.status]);
-          recoveries.set(`${label}/${syscall}/${ordinal}`, { row, bytes: probe(after, id), receipt: projectedReceipt, journals: pending });
+          recoveries.push({ row, phase, implementation: row.implementation, syscall, boundary: ordinal, bytes: transactionState(after), receipt: projectedReceipt, journals: pending });
           report.killed++;
           if (!row.ok) {
             report.ok = false;
@@ -357,7 +372,10 @@ function run(options: CrashOptions, root: string, timeout: number, maximum: numb
               const minimal = new Map([...original].filter(([name]) => !name.endsWith('.toon') && !name.endsWith('.jsonl')));
               materialize(minimal, join(retained, 'fixture/.agents/pm'));
               materialize(probe(seed, id), join(retained, 'acknowledged'));
-              materialize(probe(after, id), join(retained, 'recovered'));
+              materialize(transactionState(after), join(retained, 'recovered'));
+              materialize(transactionState(expected), join(retained, 'expected-restart'));
+              materialize(transactionState(expectedReturn), join(retained, 'expected-return'));
+              materialize(transactionState(afterReturn), join(retained, 'returned'));
               materialize(new Map([...atKill].filter(([name]) => name.startsWith('runtime/'))), join(retained, 'at-kill'));
               materialize(new Map([...afterReturn].filter(([name]) => name.startsWith('runtime/'))), join(retained, 'after-return'));
               const only: CrashSelection = { scenario, implementation: row.implementation, syscall, ordinal };
@@ -373,13 +391,16 @@ function run(options: CrashOptions, root: string, timeout: number, maximum: numb
         }
       }
     }
-    for (const candidate of report.cases.filter(row => row.scenario === scenario && row.implementation === 'native')) {
-      const nativeRecovery = recoveries.get(`native/${candidate.syscall}/${candidate.boundary}`)!;
-      const publishedRecovery = recoveries.get(`published/${candidate.syscall}/${candidate.boundary}`);
-      if (!publishedRecovery) continue;
+    for (const phase of ['before-commit', 'after-commit', 'during-cleanup'] as const) {
+      const native = recoveries.filter(cut => cut.implementation === 'native' && cut.phase === phase).length;
+      const published = recoveries.filter(cut => cut.implementation === 'published' && cut.phase === phase).length;
+      report.phaseCoverage!.push({ scenario, phase, native, published, paired: native > 0 && published > 0 });
+    }
+    for (const [nativeRecovery, publishedRecovery] of phasePairs(recoveries)) {
+      const candidate = nativeRecovery.row;
       const comparison = compareRecovery(nativeRecovery.bytes, publishedRecovery.bytes, nativeRecovery.receipt, publishedRecovery.receipt,
         candidate.state, publishedRecovery.row.state, nativeRecovery.journals, publishedRecovery.journals);
-      report.recoveryParity.push({ scenario, syscall: candidate.syscall, boundary: candidate.boundary, ...comparison });
+      report.recoveryParity.push({ scenario, syscall: candidate.syscall, boundary: candidate.boundary, phase: candidate.phase, publishedSyscall: publishedRecovery.row.syscall, publishedBoundary: publishedRecovery.row.boundary, ...comparison });
       if (!comparison.ok) {
         report.ok = false;
         if (!source && candidate.ok && publishedRecovery.row.ok) {
@@ -396,7 +417,7 @@ function run(options: CrashOptions, root: string, timeout: number, maximum: numb
     }
     const native = baselines.get('native')!;
     const published = baselines.get('published')!;
-    const bytes = sameBytes(probe(native, id), probe(published, id));
+    const bytes = exactState(native, published);
     const acknowledgement = receipts.get('native') === receipts.get('published');
     const parity = bytes && acknowledgement;
     report.parity.push({ scenario, bytes, acknowledgement });

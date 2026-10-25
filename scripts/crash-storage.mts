@@ -59,9 +59,3 @@ export function sameBytes(left: Snapshot, right: Snapshot): boolean {
 export function journals(files: Snapshot): Map<string, Buffer> {
   return new Map([...files].filter(([name]) => name.startsWith('runtime/transactions/') && name.endsWith('.json') && !name.split('/').at(-1)?.startsWith('.')));
 }
-
-/** Accept seed bytes only after a refused restart; successful restarts must match a complete reference. */
-export function recoveredState(seed: Snapshot, before: Snapshot, committed: Snapshot, after: Snapshot, status: number | null): 'before' | 'committed' | 'diverged' {
-  if (sameBytes(before, after) || status !== 0 && sameBytes(seed, after)) return 'before';
-  return sameBytes(committed, after) ? 'committed' : 'diverged';
-}

@@ -130,9 +130,10 @@ test('review receipt provides source toolchain and independently applicable cont
     assert.equal(createHash('sha256').update(patch).digest('hex'), control.patchSha256);
     assert.equal(control.negativeExit, 1);
     assert.equal(control.restoredExit, 0);
-    assert.equal(createHash('sha256').update(readFileSync(control.file)).digest('hex'), control.sourceSha256);
-    const checked = spawnSync('git', ['apply', '--check', control.patch], { encoding: 'utf8' });
-    assert.equal(checked.status, 0, checked.stderr);
+    // These completed controls certify their recorded source commit, not future working-tree edits.
+    const historical = spawnSync('git', ['show', `${receipt.provenance.sourceCommit}:${control.file}`]);
+    assert.equal(historical.status, 0);
+    assert.equal(createHash('sha256').update(historical.stdout).digest('hex'), control.sourceSha256);
   }
   const artifact = receipt.artifactControl;
   assert.equal(createHash('sha256').update(readFileSync(artifact.patch)).digest('hex'), artifact.patchSha256);

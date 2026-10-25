@@ -39,9 +39,11 @@ Each fixture has one synthetic Task and its acknowledged create history.
 Update changes its description; comment appends a synthetic comment. Restart
 uses a different operation: update is followed by a comment sentinel; comment
 is followed by a description update. It then returns to the original operation
-to detect a stranded journal that a successful different operation concealed. Both uninterrupted alternatives (before/committed) run that identical
-restart command. No history hash, patch, receipt or existing stream is normalized
-or repaired. Item and history bytes must match one complete reference state;
+to detect a stranded journal that a successful different operation concealed. Both uninterrupted alternatives (PRE/POST) run that identical
+restart command and the same final return. The final update changes priority to 2
+so it produces an acknowledged event rather than a no-op. No history hash, patch, receipt or existing stream is normalized
+or repaired. The observed transaction phase selects exactly one reference; all canonical
+item bytes and complete history files must match it after restart and return;
 each implementation's raw restart receipt must match its corresponding reference.
 The cross-runtime acknowledgement projection is explicitly update `id/status`
 or comment `id/comments`, because native mutation commands emit full legacy JSON
@@ -77,9 +79,15 @@ just crash --native target/debug/pm-rust --artifacts .crash-failures \
 
 Root caches (`locks`, `transactions`, `checkpoints`, `search`) are
 excluded from the authoritative copy. The complete `runtime/` tree is captured,
-including native `runtime/transactions/` recovery intent. Derived runtime indexes
-may change; pending transaction bytes are retained at kill, after restart and
-after returning to the original operation. Any pending journal fails the case. Nested names remain authoritative. Regular
+including native `runtime/transactions/` recovery intent. The exact state oracle
+excludes only the derived `runtime/context-usage.jsonl` access log,
+`runtime/metadata-cache-delta.json` metadata cache and private
+atomic-write staging names (`.*.tmp`), in addition to the root caches above.
+Other runtime files, all config/schema files, all items, every complete history
+stream and canonical pending journals remain in the exact inventory. Pending
+transaction bytes are retained at kill, after restart and after returning to the
+original operation. Staging garbage is outside this canonical-state contract;
+this is a process-crash test, not a power-loss durability certificate. Any pending journal fails the case. Nested names remain authoritative. Regular
 config/schema files, items and history streams are copied byte-for-byte; symlinks
 and special files refuse. Output inside the input tracker refuses, including
 symlink aliases. Source fingerprints are checked again after execution. No raw
@@ -117,10 +125,43 @@ operation to drain the journal and the original operation to succeed afterward.
 The locked published oracle still diverges at history-open cuts; that versioned
 behavior is tracked separately by `pm-rust-published-history-open`.
 
-Recovered item/history bytes, shared receipt projections, states and pending
-journals are compared across runtimes for every common measured cut. A mismatch
-fails the report, even when both local reference checks passed. Unpaired native
-fsync ordinals are not represented as cross-runtime parity evidence.
+Recovered canonical bytes, shared receipt projections, states and pending
+journals are paired by **transaction phase**, never syscall ordinal. Every pair
+within the same phase is compared; unequal counts and different syscall classes
+are allowed. A phase with cuts in only one runtime is explicitly unpaired in
+`phaseCoverage`, with no cross-runtime claim. A mismatch fails the report.
+
+The phase labels come from the interrupted process trace, before recovery:
+
+| Phase | Evidence | Required recovery |
+| --- | --- | --- |
+| `before-commit` | No successful commit publication | Exact PRE |
+| `after-commit` | Native journal hard-link publication, or published canonical item rename | Exact POST |
+| `during-cleanup` | Successful history write after publication | Exact POST |
+
+The path-filtered history-open cut independently identifies the append/write
+open that follows publication; read opens do not establish a commit. Successful
+`link`/`rename` results, including resumed strace calls, establish publication;
+failed calls and cache renames do not. This policy describes the pinned update
+and comment implementations, not arbitrary future transaction protocols.
+
+Recovery is triggered by a different acknowledged operation, so comparisons use
+clean `restart(PRE)` or `restart(POST)` references. Final returns use the matching
+clean `return(restart(...))` reference. Thus neither the restart event nor a
+field changed by the final operation can disappear behind a seed-history prefix.
+The same `exactState` function checks both; exact filenames, file counts, and
+bytes determine equality, without parsing, sorting, or repairing history.
+Synthetic failures retain expected restart/return and actual returned states.
+
+`node --test scripts/crash-oracle.test.mts` runs real plain-directory tracker
+fixtures plus Linux child-process mutations. It kills item deletion, final-event
+truncation, field removal and history reordering at recovery and return. Phase
+regressions accept equivalent cuts with different ordinals and exclude identical
+ordinals from different phases. `node scripts/crash-oracle-proof.mts` records
+independent seed-prefix and ordinal-pairing behavioral reverts, a mutation table,
+a phase-equivalence table, and a fresh public-copy report in
+[the phase-oracle receipt](CRASH_ORACLE_2026_10_25.json). Earlier receipts remain
+historical and their old ordinal mismatches are superseded by this measurement.
 
 The metadata constructor and Date.now() are both frozen at CRASH_CLOCK. This also
 freezes published lock TTL ages, Date.now-based wait budgets and stale-gate age

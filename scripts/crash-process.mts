@@ -19,7 +19,7 @@ export function execute(implementation: Implementation, args: readonly string[],
   const argv = [...implementation.args, ...args, ...(implementation.trailing ?? [])];
   const traced = traceFile !== undefined;
   const result = spawnSync(traced ? strace : implementation.executable,
-    traced ? ['-f', '--kill-on-exit', '-qq', '-o', traceFile, '-e', `trace=${tracePath ? 'openat' : CRASH_SYSCALLS.join(',')}`,
+    traced ? ['-f', '--kill-on-exit', '-qq', '-yy', '-s', '4096', '-o', traceFile, '-e', `trace=${tracePath ? 'openat' : [...CRASH_SYSCALLS, 'link', 'linkat', 'write', 'writev', 'unlink', 'unlinkat'].join(',')}`,
       ...(tracePath ? ['-P', tracePath] : []),
       ...(boundary ? ['-e', `inject=${boundary.syscall}:signal=SIGKILL:when=${boundary.ordinal}`] : []),
       '--', implementation.executable, ...argv] : argv, {
