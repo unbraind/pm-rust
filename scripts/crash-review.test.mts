@@ -8,7 +8,7 @@ import { test } from 'node:test';
 import { decode } from '../tests/oracle/node_modules/@unbrained/pm-cli/node_modules/@toon-format/toon/dist/index.mjs';
 import { formatCrashToon } from './crash-output.mts';
 import type { CrashReport } from './crash-harness.mts';
-import { boundaryCount, execute, killedAtBoundary } from './crash-process.mts';
+import { CRASH_CLOCK_IMPORT, boundaryCount, execute, killedAtBoundary } from './crash-process.mts';
 import { CLOCK_POLICY, compareRecovery, replayCrashFailure, runCrashCorpus } from './crash-harness.mts';
 import { journals, materialize, sameBytes, snapshot } from './crash-storage.mts';
 
@@ -44,7 +44,8 @@ test('cross-runtime recovery comparison rejects different bytes receipts states 
 
 test('clock disclosure matches frozen Date.now and live performance elapsed time', () => {
   const code = 'const first=Date.now();const elapsed=performance.now();await new Promise(r=>setTimeout(r,30));console.log(JSON.stringify({first,last:Date.now(),wall:new Date().toISOString(),elapsed:performance.now()-elapsed}));';
-  const child = spawnSync(process.execPath, ['--import', resolve('scripts/crash-clock.mts'), '--input-type=module', '-e', code], { encoding: 'utf8' });
+  assert.equal(new URL(CRASH_CLOCK_IMPORT).protocol, 'file:');
+  const child = spawnSync(process.execPath, ['--import', CRASH_CLOCK_IMPORT, '--input-type=module', '-e', code], { encoding: 'utf8' });
   assert.equal(child.status, 0, child.stderr);
   const result = JSON.parse(child.stdout);
   assert.equal(result.first, result.last);
@@ -123,7 +124,7 @@ test('review receipt provides source toolchain and independently applicable cont
   assert.match(receipt.provenance.publicTrackerCommit, /^[a-f0-9]{40}$/);
   for (const name of ['node', 'rustc', 'nightly', 'cargo', 'strace']) assert.ok(receipt.provenance.toolchain[name]);
   assert.ok(receipt.provenance.reproduction.includes('node scripts/crash-review-proof.mts'));
-  assert.equal(receipt.controls.length, 12);
+  assert.equal(receipt.controls.length, 13);
   for (const control of receipt.controls) {
     const patch = readFileSync(control.patch);
     assert.equal(createHash('sha256').update(patch).digest('hex'), control.patchSha256);

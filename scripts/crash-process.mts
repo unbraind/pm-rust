@@ -4,6 +4,8 @@ import { join } from 'node:path';
 
 /** Observable syscall classes shared by real native and published processes. */
 export const CRASH_SYSCALLS = ['rename', 'fsync'] as const;
+/** Portable Node preload specifier, including drive-letter paths and escaped filenames. */
+export const CRASH_CLOCK_IMPORT = new URL('./crash-clock.mts', import.meta.url).href;
 /** One syscall's per-task entry ordinal; ordinals are not cross-runtime semantic phases. */
 export interface Boundary { syscall: typeof CRASH_SYSCALLS[number] | 'openat'; ordinal: number }
 /** Complete child receipt, retained privately and reduced to hashes in public output. */

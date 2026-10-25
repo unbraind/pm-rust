@@ -3,7 +3,7 @@ import { existsSync, mkdirSync, mkdtempSync, readFileSync, realpathSync, rmSync,
 import { tmpdir } from 'node:os';
 import { basename, dirname, isAbsolute, join, relative, resolve, sep } from 'node:path';
 import { fileURLToPath } from 'node:url';
-import { CRASH_SYSCALLS, boundaryCount, execute, killedAtBoundary } from './crash-process.mts';
+import { CRASH_CLOCK_IMPORT, CRASH_SYSCALLS, boundaryCount, execute, killedAtBoundary } from './crash-process.mts';
 import type { Boundary, Implementation, ProcessReceipt } from './crash-process.mts';
 import { fingerprint, journals, materialize, preservesHistory, recoveredState, sameBytes, snapshot } from './crash-storage.mts';
 import type { Snapshot } from './crash-storage.mts';
@@ -125,7 +125,7 @@ function adapters(options: CrashOptions): Record<'native' | 'published', Impleme
   }
   return {
     native: { executable: resolve(options.native), args: [], trailing: ['--timestamp', CRASH_CLOCK] },
-    published: { executable: process.execPath, args: ['--import', fileURLToPath(new URL('./crash-clock.mts', import.meta.url)), join(oracle, 'dist/cli.js')], trailing: ['--json', '--no-extensions'] },
+    published: { executable: process.execPath, args: ['--import', CRASH_CLOCK_IMPORT, join(oracle, 'dist/cli.js')], trailing: ['--json', '--no-extensions'] },
   };
 }
 
