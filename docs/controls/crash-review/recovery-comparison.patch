@@ -1,5 +1,5 @@
 diff --git a/scripts/crash-harness.mts b/scripts/crash-harness.mts
-index 80ab1e6..5ba9f3c 100644
+index 8379d2b..4034f8a 100644
 --- a/scripts/crash-harness.mts
 +++ b/scripts/crash-harness.mts
 @@ -92,7 +92,7 @@ export function compareRecovery(native: Snapshot, published: Snapshot, nativeRec

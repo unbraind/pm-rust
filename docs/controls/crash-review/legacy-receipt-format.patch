@@ -1,5 +1,5 @@
 diff --git a/docs/CRASH_REVIEW_2026_10_23.json b/docs/CRASH_REVIEW_2026_10_23.json
-index b565d03..9250c62 100644
+index 98c85b7..b9fdf4c 100644
 --- a/docs/CRASH_REVIEW_2026_10_23.json
 +++ b/docs/CRASH_REVIEW_2026_10_23.json
 @@ -1,5 +1,5 @@
@@ -8,4 +8,4 @@ index b565d03..9250c62 100644
 +  "schema": "legacy-receipt",
    "provenance": {
      "sourceRepository": "https://github.com/unbraind/pm-rust",
-     "sourceCommit": "3b0b53bf3e38357c886d49b3f45606726919b3f5",
+     "sourceCommit": "5f6664f78a6701f552142d9aee286515e71322bb",
