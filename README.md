@@ -85,6 +85,8 @@ see the [large tracker limits and benchmark protocol](docs/NATIVE_HOT_PATHS.md).
 Linked-test branch provenance is optional and inspects Git only when a repository
 marker exists. GitHub synchronization and Git history tooling require a Git
 repository and are outside the distributed native command slice.
+Evidence recorders and the [receipt commit gate](docs/EVIDENCE.md) require Git
+and a reachable origin; the crash corpus itself still runs in plain trackers.
 
 ## Crash-consistency differential corpus
 

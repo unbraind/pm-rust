@@ -1,0 +1,35 @@
+id: pm-rust-crash-oracle-recorder
+title: Certify only observed crash-oracle checks and durable evidence commits
+description: "Replace asserted proof successes with observed Node test outcomes, refuse omitted checks, re-record the oracle receipt, and verify every evidence commit in a fresh full clone across squash merges."
+type: Task
+status: in_progress
+priority: 2
+tags[3]: crash-consistency,evidence,regression
+created_at: "2026-10-25T14:20:39.649Z"
+updated_at: "2026-10-25T14:29:18.389Z"
+assignee: codex-agent
+claim_principal: codex-agent
+author: codex-agent
+parent: pm-rust-crash-harness
+comments[4]{created_at,author,text}:
+  "2026-10-25T14:20:44.804Z",codex-agent,"Confirmed the old filter selected only two live return cases while the receipt asserted all eight. Plan: parse Node test events, name every mutation check, require complete execution, test subset refusal and behavioral revert, and add a fresh remote clone evidence-commit gate. Historical review source is preserved on evidence/crash-review-2026-10-23. Dependency pins remain unchanged."
+  "2026-10-25T14:27:59.151Z",codex-agent,"Implemented observed Node terminal events and 33 named expectations (24 real-state mutations, 8 live mutations, 1 phase regression). Subset certification reports missing checks as not_run. The fresh-clone gate also found historical benchmark sources lost after squash merges; preserved their existing commits on four evidence branches without rewriting receipts or creating tags. Gate currently resolves 34 references across 19 receipts."
+  "2026-10-25T14:28:41.551Z",codex-agent,"Behavioral revert proof: replaced only reconcileResults observation lookup with hard-coded passed, ran node --test --test-reporter=tap scripts/crash-proof-results.test.mts: exit 1, 1 passed and 2 failed; restored original bytes and reran: exit 0, 3 passed. Independently omitted only evidence commit resolution/retention validation: evidence suite exit 1, 2 passed and 1 failed; restored: exit 0, 3 passed. No history was rewritten."
+  "2026-10-25T14:29:18.388Z",codex-agent,"Real subset run with the original live return delete-item/truncate-event filter: runner exit 0, recorder exit 1; expected 33, executed/passed 2, not_run 31, including all six omitted live checks. Typecheck and ESLint pass. Linked regression run through pm test passed all 6 tests; tracking is disabled by project policy, so results are documented here."
+files[9]{path,scope}:
+  justfile,project
+  scripts/crash-evidence-commits.mts,project
+  scripts/crash-evidence-commits.test.mts,project
+  scripts/crash-oracle-proof.mts,project
+  scripts/crash-oracle.test.mts,project
+  scripts/crash-proof-results.mts,project
+  scripts/crash-proof-results.test.mts,project
+  scripts/crash-review-proof.mts,project
+  scripts/crash-test-reporter.mts,project
+tests[1]{command,scope,provenance{author,created_at,source_kind,source_ref}}:
+  node --test scripts/crash-proof-results.test.mts scripts/crash-evidence-commits.test.mts,project,codex-agent,"2026-10-25T14:28:11.283Z",local_mutation,fix/crash-oracle-recorder
+docs[3]{path,scope}:
+  docs/CRASH_HARNESS.md,project
+  docs/CRASH_ORACLE_2026_10_25.json,project
+  docs/EVIDENCE.md,project
+body: ""
