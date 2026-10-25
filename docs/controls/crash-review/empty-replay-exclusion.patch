@@ -1,8 +1,8 @@
 diff --git a/scripts/crash-cli.mts b/scripts/crash-cli.mts
-index 286b630..af01ffb 100644
+index 3c16720..6eb9445 100644
 --- a/scripts/crash-cli.mts
 +++ b/scripts/crash-cli.mts
-@@ -16,7 +16,7 @@ function main(): void {
+@@ -17,7 +17,7 @@ function main(): void {
        return;
      }
      if (!values.native || !values.artifacts) throw new CrashRefusal('invalid_options', 'Supply --native and --artifacts; use --help for the full command.');

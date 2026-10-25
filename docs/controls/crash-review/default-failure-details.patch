@@ -1,13 +1,13 @@
-diff --git a/scripts/crash-cli.mts b/scripts/crash-cli.mts
-index 286b630..3f44d32 100644
---- a/scripts/crash-cli.mts
-+++ b/scripts/crash-cli.mts
-@@ -32,7 +32,7 @@ function main(): void {
-       console.log(`clock_date_now: ${report.clock.dateNow}\nclock_limitation: ${JSON.stringify(report.clock.limitation)}\nrecovery_comparisons: ${report.recoveryParity.length}\nrecovery_mismatches: ${report.recoveryParity.filter(row => !row.ok).length}\nreduction: ${report.reduction?.status ?? 'none'}`);
-       console.log(`parity[${report.parity.length}]{scenario,bytes,acknowledgement}:`);
-       for (const row of report.parity) console.log(`  ${row.scenario},${row.bytes},${row.acknowledgement}`);
--      for (const row of report.cases.filter(row => row.failure)) console.log(`failure: ${JSON.stringify({ scenario: row.scenario, implementation: row.implementation, syscall: row.syscall, boundary: row.boundary, ...row.failure })}`);
-+      for (const row of report.cases.filter(() => false)) console.log(`failure: ${JSON.stringify({ scenario: row.scenario, implementation: row.implementation, syscall: row.syscall, boundary: row.boundary, ...row.failure })}`);
-       for (const row of report.recoveryParity.filter(row => !row.ok)) console.log(`recovery_failure: ${JSON.stringify(row)}`);
-       console.log(`cases[${report.cases.length}]{scenario,implementation,syscall,boundary,state,history_preserved,return_status,pending_journals,failure,ok}:`);
-       for (const row of report.cases) console.log(`  ${row.scenario},${row.implementation},${row.syscall},${row.boundary},${row.state},${row.historyPreserved},${row.returnStatus},${row.journalsAfterRestart},${row.failure?.code ?? 'none'},${row.ok}`);
+diff --git a/scripts/crash-output.mts b/scripts/crash-output.mts
+index ab16fb5..e0c4148 100644
+--- a/scripts/crash-output.mts
++++ b/scripts/crash-output.mts
+@@ -2,7 +2,7 @@ import type { CrashReport } from './crash-harness.mts';
+
+ /** Format bounded crash evidence as strict TOON with unique keys and tabular failures. */
+ export function formatCrashToon(report: CrashReport): string {
+-  const failures = report.cases.filter(row => row.failure);
++  const failures = report.cases.filter(() => false);
+   const recoveryFailures = report.recoveryParity.filter(row => !row.ok);
+   const lines = [
+     `schema: ${JSON.stringify(report.schema)}`,

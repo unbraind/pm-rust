@@ -1,8 +1,8 @@
 diff --git a/scripts/crash-cli.mts b/scripts/crash-cli.mts
-index 286b630..cc15b3e 100644
+index 3c16720..78f515c 100644
 --- a/scripts/crash-cli.mts
 +++ b/scripts/crash-cli.mts
-@@ -20,7 +20,7 @@ function main(): void {
+@@ -21,7 +21,7 @@ function main(): void {
      const options = { native: values.native, artifacts: values.artifacts, oracle: values.oracle,
        source: values.source, strace: values.strace, maxBoundaries: values['max-boundaries'] === undefined ? undefined : Number(values['max-boundaries']),
        timeoutMs: values.timeout === undefined ? undefined : Number(values.timeout) };

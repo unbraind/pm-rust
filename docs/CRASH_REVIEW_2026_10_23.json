@@ -2,8 +2,8 @@
   "schema": "pm-rust/crash-review-v1",
   "provenance": {
     "sourceRepository": "https://github.com/unbraind/pm-rust",
-    "sourceCommit": "881f5500802645b3348fbba17ffbdf05ea8e3892",
-    "publicTrackerCommit": "8135545bf317852552f2384110e3e05b6678a4b3",
+    "sourceCommit": "3b0b53bf3e38357c886d49b3f45606726919b3f5",
+    "publicTrackerCommit": "e9b88ab368d5854ec541bbd41ed4e2f5dc0ee84a",
     "sourceFiles": {
       "Cargo.lock": "5499fc4eb8fed36d2488701cfba02b6879f78040846851dfc4a63ac4295d07ee",
       "Cargo.toml": "af19a32a77cb4d8bb43da470ad22ba42ad0ba7556810895cc516b92d22b1489a",
@@ -11,13 +11,14 @@
       "docs/CRASH_HARNESS.md": "0c0d722269837de6ca3645c2eb5efce05be3575ab0b845af69240ec6937ec98d",
       "justfile": "ee100f7692b55a21230a3d45e220d08d000cdcd0977bdd16e7cb13042ae042b4",
       "rust-toolchain.toml": "d04f655906d1d680c28e0e4ba55bdbe8aad931766b1f9f392a6acbbf69d8a2fd",
-      "scripts/crash-cli.mts": "02ebeb5e42dc31e871bf950174b78cc401956ecbc9a511de2213d19df83ddd9f",
+      "scripts/crash-cli.mts": "ad93e4ef39b31fb7d6617aa0b520365b678601d9c1ffc9eeb7e39ab203dda47f",
       "scripts/crash-clock.mts": "aa001dd0b3ce57c073875bbc94589ac83e655b78ea4a72eac992fc9b91df21fb",
       "scripts/crash-harness.mts": "2c69192c77a0b1a78ffb88663f5f084e4c25b91be9343ef408f67dd601761f62",
       "scripts/crash-harness.test.mts": "a2f029321f8dcc4e8411f1aaed6f71741373edd78590df8efb3e41d0e288db10",
+      "scripts/crash-output.mts": "b1670e73ec7c0d5f030d59b82ef35ab66ccec61b890dd0f03f14a9673a4c02f8",
       "scripts/crash-process.mts": "b0fec346c62efe577bc4f7fa16ad72415f24aa652f604ca125586a02fe1886a6",
-      "scripts/crash-review-proof.mts": "220081cd5c9b6fdbf6fabe52365619053315935675c00fda81a5836486efa906",
-      "scripts/crash-review.test.mts": "d7d144a3ac40b77ad0b0ea1e2a1d9f861de129506b395f36823861ac70e1d963",
+      "scripts/crash-review-proof.mts": "217c9104659438480b5e0e8c2769fea30819de9ed3e6d183ef588e81f5ced979",
+      "scripts/crash-review.test.mts": "cb7ef1105c5645498890c68cb9468842a6700bb6352876dd0702ff862131a7dd",
       "scripts/crash-storage.mts": "2f3abe68f859b2854a72d691febce4f63e10d150df3f5ef75905f55a502c1874",
       "src/assurance.rs": "a598e33f3b402caf35d02223bd0447b58baec56a644c79526bdd1533817ec0a5",
       "src/collation.rs": "f177e71a4f8cd3cbad1b80ca8ce16b3ae810bb8c33ed23b2b9834b9917f053ba",
@@ -96,9 +97,9 @@
     {
       "name": "empty-replay-dispatch",
       "file": "scripts/crash-cli.mts",
-      "sourceSha256": "02ebeb5e42dc31e871bf950174b78cc401956ecbc9a511de2213d19df83ddd9f",
+      "sourceSha256": "ad93e4ef39b31fb7d6617aa0b520365b678601d9c1ffc9eeb7e39ab203dda47f",
       "patch": "docs/controls/crash-review/empty-replay-dispatch.patch",
-      "patchSha256": "62d1547767696db65ca985f08460c14908862ce5eefde77ebfb59c0e03901552",
+      "patchSha256": "d263747867e8d62a803b90034cf5c0ba09b6c09acdbde341da1fce7a5cc40a25",
       "command": [
         "node",
         "--test",
@@ -111,9 +112,9 @@
     {
       "name": "empty-replay-exclusion",
       "file": "scripts/crash-cli.mts",
-      "sourceSha256": "02ebeb5e42dc31e871bf950174b78cc401956ecbc9a511de2213d19df83ddd9f",
+      "sourceSha256": "ad93e4ef39b31fb7d6617aa0b520365b678601d9c1ffc9eeb7e39ab203dda47f",
       "patch": "docs/controls/crash-review/empty-replay-exclusion.patch",
-      "patchSha256": "720d5b43a75d24e60e19db8136e339547061ea8dea37346ad853060e7705494d",
+      "patchSha256": "5a1c816559f83ea2aec310eb613ba16a12340390f4766a2496aa3ab562ef4740",
       "command": [
         "node",
         "--test",
@@ -125,14 +126,29 @@
     },
     {
       "name": "default-failure-details",
-      "file": "scripts/crash-cli.mts",
-      "sourceSha256": "02ebeb5e42dc31e871bf950174b78cc401956ecbc9a511de2213d19df83ddd9f",
+      "file": "scripts/crash-output.mts",
+      "sourceSha256": "b1670e73ec7c0d5f030d59b82ef35ab66ccec61b890dd0f03f14a9673a4c02f8",
       "patch": "docs/controls/crash-review/default-failure-details.patch",
-      "patchSha256": "9bec31808e34b96414067400c34f8f3a9a0ed0e657089296ace81c2152ad2473",
+      "patchSha256": "544b75a7f73ddc13fea4e72b93defa3a87401c50c06e67def945b3efa53a277f",
       "command": [
         "node",
         "--test",
-        "--test-name-pattern=default crash output",
+        "--test-name-pattern=default crash output|TOON output",
+        "scripts/crash-review.test.mts"
+      ],
+      "negativeExit": 1,
+      "restoredExit": 0
+    },
+    {
+      "name": "strict-toon-failures",
+      "file": "scripts/crash-output.mts",
+      "sourceSha256": "b1670e73ec7c0d5f030d59b82ef35ab66ccec61b890dd0f03f14a9673a4c02f8",
+      "patch": "docs/controls/crash-review/strict-toon-failures.patch",
+      "patchSha256": "8799597eb8288afd8b22d792f62ac7f95ed61eddab869fa313140b471a7e4402",
+      "command": [
+        "node",
+        "--test",
+        "--test-name-pattern=TOON output",
         "scripts/crash-review.test.mts"
       ],
       "negativeExit": 1,
@@ -249,9 +265,9 @@
     "ok": false,
     "oracleVersion": "2026.10.21",
     "nativeSha256": "cfd5598c3c957ca0cb7ed47636ba6662d0727ba5dfd5a2cddf12beff701a6e0c",
-    "sourceFiles": 174,
-    "sourceItems": 84,
-    "sourceSha256": "be0466a62b254159e013d0ba878d57fb094251ad52eec42d28b3546dea7b2bb6",
+    "sourceFiles": 176,
+    "sourceItems": 85,
+    "sourceSha256": "a1ed87dcbf95d4bf7c48348bceb91b7710b0db7b8071461b48828ac5cc49011e",
     "sourceUnchanged": true,
     "acknowledgedComparisons": 2,
     "killed": 26,
@@ -928,7 +944,7 @@
     "name": "legacy-receipt-format",
     "file": "docs/CRASH_REVIEW_2026_10_23.json",
     "patch": "docs/controls/crash-review/legacy-receipt-format.patch",
-    "patchSha256": "bc3406ab15205356cde7fddf237039c980429329f21727b7f033f47ba7d50235",
+    "patchSha256": "9f725c1476c9274e7c2c756159affe338c2a10a7a11aa2a5c286895d195531a3",
     "command": [
       "node",
       "--test",
