@@ -1,5 +1,6 @@
 import { parseArgs } from 'node:util';
 import { CrashRefusal, replayCrashFailure, runCrashCorpus } from './crash-harness.mts';
+import { formatCrashToon } from './crash-output.mts';
 
 /** Execute the standalone CLI and emit bounded, privacy-safe TOON or JSON. */
 function main(): void {
@@ -27,16 +28,7 @@ function main(): void {
         historyPreserved: row.historyPreserved, restartStatus: row.restartStatus, returnStatus: row.returnStatus,
         journalsAtKill: row.journalsAtKill, journalsAfterRestart: row.journalsAfterRestart, journalsAfterReturn: row.journalsAfterReturn,
         receiptMatches: row.receiptMatches, failure: row.failure, ok: row.ok })) }));
-    else {
-      console.log(`schema: ${JSON.stringify(report.schema)}\nok: ${report.ok}\noracle_version: ${JSON.stringify(report.oracleVersion)}\nsource_items: ${report.sourceItems}\nsource_unchanged: ${report.sourceUnchanged}\nacknowledged_comparisons: ${report.acknowledgedComparisons}\nkilled: ${report.killed}\nfailures_retained: ${report.failuresRetained}`);
-      console.log(`clock_date_now: ${report.clock.dateNow}\nclock_limitation: ${JSON.stringify(report.clock.limitation)}\nrecovery_comparisons: ${report.recoveryParity.length}\nrecovery_mismatches: ${report.recoveryParity.filter(row => !row.ok).length}\nreduction: ${report.reduction?.status ?? 'none'}`);
-      console.log(`parity[${report.parity.length}]{scenario,bytes,acknowledgement}:`);
-      for (const row of report.parity) console.log(`  ${row.scenario},${row.bytes},${row.acknowledgement}`);
-      for (const row of report.cases.filter(row => row.failure)) console.log(`failure: ${JSON.stringify({ scenario: row.scenario, implementation: row.implementation, syscall: row.syscall, boundary: row.boundary, ...row.failure })}`);
-      for (const row of report.recoveryParity.filter(row => !row.ok)) console.log(`recovery_failure: ${JSON.stringify(row)}`);
-      console.log(`cases[${report.cases.length}]{scenario,implementation,syscall,boundary,state,history_preserved,return_status,pending_journals,failure,ok}:`);
-      for (const row of report.cases) console.log(`  ${row.scenario},${row.implementation},${row.syscall},${row.boundary},${row.state},${row.historyPreserved},${row.returnStatus},${row.journalsAfterRestart},${row.failure?.code ?? 'none'},${row.ok}`);
-    }
+    else console.log(formatCrashToon(report));
     process.exitCode = report.ok ? 0 : 1;
   } catch (error) {
     const refusal = error instanceof CrashRefusal ? error : new CrashRefusal('invalid_options', 'Check option spelling and values; run --help.');

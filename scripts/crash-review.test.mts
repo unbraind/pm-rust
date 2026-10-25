@@ -5,6 +5,9 @@ import { chmodSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from 'nod
 import { tmpdir } from 'node:os';
 import { join, resolve } from 'node:path';
 import { test } from 'node:test';
+import { decode } from '../tests/oracle/node_modules/@unbrained/pm-cli/node_modules/@toon-format/toon/dist/index.mjs';
+import { formatCrashToon } from './crash-output.mts';
+import type { CrashReport } from './crash-harness.mts';
 import { boundaryCount, execute, killedAtBoundary } from './crash-process.mts';
 import { CLOCK_POLICY, compareRecovery, replayCrashFailure, runCrashCorpus } from './crash-harness.mts';
 import { journals, materialize, sameBytes, snapshot } from './crash-storage.mts';
@@ -120,7 +123,7 @@ test('review receipt provides source toolchain and independently applicable cont
   assert.match(receipt.provenance.publicTrackerCommit, /^[a-f0-9]{40}$/);
   for (const name of ['node', 'rustc', 'nightly', 'cargo', 'strace']) assert.ok(receipt.provenance.toolchain[name]);
   assert.ok(receipt.provenance.reproduction.includes('node scripts/crash-review-proof.mts'));
-  assert.equal(receipt.controls.length, 11);
+  assert.equal(receipt.controls.length, 12);
   for (const control of receipt.controls) {
     const patch = readFileSync(control.patch);
     assert.equal(createHash('sha256').update(patch).digest('hex'), control.patchSha256);
@@ -164,7 +167,9 @@ test('default crash output explains parity and case failure remedies',
     const result = spawnSync(process.execPath, [resolve('scripts/crash-cli.mts'), '--native', resolve('target/debug/pm-rust'), '--artifacts', join(root, 'evidence'), '--replay', resolve('tests/fixtures/crash-review/published-history.json')], { encoding: 'utf8', timeout: 120000 });
     assert.equal(result.status, 1, result.stderr + result.stdout);
     assert.match(result.stdout, /parity\[1\]\{scenario,bytes,acknowledgement\}/);
-    assert.match(result.stdout, /failure: .*"code":"durable_divergence".*"remedy":"Replay/);
+    assert.match(result.stdout, /failures\[1\]\{scenario,implementation,syscall,boundary,code,remedy\}/);
+    assert.match(result.stdout, /durable_divergence,"Replay/);
+    assert.doesNotThrow(() => decode(result.stdout, { strict: true }));
 }));
 
 test('completed case workspaces are removed before later process admission',
@@ -176,3 +181,18 @@ test('completed case workspaces are removed before later process admission',
     assert.ok(report.cases.filter(row => row.implementation === 'native').every(row => row.ok), JSON.stringify(report.cases));
     assert.ok(report.killed > 1);
 }));
+
+test('TOON output parses multiple measured failures and paired outcomes without duplicate keys', () => {
+  const measured: { publicCopy: CrashReport } = JSON.parse(readFileSync(resolve('docs/CRASH_REVIEW_2026_10_23.json'), 'utf8'));
+  const output = formatCrashToon(measured.publicCopy);
+  const decoded: unknown = decode(output, { strict: true });
+  assert.ok(typeof decoded === 'object' && decoded !== null);
+  assert.ok('failures' in decoded && Array.isArray(decoded.failures));
+  assert.equal(decoded.failures.length, 2);
+  assert.ok('recovery_failures' in decoded && Array.isArray(decoded.recovery_failures));
+  assert.equal(decoded.recovery_failures.length, 4);
+  assert.ok('cases' in decoded && Array.isArray(decoded.cases));
+  assert.equal(decoded.cases.length, 26);
+  assert.ok('parity' in decoded && Array.isArray(decoded.parity));
+  assert.equal(decoded.parity.length, 2);
+});
