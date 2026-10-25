@@ -51,7 +51,8 @@ crash-check:
     npm ci --prefix tests/harness --ignore-scripts
     tests/harness/node_modules/.bin/tsc -p tests/harness/tsconfig.json
     tests/harness/node_modules/.bin/eslint -c tests/harness/eslint.config.mjs scripts/crash-*.mts scripts/native-adapter-*.mts
-    node --test scripts/crash-harness.test.mts
+    node --test --test-concurrency=1 scripts/crash-*.test.mts
+    node scripts/crash-history-prefix.mts
 
 # Reproduce large synthetic non-git trackers against the requested current oracle.
 bench-oracle-install:

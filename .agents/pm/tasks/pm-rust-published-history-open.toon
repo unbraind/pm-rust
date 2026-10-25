@@ -1,0 +1,21 @@
+id: pm-rust-published-history-open
+title: Measure and track published oracle history-open crash divergence
+description: The locked published pm-cli 2026.10.21 can publish an item before appending its history. A history-path openat SIGKILL followed by a different mutation exits zero but leaves item/history bytes outside both complete reference states. The crash harness detects and retains this synthetic failure. Investigate current published behavior separately without changing the locked parity oracle or repairing original streams.
+type: Task
+status: open
+priority: 2
+tags[3]: crash-consistency,follow-up,oracle
+created_at: "2026-10-24T23:28:02.986Z"
+updated_at: "2026-10-24T23:51:09.155Z"
+author: codex-agent
+acceptance_criteria: Replay both mutation families on versioned disposable non-git trackers; distinguish acknowledged-prefix preservation from interrupted-write atomicity; retain independent behavioral revert evidence for any future runtime fix; no original history rewrites.
+comments[2]{created_at,author,text}:
+  "2026-10-24T23:49:15.454Z",codex-agent,"The complete 34-test Linux harness passes while explicitly detecting both version-pinned published history-open divergences. Public-copy measurements preserve all 26 acknowledged writes and history prefixes, but two interrupted writes diverge after exit-zero restart. Four differing paired outcomes and four synthetic reproductions are recorded in docs/CRASH_REVIEW_2026_10_23.json. This follow-up stays open; no runtime repair or oracle pin change is included."
+  "2026-10-24T23:51:09.155Z",codex-agent,"Its pinned-PM linked command also passes independently: one real published history-open replay regression, zero failed/canceled/skipped, preserving the expected durable_divergence finding. The runtime follow-up remains open."
+files[1]{path,scope}:
+  tests/fixtures/crash-review/published-history.json,project
+tests[1]{command,scope,provenance{author,created_at,source_kind,source_ref}}:
+  "node --test --test-name-pattern=\"published history-open\" scripts/crash-review.test.mts",project,codex-agent,"2026-10-24T23:35:50.919Z",local_mutation,feat/crash-consistency-harness
+docs[1]{path,scope}:
+  docs/CRASH_HARNESS.md,project
+body: ""

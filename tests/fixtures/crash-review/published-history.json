@@ -1,0 +1,9 @@
+{
+  "schema": "pm-rust/crash-v1",
+  "only": {
+    "scenario": "update",
+    "implementation": "published",
+    "syscall": "openat",
+    "ordinal": 1
+  }
+}

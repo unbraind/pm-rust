@@ -1,0 +1,11 @@
+diff --git a/scripts/crash-oracle.mts b/scripts/crash-oracle.mts
+index b810035..cde219b 100644
+--- a/scripts/crash-oracle.mts
++++ b/scripts/crash-oracle.mts
+@@ -53,5 +53,5 @@ export function transactionPhase(trace: string, implementation: 'native' | 'publ
+ /** Phase-aware pairing covers every observed cut, including unequal per-runtime cut counts. */
+ export function phasePairs<T extends { phase: TransactionPhase; implementation: 'native' | 'published'; syscall: string; boundary: number }>(cuts: readonly T[]): [T, T][] {
+   return cuts.filter(cut => cut.implementation === 'native').flatMap(native =>
+-    cuts.filter(published => published.implementation === 'published' && published.phase === native.phase).map(published => [native, published] as [T, T]));
++    cuts.filter(published => published.implementation === 'published' && published.syscall === native.syscall && published.boundary === native.boundary).map(published => [native, published] as [T, T]));
+ }

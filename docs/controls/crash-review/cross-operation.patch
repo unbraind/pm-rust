@@ -1,0 +1,15 @@
+diff --git a/scripts/crash-harness.mts b/scripts/crash-harness.mts
+index 8379d2b..8092ef3 100644
+--- a/scripts/crash-harness.mts
++++ b/scripts/crash-harness.mts
+@@ -257,8 +257,8 @@ function run(options: CrashOptions, root: string, timeout: number, maximum: numb
+   for (const scenario of scenarios) {
+     const mutation = scenario === 'update' ? ['update', id, '--description', 'Interrupted synthetic write'] : ['comment', id, 'Interrupted synthetic comment'];
+     // A different operation must observe/recover every pending journal before it writes.
+-    const restart = scenario === 'update' ? ['comment', id, 'Restart synthetic sentinel', ...common] :
+-      ['update', id, '--description', 'Restart synthetic description', ...common];
++    const restart = scenario === 'update' ? ['update', id, '--priority', '1', ...common] :
++      ['comment', id, 'Restart synthetic sentinel', ...common];
+     const returnCommand = scenario === 'update' ? ['update', id, '--priority', '1', ...common] :
+       ['comment', id, 'Return synthetic sentinel', ...common];
+     const baselines = new Map<string, Snapshot>();

@@ -31,29 +31,40 @@ console.log(receipt.ok, receipt.killed, receipt.parity);
 // the whitelisted scenario/implementation/syscall/ordinal, never stored commands.
 // Exception: kind: 'baseline_parity' replays the scenario across both implementations
 // and all their observed boundaries, rather than selecting a single case.
+// A recovery_parity manifest likewise replays its complete paired scenario.
 // replayCrashFailure(options, '.crash-failures/failure-example/case.json');
 ```
 
 Each fixture has one synthetic Task and its acknowledged create history.
 Update changes its description; comment appends a synthetic comment. Restart
-re-enters update with the acknowledged priority, or comment with a distinct
-sentinel. Both uninterrupted alternatives (before/committed) run that identical
-restart command. No history hash, patch, receipt or existing stream is normalized
-or repaired. Item and history bytes must match one complete reference state;
+uses a different operation: update is followed by a comment sentinel; comment
+is followed by a description update. It then returns to the original operation
+to detect a stranded journal that a successful different operation concealed. Both uninterrupted alternatives (PRE/POST) run that identical
+restart command and the same final return. The final update changes priority to 2
+so it produces an acknowledged event rather than a no-op. No history hash, patch, receipt or existing stream is normalized
+or repaired. The observed transaction phase selects exactly one reference; all canonical
+item bytes and complete history files must match it after restart and return;
 each implementation's raw restart receipt must match its corresponding reference.
 The cross-runtime acknowledgement projection is explicitly update `id/status`
 or comment `id/comments`, because native mutation commands emit full legacy JSON
 while the published CLI emits flat mutation or collection receipts. Durable
 item/history comparisons remain exact bytes.
 
-The declared boundaries are all observed task-local entry ordinals of `rename`
-and `fsync` for each runtime/scenario, up to the configured maximum. A zero
+The declared boundaries are all observed task-local entry ordinals of
+`rename` and `fsync`, up to the configured maximum. Child processes set
+`UV_THREADPOOL_SIZE=1` so successive published publications use one libuv worker
+and their observed ordinals remain reproducible. Cache renames remain in scope;
+this configuration does not certify other worker-pool sizes. An additional
+`openat` ordinal 1 cut is traced with strace `-P` scoped to the item history
+stream, including published execution after item publication but before history
+append. strace ordinals count per thread; libuv worker assignment does not make
+a rename cut equivalent to a history-open cut. A zero
 syscall count is reported, and a missing requested boundary or truncated matrix
 refuses. A kill is counted only when the trace shows an interrupted selected
 syscall and a fatal SIGKILL. strace kills remaining tracees on controller death;
 commands also have time and output bounds. The corpus does not cover every
 syscall, torn kernel writes, filesystem/power failures, network backends or
-cross-runtime journal recovery. Socket/event-loop `write` calls are excluded:
+cross-runtime replay of another implementation's journal format. Socket/event-loop `write` calls are excluded:
 they do not provide stable storage boundaries in Node's worker scheduler.
 
 Public tracker validation takes a stable regular-file copy of a publicly
@@ -66,8 +77,17 @@ just crash --native target/debug/pm-rust --artifacts .crash-failures \
   --replay .crash-failures/failure-example/case.json --json
 ```
 
-Root caches (`runtime`, `locks`, `transactions`, `checkpoints`, `search`) are
-excluded from the authoritative copy. Nested names remain authoritative. Regular
+Root caches (`locks`, `transactions`, `checkpoints`, `search`) are
+excluded from the authoritative copy. The complete `runtime/` tree is captured,
+including native `runtime/transactions/` recovery intent. The exact state oracle
+excludes only the derived `runtime/context-usage.jsonl` access log,
+`runtime/metadata-cache-delta.json` metadata cache and private
+atomic-write staging names (`.*.tmp`), in addition to the root caches above.
+Other runtime files, all config/schema files, all items, every complete history
+stream and canonical pending journals remain in the exact inventory. Pending
+transaction bytes are retained at kill, after restart and after returning to the
+original operation. Staging garbage is outside this canonical-state contract;
+this is a process-crash test, not a power-loss durability certificate. Any pending journal fails the case. Nested names remain authoritative. Regular
 config/schema files, items and history streams are copied byte-for-byte; symlinks
 and special files refuse. Output inside the input tracker refuses, including
 symlink aliases. Source fingerprints are checked again after execution. No raw
@@ -86,11 +106,92 @@ authoritative files. All 20 real kills preserve acknowledged item bytes and
 history prefixes, both baseline byte/acknowledgement comparisons pass, and 18
 restart state/receipt comparisons pass. Two native first-fsync lock-initialization
 kills refuse restart with exit 4; both reproduce on minimal synthetic fixtures.
-The source fingerprint remains unchanged. The safe recovery policy is tracked
-in `pm-rust-crash-lock-restart`. That receipt records the original failures before
-the recovery fix; it remains unchanged as historical evidence.
-Four [behavioral negative controls](CRASH_REVERT_PROOF_2026_10_22.json)
+The source fingerprint remains unchanged. The native lock recovery fix is now integrated from main; the receipt above
+remains historical. Complete cross-runtime crash conformance remains unproven. Four [behavioral negative controls](CRASH_REVERT_PROOF_2026_10_22.json)
 fail their regression with the production invariant disabled and pass restored.
+
+Exact-head CI evidence is recorded in the PR.
+Full-gate success tests the harness implementation and existing package contracts;
+it does not turn a failed crash conformance report into runtime approval.
+
+## Orchestrator review correction
+
+The historical receipts above excluded runtime journals and used same-operation
+restart. They remain immutable and do not establish cross-operation conformance.
+The current corpus records pending journals and tests a different operation plus
+return to the original one. Main now includes the separate `pm-rust-cross-operation-journal` fix as well
+as first-fsync lock recovery. Permanent live rename-1 replays require the other
+operation to drain the journal and the original operation to succeed afterward.
+The locked published oracle still diverges at history-open cuts; that versioned
+behavior is tracked separately by `pm-rust-published-history-open`.
+
+Recovered canonical bytes, shared receipt projections, states and pending
+journals are paired by **transaction phase**, never syscall ordinal. Every pair
+within the same phase is compared; unequal counts and different syscall classes
+are allowed. A phase with cuts in only one runtime is explicitly unpaired in
+`phaseCoverage`, with no cross-runtime claim. A mismatch fails the report.
+
+The phase labels come from the interrupted process trace, before recovery:
+
+| Phase | Evidence | Required recovery |
+| --- | --- | --- |
+| `before-commit` | No successful commit publication | Exact PRE |
+| `after-commit` | Native journal hard-link publication, or published canonical item rename | Exact POST |
+| `during-cleanup` | Successful history write after publication | Exact POST |
+
+The path-filtered history-open cut independently identifies the append/write
+open that follows publication; read opens do not establish a commit. Successful
+`link`/`rename` results, including resumed strace calls, establish publication;
+failed calls and cache renames do not. This policy describes the pinned update
+and comment implementations, not arbitrary future transaction protocols.
+
+Recovery is triggered by a different acknowledged operation, so comparisons use
+clean `restart(PRE)` or `restart(POST)` references. Final returns use the matching
+clean `return(restart(...))` reference. Thus neither the restart event nor a
+field changed by the final operation can disappear behind a seed-history prefix.
+The same `exactState` function checks both; exact filenames, file counts, and
+bytes determine equality, without parsing, sorting, or repairing history.
+Synthetic failures retain expected restart/return and actual returned states.
+
+`node --test scripts/crash-oracle.test.mts` runs real plain-directory tracker
+fixtures plus Linux child-process mutations. It kills item deletion, final-event
+truncation, field removal and history reordering at recovery and return. Phase
+regressions accept equivalent cuts with different ordinals and exclude identical
+ordinals from different phases. `node scripts/crash-oracle-proof.mts` records
+independent seed-prefix and ordinal-pairing behavioral reverts, a mutation table,
+a phase-equivalence table, and a fresh public-copy report in
+[the phase-oracle receipt](CRASH_ORACLE_2026_10_25.json). Earlier receipts remain
+historical and their old ordinal mismatches are superseded by this measurement.
+
+The metadata constructor and Date.now() are both frozen at CRASH_CLOCK. This also
+freezes published lock TTL ages, Date.now-based wait budgets and stale-gate age
+calculations (which may be negative against real file timestamps). performance.now()
+and the harness's external process deadline remain real. The clock policy is
+included in every report. No elapsed-time, stale-gate or TTL parity is certified.
+
+Permanent independent update/comment rename manifests and a published history-open
+manifest live in `tests/fixtures/crash-review/`. Their tests always run on Linux;
+they never depend on the full corpus finding another failure. Fixing first-fsync
+recovery therefore cannot silently remove replay coverage. The locked oracle is
+2026.10.21. Reported empty-lock recovery in 2026.10.22 is outside that pin; the
+first-fsync item must not imply current published-release parity without a
+separate versioned measurement. Dependency pins are unchanged.
+
+A synthetic reduction refusal is secondary evidence. It is attached to the
+already measured failure; the CLI retains exit 1, the original cases and the
+unchanged-source result, rather than replacing them with a setup refusal exit 2.
+
+Reproduce review evidence with `node scripts/crash-review-proof.mts` after the
+recorded source commit is checked out, the locked oracle/tools installed and the
+native executable rebuilt. This Git-dependent evidence recorder explicitly
+refuses a missing repository; `just crash` still requires no Git. The new receipt
+`docs/CRASH_REVIEW_2026_10_23.json` records the code commit, public tracker commit,
+source hashes, exact toolchain versions, build/reproduction commands and exact
+negative-control patches under `docs/controls/crash-review/`. Each patch is
+applied independently, must fail its regression, and is restored byte-for-byte
+before the passing control. Original receipts are not rewritten.
+
+## Integrated native recovery
 
 The recovery fix permits an unexpired empty publication gate to be reclaimed only
 while holding its kernel lease and after confirming the lock's original process
@@ -112,9 +213,8 @@ just crash --native target/debug/pm-rust --artifacts .crash-failures \
 The fixtures contain only the whitelisted selection and minimal synthetic
 settings. The locked oracle creates their acknowledged seed, and each real
 injected kill must restart successfully with exact reference item/history bytes
-and the corresponding raw restart receipt. The full Linux regression now requires
-every measured boundary to pass; expected native restart failures are no longer
-allowed. Separate ownership JSON refusal comparisons on the shared gate path
+and the corresponding raw restart receipt. The permanent native first-fsync regressions require successful recovery.
+The expanded corpus separately reports published history-open divergences. Separate ownership JSON refusal comparisons on the shared gate path
 retain the oracle's complete error receipt and authoritative bytes. The no-git
 contention contract runs 50 simultaneous
 writers, three comments each, and verifies all 150 comments and the history chain.
@@ -127,14 +227,3 @@ per-process timeout was used for this local run; the SDK default remains 15000 m
 The [rebuild-based revert proof](CRASH_RESTART_REVERT_PROOF_2026_10_22.json)
 replaces only the recovery function with its original implementation: both
 permanent replays fail with restart exit 4, then both pass after restoration.
-
-Pre-existing native comment lock-conflict diagnostic differences are tracked in
-`pm-rust-comment-lock-receipt`: admission and bytes agree, but detail, guidance and
-the refusal surface label differ. This corpus uses each runtime's own raw restart
-reference and the declared shared acknowledgement projection; it does not certify
-every CLI diagnostic surface.
-
-Exact-head recovery CI evidence, including all platform test and coverage counts,
-is recorded in [PR #105](https://github.com/unbraind/pm-rust/pull/105).
-Full-gate success tests the harness implementation and existing package contracts;
-it does not establish power-loss durability or coverage of unmeasured syscalls.

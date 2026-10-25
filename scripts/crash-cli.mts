@@ -1,5 +1,6 @@
 import { parseArgs } from 'node:util';
 import { CrashRefusal, replayCrashFailure, runCrashCorpus } from './crash-harness.mts';
+import { formatCrashToon } from './crash-output.mts';
 
 /** Execute the standalone CLI and emit bounded, privacy-safe TOON or JSON. */
 function main(): void {
@@ -8,7 +9,7 @@ function main(): void {
     const { values } = parseArgs({ options: {
       native: { type: 'string' }, oracle: { type: 'string' }, source: { type: 'string' },
       artifacts: { type: 'string' }, 'max-boundaries': { type: 'string' }, timeout: { type: 'string' },
-      json: { type: 'boolean' }, full: { type: 'boolean' }, replay: { type: 'string' }, help: { type: 'boolean' },
+      json: { type: 'boolean' }, full: { type: 'boolean' }, replay: { type: 'string' }, strace: { type: 'string' }, help: { type: 'boolean' },
     } });
     json = values.json ?? false;
     if (values.help) {
@@ -16,20 +17,18 @@ function main(): void {
       return;
     }
     if (!values.native || !values.artifacts) throw new CrashRefusal('invalid_options', 'Supply --native and --artifacts; use --help for the full command.');
-    if (values.source && values.replay) throw new CrashRefusal('invalid_options', 'Supply only one of --source and --replay.');
+    if (values.source !== undefined && values.replay !== undefined) throw new CrashRefusal('invalid_options', 'Supply only one of --source and --replay.');
     const options = { native: values.native, artifacts: values.artifacts, oracle: values.oracle,
-      source: values.source, maxBoundaries: values['max-boundaries'] === undefined ? undefined : Number(values['max-boundaries']),
+      source: values.source, strace: values.strace, maxBoundaries: values['max-boundaries'] === undefined ? undefined : Number(values['max-boundaries']),
       timeoutMs: values.timeout === undefined ? undefined : Number(values.timeout) };
-    const report = values.replay ? replayCrashFailure(options, values.replay) : runCrashCorpus(options);
+    const report = values.replay !== undefined ? replayCrashFailure(options, values.replay) : runCrashCorpus(options);
     if (json) console.log(JSON.stringify(values.full ? report : { ...report,
       cases: report.cases.map(row => ({ scenario: row.scenario, implementation: row.implementation,
         syscall: row.syscall, boundary: row.boundary, state: row.state, acknowledged: row.acknowledged,
-        historyPreserved: row.historyPreserved, restartStatus: row.restartStatus, receiptMatches: row.receiptMatches, failure: row.failure, ok: row.ok })) }));
-    else {
-      console.log(`schema: ${JSON.stringify(report.schema)}\nok: ${report.ok}\noracle_version: ${JSON.stringify(report.oracleVersion)}\nsource_items: ${report.sourceItems}\nsource_unchanged: ${report.sourceUnchanged}\nacknowledged_comparisons: ${report.acknowledgedComparisons}\nkilled: ${report.killed}\nfailures_retained: ${report.failuresRetained}`);
-      console.log(`cases[${report.cases.length}]{scenario,implementation,syscall,boundary,state,history_preserved,ok}:`);
-      for (const row of report.cases) console.log(`  ${row.scenario},${row.implementation},${row.syscall},${row.boundary},${row.state},${row.historyPreserved},${row.ok}`);
-    }
+        historyPreserved: row.historyPreserved, restartStatus: row.restartStatus, returnStatus: row.returnStatus,
+        journalsAtKill: row.journalsAtKill, journalsAfterRestart: row.journalsAfterRestart, journalsAfterReturn: row.journalsAfterReturn,
+        receiptMatches: row.receiptMatches, failure: row.failure, ok: row.ok })) }));
+    else console.log(formatCrashToon(report));
     process.exitCode = report.ok ? 0 : 1;
   } catch (error) {
     const refusal = error instanceof CrashRefusal ? error : new CrashRefusal('invalid_options', 'Check option spelling and values; run --help.');

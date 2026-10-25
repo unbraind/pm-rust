@@ -92,8 +92,8 @@ The TypeScript SDK in [`scripts/crash-harness.mts`](scripts/crash-harness.mts)
 and `just crash` compare real native processes with the locked pm-cli 2026.10.21
 oracle. On Linux, strace injects SIGKILL at every declared per-task `rename` and
 `fsync` entry ordinal observed in uninterrupted update/comment reference runs.
-Each case starts after an acknowledged synthetic create, restarts through the
-same operation family, and checks exact item/history bytes, immutable history
+Each case starts after an acknowledged synthetic create, restarts through a
+different operation and returns to the original one, and checks exact item/history bytes, immutable history
 prefixes and recovery receipts. These commands work in plain directories without
 a Git executable. The source tracker is read only; all mutations use disposable
 non-git clones.
@@ -318,3 +318,12 @@ with `cargo build --locked --example native_adapter`, then pass an explicitly
 authorized tracker directory as its argument and one `AdapterRequest` on stdin.
 Replace its `exchange` implementation with the existing authorized transport
 when embedding against a remote backend. The example grants only get and list.
+
+The expanded crash corpus includes history-path `openat` cuts and native runtime
+journals. Historical same-operation receipts do not establish complete recovery
+conformance; the locked published oracle still has measured history-open failures.
+
+The repository check `node scripts/crash-history-prefix.mts` requires Git and
+compares every changed history stream with `origin/main` as exact bytes. Main
+history must remain a prefix; new item streams are permitted. Tracker commands
+and `just crash` continue to work in plain directories without Git.

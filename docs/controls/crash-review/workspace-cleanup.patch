@@ -1,0 +1,13 @@
+diff --git a/scripts/crash-harness.mts b/scripts/crash-harness.mts
+index 8379d2b..cbdebf2 100644
+--- a/scripts/crash-harness.mts
++++ b/scripts/crash-harness.mts
+@@ -369,7 +369,7 @@ function run(options: CrashOptions, root: string, timeout: number, maximum: numb
+               report.failuresRetained++;
+             }
+           }
+-          rmSync(killedDirectory, { recursive: true, force: true });
++          // Retain completed workspace (negative control).
+         }
+       }
+     }

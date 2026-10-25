@@ -1,0 +1,14 @@
+diff --git a/scripts/crash-output.mts b/scripts/crash-output.mts
+index ab16fb5..f5de370 100644
+--- a/scripts/crash-output.mts
++++ b/scripts/crash-output.mts
+@@ -20,8 +20,7 @@ export function formatCrashToon(report: CrashReport): string {
+     `reduction: ${report.reduction?.status ?? 'none'}`,
+     `parity[${report.parity.length}]{scenario,bytes,acknowledgement}:`,
+     ...report.parity.map(row => `  ${row.scenario},${row.bytes},${row.acknowledgement}`),
+-    `failures[${failures.length}]{scenario,implementation,syscall,boundary,code,remedy}:`,
+-    ...failures.map(row => `  ${row.scenario},${row.implementation},${row.syscall},${row.boundary},${row.failure!.code},${JSON.stringify(row.failure!.remedy)}`),
++    ...failures.map(row => `failure: ${JSON.stringify(row.failure)}`),
+     `recovery_failures[${recoveryFailures.length}]{scenario,syscall,boundary,bytes,receipt,state,journals,ok}:`,
+     ...recoveryFailures.map(row => `  ${row.scenario},${row.syscall},${row.boundary},${row.bytes},${row.receipt},${row.state},${row.journals},${row.ok}`),
+     `cases[${report.cases.length}]{scenario,implementation,syscall,boundary,state,history_preserved,return_status,pending_journals,failure,ok}:`,

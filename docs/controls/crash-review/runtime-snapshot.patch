@@ -1,0 +1,13 @@
+diff --git a/scripts/crash-storage.mts b/scripts/crash-storage.mts
+index 1db11c3..a629ed4 100644
+--- a/scripts/crash-storage.mts
++++ b/scripts/crash-storage.mts
+@@ -10,7 +10,7 @@ export function snapshot(root: string, prefix = ''): Map<string, Buffer> {
+   if (!prefix && lstatSync(root).isSymbolicLink()) throw new Error('symlink');
+   const result = new Map<string, Buffer>();
+   for (const entry of readdirSync(join(root, prefix), { withFileTypes: true })) {
+-    if (!prefix && ['locks', 'transactions', 'checkpoints', 'search'].includes(entry.name)) continue;
++    if (!prefix && ['runtime', 'locks', 'transactions', 'checkpoints', 'search'].includes(entry.name)) continue;
+     if (entry.isSymbolicLink()) throw new Error('symlink');
+     const key = prefix ? `${prefix}/${entry.name}` : entry.name;
+     if (entry.isDirectory()) {
