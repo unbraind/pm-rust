@@ -5,6 +5,7 @@
 ### Features
 
 - Read canonical pm workspaces without a JavaScript runtime ([pm-rust-o2yr](https://github.com/unbraind/pm-rust/blob/main/.agents/pm/features/pm-rust-o2yr.toon)) _type:Feature; status:closed; P1; release:0.1.0-alpha.1_
+- Compare native and published crash recovery with a reusable kill corpus ([pm-rust-crash-harness](https://github.com/unbraind/pm-rust/blob/main/.agents/pm/features/pm-rust-crash-harness.toon)) _type:Feature; status:closed; P2_
 - Use authorized remote backends through a portable native adapter ABI ([pm-rust-portable-native-adapter-abi](https://github.com/unbraind/pm-rust/blob/main/.agents/pm/features/pm-rust-portable-native-adapter-abi.toon)) _type:Feature; status:closed; P2_
 - Stream certified native reads under caller resource limits ([pm-rust-bounded-read-sessions](https://github.com/unbraind/pm-rust/blob/main/.agents/pm/features/pm-rust-bounded-read-sessions.toon)) _type:Feature; status:closed; P2_
 - Implement native keyword search with pinned oracle parity ([pm-rust-bj7a](https://github.com/unbraind/pm-rust/blob/main/.agents/pm/features/pm-rust-bj7a.toon)) _type:Feature; status:closed; P2_

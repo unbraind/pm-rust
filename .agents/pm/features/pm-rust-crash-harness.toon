@@ -2,14 +2,19 @@ id: pm-rust-crash-harness
 title: Compare native and published crash recovery with a reusable kill corpus
 description: "Reusable TypeScript process-kill/restart differential SDK and command against the locked published oracle; compare acknowledged durable bytes, append-only histories and restart receipts on disposable plain-directory trackers."
 type: Feature
-status: open
+status: closed
 priority: 2
 tags[3]: conformance,crash-consistency,harness
 created_at: "2026-10-21T21:59:35.474Z"
-updated_at: "2026-10-25T07:26:31.736Z"
+updated_at: "2026-10-25T11:26:51.205Z"
+closed_at: "2026-10-25T11:26:51.113Z"
+completed_at: "2026-10-25T10:43:35.000Z"
 author: codex-agent
 acceptance_criteria: Every declared crash boundary preserves acknowledged writes; failures retain minimized synthetic reproductions and never rewrite original history.; Typed SDK and CLI with bounded TOON/JSON receipts and actionable refusals; documented example; public tracker read-copy validation with measured counts; exact-head CI release-check passes.
 unblock_note: Native cross-operation recovery is integrated from main and both live permanent replays pass with zero pending journals and successful return operations.
+resolution: "Delivered by #104: phase-aware exact-state crash oracle, cross-operation journal recovery, replayable minimized failures and an append-only history-prefix gate."
+expected_result: Recovered and returned states equal the exact PRE or POST state chosen by transaction phase; data-loss mutations are detected; native and published recovery are compared by phase; history stays append-only.
+actual_result: 26 kills with 24 exact successes and two published-oracle divergences retained as minimized fixtures (tracked in pm-rust-published-history-open); 32/32 data-loss mutations killed; 86/86 main history prefixes preserved; CI 10/10 green with 100% Rust coverage (run 40172801056).
 comments[40]{created_at,author,text}:
   "2026-10-21T21:59:37.843Z",codex-agent,"Overlap recheck: published CLI 2026.10.21 matches the locked oracle. Native tests cover normal command differentials and manually reconstructed durable journals; they do not run a reusable live kill/restart corpus. pm-ops assurance reports measurements; pm-vcs writer publication is backend-specific. This feature adds cross-implementation crash evidence beyond lock/parity work. Reconciliation PR 103 closures and performance PR 102 items are excluded. TypeScript-only SDK/command; synthetic failures; targeted local checks; full gate in CI."
   "2026-10-21T22:16:09.535Z",codex-agent,"Implemented the typed TypeScript SDK and standalone just crash CLI. Declared boundaries are all observed rename/fsync task-local ordinals: event-loop write calls were rejected as unstable storage boundaries after real tracing. Two mutation families run on disposable non-git clones; same-family restart checks exact durable bytes and raw per-runtime restart receipts, with explicit shared cross-runtime acknowledgement projections. Synthetic probing measured 20 real kills, 20 preserved acknowledged writes/history prefixes, two successful baseline byte/acknowledgement comparisons and two early native lock-initialization restart refusals. Those refusals are retained as minimal one-item synthetic cases; no original stream is repaired. Full runtime crash conformance is not claimed. Adding independent replay/no-git regressions and public-copy measurements before CI."
@@ -163,4 +168,5 @@ docs[6]:
   - path: README.md
     scope: project
     note: History prefix gate and its Git requirement
+close_reason: "https://github.com/unbraind/pm-rust/pull/104 merged 2026-10-25T10:43:35Z, merge fe42e9547a79f4f32e711cc23543c924d822af7d: native and published crash recovery compared with an exact PRE/POST state oracle and a reusable kill corpus; codex review MERGE after three rounds; CI 10/10."
 body: ""
