@@ -6,13 +6,13 @@ status: in_progress
 priority: 2
 tags[3]: native,performance,query-plan
 created_at: "2026-10-25T23:54:19.370Z"
-updated_at: "2026-10-26T00:12:27.779Z"
+updated_at: "2026-10-26T00:40:54.274Z"
 assignee: codex-agent
 claim_principal: codex-agent
 author: codex-agent
 acceptance_criteria: "Estimates are explicitly bounded or unknown, never fictional exact costs.; A narrow projection plans less materialization than full bodies on a 10000-item fixture.; Explain performs zero mutations and works in a non-git tracker.; Typed SDK and CLI, compact TOON and JSON, typed remedies, docs and public tracker measurements; unchanged npm and Bun CI release gates pass."
 parent: pm-rust-u4al
-comments[7]{created_at,author,text}:
+comments[9]{created_at,author,text}:
   "2026-10-25T23:54:46.624Z",codex-agent,"Overlap audit: current CLI 2026.10.25 exposes context intents, output receipts and vector query plans, not a native file-reader cost plan. pm-context (1dae20d) packs evidence; pm-rlm (62ed36e) budgets orchestration calls; pm-memory (5bd356e) stores guidance. Native read sessions bound delivery and memory. This feature explains native list projection and candidate work before execution. Core TypeScript contracts remain the semantic oracle, not a runtime dependency. Scope: read-only list brief/full planning; no import/export/sync, journals, lifecycle classification or shared mutable coordination added."
   "2026-10-26T00:00:28.960Z",codex-agent,"Design: strict typed brief/full list admission, streaming directory/byte ceilings, shared execution projector, conditional decoder-input and candidate bounds, explicit unknown wire/heap/time costs. No item decoding or status-role decisions during planning, no state writes, no new import/export/sync or coordination paths. Tests add 10000-item materialization comparison, 500 seeded replay sequences with SDK state read-back, and no-Git/no-Node CLI byte-preservation checks."
   "2026-10-26T00:06:30.861Z",codex-agent,"Public-data validation: archived only the public tracker at unbraind/pm-rust commit dc8d894d5d6feb597a33872aaed87a6249afadac into a non-git scratch directory, made 180 source files read-only, and removed Git/Node from runtime PATH. Both plans observed 87 candidates and 874647 source bytes. Brief decoder input: 23042 bytes; full: 874647 bytes. Compact JSON: 778/741 bytes. All source filenames and bytes unchanged; SHA256 e31f3451c807182d3edf06b5cfd61c7e2b421e49b7f9228f6f1b037915e89eb9. Debug-build planning medians over three runs were 36.19/17.94 ms, descriptive only: full planning bypasses projection work, so these are not execution speed estimates."
@@ -20,17 +20,21 @@ comments[7]{created_at,author,text}:
   "2026-10-26T00:10:06.613Z",codex-agent,"Behavioral revert proof: changed only the new scan accounting to charge complete source text instead of the shared projected decoder input. The 10000-item regression failed at its materialization-ratio assertion (0 passed, 1 failed), then production source was restored byte-for-byte. Restored targeted suites pass. Review also clarified item-file I/O separately from unknown auxiliary settings/registry I/O; the protocol now exposes item_read_bytes and auxiliary_read_bytes=null rather than implying a complete query-I/O upper bound."
   "2026-10-26T00:11:14.739Z",codex-agent,"Final local rerun after item/auxiliary I/O clarification: all 10 focused tests pass, including 500 model sequences and 500 extreme-admission cases; all-target clippy/typecheck and strict rustdoc pass. Public scratch validation repeated with the final protocol: 87 candidates, 874647 item source bytes, brief/full decoder input 23042/874647 bytes, JSON 832/795 bytes; all 180 public files retained the same digest. Added a Windows junction fixture alongside Unix symlinks so skipped foreign sources are verified across platforms. CI aggregate gates will supply full-suite and unchanged coverage evidence."
   "2026-10-26T00:12:27.779Z",codex-agent,"Changelog regeneration and verification passed without changing the generated file. Local strict tracker health reports pre-existing extension-host version skew and merge configuration drift, plus advisory guidance/provenance findings. No merge configuration or append-only history was repaired (outside this task). The clean CI checkout health gate will distinguish these environment findings from branch defects. No dependency pins or coverage thresholds changed."
-files[6]{path,scope}:
+  "2026-10-26T00:34:25.865Z",codex-agent,"CI run 40248325986: full functional suites passed on Ubuntu 655, macOS 642 and Windows 635 tests (zero failed/ignored). Bun release aggregate reached 100% lines/functions/branches but 24733/24739 regions: six missing error-propagation regions in new scanner I/O and CLI output. Adding deterministic real-I/O failure cases and removing an unnecessary fallible serialization boundary, without lowering thresholds. macOS context latency separately measured 258.8 ms against 250 ms; no threshold changed. PR 117 is temporarily draft until acceptance gates pass."
+  "2026-10-26T00:40:54.273Z",codex-agent,"Coverage follow-up implemented using fallible I/O boundaries, without SDK mocks: real directory/metadata/open failures and a real write-only file handle read failure now prove refusal propagation; CLI dispatch proves broken writes/flushes propagate. Removed fallible serialization of an entirely infallible typed plan. Pinned pm test --run --progress passed all four linked commands: 6 query-cost, 2 SDK/CLI, 3 projector, 1 broken-output test (12 total). All-target clippy/typecheck, rustdoc and formatting passed. Both materialization and swallowed-iteration behavioral reverts produced expected assertion failures, then source was restored byte-for-byte and all 12 tests rerun successfully. Repeated public read-only validation retains 87 candidates, 874647 item bytes, brief/full decoder input 23042/874647 and JSON 832/795, with all 180 filenames/bytes unchanged."
+files[7]{path,scope}:
   src/lib.rs,project
   src/main.rs,project
   src/query_cost.rs,project
   src/read_projection.rs,project
   tests/query_cost_contract.rs,project
+  tests/support/main_unit.rs,project
   tests/support/query_cost_unit.rs,project
-tests[3]{command,scope,provenance{author,created_at,source_kind,source_ref}}:
+tests[4]{command,scope,provenance{author,created_at,source_kind,source_ref}}:
   CARGO_BUILD_JOBS=2 cargo +1.90.0 test --locked --lib query_cost -- --test-threads=1 --nocapture,project,codex-agent,"2026-10-26T00:04:49.822Z",local_mutation,feat/native-query-cost-explanations
   CARGO_BUILD_JOBS=2 cargo +1.90.0 test --locked --test query_cost_contract -- --test-threads=1,project,codex-agent,"2026-10-26T00:04:49.822Z",local_mutation,feat/native-query-cost-explanations
   CARGO_BUILD_JOBS=2 cargo +1.90.0 test --locked --lib read_projection -- --test-threads=1,project,codex-agent,"2026-10-26T00:04:49.822Z",local_mutation,feat/native-query-cost-explanations
+  CARGO_BUILD_JOBS=2 cargo +1.90.0 test --locked --bin pm-rust explain_writer_refusals,project,codex-agent,"2026-10-26T00:36:03.374Z",local_mutation,feat/native-query-cost-explanations
 docs[3]{path,scope}:
   docs/QUERY_COST.md,project
   examples/query_cost.rs,project

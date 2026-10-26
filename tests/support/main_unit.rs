@@ -1686,3 +1686,27 @@ fn native_adapter_stdio_refusals() -> Result<(), Box<dyn std::error::Error>> {
     assert!(!directory.path().join(".agents").exists());
     Ok(())
 }
+
+/// Query-cost dispatch propagates broken output streams without returning success.
+#[test]
+fn explain_writer_refusals() -> Result<(), Box<dyn std::error::Error>> {
+    let directory = tempfile::tempdir()?;
+    let root = directory.path().join(".agents/pm");
+    fs::create_dir_all(&root)?;
+    fs::write(root.join("settings.json"), "{}")?;
+    for json in [false, true] {
+        let cli = || Cli {
+            workspace: directory.path().to_path_buf(),
+            command: Command::Explain {
+                read: "list".to_owned(),
+                full: false,
+                max_entries: 10,
+                max_bytes: 1024,
+                json,
+            },
+        };
+        assert!(super::run_with_io(cli(), &mut &b""[..], &mut WriteFailure).is_err());
+        assert!(super::run_with_io(cli(), &mut &b""[..], &mut FlushFailure).is_err());
+    }
+    Ok(())
+}

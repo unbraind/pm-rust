@@ -244,3 +244,51 @@ fn seeded_extreme_request_output_domains() -> TestResult {
     })?;
     Ok(())
 }
+
+/// Real filesystem failures at every fallible boundary refuse instead of certifying partial work.
+#[test]
+fn scanner_io_failures_never_become_partial_success() -> TestResult {
+    let (_directory, workspace) = fixture()?;
+    let request = QueryCostRequest::default();
+    let mut scan = Scan {
+        request: &request,
+        entries: 0,
+        files: 0,
+        bytes: 0,
+        projected: 0,
+    };
+    let missing = workspace.pm_root().join("missing");
+    let failure = fs::read_dir(&missing)
+        .err()
+        .ok_or("missing directory must fail")?;
+    let mut entries = std::iter::once(Err(failure));
+    assert!(matches!(
+        scan.walk_entries(&mut entries, 0),
+        Err(ScanError::Source)
+    ));
+    let entry = fs::read_dir(workspace.pm_root())?
+        .next()
+        .ok_or("fixture entry")??;
+    let failure = fs::metadata(&missing)
+        .err()
+        .ok_or("missing metadata must fail")?;
+    assert!(matches!(
+        scan.visit_entry(&entry, Err(failure), 0),
+        Err(ScanError::Source)
+    ));
+    assert!(matches!(scan.inspect(&missing), Err(ScanError::Source)));
+    // A real write-only handle fails Read on both Unix and Windows, modeling a
+    // read fault after a successful open without mocking the tracker or SDK.
+    let mut write_only = fs::OpenOptions::new()
+        .write(true)
+        .create(true)
+        .truncate(true)
+        .open(workspace.pm_root().join("write-only"))?;
+    assert!(matches!(
+        scan.inspect_reader(&mut write_only),
+        Err(ScanError::Source)
+    ));
+    assert_eq!(scan.files, 0);
+    assert_eq!(scan.bytes, 0);
+    Ok(())
+}

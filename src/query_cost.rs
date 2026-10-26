@@ -218,36 +218,59 @@ impl Scan<'_> {
         if depth > 32 {
             return Err(ScanError::Limit);
         }
-        for entry in fs::read_dir(path)? {
+        let mut entries = fs::read_dir(path)?;
+        self.walk_entries(&mut entries, depth)
+    }
+
+    /// Preserves directory iteration failures without returning a partial plan.
+    fn walk_entries(
+        &mut self,
+        entries: &mut dyn Iterator<Item = io::Result<fs::DirEntry>>,
+        depth: u32,
+    ) -> Result<(), ScanError> {
+        for entry in entries {
             let entry = entry?;
             self.entries += 1;
             if self.entries > self.request.max_entries {
                 return Err(ScanError::Limit);
             }
-            let kind = entry.file_type()?;
-            let path = entry.path();
-            if kind.is_dir() {
-                if depth == 0
-                    && crate::workspace::NON_ITEM_DIRECTORIES
-                        .contains(&entry.file_name().to_string_lossy().as_ref())
-                {
-                    continue;
-                }
-                self.walk(&path, depth + 1)?;
-            } else if depth > 0
-                && kind.is_file()
-                && path.extension().is_some_and(|ext| ext == "toon")
+            self.visit_entry(&entry, entry.file_type(), depth)?;
+        }
+        Ok(())
+    }
+
+    /// Uses the authoritative entry type, retaining metadata failures as refusals.
+    fn visit_entry(
+        &mut self,
+        entry: &fs::DirEntry,
+        kind: io::Result<fs::FileType>,
+        depth: u32,
+    ) -> Result<(), ScanError> {
+        let kind = kind?;
+        let path = entry.path();
+        if kind.is_dir() {
+            if depth == 0
+                && crate::workspace::NON_ITEM_DIRECTORIES
+                    .contains(&entry.file_name().to_string_lossy().as_ref())
             {
-                self.inspect(&path)?;
+                return Ok(());
             }
+            self.walk(&path, depth + 1)?;
+        } else if depth > 0 && kind.is_file() && path.extension().is_some_and(|ext| ext == "toon") {
+            self.inspect(&path)?;
         }
         Ok(())
     }
 
     /// Reads one bounded source and asks the shared projector for its decoder input.
     fn inspect(&mut self, path: &Path) -> Result<(), ScanError> {
+        self.inspect_reader(&mut fs::File::open(path)?)
+    }
+
+    /// Bounds source reads and preserves failures from a caller-owned file handle.
+    fn inspect_reader(&mut self, reader: &mut dyn Read) -> Result<(), ScanError> {
         let mut bytes = Vec::new();
-        fs::File::open(path)?
+        reader
             .take(self.request.max_bytes - self.bytes + 1)
             .read_to_end(&mut bytes)?;
         self.bytes += bytes.len() as u64;

@@ -703,7 +703,7 @@ fn run_with_io(
                 max_entries,
                 max_bytes,
             })?;
-            let output = pm_rust::ListOutput::from(serde_json::to_value(plan)?);
+            let output = pm_rust::ListOutput::from(serde_json::json!(plan));
             write_adapter_receipt_to(writer, &output, json)?;
         }
         Command::AdapterCheck { json } => run_adapter_check(reader, writer, json)?,

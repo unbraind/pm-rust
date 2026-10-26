@@ -90,6 +90,8 @@ test-side normalization. No import/export/sync surface is introduced or modified
 The 10,000-item fixture verifies lower planned brief materialization than full
 body decoding, identical source-read work and unchanged SDK state. Domain edges,
 extreme numeric JSON, ignored files, symlinks, traversal depth and unavailable
-sources exercise refusals. Existing projection/differential suites remain the
+sources exercise refusals. Deterministic faults cover failed directory iteration,
+entry metadata, missing opens, reads through a real write-only handle, and broken
+CLI writers; failures never become partial success. Existing projection/differential suites remain the
 semantic oracle for the refactored shared projection function. Public tracker
 measurements and unchanged npm/Bun CI aggregate results are reported in the PR.
