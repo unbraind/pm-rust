@@ -5,7 +5,11 @@ use proptest::{
     test_runner::{Config, RngSeed, TestRunner},
 };
 use serde_json::{Value, json};
-use std::{fs, path::Path, process::Command};
+use std::{
+    fs,
+    path::Path,
+    process::{Command, Stdio},
+};
 
 /// Fallible acceptance result.
 type TestResult = Result<(), Box<dyn std::error::Error>>;
@@ -115,6 +119,26 @@ fn cli_json_toon_refusals_and_zero_writes() -> TestResult {
             refusal["required"]
                 .as_str()
                 .is_some_and(|text| text.contains(';'))
+        );
+    }
+    for json in [false, true] {
+        let mut command = Command::new(env!("CARGO_BIN_EXE_pm-rust"));
+        command
+            .current_dir(directory.path())
+            .args(["explain", "list"])
+            .env("PATH", empty_path.path())
+            .stdout(Stdio::piped())
+            .stderr(Stdio::piped());
+        if json {
+            command.arg("--json");
+        }
+        let mut child = command.spawn()?;
+        drop(child.stdout.take());
+        let output = child.wait_with_output()?;
+        assert_eq!(
+            output.status.code(),
+            Some(2),
+            "disconnected consumers must refuse delivery"
         );
     }
     assert_eq!(before, snapshot(directory.path())?);
