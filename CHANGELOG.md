@@ -28,6 +28,7 @@
 
 ### Bug Fixes
 
+- Certify only observed crash-oracle checks and durable evidence commits ([pm-rust-crash-oracle-recorder](https://github.com/unbraind/pm-rust/blob/main/.agents/pm/tasks/pm-rust-crash-oracle-recorder.toon)) _type:Task; status:closed; P2_
 - Regenerate changelogs after gated sync and closeout ([pm-rust-closeout-changelog](https://github.com/unbraind/pm-rust/blob/main/.agents/pm/issues/pm-rust-closeout-changelog.toon)) _type:Issue; status:closed; P2_
 - Recover pending item journals before every native mutation ([pm-rust-cross-operation-journal](https://github.com/unbraind/pm-rust/blob/main/.agents/pm/tasks/pm-rust-cross-operation-journal.toon)) _type:Task; status:closed; P1_
 - Match published history integrity and certify CLI 2026.9.7 ([pm-rust-ing0](https://github.com/unbraind/pm-rust/blob/main/.agents/pm/issues/pm-rust-ing0.toon)) _type:Issue; status:closed; P1_
