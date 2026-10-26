@@ -6,6 +6,6 @@
     "changelog:full": "node ../../scripts/changelog.mts full"
   },
   "dependencies": {
-    "@unbrained/pm-cli": "2026.10.21"
+    "@unbrained/pm-cli": "2026.10.23"
   }
 }
