@@ -23,6 +23,24 @@ struct Cli {
 
 #[derive(Debug, Subcommand)]
 enum Command {
+    /// Explain native list scan work without executing a query or changing state.
+    Explain {
+        /// Supported read family (filters and cursors are not admitted).
+        #[arg(value_parser = ["list"])]
+        read: String,
+        /// Plan full item decoding, including bodies, instead of brief scalars.
+        #[arg(long)]
+        full: bool,
+        /// Maximum visited filesystem entries (1..=1000000).
+        #[arg(long, default_value_t = 100_000)]
+        max_entries: u32,
+        /// Maximum inspected source bytes (1..=1073741824).
+        #[arg(long, default_value_t = 67_108_864)]
+        max_bytes: u64,
+        /// Emit compact JSON instead of TOON.
+        #[arg(long)]
+        json: bool,
+    },
     /// Validate a native adapter transcript from stdin without executing backend operations.
     AdapterCheck {
         /// Emit compact JSON instead of TOON.
@@ -668,6 +686,26 @@ fn run_with_io(
 ) -> Result<(), Box<dyn std::error::Error>> {
     let discover = || Workspace::discover(&cli.workspace);
     match cli.command {
+        Command::Explain {
+            read: _,
+            full,
+            max_entries,
+            max_bytes,
+            json,
+        } => {
+            let workspace = discover().map_err(|_| pm_rust::QueryCostRefusal::Source)?;
+            let plan = workspace.explain_list(&pm_rust::QueryCostRequest {
+                projection: if full {
+                    pm_rust::QueryProjection::Full
+                } else {
+                    pm_rust::QueryProjection::Brief
+                },
+                max_entries,
+                max_bytes,
+            })?;
+            let output = pm_rust::ListOutput::from(serde_json::to_value(plan)?);
+            write_adapter_receipt_to(writer, &output, json)?;
+        }
         Command::AdapterCheck { json } => run_adapter_check(reader, writer, json)?,
         Command::ReadSession {
             timestamp,
@@ -1519,6 +1557,11 @@ fn main() -> ExitCode {
     match run(cli) {
         Ok(()) => ExitCode::SUCCESS,
         Err(error) => {
+            if let Some(refusal) = error.downcast_ref::<pm_rust::QueryCostRefusal>() {
+                let payload = serde_json::json!({"ok":false,"code":refusal.code(),"required":refusal.to_string(),"exit_code":2});
+                let _ = write_json_to(&mut std::io::stderr().lock(), &payload);
+                return ExitCode::from(2);
+            }
             if let Some(refusal) = error.downcast_ref::<pm_rust::SessionRefusal>() {
                 let payload = serde_json::json!({"code":refusal.code(),"detail":refusal.to_string(),"required":refusal.to_string(),"exit_code":2});
                 let _ = write_json_to(&mut std::io::stderr().lock(), &payload);

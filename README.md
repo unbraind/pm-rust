@@ -51,6 +51,19 @@ Native item mutations recover pending journals across operation names before
 applying later edits. See [journal recovery](docs/CROSS_OPERATION_JOURNAL_RECOVERY.md)
 for crash-state regressions and operator conflict remedies.
 
+## Explain native query cost
+
+Run `pm-rust explain list` (TOON) or `pm-rust explain list --full --json` before
+requesting a large result. The native SDK exposes `Workspace::explain_list` with
+typed requests, bounds and refusals. Plans disclose candidate files, source I/O
+and actual projected decoder-input work; output bytes, heap use and time remain
+unknown. Planning itself scans bounded source bytes and performs zero mutations.
+The bounds require unchanged files and do not certify valid items or reserve state.
+
+See the [contract and remedies](docs/QUERY_COST.md) and
+[SDK example](examples/query_cost.rs). Brief projection reduces decoder work on
+body-heavy trackers; output/page limits alone do not reduce source scanning.
+
 ## Embeddable bounded read sessions
 
 `Workspace::read_session` freezes a private disk-backed snapshot, strictly decodes
@@ -75,7 +88,7 @@ accounting limits, cancellation latency, integrity boundaries and typed remedies
 
 ## Without git
 
-Adapter compatibility checks work without a tracker or Git. Read sessions and
+Adapter compatibility checks work without a tracker or Git. Query cost explanations, read sessions and
 workspace discovery, list/get/search/context/history/dependencies, item mutations,
 ownership and linked artifacts work in plain directories. Concurrent writers share
 the same tracker and retain every admitted item edit and append-only history entry.

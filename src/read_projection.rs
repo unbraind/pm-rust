@@ -1,5 +1,5 @@
 //! Small query projections without decoding unrelated collection payloads.
-use std::{fmt::Write as _, path::Path};
+use std::{borrow::Cow, fmt::Write as _, path::Path};
 
 use crate::{ItemDocument, PmRustError};
 
@@ -27,6 +27,11 @@ pub(crate) fn decode(
     content: &str,
     projection: Projection,
 ) -> Result<ItemDocument, PmRustError> {
+    crate::item::decode_item(path, &project_text(content, projection))
+}
+
+/// Returns exactly the decoder input shared by execution and cost planning.
+pub(crate) fn project_text(content: &str, projection: Projection) -> Cow<'_, str> {
     if projection == Projection::Full
         || content.lines().any(|line| {
             line.starts_with('"')
@@ -35,7 +40,7 @@ pub(crate) fn decode(
                     .any(|marker| line.starts_with(marker))
         })
     {
-        return crate::item::decode_item(path, content);
+        return Cow::Borrowed(content);
     }
     let mut projected = String::with_capacity(content.len().min(2048));
     let mut retain = true;
@@ -94,7 +99,7 @@ pub(crate) fn decode(
             projected.push('\n');
         }
     }
-    crate::item::decode_item(path, &projected)
+    Cow::Owned(projected)
 }
 
 /// Extracts a canonical collection's declared size without materializing its rows.
