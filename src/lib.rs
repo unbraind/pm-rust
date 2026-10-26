@@ -26,6 +26,7 @@ mod orientation_context;
 mod orientation_deps;
 mod ownership;
 mod pagination;
+mod query_cost;
 mod read_output;
 mod read_projection;
 mod read_session;
@@ -61,3 +62,5 @@ pub use read_session::{
     ReadSession, ReadSessionLimits, SessionCancellation, SessionPage, SessionReceipt,
     SessionRefusal,
 };
+
+pub use query_cost::{QueryCost, QueryCostRefusal, QueryCostRequest, QueryProjection, WorkBound};
