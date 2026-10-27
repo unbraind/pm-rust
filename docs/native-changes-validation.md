@@ -46,7 +46,9 @@ The deterministic model runs 500 random operation sequences, including older
 input replay, random append bursts, equal/backdated timestamps, foreign authors,
 custom operations and statuses, relationships, whitespace/CRLF variants, cursor
 restarts and older-cursor retries. It compares canonical fields read back through
-`Workspace::history` with an independent per-stream delivery model. Model JSON and TOON pages round-trip through their decoders and share the producer's page validator. No import/export/sync, item mutation, status-role decision, ambient
+`Workspace::history` with an independent per-stream delivery model. Model JSON and
+TOON pages round-trip through their decoders and share the producer's page
+validator. No import/export/sync, item mutation, status-role decision, ambient
 scope default or journaled write plan is introduced by this feature.
 
 Additional cases inject peer appends at every native processing boundary and
@@ -61,8 +63,9 @@ unchanged npm and Bun CI release gates. Their exact-head run and counts are
 reported in the PR.
 
 Seven behavioral reverts run in a disposable copy and fail their regression tests:
-exclusive resume, prefix integrity, cancellation before checkpoint admission and
-canonical field projection, duplicate-event admission and delayed-reply correlation and UTF-8 filename admission. The fixed checkout is never modified by that harness.
+exclusive resume, prefix integrity, cancellation before checkpoint admission,
+canonical field projection, duplicate-event admission, delayed-reply correlation
+and UTF-8 filename admission. The fixed checkout is never modified by that harness.
 
 ```sh
 cargo +1.90.0 test --locked --lib changes::tests -- --test-threads=2
@@ -74,3 +77,7 @@ node scripts/native-adapter-changes-revert.mts
 The macOS CI fixture correction validates malformed filename bytes directly because
 that filesystem rejects creating such names. Linux retains its real invalid-name
 file case; all platforms exercise the real-tracker admission error boundary.
+
+CLI unit coverage also decodes successful JSON and TOON pages and checks that an
+existing cancellation marker returns the typed refusal without emitting a page.
+This covers both admission outcomes through the same dispatch used by the binary.
