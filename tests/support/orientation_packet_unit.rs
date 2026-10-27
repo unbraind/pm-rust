@@ -23,6 +23,68 @@ fn kernel_graph(ids: &[&str], mut edges: Vec<Value>) -> Graph {
     }
 }
 
+/// Budget search reuses costs without changing either encoding at decimal-width boundaries.
+#[test]
+fn packet_rendered_cost_cache_is_exact_and_bounded() {
+    let mut costs = RenderedCosts::default();
+    let mut result = project(
+        json!({"id":"root","format":"context","context":{"root":{"id":"root","title":"café 🚀"},"nodes":[],"edges":[],"meta":{"truncated":true,"tokenBudget":1,"usedTokens":1}}}),
+        false,
+        &json!({}),
+    );
+    for toon in [false, true] {
+        for budget in [1, 9, 10, 99, 100, 999, 1000, 10000] {
+            result["context"]["meta"]["tokenBudget"] = json!(budget);
+            for used in [0, 9, 10, 99, 100, 999, 1000] {
+                result["context"]["meta"]["usedTokens"] = json!(used);
+                assert_eq!(costs.measure(&result, toon), tokens(&result, toon));
+            }
+        }
+    }
+    assert!(costs.measurements < 2 * 8 * 7);
+    for index in 0..70 {
+        result["context"]["root"]["title"] = json!(format!("distinct-{index}"));
+        assert_eq!(costs.measure(&result, true), tokens(&result, true));
+    }
+    assert_eq!(costs.entries.len(), 64);
+}
+
+/// Tiny complete selections reach the same oracle floor without repeated identical kernels.
+#[test]
+fn packet_floor_retries_skip_unchanged_selection() -> Result<(), Box<dyn std::error::Error>> {
+    let (_directory, workspace) = workspace()?;
+    let lifecycle = Lifecycle::load(workspace.pm_root())?;
+    for missing in [false, true] {
+        let mut root = item("sample-root");
+        if missing {
+            root["dependencies"] = json!([{"id":"sample-missing","kind":"related"}]);
+        }
+        let graph = Graph::new(&[root], &lifecycle);
+        for toon in [false, true] {
+            let options = DepsOptions {
+                toon,
+                token_budget: Some(if missing { "300" } else { "100" }.to_owned()),
+                ..Default::default()
+            };
+            let query = Query::new(&options, None)?;
+            let traversal = Traversal::new(&graph, "sample-root", &query);
+            let mut costs = RenderedCosts::default();
+            let result = render_packet_cached(
+                &graph,
+                "sample-root",
+                &query,
+                &traversal,
+                &[],
+                &options,
+                &mut costs,
+            );
+            assert!(result.as_ref().is_err_and(budget_floor));
+            assert!(costs.attempts <= 3, "attempts: {}", costs.attempts);
+        }
+    }
+    Ok(())
+}
+
 /// Required endpoints lead producer pages, and cursors reject the previous packing policy.
 #[test]
 fn packet_required_root_evidence_orders_pages() -> Result<(), Box<dyn std::error::Error>> {

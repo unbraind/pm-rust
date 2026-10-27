@@ -599,8 +599,10 @@ fn compare(expected: &Output, actual: &Output, args: &[&str]) {
     assert_eq!(
         actual.status.code(),
         expected.status.code(),
-        "{args:?}: native {} oracle {}",
+        "{args:?}: native status {:?}, stderr {}; oracle status {:?}, stderr {}",
+        actual.status,
         String::from_utf8_lossy(&actual.stderr),
+        expected.status,
         String::from_utf8_lossy(&expected.stderr)
     );
     assert_eq!(
