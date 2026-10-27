@@ -19,14 +19,14 @@ source file/byte counts below describe the original copied tracker.
 | Total JSON delivery bytes | 1,334,728 |
 | Largest JSON page including newline | 17,141 bytes |
 | Largest cursor | 13,994 bytes |
-| Validation wall time | 384,774 ms |
+| Validation wall time | 126,281 ms |
 
 Every `(item_id, version)` appeared once. Canonical event projections matched the
 SDK exactly. Native subprocesses had an empty executable search path: neither Git
 nor Node was available. The source-copy digest was unchanged:
-`14cbc45224910cd0f969b4c985b6fa972162664093ec760c5014e11907a23f05`.
+`aa6e1f0100c31730710dd602b843e47a6dd9e18e9eab46c8ec9284b9f22b7726`.
 The validated debug executable digest was
-`236bcb16895ed0a77a4396a303d7d4e804f174410fd9675e2113a20b4346b9c0`.
+`499df544539ae7613830358b7411d49c87ab079030e3e115a2d8fc9f176869da`.
 No executable or generated cache is committed.
 
 The wall time covers 114 separate native CLI processes, two extra TOON reads and
@@ -55,14 +55,14 @@ partial tails, foreign records, pruning, same-size rewrites, invalid cursor
 ordinals, extreme input/output numbers, incompatible adapters and transport frame
 limits. Cursor state is private to each reader; no shared checkpoint is written.
 
-Focused coverage of `src/changes.rs` reached 100% lines (364), functions (33),
-regions (549) and branches (82). Full repository acceptance is delegated to the
+Focused coverage of `src/changes.rs` reached 100% lines (384), functions (37),
+regions (574) and branches (84). Full repository acceptance is delegated to the
 unchanged npm and Bun CI release gates. Their exact-head run and counts are
 reported in the PR.
 
-Four behavioral reverts run in a disposable copy and fail their regression tests:
+Six behavioral reverts run in a disposable copy and fail their regression tests:
 exclusive resume, prefix integrity, cancellation before checkpoint admission and
-canonical field projection. The fixed checkout is never modified by that harness.
+canonical field projection, duplicate-event admission and delayed-reply correlation. The fixed checkout is never modified by that harness.
 
 ```sh
 cargo +1.90.0 test --locked --lib changes::tests -- --test-threads=2

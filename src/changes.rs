@@ -9,7 +9,7 @@ use crate::{SessionCancellation, Workspace};
 use base64::{Engine as _, engine::general_purpose::URL_SAFE_NO_PAD};
 use serde::{Deserialize, Serialize};
 use std::{
-    collections::BTreeMap,
+    collections::{BTreeMap, BTreeSet},
     fs,
     io::{self, Read},
 };
@@ -138,6 +138,20 @@ impl ChangePage {
                 .any(|row| row.version == 0 || row.version > 9_007_199_254_740_991)
             || (total > 0 && request.cursor.as_ref() == Some(&self.next_cursor))
         {
+            return Err(ChangeRefusal::InvalidPage);
+        }
+        let mut positions = BTreeSet::new();
+        let unique = self
+            .events
+            .iter()
+            .map(|event| (event.item_id.as_str(), event.version))
+            .chain(
+                self.skipped
+                    .iter()
+                    .map(|row| (row.item_id.as_str(), row.version)),
+            )
+            .all(|position| positions.insert(position));
+        if !unique {
             return Err(ChangeRefusal::InvalidPage);
         }
         let encoded_bytes = crate::stringify_json(self, false)
@@ -557,6 +571,25 @@ impl NativeAdapter for LocalChangeAdapter {
     }
 }
 
+/// Correlates replies with the complete revision-bearing request, never content alone.
+fn change_adapter_request(request: &ChangeRequest) -> AdapterRequest {
+    let digest = crate::history::sha256_digest(
+        format!(
+            "{}:{}",
+            crate::mutation::unique_token(),
+            crate::stringify_json(request, false)
+        )
+        .as_bytes(),
+    );
+    AdapterRequest {
+        abi: NATIVE_ADAPTER_ABI.into(),
+        request_id: format!("changes-{digest}"),
+        operation: AdapterOperation::Changes {
+            request: request.clone(),
+        },
+    }
+}
+
 /// Pull consumer over any authorized adapter declaring the changes capability.
 ///
 /// One synchronous exchange per pull, no prefetch, retries, workers or polling loop.
@@ -585,13 +618,7 @@ impl<A: NativeAdapter> ChangeReader<A> {
         let client = NativeAdapterClient::new(adapter)?;
         crate::native_adapter::prepare_adapter_request(
             &client.manifest,
-            &AdapterRequest {
-                abi: NATIVE_ADAPTER_ABI.into(),
-                request_id: "changes".into(),
-                operation: AdapterOperation::Changes {
-                    request: request.clone(),
-                },
-            },
+            &change_adapter_request(&request),
         )?;
         Ok(Self {
             client,
@@ -612,13 +639,7 @@ impl<A: NativeAdapter> ChangeReader<A> {
     /// Preserves ABI/backend refusals and refuses malformed or oversized pages.
     pub fn pull(&mut self) -> Result<ChangePage, ChangeRefusal> {
         cancelled(&self.cancellation)?;
-        let reply = self.client.call(&AdapterRequest {
-            abi: NATIVE_ADAPTER_ABI.into(),
-            request_id: "changes".into(),
-            operation: AdapterOperation::Changes {
-                request: self.request.clone(),
-            },
-        })?;
+        let reply = self.client.call(&change_adapter_request(&self.request))?;
         let page: ChangePage = match reply.outcome {
             AdapterOutcome::Success { output } => {
                 serde_json::from_value(output).map_err(|_| ChangeRefusal::InvalidPage)?

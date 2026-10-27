@@ -469,14 +469,15 @@ impl NativeAdapter for WirePeer {
             max_frame_bytes: NATIVE_ADAPTER_MAX_BYTES,
         }
     }
-    fn exchange(&mut self, _: &[u8], _: usize) -> io::Result<Vec<u8>> {
+    fn exchange(&mut self, bytes: &[u8], _: usize) -> io::Result<Vec<u8>> {
+        let request: AdapterRequest = crate::strict_json::from_slice(bytes)?;
         if let Some(token) = &self.cancel {
             token.cancel();
         }
         Ok(crate::stringify_json(
             &AdapterReply {
                 abi: NATIVE_ADAPTER_ABI.into(),
-                request_id: "changes".into(),
+                request_id: request.request_id,
                 outcome: self.outcome.clone(),
             },
             false,
@@ -796,6 +797,7 @@ fn projection_and_page_extremes() -> TestResult {
     ));
     page.events[0].patch_count = 0;
     page.events.push(MutationEvent {
+        version: 2,
         message: None,
         ..page.events[0].clone()
     });
@@ -966,5 +968,105 @@ fn windows_history_filename_admission() -> TestResult {
         adapter.pull(&ChangeRequest::default()),
         Err(ChangeRefusal::Source)
     ));
+    Ok(())
+}
+
+/// A real local adapter whose third exchange delivers a delayed copy of its first reply.
+struct DelayedReply {
+    /// Genuine backend containing retained canonical history.
+    inner: LocalChangeAdapter,
+    /// One previously successful encoded reply.
+    first: Option<Vec<u8>>,
+    /// Ordered exchange boundary, independent of cursor/event timestamps.
+    calls: u8,
+}
+impl NativeAdapter for DelayedReply {
+    fn manifest(&self) -> AdapterManifest {
+        self.inner.manifest()
+    }
+    fn exchange(&mut self, request: &[u8], limit: usize) -> io::Result<Vec<u8>> {
+        self.calls += 1;
+        if self.calls == 3 {
+            return self
+                .first
+                .clone()
+                .ok_or_else(|| io::Error::other("missing first reply"));
+        }
+        let response = self.inner.exchange(request, limit)?;
+        if self.calls == 1 {
+            self.first = Some(response.clone());
+        }
+        Ok(response)
+    }
+}
+
+/// Correlation rejects a delayed older page after two successes, retaining the last cursor.
+#[test]
+fn delayed_older_pages_cannot_rewind_a_reader() -> TestResult {
+    let (_dir, workspace) = fixture()?;
+    for index in 0..3 {
+        append(&workspace, "demo-1", &record(index), false)?;
+    }
+    let cancellation = SessionCancellation::default();
+    let adapter = DelayedReply {
+        inner: LocalChangeAdapter::new(workspace, cancellation.clone()),
+        first: None,
+        calls: 0,
+    };
+    let mut reader = ChangeReader::new(
+        adapter,
+        ChangeRequest {
+            limit: 1,
+            ..ChangeRequest::default()
+        },
+        cancellation,
+    )?;
+    assert_eq!(reader.pull()?.events[0].version, 1);
+    assert_eq!(reader.pull()?.events[0].version, 2);
+    let retained = reader.cursor().ok_or("cursor")?.to_owned();
+    assert!(matches!(
+        reader.pull(),
+        Err(ChangeRefusal::Adapter(
+            crate::native_adapter::AdapterRefusal {
+                code: crate::native_adapter::AdapterRefusalCode::InvalidFrame,
+                ..
+            }
+        ))
+    ));
+    assert_eq!(reader.cursor(), Some(retained.as_str()));
+    assert_eq!(reader.pull()?.events[0].version, 3);
+    Ok(())
+}
+
+/// Duplicate physical identities in a backend page never become admitted work.
+#[test]
+fn duplicate_backend_positions_refuse_before_cursor_admission() -> TestResult {
+    let (_dir, workspace) = fixture()?;
+    append(&workspace, "demo-1", &record(0), false)?;
+    let token = SessionCancellation::default();
+    let mut page =
+        LocalChangeAdapter::new(workspace, token.clone()).pull(&ChangeRequest::default())?;
+    page.events.push(page.events[0].clone());
+    assert!(matches!(
+        page.validate(&ChangeRequest::default()),
+        Err(ChangeRefusal::InvalidPage)
+    ));
+    page.events.pop();
+    page.skipped.push(SkippedChange {
+        item_id: "demo-1".into(),
+        version: 1,
+        reason: "foreign".into(),
+    });
+    let peer = WirePeer {
+        abi: NATIVE_ADAPTER_ABI.into(),
+        capabilities: vec![AdapterCapability::Changes],
+        outcome: AdapterOutcome::Success {
+            output: json!(page),
+        },
+        cancel: None,
+    };
+    let mut reader = ChangeReader::new(peer, ChangeRequest::default(), token)?;
+    assert!(matches!(reader.pull(), Err(ChangeRefusal::InvalidPage)));
+    assert!(reader.cursor().is_none());
     Ok(())
 }

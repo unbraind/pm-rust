@@ -51,7 +51,10 @@ adapters lacking it refuse before dispatch. A request uses:
 Remote adapters must implement equivalent immutable-prefix/exclusive-resume
 semantics through their backend's authorized SDK, validate stale positions, and
 preserve refusal details. The native client performs one bounded exchange and
-validates the complete page before advancing its private cursor. The local
+validates the complete page before advancing its private cursor. Correlation IDs
+bind each call's nonce to its full cursor-bearing request, so delayed older replies
+cannot rewind a reader. Pages cannot repeat a physical stream/version identity,
+including across admitted events and skipped-record receipts. The local
 adapter and CLI use that same producer/validator path. This package supplies the
 local adapter; it does not supply a new network transport or remote backend.
 
