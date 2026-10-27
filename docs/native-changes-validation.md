@@ -81,3 +81,6 @@ file case; all platforms exercise the real-tracker admission error boundary.
 CLI unit coverage also decodes successful JSON and TOON pages and checks that an
 existing cancellation marker returns the typed refusal without emitting a page.
 This covers both admission outcomes through the same dispatch used by the binary.
+The process-level non-git contract separately executes missing-workspace and
+closed-output-pipe failures in both encodings, covering the executable's error
+propagation rather than relying on unit dispatch coverage alone.

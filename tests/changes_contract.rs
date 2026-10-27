@@ -4,7 +4,11 @@ use pm_rust::{
     changes::{ChangeReader, ChangeRequest, LocalChangeAdapter},
 };
 use serde_json::Value;
-use std::{fs, path::Path, process::Command};
+use std::{
+    fs,
+    path::Path,
+    process::{Command, Stdio},
+};
 
 /// Fallible integration test result.
 type TestResult = Result<(), Box<dyn std::error::Error>>;
@@ -103,6 +107,32 @@ fn cli_resumes_without_git_or_node() -> TestResult {
                 .as_str()
                 .is_some_and(|remedy| remedy.contains(';'))
         );
+    }
+    for json in [true, false] {
+        let encoding = if json { vec!["--json"] } else { vec![] };
+        let missing = Command::new(env!("CARGO_BIN_EXE_pm-rust"))
+            .current_dir(empty.path())
+            .arg("changes")
+            .args(&encoding)
+            .env("PATH", empty.path())
+            .env("GIT_CEILING_DIRECTORIES", empty.path())
+            .output()?;
+        assert!(!missing.status.success());
+        assert!(missing.stdout.is_empty());
+        assert!(!missing.stderr.is_empty());
+
+        let mut child = Command::new(env!("CARGO_BIN_EXE_pm-rust"))
+            .current_dir(dir.path())
+            .arg("changes")
+            .args(&encoding)
+            .env("PATH", empty.path())
+            .stdout(Stdio::piped())
+            .stderr(Stdio::piped())
+            .spawn()?;
+        drop(child.stdout.take());
+        let broken_pipe = child.wait_with_output()?;
+        assert!(!broken_pipe.status.success());
+        assert!(!broken_pipe.stderr.is_empty());
     }
     Ok(())
 }
