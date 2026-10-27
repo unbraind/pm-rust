@@ -23,6 +23,24 @@ struct Cli {
 
 #[derive(Debug, Subcommand)]
 enum Command {
+    /// Pull one bounded page of canonical mutation facts without Node or Git.
+    Changes {
+        /// Opaque cursor returned by the same adapter; absent starts retained history.
+        #[arg(long)]
+        cursor: Option<String>,
+        /// Maximum admitted events plus skipped records (1..100).
+        #[arg(long, default_value_t = 20)]
+        limit: u16,
+        /// Complete JSON and TOON page ceiling (1024..1048576).
+        #[arg(long, default_value_t = 65536)]
+        output_bytes: u32,
+        /// Cancel before a pull when this caller-owned marker exists.
+        #[arg(long)]
+        cancel_file: Option<PathBuf>,
+        /// Emit compact JSON instead of TOON.
+        #[arg(long)]
+        json: bool,
+    },
     /// Explain native list scan work without executing a query or changing state.
     Explain {
         /// Supported read family (filters and cursors are not admitted).
@@ -662,6 +680,14 @@ fn write_adapter_receipt_to(
     } else {
         pm_rust::stringify_toon(output)?
     };
+    write_encoded_frame_to(writer, &rendered)
+}
+
+/// Writes one already-encoded page and propagates every pipe/newline/flush failure.
+fn write_encoded_frame_to(
+    writer: &mut dyn Write,
+    rendered: &str,
+) -> Result<(), Box<dyn std::error::Error>> {
     writer.write_all(rendered.as_bytes())?;
     writer.write_all(b"\n")?;
     writer.flush()?;
@@ -705,6 +731,32 @@ fn run_with_io(
             })?;
             let output = pm_rust::ListOutput::from(serde_json::json!(plan));
             write_adapter_receipt_to(writer, &output, json)?;
+        }
+        Command::Changes {
+            cursor,
+            limit,
+            output_bytes,
+            cancel_file,
+            json,
+        } => {
+            let request = pm_rust::changes::ChangeRequest {
+                cursor,
+                limit,
+                output_bytes,
+            };
+            let cancellation = pm_rust::SessionCancellation::default();
+            if cancel_file.as_ref().is_some_and(|path| path.exists()) {
+                cancellation.cancel();
+            }
+            let adapter =
+                pm_rust::changes::LocalChangeAdapter::new(discover()?, cancellation.clone());
+            let page = adapter.pull(&request)?;
+            let rendered = if json {
+                pm_rust::stringify_json(&page, false)
+            } else {
+                page.stringify_toon()
+            };
+            write_encoded_frame_to(writer, &rendered)?;
         }
         Command::AdapterCheck { json } => run_adapter_check(reader, writer, json)?,
         Command::ReadSession {
@@ -1557,6 +1609,11 @@ fn main() -> ExitCode {
     match run(cli) {
         Ok(()) => ExitCode::SUCCESS,
         Err(error) => {
+            if let Some(refusal) = error.downcast_ref::<pm_rust::changes::ChangeRefusal>() {
+                let payload = serde_json::json!({"ok":false,"code":refusal.code(),"required":refusal.to_string(),"exit_code":2});
+                let _ = write_json_to(&mut std::io::stderr().lock(), &payload);
+                return ExitCode::from(2);
+            }
             if let Some(refusal) = error.downcast_ref::<pm_rust::QueryCostRefusal>() {
                 let payload = serde_json::json!({"ok":false,"code":refusal.code(),"required":refusal.to_string(),"exit_code":2});
                 let _ = write_json_to(&mut std::io::stderr().lock(), &payload);

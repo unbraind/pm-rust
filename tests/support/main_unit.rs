@@ -1587,6 +1587,7 @@ fn native_adapter_workspace_discovery_refusals() -> Result<(), Box<dyn std::erro
     let directory = tempfile::tempdir()?;
     let cases: &[&[&str]] = &[
         &["read-session"],
+        &["changes"],
         &["assurance", "list", "schema"],
         &["context"],
         &["history", "demo-1"],
@@ -1702,6 +1703,30 @@ fn explain_writer_refusals() -> Result<(), Box<dyn std::error::Error>> {
                 full: false,
                 max_entries: 10,
                 max_bytes: 1024,
+                json,
+            },
+        };
+        assert!(super::run_with_io(cli(), &mut &b""[..], &mut WriteFailure).is_err());
+        assert!(super::run_with_io(cli(), &mut &b""[..], &mut FlushFailure).is_err());
+    }
+    Ok(())
+}
+
+/// Incremental CLI output preserves write/flush failures and caller-owned cancellation markers.
+#[test]
+fn changes_writer_refusals() -> Result<(), Box<dyn std::error::Error>> {
+    let directory = tempfile::tempdir()?;
+    let root = directory.path().join(".agents/pm");
+    fs::create_dir_all(root.join("history"))?;
+    fs::write(root.join("settings.json"), "{}")?;
+    for json in [false, true] {
+        let cli = || Cli {
+            workspace: directory.path().to_path_buf(),
+            command: Command::Changes {
+                cursor: None,
+                limit: 20,
+                output_bytes: 65536,
+                cancel_file: Some(directory.path().join("absent")),
                 json,
             },
         };

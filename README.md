@@ -86,8 +86,21 @@ CLI invocation. SDK callers can share `SessionCancellation` across threads or ca
 attempt snapshot cleanup; explicit calls report storage failures. See the [embedding contract](docs/BOUNDED_READ_SESSIONS.md) for
 accounting limits, cancellation latency, integrity boundaries and typed remedies.
 
+## Native incremental changes
+
+`pm-rust changes [--cursor <opaque>] [--limit 20] [--output-bytes 65536] [--json]`
+returns a bounded page of canonical mutation facts and a continuation cursor.
+`changes::ChangeReader` and `LocalChangeAdapter` provide the same pull interface
+for Rust consumers over the existing authorized adapter ABI. Per-stream prefix
+cursors retain equal-time/backdated appends and refuse stale history explicitly.
+No tracker writes, Node, Git, shared checkpoints or background polling are needed.
+See [cursor semantics and resource bounds](docs/native-changes.md) and the
+[SDK example](examples/changes.rs). The [validation report](docs/native-changes-validation.md)
+records SDK comparisons, seeded sequences, revert proofs and public-data numbers.
+
 ## Without git
 
+Incremental change pulls work on a plain tracker with no Git or Node executable.
 Adapter compatibility checks work without a tracker or Git. Query cost explanations, read sessions and
 workspace discovery, list/get/search/context/history/dependencies, item mutations,
 ownership and linked artifacts work in plain directories. Concurrent writers share

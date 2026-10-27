@@ -15,6 +15,8 @@ pub const NATIVE_ADAPTER_MAX_TRANSCRIPT_BYTES: usize = 16 * NATIVE_ADAPTER_MAX_B
 #[derive(Clone, Copy, Debug, Deserialize, Eq, PartialEq, Serialize)]
 #[serde(rename_all = "snake_case")]
 pub enum AdapterCapability {
+    /// Pull bounded canonical mutation events with a backend-owned cursor.
+    Changes,
     /// Read one canonical item.
     Get,
     /// Read a bounded canonical list, retaining omission receipts.
@@ -41,6 +43,11 @@ pub struct AdapterManifest {
 #[derive(Clone, Debug, Deserialize, Serialize)]
 #[serde(tag = "action", rename_all = "snake_case", deny_unknown_fields)]
 pub enum AdapterOperation {
+    /// Pull a bounded native change page; cursor identity belongs to the backend.
+    Changes {
+        /// Shared strict change admission controls.
+        request: crate::changes::ChangeRequest,
+    },
     /// Read a canonical item with the backend SDK's get operation.
     Get {
         /// Exact item ID.
@@ -78,6 +85,7 @@ impl AdapterOperation {
     #[must_use]
     pub const fn capability(&self) -> AdapterCapability {
         match self {
+            Self::Changes { .. } => AdapterCapability::Changes,
             Self::Get { .. } => AdapterCapability::Get,
             Self::List { .. } => AdapterCapability::List,
             Self::Claim { .. } => AdapterCapability::Claim,
@@ -267,6 +275,7 @@ pub fn prepare_adapter_request(
         return Err(refusal(AdapterRefusalCode::UnsupportedCapability));
     }
     let valid = match &request.operation {
+        AdapterOperation::Changes { request } => request.validate().is_ok(),
         AdapterOperation::Get { id } => valid_text(id),
         AdapterOperation::List { limit, .. } => (1..=100).contains(limit),
         AdapterOperation::Claim { id, author } | AdapterOperation::Release { id, author } => {
@@ -314,7 +323,7 @@ pub struct NativeAdapterClient<A> {
     /// Embedding application's transport and authorization boundary.
     adapter: A,
     /// Fixed declaration validated at construction.
-    manifest: AdapterManifest,
+    pub(crate) manifest: AdapterManifest,
 }
 
 impl<A: NativeAdapter> NativeAdapterClient<A> {
