@@ -6,12 +6,14 @@ status: open
 priority: 3
 tags[3]: follow-up,governance,health
 created_at: "2026-10-07T16:11:15.858Z"
-updated_at: "2026-10-16T18:35:07.833Z"
+updated_at: "2026-10-27T01:08:04.937Z"
 author: codex-sol
 acceptance_criteria: "Each advisory has an evidence-backed disposition, user-authored guidance is preserved, and strict health still passes."
-comments[2]{created_at,author,text}:
+comments[4]{created_at,author,text}:
   "2026-10-16T18:25:44.860Z",codex-agent,"Reconfirmed during pm-rust-bj7a and pm-rust-unih: the locked 2026.10.14 oracle reports strict check-only health success with required merge drivers under a clean HOME. Existing guidance, stale-work and 19 legacy role-value advisories remain. A normal host HOME also loads an unrelated newer global extension and reports extension version skew; that global state is excluded from the clean CI acceptance. No provenance history was rewritten."
   "2026-10-16T18:35:07.833Z",codex-agent,"Dependency audit also retains the previously recorded unsafe-libyaml 0.2.11 maintenance warning RUSTSEC-2024-0449. cargo audit exits 0 with one allowed warning. Existing references are present in pm-rust-ufzy, pm-rust-cbaq and pm-rust-rysu; no dependency pin or audit threshold changed in the search/collection work. Keep any dependency migration separate from command parity."
+  "2026-10-27T01:06:31.887Z",codex-sol,"PR #122 local health follow-up: the locked 2026.10.23 oracle reports global pm-github host-version skew against 2026.10.26 and five existing merge-driver command mismatches. These are shared local tooling configuration findings, separate from the relationship conformance port. CI installs drivers using the locked oracle and has isolated global state; a disposable clone is being checked with that setup. Existing guidance/provenance advisories remain unchanged. No shared Git configuration or global package is changed by this task."
+  "2026-10-27T01:08:04.932Z",codex-sol,"Follow-up verification for PR #122: isolated clone health passes with exit 0 after the locked oracle installs clone-local merge drivers under isolated global configuration. The shared local global-package version skew and merge-driver drift are environmental; two existing guidance/provenance advisories remain in the tracked project. No advisory or health gate was weakened."
 files[1]{path,scope}:
   AGENTS.md,project
 body: ""

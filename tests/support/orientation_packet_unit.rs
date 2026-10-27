@@ -8,6 +8,142 @@ fn item(id: &str) -> Value {
     json!({"id":id,"title":id,"type":"Task","status":"open","priority":1,"tags":[],"created_at":"2026-08-22T10:00:00.000Z","updated_at":"2026-08-22T10:00:00.000Z"})
 }
 
+/// Builds the kernel's minimal node-detail form independently of tracker storage.
+fn kernel_graph(ids: &[&str], mut edges: Vec<Value>) -> Graph {
+    edges.sort_by(compare);
+    Graph {
+        details: ids
+            .iter()
+            .map(|id| ((*id).to_owned(), json!({"id":id})))
+            .collect(),
+        adjacency: index_edges(&edges),
+        edges,
+        missing: Vec::new(),
+        aliases: json!({}),
+    }
+}
+
+/// Required endpoints lead producer pages, and cursors reject the previous packing policy.
+#[test]
+fn packet_required_root_evidence_orders_pages() -> Result<(), Box<dyn std::error::Error>> {
+    let mut graph = kernel_graph(
+        &["root", "a-child", "z-blocker"],
+        vec![
+            json!({"source":"a-child","target":"root","kind":"parent"}),
+            json!({"source":"root","target":"z-blocker","kind":"blocked_by"}),
+        ],
+    );
+    graph.details.get_mut("a-child").ok_or("child details")?["title"] =
+        json!("padding ".repeat(35));
+    let mut query = Query::new(&DepsOptions::default(), None)?;
+    let bounded = packet(&graph, "root", &query, &[], None, 130)?;
+    assert_eq!(
+        bounded["edges"],
+        json!([{"source":"root","target":"z-blocker","kind":"blocked_by"}])
+    );
+    assert!(
+        bounded["meta"]["usedTokens"]
+            .as_u64()
+            .is_some_and(|used| used <= 130)
+    );
+    query.nodes = 1;
+    let first = packet(&graph, "root", &query, &[], None, 1200)?;
+    assert_eq!(first["nodes"][0]["id"], "z-blocker");
+    let cursor = first["meta"]["nextCursor"].as_str().ok_or("cursor")?;
+    let second = packet(&graph, "root", &query, &[], Some(cursor), 1200)?;
+    assert_eq!(second["nodes"][0]["id"], "a-child");
+    assert!(second["meta"].get("nextCursor").is_none());
+    let legacy = json!({"rootId":"root","direction":"both","kinds":[],"maxDepth":3});
+    let fingerprint = crate::history::sha256_digest(
+        format!(
+            "relationship-context\0{}",
+            crate::pagination::stable(&legacy)
+        )
+        .as_bytes(),
+    );
+    let cursor = crate::pagination::after(&fingerprint[..24], &json!({"id":"a-child"}), 0);
+    assert!(matches!(
+        packet(&graph, "root", &query, &[], Some(&cursor), 1200),
+        Err(PmRustError::ReadCursor {
+            code: "invalid_query_cursor",
+            ..
+        })
+    ));
+    Ok(())
+}
+
+/// An unaffordable edge must not hide a later feasible edge or its omission count.
+#[test]
+fn packet_skips_oversized_edges() -> Result<(), Box<dyn std::error::Error>> {
+    let oversized = "a".repeat(300);
+    let graph = kernel_graph(
+        &["root", &oversized, "z"],
+        vec![
+            json!({"source":"root","target":oversized,"kind":"related"}),
+            json!({"source":"root","target":"z","kind":"related"}),
+        ],
+    );
+    let result = packet(
+        &graph,
+        "root",
+        &Query::new(&DepsOptions::default(), None)?,
+        &[],
+        None,
+        175,
+    )?;
+    assert_eq!(result["nodes"].as_array().map(Vec::len), Some(2));
+    assert_eq!(
+        result["edges"],
+        json!([{"source":"root","target":"z","kind":"related"}])
+    );
+    assert_eq!(result["meta"]["omittedEdges"], 1);
+    assert!(
+        result["meta"]["usedTokens"]
+            .as_u64()
+            .is_some_and(|used| used <= 175)
+    );
+    Ok(())
+}
+
+/// Reserve the parent and blocker relationships before optional distant sibling rows.
+#[test]
+fn packet_reserves_root_edges_before_distant_nodes() -> Result<(), Box<dyn std::error::Error>> {
+    let siblings: Vec<_> = (0..10).map(|i| format!("sibling-{i}")).collect();
+    let mut ids = vec!["root", "parent", "blocker"];
+    ids.extend(siblings.iter().map(String::as_str));
+    let mut edges = vec![
+        json!({"source":"root","target":"parent","kind":"parent"}),
+        json!({"source":"root","target":"blocker","kind":"blocked_by"}),
+    ];
+    edges.extend(
+        siblings
+            .iter()
+            .map(|id| json!({"source":id,"target":"parent","kind":"parent"})),
+    );
+    let mut graph = kernel_graph(&ids, edges);
+    for (id, row) in &mut graph.details {
+        row["title"] = json!(id.repeat(3));
+    }
+    let result = packet(
+        &graph,
+        "root",
+        &Query::new(&DepsOptions::default(), None)?,
+        &[],
+        None,
+        240,
+    )?;
+    let edges = result["edges"].as_array().ok_or("edges")?;
+    assert!(edges.contains(&json!({"source":"root","target":"blocker","kind":"blocked_by"})));
+    assert!(edges.contains(&json!({"source":"root","target":"parent","kind":"parent"})));
+    assert_eq!(result["meta"]["truncated"], true);
+    assert!(
+        result["meta"]["usedTokens"]
+            .as_u64()
+            .is_some_and(|used| used <= 240)
+    );
+    Ok(())
+}
+
 /// Creates a real tracker for packet acceptance without SDK mocks.
 fn workspace() -> Result<(tempfile::TempDir, Workspace), Box<dyn std::error::Error>> {
     let directory = tempfile::tempdir()?;
@@ -200,7 +336,7 @@ fn packet_traversal_and_continuation() -> Result<(), Box<dyn std::error::Error>>
     let cursor = first["meta"]["nextCursor"].as_str().ok_or("cursor")?;
     let second = packet(&graph, "sample-root", &query, &[], Some(cursor), 10000)?;
     assert_ne!(first["nodes"][0]["id"], second["nodes"][0]["id"]);
-    let contract = json!({"rootId":"sample-root","direction":"both","kinds":[],"maxDepth":3});
+    let contract = json!({"rootId":"sample-root","direction":"both","kinds":[],"maxDepth":3,"ordering":"required-root-evidence-first-v1"});
     let fingerprint = crate::history::sha256_digest(
         format!(
             "relationship-context\0{}",

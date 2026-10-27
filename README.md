@@ -6,7 +6,7 @@ native applications.
 
 The project is pre-release. Its current delivery slice reads workspaces and
 creates, updates, comments on, closes, claims, and releases canonical items
-against the published `pm` 2026.10.21 on-disk contract. Production code, tests, benchmarks,
+against the published `pm` 2026.10.23 on-disk contract. Production code, tests, benchmarks,
 and build tooling use Rust and typed test harnesses; the distributed binary does not require Node.js,
 Bun, JavaScript, or TypeScript.
 
@@ -104,7 +104,7 @@ and a reachable origin; the crash corpus itself still runs in plain trackers.
 ## Crash-consistency differential corpus
 
 The TypeScript SDK in [`scripts/crash-harness.mts`](scripts/crash-harness.mts)
-and `just crash` compare real native processes with the locked pm-cli 2026.10.21
+and `just crash` compare real native processes with the locked pm-cli 2026.10.23
 oracle. On Linux, strace injects SIGKILL at every declared per-task `rename` and
 `fsync` entry ordinal observed in uninterrupted update/comment reference runs.
 Each case starts after an acknowledged synthetic create, restarts through a
@@ -166,7 +166,7 @@ cargo run -- release pm-example --author agent --json
 cargo run -- --workspace /path/to/project close pm-example --reason "Done: shipped" --author agent --resolution "Fixed" --expected-result "Expected" --actual-result "Observed" --validate-close strict --json
 ```
 
-List pagination uses the pinned 2026.10.21 oracle in both JSON and default TOON.
+List pagination uses the pinned 2026.10.23 oracle in both JSON and default TOON.
 Configured lifecycle roles and declarative custom hierarchy kinds are resolved
 before selection; see [configured list registries](docs/CONFIGURED_LIST_REGISTRIES.md).
 Parent and tag filters and all six published sort fields run before slicing;
@@ -263,7 +263,7 @@ Work is managed in this repository with the latest `pm` CLI under
 
 ## Development
 
-The published parity oracle is pinned to exactly 2026.10.21 in
+The published parity oracle is pinned to exactly 2026.10.23 in
 `tests/oracle/package.json` and installed from its committed `package-lock.json`.
 Both local runs and every CI matrix job use `npm ci`; the lock records the
 registry tarball and integrity, including the bundled runtime closure. This
@@ -271,7 +271,9 @@ avoids the transitive range drift described in
 [pm-cli#1417](https://github.com/unbraind/pm-cli/issues/1417).
 Dependabot tracks this manifest; oracle upgrades must also update the native
 compatibility version and tooling contracts. Changelog generation keeps its
-separate exact pm-changelog/CLI pairing.
+separate exact pm-changelog/CLI pairing. See the
+[2026.10.23 behavior classification](docs/oracle-2026-10-23.md) for root evidence
+packing, producer bounds and matching-population test health.
 
 ```bash
 npm ci --prefix tests/oracle --ignore-scripts

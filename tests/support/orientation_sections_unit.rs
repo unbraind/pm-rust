@@ -20,6 +20,42 @@ fn item(id: &str, status: &str) -> Value {
     json!({"id":id,"title":id,"type":"Task","status":status,"priority":1,"tags":[],"created_at":NOW,"updated_at":NOW})
 }
 
+/// Focus limits cannot hide test failures or change the complete active denominator.
+#[test]
+fn section_tests_use_matching_active_population() -> Result<(), Box<dyn std::error::Error>> {
+    let (_directory, workspace, lifecycle) = workspace()?;
+    let first = item("sample-first", "open");
+    let mut failing = item("sample-failing", "in_progress");
+    failing["tests"] = json!([{"command":"cargo test"}]);
+    failing["test_runs"] = json!([{"passed":2,"failed":1,"skipped":1}]);
+    let mut blocked = failing.clone();
+    blocked["id"] = json!("sample-blocked");
+    blocked["status"] = json!("blocked");
+    let mut done = failing.clone();
+    done["id"] = json!("sample-done");
+    done["status"] = json!("closed");
+    let corpus = vec![first, failing, blocked, done];
+    for focus in [vec![&corpus[0]], vec![&corpus[0], &corpus[1]], vec![]] {
+        let result = build(
+            &workspace,
+            &["tests"],
+            &corpus,
+            &focus,
+            &[],
+            &BTreeSet::new(),
+            &lifecycle,
+            NOW,
+            1,
+            &json!({}),
+        )?;
+        assert_eq!(
+            result["tests"],
+            json!({"scope":"matching_active_items","total_items":2,"items_with_tests":1,"items_with_recent_runs":1,"recent_runs":{"passed":2,"failed":1,"skipped":1},"items_failing":["sample-failing"]})
+        );
+    }
+    Ok(())
+}
+
 /// Builds mixed section metadata with two high-level parents and a closed grandchild.
 fn section_corpus() -> Vec<Value> {
     let mut epic = item("sample-epic", "in_progress");

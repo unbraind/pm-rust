@@ -126,8 +126,8 @@ function adapters(options: CrashOptions): Record<'native' | 'published', Impleme
   const oracle = resolve(options.oracle ?? fileURLToPath(new URL('../tests/oracle/node_modules/@unbrained/pm-cli', import.meta.url)));
   let metadata: unknown;
   try { metadata = JSON.parse(readFileSync(join(oracle, 'package.json'), 'utf8')); } catch { metadata = undefined; }
-  if (typeof metadata !== 'object' || metadata === null || !('version' in metadata) || metadata.version !== '2026.10.21') {
-    throw new CrashRefusal('oracle_version', 'Run just oracle-install to install the locked pm-cli 2026.10.21 oracle.');
+  if (typeof metadata !== 'object' || metadata === null || !('version' in metadata) || metadata.version !== '2026.10.23') {
+    throw new CrashRefusal('oracle_version', 'Run just oracle-install to install the locked pm-cli 2026.10.23 oracle.');
   }
   return {
     native: { executable: resolve(options.native), args: [], trailing: ['--timestamp', CRASH_CLOCK] },
@@ -248,7 +248,7 @@ function run(options: CrashOptions, root: string, timeout: number, maximum: numb
     '--description', 'Acknowledged synthetic write', '--priority', '1', '--create-mode', 'progressive', ...common], base, timeout));
   const seed = snapshot(tracker);
   const report: CrashReport = {
-    schema: 'pm-rust/crash-v1', ok: true, oracleVersion: '2026.10.21',
+    schema: 'pm-rust/crash-v1', ok: true, oracleVersion: '2026.10.23',
     nativeSha256: createHash('sha256').update(readFileSync(resolve(options.native))).digest('hex'),
     sourceFiles: original.size, sourceItems: [...original.keys()].filter(name => name.endsWith('.toon')).length, sourceSha256: fingerprint(original),
     sourceUnchanged: true, acknowledgedComparisons: 0, killed: 0, boundaries: [], cases: [], failuresRetained: 0, parity: [], recoveryParity: [], phaseCoverage: [], clock: CLOCK_POLICY,

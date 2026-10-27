@@ -1,7 +1,7 @@
 //! Bounded dependency tree and graph reads.
 mod budget_recovery;
 mod packet;
-use crate::orientation::{complete_receipt, invalid, numeric};
+use crate::orientation::{invalid, numeric};
 use crate::{DepsOptions, ListOutput, PmRustError, Workspace};
 use serde_json::{Value, json};
 use std::collections::{BTreeMap, BTreeSet};
@@ -282,12 +282,16 @@ fn project(mut result: Value, summary: bool, aliases: &Value) -> Value {
         "relationship_context"
     };
     result["legacy_alias_counts"] = aliases.clone();
-    result["projection"] = json!({"mode":if summary{"summary"}else{"full"},"declared_field_groups":[{"name":group,"restore_with":"--full"}],"included_field_groups":if summary{vec![]}else{vec![group]}});
-    result["omission_receipt"] = if summary {
-        json!({"has_omissions":true,"omitted_field_group_count":1,"omitted_field_groups":[{"name":group,"restore_with":"--full"}]})
-    } else {
-        complete_receipt()
-    };
+    let field = json!({"name":group,"restore_with":"--full"});
+    let mut declared = vec![field.clone()];
+    let mut omitted = if summary { vec![field] } else { vec![] };
+    if result["context"]["meta"]["truncated"] == true {
+        let bounds = json!({"name":"relationship_context_bounds","restore_with":"--token-budget <n> --node-limit <n> --edge-limit <n> --max-depth <n>"});
+        declared.push(bounds.clone());
+        omitted.push(bounds);
+    }
+    result["projection"] = json!({"mode":if summary{"summary"}else{"full"},"declared_field_groups":declared,"included_field_groups":if summary{vec![]}else{vec![group]}});
+    result["omission_receipt"] = json!({"has_omissions":!omitted.is_empty(),"omitted_field_group_count":omitted.len(),"omitted_field_groups":omitted});
     result
 }
 

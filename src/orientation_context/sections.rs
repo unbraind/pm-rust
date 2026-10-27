@@ -343,11 +343,12 @@ pub(super) fn build(
                 json!(rows)
             },
             _ => {
+                let matching_active: Vec<_> = corpus.iter().filter(|item| lifecycle.role(text(item,"status"),"active")).collect();
                 let mut with_tests = 0;
                 let mut with_runs = 0;
                 let mut totals = [0u64;3];
                 let mut failing = BTreeSet::new();
-                for item in active {
+                for item in &matching_active {
                     with_tests += usize::from(super::count(item,"tests") > 0);
                     with_runs += usize::from(super::count(item,"test_runs") > 0);
                     for run in item["test_runs"].as_array().into_iter().flatten() {
@@ -355,7 +356,7 @@ pub(super) fn build(
                         if run["failed"].as_u64().unwrap_or_default() > 0 { failing.insert(text(item,"id")); }
                     }
                 }
-                json!({"items_with_tests":with_tests,"items_with_recent_runs":with_runs,"recent_runs":{"passed":totals[0],"failed":totals[1],"skipped":totals[2]},"items_failing":failing})
+                json!({"scope":"matching_active_items","total_items":matching_active.len(),"items_with_tests":with_tests,"items_with_recent_runs":with_runs,"recent_runs":{"passed":totals[0],"failed":totals[1],"skipped":totals[2]},"items_failing":failing})
             }
         };
     }

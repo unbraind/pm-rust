@@ -1,0 +1,24 @@
+id: pm-rust-oracle-frozen-restart
+title: Track published 2026.10.23 frozen-clock restart timeout
+description: The published 2026.10.23 crash fixture exceeds its unchanged restart deadline after SIGKILL at the first update rename; the identical 2026.10.21 control returns successfully. Preserve the strict recovery assertions and file the minimal reproduction upstream through the orchestrator.
+type: Issue
+status: blocked
+priority: 2
+tags[4]: crash-consistency,"gh:unbraind/pm-rust#122",oracle,upstream
+created_at: "2026-10-27T01:54:21.535Z"
+updated_at: "2026-10-27T01:57:23.018Z"
+author: codex-sol
+parent: pm-rust-u4al
+blocked_reason: Requires upstream contract clarification or repair; do not port the reference timeout into native recovery or relax the crash assertions.
+expected_result: A restart comment recovers the dead update owner and returns exit 0 under the deterministic frozen-Date fixture.
+actual_result: The 2026.10.23 restart produces no response before the unchanged 15-second external deadline; 2026.10.21 returns exit 0 in 559 ms.
+comments[2]{created_at,author,text}:
+  "2026-10-27T01:54:27.171Z",codex-sol,"Class **(b), upstream regression or undocumented contract change**: after killing\na published update at its first per-task `rename`, a published restart comment\nreturns successfully with 2026.10.21 but exceeds the unchanged 15-second external\ndeadline with 2026.10.23. Both use the existing crash harness's frozen `Date`\npreload and live elapsed time. The retained item lock belongs to a dead process.\nThis is evidence about that deterministic fixture; it does not establish a hang\nunder an ordinary advancing wall clock.\n\nAn independent probe of both installed packages measured 2026.10.21 returning\nexit 0 in 559 ms, and 2026.10.23 reaching the 15-second deadline. The project\noracle remains pinned to 2026.10.23. No native recovery behavior or harness\ndeadline is changed to imitate or accept the timeout.\n\nMinimal Linux reproduction from the package root, with the locked oracle\ninstalled (use a separate 2026.10.21 installation for the control):\n\n```bash\nrepo=$PWD\noracle=$repo/tests/oracle/node_modules/@unbrained/pm-cli\nwork=$(mktemp -d)\ncd \"$work\"\npm_oracle=(env HOME=\"$work/isolated-home\" UV_THREADPOOL_SIZE=1\n  NODE_DISABLE_COMPILE_CACHE=1 PM_SENTRY_DISABLED=1\n  PM_TELEMETRY_SOURCE_CONTEXT=test DO_NOT_TRACK=1 LC_ALL=C TZ=UTC\n  node --import \"$repo/scripts/crash-clock.mts\" \"$oracle/dist/cli.js\")\n\"${pm_oracle[@]}\" init --defaults --prefix crash- --agent-guidance skip --json --no-extensions\n\"${pm_oracle[@]}\" create Task \"Synthetic crash probe\" --id crash-probe \\\n  --description \"Acknowledged synthetic write\" --create-mode progressive \\\n  --author conformance-agent --json --no-extensions\nstrace -f --kill-on-exit -qq -o kill.trace -e trace=rename \\\n  -e inject=rename:signal=SIGKILL:when=1 -- \"${pm_oracle[@]}\" \\\n  update crash-probe --description \"Interrupted synthetic write\" \\\n  --author conformance-agent --json --no-extensions\ntimeout --signal=KILL 15s \"${pm_oracle[@]}\" comment crash-probe \\\n  \"Restart synthetic sentinel\" --author conformance-agent --json --no-extensions\n```\n\nExpected: the preserved restart command recovers the dead writer and returns\nexit 0, as observed with 2026.10.21. Actual with 2026.10.23: no response before\nthe external deadline. The original five crashing-harness failures all report\nthis timeout rather than an accepted recovery result. Targeted upstream issue\nsearches found no matching frozen-clock/rename restart report; the orchestrator\nshould confirm deduplication and file this reproduction upstream."
+  "2026-10-27T01:57:12.235Z",codex-sol,The exact linked reproduction was run through pm and failed with the same published restart timeout. Independent direct controls measured 2026.10.21 restart exit 0 in 559 ms and 2026.10.23 external timeout at 15085 ms after SIGKILL at the first update rename. The retained item lock owner process is dead. Targeted upstream searches found no matching report. Leave this class (b) behavior for upstream investigation; the native implementation and strict crash assertions are preserved.
+files[1]{path,scope}:
+  scripts/crash-harness.mts,project
+tests[1]{command,scope,timeout_seconds,provenance{author,created_at,source_kind}}:
+  node --test --test-concurrency=1 --test-name-pattern='real pm corpus preserves acknowledged history' scripts/crash-harness.test.mts,project,180,codex-sol,"2026-10-27T01:55:45.758Z",local_mutation
+docs[1]{path,scope}:
+  docs/oracle-2026-10-23.md,project
+body: ""

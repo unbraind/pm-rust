@@ -479,17 +479,25 @@ impl<'a> Traversal<'a> {
                 }
             }
         }
+        let direct = graph.neighbors(root, query);
+        let required: BTreeSet<_> = direct
+            .iter()
+            .filter(|(id, edge)| matches!(role(edge, id), "prerequisite" | "ancestor"))
+            .map(|(id, _)| *id)
+            .collect();
         discovered.sort_by(|a, b| {
-            a.1.cmp(&b.1)
+            required
+                .contains(b.0)
+                .cmp(&required.contains(a.0))
+                .then_with(|| a.1.cmp(&b.1))
                 .then_with(|| crate::collation::compare(a.0, b.0))
         });
-        let direct = graph.neighbors(root, query);
         let mut direct_counts = json!({"prerequisite":0,"dependent":0,"ancestor":0,"descendant":0,"provenance":0,"related":0});
         for (id, edge) in &direct {
             let name = role(edge, id);
             direct_counts[name] = json!(direct_counts[name].as_u64().unwrap_or_default() + 1);
         }
-        let contract = json!({"rootId":root,"direction":query.direction,"kinds":query.kinds,"maxDepth":query.depth});
+        let contract = json!({"rootId":root,"direction":query.direction,"kinds":query.kinds,"maxDepth":query.depth,"ordering":"required-root-evidence-first-v1"});
         let fingerprint = crate::history::sha256_digest(
             format!(
                 "relationship-context\0{}",
@@ -567,6 +575,7 @@ fn packet(
         ));
     }
     let mut nodes = Vec::new();
+    let mut reserved = 0;
     for (id, distance, via, initial_role) in discovered.iter().skip(start).take(query.nodes) {
         let reasons: BTreeSet<_> = direct
             .iter()
@@ -596,6 +605,19 @@ fn packet(
         if used + tokens > budget {
             break;
         }
+        let edge_cost: usize = direct
+            .iter()
+            .map(|(_, edge)| *edge)
+            .filter(|edge| text(edge, "source") == *id || text(edge, "target") == *id)
+            .map(cost)
+            .sum();
+        if used + reserved + tokens + edge_cost > budget {
+            if !nodes.is_empty() {
+                break;
+            }
+        } else {
+            reserved += edge_cost;
+        }
         nodes.push(node);
         used += tokens;
     }
@@ -615,7 +637,7 @@ fn packet(
         .flatten()
         .copied()
         .collect();
-    let candidates: Vec<_> = incident
+    let mut candidates: Vec<_> = incident
         .into_iter()
         .map(|index| &graph.edges[index])
         .filter(|edge| {
@@ -624,11 +646,17 @@ fn packet(
                 && query.matches(text(edge, "kind"))
         })
         .collect();
+    candidates.sort_by_key(|edge| {
+        std::cmp::Reverse(text(edge, "source") == root || text(edge, "target") == root)
+    });
     let mut edges = Vec::new();
-    for edge in candidates.iter().take(query.edges) {
+    for edge in &candidates {
+        if edges.len() >= query.edges {
+            break;
+        }
         let tokens = cost(edge);
         if used + tokens > budget {
-            break;
+            continue;
         }
         edges.push(*edge);
         used += tokens;

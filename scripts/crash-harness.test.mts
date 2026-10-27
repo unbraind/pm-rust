@@ -114,7 +114,7 @@ test('oracle metadata failures retain the typed SDK refusal and remedy', { skip:
     const artifacts = join(root, 'evidence');
     assert.throws(() => runCrashCorpus({ native: 'unused', source, artifacts, oracle }),
       (error: unknown) => error instanceof CrashRefusal && error.code === 'oracle_version' &&
-        error.remedy === 'Run just oracle-install to install the locked pm-cli 2026.10.21 oracle.', entry.name);
+        error.remedy === 'Run just oracle-install to install the locked pm-cli 2026.10.23 oracle.', entry.name);
     assert.equal(existsSync(artifacts), false);
     assert.deepEqual(readdirSync(source), ['sentinel']);
     assert.equal(readFileSync(join(source, 'sentinel'), 'utf8'), 'unchanged');
@@ -135,8 +135,8 @@ test('oracle metadata CLI refusals expose the remedy without leaking inputs', { 
       assert.equal(result.stderr, '');
       assert.doesNotMatch(result.stdout, /sensitive-sentinel|private-sentinel|io_error/);
       if (json) assert.deepEqual(JSON.parse(result.stdout), { ok: false, code: 'oracle_version',
-        remedy: 'Run just oracle-install to install the locked pm-cli 2026.10.21 oracle.' });
-      else assert.equal(result.stdout, 'ok: false\ncode: "oracle_version"\nremedy: "Run just oracle-install to install the locked pm-cli 2026.10.21 oracle."\n');
+        remedy: 'Run just oracle-install to install the locked pm-cli 2026.10.23 oracle.' });
+      else assert.equal(result.stdout, 'ok: false\ncode: "oracle_version"\nremedy: "Run just oracle-install to install the locked pm-cli 2026.10.23 oracle."\n');
     }
   }
   assert.equal(existsSync(join(root, 'evidence')), false);
