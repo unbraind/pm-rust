@@ -7,6 +7,8 @@ import { join, resolve } from 'node:path';
 
 const root = resolve(import.meta.dirname, '..');
 const cases = [
+  { name:'UTF-8 filename admission', test:'history_filename_bytes_validate_before_filesystem_access',
+    before:'.and_then(|name| name.to_str())\n        .map(str::to_owned)', after:'.map(|name| name.to_string_lossy().into_owned())' },
   { name:'duplicate event admission', test:'duplicate_backend_positions_refuse_before_cursor_admission',
     before:'        if !unique {', after:'        if false {' },
   { name:'delayed reply correlation', test:'delayed_older_pages_cannot_rewind_a_reader',

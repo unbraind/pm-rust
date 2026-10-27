@@ -19,14 +19,14 @@ source file/byte counts below describe the original copied tracker.
 | Total JSON delivery bytes | 1,334,728 |
 | Largest JSON page including newline | 17,141 bytes |
 | Largest cursor | 13,994 bytes |
-| Validation wall time | 126,281 ms |
+| Validation wall time | 136,632 ms |
 
 Every `(item_id, version)` appeared once. Canonical event projections matched the
 SDK exactly. Native subprocesses had an empty executable search path: neither Git
 nor Node was available. The source-copy digest was unchanged:
-`aa6e1f0100c31730710dd602b843e47a6dd9e18e9eab46c8ec9284b9f22b7726`.
+`f20dcb3171b2c5ac85783b64f6d617f901b7db08072530994bbe4991b6975241`.
 The validated debug executable digest was
-`499df544539ae7613830358b7411d49c87ab079030e3e115a2d8fc9f176869da`.
+`ae704d131f748d91b4201339f7e2ad25880a5f7e3462c3d57ea98388d450a4ff`.
 No executable or generated cache is committed.
 
 The wall time covers 114 separate native CLI processes, two extra TOON reads and
@@ -55,14 +55,14 @@ partial tails, foreign records, pruning, same-size rewrites, invalid cursor
 ordinals, extreme input/output numbers, incompatible adapters and transport frame
 limits. Cursor state is private to each reader; no shared checkpoint is written.
 
-Focused coverage of `src/changes.rs` reached 100% lines (384), functions (37),
-regions (574) and branches (84). Full repository acceptance is delegated to the
+Focused coverage of `src/changes.rs` reached 100% lines (392), functions (39),
+regions (588) and branches (84). Full repository acceptance is delegated to the
 unchanged npm and Bun CI release gates. Their exact-head run and counts are
 reported in the PR.
 
-Six behavioral reverts run in a disposable copy and fail their regression tests:
+Seven behavioral reverts run in a disposable copy and fail their regression tests:
 exclusive resume, prefix integrity, cancellation before checkpoint admission and
-canonical field projection, duplicate-event admission and delayed-reply correlation. The fixed checkout is never modified by that harness.
+canonical field projection, duplicate-event admission and delayed-reply correlation and UTF-8 filename admission. The fixed checkout is never modified by that harness.
 
 ```sh
 cargo +1.90.0 test --locked --lib changes::tests -- --test-threads=2
@@ -70,3 +70,7 @@ cargo +1.90.0 test --locked --test changes_contract -- --test-threads=2
 cargo +1.90.0 test --locked --bin pm-rust changes_writer_refusals -- --test-threads=2
 node scripts/native-adapter-changes-revert.mts
 ```
+
+The macOS CI fixture correction validates malformed filename bytes directly because
+that filesystem rejects creating such names. Linux retains its real invalid-name
+file case; all platforms exercise the real-tracker admission error boundary.

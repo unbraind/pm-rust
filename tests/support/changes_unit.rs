@@ -625,7 +625,7 @@ fn scan_limits_source_failures_and_empty_polls() -> TestResult {
 #[cfg(unix)]
 #[test]
 fn source_file_kinds_are_admitted_on_the_opened_handle() -> TestResult {
-    use std::os::unix::{ffi::OsStringExt as _, fs::symlink};
+    use std::os::unix::fs::symlink;
     let (_dir, workspace) = fixture()?;
     let root = workspace.pm_root();
     let history = root.join("history");
@@ -653,12 +653,16 @@ fn source_file_kinds_are_admitted_on_the_opened_handle() -> TestResult {
     ));
     fs::remove_file(&history)?;
     fs::create_dir(&history)?;
-    let invalid = std::ffi::OsString::from_vec(vec![255, b'.', b'j', b's', b'o', b'n', b'l']);
-    fs::write(history.join(invalid), "\n")?;
-    assert!(matches!(
-        adapter.pull(&ChangeRequest::default()),
-        Err(ChangeRefusal::Source)
-    ));
+    #[cfg(target_os = "linux")]
+    {
+        use std::os::unix::ffi::OsStringExt as _;
+        let invalid = std::ffi::OsString::from_vec(vec![255, b'.', b'j', b's', b'o', b'n', b'l']);
+        fs::write(history.join(invalid), "\n")?;
+        assert!(matches!(
+            adapter.pull(&ChangeRequest::default()),
+            Err(ChangeRefusal::Source)
+        ));
+    }
     Ok(())
 }
 
@@ -711,7 +715,7 @@ fn local_step_interleavings_and_io_failure_propagation() -> TestResult {
         ));
         BOUNDARY.with(|setting| setting.set((0, 0)));
     }
-    for stage in 1..=4 {
+    for stage in 1..=5 {
         let (_dir, workspace) = fixture()?;
         append(&workspace, "demo-1", &record(0), false)?;
         let adapter = LocalChangeAdapter::new(workspace, SessionCancellation::default());
@@ -953,21 +957,15 @@ fn local_adapter_frame_ceiling_includes_its_envelope() -> TestResult {
 #[test]
 fn windows_history_filename_admission() -> TestResult {
     use std::os::windows::ffi::OsStringExt as _;
-    let (_dir, workspace) = fixture()?;
     let mut name = vec![0xd800];
     name.extend(".jsonl".encode_utf16());
-    fs::write(
-        workspace
-            .pm_root()
-            .join("history")
-            .join(std::ffi::OsString::from_wide(&name)),
-        "\n",
-    )?;
-    let adapter = LocalChangeAdapter::new(workspace, SessionCancellation::default());
-    assert!(matches!(
-        adapter.pull(&ChangeRequest::default()),
-        Err(ChangeRefusal::Source)
-    ));
+    let path = std::path::PathBuf::from(std::ffi::OsString::from_wide(&name));
+    assert!(history_stream_id(&path).is_err());
+    assert_eq!(
+        history_stream_id(std::path::Path::new("demo-1.jsonl"))?,
+        "demo-1"
+    );
+    assert!(history_stream_id(std::path::Path::new(".")).is_err());
     Ok(())
 }
 
@@ -1068,5 +1066,20 @@ fn duplicate_backend_positions_refuse_before_cursor_admission() -> TestResult {
     let mut reader = ChangeReader::new(peer, ChangeRequest::default(), token)?;
     assert!(matches!(reader.pull(), Err(ChangeRefusal::InvalidPage)));
     assert!(reader.cursor().is_none());
+    Ok(())
+}
+
+/// Filename validation is portable even when a filesystem forbids malformed byte names.
+#[cfg(unix)]
+#[test]
+fn history_filename_bytes_validate_before_filesystem_access() -> TestResult {
+    use std::os::unix::ffi::OsStringExt as _;
+    let invalid = std::ffi::OsString::from_vec(vec![255, b'.', b'j', b's', b'o', b'n', b'l']);
+    assert!(history_stream_id(std::path::Path::new(&invalid)).is_err());
+    assert!(history_stream_id(std::path::Path::new(".")).is_err());
+    assert_eq!(
+        history_stream_id(std::path::Path::new("demo-1.jsonl"))?,
+        "demo-1"
+    );
     Ok(())
 }

@@ -299,6 +299,19 @@ fn regular_history_length(metadata: &fs::Metadata) -> Result<u64, ChangeRefusal>
     Ok(metadata.len())
 }
 
+/// Admits a physical stream name without requiring the filesystem to create invalid names.
+fn history_stream_id(path: &std::path::Path) -> io::Result<String> {
+    path.file_stem()
+        .and_then(|name| name.to_str())
+        .map(str::to_owned)
+        .ok_or_else(|| {
+            io::Error::new(
+                io::ErrorKind::InvalidData,
+                "history stream name must be UTF-8",
+            )
+        })
+}
+
 /// Classifies I/O failures without exposing arbitrary source paths or bytes.
 fn source_error(_: io::Error) -> ChangeRefusal {
     ChangeRefusal::Source
@@ -381,11 +394,10 @@ impl LocalChangeAdapter {
                     .extension()
                     .is_some_and(|extension| extension == "jsonl")
             {
-                let id = path
-                    .file_stem()
-                    .and_then(|id| id.to_str())
-                    .ok_or(ChangeRefusal::Source)?
-                    .to_owned();
+                let id = history_stream_id(&path);
+                #[cfg(test)]
+                let id = tests::inject_io(id, 5);
+                let id = id.map_err(source_error)?;
                 files.insert(id, path);
             }
         }
