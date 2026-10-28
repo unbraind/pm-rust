@@ -1587,6 +1587,7 @@ fn native_adapter_workspace_discovery_refusals() -> Result<(), Box<dyn std::erro
     let directory = tempfile::tempdir()?;
     let cases: &[&[&str]] = &[
         &["read-session"],
+        &["changes"],
         &["assurance", "list", "schema"],
         &["context"],
         &["history", "demo-1"],
@@ -1707,6 +1708,55 @@ fn explain_writer_refusals() -> Result<(), Box<dyn std::error::Error>> {
         };
         assert!(super::run_with_io(cli(), &mut &b""[..], &mut WriteFailure).is_err());
         assert!(super::run_with_io(cli(), &mut &b""[..], &mut FlushFailure).is_err());
+    }
+    Ok(())
+}
+
+/// Incremental CLI pages and refusals retain caller-owned output and cancellation boundaries.
+#[test]
+fn changes_writer_refusals() -> Result<(), Box<dyn std::error::Error>> {
+    let directory = tempfile::tempdir()?;
+    let root = directory.path().join(".agents/pm");
+    fs::create_dir_all(root.join("history"))?;
+    fs::write(root.join("settings.json"), "{}")?;
+    for json in [false, true] {
+        let cli = || Cli {
+            workspace: directory.path().to_path_buf(),
+            command: Command::Changes {
+                cursor: None,
+                limit: 20,
+                output_bytes: 65536,
+                cancel_file: Some(directory.path().join("absent")),
+                json,
+            },
+        };
+        assert!(super::run_with_io(cli(), &mut &b""[..], &mut WriteFailure).is_err());
+        assert!(super::run_with_io(cli(), &mut &b""[..], &mut FlushFailure).is_err());
+        let mut output = Vec::new();
+        super::run_with_io(cli(), &mut &b""[..], &mut output)?;
+        let value: serde_json::Value = if json {
+            serde_json::from_slice(&output)?
+        } else {
+            toon_format::decode_default(std::str::from_utf8(&output)?)?
+        };
+        let page: pm_rust::changes::ChangePage = serde_json::from_value(value)?;
+        assert!(page.events.is_empty());
+        assert!(page.skipped.is_empty());
+        assert!(!page.has_more);
+        assert!(!page.next_cursor.is_empty());
+        assert!(output.ends_with(b"\n"));
+
+        fs::write(directory.path().join("absent"), b"cancel")?;
+        let mut refused_output = Vec::new();
+        let error = super::run_with_io(cli(), &mut &b""[..], &mut refused_output)
+            .err()
+            .ok_or("an existing cancellation marker must refuse before emission")?;
+        assert!(matches!(
+            error.downcast_ref::<pm_rust::changes::ChangeRefusal>(),
+            Some(pm_rust::changes::ChangeRefusal::Cancelled)
+        ));
+        assert!(refused_output.is_empty());
+        fs::remove_file(directory.path().join("absent"))?;
     }
     Ok(())
 }

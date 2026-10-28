@@ -8,6 +8,7 @@
 //! conformance evidence.
 
 mod assurance;
+pub mod changes;
 mod collation;
 mod collections;
 mod error;

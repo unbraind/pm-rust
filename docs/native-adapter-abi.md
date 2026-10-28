@@ -144,3 +144,12 @@ The npm and Bun CI release gates retain all existing checks and 100 percent
 coverage thresholds. Transport-specific remote deployment acceptance remains
 with the integrating backend; this feature's remote evidence uses synthetic
 authorized peers, not hosted services or private data.
+
+## Incremental change capability
+
+The additive `changes` capability admits `AdapterOperation::Changes` with the
+shared `ChangeRequest` schema. Old adapters remain compatible and refuse that
+capability before exchange. `ChangeReader` uses one exchange per pull and retains
+backend refusal details, with no checkpoint advancement on refusal. See
+[native changes](native-changes.md) for per-stream resume, stale cursor, bounded
+output and cancellation obligations.

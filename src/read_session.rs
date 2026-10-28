@@ -51,7 +51,7 @@ impl SessionCancellation {
     }
 
     /// Refuses work after cancellation without resetting the shared token.
-    fn check(&self) -> Result<(), SessionRefusal> {
+    pub(crate) fn check(&self) -> Result<(), SessionRefusal> {
         if self.0.load(Ordering::Acquire) {
             Err(SessionRefusal::Cancelled)
         } else {

@@ -626,8 +626,8 @@ pub fn validate_timestamp(value: &str) -> Result<(), PmRustError> {
     Ok(())
 }
 
-/// Generates a process-local collision-resistant suffix for private files.
-fn unique_token() -> String {
+/// Generates a process-local collision-resistant suffix for files and request correlation.
+pub(crate) fn unique_token() -> String {
     let nanos = OffsetDateTime::now_utc().unix_timestamp_nanos();
     format!(
         "{}-{nanos}-{}",
