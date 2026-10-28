@@ -13,7 +13,7 @@ permissions:
   actions: write
 jobs:
   gated-sync:
-    uses: unbraind/pm-github/.github/workflows/pm-github-sync.yml@83bb51a2490f40c6a975c288447b28ea39d65825 # pm-github 2026.10.24
+    uses: unbraind/pm-github/.github/workflows/pm-github-sync.yml@1cb49ac06bfee8d1193137367f86a36798a1040e # pm-github 2026.10.25
     with:
       pm-github-version: "2026.10.16"
       # pm-rust has no root package.json; the pinned pm CLI oracle lives in tests/oracle.
