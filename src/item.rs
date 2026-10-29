@@ -121,6 +121,24 @@ pub(crate) fn decode_item(path: &Path, content: &str) -> Result<ItemDocument, Pm
     Ok(document)
 }
 
+/// Checks targeted lookup identity without tightening legacy list/export decoding.
+pub(crate) fn validate_file_identity(
+    path: &Path,
+    document: &ItemDocument,
+) -> Result<(), PmRustError> {
+    if path
+        .file_stem()
+        .is_some_and(|id| id == document.metadata.id.as_str())
+    {
+        Ok(())
+    } else {
+        Err(PmRustError::InvalidItemDocument {
+            path: path.to_path_buf(),
+            reason: "stored id does not match the item filename".to_owned(),
+        })
+    }
+}
+
 /// Rejects a required string field when it contains no non-whitespace content.
 fn validate_required(path: &Path, field: &str, value: &str) -> Result<(), PmRustError> {
     if value.trim().is_empty() {

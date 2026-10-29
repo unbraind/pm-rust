@@ -6,12 +6,12 @@ Rust is the product runtime; Node is used only by the published SDK oracle and v
 ## Oracle and local evidence
 
 - Published oracle: repository-pinned pm CLI 2026.10.21; current registry version checked as 2026.10.28 without changing the pin.
-- 130 admitted/refused fixtures (including strict ownership across every scalar field, whitespace authors, and configured close targets with active/draft roles): all eleven built-in create types, canonical custom active/draft statuses, scalar updates, tags, missing fields, missing targets and ordered batches.
+- 132 admitted/refused fixtures (including strict ownership across every scalar field, whitespace authors, configured close targets with active/draft roles and shared schema files): all eleven built-in create types, canonical custom active/draft statuses, scalar updates, tags, missing fields, missing targets and ordered batches. Twelve additional filename-alias fixtures compare native JSON/TOON refusals with published SDK lookup and preview refusals.
 - 500 seeded state-preservation sequences replay older complete records with whitespace/CRLF variants, every touched native field, foreign metadata and relationships. State is read back through the Rust SDK and all source bytes are compared.
 - 500 seeded sequences compare preview verdicts with actual native SDK apply results and SDK read-back. A further 500 adversarial governance sequences cover policy presets, persisted principals, every scalar field, annotations and closure readiness; registry read failures preserve item and history state.
 - 500 seeded arbitrary-byte inputs, strict must-refuse/must-allow cases, exact integer limits and producer/validator round trips exercise both boundaries.
 - Every read/candidate boundary injects a competing source transition. The final-read window remains explicitly unreserved.
-- Behavioral revert in a disposable non-git copy replaces only `Workspace::preview_item_mutations` with its unsupported-capability refusal: the CLI regression fails at runtime, 0 passed / 1 failed. The original source stays fixed. Afterwards, all three linked commands pass through `pm test --run --progress`: 4 integration + 16 library + 1 CLI test, no skips. The directory-link regression also passes after adding the Windows junction fixture.
+- Behavioral revert in a disposable non-git copy replaces only `Workspace::preview_item_mutations` with its unsupported-capability refusal: the CLI regression fails at runtime, 0 passed / 1 failed. Six independent snapshot/identity guard reverts also fail behaviorally, with the locator rechecked after preserving ownership's refusal category. The original source stays fixed. All five linked commands pass through `pm test --run --progress`: 5 integration + 20 admission library + 1 CLI + 1 recovery + 18 existing read-contract tests, no skips. Pinned pm reports test-result tracking disabled, so measured results are retained in item comments. The directory-link regression also passes after adding the Windows junction fixture.
 - `cargo +1.90.0 clippy --locked --all-targets --all-features -j 2 -- -D warnings` and format checks pass. The CLI invalid-tracker propagation regression subsequently closes the single missing region found by the first macOS aggregate; a focused nightly run records that region executed. Full unchanged npm/Bun release gates and final-head coverage are recorded on the PR.
 
 ## Public data in a non-git directory
@@ -32,7 +32,7 @@ The SDK's `listAllComplete({includeBody:true})` certifies the whole corpus befor
 | Admitted / refused | 3 / 1 |
 | Input JSON bytes | 427 |
 | Output JSON bytes including newline | 1,090 |
-| Debug command wall time in this observation | 1,944 ms |
+| Debug command wall time in this observation | 836 ms |
 
 All frozen bytes and all SDK-read item state remain unchanged. The missing-target row fails alone. This measures bounded admission and preservation, not a later commit guarantee.
 
@@ -60,20 +60,59 @@ updates. Those complex transitions remain outside the native scalar parity slice
 follow-up `pm-rust-admission-schema` retains this SDK discrepancy. Create closure
 refusals and supported scalar ownership cases do agree with the pinned oracle.
 
-Local aggregate boundary: both neutral-home npm and Bun `release:check` runs
-passed 576 Rust tests and failed one unchanged five-second packet child deadline,
-with zero ignored tests across 18 completed groups in each run. A focused one-thread retry reproduced the same
-missing-exit-code signature. This pre-existing local condition is tracked by
-`pm-rust-local-packet-deadline`; no orientation source, assertion or limit changed.
-Current exact-head CI must certify the full release and coverage gates.
+An initial neutral-home npm aggregate probe completed 24 Rust groups with
+653 passed, 1 failed and 0 ignored. It exposed an ownership refusal-category
+regression: a filename alias absent from the logical ID index must retain
+`ItemNotFound`. The shared mutation locator now preserves that category, and all
+18 existing read-contract tests pass without changes to their assertions.
+All 32 orientation cases, including the previously intermittent packet deadline,
+passed in this probe; `pm-rust-local-packet-deadline` remains an open historical
+follow-up. No orientation source, assertion or limit changed.
 
-Focused nightly branch instrumentation passed 26 tests (21 library, 1 binary,
-4 integration). `src/admission.rs` has 100% of 571 lines, 57 functions, 775
-regions and 132 branches covered; the new governance guard source regions are
-also exercised. This scoped result does not certify global coverage.
+Focused checks run locally to respect the shared host's resource constraint.
+Exact-head CI must certify both full npm/Bun release gates and global coverage.
+CI explicitly caps Cargo build jobs and Rust test threads at two; every release
+check and all four 100% coverage floors remain unchanged.
+
+Focused nightly branch instrumentation passed 32 tests (26 library, 1 binary,
+5 integration). `src/admission.rs` has 100% of 576 lines, 58 functions, 786
+regions and 134 branches covered; shared filename and recovery validation helper
+regions are also exercised. The full mutation unit group passes 116 tests.
+This scoped result does not certify global coverage.
 
 Standalone `just crash-check` passed typecheck, lint and all 82 conformance tests,
 with zero failures, skips, cancellations or todos. History-prefix and retained
 commit checks passed (20 receipts, 36 commits). `cargo audit` passed with the
 existing allowed `unsafe-libyaml` maintenance warning; dependencies are unchanged.
 Final exact-head CI run links and aggregate counts are maintained on PR 132.
+
+## Snapshot and target identity re-review
+
+An observation must retain the first bytes used to derive every view of a source.
+The bounded reader now reuses that image when schema roles share a file, including
+settings used as a schema. A 500-sequence alias property checks all four roles,
+unique byte accounting and the next observation. Actual filesystem replacements
+between reads change active roles to terminal roles; shared-schema and shared-settings
+interleavings must refuse with `admission_source_changed`.
+
+A targeted item must resolve by the same physical filename and embedded ID through
+the SDK. Admission, targeted native reads, every mutation through the shared locator,
+and create/update journal recovery share filename identity validation. A 500-path
+property covers root and nested directories, valid released records, aliases,
+duplicate IDs, update/comment refusals and unchanged source/history bytes. Legacy
+list/export decoding remains available to inspect earlier malformed records.
+Non-git CLI tests exercise both preview renderers with an empty PATH and verify
+ordinary writes refuse aliases. Preview leaves every tracker byte unchanged;
+refused ordinary writes retain only the existing lease protocol's empty rendezvous
+inode. Recovery tests cover missing, before and after images, wrong embedded IDs
+and a wrong-ID before image with a matching saved hash.
+Ownership calls retain their established `ItemNotFound` refusal for aliases that
+are absent from the logical ID index; malformed document decoding retains its
+existing error category.
+
+Six disposable-copy behavioral reverts independently remove snapshot reuse,
+the shared filename validator, admission's validation call, the mutation locator's
+validation call, journal-image validation, and before-image identity validation.
+Each compiles and fails its adversarial test with 0 passed / 1 failed. In particular,
+the snapshot revert returns stale `ok: true`, and the admission-only revert admits
+an unresolvable target. The fixed source is rebuilt after the copies are removed.

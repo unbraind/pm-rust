@@ -291,3 +291,95 @@ fn admission_governance_also_protects_native_cli_writes() -> TestResult {
     }
     Ok(())
 }
+
+/// Both preview renderers and ordinary CLI writes refuse an unresolvable item file.
+#[test]
+fn admission_physical_identity_is_enforced_without_git_or_node() -> TestResult {
+    let (directory, workspace) = fixture()?;
+    workspace.create(serde_json::from_value(json!({"id":"sample-identity","title":"Identity","description":"","type":"Task","status":"open","priority":2,"tags":[],"body":"","author":"fixture-agent","timestamp":null,"message":null,"provenance_role":null,"force_stale_lock":false}))?)?;
+    let canonical = workspace.pm_root().join("tasks/sample-identity.toon");
+    let alias = workspace.pm_root().join("tasks/sample-other.toon");
+    fs::rename(&canonical, &alias)?;
+    let before = snapshot(workspace.pm_root())?;
+    let input = serde_json::to_vec(
+        &json!({"author":"fixture-agent","mutations":[{"op":"update","id":"sample-identity","options":{"title":"Must refuse"}}]}),
+    )?;
+    for json_output in [false, true] {
+        let mut command = Command::new(env!("CARGO_BIN_EXE_pm-rust"));
+        process_environment::isolate_environment(&mut command);
+        command
+            .current_dir(directory.path())
+            .arg("preview-item-mutations")
+            .env("PATH", "")
+            .env(
+                "GIT_CEILING_DIRECTORIES",
+                directory.path().parent().ok_or("parent")?,
+            )
+            .stdin(Stdio::piped())
+            .stdout(Stdio::piped())
+            .stderr(Stdio::piped());
+        if json_output {
+            command.arg("--json");
+        }
+        let mut child = command.spawn()?;
+        child.stdin.take().ok_or("stdin")?.write_all(&input)?;
+        let output = child.wait_with_output()?;
+        assert_eq!(output.status.code(), Some(2));
+        let refusal: Value = serde_json::from_slice(&output.stderr)?;
+        assert_eq!(refusal["code"], "admission_source");
+        assert_eq!(
+            refusal["limits"]["source_rows"],
+            ADMISSION_LIMITS.source_rows
+        );
+        assert_eq!(snapshot(workspace.pm_root())?, before);
+    }
+    for args in [
+        vec![
+            "update",
+            "sample-other",
+            "--title",
+            "Must refuse",
+            "--author",
+            "fixture-agent",
+        ],
+        vec![
+            "comment",
+            "sample-other",
+            "Must refuse",
+            "--author",
+            "fixture-agent",
+        ],
+    ] {
+        let mut command = Command::new(env!("CARGO_BIN_EXE_pm-rust"));
+        process_environment::isolate_environment(&mut command);
+        let output = command
+            .current_dir(directory.path())
+            .args(args)
+            .env("PATH", "")
+            .env(
+                "GIT_CEILING_DIRECTORIES",
+                directory.path().parent().ok_or("parent")?,
+            )
+            .output()?;
+        assert!(!output.status.success());
+        let mut after = snapshot(workspace.pm_root())?;
+        // Target validation runs under the lease; retain its shared rendezvous inode.
+        if let Some(lease) = after.remove(Path::new("locks/sample-other.lock.gate-lease")) {
+            assert!(lease.is_empty());
+        }
+        assert_eq!(after, before);
+    }
+    assert!(workspace.get("sample-identity").is_err());
+    assert!(workspace.get("sample-other").is_err());
+    fs::rename(alias, canonical)?;
+    assert_eq!(
+        workspace.get("sample-identity")?.metadata.id,
+        "sample-identity"
+    );
+    assert!(
+        workspace
+            .preview_item_mutations(&AdmissionBatch::from_json(&input)?)?
+            .ok
+    );
+    Ok(())
+}

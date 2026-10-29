@@ -1,6 +1,6 @@
 /** Published npm SDK differential for canonical native admission; no product runtime dependency. */
 import assert from 'node:assert/strict';
-import { mkdtemp, readFile, writeFile, rm } from 'node:fs/promises';
+import { mkdtemp, readFile, writeFile, rename, rm } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import path from 'node:path';
 import { spawnSync } from 'node:child_process';
@@ -105,5 +105,35 @@ try {
   await rm(path.join(pmRoot,'schema/workflows.json'),{force:true});
   await rm(path.join(pmRoot,'schema/statuses.json'),{force:true});
   await check([create('sample-inline',{status:'inline_finish'})]);
+  const identityTarget='sample-identity';
+  await sdk.create({...create(identityTarget).options,id:identityTarget,author:'fixture-agent'}, {pmRoot,noExtensions:true});
+  const canonicalFile=path.join(pmRoot,'tasks',`${identityTarget}.toon`);
+  const identityBytes=await readFile(canonicalFile);
+  for (let i=0;i<12;i++) {
+    const aliasFile=path.join(pmRoot,'tasks',`sample-alias-${i}.toon`);
+    await rename(canonicalFile,aliasFile);
+    try {
+      await assert.rejects(sdk.get(identityTarget,{}, {pmRoot,noExtensions:true}));
+      const mutations=[{op:'update',id:identityTarget,options:{title:'Must refuse'}}];
+      await assert.rejects(sdk.previewItemMutations({pmRoot,transactionId:`identity-${i}`,author:'fixture-agent',mutations}));
+      for (const output of [[],['--json']]) {
+        const native=spawnSync(process.env.PM_RUST_ADMISSION_BINARY,['--workspace',directory,'preview-item-mutations',...output],{input:JSON.stringify({author:'fixture-agent',mutations}),encoding:'utf8',env:{...process.env,PATH:'',GIT_CEILING_DIRECTORIES:path.dirname(directory)}});
+        assert.equal(native.status,2,native.stderr);
+        const refusal=JSON.parse(native.stderr);assert.equal(refusal.code,'admission_source');assert.match(refusal.required,/filename/);assert.ok(refusal.limits.source_rows>0);
+        assert.deepEqual(await readFile(aliasFile),identityBytes);
+      }
+    } finally {await rename(aliasFile,canonicalFile);}
+    assert.equal((await sdk.get(identityTarget,{}, {pmRoot,noExtensions:true})).item.id,identityTarget);
+  }
+  // Every schema role can reuse one frozen JSON object without changing stable decisions.
+  const shared={statuses:[{id:'shared_active',roles:['active']}],workflow:initialSettings.schema.workflow,definitions:[],fields:[],type_workflows:[]};
+  const sharedFile=path.join(pmRoot,'schema/shared.json');await writeFile(sharedFile,JSON.stringify(shared));
+  for (const roles of [['statuses','workflows'],['types','fields','statuses','workflows']]) {
+    const aliased=structuredClone(initialSettings);
+    for(const role of roles) aliased.schema.files[role]='schema/shared.json';
+    await writeFile(settingsFile,JSON.stringify(aliased));
+    await check([create('sample-shared',{status:'shared_active'})]);
+  }
+  console.log('identity fixtures=12; native JSON/TOON and published SDK refuse unresolvable targets; restored canonical files resolve');
   console.log(`oracle cases=${cases}; admitted/refused and first failing row agree; source SDK state preserved`);
 } finally { await rm(directory,{recursive:true,force:true}); }

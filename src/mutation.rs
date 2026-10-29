@@ -1491,6 +1491,16 @@ fn read_optional(path: &Path) -> Result<Option<String>, PmRustError> {
     }
 }
 
+/// Refuses a replay image that the SDK cannot resolve at its journal target.
+fn validate_recovery_item(path: &Path, bytes: &str, id: &str) -> Result<(), PmRustError> {
+    crate::item::decode_item(path, bytes)
+        .and_then(|document| crate::item::validate_file_identity(path, &document))
+        .map_err(|_| PmRustError::RecoveryConflict {
+            id: id.to_owned(),
+            reason: "journal item identity does not match its target filename".to_owned(),
+        })
+}
+
 /// Completes or clears an interrupted create whose durable journal still matches.
 fn recover(pm_root: &Path, id: &str) -> Result<(), PmRustError> {
     let journal_path = pm_root
@@ -1524,6 +1534,7 @@ fn recover(pm_root: &Path, id: &str) -> Result<(), PmRustError> {
     let history_path = pm_root.join("history").join(format!("{id}.jsonl"));
     let item = read_optional(&item_path)?;
     let history = read_optional(&history_path)?;
+    validate_recovery_item(&item_path, &journal.item_bytes, id)?;
     if item
         .as_ref()
         .is_some_and(|value| value != &journal.item_bytes)
@@ -1596,6 +1607,7 @@ fn recover_mutation(
     let history_path = pm_root.join(&history_relative);
     let item = read_optional(&item_path)?;
     let history = read_optional(&history_path)?;
+    validate_recovery_item(&item_path, &journal.item_bytes, id)?;
     // The journal records both the pre-mutation item hash and the post-mutation
     // item bytes, so recovery can tell three crash states apart:
     //
@@ -1616,8 +1628,9 @@ fn recover_mutation(
     let item_is_before = match item.as_deref() {
         Some(bytes) => match crate::item::decode_item(&item_path, bytes) {
             Ok(document) => {
-                history::document_hash(&OrderedDocument::from_document(&document))
-                    == journal.before_item_hash
+                crate::item::validate_file_identity(&item_path, &document).is_ok()
+                    && history::document_hash(&OrderedDocument::from_document(&document))
+                        == journal.before_item_hash
             }
             Err(_) => false,
         },
@@ -1815,6 +1828,9 @@ fn locate_item_entry(
             }
         };
         let document = crate::item::decode_item(&entry_path, &raw)?;
+        // Preserve ownership's missing-index contract for an unresolvable alias.
+        crate::item::validate_file_identity(&entry_path, &document)
+            .map_err(|_| PmRustError::ItemNotFound { id: id.to_owned() })?;
         found.push((entry_path, document));
     }
     Ok(())

@@ -10,6 +10,8 @@ on:
 env:
   PM_SENTRY_DISABLED: "1"
   PM_TELEMETRY_SOURCE_CONTEXT: test
+  CARGO_BUILD_JOBS: "2"
+  RUST_TEST_THREADS: "2"
 
 permissions:
   contents: read

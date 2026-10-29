@@ -134,6 +134,13 @@ source rows/bytes and visited entries. Typed SDK calls measure canonical JSON
 input size; CLI receipts measure original stdin bytes. Source reads admit only
 regular UTF-8 item files and regular tracker-relative JSON schema files; source
 limits or integrity failures return no partial preview.
+Each source file is captured once per observation, even when settings and several
+schema roles share it. Every derived view uses those same bytes, and the final
+observation detects a visible replacement. Embedded item IDs must match their
+filenames so that admitted targets resolve through the SDK. Mismatches return
+`admission_source` with a repair remedy; legacy list/export reads remain available
+for inspection. Targeted native writes and journal recovery enforce the same
+identity rule.
 
 Native apply and preview share document preparation, normalization and encoding.
 Two bounded source observations refuse visible interleaving with

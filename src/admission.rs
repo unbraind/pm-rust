@@ -332,7 +332,7 @@ struct Source {
 fn source_error() -> AdmissionRefusal {
     refuse(
         "admission_source",
-        "Use readable regular UTF-8 native items and tracker-relative regular JSON schema files; repair duplicate IDs or source integrity before retrying.",
+        "Use readable regular UTF-8 native items and tracker-relative regular JSON schema files; repair duplicate IDs, mismatched item filenames/IDs or source integrity before retrying.",
     )
 }
 
@@ -348,6 +348,10 @@ impl Source {
     /// Opens only regular sources and bounds reads even if a file grows after stat.
     fn read(&mut self, root: &Path, relative: &Path) -> Result<Vec<u8>, AdmissionRefusal> {
         guard_relative(relative)?;
+        // One immutable observation supplies every derived view of an aliased source.
+        if let Some(bytes) = self.files.get(relative) {
+            return Ok(bytes.clone());
+        }
         let mut path = root.to_path_buf();
         for component in relative.components() {
             path.push(component);
@@ -449,6 +453,7 @@ impl Source {
             let bytes = self.read(root, &path)?;
             let text = std::str::from_utf8(&bytes).map_err(|_| source_error())?;
             let item = crate::item::decode_item(&path, text).map_err(|_| source_error())?;
+            crate::item::validate_file_identity(&path, &item).map_err(|_| source_error())?;
             if self.items.insert(item.metadata.id.clone(), item).is_some() {
                 return Err(source_error());
             }

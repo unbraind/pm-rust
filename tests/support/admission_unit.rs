@@ -636,6 +636,8 @@ thread_local! {
     static STEP: std::cell::Cell<usize> = const {std::cell::Cell::new(0)};
     /// A competing writer fires at exactly this observation boundary.
     static INJECT_AT: std::cell::Cell<usize> = const {std::cell::Cell::new(usize::MAX)};
+    /// Optional real replacement for aliased-schema interleavings.
+    static INJECT_REPLACEMENT: std::cell::RefCell<Option<(PathBuf, Vec<u8>)>> = const {std::cell::RefCell::new(None)};
 }
 
 /// A genuine competing file replacement; no SDK or filesystem mocks.
@@ -644,6 +646,14 @@ pub(super) fn checkpoint(root: &Path) {
         let next = step.get() + 1;
         step.set(next);
         if INJECT_AT.with(std::cell::Cell::get) == next {
+            if INJECT_REPLACEMENT.with(|replacement| {
+                replacement.borrow().as_ref().is_some_and(|(path, bytes)| {
+                    assert!(fs::write(root.join(path), bytes).is_ok());
+                    true
+                })
+            }) {
+                return;
+            }
             // Mutation retains valid JSON but changes source bytes; the final observation must refuse.
             let path = root.join("settings.json");
             if let Ok(mut bytes) = fs::read(&path) {
@@ -1276,5 +1286,222 @@ fn assert_closure_readiness(
         )
         .is_ok()
     );
+    Ok(())
+}
+
+/// Every logical schema reader must use the bytes retained by its first observation.
+#[test]
+fn admission_snapshot_aliases_freeze_every_derived_view() -> TestResult {
+    let (_directory, workspace) = fixture()?;
+    fs::create_dir_all(workspace.pm_root().join("schema"))?;
+    let relative = Path::new("schema/shared.json");
+    for sequence in 0..500 {
+        let initial = json!({"statuses":[{"id":format!("stage_{sequence}"),"roles":[if sequence % 2 == 0 {"active"} else {"draft"}]}],"workflow":{"close_status":"closed"},"definitions":[],"fields":[],"type_workflows":[]});
+        let first = serde_json::to_vec(&initial)?;
+        fs::write(workspace.pm_root().join(relative), &first)?;
+        let mut source = Source::default();
+        assert_eq!(source.json(workspace.pm_root(), relative)?, initial);
+        let changed = json!({"statuses":[{"id":format!("stage_{sequence}"),"roles":["terminal_done"]}],"workflow":{"close_status":format!("stage_{sequence}")}});
+        fs::write(
+            workspace.pm_root().join(relative),
+            serde_json::to_vec(&changed)?,
+        )?;
+        for _role in ["types", "fields", "statuses", "workflows"] {
+            assert_eq!(source.json(workspace.pm_root(), relative)?, initial);
+        }
+        assert_eq!(source.files[relative], first);
+        assert_eq!(source.bytes, u64::try_from(first.len())?);
+        let mut current = Source::default();
+        assert_eq!(current.json(workspace.pm_root(), relative)?, changed);
+        assert_ne!(source.files, current.files);
+    }
+    Ok(())
+}
+
+/// A role change after status capture cannot be hidden by an aliased workflow read.
+#[test]
+fn admission_shared_schema_interleaving_refuses_stale_roles() -> TestResult {
+    let (_directory, workspace) = fixture()?;
+    stored(&workspace)?;
+    fs::create_dir_all(workspace.pm_root().join("schema"))?;
+    let path = workspace.pm_root().join("settings.json");
+    let original: Value = serde_json::from_slice(&fs::read(&path)?)?;
+    for shared_roles in [
+        vec!["statuses", "workflows"],
+        vec!["types", "fields", "statuses", "workflows"],
+    ] {
+        let mut settings = original.clone();
+        for name in &shared_roles {
+            settings["schema"]["files"][name] = json!("schema/shared.json");
+        }
+        fs::write(&path, serde_json::to_vec(&settings)?)?;
+        let active = json!({"statuses":[{"id":"stage","roles":["active"]}],"workflow":{},"definitions":[],"fields":[],"type_workflows":[]});
+        let terminal = json!({"statuses":[{"id":"stage","roles":["terminal_done"]}],"workflow":{},"definitions":[],"fields":[],"type_workflows":[]});
+        fs::write(
+            workspace.pm_root().join("schema/shared.json"),
+            serde_json::to_vec(&active)?,
+        )?;
+        let mut intent = create("demo-new");
+        intent["options"]["status"] = json!("stage");
+        let request = batch(&json!([intent]))?;
+        assert!(workspace.preview_item_mutations(&request)?.ok);
+        STEP.with(|step| step.set(0));
+        INJECT_AT.with(|step| step.set(4));
+        let replacement_bytes = serde_json::to_vec(&terminal)?;
+        INJECT_REPLACEMENT.with(|replacement| {
+            *replacement.borrow_mut() =
+                Some((PathBuf::from("schema/shared.json"), replacement_bytes));
+        });
+        let result = workspace.preview_item_mutations(&request);
+        INJECT_AT.with(|step| step.set(usize::MAX));
+        INJECT_REPLACEMENT.with(|replacement| *replacement.borrow_mut() = None);
+        assert!(
+            result.is_err(),
+            "stale shared schema must not return a preview: {result:?}"
+        );
+        assert_eq!(
+            result
+                .err()
+                .ok_or("expected shared-source transition refusal")?
+                .code,
+            "admission_source_changed"
+        );
+        assert!(workspace.get("demo-new").is_err());
+        // Stable terminal roles refuse; stable active roles remain supported.
+        assert!(!workspace.preview_item_mutations(&request)?.ok);
+        fs::write(
+            workspace.pm_root().join("schema/shared.json"),
+            serde_json::to_vec(&active)?,
+        )?;
+        assert!(workspace.preview_item_mutations(&request)?.ok);
+        let (source, _) = Source::load(workspace.pm_root())?;
+        assert_eq!(
+            source.bytes,
+            source.files.values().map(|b| b.len() as u64).sum::<u64>()
+        );
+    }
+    Ok(())
+}
+
+/// SDK lookup, preview and all scalar writes agree on physical target identity.
+#[test]
+fn admission_filename_identity_matches_sdk_for_500_paths() -> TestResult {
+    let (_directory, workspace) = fixture()?;
+    let original = stored(&workspace)?;
+    let bytes = crate::mutation::canonical_item_bytes(&original)?;
+    assert!(crate::item::validate_file_identity(Path::new(""), &original).is_err());
+    let canonical = workspace.pm_root().join("tasks/demo-existing.toon");
+    let history_path = workspace.pm_root().join("history/demo-existing.jsonl");
+    let history = fs::read(&history_path)?;
+    fs::remove_file(&canonical)?;
+    let request =
+        batch(&json!([{"op":"update","id":"demo-existing","options":{"title":"Changed"}}]))?;
+    for sequence in 0..500 {
+        let directory = if sequence % 7 == 0 {
+            workspace.pm_root().join("tasks")
+        } else {
+            workspace
+                .pm_root()
+                .join(format!("tasks/nested-{}", sequence % 7))
+        };
+        fs::create_dir_all(&directory)?;
+        let matches = sequence % 3 == 0;
+        let stem = if matches {
+            "demo-existing".to_owned()
+        } else {
+            format!("demo-alias-{sequence}")
+        };
+        let path = directory.join(format!("{stem}.toon"));
+        fs::write(&path, &bytes)?;
+        assert_eq!(workspace.get("demo-existing").is_ok(), matches);
+        let result = workspace.preview_item_mutations(&request);
+        if matches {
+            assert!(result?.ok);
+        } else {
+            assert_eq!(
+                result.err().ok_or("unresolvable target must refuse")?.code,
+                "admission_source"
+            );
+            assert!(workspace.get(&stem).is_err());
+            let update = UpdateItem {
+                id: stem.clone(),
+                title: Some("Must not write".into()),
+                description: None,
+                status: None,
+                priority: None,
+                tags: None,
+                body: None,
+                author: "fixture-agent".into(),
+                timestamp: None,
+                message: None,
+                provenance_role: None,
+                force_stale_lock: false,
+            };
+            assert!(workspace.update(update).is_err());
+            assert!(
+                workspace
+                    .comment(&crate::CommentItem {
+                        id: stem,
+                        text: "Must not append".into(),
+                        author: "fixture-agent".into(),
+                        timestamp: None,
+                        message: None,
+                        provenance_role: None,
+                        force_stale_lock: false
+                    })
+                    .is_err()
+            );
+        }
+        assert_eq!(fs::read(&path)?, bytes.as_bytes());
+        assert_eq!(fs::read(&history_path)?, history);
+        // Existing list/export reads must keep legacy documents inspectable.
+        assert_eq!(workspace.read_items_impl()?.len(), 1);
+        fs::remove_file(path)?;
+    }
+    fs::write(&canonical, bytes)?;
+    let nested = workspace.pm_root().join("tasks/duplicate");
+    fs::create_dir_all(&nested)?;
+    fs::copy(&canonical, nested.join("demo-existing.toon"))?;
+    assert!(Source::load(workspace.pm_root()).is_err());
+    Ok(())
+}
+
+/// Settings reused as a schema file cannot overwrite the image used to derive roles.
+#[test]
+fn admission_settings_alias_interleaving_refuses_stale_registry() -> TestResult {
+    let (_directory, workspace) = fixture()?;
+    stored(&workspace)?;
+    let path = workspace.pm_root().join("settings.json");
+    let mut active: Value = serde_json::from_slice(&fs::read(&path)?)?;
+    active["schema"]["statuses"] = json!([{"id":"stage","roles":["active"]}]);
+    for role in ["types", "fields", "statuses", "workflows"] {
+        active["schema"]["files"][role] = json!("settings.json");
+    }
+    fs::write(&path, serde_json::to_vec(&active)?)?;
+    let mut terminal = active.clone();
+    terminal["schema"]["statuses"][0]["roles"] = json!(["terminal_done"]);
+    let mut intent = create("demo-new");
+    intent["options"]["status"] = json!("stage");
+    let request = batch(&json!([intent]))?;
+    assert!(workspace.preview_item_mutations(&request)?.ok);
+    STEP.with(|step| step.set(0));
+    INJECT_AT.with(|step| step.set(2));
+    let replacement_bytes = serde_json::to_vec(&terminal)?;
+    INJECT_REPLACEMENT.with(|replacement| {
+        *replacement.borrow_mut() = Some((PathBuf::from("settings.json"), replacement_bytes));
+    });
+    let result = workspace.preview_item_mutations(&request);
+    INJECT_AT.with(|step| step.set(usize::MAX));
+    INJECT_REPLACEMENT.with(|replacement| *replacement.borrow_mut() = None);
+    assert!(
+        result.is_err(),
+        "stale settings must not return a preview: {result:?}"
+    );
+    assert_eq!(
+        result.err().ok_or("settings transition refusal")?.code,
+        "admission_source_changed"
+    );
+    assert!(!workspace.preview_item_mutations(&request)?.ok);
+    assert!(workspace.get("demo-new").is_err());
     Ok(())
 }
