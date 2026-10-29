@@ -212,3 +212,82 @@ fn admission_published_preview_oracle_matches_the_declared_slice() -> TestResult
     eprintln!("{}", String::from_utf8_lossy(&output.stdout));
     Ok(())
 }
+
+/// Ordinary native CLI writes share strict authorization with SDK and previews.
+#[test]
+fn admission_governance_also_protects_native_cli_writes() -> TestResult {
+    let (directory, workspace) = fixture()?;
+    workspace.create(serde_json::from_value(json!({"id":"sample-owned","title":"Owned","description":"","type":"Task","status":"open","priority":2,"tags":[],"body":"","author":"owner-agent","timestamp":null,"message":null,"provenance_role":null,"force_stale_lock":false}))?)?;
+    workspace.claim(&pm_rust::OwnershipItem {
+        id: "sample-owned".into(),
+        author: "owner-agent".into(),
+        timestamp: None,
+        message: None,
+        force: false,
+        if_available: false,
+        provenance_role: None,
+    })?;
+    let settings_path = workspace.pm_root().join("settings.json");
+    let mut settings: Value = serde_json::from_slice(&fs::read(&settings_path)?)?;
+    settings["governance"]["preset"] = json!("strict");
+    fs::write(&settings_path, serde_json::to_vec(&settings)?)?;
+    let before = workspace.get("sample-owned")?;
+    let bytes = snapshot(workspace.pm_root())?;
+    for args in [
+        vec![
+            "update",
+            "sample-owned",
+            "--title",
+            "Owned",
+            "--author",
+            "other-agent",
+        ],
+        vec![
+            "comment",
+            "sample-owned",
+            "Annotation",
+            "--author",
+            "other-agent",
+        ],
+        vec![
+            "update",
+            "sample-owned",
+            "--title",
+            "Owned",
+            "--author",
+            "other-agent",
+            "--force-stale-lock",
+        ],
+        vec![
+            "comment",
+            "sample-owned",
+            "Annotation",
+            "--author",
+            "other-agent",
+            "--force-stale-lock",
+        ],
+    ] {
+        let mut command = Command::new(env!("CARGO_BIN_EXE_pm-rust"));
+        process_environment::isolate_environment(&mut command);
+        let output = command
+            .current_dir(directory.path())
+            .args(args)
+            .env("PATH", "")
+            .env(
+                "GIT_CEILING_DIRECTORIES",
+                directory.path().parent().ok_or("parent")?,
+            )
+            .output()?;
+        assert_eq!(
+            output.status.code(),
+            Some(4),
+            "{}",
+            String::from_utf8_lossy(&output.stderr)
+        );
+        let error: Value = serde_json::from_slice(&output.stderr)?;
+        assert_eq!(error["code"], "ownership_conflict");
+        assert_eq!(workspace.get("sample-owned")?, before);
+        assert_eq!(snapshot(workspace.pm_root())?, bytes);
+    }
+    Ok(())
+}

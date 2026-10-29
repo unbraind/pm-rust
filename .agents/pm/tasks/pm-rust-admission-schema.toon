@@ -6,8 +6,10 @@ status: open
 priority: 3
 tags[3]: admission,follow-up,native
 created_at: "2026-10-29T04:40:13.941Z"
-updated_at: "2026-10-29T05:17:15.556Z"
+updated_at: "2026-10-29T07:15:13.932Z"
 author: codex-agent
 acceptance_criteria: Extend shared native apply preparation before broadening preview admission; prove admitted/refused parity against the pinned published oracle for every newly declared schema and lifecycle slice.
 parent: pm-rust-u4al
+comments[1]{created_at,author,text}:
+  "2026-10-29T07:15:13.932Z",codex-agent,"Admission review class audit found that pinned pm CLI 2026.10.21 previewItemMutations admits a status-only update to the configured close status when its role is active, although create to the same target requires a close reason. Native scalar closure updates now refuse and remain outside the declared parity slice; retain this discrepancy when expanding lifecycle support. No upstream issue filed under task rules."
 body: "Keep the preview and native write path on the same exported preparation functions. Preserve legacy data, explicit scope assertions, role-based status semantics and bounded source/output receipts. This is independent Rust implementation work, not an unavailable TypeScript SDK capability: the published previewItemMutations oracle already supplies the reference semantics."

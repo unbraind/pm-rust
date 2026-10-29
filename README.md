@@ -92,7 +92,12 @@ Compensation-marked close reasons refuse for explicit history review.
 Updates require at least one explicit replacement among title, description,
 status, priority, CSV tags and body. Metadata-only empty updates accepted by the
 core coordinator are outside the native write contract and refuse here.
-Status decisions use the native registry's roles. Aliases, terminal/blocked
+Status decisions use the native registry's roles and configured close target.
+Strict ownership protects every scalar update and annotation, including
+no-op replacements; previews return `ownership_conflict` with a remedy. A
+configured close target retains an enabled governance close-reason requirement
+even with an active/draft role and returns `close_reason_required`; use the
+published close API for it. Aliases, terminal/blocked
 transitions, reopening, unblocking and dependency-sensitive transitions refuse
 with a remedy directing callers to the published SDK. Custom field/type
 schemas, metadata requirements and type workflows also return an explicit

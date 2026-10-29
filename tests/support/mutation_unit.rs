@@ -4090,6 +4090,7 @@ fn ownership_preset_precedence_and_lock_payload_clock() -> Result<(), Box<dyn st
             preset: preset.to_owned(),
             ownership_enforcement: "strict".to_owned(),
             force_required_for_stale_lock: Some(false),
+            require_close_reason: None,
         };
         assert_eq!(governance.policy(), policy);
         assert_eq!(governance.stale_requires_force(), force);

@@ -365,10 +365,12 @@ fn admission_custom_registry_and_schema_refusals() -> TestResult {
     fs::write(workspace.pm_root().join("schema/statuses.json"),json!({"statuses":[{"id":"closed","roles":["active"]},{"id":"work","roles":["terminal_done"]},{"id":"halt","roles":["blocked"]}]}).to_string())?;
     let mut intent = create("demo-new");
     intent["options"]["status"] = json!("closed");
-    assert!(
+    assert_eq!(
         workspace
             .preview_item_mutations(&batch(&json!([intent]))?)?
-            .ok
+            .diagnostics[0]
+            .code,
+        "close_reason_required"
     );
     for status in ["work", "halt"] {
         let mut intent = create("demo-new");
@@ -1008,8 +1010,271 @@ fn admission_native_preview_clock_and_author_refusals() -> TestResult {
             provenance_role: None,
             force_stale_lock: false,
         };
-        assert!(crate::mutation::prepare_update_preview(&before, request).is_err());
+        assert!(
+            crate::mutation::prepare_update_preview(
+                &fs::read(workspace.pm_root().join("settings.json"))?,
+                &crate::list_registry::Lifecycle::load(workspace.pm_root())?,
+                &before,
+                request
+            )
+            .is_err()
+        );
     }
+    let request = UpdateItem {
+        id: "demo-existing".into(),
+        title: Some("Title".into()),
+        description: None,
+        status: None,
+        priority: None,
+        tags: None,
+        body: None,
+        author: "fixture-agent".into(),
+        timestamp: None,
+        message: None,
+        provenance_role: None,
+        force_stale_lock: false,
+    };
+    assert!(
+        crate::mutation::prepare_update_preview(
+            b"{",
+            &crate::list_registry::Lifecycle::load(workspace.pm_root())?,
+            &before,
+            request
+        )
+        .is_err()
+    );
     assert_eq!(before, workspace.get("demo-existing")?);
+    Ok(())
+}
+
+/// Random policies, principals and workflow roles cannot bypass shared apply guards.
+#[test]
+fn admission_governance_matches_apply_for_every_scalar_field() -> TestResult {
+    let (_directory, workspace) = fixture()?;
+    let original = stored(&workspace)?;
+    let settings_path = workspace.pm_root().join("settings.json");
+    let base: Value = serde_json::from_slice(&fs::read(&settings_path)?)?;
+    let path = workspace.pm_root().join("tasks/demo-existing.toon");
+    let mut seed = 0x0132_2026_1029_u64;
+    for index in 0..500 {
+        seed = seed.wrapping_mul(6_364_136_223_846_793_005).wrapping_add(1);
+        let preset = ["strict", "minimal", "custom", "default"][index % 4];
+        let strict = preset == "strict" || preset == "custom";
+        let owner = ["", "fixture-agent", "other-agent", "  other-agent  "]
+            [usize::try_from((seed >> 8) % 4)?];
+        let principal =
+            ["", "fixture-agent", "other-principal", "  "][usize::try_from((seed >> 16) % 4)?];
+        let mut settings = base.clone();
+        settings["governance"] =
+            json!({"preset":preset,"ownership_enforcement":"strict","require_close_reason":true});
+        let status = format!("stage_{index}");
+        settings["schema"]["workflow"]["close_status"] = json!(status);
+        fs::write(&settings_path, serde_json::to_vec(&settings)?)?;
+        fs::create_dir_all(workspace.pm_root().join("schema"))?;
+        fs::write(workspace.pm_root().join("schema/statuses.json"), json!({"statuses":[{"id":status,"roles":[if index % 2 == 0 {"active"} else {"draft"}]}]}).to_string())?;
+        fs::write(
+            workspace.pm_root().join("schema/workflows.json"),
+            json!({"workflow":settings["schema"]["workflow"]}).to_string(),
+        )?;
+        let mut before = original.clone();
+        before
+            .metadata
+            .extra
+            .insert("assignee".into(), json!(owner));
+        before
+            .metadata
+            .extra
+            .insert("claim_principal".into(), json!(principal));
+        fs::write(&path, crate::mutation::canonical_item_bytes(&before)?)?;
+        let fields = [
+            json!({"title":"Changed"}),
+            json!({"description":"Changed"}),
+            json!({"body":"Changed"}),
+            json!({"priority":0}),
+            json!({"tags":"one,two"}),
+            json!({"status":"in_progress"}),
+        ];
+        let options = fields[index % fields.len()].clone();
+        let intent = batch(&json!([{"op":"update","id":"demo-existing","options":options}]))?;
+        let preview = workspace.preview_item_mutations(&intent)?;
+        let held = if principal.trim().is_empty() {
+            owner.trim()
+        } else {
+            principal.trim()
+        };
+        let denied = strict && !owner.trim().is_empty() && held != "fixture-agent";
+        assert_eq!(preview.ok, !denied, "case {index}");
+        let request = UpdateItem {
+            id: "demo-existing".into(),
+            title: intent.mutations[0].options.title.clone(),
+            description: intent.mutations[0].options.description.clone(),
+            body: intent.mutations[0].options.body.clone(),
+            priority: intent.mutations[0].options.priority,
+            tags: intent.mutations[0]
+                .options
+                .tags
+                .as_ref()
+                .map(|s| s.split(',').map(str::to_owned).collect()),
+            status: intent.mutations[0].options.status.clone(),
+            author: "fixture-agent".into(),
+            timestamp: None,
+            message: None,
+            provenance_role: None,
+            force_stale_lock: false,
+        };
+        assert_eq!(
+            workspace.update(request).is_ok(),
+            preview.ok,
+            "apply {index}"
+        );
+        if denied {
+            assert_eq!(workspace.get("demo-existing")?, before);
+        }
+        fs::write(&path, crate::mutation::canonical_item_bytes(&before)?)?;
+        let comment = crate::CommentItem {
+            id: "demo-existing".into(),
+            text: "Annotation".into(),
+            author: "fixture-agent".into(),
+            timestamp: None,
+            message: None,
+            provenance_role: None,
+            force_stale_lock: false,
+        };
+        assert_eq!(
+            workspace.comment(&comment).is_ok(),
+            !denied,
+            "comment {index}"
+        );
+        assert_closure_readiness(&workspace, &before, &status, &mut settings)?;
+    }
+    Ok(())
+}
+
+/// Registry I/O failures in native apply cannot bypass preparation or write state.
+#[test]
+fn admission_apply_registry_failures_preserve_state() -> TestResult {
+    let (_directory, workspace) = fixture()?;
+    let before = stored(&workspace)?;
+    let history = fs::read(workspace.pm_root().join("history/demo-existing.jsonl"))?;
+    fs::create_dir_all(workspace.pm_root().join("schema/statuses.json"))?;
+    let create = CreateItem {
+        id: "demo-new".into(),
+        title: "Fixture".into(),
+        description: String::new(),
+        item_type: "Task".into(),
+        status: "open".into(),
+        priority: 2,
+        tags: vec![],
+        body: String::new(),
+        author: "fixture-agent".into(),
+        timestamp: None,
+        message: None,
+        provenance_role: None,
+        force_stale_lock: false,
+    };
+    assert!(workspace.create(create).is_err());
+    let update = UpdateItem {
+        id: "demo-existing".into(),
+        title: Some("Changed".into()),
+        description: None,
+        status: None,
+        priority: None,
+        tags: None,
+        body: None,
+        author: "fixture-agent".into(),
+        timestamp: None,
+        message: None,
+        provenance_role: None,
+        force_stale_lock: false,
+    };
+    assert!(workspace.update(update).is_err());
+    assert_eq!(workspace.get("demo-existing")?, before);
+    assert_eq!(
+        fs::read(workspace.pm_root().join("history/demo-existing.jsonl"))?,
+        history
+    );
+    assert!(!workspace.pm_root().join("tasks/demo-new.toon").exists());
+    Ok(())
+}
+
+/// Exercises closure readiness against both captured preparation and native SDK apply.
+fn assert_closure_readiness(
+    workspace: &Workspace,
+    before: &ItemDocument,
+    status: &str,
+    settings: &mut Value,
+) -> TestResult {
+    let path = workspace.pm_root().join("tasks/demo-existing.toon");
+    // Closing by scalar update has the same requirement as creation.
+    let mut unassigned = before.clone();
+    unassigned.metadata.extra.remove("assignee");
+    fs::write(&path, crate::mutation::canonical_item_bytes(&unassigned)?)?;
+    let closing_update =
+        batch(&json!([{"op":"update","id":"demo-existing","options":{"status":status}}]))?;
+    assert_eq!(
+        workspace
+            .preview_item_mutations(&closing_update)?
+            .diagnostics[0]
+            .code,
+        "close_reason_required"
+    );
+    let mut closing = create("demo-new");
+    closing["options"]["status"] = json!(status);
+    let preview = workspace.preview_item_mutations(&batch(&json!([closing]))?)?;
+    assert_eq!(preview.diagnostics[0].code, "close_reason_required");
+    let (source, _) = Source::load(workspace.pm_root())?;
+    let mut request = CreateItem {
+        id: "demo-new".into(),
+        title: "Fixture".into(),
+        description: String::new(),
+        item_type: "Task".into(),
+        status: status.to_owned(),
+        priority: 2,
+        tags: vec![],
+        body: String::new(),
+        author: "fixture-agent".into(),
+        timestamp: None,
+        message: None,
+        provenance_role: None,
+        force_stale_lock: false,
+    };
+    assert!(
+        crate::mutation::prepare_create_preview(
+            b"{",
+            source.lifecycle.as_ref().ok_or("lifecycle")?,
+            request.clone()
+        )
+        .is_err()
+    );
+    assert!(workspace.create(request.clone()).is_err());
+    request.message = Some(" \r\n ".into());
+    assert!(
+        crate::mutation::prepare_create_preview(
+            &source.files[Path::new("settings.json")],
+            source.lifecycle.as_ref().ok_or("lifecycle")?,
+            request.clone()
+        )
+        .is_err()
+    );
+    // Both explicit policy opt-out and a caller-controlled reason remain usable.
+    request.message = Some("Done with evidence".into());
+    assert!(
+        crate::mutation::prepare_create_preview(
+            &source.files[Path::new("settings.json")],
+            source.lifecycle.as_ref().ok_or("lifecycle")?,
+            request.clone()
+        )
+        .is_ok()
+    );
+    settings["governance"]["require_close_reason"] = json!(false);
+    request.message = None;
+    assert!(
+        crate::mutation::prepare_create_preview(
+            &serde_json::to_vec(&settings)?,
+            source.lifecycle.as_ref().ok_or("lifecycle")?,
+            request
+        )
+        .is_ok()
+    );
     Ok(())
 }

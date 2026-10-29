@@ -474,8 +474,8 @@ impl Source {
         ]
         .iter()
         .any(|v| declares_contract(v));
-        let mut statuses = Value::Null;
-        let mut workflows = Value::Null;
+        let mut statuses = crate::list_registry::default_schema("statuses");
+        let mut workflows = crate::list_registry::default_schema("workflows");
         for (name, key) in [
             ("types", "definitions"),
             ("fields", "fields"),
@@ -587,8 +587,8 @@ fn prepare(
         ));
     }
     match intent.op {
-        AdmissionKind::Create => prepare_create(source, intent, author),
-        AdmissionKind::Update => prepare_update(lifecycle, intent, author, before),
+        AdmissionKind::Create => prepare_create(source, lifecycle, intent, author),
+        AdmissionKind::Update => prepare_update(source, lifecycle, intent, author, before),
         AdmissionKind::Unsupported => Err(("unsupported_intent", None, "Use create/update.")),
     }
 }
@@ -596,6 +596,7 @@ fn prepare(
 /// Applies the native scalar-create contract after shared registry admission.
 fn prepare_create(
     source: &Source,
+    lifecycle: &crate::list_registry::Lifecycle,
     intent: &AdmissionIntent,
     author: &str,
 ) -> Result<ItemDocument, RowError> {
@@ -635,6 +636,7 @@ fn prepare_create(
             None,
             "Restore settings.json and retry.",
         ))?,
+        lifecycle,
         CreateItem {
             id: intent.id.clone(),
             title: title.clone(),
@@ -656,6 +658,7 @@ fn prepare_create(
 
 /// Applies native scalar-update preparation to the current candidate document.
 fn prepare_update(
+    source: &Source,
     lifecycle: &crate::list_registry::Lifecycle,
     intent: &AdmissionIntent,
     author: &str,
@@ -700,6 +703,8 @@ fn prepare_update(
         ));
     }
     crate::mutation::prepare_update_preview(
+        &source.files[Path::new("settings.json")],
+        lifecycle,
         before,
         UpdateItem {
             id: intent.id.clone(),
@@ -722,6 +727,16 @@ fn prepare_update(
 /// Converts native field/encoding failures to bounded stable row diagnostics.
 fn native_error(error: &PmRustError) -> RowError {
     match error {
+        PmRustError::OwnershipRefusal { .. } => (
+            "ownership_conflict",
+            Some("assignee"),
+            "Use the owning principal or the published SDK with an intentional force override.",
+        ),
+        PmRustError::CommandRefusal { .. } => (
+            "close_reason_required",
+            Some("status"),
+            "Use the published close API with an author-controlled closing summary.",
+        ),
         PmRustError::InvalidCreateRequest { .. } | PmRustError::InvalidMutationRequest { .. } => (
             "invalid_fields",
             None,

@@ -6,6 +6,7 @@ import path from 'node:path';
 import { spawnSync } from 'node:child_process';
 import { createRequire } from 'node:module';
 import { pathToFileURL } from 'node:url';
+process.once('uncaughtException', error => { console.error(JSON.stringify({error:error.message,context:error.context,stack:error.stack?.split('\n').slice(0,5)})); process.exitCode=1; });
 process.env.PM_SENTRY_DISABLED = '1';
 process.env.PM_TELEMETRY_SOURCE_CONTEXT = 'test';
 const oracle = createRequire(new URL('../oracle/package.json', import.meta.url));
@@ -41,8 +42,8 @@ try {
     corpus.push([create(`sample-custom-${i}`,{status:token})]);
   }
   const sourceBefore = await sdk.get('sample-existing', {}, {pmRoot,noExtensions:true});
-  for (const mutations of corpus) {
-    const batch={author:'fixture-agent',mutations};
+  async function check(mutations,author='fixture-agent') {
+    const batch={author,mutations};
     const native=spawnSync(process.env.PM_RUST_ADMISSION_BINARY,['--workspace',directory,'preview-item-mutations','--json'],{input:JSON.stringify(batch),encoding:'utf8',env:{...process.env,GIT_CEILING_DIRECTORIES:path.dirname(directory)}});
     assert.equal(native.status,0,native.stderr);
     const preview=JSON.parse(native.stdout);
@@ -51,9 +52,58 @@ try {
     catch(error) {admitted=false;refusedIndex=error.context?.transaction_operation?.index;}
     assert.equal(preview.ok,admitted,JSON.stringify({mutations,preview}));
     if (refusedIndex !== undefined) assert.equal(preview.diagnostics.find(row=>row.state==='refused')?.index,refusedIndex);
+    // Both native renderers carry the same typed decision in a non-git tracker.
+    const toon=spawnSync(process.env.PM_RUST_ADMISSION_BINARY,['--workspace',directory,'preview-item-mutations'],{input:JSON.stringify(batch),encoding:'utf8',env:{...process.env,PATH:'',GIT_CEILING_DIRECTORIES:path.dirname(directory)}});
+    assert.equal(toon.status,0,toon.stderr);
+    assert.match(toon.stdout,new RegExp(`ok: ${admitted}`));
     cases++;
   }
+  for (const mutations of corpus) await check(mutations);
   assert.deepEqual(await sdk.get('sample-existing', {}, {pmRoot,noExtensions:true}),sourceBefore);
   assert.equal((await readFile(path.join(pmRoot,'tasks/sample-existing.toon'),'utf8')).includes('Admission differential fixture'),true);
+  const settingsFile=path.join(pmRoot,'settings.json');
+  const initialSettings=JSON.parse(await readFile(settingsFile,'utf8'));
+  const fields=[{title:'Changed'},{description:'Changed'},{body:'Changed'},{priority:0},{tags:'one,two'},{status:'in_progress'}];
+  for (const preset of ['strict','minimal','custom','default']) {
+    for (const owner of ['fixture-agent','another-agent']) {
+      await sdk.claim('sample-existing',{force:true,author:owner},{pmRoot,noExtensions:true});
+      const settings=structuredClone(initialSettings);
+      settings.governance={...settings.governance,preset,ownership_enforcement:'strict',require_close_reason:true};
+      await writeFile(settingsFile,JSON.stringify(settings));
+      const before=await sdk.get('sample-existing',{}, {pmRoot,noExtensions:true});
+      await check([{op:'update',id:'sample-existing',options:{title:'Admission differential fixture'}}],' fixture-agent ');
+      for (const options of fields) await check([{op:'update',id:'sample-existing',options}]);
+      assert.deepEqual(await sdk.get('sample-existing',{}, {pmRoot,noExtensions:true}),before);
+    }
+  }
+  await sdk.release('sample-existing',{force:true,author:'fixture-agent'},{pmRoot,noExtensions:true});
+  for (let i=0;i<24;i++) {
+    const settings=structuredClone(initialSettings);
+    const close=i===0?'closed':`finish_${i}`;
+    settings.schema.workflow.close_status=close;
+    settings.governance.require_close_reason=true;
+    await writeFile(settingsFile,JSON.stringify(settings));
+    await writeFile(path.join(pmRoot,'schema/statuses.json'),JSON.stringify({statuses:[{id:close,roles:[i%2?'draft':'active']}]}));
+    const workflowFile=path.join(pmRoot,'schema/workflows.json');
+    await writeFile(workflowFile,JSON.stringify({workflow:settings.schema.workflow}));
+    await check([create(`sample-close-${i}`,{status:close})]);
+    // Configured closure updates are outside the declared native scalar slice.
+    // The native apply/property corpus checks their refusal independently: the
+    // pinned transaction preview currently admits active-role closure updates.
+    const closingBatch={author:'fixture-agent',mutations:[{op:'update',id:'sample-existing',options:{status:close}}]};
+    for (const output of [[],['--json']]) {
+      const native=spawnSync(process.env.PM_RUST_ADMISSION_BINARY,['--workspace',directory,'preview-item-mutations',...output],{input:JSON.stringify(closingBatch),encoding:'utf8',env:{...process.env,PATH:'',GIT_CEILING_DIRECTORIES:path.dirname(directory)}});
+      assert.equal(native.status,0,native.stderr);
+      assert.match(native.stdout,/close_reason_required/);
+    }
+  }
+  // Missing schema files use the published default registry, even with embedded overrides.
+  const settings=structuredClone(initialSettings);
+  settings.schema.workflow.close_status='inline_finish';
+  settings.schema.statuses.push({id:'inline_finish',roles:['active']});
+  await writeFile(settingsFile,JSON.stringify(settings));
+  await rm(path.join(pmRoot,'schema/workflows.json'),{force:true});
+  await rm(path.join(pmRoot,'schema/statuses.json'),{force:true});
+  await check([create('sample-inline',{status:'inline_finish'})]);
   console.log(`oracle cases=${cases}; admitted/refused and first failing row agree; source SDK state preserved`);
 } finally { await rm(directory,{recursive:true,force:true}); }

@@ -2,15 +2,16 @@ id: pm-rust-admission-previews
 title: Preview canonical item admission without native tracker writes
 description: Bounded Rust SDK and CLI preflight for canonical item intents using the native mutation path.
 type: Feature
+pm_format_version: 2
 status: in_progress
 priority: 2
 tags[3]: admission,native,oracle
 created_at: "2026-10-29T04:13:00.543Z"
-updated_at: "2026-10-29T06:31:21.328Z"
+updated_at: "2026-10-29T10:22:28.346Z"
 author: codex-agent
 acceptance_criteria: Unsupported intent kinds refuse before any write; admitted and refused fixtures match the published TypeScript previewItemMutations oracle for the declared slice; every byte and row limit is reported.
 parent: pm-rust-u4al
-comments[8]{created_at,author,text}:
+comments[17]{created_at,author,text}:
   "2026-10-29T04:23:45.667Z",codex-agent,"Implementation uses shared native create/update document preparation and the existing native status registry. Preview has no persistence phase: ordered candidate state stays in memory, independent row failures retain diagnostics, and a refused target suppresses later same-target intents. Hard input/source/row/directory/depth/output ceilings are reported. The declared slice is progressive explicit-scope creates and scalar updates; custom field/type workflows and complex lifecycle transitions refuse explicitly. Published oracle remains repo-pinned at 2026.10.21 per package policy; current registry pm is 2026.10.28. Unsupported operation kinds refuse before tracker discovery. No transaction-lock isolation or future commit guarantee is claimed."
   "2026-10-29T04:40:19.636Z",codex-agent,"Local acceptance passed: 3 integration tests including 33 published oracle cases and 500 seeded state-preservation sequences; the initial 9 native unit tests also passed, including 500 seeded preview-versus-actual-apply sequences and step-boundary interleaving. Additional I/O and rendering boundary coverage is being measured. Follow-up pm-rust-admission-schema tracks expansion beyond the explicit first contract; these cases currently return typed refusals rather than implied admission."
   "2026-10-29T04:57:57.546Z",codex-agent,"Live sibling overlap refresh confirms CSV owns external CSV schemas/imports at pm-csv main 1c13ab7d154a12d81f7ad4c5d870635a41f56d23, and Beads owns external JSONL import/export and source snapshots at pm-beads main 7f3762d942caeb2fb736086132a17268a4e6f622. The Rust feature adds no external-format parser. Expanded oracle fixtures cover every built-in create type, canonical custom active/draft statuses, scalar updates, tags, missing fields and conflicts. Core accepts metadata-only empty updates while the native write contract requires an explicit scalar replacement; this boundary is documented and remains outside the declared parity slice."
@@ -19,10 +20,20 @@ comments[8]{created_at,author,text}:
   "2026-10-29T05:59:20.761Z",codex-agent,"Local strict health is not certified: the inherited extension host-version skew and clone-local merge-driver drift are recorded on existing follow-up pm-rust-vuwe. Native acceptance, clippy, format and changelog evidence remain passing. PR 132 is ready for review; CI must establish final-head npm/Bun aggregate and coverage results. The health finding does not authorize history repair or driver work."
   "2026-10-29T06:25:58.665Z",codex-agent,"Final-head CI run 40826931277 passed the macOS and Linux Rust jobs. The macOS aggregate completed both Rust passes but refused the unchanged 100 percent coverage gate because the CLI propagation of a Workspace preview failure was unexercised at src/main.rs:740. Add an invalid discovered-tracker fixture to the existing CLI stdio regression; no product behavior or coverage threshold changes are required."
   "2026-10-29T06:31:18.988Z",codex-agent,"The invalid discovered-tracker CLI regression passes with stable and instrumented builds. A focused nightly branch-coverage run records 1 hit in the previously missing error-propagation region at src/main.rs:740; the linked CLI command also passes through pm test --run --only-index 3 --progress. All-target/all-feature clippy passes. This changes only test coverage, not product behavior or thresholds. Fresh final-head aggregates must still pass; any outstanding run will be reported at the existing CI wait cutoff."
-files[10]{path,scope}:
+  "2026-10-29T06:52:36.937Z",codex-agent,"Resumed review fixes. Main is already included. Audit classes: mutation authorization must be shared by preview and apply; configured closure readiness must hold independently of status roles. Will cover strict foreign ownership, custom workflow closure statuses and public SDK parity, plus behavioral revert proofs. No additional non-blocking findings appear in the supplied review instructions or public PR review records."
+  "2026-10-29T07:11:26.023Z",codex-agent,"Class audit: scalar update and annotation apply paths lacked strict ownership enforcement; both now share the native author/principal guard used by preview preparation. Existing claim/release, close, lifecycle and linked-collection paths already enforce ownership. Closure readiness follows the configured close target independently of roles, for creates and scalar updates. Missing optional registry files now preserve embedded settings rather than override them with defaults. Preview JSON/TOON use the same verdict. Product is a native Rust crate/binary; npm and Bun entries invoke native release gates rather than distribute an SDK loader. Read-only public main tracker validation: 89 items, 184 archived files, 4698201 archived bytes, 192 frozen files, 909472 source bytes and 99 entries per observation, 427 input bytes and 1090 output bytes; 3 admitted/1 refused, all source bytes and SDK read-back unchanged."
+  "2026-10-29T07:15:04.083Z",codex-agent,"Behavioral revert proof: in a disposable non-git source copy, replacing only validate_scalar_owner with success makes the adversarial governance property fail (0 passed, 1 failed; foreign update admitted). Separately replacing only validate_scalar_closure with success fails the same property (0 passed, 1 failed; admitted instead of close_reason_required). Original source remains fixed; final focused and aggregate runs rebuild it. The previous active-role closed-create must-allow assertion was corrected to the published oracle refusal, retaining explicit-reason and disabled-requirement must-allow cases. Expanded corpus also found pinned previewItemMutations admits active-role configured closure updates; those remain outside the declared native scalar slice and are tested independently as refusals, rather than claiming oracle agreement for them."
+  "2026-10-29T07:22:32.616Z",codex-agent,"Oracle correction to the earlier registry-fallback hypothesis: pm CLI 2026.10.21 supplies default registries when optional schema files are missing, even with embedded overrides. Capture and apply now call the SAME native default_schema helper; the incorrect embedded-only fallback change was removed. The expanded oracle includes the missing-file case, while configured-close properties explicitly write the effective workflow file. No existing audit events were removed. The first linked run found this discrepancy and hit the default library-test timeout; rerunning all linked tests with --timeout 1200."
+  "2026-10-29T07:26:36.564Z",codex-agent,"Fixed-source focused verification passes through pinned pm test --run --progress --timeout 1200: 4 integration tests (130 published SDK cases plus 24 native closure-update JSON/TOON refusals), 16 library tests and 1 CLI stdio test; 3 linked commands passed, zero skipped. Clippy all targets/features passes with warnings denied. Persisted 1200-second timeouts for the two long linked commands; no assertions or thresholds reduced. Full npm and Bun gates run sequentially with at most two build jobs and two test threads under neutral Git identity."
+  "2026-10-29T08:39:50.097Z",codex-agent,"Local npm aggregate reached 524 passed/1 failed/0 ignored, then stopped at the pre-existing five-second relationship packet child deadline. Isolated retry reproduces the same signature. Reused existing pm-rust-local-packet-deadline, whose main history already documents this local condition and passing full CI. No orientation source, test or limit changed. Both admission review classes and focused linked tests remain passing; exact-head CI is required for full release and coverage certification."
+  "2026-10-29T08:40:30.732Z",codex-agent,"Tally correction: the actual npm aggregate log contains 18 completed Rust groups: 576 passed, 1 failed, 0 ignored. The earlier 524 figure omitted completed groups. The only failure remains the existing local packet child deadline; no assertions or bounds changed."
+  "2026-10-29T08:42:41.909Z",codex-agent,"Final-source read-only public tracker validation passes again: 89 items, 184 archived files/4698201 bytes, 192 frozen files, 909472 source bytes and 99 entries per observation, 427 input bytes/1090 output bytes, 3 admitted/1 refused, measured debug wall time 1944 ms. Every source byte and complete SDK read-back remain unchanged; native PATH contains neither Git nor Node."
+  "2026-10-29T10:22:25.998Z",codex-agent,"Re-review classes fixed through shared native apply preparation: strict foreign ownership on all six scalar fields and annotations, including no-op/stale-lock-force attempts; configured close-reason requirements independent of roles. SDK readSettings confirms explicit true/false and missing-default true across four presets. Focused pm commands pass 4 integration +16 library +1 CLI; nightly instrumented admission filter passes 26 tests. Admission module coverage is 100 percent lines/functions/regions/branches (571/57/775/132); new guard source regions execute. Crash-check passes 82/82, no skips/todos/cancellations, plus typecheck/lint and 20-receipt/36-commit evidence gates. Cargo audit passes with the existing allowed maintenance warning. Local npm and Bun full attempts each finish 18 groups with 576 passed/1 known packet-deadline failure/0 ignored; existing follow-up reused, no bound weakened. Exact-head CI release/coverage evidence will be maintained in https://github.com/unbraind/pm-rust/pull/132 with the queue's bounded wait. No extra substantive non-blocking review findings were supplied or publicly available. Own claim will now be released; items remain open for orchestrator verification."
+files[12]{path,scope}:
   scripts/admission-real.mjs,project
   src/admission.rs,project
   src/changes.rs,project
+  src/error.rs,project
   src/list_registry.rs,project
   src/main.rs,project
   src/mutation.rs,project
@@ -30,10 +41,35 @@ files[10]{path,scope}:
   tests/support/admission_unit.rs,project
   tests/support/admission-oracle.mjs,project
   tests/support/main_unit.rs,project
-tests[3]{command,scope,provenance{author,created_at,source_kind,source_ref}}:
-  cargo +1.90.0 test --locked -j 2 --test admission_contract -- --test-threads=2,project,codex-agent,"2026-10-29T04:36:04.626Z",local_mutation,feat/native-item-admission-previews
-  "cargo +1.90.0 test --locked -j 2 --lib admission::tests -- --test-threads=2",project,codex-agent,"2026-10-29T04:36:13.198Z",local_mutation,feat/native-item-admission-previews
-  cargo +1.90.0 test --locked -j 2 --bin pm-rust admission_stdio_refusals -- --test-threads=2,project,codex-agent,"2026-10-29T04:39:45.831Z",local_mutation,feat/native-item-admission-previews
+  tests/support/mutation_unit.rs,project
+tests[3]:
+  - command: cargo +1.90.0 test --locked -j 2 --test admission_contract -- --test-threads=2
+    scope: project
+    timeout_seconds: 1200
+    provenance:
+      author: codex-agent
+      created_at: "2026-10-29T04:36:04.626Z"
+      source_kind: local_mutation
+      source_ref: feat/native-item-admission-previews
+    updated_by: codex-agent
+    updated_at: "2026-10-29T07:26:28.220Z"
+  - command: "cargo +1.90.0 test --locked -j 2 --lib admission::tests -- --test-threads=2"
+    scope: project
+    timeout_seconds: 1200
+    provenance:
+      author: codex-agent
+      created_at: "2026-10-29T04:36:13.198Z"
+      source_kind: local_mutation
+      source_ref: feat/native-item-admission-previews
+    updated_by: codex-agent
+    updated_at: "2026-10-29T07:26:32.053Z"
+  - command: cargo +1.90.0 test --locked -j 2 --bin pm-rust admission_stdio_refusals -- --test-threads=2
+    scope: project
+    provenance:
+      author: codex-agent
+      created_at: "2026-10-29T04:39:45.831Z"
+      source_kind: local_mutation
+      source_ref: feat/native-item-admission-previews
 docs[3]{path,scope}:
   docs/native-admission-validation.md,project
   examples/item-admission.json,project

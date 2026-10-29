@@ -298,6 +298,8 @@ struct OwnershipGovernance {
     force_required_for_stale_lock: Option<bool>,
     #[serde(default)]
     ownership_enforcement: String,
+    #[serde(default)]
+    require_close_reason: Option<bool>,
 }
 
 impl OwnershipGovernance {
@@ -1850,8 +1852,15 @@ fn validate_mutation_request(author: &str, timestamp: Option<&str>) -> Result<St
 fn prepare_create_document(
     request: &mut CreateItem,
     settings: &MutationSettings,
+    lifecycle: &crate::list_registry::Lifecycle,
 ) -> Result<(&'static str, String, ItemDocument), PmRustError> {
     let folder = validate_request(request, settings)?;
+    validate_scalar_closure(
+        settings,
+        lifecycle,
+        &request.status,
+        request.message.as_deref(),
+    )?;
     crate::collation::normalize_tags(&mut request.tags);
     // `match` instead of `.unwrap_or_else(now_iso)` avoids a per-instantiation
     // closure function the coverage gate counts separately.
@@ -1881,14 +1890,69 @@ fn prepare_create_document(
     Ok((folder, timestamp, document))
 }
 
+/// Enforces ownership on scalar writes and previews using the persisted principal.
+fn validate_scalar_owner(
+    settings: &MutationSettings,
+    before: &ItemDocument,
+    author: &str,
+) -> Result<(), PmRustError> {
+    let owner = ownership_text(before, "assignee");
+    let held = ownership_text(before, "claim_principal");
+    let principal = if held.trim().is_empty() {
+        owner.trim()
+    } else {
+        held.trim()
+    };
+    let caller = crate::ownership::AuthorIdentity::resolve(
+        Some(author),
+        None,
+        &std::collections::BTreeMap::default(),
+    );
+    if !owner.trim().is_empty()
+        && principal != caller.principal
+        && settings.governance.policy() == "strict"
+    {
+        return Err(ownership_refusal(
+            format!(
+                "Item {} is assigned to {}. Use the owning principal or the published SDK with an intentional force override.",
+                before.metadata.id,
+                owner.trim()
+            ),
+            serde_json::json!({"code":"ownership_conflict","required":"Use the owning principal or the published SDK with an intentional force override."}),
+        ));
+    }
+    Ok(())
+}
+
+/// Closure requirements follow the configured close target, independently of roles.
+fn validate_scalar_closure(
+    settings: &MutationSettings,
+    lifecycle: &crate::list_registry::Lifecycle,
+    status: &str,
+    reason: Option<&str>,
+) -> Result<(), PmRustError> {
+    if lifecycle.closes(status)
+        && settings.governance.require_close_reason.unwrap_or(true)
+        && reason.is_none_or(|text| text.trim().is_empty())
+    {
+        return Err(close_refusal(
+            "A configured close status requires an author-controlled closing reason.".to_owned(),
+            2,
+            serde_json::json!({"code":"close_reason_required","required":"Use the close API with an explicit closing summary, or supply a mutation message."}),
+        ));
+    }
+    Ok(())
+}
+
 /// Uses apply's settings validation and normalization for a non-writing create.
 pub(crate) fn prepare_create_preview(
     settings_bytes: &[u8],
+    lifecycle: &crate::list_registry::Lifecycle,
     mut request: CreateItem,
 ) -> Result<ItemDocument, PmRustError> {
     let settings = crate::strict_json::from_slice(settings_bytes)
         .map_err(|error| invalid(format!("invalid settings.json: {error}")))?;
-    let (_, _, document) = prepare_create_document(&mut request, &settings)?;
+    let (_, _, document) = prepare_create_document(&mut request, &settings, lifecycle)?;
     canonical_item_bytes(&document).map(|_| document)
 }
 
@@ -1898,7 +1962,9 @@ pub(crate) fn create_item(
     mut request: CreateItem,
 ) -> Result<CreateResult, PmRustError> {
     let settings = read_settings(pm_root)?;
-    let (folder, timestamp, document) = prepare_create_document(&mut request, &settings)?;
+    let lifecycle = crate::list_registry::Lifecycle::load(pm_root)?;
+    let (folder, timestamp, document) =
+        prepare_create_document(&mut request, &settings, &lifecycle)?;
     let _lock = acquire_lock(
         pm_root,
         &request.id,
@@ -1980,7 +2046,13 @@ fn prepare_update_document(
     before_document: &ItemDocument,
     request: &mut UpdateItem,
     timestamp: &String,
+    settings: &MutationSettings,
+    lifecycle: &crate::list_registry::Lifecycle,
 ) -> Result<ItemDocument, PmRustError> {
+    validate_scalar_owner(settings, before_document, &request.author)?;
+    if let Some(status) = &request.status {
+        validate_scalar_closure(settings, lifecycle, status, request.message.as_deref())?;
+    }
     if let Some(tags) = &mut request.tags {
         crate::collation::normalize_tags(tags);
     }
@@ -2034,11 +2106,15 @@ fn prepare_update_document(
 
 /// Uses apply's author, clock, normalization and document encoder without writes.
 pub(crate) fn prepare_update_preview(
+    settings_bytes: &[u8],
+    lifecycle: &crate::list_registry::Lifecycle,
     before: &ItemDocument,
     mut request: UpdateItem,
 ) -> Result<ItemDocument, PmRustError> {
     let timestamp = validate_mutation_request(&request.author, request.timestamp.as_deref())?;
-    let document = prepare_update_document(before, &mut request, &timestamp)?;
+    let settings = crate::strict_json::from_slice(settings_bytes)
+        .map_err(|error| invalid(format!("invalid settings.json: {error}")))?;
+    let document = prepare_update_document(before, &mut request, &timestamp, &settings, lifecycle)?;
     canonical_item_bytes(&document).map(|_| document)
 }
 
@@ -2065,7 +2141,14 @@ pub(crate) fn update_item(
         recover_and_locate(pm_root, "update", &request.id)?;
     // The stored document must be read under the lock so no writer ever
     // applies changes to stale bytes.
-    let document = prepare_update_document(&before_document, &mut request, &timestamp)?;
+    let lifecycle = crate::list_registry::Lifecycle::load(pm_root)?;
+    let document = prepare_update_document(
+        &before_document,
+        &mut request,
+        &timestamp,
+        &settings,
+        &lifecycle,
+    )?;
     commit_mutation(
         pm_root,
         "update",
@@ -2104,6 +2187,7 @@ pub(crate) fn comment_item(
     )?;
     let (item_path, history_path, before_document) =
         recover_and_locate(pm_root, "comment", &request.id)?;
+    validate_scalar_owner(&settings, &before_document, &request.author)?;
     let mut document = before_document.clone();
     let row = serde_json::json!({
         "created_at": timestamp,
