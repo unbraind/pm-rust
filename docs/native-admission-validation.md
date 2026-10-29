@@ -162,3 +162,13 @@ acquired a hosted runner; its annotations report capacity constraints, and it
 contains no executed steps or available log blob. Fresh CI must establish that
 job's result. There are no public review threads or CodeRabbit review bodies on
 this PR; the CodeRabbit issue comment reports skipped automatic review.
+
+At the 19:24 UTC queue-policy cutoff, repair head `dc9005e` had
+0/10 completed CI jobs ({'queued': 10}); CodeQL was queued.
+[CI receipt](https://github.com/unbraind/pm-rust/actions/runs/40935092438).
+The neutral-home local gate passed format, Clippy and private documentation,
+then 7 completed Rust groups (473 passed, zero failed/ignored).
+It recorded 478 individual passes including the unfinished group, with
+0 assertion failures before its isolated process group was intentionally stopped.
+This incomplete attempt does not certify a full release or global coverage.
+Fresh CI for the final evidence commit is linked from PR 132; no wait restarts.
