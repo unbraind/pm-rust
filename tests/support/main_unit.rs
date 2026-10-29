@@ -1760,3 +1760,51 @@ fn changes_writer_refusals() -> Result<(), Box<dyn std::error::Error>> {
     }
     Ok(())
 }
+
+/// Admission stdin, source selection and delivery failures keep typed recovery guidance.
+#[test]
+fn admission_stdio_refusals() -> Result<(), Box<dyn std::error::Error>> {
+    /// An unreadable caller-owned stdin stream.
+    struct ReadFailure;
+    impl io::Read for ReadFailure {
+        fn read(&mut self, _: &mut [u8]) -> io::Result<usize> {
+            Err(io::Error::other("read failure"))
+        }
+    }
+    let directory = tempfile::tempdir()?;
+    let root = directory.path().join(".agents/pm");
+    let cli = |json| Cli {
+        workspace: directory.path().to_path_buf(),
+        command: Command::PreviewItemMutations { json },
+    };
+    let error = super::run_with_io(cli(true), &mut ReadFailure, &mut Vec::new())
+        .err()
+        .ok_or("stdin refusal")?;
+    assert_eq!(
+        error
+            .downcast_ref::<pm_rust::admission::AdmissionRefusal>()
+            .ok_or("typed stdin refusal")?
+            .code,
+        "admission_input"
+    );
+    let input = serde_json::to_vec(
+        &serde_json::json!({"author":"fixture-agent","mutations":[{"op":"create","id":"demo-new","options":{"title":"Fixture","type":"Task","status":"open","priority":2,"createMode":"progressive","parent":"none","assignee":"none","allowDuplicate":true}}]}),
+    )?;
+    let error = super::run_with_io(cli(true), &mut input.as_slice(), &mut Vec::new())
+        .err()
+        .ok_or("source refusal")?;
+    assert_eq!(
+        error
+            .downcast_ref::<pm_rust::admission::AdmissionRefusal>()
+            .ok_or("typed source refusal")?
+            .code,
+        "admission_source"
+    );
+    fs::create_dir_all(&root)?;
+    fs::write(root.join("settings.json"), "{}")?;
+    for json in [false, true] {
+        assert!(super::run_with_io(cli(json), &mut input.as_slice(), &mut WriteFailure).is_err());
+        assert!(super::run_with_io(cli(json), &mut input.as_slice(), &mut FlushFailure).is_err());
+    }
+    Ok(())
+}

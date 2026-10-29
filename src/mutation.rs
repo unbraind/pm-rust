@@ -529,6 +529,13 @@ fn read_settings(pm_root: &Path) -> Result<MutationSettings, PmRustError> {
     }
 }
 
+/// Checks captured settings through the same typed native schema as writers.
+pub(crate) fn validate_preview_settings(bytes: &[u8]) -> Result<(), PmRustError> {
+    crate::strict_json::from_slice::<MutationSettings>(bytes)
+        .map(|_| ())
+        .map_err(|error| invalid(format!("invalid settings.json: {error}")))
+}
+
 /// Maps a canonical built-in item type to its tracker directory.
 fn type_folder(item_type: &str) -> Option<&'static str> {
     match item_type {
@@ -1362,7 +1369,7 @@ fn sync_parent(path: &Path) -> Result<(), PmRustError> {
 }
 
 /// Encodes one validated item into canonical JavaScript-compatible TOON bytes.
-fn canonical_item_bytes(document: &ItemDocument) -> Result<String, PmRustError> {
+pub(crate) fn canonical_item_bytes(document: &ItemDocument) -> Result<String, PmRustError> {
     // The validated shape contains only TOON-supported scalar and array values.
     let view = history::canonical_document_value(document);
     normalize_encoded_item(encode_default(&view))
@@ -1839,13 +1846,12 @@ fn validate_mutation_request(author: &str, timestamp: Option<&str>) -> Result<St
     }
 }
 
-/// Executes one validated, locked, journaled, no-overwrite create transaction.
-pub(crate) fn create_item(
-    pm_root: &Path,
-    mut request: CreateItem,
-) -> Result<CreateResult, PmRustError> {
-    let settings = read_settings(pm_root)?;
-    let folder = validate_request(&request, &settings)?;
+/// Prepares exactly the create document used by apply, without acquiring a lock.
+fn prepare_create_document(
+    request: &mut CreateItem,
+    settings: &MutationSettings,
+) -> Result<(&'static str, String, ItemDocument), PmRustError> {
+    let folder = validate_request(request, settings)?;
     crate::collation::normalize_tags(&mut request.tags);
     // `match` instead of `.unwrap_or_else(now_iso)` avoids a per-instantiation
     // closure function the coverage gate counts separately.
@@ -1854,6 +1860,45 @@ pub(crate) fn create_item(
         None => now_iso(),
     };
     validate_timestamp(&timestamp)?;
+    let mut extra = Map::new();
+    extra.insert("author".to_owned(), Value::String(request.author.clone()));
+    let document = ItemDocument {
+        metadata: ItemMetadata {
+            id: request.id.clone(),
+            title: request.title.clone(),
+            description: request.description.clone(),
+            item_type: request.item_type.clone(),
+            status: request.status.clone(),
+            priority: request.priority,
+            tags: request.tags.clone(),
+            created_at: timestamp.clone(),
+            updated_at: timestamp.clone(),
+            parent: None,
+            extra,
+        },
+        body: request.body.clone(),
+    };
+    Ok((folder, timestamp, document))
+}
+
+/// Uses apply's settings validation and normalization for a non-writing create.
+pub(crate) fn prepare_create_preview(
+    settings_bytes: &[u8],
+    mut request: CreateItem,
+) -> Result<ItemDocument, PmRustError> {
+    let settings = crate::strict_json::from_slice(settings_bytes)
+        .map_err(|error| invalid(format!("invalid settings.json: {error}")))?;
+    let (_, _, document) = prepare_create_document(&mut request, &settings)?;
+    canonical_item_bytes(&document).map(|_| document)
+}
+
+/// Executes one validated, locked, journaled, no-overwrite create transaction.
+pub(crate) fn create_item(
+    pm_root: &Path,
+    mut request: CreateItem,
+) -> Result<CreateResult, PmRustError> {
+    let settings = read_settings(pm_root)?;
+    let (folder, timestamp, document) = prepare_create_document(&mut request, &settings)?;
     let _lock = acquire_lock(
         pm_root,
         &request.id,
@@ -1874,24 +1919,6 @@ pub(crate) fn create_item(
     if item_path.exists() || history_path.exists() {
         return Err(PmRustError::ItemAlreadyExists { id: request.id });
     }
-    let mut extra = Map::new();
-    extra.insert("author".to_owned(), Value::String(request.author.clone()));
-    let document = ItemDocument {
-        metadata: ItemMetadata {
-            id: request.id.clone(),
-            title: request.title,
-            description: request.description,
-            item_type: request.item_type.clone(),
-            status: request.status,
-            priority: request.priority,
-            tags: request.tags,
-            created_at: timestamp.clone(),
-            updated_at: timestamp.clone(),
-            parent: None,
-            extra,
-        },
-        body: request.body,
-    };
     canonical_item_bytes(&document).and_then(|item_bytes| {
         let ordered = OrderedDocument::from_document(&document);
         let after_hash = history::document_hash(&ordered);
@@ -1948,29 +1975,12 @@ pub(crate) fn create_item(
     })
 }
 
-/// Applies one validated field update to an existing item in place.
-pub(crate) fn update_item(
-    pm_root: &Path,
-    mut request: UpdateItem,
-) -> Result<MutationResult, PmRustError> {
-    let settings = read_settings(pm_root)?;
-    let timestamp = validate_mutation_request(&request.author, request.timestamp.as_deref())?;
-    let _lock = acquire_lock(
-        pm_root,
-        &request.id,
-        &request.author,
-        &settings.locks,
-        request.force_stale_lock,
-        &timestamp,
-        lock_wait_budget(
-            std::env::var("PM_LOCK_WAIT_MS").ok().as_deref(),
-            settings.locks.wait_ms,
-        ),
-    )?;
-    let (item_path, history_path, before_document) =
-        recover_and_locate(pm_root, "update", &request.id)?;
-    // The stored document must be read under the lock so no writer ever
-    // applies changes to stale bytes.
+/// Prepares exactly apply's field replacement, retaining all foreign metadata.
+fn prepare_update_document(
+    before_document: &ItemDocument,
+    request: &mut UpdateItem,
+    timestamp: &String,
+) -> Result<ItemDocument, PmRustError> {
     if let Some(tags) = &mut request.tags {
         crate::collation::normalize_tags(tags);
     }
@@ -2000,25 +2010,62 @@ pub(crate) fn update_item(
             "an update must provide at least one field to change",
         ));
     }
-    if let Some(title) = request.title {
+    if let Some(title) = request.title.clone() {
         document.metadata.title = title;
     }
-    if let Some(description) = request.description {
+    if let Some(description) = request.description.clone() {
         document.metadata.description = description;
     }
-    if let Some(status) = request.status {
+    if let Some(status) = request.status.clone() {
         document.metadata.status = status;
     }
     if let Some(priority) = request.priority {
         document.metadata.priority = priority;
     }
-    if let Some(tags) = request.tags {
+    if let Some(tags) = request.tags.clone() {
         document.metadata.tags = tags;
     }
-    if let Some(body) = request.body {
+    if let Some(body) = request.body.clone() {
         document.body = body;
     }
-    document.metadata.updated_at.clone_from(&timestamp);
+    document.metadata.updated_at.clone_from(timestamp);
+    Ok(document)
+}
+
+/// Uses apply's author, clock, normalization and document encoder without writes.
+pub(crate) fn prepare_update_preview(
+    before: &ItemDocument,
+    mut request: UpdateItem,
+) -> Result<ItemDocument, PmRustError> {
+    let timestamp = validate_mutation_request(&request.author, request.timestamp.as_deref())?;
+    let document = prepare_update_document(before, &mut request, &timestamp)?;
+    canonical_item_bytes(&document).map(|_| document)
+}
+
+/// Applies one validated field update to an existing item in place.
+pub(crate) fn update_item(
+    pm_root: &Path,
+    mut request: UpdateItem,
+) -> Result<MutationResult, PmRustError> {
+    let settings = read_settings(pm_root)?;
+    let timestamp = validate_mutation_request(&request.author, request.timestamp.as_deref())?;
+    let _lock = acquire_lock(
+        pm_root,
+        &request.id,
+        &request.author,
+        &settings.locks,
+        request.force_stale_lock,
+        &timestamp,
+        lock_wait_budget(
+            std::env::var("PM_LOCK_WAIT_MS").ok().as_deref(),
+            settings.locks.wait_ms,
+        ),
+    )?;
+    let (item_path, history_path, before_document) =
+        recover_and_locate(pm_root, "update", &request.id)?;
+    // The stored document must be read under the lock so no writer ever
+    // applies changes to stale bytes.
+    let document = prepare_update_document(&before_document, &mut request, &timestamp)?;
     commit_mutation(
         pm_root,
         "update",

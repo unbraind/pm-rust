@@ -23,6 +23,12 @@ struct Cli {
 
 #[derive(Debug, Subcommand)]
 enum Command {
+    /// Preview bounded canonical item intents from strict JSON on stdin, without writes.
+    PreviewItemMutations {
+        /// Emit compact JSON instead of TOON.
+        #[arg(long)]
+        json: bool,
+    },
     /// Pull one bounded page of canonical mutation facts without Node or Git.
     Changes {
         /// Opaque cursor returned by the same adapter; absent starts retained history.
@@ -712,6 +718,30 @@ fn run_with_io(
 ) -> Result<(), Box<dyn std::error::Error>> {
     let discover = || Workspace::discover(&cli.workspace);
     match cli.command {
+        Command::PreviewItemMutations { json } => {
+            let mut bytes = Vec::new();
+            reader
+                .take(
+                    pm_rust::admission::ADMISSION_LIMITS.input_bytes as u64
+                        + u64::from(pm_rust::admission::ADMISSION_LIMITS.over_limit_probe_bytes),
+                )
+                .read_to_end(&mut bytes)
+                .map_err(|_| pm_rust::admission::AdmissionRefusal {
+                    code: "admission_input",
+                    required: "Provide readable bounded JSON on stdin and retry.",
+                    limits: pm_rust::admission::ADMISSION_LIMITS,
+                })?;
+            let batch = pm_rust::admission::AdmissionBatch::from_json(&bytes)?;
+            let workspace = discover().map_err(|_| pm_rust::admission::AdmissionRefusal {
+                code: "admission_source",
+                required: "Select a readable native tracker with settings.json.",
+                limits: pm_rust::admission::ADMISSION_LIMITS,
+            })?;
+            let mut preview = workspace.preview_item_mutations(&batch)?;
+            preview.input_bytes = bytes.len();
+            let output = pm_rust::ListOutput::from(serde_json::json!(preview));
+            write_adapter_receipt_to(writer, &output, json)?;
+        }
         Command::Explain {
             read: _,
             full,
@@ -1609,6 +1639,11 @@ fn main() -> ExitCode {
     match run(cli) {
         Ok(()) => ExitCode::SUCCESS,
         Err(error) => {
+            if let Some(refusal) = error.downcast_ref::<pm_rust::admission::AdmissionRefusal>() {
+                let payload = serde_json::json!({"ok":false,"code":refusal.code,"required":refusal.required,"limits":refusal.limits,"exit_code":2});
+                let _ = write_json_to(&mut std::io::stderr().lock(), &payload);
+                return ExitCode::from(2);
+            }
             if let Some(refusal) = error.downcast_ref::<pm_rust::changes::ChangeRefusal>() {
                 let payload = serde_json::json!({"ok":false,"code":refusal.code(),"required":refusal.to_string(),"exit_code":2});
                 let _ = write_json_to(&mut std::io::stderr().lock(), &payload);

@@ -28,11 +28,18 @@ impl Lifecycle {
         if !schema.is_object() {
             schema = json!({});
         }
+        let external = optional_schema(root, &schema, "statuses")?;
+        let workflow = optional_schema(root, &schema, "workflows")?;
+        Ok(Self::from_values(&settings, &external, &workflow))
+    }
+
+    /// Resolves an already captured schema through the native registry normalizer.
+    pub(crate) fn from_values(settings: &Value, external: &Value, workflow: &Value) -> Self {
+        let schema = &settings["schema"];
         let mut statuses = schema["statuses"].as_array().cloned().unwrap_or_default();
         if statuses.is_empty() {
             statuses = defaults();
         }
-        let external = optional_schema(root, &schema, "statuses")?;
         if let Some(entries) = external.as_array().or_else(|| {
             external["statuses"]
                 .as_array()
@@ -55,13 +62,12 @@ impl Lifecycle {
                 }
             }
         }
-        let workflow = optional_schema(root, &schema, "workflows")?;
-        let workflow = workflow.get("workflow").unwrap_or(&workflow);
+        let workflow = workflow.get("workflow").unwrap_or(workflow);
         let progress = workflow["in_progress_status"]
             .as_str()
             .or_else(|| schema["workflow"]["in_progress_status"].as_str())
             .unwrap_or("in_progress");
-        Ok(Self {
+        Self {
             hierarchy: Hierarchy::new(&settings["schema"]["relationship_kinds"]),
             definitions,
             aliases,
@@ -72,7 +78,7 @@ impl Lifecycle {
                     .or_else(|| schema["workflow"]["open_status"].as_str())
                     .unwrap_or("open"),
             ),
-        })
+        }
     }
 
     /// Resolves a status token or alias to its canonical registry identity.

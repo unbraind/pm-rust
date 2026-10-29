@@ -7,6 +7,7 @@
 //! `pm` 2026.10.21 release. Merge operations remain gated on differential
 //! conformance evidence.
 
+pub mod admission;
 mod assurance;
 pub mod changes;
 mod collation;
