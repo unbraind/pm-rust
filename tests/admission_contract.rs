@@ -196,6 +196,49 @@ fn admission_cli_read_and_discovery_refusals_are_typed() -> TestResult {
     Ok(())
 }
 
+/// A closed stdout pipe turns a completed preview into exit code 2 in the shipped binary on every OS.
+#[test]
+fn admission_cli_reports_a_closed_stdout_pipe() -> TestResult {
+    let (directory, _) = fixture()?;
+    let empty_path = tempfile::tempdir()?;
+    let before = snapshot(directory.path())?;
+    let request = serde_json::to_vec(
+        &json!({"author":"fixture-agent","mutations":[create("sample-native")]}),
+    )?;
+    for json_output in [false, true] {
+        let mut command = Command::new(env!("CARGO_BIN_EXE_pm-rust"));
+        process_environment::isolate_environment(&mut command);
+        command
+            .current_dir(directory.path())
+            .arg("preview-item-mutations")
+            .env("PATH", empty_path.path())
+            .env(
+                "GIT_CEILING_DIRECTORIES",
+                directory.path().parent().ok_or("parent")?,
+            )
+            .stdin(Stdio::piped())
+            .stdout(Stdio::piped())
+            .stderr(Stdio::piped());
+        if json_output {
+            command.arg("--json");
+        }
+        let mut child = command.spawn()?;
+        // The child blocks on stdin until EOF, so the read end is closed before its only write.
+        drop(child.stdout.take());
+        child.stdin.take().ok_or("stdin")?.write_all(&request)?;
+        let output = child.wait_with_output()?;
+        assert_eq!(
+            output.status.code(),
+            Some(2),
+            "{}",
+            String::from_utf8_lossy(&output.stderr)
+        );
+        assert!(!output.stderr.is_empty());
+    }
+    assert_eq!(before, snapshot(directory.path())?);
+    Ok(())
+}
+
 /// Five hundred seeded sequences replay old full records, including foreign fields and CRLF.
 #[test]
 fn admission_seeded_model_preserves_sdk_state_and_all_relationships() -> TestResult {
