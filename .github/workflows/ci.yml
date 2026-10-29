@@ -28,9 +28,9 @@ jobs:
     # depth-1 clone there is almost nothing to walk, so the audit would pass
     # vacuously and report a clean history it never actually inspected.
     runs-on: ${{ matrix.os }}
-    # Both Ubuntu and Windows passed tests but exhausted 15 minutes during cleanup.
-    # Allow the same bounded setup/test/cleanup window on every matrix runner.
-    timeout-minutes: 20
+    # Windows exhausted 20 minutes during passing differential tests on PR 132.
+    # Keep Unix budgets and allow the complete Windows corpus plus cleanup.
+    timeout-minutes: ${{ matrix.os == 'windows-latest' && 35 || 20 }}
     strategy:
       fail-fast: false
       matrix:
@@ -121,9 +121,9 @@ jobs:
   release-check:
     name: ${{ matrix.gate }}
     runs-on: ${{ matrix.os }}
-    # Every runner needs both complete oracle test passes, audit and tracker health.
-    # The orientation matrix exceeded the former Unix 20-minute budget.
-    timeout-minutes: 35
+    # Windows exhausted 35 minutes during the second, instrumented oracle pass.
+    # Preserve every gate and threshold; budget for both full passes and cleanup.
+    timeout-minutes: ${{ matrix.os == 'windows-latest' && 60 || 35 }}
     strategy:
       fail-fast: false
       matrix:

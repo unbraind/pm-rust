@@ -5,13 +5,15 @@ type: Feature
 pm_format_version: 2
 status: in_progress
 priority: 2
-tags[3]: admission,native,oracle
+tags[4]: admission,"gh:unbraind/pm-rust#132",native,oracle
 created_at: "2026-10-29T04:13:00.543Z"
-updated_at: "2026-10-29T14:05:39.095Z"
+updated_at: "2026-10-29T18:52:00.795Z"
+assignee: codex-agent
+claim_principal: codex-agent
 author: codex-agent
 acceptance_criteria: Unsupported intent kinds refuse before any write; admitted and refused fixtures match the published TypeScript previewItemMutations oracle for the declared slice; every byte and row limit is reported.
 parent: pm-rust-u4al
-comments[32]{created_at,author,text}:
+comments[38]{created_at,author,text}:
   "2026-10-29T04:23:45.667Z",codex-agent,"Implementation uses shared native create/update document preparation and the existing native status registry. Preview has no persistence phase: ordered candidate state stays in memory, independent row failures retain diagnostics, and a refused target suppresses later same-target intents. Hard input/source/row/directory/depth/output ceilings are reported. The declared slice is progressive explicit-scope creates and scalar updates; custom field/type workflows and complex lifecycle transitions refuse explicitly. Published oracle remains repo-pinned at 2026.10.21 per package policy; current registry pm is 2026.10.28. Unsupported operation kinds refuse before tracker discovery. No transaction-lock isolation or future commit guarantee is claimed."
   "2026-10-29T04:40:19.636Z",codex-agent,"Local acceptance passed: 3 integration tests including 33 published oracle cases and 500 seeded state-preservation sequences; the initial 9 native unit tests also passed, including 500 seeded preview-versus-actual-apply sequences and step-boundary interleaving. Additional I/O and rendering boundary coverage is being measured. Follow-up pm-rust-admission-schema tracks expansion beyond the explicit first contract; these cases currently return typed refusals rather than implied admission."
   "2026-10-29T04:57:57.546Z",codex-agent,"Live sibling overlap refresh confirms CSV owns external CSV schemas/imports at pm-csv main 1c13ab7d154a12d81f7ad4c5d870635a41f56d23, and Beads owns external JSONL import/export and source snapshots at pm-beads main 7f3762d942caeb2fb736086132a17268a4e6f622. The Rust feature adds no external-format parser. Expanded oracle fixtures cover every built-in create type, canonical custom active/draft statuses, scalar updates, tags, missing fields and conflicts. Core accepts metadata-only empty updates while the native write contract requires an explicit scalar replacement; this boundary is documented and remains outside the declared parity slice."
@@ -44,7 +46,13 @@ comments[32]{created_at,author,text}:
   "2026-10-29T13:32:01.614Z",codex-agent,"Prior-head CI completed while this patch was being validated. Rust matrices passed, but the Bun aggregate found four uncovered regions / two lines in main's admission stdin/discovery error conversions; admission.rs itself remained 100%. Existing unit tests hit those paths only in the test binary. Reclaimed this item to add real-child-process refusals for unreadable stdin and missing tracker, preserving all four 100% floors and existing tests. Inspecting other prior-head failures before the next final push."
   "2026-10-29T13:46:53.822Z",codex-agent,"Added a real-child admission CLI regression using an inherited directory handle for unreadable stdin (including Windows backup-semantics directory opening) and a valid batch in a missing tracker. It passes with empty PATH/Git ceiling and preserves all tracker bytes. A targeted nightly run confirms both shipped/test run_with_io variants now execute the previously missed closing regions at main.rs:733 and :739 (each count 1), including both error-conversion closures. Related older Windows latency evidence (context p95 291.0006 ms vs 250 ms) is recorded on existing performance item pm-rust-wdj4; no latency ceiling was relaxed."
   "2026-10-29T14:05:35.177Z",codex-agent,"Supplementary fail-on-revert evidence: removing either main admission stdin/discovery refusal mapping independently compiles and fails the new real-process test (0 passed, 1 failed each); removing only the shared history-directory alias guard independently compiles and fails the new SDK regression (0 passed, 1 failed). Worktree production sources remained fixed throughout. Rebuilt fixed-source CLI and history tests pass, and all-target/all-feature Clippy with warnings denied passes. These two tests supplement the 45 linked tests; no earlier assertion was changed. All previous aggregate coverage misses are addressed by targeted cases while thresholds stay at 100%. Older Windows context timing remains tracked by pm-rust-wdj4 pending fresh CI."
-files[16]{path,scope}:
+  "2026-10-29T18:05:36.975Z",codex-agent,"CI repair round: fetched head 7ca5196; origin/main is fully included. GraphQL reports zero review threads and no CodeRabbit review bodies; the CodeRabbit issue comment states automatic review was skipped, with no Outside diff range findings. gh run view --log-failed returned empty output; downloaded job logs through the Actions API instead. All three failed aggregates reached the unchanged coverage gate and reported the same missing main/ownership regions. Investigating those exact paths and cancelled job logs; preserve product behavior and all thresholds."
+  "2026-10-29T18:07:30.650Z",codex-agent,"Confirmed Actions annotations: Windows Rust exceeded 20 minutes during passing differential tests; Windows aggregate exceeded 35 minutes during the second instrumented test pass. Increase only Windows job budgets to 35 and 60 minutes respectively; assertions, latency limits and coverage floors stay unchanged. Native latency macOS never acquired a hosted runner (capacity constraint), had zero steps and no available log blob; this is infrastructure evidence, not a passing check. Add discovered-but-invalid settings to the real-process CLI refusal regression and directly test missing/present identities at the private lineage boundary, which shared filename validation now preempts in public mutation calls."
+  "2026-10-29T18:11:34.595Z",codex-agent,"Focused stable tests both pass (2 passed, 0 failed, 0 ignored). Sequential nightly branch instrumentation also passes both and records hits in the prior missing spans: main.rs 743:60-61 count 4; ownership.rs 456:16-458:11 count 1; the missing-key branch now executes both outcomes. These are scoped hits, not a global coverage claim. Whole-PR class audit reviewed shared snapshot capture, typed source propagation, filename lookup/recovery, governance preparation and the existing property/process tests; no additional product change is justified for this CI-only round. Revert builds are running serially in disposable non-git copies; the package sources remain fixed."
+  "2026-10-29T18:17:17.512Z",codex-agent,"Behavioral revert proofs completed in disposable non-git source copies: removing only ownership_parents missing-target guard compiled then failed ownership_lineage_scans_corpus_once (0 passed, 1 failed); replacing only the preview call typed-error propagation in run_with_io with an untyped I/O error compiled then failed admission_cli_read_and_discovery_refusals_are_typed (0 passed, 1 failed). The original production sources were never edited. Rebuilding fixed sources through both linked pm tests before the full unchanged just release-check. Ordinary-HOME strict health still has the previously tracked global-extension skew and shared-clone merge-driver drift; CI uses isolated clone-local installation. Changelog regenerated and checked successfully; no committed dist artifact exists in this Rust repository."
+  "2026-10-29T18:28:18.928Z",codex-agent,"Fixed-source rebuild after both disposable mutations passed through pm test --run --only-index 6 and --only-index 7 --progress --timeout 1200: 2 tests passed, 0 failed, 0 ignored. Pinned pm reports tracking_disabled, so this comment retains the measured result. Full just release-check is now running serially under a neutral HOME with credentials excluded, CARGO_BUILD_JOBS=2 and RUST_TEST_THREADS=2. Format, history-prefix and added-line privacy checks pass; origin/main remains fully included."
+  "2026-10-29T18:52:00.775Z",codex-agent,"Ready to push the CI-only repair: both focused regressions passed stable, instrumented and post-mutation pm runs; clippy and private documentation passed inside the full neutral-home gate. Current full-gate completed groups: 429 passed, 0 failed, 0 ignored; claim/release and composed lifecycle parity cases have also passed within the ongoing group. The shared-host full oracle is substantially slower than CI, so push the verified patch to start exact-head platform validation while the same serial local gate continues. No required gate is removed or weakened. CI wait remains bounded to 30 minutes by queue policy; unfinished results will be recorded explicitly."
+files[17]{path,scope}:
   .github/workflows/ci.yml,project
   scripts/admission-real.mjs,project
   src/admission.rs,project
@@ -61,7 +69,8 @@ files[16]{path,scope}:
   tests/support/admission-oracle.mjs,project
   tests/support/main_unit.rs,project
   tests/support/mutation_unit.rs,project
-tests[5]:
+  tests/support/ownership_unit.rs,project
+tests[7]:
   - command: cargo +1.90.0 test --locked -j 2 --test admission_contract -- --test-threads=2
     scope: project
     timeout_seconds: 1200
@@ -105,6 +114,26 @@ tests[5]:
       created_at: "2026-10-29T12:57:31.248Z"
       source_kind: local_mutation
       source_ref: feat/native-item-admission-previews
+  - command: cargo +1.90.0 test --locked -j 2 --lib ownership_lineage_scans_corpus_once -- --test-threads=2
+    scope: project
+    timeout_seconds: 1200
+    provenance:
+      author: codex-agent
+      created_at: "2026-10-29T18:07:20.458Z"
+      source_kind: local_mutation
+      source_ref: feat/native-item-admission-previews
+    updated_by: codex-agent
+    updated_at: "2026-10-29T18:15:29.913Z"
+  - command: cargo +1.90.0 test --locked -j 2 --test admission_contract admission_cli_read_and_discovery_refusals_are_typed -- --test-threads=2
+    scope: project
+    timeout_seconds: 1200
+    provenance:
+      author: codex-agent
+      created_at: "2026-10-29T18:07:24.142Z"
+      source_kind: local_mutation
+      source_ref: feat/native-item-admission-previews
+    updated_by: codex-agent
+    updated_at: "2026-10-29T18:15:43.458Z"
 docs[3]{path,scope}:
   docs/native-admission-validation.md,project
   examples/item-admission.json,project

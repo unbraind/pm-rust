@@ -139,10 +139,14 @@ fn admission_cli_is_native_bounded_and_never_writes() -> TestResult {
 #[test]
 fn admission_cli_read_and_discovery_refusals_are_typed() -> TestResult {
     let directory = tempfile::tempdir()?;
-    let before = snapshot(directory.path())?;
     let request =
         serde_json::to_vec(&json!({"author":"fixture-agent","mutations":[create("sample-new")]}))?;
-    for read_failure in [false, true] {
+    for (read_failure, invalid_source) in [(false, false), (true, false), (false, true)] {
+        if invalid_source {
+            fs::create_dir_all(directory.path().join(".agents/pm"))?;
+            fs::write(directory.path().join(".agents/pm/settings.json"), "{")?;
+        }
+        let before = snapshot(directory.path())?;
         let mut command = Command::new(env!("CARGO_BIN_EXE_pm-rust"));
         process_environment::isolate_environment(&mut command);
         command

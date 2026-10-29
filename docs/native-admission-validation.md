@@ -137,3 +137,28 @@ unchanged 250 ms ceiling; list p95 was 146.3533 ms against 150 ms. Its cause is
 unproven and the observation is retained on existing performance item
 `pm-rust-wdj4`. Fresh exact-head CI must certify coverage and timing; no limit or
 existing assertion was relaxed.
+
+## CI repair after head 7ca5196
+
+All three failed aggregates in run 40889275383 completed their Rust tests and
+stopped at the unchanged coverage gate. They missed the shipped CLI's propagation
+of a preview failure after successful workspace discovery, plus the ownership
+lineage helper's missing-target refusal. The real-process admission test now
+includes an existing tracker with malformed settings and verifies the typed
+receipt, complete limits, empty stdout and unchanged bytes. The lineage test
+directly checks both absent and present targets: shared filename validation now
+rejects missing identities before public ownership calls reach that helper.
+Focused stable and nightly runs pass both tests and execute the missed regions.
+Two behavioral mutations in disposable non-git copies remove the missing-target
+guard and replace typed preview-error propagation with an untyped error. Each
+compiles and fails its targeted regression (0 passed / 1 failed); the package
+sources remain fixed and are rebuilt afterward.
+
+Windows Rust exceeded its 20-minute job budget during passing differential tests;
+the Windows aggregate exceeded 35 minutes during its second, instrumented pass.
+Only those Windows job budgets increase, to 35 and 60 minutes. All tests, latency
+ceilings and four coverage floors remain unchanged. The macOS latency job never
+acquired a hosted runner; its annotations report capacity constraints, and it
+contains no executed steps or available log blob. Fresh CI must establish that
+job's result. There are no public review threads or CodeRabbit review bodies on
+this PR; the CodeRabbit issue comment reports skipped automatic review.
