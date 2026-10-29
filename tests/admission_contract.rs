@@ -135,6 +135,63 @@ fn admission_cli_is_native_bounded_and_never_writes() -> TestResult {
     Ok(())
 }
 
+/// Real process I/O errors retain typed receipts in both shipped and test builds.
+#[test]
+fn admission_cli_read_and_discovery_refusals_are_typed() -> TestResult {
+    let directory = tempfile::tempdir()?;
+    let before = snapshot(directory.path())?;
+    let request =
+        serde_json::to_vec(&json!({"author":"fixture-agent","mutations":[create("sample-new")]}))?;
+    for read_failure in [false, true] {
+        let mut command = Command::new(env!("CARGO_BIN_EXE_pm-rust"));
+        process_environment::isolate_environment(&mut command);
+        command
+            .current_dir(directory.path())
+            .args(["preview-item-mutations", "--json"])
+            .env("PATH", "")
+            .env(
+                "GIT_CEILING_DIRECTORIES",
+                directory.path().parent().ok_or("parent")?,
+            )
+            .stdout(Stdio::piped())
+            .stderr(Stdio::piped());
+        if read_failure {
+            // A directory is a real inherited handle that cannot supply stdin bytes.
+            let mut options = fs::OpenOptions::new();
+            options.read(true);
+            #[cfg(windows)]
+            {
+                use std::os::windows::fs::OpenOptionsExt;
+                // FILE_FLAG_BACKUP_SEMANTICS permits opening the directory handle.
+                options.custom_flags(0x0200_0000);
+            }
+            command.stdin(Stdio::from(options.open(directory.path())?));
+        } else {
+            command.stdin(Stdio::piped());
+        }
+        let mut child = command.spawn()?;
+        if !read_failure {
+            child.stdin.take().ok_or("stdin")?.write_all(&request)?;
+        }
+        let output = child.wait_with_output()?;
+        assert_eq!(output.status.code(), Some(2));
+        assert!(output.stdout.is_empty());
+        let refusal: Value = serde_json::from_slice(&output.stderr)?;
+        assert_eq!(
+            refusal["code"],
+            if read_failure {
+                "admission_input"
+            } else {
+                "admission_source"
+            }
+        );
+        assert_eq!(refusal["limits"], serde_json::to_value(ADMISSION_LIMITS)?);
+        assert!(refusal["required"].as_str().is_some_and(|s| !s.is_empty()));
+        assert_eq!(snapshot(directory.path())?, before);
+    }
+    Ok(())
+}
+
 /// Five hundred seeded sequences replay old full records, including foreign fields and CRLF.
 #[test]
 fn admission_seeded_model_preserves_sdk_state_and_all_relationships() -> TestResult {

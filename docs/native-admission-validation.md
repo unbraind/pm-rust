@@ -116,3 +116,24 @@ validation call, journal-image validation, and before-image identity validation.
 Each compiles and fails its adversarial test with 0 passed / 1 failed. In particular,
 the snapshot revert returns stale `ok: true`, and the admission-only revert admits
 an unresolvable target. The fixed source is rebuilt after the copies are removed.
+
+## Prior-head CI coverage follow-up
+
+The previous governance head completed CI after its earlier queue cutoff. Its
+release aggregates passed their tests but found four missed regions on the CLI's
+stdin/discovery refusal lines. A real-process test now exercises both errors with
+an empty PATH, complete limit receipts and unchanged tracker bytes. A targeted
+nightly run records both shipped and test binaries executing those regions.
+Windows additionally missed the shared history reader's directory-alias refusal;
+a portable Unix symlink/Windows junction fixture now checks that SDK path and
+preserves the original history and SDK-read item state.
+
+These two focused tests supplement the 45 linked tests above. Removing either
+CLI refusal mapping or the history-directory guard independently compiles and
+fails its new regression (0 passed / 1 failed). Fixed-source retries pass.
+
+The prior Windows latency job measured context p95 at 291.0006 ms against the
+unchanged 250 ms ceiling; list p95 was 146.3533 ms against 150 ms. Its cause is
+unproven and the observation is retained on existing performance item
+`pm-rust-wdj4`. Fresh exact-head CI must certify coverage and timing; no limit or
+existing assertion was relaxed.

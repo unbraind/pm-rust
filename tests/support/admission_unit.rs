@@ -569,6 +569,29 @@ fn admission_refuses_links_and_special_files() -> TestResult {
     Ok(())
 }
 
+/// The shared native history reader refuses directory aliases on every supported OS.
+#[test]
+fn admission_shared_history_reader_refuses_directory_aliases() -> TestResult {
+    let (directory, workspace) = fixture()?;
+    let document = stored(&workspace)?;
+    let history = workspace.pm_root().join("history");
+    let retained = directory.path().join("retained-history");
+    let original = fs::read(history.join("demo-existing.jsonl"))?;
+    fs::rename(&history, &retained)?;
+    directory_link(&retained, &history)?;
+    let adapter = crate::changes::LocalChangeAdapter::new(
+        workspace.clone(),
+        crate::SessionCancellation::default(),
+    );
+    assert!(matches!(
+        adapter.pull(&crate::changes::ChangeRequest::default()),
+        Err(crate::changes::ChangeRefusal::Source)
+    ));
+    assert_eq!(workspace.get("demo-existing")?, document);
+    assert_eq!(fs::read(retained.join("demo-existing.jsonl"))?, original);
+    Ok(())
+}
+
 /// Five hundred seeded operation sequences compare preview with actual native apply verdicts.
 #[test]
 fn admission_seeded_preview_equals_native_apply() -> TestResult {
