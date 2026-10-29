@@ -12,7 +12,7 @@ Rust is the product runtime; Node is used only by the published SDK oracle and v
 - 500 seeded arbitrary-byte inputs, strict must-refuse/must-allow cases, exact integer limits and producer/validator round trips exercise both boundaries.
 - Every read/candidate boundary injects a competing source transition. The final-read window remains explicitly unreserved.
 - Behavioral revert in a disposable non-git copy replaces only `Workspace::preview_item_mutations` with its unsupported-capability refusal: the CLI regression fails at runtime, 0 passed / 1 failed. The original source stays fixed. Afterwards, all three linked commands pass through `pm test --run --progress`: 3 integration + 14 library + 1 CLI test, no skips. The directory-link regression also passes after adding the Windows junction fixture.
-- `cargo +1.90.0 clippy --locked --all-targets --all-features -j 2 -- -D warnings` and format checks pass. Full unchanged npm/Bun release gates and final-head coverage are recorded on the PR.
+- `cargo +1.90.0 clippy --locked --all-targets --all-features -j 2 -- -D warnings` and format checks pass. The CLI invalid-tracker propagation regression subsequently closes the single missing region found by the first macOS aggregate; a focused nightly run records that region executed. Full unchanged npm/Bun release gates and final-head coverage are recorded on the PR.
 
 ## Public data in a non-git directory
 

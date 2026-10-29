@@ -1802,6 +1802,18 @@ fn admission_stdio_refusals() -> Result<(), Box<dyn std::error::Error>> {
     );
     fs::create_dir_all(&root)?;
     fs::write(root.join("settings.json"), "{}")?;
+    fs::write(root.join("settings.json"), "{")?;
+    let error = super::run_with_io(cli(true), &mut input.as_slice(), &mut Vec::new())
+        .err()
+        .ok_or("preview source refusal")?;
+    assert_eq!(
+        error
+            .downcast_ref::<pm_rust::admission::AdmissionRefusal>()
+            .ok_or("typed preview source refusal")?
+            .code,
+        "admission_source"
+    );
+    fs::write(root.join("settings.json"), "{}")?;
     for json in [false, true] {
         assert!(super::run_with_io(cli(json), &mut input.as_slice(), &mut WriteFailure).is_err());
         assert!(super::run_with_io(cli(json), &mut input.as_slice(), &mut FlushFailure).is_err());
