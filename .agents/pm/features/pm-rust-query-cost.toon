@@ -2,14 +2,19 @@ id: pm-rust-query-cost
 title: Explain native list query work before materializing context
 description: "Expose a bounded native read plan using existing projection behavior, without a JavaScript runtime dependency."
 type: Feature
-status: in_progress
+status: closed
 priority: 2
 tags[3]: native,performance,query-plan
 created_at: "2026-10-25T23:54:19.370Z"
-updated_at: "2026-10-26T01:09:44.045Z"
+updated_at: "2026-10-30T20:12:22.316Z"
+closed_at: "2026-10-30T20:12:21.441Z"
+completed_at: "2026-10-26T02:32:56.000Z"
 author: codex-agent
 acceptance_criteria: "Estimates are explicitly bounded or unknown, never fictional exact costs.; A narrow projection plans less materialization than full bodies on a 10000-item fixture.; Explain performs zero mutations and works in a non-git tracker.; Typed SDK and CLI, compact TOON and JSON, typed remedies, docs and public tracker measurements; unchanged npm and Bun CI release gates pass."
 parent: pm-rust-u4al
+resolution: "Delivered by PR #117 (7b1fb7a): Explain native list work before requesting large context"
+expected_result: "Estimates are explicitly bounded or unknown, never fictional exact costs.; A narrow projection plans less materialization than full bodies on a 10000-item fixture.; Explain performs zero mutations and works in a non-git tracker.; Typed SDK and CLI, compact TOON and JSON, typed remedies, docs and public tracker measurements; unchanged npm and Bun CI release gates pass."
+actual_result: "PR #117 merged at 2026-10-26T02:32:56Z as 7b1fb7a; required CI passed on the merged head."
 comments[11]{created_at,author,text}:
   "2026-10-25T23:54:46.624Z",codex-agent,"Overlap audit: current CLI 2026.10.25 exposes context intents, output receipts and vector query plans, not a native file-reader cost plan. pm-context (1dae20d) packs evidence; pm-rlm (62ed36e) budgets orchestration calls; pm-memory (5bd356e) stores guidance. Native read sessions bound delivery and memory. This feature explains native list projection and candidate work before execution. Core TypeScript contracts remain the semantic oracle, not a runtime dependency. Scope: read-only list brief/full planning; no import/export/sync, journals, lifecycle classification or shared mutable coordination added."
   "2026-10-26T00:00:28.960Z",codex-agent,"Design: strict typed brief/full list admission, streaming directory/byte ceilings, shared execution projector, conditional decoder-input and candidate bounds, explicit unknown wire/heap/time costs. No item decoding or status-role decisions during planning, no state writes, no new import/export/sync or coordination paths. Tests add 10000-item materialization comparison, 500 seeded replay sequences with SDK state read-back, and no-Git/no-Node CLI byte-preservation checks."
@@ -39,4 +44,5 @@ docs[3]{path,scope}:
   docs/QUERY_COST.md,project
   examples/query_cost.rs,project
   README.md,project
+close_reason: "Delivered by PR #117 (7b1fb7a): Explain native list work before requesting large context"
 body: ""

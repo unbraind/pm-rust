@@ -5,6 +5,7 @@
 ### Features
 
 - Read canonical pm workspaces without a JavaScript runtime ([pm-rust-o2yr](https://github.com/unbraind/pm-rust/blob/main/.agents/pm/features/pm-rust-o2yr.toon)) _type:Feature; status:closed; P1; release:0.1.0-alpha.1_
+- Explain native list query work before materializing context ([pm-rust-query-cost](https://github.com/unbraind/pm-rust/blob/main/.agents/pm/features/pm-rust-query-cost.toon)) _type:Feature; status:closed; P2_
 - Compare native and published crash recovery with a reusable kill corpus ([pm-rust-crash-harness](https://github.com/unbraind/pm-rust/blob/main/.agents/pm/features/pm-rust-crash-harness.toon)) _type:Feature; status:closed; P2_
 - Use authorized remote backends through a portable native adapter ABI ([pm-rust-portable-native-adapter-abi](https://github.com/unbraind/pm-rust/blob/main/.agents/pm/features/pm-rust-portable-native-adapter-abi.toon)) _type:Feature; status:closed; P2_
 - Stream certified native reads under caller resource limits ([pm-rust-bounded-read-sessions](https://github.com/unbraind/pm-rust/blob/main/.agents/pm/features/pm-rust-bounded-read-sessions.toon)) _type:Feature; status:closed; P2_
@@ -28,6 +29,7 @@
 
 ### Bug Fixes
 
+- Windows release gate covers the history-directory link refusal ([pm-rust-2g7c](https://github.com/unbraind/pm-rust/blob/main/.agents/pm/issues/pm-rust-2g7c.toon)) _type:Issue; status:closed; P1_
 - Certify only observed crash-oracle checks and durable evidence commits ([pm-rust-crash-oracle-recorder](https://github.com/unbraind/pm-rust/blob/main/.agents/pm/tasks/pm-rust-crash-oracle-recorder.toon)) _type:Task; status:closed; P2_
 - Regenerate changelogs after gated sync and closeout ([pm-rust-closeout-changelog](https://github.com/unbraind/pm-rust/blob/main/.agents/pm/issues/pm-rust-closeout-changelog.toon)) _type:Issue; status:closed; P2_
 - Recover pending item journals before every native mutation ([pm-rust-cross-operation-journal](https://github.com/unbraind/pm-rust/blob/main/.agents/pm/tasks/pm-rust-cross-operation-journal.toon)) _type:Task; status:closed; P1_
