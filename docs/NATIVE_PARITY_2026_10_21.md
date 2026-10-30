@@ -1,6 +1,7 @@
 # Native parity with pm-cli 2026.10.21
 
-The published oracle and native compatibility constant are pinned to 2026.10.21.
+This historical receipt records the 2026.10.21 oracle. The current pin and
+[2026.10.23 changes](oracle-2026-10-23.md) are documented separately.
 The lockfile retains the registry tarball and integrity. This receipt covers the
 changes since the previous 2026.10.19 oracle; it does not expand every published
 command into the native implementation.

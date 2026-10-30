@@ -479,17 +479,25 @@ impl<'a> Traversal<'a> {
                 }
             }
         }
+        let direct = graph.neighbors(root, query);
+        let required: BTreeSet<_> = direct
+            .iter()
+            .filter(|(id, edge)| matches!(role(edge, id), "prerequisite" | "ancestor"))
+            .map(|(id, _)| *id)
+            .collect();
         discovered.sort_by(|a, b| {
-            a.1.cmp(&b.1)
+            required
+                .contains(b.0)
+                .cmp(&required.contains(a.0))
+                .then_with(|| a.1.cmp(&b.1))
                 .then_with(|| crate::collation::compare(a.0, b.0))
         });
-        let direct = graph.neighbors(root, query);
         let mut direct_counts = json!({"prerequisite":0,"dependent":0,"ancestor":0,"descendant":0,"provenance":0,"related":0});
         for (id, edge) in &direct {
             let name = role(edge, id);
             direct_counts[name] = json!(direct_counts[name].as_u64().unwrap_or_default() + 1);
         }
-        let contract = json!({"rootId":root,"direction":query.direction,"kinds":query.kinds,"maxDepth":query.depth});
+        let contract = json!({"rootId":root,"direction":query.direction,"kinds":query.kinds,"maxDepth":query.depth,"ordering":"required-root-evidence-first-v1"});
         let fingerprint = crate::history::sha256_digest(
             format!(
                 "relationship-context\0{}",
@@ -567,6 +575,7 @@ fn packet(
         ));
     }
     let mut nodes = Vec::new();
+    let mut reserved = 0;
     for (id, distance, via, initial_role) in discovered.iter().skip(start).take(query.nodes) {
         let reasons: BTreeSet<_> = direct
             .iter()
@@ -596,6 +605,19 @@ fn packet(
         if used + tokens > budget {
             break;
         }
+        let edge_cost: usize = direct
+            .iter()
+            .map(|(_, edge)| *edge)
+            .filter(|edge| text(edge, "source") == *id || text(edge, "target") == *id)
+            .map(cost)
+            .sum();
+        if used + reserved + tokens + edge_cost > budget {
+            if !nodes.is_empty() {
+                break;
+            }
+        } else {
+            reserved += edge_cost;
+        }
         nodes.push(node);
         used += tokens;
     }
@@ -615,7 +637,7 @@ fn packet(
         .flatten()
         .copied()
         .collect();
-    let candidates: Vec<_> = incident
+    let mut candidates: Vec<_> = incident
         .into_iter()
         .map(|index| &graph.edges[index])
         .filter(|edge| {
@@ -624,11 +646,17 @@ fn packet(
                 && query.matches(text(edge, "kind"))
         })
         .collect();
+    candidates.sort_by_key(|edge| {
+        std::cmp::Reverse(text(edge, "source") == root || text(edge, "target") == root)
+    });
     let mut edges = Vec::new();
-    for edge in candidates.iter().take(query.edges) {
+    for edge in &candidates {
+        if edges.len() >= query.edges {
+            break;
+        }
         let tokens = cost(edge);
         if used + tokens > budget {
-            break;
+            continue;
         }
         edges.push(*edge);
         used += tokens;
@@ -734,10 +762,74 @@ fn render_packet(
     evidence: &[String],
     options: &DepsOptions,
 ) -> Result<ListOutput, PmRustError> {
+    render_packet_cached(
+        graph,
+        id,
+        query,
+        traversal,
+        evidence,
+        options,
+        &mut RenderedCosts::default(),
+    )
+}
+
+/// Reuses exact rendered costs across preserved-query probes with equal packet shapes.
+#[derive(Default)]
+struct RenderedCosts {
+    /// Bounded shape/encoding cache; budget numbers retain their rendered digit widths.
+    entries: BTreeMap<(bool, String), usize>,
+    /// Actual render admissions, used to verify reuse independently of host timing.
+    #[cfg(test)]
+    measurements: usize,
+    /// Kernel attempts, used to reject redundant floor retries without timing assertions.
+    #[cfg(test)]
+    attempts: usize,
+}
+
+impl RenderedCosts {
+    /// Counts every byte fact except the identities of two ordinary decimal integers.
+    fn measure(&mut self, result: &Value, toon: bool) -> usize {
+        let mut shape = result.clone();
+        // These two nonnegative integer scalars change byte length only at decimal
+        // width boundaries. Every other field remains part of the exact shape key.
+        for name in ["tokenBudget", "usedTokens"] {
+            let value = &mut shape["context"]["meta"][name];
+            *value = json!(crate::stringify_json(value, false).len());
+        }
+        let key = (toon, crate::stringify_json(&shape, false));
+        if let Some(measured) = self.entries.get(&key) {
+            return *measured;
+        }
+        #[cfg(test)]
+        {
+            self.measurements += 1;
+        }
+        let measured = tokens(result, toon);
+        if self.entries.len() < 64 {
+            self.entries.insert(key, measured);
+        }
+        measured
+    }
+}
+
+/// Stabilizes each packet while sharing rendered shape costs with other budget candidates.
+fn render_packet_cached(
+    graph: &Graph,
+    id: &str,
+    query: &Query,
+    traversal: &Traversal<'_>,
+    evidence: &[String],
+    options: &DepsOptions,
+    costs: &mut RenderedCosts,
+) -> Result<ListOutput, PmRustError> {
     let mut budget = query.tokens;
     // Larger limits render the same rows; skip retries that cannot remove a reference.
     let mut reference_limit = query.edges.min(traversal.missing.len());
     loop {
+        #[cfg(test)]
+        {
+            costs.attempts += 1;
+        }
         let mut packet = packet(
             graph,
             id,
@@ -751,6 +843,7 @@ fn render_packet(
                 .filter(|value| !value.is_empty()),
             budget,
         )?;
+        let kernel_used = packet["meta"]["usedTokens"].as_u64().unwrap_or_default();
         let references = packet
             .as_object_mut()
             .and_then(|packet| packet.shift_remove("missing_references"))
@@ -784,7 +877,7 @@ fn render_packet(
             return Ok(result.into());
         }
         loop {
-            let measured = tokens(&result, options.toon);
+            let measured = costs.measure(&result, options.toon);
             if result["context"]["meta"]["usedTokens"] == measured {
                 break;
             }
@@ -800,7 +893,32 @@ fn render_packet(
         if reference_limit > 0 {
             reference_limit -= 1;
         } else {
-            budget = next_budget(budget, query.tokens, measured);
+            // With no edges and at most the mandatory first node, a smaller
+            // kernel budget can only return the same packet or refuse it.
+            if result["context"]["nodes"].as_array().map_or(0, Vec::len) <= 1
+                && result["context"]["edges"]
+                    .as_array()
+                    .is_some_and(Vec::is_empty)
+            {
+                return Err(crate::collections::refusal(
+                    "Relationship context tokenBudget cannot fit the required rendered packet",
+                    1,
+                    json!({"code":"unknown_error"}),
+                ));
+            }
+            let next = next_budget(budget, query.tokens, measured);
+            budget = if result["context"]["meta"]["truncated"] == false {
+                // Every budget at least this complete selection's summed kernel
+                // cost retains the same rows and edges; jump to its first change.
+                next.min(
+                    usize::try_from(kernel_used)
+                        .unwrap_or(usize::MAX)
+                        .saturating_sub(1)
+                        .max(1),
+                )
+            } else {
+                next
+            };
         }
     }
 }
@@ -942,12 +1060,15 @@ fn budget_refusal(
                     .sum::<usize>(),
             ),
     );
+    let mut costs = RenderedCosts::default();
     let bounds = budget_recovery::find(query.tokens, work, &mut |budget| {
         let mut candidate = query.clone();
         candidate.tokens = budget;
         probe_delivery(
-            render_packet(graph, id, &candidate, traversal, evidence, options)
-                .and_then(|result| disclose(result, options)),
+            render_packet_cached(
+                graph, id, &candidate, traversal, evidence, options, &mut costs,
+            )
+            .and_then(|result| disclose(result, options)),
         )
     });
     let inspection_args = vec![

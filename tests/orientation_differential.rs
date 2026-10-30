@@ -599,8 +599,10 @@ fn compare(expected: &Output, actual: &Output, args: &[&str]) {
     assert_eq!(
         actual.status.code(),
         expected.status.code(),
-        "{args:?}: native {} oracle {}",
+        "{args:?}: native status {:?}, stderr {}; oracle status {:?}, stderr {}",
+        actual.status,
         String::from_utf8_lossy(&actual.stderr),
+        expected.status,
         String::from_utf8_lossy(&expected.stderr)
     );
     assert_eq!(
@@ -756,6 +758,143 @@ fn context_sections_match_oracle() -> TestResult {
             }
         }
     }
+    Ok(())
+}
+
+/// Test health counts every active item even when focus paging or packing hides a failure.
+#[test]
+fn context_test_health_population_matches_oracle() -> TestResult {
+    let Some(published) = published_cli::published_cli_or_skip("matching test-health population")
+    else {
+        return Ok(());
+    };
+    let scratch = tempfile::tempdir()?;
+    let driver = orientation_driver(scratch.path(), &published)?;
+    let root = tempfile::tempdir()?;
+    assert!(
+        oracle(&driver, root.path(), &["init", "sample-", "--defaults"])?
+            .status
+            .success()
+    );
+    let mut failing = item("sample-failing", "Task", "in_progress", 3);
+    failing["tests"] = json!([{"command":"cargo test","scope":"project"}]);
+    failing["test_runs"] = json!([{"run_id":"fixture-failure","kind":"test","status":"failed","started_at":CLOCK,"finished_at":CLOCK,"recorded_at":CLOCK,"passed":2,"failed":1,"skipped":1}]);
+    let mut blocked = failing.clone();
+    blocked["id"] = json!("sample-blocked");
+    blocked["status"] = json!("blocked");
+    let mut done = failing.clone();
+    done["id"] = json!("sample-done");
+    done["status"] = json!("closed");
+    fixture(
+        root.path(),
+        &[
+            item("sample-first", "Task", "in_progress", 0),
+            item("sample-empty", "Task", "open", 1),
+            failing,
+            blocked,
+            done,
+        ],
+    )?;
+    for limit in ["1", "10"] {
+        for budget in ["4000", "8000"] {
+            for encoding in [vec![], vec!["--json"]] {
+                let mut args = vec![
+                    "context",
+                    "--depth",
+                    "deep",
+                    "--limit",
+                    limit,
+                    "--token-budget",
+                    budget,
+                ];
+                args.extend(&encoding);
+                let expected = oracle(&driver, root.path(), &args)?;
+                assert!(
+                    expected.status.success(),
+                    "{args:?}: status {:?}, stdout {}, stderr {}",
+                    expected.status,
+                    String::from_utf8_lossy(&expected.stdout),
+                    String::from_utf8_lossy(&expected.stderr),
+                );
+                compare(&expected, &native(root.path(), &args)?, &args);
+                if !encoding.is_empty() {
+                    let value: Value = serde_json::from_slice(&expected.stdout)?;
+                    assert_eq!(
+                        value["tests"],
+                        json!({"scope":"matching_active_items","total_items":3,"items_with_tests":1,"items_with_recent_runs":1,"recent_runs":{"passed":2,"failed":1,"skipped":1},"items_failing":["sample-failing"]})
+                    );
+                }
+            }
+        }
+    }
+    let args = [
+        "context",
+        "--depth",
+        "deep",
+        "--limit",
+        "1",
+        "--token-budget",
+        "1",
+        "--json",
+    ];
+    let expected = oracle(&driver, root.path(), &args)?;
+    assert_eq!(expected.status.code(), Some(2));
+    compare(&expected, &native(root.path(), &args)?, &args);
+    Ok(())
+}
+
+/// Required root endpoints precede optional children through byte-exact CLI pages.
+#[test]
+fn relationship_required_evidence_pages_match_oracle() -> TestResult {
+    let Some(published) = published_cli::published_cli_or_skip("required root evidence pages")
+    else {
+        return Ok(());
+    };
+    let scratch = tempfile::tempdir()?;
+    let driver = orientation_driver(scratch.path(), &published)?;
+    let root = tempfile::tempdir()?;
+    assert!(
+        oracle(&driver, root.path(), &["init", "sample-", "--defaults"])?
+            .status
+            .success()
+    );
+    let mut start = item("sample-root", "Task", "open", 1);
+    start["blocked_by"] = json!("sample-z-blocker");
+    start["parent"] = json!("sample-z-parent");
+    let mut child = item("sample-a-child", "Task", "open", 2);
+    child["parent"] = json!("sample-root");
+    let parent = item("sample-z-parent", "Feature", "open", 2);
+    let blocker = item("sample-z-blocker", "Task", "open", 2);
+    fixture(root.path(), &[start, child, parent, blocker])?;
+    let mut cursor = None;
+    for id in ["sample-z-blocker", "sample-z-parent", "sample-a-child"] {
+        let mut args = vec![
+            "deps",
+            "sample-root",
+            "--format",
+            "context",
+            "--node-limit",
+            "1",
+            "--full",
+            "--json",
+        ];
+        if let Some(cursor) = cursor.as_deref() {
+            args.extend(["--cursor", cursor]);
+        }
+        let expected = oracle(&driver, root.path(), &args)?;
+        assert!(expected.status.success());
+        compare(&expected, &native(root.path(), &args)?, &args);
+        let value: Value = serde_json::from_slice(&expected.stdout)?;
+        assert_eq!(value["context"]["nodes"][0]["id"], id);
+        assert_eq!(
+            value["omission_receipt"]["has_omissions"],
+            id != "sample-a-child"
+        );
+        cursor = value["context"]["meta"]["nextCursor"]
+            .as_str()
+            .map(str::to_owned);
+    }
+    assert!(cursor.is_none());
     Ok(())
 }
 
