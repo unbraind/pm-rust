@@ -1,0 +1,19 @@
+id: pm-rust-2g7c
+title: Windows release gate covers the history-directory link refusal
+description: "Main CI has failed on the Windows aggregate release gate since #126 (1af5990): src/changes.rs:375, the refusal for a linked history directory, is uncovered on Windows, because its only test is Unix-only (symlink). Coverage is 99.99% of regions against the 100% gate."
+type: Issue
+status: in_progress
+priority: 1
+tags[3]: ci,coverage,windows
+created_at: "2026-10-30T18:35:01.031Z"
+updated_at: "2026-10-30T18:35:04.212Z"
+author: claude-orchestrator
+acceptance_criteria: "A Windows test replaces the history directory with a directory junction and the adapter refuses with ChangeRefusal::Source; The Windows aggregate release gate passes at 100% coverage"
+expected_result: "The Windows release gate reaches 100% coverage, with a Windows test proving a junction cannot redirect history reads."
+actual_result: "Windows aggregate run 123163364234: Uncovered Lines src/changes.rs: 375; recipe release-check failed."
+files[2]{path,scope}:
+  src/changes.rs,project
+  tests/support/changes_unit.rs,project
+tests[1]{command,scope,provenance{author,created_at,source_kind,source_ref}}:
+  cargo test --locked windows_history_junction_is_refused (Windows),project,claude-orchestrator,"2026-10-30T18:35:04.073Z",local_mutation,test/windows-history-junction-refusal
+body: ""
