@@ -3,14 +3,19 @@ title: Preview canonical item admission without native tracker writes
 description: Bounded Rust SDK and CLI preflight for canonical item intents using the native mutation path.
 type: Feature
 pm_format_version: 2
-status: in_progress
+status: closed
 priority: 2
 tags[4]: admission,"gh:unbraind/pm-rust#132",native,oracle
 created_at: "2026-10-29T04:13:00.543Z"
-updated_at: "2026-10-31T07:30:29.764Z"
+updated_at: "2026-10-31T09:20:38.380Z"
+closed_at: "2026-10-31T09:20:37.464Z"
+completed_at: "2026-10-31T08:29:36.000Z"
 author: codex-agent
 acceptance_criteria: Unsupported intent kinds refuse before any write; admitted and refused fixtures match the published TypeScript previewItemMutations oracle for the declared slice; every byte and row limit is reported.
 parent: pm-rust-u4al
+resolution: "Delivered by PR #132 (6bb8a31): Preview canonical item admission without writing the tracker"
+expected_result: Unsupported intent kinds refuse before any write; admitted and refused fixtures match the published TypeScript previewItemMutations oracle for the declared slice; every byte and row limit is reported.
+actual_result: "PR #132 merged at 2026-10-31T08:29:36Z as 6bb8a31; required CI passed on the merged head."
 comments[60]{created_at,author,text}:
   "2026-10-29T04:23:45.667Z",codex-agent,"Implementation uses shared native create/update document preparation and the existing native status registry. Preview has no persistence phase: ordered candidate state stays in memory, independent row failures retain diagnostics, and a refused target suppresses later same-target intents. Hard input/source/row/directory/depth/output ceilings are reported. The declared slice is progressive explicit-scope creates and scalar updates; custom field/type workflows and complex lifecycle transitions refuse explicitly. Published oracle remains repo-pinned at 2026.10.21 per package policy; current registry pm is 2026.10.28. Unsupported operation kinds refuse before tracker discovery. No transaction-lock isolation or future commit guarantee is claimed."
   "2026-10-29T04:40:19.636Z",codex-agent,"Local acceptance passed: 3 integration tests including 33 published oracle cases and 500 seeded state-preservation sequences; the initial 9 native unit tests also passed, including 500 seeded preview-versus-actual-apply sequences and step-boundary interleaving. Additional I/O and rendering boundary coverage is being measured. Follow-up pm-rust-admission-schema tracks expansion beyond the explicit first contract; these cases currently return typed refusals rather than implied admission."
@@ -176,4 +181,5 @@ docs[3]{path,scope}:
   docs/native-admission-validation.md,project
   examples/item-admission.json,project
   README.md,project
+close_reason: "Delivered by PR #132 (6bb8a31): Preview canonical item admission without writing the tracker"
 body: "Overlap refreshed: published core previewItemMutations owns canonical transaction semantics; CSV owns CSV schemas and mapping; Beads owns its external format. Native preflight supplies agents without Node or Git and introduces no importer dialect. Reuse native apply functions in disposable bounded snapshots; source bytes remain unchanged. No lock-based isolation or live commit guarantee is claimed."

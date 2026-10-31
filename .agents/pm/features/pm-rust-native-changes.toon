@@ -2,14 +2,19 @@ id: pm-rust-native-changes
 title: Resume native agents from bounded incremental mutation cursors
 description: Pull-based native transport for canonical mutation events; read-only local history adapter and versioned adapter capability.
 type: Feature
-status: in_progress
+status: closed
 priority: 2
 tags[3]: cursor,events,native
 created_at: "2026-10-27T16:36:18.810Z"
-updated_at: "2026-10-27T20:11:32.029Z"
+updated_at: "2026-10-31T09:20:41.917Z"
+closed_at: "2026-10-31T09:20:41.102Z"
+completed_at: "2026-10-28T23:25:12.000Z"
 author: codex-agent
 acceptance_criteria: "Concurrent appends resume after the last admitted event exactly once; Stale cursors and unsupported adapters return typed refusals with remedies; Cancellation and backpressure remain bounded without Node or Git; Typed SDK, compact TOON and JSON CLI, documentation, seeded property and interleaving tests, public tracker validation, npm and Bun CI gates"
 parent: pm-rust-u4al
+resolution: "Delivered by PR #126 (1af5990): Let native agents resume from bounded mutation cursors"
+expected_result: "Concurrent appends resume after the last admitted event exactly once; Stale cursors and unsupported adapters return typed refusals with remedies; Cancellation and backpressure remain bounded without Node or Git; Typed SDK, compact TOON and JSON CLI, documentation, seeded property and interleaving tests, public tracker validation, npm and Bun CI gates"
+actual_result: "PR #126 merged at 2026-10-28T23:25:12Z as 1af5990; required CI passed on the merged head."
 comments[14]{created_at,author,text}:
   "2026-10-27T16:36:27.058Z",codex-agent,"Overlap checked against the pinned public SDK mutation-events declarations, native_adapter and read_session, and pm-context since.ts. Core listMutationEvents and subscribeMutationEventBatches own the compact event projection; pm-context owns delta ranking. This work adds native pull transport using that projection, with per-stream immutable prefix cursors so backdated concurrent appends remain visible. No import/export/sync, item writes, status interpretation, ranking, shared checkpoints or new event schema. Reuse existing native adapter admission and canonical history hashing/codecs; preserve backend refusals. Registry current CLI is 2026.10.27; retain the pinned 2026.10.21 oracle."
   "2026-10-27T16:43:14.500Z",codex-agent,"Implemented ChangeReader and LocalChangeAdapter, additive changes ABI capability and one-page changes CLI. Native prefix cursors are caller-owned and immutable; independent readers do not share checkpoint state. The local path performs no item mutation, import/export/sync, status decision, lease or retry. Targeted SDK tests pass 7/7, including a fixed-seed 500-sequence model with older-input replay, CRLF and relationship-patch preservation read back through Workspace.history. No normalization oracle is duplicated. Continuing strict output fuzzing, step-boundary interleavings, revert proof, read-only public-data validation and CI coverage."
@@ -47,4 +52,5 @@ docs[4]{path,scope}:
   docs/native-changes.md,project
   examples/changes.rs,project
   README.md,project
+close_reason: "Delivered by PR #126 (1af5990): Let native agents resume from bounded mutation cursors"
 body: ""
