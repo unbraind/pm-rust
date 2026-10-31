@@ -4,7 +4,7 @@ use std::{collections::BTreeMap, fs};
 
 use pm_rust::{
     AuthorIdentity, CreateItem, OwnershipItem, OwnershipOptions, PmRustError, SelectionOptions,
-    Workspace,
+    Workspace, admission::AdmissionBatch,
 };
 use serde_json::{Value, json};
 
@@ -516,6 +516,28 @@ fn ownership_lock_refusal_precedes_corpus_validation() -> TestResult {
     assert!(
         matches!(workspace.claim(&request("alpha")), Err(PmRustError::OwnershipRefusal {context,..}) if context["code"]=="lock_conflict")
     );
+    Ok(())
+}
+
+/// Previews judge ownership by the batch author alone; an ambient SDK identity is never inherited.
+#[test]
+fn preview_ownership_ignores_an_ambient_scoped_identity() -> TestResult {
+    let (_directory, workspace) = fixture()?;
+    let owner = AuthorIdentity::resolve(Some("alpha"), None, &BTreeMap::new());
+    owner.with(|| workspace.start_task(&request("alpha"), &OwnershipOptions::default()))?;
+    let batch = |author: &str| {
+        AdmissionBatch::from_json(&serde_json::to_vec(&json!({
+            "author": author,
+            "mutations": [{"op": "update", "id": "sample-one", "options": {"title": "Preview"}}],
+        }))?)
+        .map_err(Box::<dyn std::error::Error>::from)
+    };
+    let intruder = batch("intruder")?;
+    let foreign = owner.with(|| workspace.preview_item_mutations(&intruder))?;
+    assert!(!foreign.ok);
+    assert_eq!(foreign.diagnostics[0].code, "ownership_conflict");
+    let admitted = workspace.preview_item_mutations(&batch("alpha")?)?;
+    assert!(admitted.ok, "{:?}", admitted.diagnostics);
     Ok(())
 }
 

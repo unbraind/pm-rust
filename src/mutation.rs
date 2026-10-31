@@ -1907,10 +1907,13 @@ fn prepare_create_document(
 }
 
 /// Enforces ownership on scalar writes and previews using the persisted principal.
+///
+/// Callers resolve `caller_principal`: native apply uses the scoped session identity,
+/// while previews use only the batch author, so no ambient identity is inherited.
 fn validate_scalar_owner(
     settings: &MutationSettings,
     before: &ItemDocument,
-    author: &str,
+    caller_principal: &str,
 ) -> Result<(), PmRustError> {
     let owner = ownership_text(before, "assignee");
     let held = ownership_text(before, "claim_principal");
@@ -1919,7 +1922,6 @@ fn validate_scalar_owner(
     } else {
         held.trim()
     };
-    let caller_principal = crate::ownership::caller_principal(author);
     if !owner.trim().is_empty()
         && principal != caller_principal
         && settings.governance.policy() == "strict"
@@ -2057,11 +2059,12 @@ pub(crate) fn create_item(
 fn prepare_update_document(
     before_document: &ItemDocument,
     request: &mut UpdateItem,
+    caller_principal: &str,
     timestamp: &String,
     settings: &MutationSettings,
     lifecycle: &crate::list_registry::Lifecycle,
 ) -> Result<ItemDocument, PmRustError> {
-    validate_scalar_owner(settings, before_document, &request.author)?;
+    validate_scalar_owner(settings, before_document, caller_principal)?;
     if let Some(status) = &request.status {
         validate_scalar_closure(settings, lifecycle, status, request.message.as_deref())?;
     }
@@ -2126,7 +2129,16 @@ pub(crate) fn prepare_update_preview(
     let timestamp = validate_mutation_request(&request.author, request.timestamp.as_deref())?;
     let settings = crate::strict_json::from_slice(settings_bytes)
         .map_err(|error| invalid(format!("invalid settings.json: {error}")))?;
-    let document = prepare_update_document(before, &mut request, &timestamp, &settings, lifecycle)?;
+    // Previews never inherit an ambient session: the batch author is the caller.
+    let principal = request.author.trim().to_owned();
+    let document = prepare_update_document(
+        before,
+        &mut request,
+        &principal,
+        &timestamp,
+        &settings,
+        lifecycle,
+    )?;
     canonical_item_bytes(&document).map(|_| document)
 }
 
@@ -2154,9 +2166,11 @@ pub(crate) fn update_item(
     // The stored document must be read under the lock so no writer ever
     // applies changes to stale bytes.
     let lifecycle = crate::list_registry::Lifecycle::load(pm_root)?;
+    let principal = crate::ownership::caller_principal(&request.author);
     let document = prepare_update_document(
         &before_document,
         &mut request,
+        &principal,
         &timestamp,
         &settings,
         &lifecycle,
@@ -2199,7 +2213,11 @@ pub(crate) fn comment_item(
     )?;
     let (item_path, history_path, before_document) =
         recover_and_locate(pm_root, "comment", &request.id)?;
-    validate_scalar_owner(&settings, &before_document, &request.author)?;
+    validate_scalar_owner(
+        &settings,
+        &before_document,
+        &crate::ownership::caller_principal(&request.author),
+    )?;
     let mut document = before_document.clone();
     let row = serde_json::json!({
         "created_at": timestamp,

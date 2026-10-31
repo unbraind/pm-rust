@@ -11,6 +11,8 @@ env:
   PM_SENTRY_DISABLED: "1"
   PM_TELEMETRY_SOURCE_CONTEXT: test
   CARGO_BUILD_JOBS: "2"
+  # One-shot runners cannot reuse incremental state, so skip writing it.
+  CARGO_INCREMENTAL: "0"
   RUST_TEST_THREADS: "2"
 
 permissions:
