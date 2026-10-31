@@ -659,12 +659,20 @@ thread_local! {
     static STEP: std::cell::Cell<usize> = const {std::cell::Cell::new(0)};
     /// A competing writer fires at exactly this observation boundary.
     static INJECT_AT: std::cell::Cell<usize> = const {std::cell::Cell::new(usize::MAX)};
+    /// One-shot directory replacement exactly between the path check and open.
+    static INJECT_PARENT_SWAP: std::cell::RefCell<Option<(PathBuf, PathBuf, PathBuf)>> = const {std::cell::RefCell::new(None)};
     /// Optional real replacement for aliased-schema interleavings.
     static INJECT_REPLACEMENT: std::cell::RefCell<Option<(PathBuf, Vec<u8>)>> = const {std::cell::RefCell::new(None)};
 }
 
 /// A genuine competing file replacement; no SDK or filesystem mocks.
 pub(super) fn checkpoint(root: &Path) {
+    INJECT_PARENT_SWAP.with(|swap| {
+        if let Some((parent, retained, target)) = swap.take() {
+            assert!(fs::rename(&parent, &retained).is_ok());
+            assert!(directory_link(&target, &parent).is_ok());
+        }
+    });
     STEP.with(|step| {
         let next = step.get() + 1;
         step.set(next);
@@ -1526,5 +1534,28 @@ fn admission_settings_alias_interleaving_refuses_stale_registry() -> TestResult 
     );
     assert!(!workspace.preview_item_mutations(&request)?.ok);
     assert!(workspace.get("demo-new").is_err());
+    Ok(())
+}
+
+/// A parent swapped after validation cannot redirect an opened admission source.
+#[test]
+fn admission_parent_component_swap_is_refused() -> TestResult {
+    let (directory, workspace) = fixture()?;
+    let root = workspace.pm_root();
+    let parent = root.join("nested");
+    let retained = directory.path().join("retained");
+    let target = directory.path().join("external");
+    fs::create_dir(&parent)?;
+    fs::create_dir(&target)?;
+    fs::write(parent.join("fields.json"), "{}")?;
+    fs::write(target.join("fields.json"), "{}")?;
+    let relative = Path::new("nested/fields.json");
+    assert_eq!(Source::default().read(root, relative)?, b"{}");
+    INJECT_PARENT_SWAP.with(|swap| swap.replace(Some((parent, retained, target))));
+    let result = Source::default().read(root, relative);
+    assert_eq!(
+        result.err().ok_or("parent swap followed")?.code,
+        "admission_source"
+    );
     Ok(())
 }

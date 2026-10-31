@@ -720,7 +720,7 @@ fn run_dispatches_every_mutation_and_its_error_halves() -> Result<(), Box<dyn st
             priority: None,
             tags_csv: None,
             body: None,
-            author: "unit-agent".to_owned(),
+            author: Some("unit-agent".to_owned()),
             timestamp: Some("2026-08-07T10:06:30.183Z".to_owned()),
             message: None,
             force_stale_lock: false,
@@ -735,7 +735,7 @@ fn run_dispatches_every_mutation_and_its_error_halves() -> Result<(), Box<dyn st
         priority: None,
         tags_csv: Some("b,a".to_owned()),
         body: None,
-        author: "unit-agent".to_owned(),
+        author: Some("unit-agent".to_owned()),
         timestamp: Some("2026-08-07T10:06:30.183Z".to_owned()),
         message: None,
         force_stale_lock: false,
@@ -746,7 +746,7 @@ fn run_dispatches_every_mutation_and_its_error_halves() -> Result<(), Box<dyn st
         run(cli(Command::Comment {
             id: "unit-dispatch".to_owned(),
             text: "   ".to_owned(),
-            author: "unit-agent".to_owned(),
+            author: Some("unit-agent".to_owned()),
             timestamp: Some("2026-08-07T10:06:30.183Z".to_owned()),
             message: None,
             force_stale_lock: false,
@@ -756,7 +756,7 @@ fn run_dispatches_every_mutation_and_its_error_halves() -> Result<(), Box<dyn st
     run(cli(Command::Comment {
         id: "unit-dispatch".to_owned(),
         text: "dispatch note".to_owned(),
-        author: "unit-agent".to_owned(),
+        author: Some("unit-agent".to_owned()),
         timestamp: Some("2026-08-07T10:06:30.183Z".to_owned()),
         message: None,
         force_stale_lock: false,
@@ -809,7 +809,7 @@ fn run_dispatches_every_mutation_and_its_error_halves() -> Result<(), Box<dyn st
         text: None,
         fields: super::CloseArgs::default(),
         reason: Some("dispatch done".to_owned()),
-        author: "unit-agent".to_owned(),
+        author: Some("unit-agent".to_owned()),
         timestamp: Some("2026-08-07T10:06:30.183Z".to_owned()),
         force_stale_lock: false,
     }))?;
@@ -819,7 +819,7 @@ fn run_dispatches_every_mutation_and_its_error_halves() -> Result<(), Box<dyn st
             text: None,
             fields: super::CloseArgs::default(),
             reason: Some("again".to_owned()),
-            author: "unit-agent".to_owned(),
+            author: Some("unit-agent".to_owned()),
             timestamp: Some("2026-08-07T10:06:30.183Z".to_owned()),
             force_stale_lock: false,
         }))

@@ -6,14 +6,15 @@ status: open
 priority: 3
 tags[3]: follow-up,governance,health
 created_at: "2026-10-07T16:11:15.858Z"
-updated_at: "2026-10-29T10:22:23.497Z"
+updated_at: "2026-10-31T00:15:02.590Z"
 author: codex-sol
 acceptance_criteria: "Each advisory has an evidence-backed disposition, user-authored guidance is preserved, and strict health still passes."
-comments[4]{created_at,author,text}:
+comments[5]{created_at,author,text}:
   "2026-10-16T18:25:44.860Z",codex-agent,"Reconfirmed during pm-rust-bj7a and pm-rust-unih: the locked 2026.10.14 oracle reports strict check-only health success with required merge drivers under a clean HOME. Existing guidance, stale-work and 19 legacy role-value advisories remain. A normal host HOME also loads an unrelated newer global extension and reports extension version skew; that global state is excluded from the clean CI acceptance. No provenance history was rewritten."
   "2026-10-16T18:35:07.833Z",codex-agent,"Dependency audit also retains the previously recorded unsafe-libyaml 0.2.11 maintenance warning RUSTSEC-2024-0449. cargo audit exits 0 with one allowed warning. Existing references are present in pm-rust-ufzy, pm-rust-cbaq and pm-rust-rysu; no dependency pin or audit threshold changed in the search/collection work. Keep any dependency migration separate from command parity."
   "2026-10-29T05:59:14.383Z",codex-agent,"Native admission validation refreshed strict check-only health with the repository-pinned 2026.10.21 host. Existing advisory classes remain; this clone also reports gate-failing extension_host_pm_cli_version_skew:2026.10.21:2026.10.28:pm-github and merge_driver_configuration_drift:5. These are separate from the native admission acceptance evidence. No history repair, provenance rewrite, guidance change or driver changes were attempted. CI has isolated clone-local setup; its result must be reported separately from local strict health. Admission evidence is in pm-rust-admission-previews and PR 132."
   "2026-10-29T10:22:23.497Z",codex-agent,"Native admission re-review audit: cargo audit succeeds against 1381 loaded advisories and 136 dependencies, retaining only the existing allowed unsafe-libyaml maintenance warning RUSTSEC-2024-0449. No dependency change or policy relaxation. The inherited local SDK-version and driver health findings remain separately uncertified; no driver or history repair was performed."
+  "2026-10-31T00:15:02.590Z",codex-agent,"PR 132 review-round supplemental health check: pinned pm 2026.10.21 health --check-only --strict-exit reports extension_host_pm_cli_version_skew for pm-github 2026.10.28 and merge_driver_configuration_drift:5. These clone-local advisories are separate from product release gates; no shared Git configuration or extension version was changed. The admission feature history verifies 86 entries with current state matching the final hash. Preserve this existing follow-up for orchestrator review rather than changing merge configuration in the security/ownership fix."
 files[1]{path,scope}:
   AGENTS.md,project
 body: ""

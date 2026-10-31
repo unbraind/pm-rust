@@ -487,3 +487,170 @@ fn admission_physical_identity_is_enforced_without_git_or_node() -> TestResult {
     );
     Ok(())
 }
+
+/// Claim and every scalar write share harness identity; foreign sessions remain refused.
+#[test]
+fn admission_detected_owner_matches_claim_for_scalar_writes() -> TestResult {
+    for published in [false, true] {
+        let (directory, workspace) = fixture()?;
+        workspace.create(serde_json::from_value(json!({"id":"sample-session","title":"Session owner","description":"","type":"Task","status":"open","priority":2,"tags":[],"body":"","author":"fixture-agent","timestamp":null,"message":null,"provenance_role":null,"force_stale_lock":false}))?)?;
+        let settings_path = workspace.pm_root().join("settings.json");
+        let mut settings: Value = serde_json::from_slice(&fs::read(&settings_path)?)?;
+        settings["author_default"] = json!("");
+        settings["governance"]["preset"] = json!("strict");
+        settings["governance"]["ownership_enforcement"] = json!("strict");
+        fs::write(&settings_path, serde_json::to_vec(&settings)?)?;
+        let run = |args: &[&str], session: &str| -> Result<std::process::Output, std::io::Error> {
+            let mut command = Command::new(if published {
+                "node"
+            } else {
+                env!("CARGO_BIN_EXE_pm-rust")
+            });
+            process_environment::isolate_environment(&mut command);
+            if published {
+                command.arg(Path::new(env!("CARGO_MANIFEST_DIR")).join("tests/oracle/launch.mts"));
+            } else {
+                command.env("PATH", "");
+            }
+            command
+                .current_dir(directory.path())
+                .env("CODEX_THREAD_ID", session)
+                .args(args)
+                .args(if published { vec!["--json"] } else { vec![] })
+                .output()
+        };
+        if !published {
+            for args in [
+                vec!["update", "sample-session", "--title", "Blank author"],
+                vec!["comment", "sample-session", "Blank author"],
+                vec!["close", "sample-session", "Blank author"],
+            ] {
+                let mut blank = args;
+                blank.extend(["--author", " "]);
+                let before = workspace.get("sample-session")?;
+                let output = run(&blank, "fixture-session-one")?;
+                assert_eq!(output.status.code(), Some(2));
+                assert_eq!(workspace.get("sample-session")?, before);
+            }
+        }
+        let claim = run(&["claim", "sample-session"], "fixture-session-one")?;
+        assert!(
+            claim.status.success(),
+            "{}",
+            String::from_utf8_lossy(&claim.stderr)
+        );
+        let owned = workspace.get("sample-session")?;
+        assert_eq!(owned.metadata.extra["assignee"], "harness:codex");
+        assert!(
+            owned.metadata.extra["claim_principal"]
+                .as_str()
+                .ok_or("principal")?
+                .starts_with("harness:codex#")
+        );
+        for args in [
+            vec!["update", "sample-session", "--title", "Owner revision"],
+            vec!["comment", "sample-session", "Owner annotation"],
+            vec![
+                "close",
+                "sample-session",
+                "Owner completion",
+                "--validate-close",
+                "off",
+            ],
+        ] {
+            for (session, author) in [
+                ("fixture-session-two", None),
+                ("fixture-session-one", Some("another-agent")),
+            ] {
+                let mut foreign = args.clone();
+                if let Some(author) = author {
+                    foreign.extend(["--author", author]);
+                }
+                let before = workspace.get("sample-session")?;
+                let output = run(&foreign, session)?;
+                assert_eq!(
+                    output.status.code(),
+                    Some(4),
+                    "published={published}, {foreign:?}: {}",
+                    String::from_utf8_lossy(&output.stderr)
+                );
+                assert!(String::from_utf8_lossy(&output.stderr).contains("ownership_conflict"));
+                assert_eq!(workspace.get("sample-session")?, before);
+            }
+            let output = run(&args, "fixture-session-one")?;
+            assert!(
+                output.status.success(),
+                "published={published}, {args:?}: {}",
+                String::from_utf8_lossy(&output.stderr)
+            );
+        }
+    }
+    Ok(())
+}
+
+/// The shipped reader refuses linked parents and nonregular leaves, allowing normal files.
+#[test]
+fn admission_cli_opens_source_components_without_following_links() -> TestResult {
+    let (directory, workspace) = fixture()?;
+    let schema = workspace.pm_root().join("schema");
+    let retained = directory.path().join("retained-schema");
+    fs::write(schema.join("types.json"), b"{\"definitions\":[]}")?;
+    fs::rename(&schema, &retained)?;
+    #[cfg(unix)]
+    std::os::unix::fs::symlink(&retained, &schema)?;
+    #[cfg(windows)]
+    {
+        let output = Command::new("cmd")
+            .args(["/C", "mklink", "/J"])
+            .arg(&schema)
+            .arg(&retained)
+            .output()?;
+        assert!(output.status.success());
+    }
+    let input =
+        serde_json::to_vec(&json!({"author":"fixture-agent","mutations":[create("sample-link")]}))?;
+    for scenario in 0..3 {
+        if scenario == 1 {
+            #[cfg(unix)]
+            fs::remove_file(&schema)?;
+            #[cfg(windows)]
+            fs::remove_dir(&schema)?;
+            fs::rename(&retained, &schema)?;
+            fs::rename(
+                schema.join("types.json"),
+                directory.path().join("retained-types.json"),
+            )?;
+            fs::create_dir(schema.join("types.json"))?;
+        }
+        if scenario == 2 {
+            fs::remove_dir(schema.join("types.json"))?;
+            fs::rename(
+                directory.path().join("retained-types.json"),
+                schema.join("types.json"),
+            )?;
+        }
+        let mut command = Command::new(env!("CARGO_BIN_EXE_pm-rust"));
+        process_environment::isolate_environment(&mut command);
+        let mut child = command
+            .current_dir(directory.path())
+            .arg("preview-item-mutations")
+            .arg("--json")
+            .env("PATH", "")
+            .stdin(Stdio::piped())
+            .stdout(Stdio::piped())
+            .stderr(Stdio::piped())
+            .spawn()?;
+        child.stdin.take().ok_or("stdin")?.write_all(&input)?;
+        let output = child.wait_with_output()?;
+        assert_eq!(
+            output.status.success(),
+            scenario == 2,
+            "{}",
+            String::from_utf8_lossy(&output.stderr)
+        );
+        if scenario != 2 {
+            assert!(String::from_utf8_lossy(&output.stderr).contains("admission_source"));
+        }
+    }
+    Ok(())
+}

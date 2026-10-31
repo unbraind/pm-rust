@@ -336,12 +336,61 @@ fn source_error() -> AdmissionRefusal {
     )
 }
 
+/// Maps open and metadata failures through the same non-sensitive source refusal.
+fn source_io_error(_: std::io::Error) -> AdmissionRefusal {
+    source_error()
+}
+
 /// Uniform source budget refusal.
 fn source_limit() -> AdmissionRefusal {
     refuse(
         "admission_source_limit",
         "Select a smaller tracker within source_bytes, source_rows, source_entries and source_depth; no partial admission is returned.",
     )
+}
+
+/// Opens each tracker-relative component from a pinned directory, never following links.
+#[cfg(unix)]
+fn open_source(root: &Path, relative: &Path) -> std::io::Result<fs::File> {
+    use rustix::fs::{Mode, OFlags, open, openat};
+    let flags = OFlags::RDONLY | OFlags::CLOEXEC | OFlags::NOFOLLOW | OFlags::NONBLOCK;
+    let mut directory = open("/", flags | OFlags::DIRECTORY, Mode::empty())?;
+    let mut components = root.components().chain(relative.components()).peekable();
+    while let Some(component) = components.next() {
+        let flags = if components.peek().is_some() {
+            flags | OFlags::DIRECTORY
+        } else {
+            flags
+        };
+        directory = openat(&directory, component.as_os_str(), flags, Mode::empty())?;
+    }
+    Ok(fs::File::from(directory))
+}
+
+/// Pins Windows directories against replacement and refuses every reparse point.
+#[cfg(windows)]
+fn open_source(root: &Path, relative: &Path) -> std::io::Result<fs::File> {
+    use std::os::windows::fs::{MetadataExt as _, OpenOptionsExt as _};
+    let mut path = PathBuf::new();
+    let mut handles = Vec::new();
+    // Denying write/delete sharing pins each verified directory until the leaf opens.
+    for component in root.components().chain(relative.components()) {
+        path.push(component);
+        if matches!(component, Component::Prefix(_)) {
+            continue;
+        }
+        let file = fs::OpenOptions::new()
+            .read(true)
+            .share_mode(1)
+            .custom_flags(0x0220_0000) // OPEN_REPARSE_POINT | BACKUP_SEMANTICS
+            .open(&path)?;
+        if file.metadata()?.file_attributes() & 0x400 != 0 {
+            return Err(std::io::Error::other("reparse source refused"));
+        }
+        handles.push(file);
+    }
+    // The root handle guarantees a nonempty sequence, including an empty relative path.
+    Ok(handles.remove(handles.len() - 1))
 }
 
 impl Source {
@@ -352,17 +401,14 @@ impl Source {
         if let Some(bytes) = self.files.get(relative) {
             return Ok(bytes.clone());
         }
-        let mut path = root.to_path_buf();
-        for component in relative.components() {
-            path.push(component);
-            if path.is_symlink() {
-                return Err(source_error());
-            }
-        }
         #[cfg(test)]
         tests::checkpoint(root);
-        let (mut file, size) =
-            crate::changes::open_regular_history(&path).map_err(|_| source_error())?;
+        let mut file = open_source(root, relative).map_err(source_io_error)?;
+        let metadata = file.metadata().map_err(source_io_error)?;
+        if !metadata.is_file() {
+            return Err(source_error());
+        }
+        let size = metadata.len();
         if size > ADMISSION_LIMITS.source_bytes - self.bytes {
             return Err(source_limit());
         }

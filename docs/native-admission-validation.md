@@ -172,3 +172,25 @@ It recorded 478 individual passes including the unfinished group, with
 0 assertion failures before its isolated process group was intentionally stopped.
 This incomplete attempt does not certify a full release or global coverage.
 Fresh CI for the final evidence commit is linked from PR 132; no wait restarts.
+
+## Detected owners and component-safe source opens
+
+Scalar CLI updates, comments and closes now resolve the same optional author,
+configured default and harness/session inputs as claims. Stored principals are
+compared with the scoped claim identity throughout scalar, collection, claim,
+release and lifecycle checks. SDK callers without scoped identity retain the
+normalized explicit-author fallback. Explicitly blank CLI authors still refuse before
+mutation. Native and pinned published CLI fixtures
+allow the detected owner to update, comment and close, while another author or
+another instance receives an ownership conflict. A scoped SDK fixture also
+checks collection and lifecycle ownership.
+
+Admission uses the existing rustix dependency on Unix: each ancestor is opened
+relative to a pinned directory handle with no-follow semantics, and intermediate
+handles require directories. Windows holds verified ancestors without write or
+delete sharing and refuses every reparse point. Only a regular leaf handle is
+read. The byte ceilings and first-observation cache remain unchanged.
+A deterministic competing writer replaces a checked parent with a link before
+the source open; admission refuses it, while an ordinary source remains readable.
+The shipped CLI exercises linked-parent and nonregular-leaf refusals and a normal
+tracker on every supported OS. The closed-stdout preview regression is retained.

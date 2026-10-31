@@ -1919,13 +1919,9 @@ fn validate_scalar_owner(
     } else {
         held.trim()
     };
-    let caller = crate::ownership::AuthorIdentity::resolve(
-        Some(author),
-        None,
-        &std::collections::BTreeMap::default(),
-    );
+    let caller_principal = crate::ownership::caller_principal(author);
     if !owner.trim().is_empty()
-        && principal != caller.principal
+        && principal != caller_principal
         && settings.governance.policy() == "strict"
     {
         return Err(ownership_refusal(
@@ -2682,7 +2678,10 @@ pub(crate) fn close_item(
         &principal
     };
     let mut warnings = Vec::new();
-    if !owner.trim().is_empty() && principal != request.author && !request.fields.force {
+    if !owner.trim().is_empty()
+        && principal != crate::ownership::caller_principal(&request.author)
+        && !request.fields.force
+    {
         if settings.governance.policy() == "strict" {
             return Err(ownership_refusal(
                 format!(
@@ -3069,18 +3068,18 @@ pub(crate) fn collection_item(
         })?;
     let owner = ownership_text(&before, "assignee");
     let principal = ownership_text(&before, "claim_principal");
-    let caller_principal = options
-        .identity
-        .as_ref()
-        .map_or(options.author.as_str(), |identity| {
-            identity.principal.as_str()
-        });
+    let caller_principal = options.identity.as_ref().map_or_else(
+        || crate::ownership::caller_principal(&options.author),
+        |identity| identity.principal.clone(),
+    );
     if !owner.trim().is_empty()
         && (if principal.is_empty() {
             &owner
         } else {
             &principal
-        }) != caller_principal
+        })
+        .as_str()
+            != caller_principal
         && !options.force
         && settings.governance.policy() == "strict"
     {
@@ -3243,12 +3242,10 @@ pub(crate) fn ownership_item_with_options(
     } else {
         Some(assignee.clone())
     };
-    let caller_principal = options
-        .identity
-        .as_ref()
-        .map_or(request.author.as_str(), |identity| {
-            identity.principal.as_str()
-        });
+    let caller_principal = options.identity.as_ref().map_or_else(
+        || crate::ownership::caller_principal(&request.author),
+        |identity| identity.principal.clone(),
+    );
     let foreign = previous_assignee.is_some() && principal != caller_principal;
     let mut document = before.clone();
     let mut warnings = Vec::new();
@@ -3286,7 +3283,7 @@ pub(crate) fn ownership_item_with_options(
         if skipped.is_none() {
             for field in ["assignee", "claim_principal"] {
                 let value = Value::String(if field == "claim_principal" {
-                    caller_principal.to_owned()
+                    caller_principal.clone()
                 } else {
                     request.author.clone()
                 });
@@ -3483,12 +3480,10 @@ pub(crate) fn lifecycle_status(
         other => other,
     })?;
     let (item_path, history_path, before) = recover_and_locate(pm_root, "update", &request.id)?;
-    let principal = options
-        .identity
-        .as_ref()
-        .map_or(request.author.as_str(), |identity| {
-            identity.principal.as_str()
-        });
+    let principal = options.identity.as_ref().map_or_else(
+        || crate::ownership::caller_principal(&request.author),
+        |identity| identity.principal.clone(),
+    );
     let owner = ownership_text(&before, "assignee");
     let held_principal = ownership_text(&before, "claim_principal");
     let held_principal = if held_principal.trim().is_empty() {

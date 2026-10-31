@@ -518,3 +518,52 @@ fn ownership_lock_refusal_precedes_corpus_validation() -> TestResult {
     );
     Ok(())
 }
+
+/// Scoped SDK identity is consistent across claim, collection, lifecycle and release.
+#[test]
+fn scoped_detected_principal_covers_all_ownership_comparisons() -> TestResult {
+    let (directory, workspace) = fixture()?;
+    let identity = AuthorIdentity::resolve(
+        None,
+        None,
+        &BTreeMap::from([("CODEX_THREAD_ID".into(), "fixture-session-one".into())]),
+    );
+    let foreign = AuthorIdentity::resolve(
+        None,
+        None,
+        &BTreeMap::from([("CODEX_THREAD_ID".into(), "fixture-session-two".into())]),
+    );
+    let request = request(&identity.author);
+    let options = OwnershipOptions::default();
+    identity.with(|| workspace.start_task(&request, &options))?;
+    assert_eq!(
+        workspace.get("sample-one")?.metadata.extra["claim_principal"],
+        identity.principal
+    );
+    let collection = pm_rust::CollectionOptions {
+        author: identity.author.clone(),
+        add: vec!["README.md".into()],
+        ..pm_rust::CollectionOptions::default()
+    };
+    assert!(foreign.with(|| workspace.claim(&request)).is_err());
+    assert!(
+        foreign
+            .with(|| workspace.collection("sample-one", "files", &collection, directory.path()))
+            .is_err()
+    );
+    assert!(
+        foreign
+            .with(|| workspace.pause_task(&request, &options))
+            .is_err()
+    );
+    identity.with(|| workspace.collection("sample-one", "files", &collection, directory.path()))?;
+    identity.with(|| workspace.pause_task(&request, &options))?;
+    assert!(
+        !workspace
+            .get("sample-one")?
+            .metadata
+            .extra
+            .contains_key("claim_principal")
+    );
+    Ok(())
+}
