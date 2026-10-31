@@ -488,6 +488,39 @@ fn admission_physical_identity_is_enforced_without_git_or_node() -> TestResult {
     Ok(())
 }
 
+/// The CLI's original stdin byte count is measured against the output ceiling again.
+#[test]
+fn admission_input_byte_replacement_rechecks_the_output_ceiling() -> TestResult {
+    let (_directory, workspace) = fixture()?;
+    workspace.create(serde_json::from_value(json!({"id":"sample-ceiling","title":"Ceiling","description":"","type":"Task","status":"open","priority":2,"tags":[],"body":"","author":"fixture-agent","timestamp":null,"message":null,"provenance_role":null,"force_stale_lock":false}))?)?;
+    let input = serde_json::to_vec(
+        &json!({"author":"fixture-agent","mutations":[{"op":"update","id":"sample-ceiling","options":{"title":"Near the ceiling"}}]}),
+    )?;
+    let base = workspace.preview_item_mutations(&AdmissionBatch::from_json(&input)?)?;
+    let sized = |length: usize| {
+        let mut preview = base.clone();
+        preview.diagnostics[0].id = "a".repeat(length);
+        preview
+    };
+    // The largest receipt that still fits with a one-digit input count.
+    let (mut low, mut high) = (0, ADMISSION_LIMITS.output_bytes);
+    while low < high {
+        let middle = (low + high).div_ceil(2);
+        if sized(middle).with_input_bytes(1).is_ok() {
+            low = middle;
+        } else {
+            high = middle - 1;
+        }
+    }
+    assert!(sized(low).with_input_bytes(1).is_ok());
+    let refusal = sized(low)
+        .with_input_bytes(1_000_000_000_000_000)
+        .err()
+        .ok_or("a receipt over the ceiling was delivered")?;
+    assert_eq!(refusal.code, "admission_output_limit");
+    Ok(())
+}
+
 /// Claim and every scalar write share harness identity; foreign sessions remain refused.
 #[test]
 fn admission_detected_owner_matches_claim_for_scalar_writes() -> TestResult {

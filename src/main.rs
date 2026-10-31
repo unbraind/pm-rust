@@ -737,8 +737,10 @@ fn run_with_io(
                 required: "Select a readable native tracker with settings.json.",
                 limits: pm_rust::admission::ADMISSION_LIMITS,
             })?;
-            let mut preview = workspace.preview_item_mutations(&batch)?;
-            preview.input_bytes = bytes.len();
+            // One refusal boundary: the stdin count is re-measured inside the same result.
+            let preview = workspace
+                .preview_item_mutations(&batch)
+                .and_then(|preview| preview.with_input_bytes(bytes.len()))?;
             let output = pm_rust::ListOutput::from(serde_json::json!(preview));
             write_adapter_receipt_to(writer, &output, json)?;
         }

@@ -543,6 +543,38 @@ fn directory_link(target: &Path, link: &Path) -> std::io::Result<()> {
     }
 }
 
+/// The Windows pin denies only ancestor replacement: child links and a leaf rename replacement proceed.
+#[cfg(windows)]
+#[test]
+fn windows_source_pin_allows_child_links_and_leaf_replacement() -> TestResult {
+    use std::os::windows::fs::OpenOptionsExt as _;
+    let directory = tempfile::tempdir()?;
+    let tasks = directory.path().join("tasks");
+    fs::create_dir(&tasks)?;
+    let leaf = tasks.join("item.toon");
+    fs::write(&leaf, b"original")?;
+    let ancestor = fs::OpenOptions::new()
+        .read(true)
+        .share_mode(PIN_DIRECTORY_SHARE)
+        .custom_flags(0x0220_0000)
+        .open(&tasks)?;
+    fs::write(directory.path().join("staged"), b"linked")?;
+    fs::hard_link(directory.path().join("staged"), tasks.join("linked.toon"))?;
+    assert!(
+        fs::rename(&tasks, directory.path().join("moved")).is_err(),
+        "a pinned ancestor cannot be renamed"
+    );
+    drop(ancestor);
+    let mut pinned = open_source(directory.path(), Path::new("tasks/item.toon"))?;
+    fs::write(directory.path().join("replacement"), b"replacement")?;
+    fs::rename(directory.path().join("replacement"), &leaf)?;
+    let mut bytes = Vec::new();
+    pinned.read_to_end(&mut bytes)?;
+    assert_eq!(bytes, b"original");
+    assert_eq!(fs::read(&leaf)?, b"replacement");
+    Ok(())
+}
+
 /// Real Unix links and Windows junctions cannot add external source payloads.
 #[test]
 fn admission_refuses_links_and_special_files() -> TestResult {

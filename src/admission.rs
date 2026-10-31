@@ -369,21 +369,36 @@ fn open_source(root: &Path, relative: &Path) -> std::io::Result<fs::File> {
     directory.map(fs::File::from).map_err(std::io::Error::from)
 }
 
+/// Ancestors deny only delete sharing: they cannot be renamed or replaced, while
+/// writers may still create, link or rename children (`FILE_SHARE_READ | FILE_SHARE_WRITE`).
+#[cfg(windows)]
+const PIN_DIRECTORY_SHARE: u32 = 0x1 | 0x2;
+/// The leaf allows a native rename replacement but no in-place write during the
+/// bounded read (`FILE_SHARE_READ | FILE_SHARE_DELETE`).
+#[cfg(windows)]
+const PIN_LEAF_SHARE: u32 = 0x1 | 0x4;
+
 /// Pins Windows directories against replacement and refuses every reparse point.
 #[cfg(windows)]
 fn open_source(root: &Path, relative: &Path) -> std::io::Result<fs::File> {
     use std::os::windows::fs::{MetadataExt as _, OpenOptionsExt as _};
     let mut path = PathBuf::new();
     let mut handles = Vec::new();
-    // Denying write/delete sharing pins each verified directory until the leaf opens.
-    for component in root.components().chain(relative.components()) {
+    // Denying delete sharing pins each verified directory until the leaf opens.
+    let mut components = root.components().chain(relative.components()).peekable();
+    while let Some(component) = components.next() {
         path.push(component);
         if matches!(component, Component::Prefix(_)) {
             continue;
         }
+        let share = if components.peek().is_some() {
+            PIN_DIRECTORY_SHARE
+        } else {
+            PIN_LEAF_SHARE
+        };
         let file = fs::OpenOptions::new()
             .read(true)
-            .share_mode(1)
+            .share_mode(share)
             .custom_flags(0x0220_0000) // OPEN_REPARSE_POINT | BACKUP_SEMANTICS
             .open(&path)
             .and_then(|file| {
@@ -962,12 +977,31 @@ impl Workspace {
                 "native_slice_only_no_atomic_batch_commit_or_replay",
             ],
         };
-        let value = crate::ListOutput::from(serde_json::json!(&preview));
+        preview.checked()
+    }
+}
+
+impl AdmissionPreview {
+    /// Reports the original boundary byte count and re-checks both encodings.
+    ///
+    /// The CLI replaces the canonical count with the stdin length, which can have
+    /// more digits, so the receipt is measured again before delivery.
+    ///
+    /// # Errors
+    /// Returns `admission_output_limit` when either encoding exceeds `output_bytes`.
+    pub fn with_input_bytes(mut self, input_bytes: usize) -> Result<Self, AdmissionRefusal> {
+        self.input_bytes = input_bytes;
+        self.checked()
+    }
+
+    /// Delivers only a receipt whose JSON and TOON encodings both fit the ceiling.
+    fn checked(self) -> Result<Self, AdmissionRefusal> {
+        let value = crate::ListOutput::from(serde_json::json!(&self));
         check_output_lengths(
-            crate::stringify_json(&preview, false).len(),
+            crate::stringify_json(&self, false).len(),
             crate::toon_output::render_output(&value).len(),
         )
-        .map(|()| preview)
+        .map(|()| self)
     }
 }
 
