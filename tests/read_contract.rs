@@ -266,7 +266,7 @@ fn discovery_errors_are_typed() -> Result<(), Box<dyn std::error::Error>> {
             Err(PmRustError::Io { path, source })
                 if path == parent && source.raw_os_error() == Some(123)
         ));
-        Command::cargo_bin("pm-rust")?
+        Command::new(env!("CARGO_BIN_EXE_pm-rust"))
             .arg("--workspace")
             .arg(&parent)
             .arg("list")
@@ -530,7 +530,7 @@ fn reports_an_unreadable_item_path() -> Result<(), Box<dyn std::error::Error>> {
     let path = root.join("tasks/demo-a.toon");
     fs::set_permissions(&path, fs::Permissions::from_mode(0o000))?;
     let result = Workspace::discover(directory.path())?.read_items();
-    Command::cargo_bin("pm-rust")?
+    Command::new(env!("CARGO_BIN_EXE_pm-rust"))
         .args(["--workspace", &directory.path().to_string_lossy(), "list"])
         .assert()
         .code(2)
@@ -555,7 +555,7 @@ fn reports_a_windows_exclusively_held_item_path() -> Result<(), Box<dyn std::err
         .share_mode(0)
         .open(&path)?;
     let result = Workspace::discover(directory.path())?.read_items();
-    Command::cargo_bin("pm-rust")?
+    Command::new(env!("CARGO_BIN_EXE_pm-rust"))
         .arg("--workspace")
         .arg(directory.path())
         .arg("list")
@@ -686,7 +686,7 @@ fn ignores_windows_symlinked_item_directories() -> Result<(), Box<dyn std::error
 fn cli_lists_gets_and_reports_failures() -> Result<(), Box<dyn std::error::Error>> {
     let (directory, _) = tracker()?;
     let workspace = directory.path().to_string_lossy();
-    let output = Command::cargo_bin("pm-rust")?
+    let output = Command::new(env!("CARGO_BIN_EXE_pm-rust"))
         .args([
             "--workspace",
             &workspace,
@@ -700,17 +700,17 @@ fn cli_lists_gets_and_reports_failures() -> Result<(), Box<dyn std::error::Error
     let payload: Value = serde_json::from_slice(&output.stdout)?;
     assert_eq!(payload["count"], 1);
     assert_eq!(payload["items"][0]["id"], "demo-a");
-    Command::cargo_bin("pm-rust")?
+    Command::new(env!("CARGO_BIN_EXE_pm-rust"))
         .args(["--workspace", &workspace, "get", "demo-b"])
         .assert()
         .success()
         .stdout(contains("\"id\": \"demo-b\"").and(contains("\"parent\": \"demo-a\"")));
-    Command::cargo_bin("pm-rust")?
+    Command::new(env!("CARGO_BIN_EXE_pm-rust"))
         .args(["--workspace", &workspace, "get", "missing"])
         .assert()
         .code(2)
         .stderr(contains("pm item not found: missing"));
-    Command::cargo_bin("pm-rust")?
+    Command::new(env!("CARGO_BIN_EXE_pm-rust"))
         .args(["--workspace", "/path/that/does/not/exist", "list"])
         .assert()
         .code(2)
@@ -832,7 +832,7 @@ fn sdk_streaming_sorts_filters_and_preserves_total() -> Result<(), Box<dyn std::
             Err(PmRustError::InvalidReadRequest { .. })
         ));
     }
-    Command::cargo_bin("pm-rust")?
+    Command::new(env!("CARGO_BIN_EXE_pm-rust"))
         .arg("--workspace")
         .arg(directory.path())
         .args(["list", "--limit", "bad", "--offset", "0"])
@@ -887,7 +887,7 @@ fn sdk_streaming_preserves_invalid_utf8_refusals() -> Result<(), Box<dyn std::er
         ),
         Err(PmRustError::InvalidItemDocument { .. })
     ));
-    Command::cargo_bin("pm-rust")?
+    Command::new(env!("CARGO_BIN_EXE_pm-rust"))
         .arg("--workspace")
         .arg(directory.path())
         .args(["list", "--id", "demo-a"])

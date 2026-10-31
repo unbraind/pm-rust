@@ -51,6 +51,107 @@ Native item mutations recover pending journals across operation names before
 applying later edits. See [journal recovery](docs/CROSS_OPERATION_JOURNAL_RECOVERY.md)
 for crash-state regressions and operator conflict remedies.
 
+## Preview native item admission
+
+`pm-rust preview-item-mutations` reads one strict JSON batch from stdin and
+returns compact TOON (or `--json`) with one verdict per intent. The Rust SDK
+exposes `Workspace::preview_item_mutations` and typed inputs in `admission`,
+using the same strict JSON boundary as the command.
+
+```sh
+# Run in a tracker whose configured prefix is demo-; adjust IDs for another prefix.
+pm-rust preview-item-mutations --json < examples/item-admission.json
+```
+
+```rust
+use pm_rust::{Workspace, admission::AdmissionBatch};
+use std::path::Path;
+
+let batch = AdmissionBatch::from_json(include_bytes!("examples/item-admission.json"))?;
+let workspace = Workspace::discover(Path::new("/path/to/project"))?;
+let preview = workspace.preview_item_mutations(&batch)?;
+println!("{}", pm_rust::stringify_json(&preview, false));
+```
+
+The [complete example](examples/item-admission.json) previews creation followed
+by an update to that new candidate. Candidate documents stay in memory. The
+preview writes neither tracker files nor scratch files, runs no recovery,
+acquires no locks, and needs neither Node nor Git. It always evaluates current
+source state; there is no saved plan, replay journal or idempotency cache.
+
+The declared v1 slice uses canonical `{op,id,options}` intents and an explicit
+batch `author`. Creates require a full ID, title, built-in `type`, canonical
+active/draft `status`, integer `priority` (0..4), `createMode: "progressive"`,
+`parent: "none"`, `assignee: "none"` and `allowDuplicate: true`. Description,
+CSV tags and body are optional. These scope assertions prevent ambient focus
+from choosing a parent; similarity bypass is explicit. Existing create targets
+are read and adopted as `unchanged`, matching the core coordinator. This is
+adoption of current state, not proof that the incoming content matches it.
+Compensation-marked close reasons refuse for explicit history review.
+
+Updates require at least one explicit replacement among title, description,
+status, priority, CSV tags and body. Metadata-only empty updates accepted by the
+core coordinator are outside the native write contract and refuse here.
+Status decisions use the native registry's roles and configured close target.
+Strict ownership protects every scalar update and annotation, including
+no-op replacements; previews return `ownership_conflict` with a remedy. A
+configured close target retains an enabled governance close-reason requirement
+even with an active/draft role and returns `close_reason_required`; use the
+published close API for it. Aliases, terminal/blocked
+transitions, reopening, unblocking and dependency-sensitive transitions refuse
+with a remedy directing callers to the published SDK. Custom field/type
+schemas, metadata requirements and type workflows also return an explicit
+`unsupported_schema` row. Unknown fields, JSON null options, duplicate keys,
+noninteger numbers and unsupported operation kinds refuse the request before
+source access; there is no import-format inference. The conformance oracle is
+the repository-pinned published pm CLI 2026.10.21, independently of the current
+registry release.
+
+`diagnostics` reports `index`, `id`, `op`, `state`, `code`, `field` and `required`.
+`unchanged` describes current logical field values; applying later can still
+write timestamps and audit history. A missing title returns `required_field`; a missing update target returns
+`item_not_found`. A failed target suppresses its later intents with
+`prior_target_refused`; unrelated rows are still checked. `ok` is false when any
+row refuses. A successfully delivered diagnostic batch exits 0 even when `ok` is
+false. Request, source and resource failures exit 2 with JSON on stderr,
+including the remedy and the same limits. No rows are silently truncated.
+
+| Reported hard limit | Ceiling |
+| --- | ---: |
+| Request bytes (`input_bytes`) | 262,144 |
+| ID or author UTF-8 bytes | 128 |
+| Over-limit detection bytes per bounded reader | 1 |
+| Intents | 100 |
+| Source bytes per observation (items plus configuration) | 16,777,216 |
+| Source item rows | 10,000 |
+| Visited directory entries per observation | 100,000 |
+| Nested item directory depth | 32 |
+| Complete output bytes in either format, excluding one newline | 65,536 |
+
+IDs and the author are at most 128 UTF-8 bytes. Request strings share the total
+request-byte bound. Every receipt includes all limits and measured input bytes,
+source rows/bytes and visited entries. Typed SDK calls measure canonical JSON
+input size; CLI receipts measure original stdin bytes. Source reads admit only
+regular UTF-8 item files and regular tracker-relative JSON schema files; source
+limits or integrity failures return no partial preview.
+Each source file is captured once per observation, even when settings and several
+schema roles share it. Every derived view uses those same bytes, and the final
+observation detects a visible replacement. Embedded item IDs must match their
+filenames so that admitted targets resolve through the SDK. Mismatches return
+`admission_source` with a repair remedy; legacy list/export reads remain available
+for inspection. Targeted native writes and journal recovery enforce the same
+identity rule.
+
+Native apply and preview share document preparation, normalization and encoding.
+Two bounded source observations refuse visible interleaving with
+`admission_source_changed`. This does not establish atomic isolation, detect all
+ABA changes or reserve a later commit. Extensions, hooks and pending recovery
+remain unvalidated and are named in `unresolved_commit_constraints`. Ordinary
+SDK/CLI writers do not share `commitWorkspaceTransaction`'s transaction lock
+(pm-cli #1620). Any consumer that later applies must re-read each target and its
+growing history revision immediately before every write, revalidate retries,
+and acknowledge the remaining check/write window. This command applies nothing.
+
 ## Explain native query cost
 
 Run `pm-rust explain list` (TOON) or `pm-rust explain list --full --json` before
@@ -99,6 +200,8 @@ See [cursor semantics and resource bounds](docs/native-changes.md) and the
 records SDK comparisons, seeded sequences, revert proofs and public-data numbers.
 
 ## Without git
+
+Native item admission previews work in a plain tracker directory with no Git executable.
 
 Incremental change pulls work on a plain tracker with no Git or Node executable.
 Adapter compatibility checks work without a tracker or Git. Query cost explanations, read sessions and

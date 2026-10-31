@@ -720,7 +720,7 @@ fn run_dispatches_every_mutation_and_its_error_halves() -> Result<(), Box<dyn st
             priority: None,
             tags_csv: None,
             body: None,
-            author: "unit-agent".to_owned(),
+            author: Some("unit-agent".to_owned()),
             timestamp: Some("2026-08-07T10:06:30.183Z".to_owned()),
             message: None,
             force_stale_lock: false,
@@ -735,7 +735,7 @@ fn run_dispatches_every_mutation_and_its_error_halves() -> Result<(), Box<dyn st
         priority: None,
         tags_csv: Some("b,a".to_owned()),
         body: None,
-        author: "unit-agent".to_owned(),
+        author: Some("unit-agent".to_owned()),
         timestamp: Some("2026-08-07T10:06:30.183Z".to_owned()),
         message: None,
         force_stale_lock: false,
@@ -746,7 +746,7 @@ fn run_dispatches_every_mutation_and_its_error_halves() -> Result<(), Box<dyn st
         run(cli(Command::Comment {
             id: "unit-dispatch".to_owned(),
             text: "   ".to_owned(),
-            author: "unit-agent".to_owned(),
+            author: Some("unit-agent".to_owned()),
             timestamp: Some("2026-08-07T10:06:30.183Z".to_owned()),
             message: None,
             force_stale_lock: false,
@@ -756,7 +756,7 @@ fn run_dispatches_every_mutation_and_its_error_halves() -> Result<(), Box<dyn st
     run(cli(Command::Comment {
         id: "unit-dispatch".to_owned(),
         text: "dispatch note".to_owned(),
-        author: "unit-agent".to_owned(),
+        author: Some("unit-agent".to_owned()),
         timestamp: Some("2026-08-07T10:06:30.183Z".to_owned()),
         message: None,
         force_stale_lock: false,
@@ -809,7 +809,7 @@ fn run_dispatches_every_mutation_and_its_error_halves() -> Result<(), Box<dyn st
         text: None,
         fields: super::CloseArgs::default(),
         reason: Some("dispatch done".to_owned()),
-        author: "unit-agent".to_owned(),
+        author: Some("unit-agent".to_owned()),
         timestamp: Some("2026-08-07T10:06:30.183Z".to_owned()),
         force_stale_lock: false,
     }))?;
@@ -819,7 +819,7 @@ fn run_dispatches_every_mutation_and_its_error_halves() -> Result<(), Box<dyn st
             text: None,
             fields: super::CloseArgs::default(),
             reason: Some("again".to_owned()),
-            author: "unit-agent".to_owned(),
+            author: Some("unit-agent".to_owned()),
             timestamp: Some("2026-08-07T10:06:30.183Z".to_owned()),
             force_stale_lock: false,
         }))
@@ -1757,6 +1757,66 @@ fn changes_writer_refusals() -> Result<(), Box<dyn std::error::Error>> {
         ));
         assert!(refused_output.is_empty());
         fs::remove_file(directory.path().join("absent"))?;
+    }
+    Ok(())
+}
+
+/// Admission stdin, source selection and delivery failures keep typed recovery guidance.
+#[test]
+fn admission_stdio_refusals() -> Result<(), Box<dyn std::error::Error>> {
+    /// An unreadable caller-owned stdin stream.
+    struct ReadFailure;
+    impl io::Read for ReadFailure {
+        fn read(&mut self, _: &mut [u8]) -> io::Result<usize> {
+            Err(io::Error::other("read failure"))
+        }
+    }
+    let directory = tempfile::tempdir()?;
+    let root = directory.path().join(".agents/pm");
+    let cli = |json| Cli {
+        workspace: directory.path().to_path_buf(),
+        command: Command::PreviewItemMutations { json },
+    };
+    let error = super::run_with_io(cli(true), &mut ReadFailure, &mut Vec::new())
+        .err()
+        .ok_or("stdin refusal")?;
+    assert_eq!(
+        error
+            .downcast_ref::<pm_rust::admission::AdmissionRefusal>()
+            .ok_or("typed stdin refusal")?
+            .code,
+        "admission_input"
+    );
+    let input = serde_json::to_vec(
+        &serde_json::json!({"author":"fixture-agent","mutations":[{"op":"create","id":"demo-new","options":{"title":"Fixture","type":"Task","status":"open","priority":2,"createMode":"progressive","parent":"none","assignee":"none","allowDuplicate":true}}]}),
+    )?;
+    let error = super::run_with_io(cli(true), &mut input.as_slice(), &mut Vec::new())
+        .err()
+        .ok_or("source refusal")?;
+    assert_eq!(
+        error
+            .downcast_ref::<pm_rust::admission::AdmissionRefusal>()
+            .ok_or("typed source refusal")?
+            .code,
+        "admission_source"
+    );
+    fs::create_dir_all(&root)?;
+    fs::write(root.join("settings.json"), "{}")?;
+    fs::write(root.join("settings.json"), "{")?;
+    let error = super::run_with_io(cli(true), &mut input.as_slice(), &mut Vec::new())
+        .err()
+        .ok_or("preview source refusal")?;
+    assert_eq!(
+        error
+            .downcast_ref::<pm_rust::admission::AdmissionRefusal>()
+            .ok_or("typed preview source refusal")?
+            .code,
+        "admission_source"
+    );
+    fs::write(root.join("settings.json"), "{}")?;
+    for json in [false, true] {
+        assert!(super::run_with_io(cli(json), &mut input.as_slice(), &mut WriteFailure).is_err());
+        assert!(super::run_with_io(cli(json), &mut input.as_slice(), &mut FlushFailure).is_err());
     }
     Ok(())
 }

@@ -23,6 +23,12 @@ struct Cli {
 
 #[derive(Debug, Subcommand)]
 enum Command {
+    /// Preview bounded canonical item intents from strict JSON on stdin, without writes.
+    PreviewItemMutations {
+        /// Emit compact JSON instead of TOON.
+        #[arg(long)]
+        json: bool,
+    },
     /// Pull one bounded page of canonical mutation facts without Node or Git.
     Changes {
         /// Opaque cursor returned by the same adapter; absent starts retained history.
@@ -379,7 +385,7 @@ enum Command {
         body: Option<String>,
         /// Asserted mutation author.
         #[arg(long)]
-        author: String,
+        author: Option<String>,
         /// Deterministic UTC RFC 3339 timestamp; current time is used when absent.
         #[arg(long)]
         timestamp: Option<String>,
@@ -398,7 +404,7 @@ enum Command {
         text: String,
         /// Asserted mutation author.
         #[arg(long)]
-        author: String,
+        author: Option<String>,
         /// Deterministic UTC RFC 3339 timestamp; current time is used when absent.
         #[arg(long)]
         timestamp: Option<String>,
@@ -455,7 +461,7 @@ enum Command {
         reason: Option<String>,
         /// Asserted mutation author.
         #[arg(long)]
-        author: String,
+        author: Option<String>,
         /// Deterministic UTC RFC 3339 timestamp; current time is used when absent.
         #[arg(long)]
         timestamp: Option<String>,
@@ -712,6 +718,32 @@ fn run_with_io(
 ) -> Result<(), Box<dyn std::error::Error>> {
     let discover = || Workspace::discover(&cli.workspace);
     match cli.command {
+        Command::PreviewItemMutations { json } => {
+            let mut bytes = Vec::new();
+            reader
+                .take(
+                    pm_rust::admission::ADMISSION_LIMITS.input_bytes as u64
+                        + u64::from(pm_rust::admission::ADMISSION_LIMITS.over_limit_probe_bytes),
+                )
+                .read_to_end(&mut bytes)
+                .map_err(|_| pm_rust::admission::AdmissionRefusal {
+                    code: "admission_input",
+                    required: "Provide readable bounded JSON on stdin and retry.",
+                    limits: pm_rust::admission::ADMISSION_LIMITS,
+                })?;
+            let batch = pm_rust::admission::AdmissionBatch::from_json(&bytes)?;
+            let workspace = discover().map_err(|_| pm_rust::admission::AdmissionRefusal {
+                code: "admission_source",
+                required: "Select a readable native tracker with settings.json.",
+                limits: pm_rust::admission::ADMISSION_LIMITS,
+            })?;
+            // One refusal boundary: the stdin count is re-measured inside the same result.
+            let preview = workspace
+                .preview_item_mutations(&batch)
+                .and_then(|preview| preview.with_input_bytes(bytes.len()))?;
+            let output = pm_rust::ListOutput::from(serde_json::json!(preview));
+            write_adapter_receipt_to(writer, &output, json)?;
+        }
         Command::Explain {
             read: _,
             full,
@@ -1072,8 +1104,11 @@ fn run_with_io(
             force_stale_lock,
         } => {
             let workspace = discover()?;
+            let identity = scalar_identity(&workspace, author.as_deref())?;
+            let author = author.unwrap_or_else(|| identity.author.clone());
             write_json(&update_payload(
                 &workspace,
+                &identity,
                 UpdateItem {
                     id,
                     title,
@@ -1111,8 +1146,11 @@ fn run_with_io(
             force_stale_lock,
         } => {
             let workspace = discover()?;
+            let identity = scalar_identity(&workspace, author.as_deref())?;
+            let author = author.unwrap_or_else(|| identity.author.clone());
             write_json(&comment_payload(
                 &workspace,
+                &identity,
                 &CommentItem {
                     id,
                     text,
@@ -1212,9 +1250,12 @@ fn run_with_io(
             fields,
         } => {
             let workspace = discover()?;
+            let identity = scalar_identity(&workspace, author.as_deref())?;
+            let author = author.unwrap_or_else(|| identity.author.clone());
             let close_author = author.clone();
             let result = close_payload(
                 &workspace,
+                &identity,
                 CloseItem {
                     id,
                     reason: text
@@ -1243,7 +1284,7 @@ fn run_with_io(
             )?;
             let mut receipt = result.close_receipt.unwrap_or_default();
             if fields.release_assignment {
-                let release = mutation_identity(Some(&close_author), None)
+                let release = identity
                     .with(|| {
                         workspace.release(&OwnershipItem {
                             id: result.item.metadata.id.clone(),
@@ -1433,6 +1474,20 @@ fn ownership_request(
     ))
 }
 
+/// Resolves scalar callers using exactly the ownership command's identity inputs.
+fn scalar_identity(
+    workspace: &Workspace,
+    author: Option<&str>,
+) -> Result<AuthorIdentity, Box<dyn std::error::Error>> {
+    let settings: serde_json::Value = pm_rust::strict_json::from_slice(&std::fs::read(
+        workspace.pm_root().join("settings.json"),
+    )?)?;
+    Ok(mutation_identity(
+        author,
+        settings["author_default"].as_str(),
+    ))
+}
+
 /// Creates one item, stamping the argv-derived implementer role.
 fn create_payload(
     workspace: &Workspace,
@@ -1447,10 +1502,11 @@ fn create_payload(
 /// Applies one field update, stamping the argv-derived implementer role.
 fn update_payload(
     workspace: &Workspace,
+    identity: &AuthorIdentity,
     mut request: UpdateItem,
 ) -> Result<MutationResult, Box<dyn std::error::Error>> {
     request.provenance_role = Some("implementer".to_owned());
-    mutation_identity(Some(&request.author), None)
+    identity
         .with(|| workspace.update(request))
         .map_err(Into::into)
 }
@@ -1458,9 +1514,10 @@ fn update_payload(
 /// Appends one comment without an argv-derived role.
 fn comment_payload(
     workspace: &Workspace,
+    identity: &AuthorIdentity,
     request: &CommentItem,
 ) -> Result<MutationResult, Box<dyn std::error::Error>> {
-    mutation_identity(Some(&request.author), None)
+    identity
         .with(|| workspace.comment(request))
         .map_err(Into::into)
 }
@@ -1468,10 +1525,11 @@ fn comment_payload(
 /// Closes one item, stamping the argv-derived implementer role.
 fn close_payload(
     workspace: &Workspace,
+    identity: &AuthorIdentity,
     mut request: CloseItem,
 ) -> Result<MutationResult, Box<dyn std::error::Error>> {
     request.provenance_role = Some("implementer".to_owned());
-    mutation_identity(Some(&request.author), None)
+    identity
         .with(|| workspace.close(request))
         .map_err(Into::into)
 }
@@ -1609,6 +1667,11 @@ fn main() -> ExitCode {
     match run(cli) {
         Ok(()) => ExitCode::SUCCESS,
         Err(error) => {
+            if let Some(refusal) = error.downcast_ref::<pm_rust::admission::AdmissionRefusal>() {
+                let payload = serde_json::json!({"ok":false,"code":refusal.code,"required":refusal.required,"limits":refusal.limits,"exit_code":2});
+                let _ = write_json_to(&mut std::io::stderr().lock(), &payload);
+                return ExitCode::from(2);
+            }
             if let Some(refusal) = error.downcast_ref::<pm_rust::changes::ChangeRefusal>() {
                 let payload = serde_json::json!({"ok":false,"code":refusal.code(),"required":refusal.to_string(),"exit_code":2});
                 let _ = write_json_to(&mut std::io::stderr().lock(), &payload);

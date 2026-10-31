@@ -298,6 +298,8 @@ struct OwnershipGovernance {
     force_required_for_stale_lock: Option<bool>,
     #[serde(default)]
     ownership_enforcement: String,
+    #[serde(default)]
+    require_close_reason: Option<bool>,
 }
 
 impl OwnershipGovernance {
@@ -527,6 +529,13 @@ fn read_settings(pm_root: &Path) -> Result<MutationSettings, PmRustError> {
         Ok(settings) => Ok(settings),
         Err(error) => Err(invalid(format!("invalid settings.json: {error}"))),
     }
+}
+
+/// Checks captured settings through the same typed native schema as writers.
+pub(crate) fn validate_preview_settings(bytes: &[u8]) -> Result<(), PmRustError> {
+    crate::strict_json::from_slice::<MutationSettings>(bytes)
+        .map(|_| ())
+        .map_err(|error| invalid(format!("invalid settings.json: {error}")))
 }
 
 /// Maps a canonical built-in item type to its tracker directory.
@@ -1362,7 +1371,7 @@ fn sync_parent(path: &Path) -> Result<(), PmRustError> {
 }
 
 /// Encodes one validated item into canonical JavaScript-compatible TOON bytes.
-fn canonical_item_bytes(document: &ItemDocument) -> Result<String, PmRustError> {
+pub(crate) fn canonical_item_bytes(document: &ItemDocument) -> Result<String, PmRustError> {
     // The validated shape contains only TOON-supported scalar and array values.
     let view = history::canonical_document_value(document);
     normalize_encoded_item(encode_default(&view))
@@ -1482,6 +1491,16 @@ fn read_optional(path: &Path) -> Result<Option<String>, PmRustError> {
     }
 }
 
+/// Refuses a replay image that the SDK cannot resolve at its journal target.
+fn validate_recovery_item(path: &Path, bytes: &str, id: &str) -> Result<(), PmRustError> {
+    crate::item::decode_item(path, bytes)
+        .and_then(|document| crate::item::validate_file_identity(path, &document))
+        .map_err(|_| PmRustError::RecoveryConflict {
+            id: id.to_owned(),
+            reason: "journal item identity does not match its target filename".to_owned(),
+        })
+}
+
 /// Completes or clears an interrupted create whose durable journal still matches.
 fn recover(pm_root: &Path, id: &str) -> Result<(), PmRustError> {
     let journal_path = pm_root
@@ -1515,6 +1534,7 @@ fn recover(pm_root: &Path, id: &str) -> Result<(), PmRustError> {
     let history_path = pm_root.join("history").join(format!("{id}.jsonl"));
     let item = read_optional(&item_path)?;
     let history = read_optional(&history_path)?;
+    validate_recovery_item(&item_path, &journal.item_bytes, id)?;
     if item
         .as_ref()
         .is_some_and(|value| value != &journal.item_bytes)
@@ -1587,6 +1607,7 @@ fn recover_mutation(
     let history_path = pm_root.join(&history_relative);
     let item = read_optional(&item_path)?;
     let history = read_optional(&history_path)?;
+    validate_recovery_item(&item_path, &journal.item_bytes, id)?;
     // The journal records both the pre-mutation item hash and the post-mutation
     // item bytes, so recovery can tell three crash states apart:
     //
@@ -1607,8 +1628,9 @@ fn recover_mutation(
     let item_is_before = match item.as_deref() {
         Some(bytes) => match crate::item::decode_item(&item_path, bytes) {
             Ok(document) => {
-                history::document_hash(&OrderedDocument::from_document(&document))
-                    == journal.before_item_hash
+                crate::item::validate_file_identity(&item_path, &document).is_ok()
+                    && history::document_hash(&OrderedDocument::from_document(&document))
+                        == journal.before_item_hash
             }
             Err(_) => false,
         },
@@ -1806,6 +1828,9 @@ fn locate_item_entry(
             }
         };
         let document = crate::item::decode_item(&entry_path, &raw)?;
+        // Preserve ownership's missing-index contract for an unresolvable alias.
+        crate::item::validate_file_identity(&entry_path, &document)
+            .map_err(|_| PmRustError::ItemNotFound { id: id.to_owned() })?;
         found.push((entry_path, document));
     }
     Ok(())
@@ -1839,13 +1864,19 @@ fn validate_mutation_request(author: &str, timestamp: Option<&str>) -> Result<St
     }
 }
 
-/// Executes one validated, locked, journaled, no-overwrite create transaction.
-pub(crate) fn create_item(
-    pm_root: &Path,
-    mut request: CreateItem,
-) -> Result<CreateResult, PmRustError> {
-    let settings = read_settings(pm_root)?;
-    let folder = validate_request(&request, &settings)?;
+/// Prepares exactly the create document used by apply, without acquiring a lock.
+fn prepare_create_document(
+    request: &mut CreateItem,
+    settings: &MutationSettings,
+    lifecycle: &crate::list_registry::Lifecycle,
+) -> Result<(&'static str, String, ItemDocument), PmRustError> {
+    let folder = validate_request(request, settings)?;
+    validate_scalar_closure(
+        settings,
+        lifecycle,
+        &request.status,
+        request.message.as_deref(),
+    )?;
     crate::collation::normalize_tags(&mut request.tags);
     // `match` instead of `.unwrap_or_else(now_iso)` avoids a per-instantiation
     // closure function the coverage gate counts separately.
@@ -1854,6 +1885,100 @@ pub(crate) fn create_item(
         None => now_iso(),
     };
     validate_timestamp(&timestamp)?;
+    let mut extra = Map::new();
+    extra.insert("author".to_owned(), Value::String(request.author.clone()));
+    let document = ItemDocument {
+        metadata: ItemMetadata {
+            id: request.id.clone(),
+            title: request.title.clone(),
+            description: request.description.clone(),
+            item_type: request.item_type.clone(),
+            status: request.status.clone(),
+            priority: request.priority,
+            tags: request.tags.clone(),
+            created_at: timestamp.clone(),
+            updated_at: timestamp.clone(),
+            parent: None,
+            extra,
+        },
+        body: request.body.clone(),
+    };
+    Ok((folder, timestamp, document))
+}
+
+/// Enforces ownership on scalar writes and previews using the persisted principal.
+///
+/// Callers resolve `caller_principal`: native apply uses the scoped session identity,
+/// while previews use only the batch author, so no ambient identity is inherited.
+fn validate_scalar_owner(
+    settings: &MutationSettings,
+    before: &ItemDocument,
+    caller_principal: &str,
+) -> Result<(), PmRustError> {
+    let owner = ownership_text(before, "assignee");
+    let held = ownership_text(before, "claim_principal");
+    let principal = if held.trim().is_empty() {
+        owner.trim()
+    } else {
+        held.trim()
+    };
+    if !owner.trim().is_empty()
+        && principal != caller_principal
+        && settings.governance.policy() == "strict"
+    {
+        return Err(ownership_refusal(
+            format!(
+                "Item {} is assigned to {}. Use the owning principal or the published SDK with an intentional force override.",
+                before.metadata.id,
+                owner.trim()
+            ),
+            serde_json::json!({"code":"ownership_conflict","required":"Use the owning principal or the published SDK with an intentional force override."}),
+        ));
+    }
+    Ok(())
+}
+
+/// Closure requirements follow the configured close target, independently of roles.
+fn validate_scalar_closure(
+    settings: &MutationSettings,
+    lifecycle: &crate::list_registry::Lifecycle,
+    status: &str,
+    reason: Option<&str>,
+) -> Result<(), PmRustError> {
+    if lifecycle.closes(status)
+        && settings.governance.require_close_reason.unwrap_or(true)
+        && reason.is_none_or(|text| text.trim().is_empty())
+    {
+        return Err(close_refusal(
+            "A configured close status requires an author-controlled closing reason.".to_owned(),
+            2,
+            serde_json::json!({"code":"close_reason_required","required":"Use the close API with an explicit closing summary, or supply a mutation message."}),
+        ));
+    }
+    Ok(())
+}
+
+/// Uses apply's settings validation and normalization for a non-writing create.
+pub(crate) fn prepare_create_preview(
+    settings_bytes: &[u8],
+    lifecycle: &crate::list_registry::Lifecycle,
+    mut request: CreateItem,
+) -> Result<ItemDocument, PmRustError> {
+    let settings = crate::strict_json::from_slice(settings_bytes)
+        .map_err(|error| invalid(format!("invalid settings.json: {error}")))?;
+    let (_, _, document) = prepare_create_document(&mut request, &settings, lifecycle)?;
+    canonical_item_bytes(&document).map(|_| document)
+}
+
+/// Executes one validated, locked, journaled, no-overwrite create transaction.
+pub(crate) fn create_item(
+    pm_root: &Path,
+    mut request: CreateItem,
+) -> Result<CreateResult, PmRustError> {
+    let settings = read_settings(pm_root)?;
+    let lifecycle = crate::list_registry::Lifecycle::load(pm_root)?;
+    let (folder, timestamp, document) =
+        prepare_create_document(&mut request, &settings, &lifecycle)?;
     let _lock = acquire_lock(
         pm_root,
         &request.id,
@@ -1874,24 +1999,6 @@ pub(crate) fn create_item(
     if item_path.exists() || history_path.exists() {
         return Err(PmRustError::ItemAlreadyExists { id: request.id });
     }
-    let mut extra = Map::new();
-    extra.insert("author".to_owned(), Value::String(request.author.clone()));
-    let document = ItemDocument {
-        metadata: ItemMetadata {
-            id: request.id.clone(),
-            title: request.title,
-            description: request.description,
-            item_type: request.item_type.clone(),
-            status: request.status,
-            priority: request.priority,
-            tags: request.tags,
-            created_at: timestamp.clone(),
-            updated_at: timestamp.clone(),
-            parent: None,
-            extra,
-        },
-        body: request.body,
-    };
     canonical_item_bytes(&document).and_then(|item_bytes| {
         let ordered = OrderedDocument::from_document(&document);
         let after_hash = history::document_hash(&ordered);
@@ -1948,29 +2055,19 @@ pub(crate) fn create_item(
     })
 }
 
-/// Applies one validated field update to an existing item in place.
-pub(crate) fn update_item(
-    pm_root: &Path,
-    mut request: UpdateItem,
-) -> Result<MutationResult, PmRustError> {
-    let settings = read_settings(pm_root)?;
-    let timestamp = validate_mutation_request(&request.author, request.timestamp.as_deref())?;
-    let _lock = acquire_lock(
-        pm_root,
-        &request.id,
-        &request.author,
-        &settings.locks,
-        request.force_stale_lock,
-        &timestamp,
-        lock_wait_budget(
-            std::env::var("PM_LOCK_WAIT_MS").ok().as_deref(),
-            settings.locks.wait_ms,
-        ),
-    )?;
-    let (item_path, history_path, before_document) =
-        recover_and_locate(pm_root, "update", &request.id)?;
-    // The stored document must be read under the lock so no writer ever
-    // applies changes to stale bytes.
+/// Prepares exactly apply's field replacement, retaining all foreign metadata.
+fn prepare_update_document(
+    before_document: &ItemDocument,
+    request: &mut UpdateItem,
+    caller_principal: &str,
+    timestamp: &String,
+    settings: &MutationSettings,
+    lifecycle: &crate::list_registry::Lifecycle,
+) -> Result<ItemDocument, PmRustError> {
+    validate_scalar_owner(settings, before_document, caller_principal)?;
+    if let Some(status) = &request.status {
+        validate_scalar_closure(settings, lifecycle, status, request.message.as_deref())?;
+    }
     if let Some(tags) = &mut request.tags {
         crate::collation::normalize_tags(tags);
     }
@@ -2000,25 +2097,84 @@ pub(crate) fn update_item(
             "an update must provide at least one field to change",
         ));
     }
-    if let Some(title) = request.title {
+    if let Some(title) = request.title.clone() {
         document.metadata.title = title;
     }
-    if let Some(description) = request.description {
+    if let Some(description) = request.description.clone() {
         document.metadata.description = description;
     }
-    if let Some(status) = request.status {
+    if let Some(status) = request.status.clone() {
         document.metadata.status = status;
     }
     if let Some(priority) = request.priority {
         document.metadata.priority = priority;
     }
-    if let Some(tags) = request.tags {
+    if let Some(tags) = request.tags.clone() {
         document.metadata.tags = tags;
     }
-    if let Some(body) = request.body {
+    if let Some(body) = request.body.clone() {
         document.body = body;
     }
-    document.metadata.updated_at.clone_from(&timestamp);
+    document.metadata.updated_at.clone_from(timestamp);
+    Ok(document)
+}
+
+/// Uses apply's author, clock, normalization and document encoder without writes.
+pub(crate) fn prepare_update_preview(
+    settings_bytes: &[u8],
+    lifecycle: &crate::list_registry::Lifecycle,
+    before: &ItemDocument,
+    mut request: UpdateItem,
+) -> Result<ItemDocument, PmRustError> {
+    let timestamp = validate_mutation_request(&request.author, request.timestamp.as_deref())?;
+    let settings = crate::strict_json::from_slice(settings_bytes)
+        .map_err(|error| invalid(format!("invalid settings.json: {error}")))?;
+    // Previews never inherit an ambient session: the batch author is the caller.
+    let principal = request.author.trim().to_owned();
+    let document = prepare_update_document(
+        before,
+        &mut request,
+        &principal,
+        &timestamp,
+        &settings,
+        lifecycle,
+    )?;
+    canonical_item_bytes(&document).map(|_| document)
+}
+
+/// Applies one validated field update to an existing item in place.
+pub(crate) fn update_item(
+    pm_root: &Path,
+    mut request: UpdateItem,
+) -> Result<MutationResult, PmRustError> {
+    let settings = read_settings(pm_root)?;
+    let timestamp = validate_mutation_request(&request.author, request.timestamp.as_deref())?;
+    let _lock = acquire_lock(
+        pm_root,
+        &request.id,
+        &request.author,
+        &settings.locks,
+        request.force_stale_lock,
+        &timestamp,
+        lock_wait_budget(
+            std::env::var("PM_LOCK_WAIT_MS").ok().as_deref(),
+            settings.locks.wait_ms,
+        ),
+    )?;
+    let (item_path, history_path, before_document) =
+        recover_and_locate(pm_root, "update", &request.id)?;
+    // The stored document must be read under the lock so no writer ever
+    // applies changes to stale bytes.
+    let lifecycle = crate::list_registry::Lifecycle::load(pm_root)?;
+    let principal = crate::ownership::caller_principal(&request.author);
+    let document = prepare_update_document(
+        &before_document,
+        &mut request,
+        &principal,
+        &timestamp,
+        &settings,
+        &lifecycle,
+    )?;
     commit_mutation(
         pm_root,
         "update",
@@ -2057,6 +2213,11 @@ pub(crate) fn comment_item(
     )?;
     let (item_path, history_path, before_document) =
         recover_and_locate(pm_root, "comment", &request.id)?;
+    validate_scalar_owner(
+        &settings,
+        &before_document,
+        &crate::ownership::caller_principal(&request.author),
+    )?;
     let mut document = before_document.clone();
     let row = serde_json::json!({
         "created_at": timestamp,
@@ -2535,7 +2696,10 @@ pub(crate) fn close_item(
         &principal
     };
     let mut warnings = Vec::new();
-    if !owner.trim().is_empty() && principal != request.author && !request.fields.force {
+    if !owner.trim().is_empty()
+        && principal != crate::ownership::caller_principal(&request.author)
+        && !request.fields.force
+    {
         if settings.governance.policy() == "strict" {
             return Err(ownership_refusal(
                 format!(
@@ -2922,18 +3086,18 @@ pub(crate) fn collection_item(
         })?;
     let owner = ownership_text(&before, "assignee");
     let principal = ownership_text(&before, "claim_principal");
-    let caller_principal = options
-        .identity
-        .as_ref()
-        .map_or(options.author.as_str(), |identity| {
-            identity.principal.as_str()
-        });
+    let caller_principal = options.identity.as_ref().map_or_else(
+        || crate::ownership::caller_principal(&options.author),
+        |identity| identity.principal.clone(),
+    );
     if !owner.trim().is_empty()
         && (if principal.is_empty() {
             &owner
         } else {
             &principal
-        }) != caller_principal
+        })
+        .as_str()
+            != caller_principal
         && !options.force
         && settings.governance.policy() == "strict"
     {
@@ -3096,12 +3260,10 @@ pub(crate) fn ownership_item_with_options(
     } else {
         Some(assignee.clone())
     };
-    let caller_principal = options
-        .identity
-        .as_ref()
-        .map_or(request.author.as_str(), |identity| {
-            identity.principal.as_str()
-        });
+    let caller_principal = options.identity.as_ref().map_or_else(
+        || crate::ownership::caller_principal(&request.author),
+        |identity| identity.principal.clone(),
+    );
     let foreign = previous_assignee.is_some() && principal != caller_principal;
     let mut document = before.clone();
     let mut warnings = Vec::new();
@@ -3139,7 +3301,7 @@ pub(crate) fn ownership_item_with_options(
         if skipped.is_none() {
             for field in ["assignee", "claim_principal"] {
                 let value = Value::String(if field == "claim_principal" {
-                    caller_principal.to_owned()
+                    caller_principal.clone()
                 } else {
                     request.author.clone()
                 });
@@ -3336,12 +3498,10 @@ pub(crate) fn lifecycle_status(
         other => other,
     })?;
     let (item_path, history_path, before) = recover_and_locate(pm_root, "update", &request.id)?;
-    let principal = options
-        .identity
-        .as_ref()
-        .map_or(request.author.as_str(), |identity| {
-            identity.principal.as_str()
-        });
+    let principal = options.identity.as_ref().map_or_else(
+        || crate::ownership::caller_principal(&request.author),
+        |identity| identity.principal.clone(),
+    );
     let owner = ownership_text(&before, "assignee");
     let held_principal = ownership_text(&before, "claim_principal");
     let held_principal = if held_principal.trim().is_empty() {

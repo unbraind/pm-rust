@@ -25,7 +25,7 @@ pub enum PmRustError {
         /// Structured command guidance.
         context: serde_json::Value,
     },
-    /// Ownership test-and-set or strict release policy refused a mutation.
+    /// Ownership test-and-set or strict ownership policy refused a mutation.
     #[error("{detail}")]
     OwnershipRefusal {
         /// Published human-readable refusal.
