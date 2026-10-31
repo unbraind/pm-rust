@@ -5,6 +5,8 @@
 ### Features
 
 - Read canonical pm workspaces without a JavaScript runtime ([pm-rust-o2yr](https://github.com/unbraind/pm-rust/blob/main/.agents/pm/features/pm-rust-o2yr.toon)) _type:Feature; status:closed; P1; release:0.1.0-alpha.1_
+- Preview canonical item admission without native tracker writes ([pm-rust-admission-previews](https://github.com/unbraind/pm-rust/blob/main/.agents/pm/features/pm-rust-admission-previews.toon)) _type:Feature; status:closed; P2_
+- Resume native agents from bounded incremental mutation cursors ([pm-rust-native-changes](https://github.com/unbraind/pm-rust/blob/main/.agents/pm/features/pm-rust-native-changes.toon)) _type:Feature; status:closed; P2_
 - Explain native list query work before materializing context ([pm-rust-query-cost](https://github.com/unbraind/pm-rust/blob/main/.agents/pm/features/pm-rust-query-cost.toon)) _type:Feature; status:closed; P2_
 - Compare native and published crash recovery with a reusable kill corpus ([pm-rust-crash-harness](https://github.com/unbraind/pm-rust/blob/main/.agents/pm/features/pm-rust-crash-harness.toon)) _type:Feature; status:closed; P2_
 - Use authorized remote backends through a portable native adapter ABI ([pm-rust-portable-native-adapter-abi](https://github.com/unbraind/pm-rust/blob/main/.agents/pm/features/pm-rust-portable-native-adapter-abi.toon)) _type:Feature; status:closed; P2_
