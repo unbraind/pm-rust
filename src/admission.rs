@@ -426,7 +426,10 @@ impl Source {
         if size > ADMISSION_LIMITS.source_bytes - self.bytes {
             return Err(source_limit());
         }
-        self.read_bytes(&mut file).inspect(|bytes| {
+        let bytes = self.read_bytes(&mut file);
+        // The immutable bytes outlive the protected read handle; after-read writers may proceed.
+        drop(file);
+        bytes.inspect(|bytes| {
             self.files.insert(relative.to_path_buf(), bytes.clone());
             #[cfg(test)]
             tests::checkpoint(root);

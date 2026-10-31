@@ -189,7 +189,10 @@ Admission uses the existing rustix dependency on Unix: each ancestor is opened
 relative to a pinned directory handle with no-follow semantics, and intermediate
 handles require directories. Windows holds verified ancestors without write or
 delete sharing and refuses every reparse point. Only a regular leaf handle is
-read. The byte ceilings and first-observation cache remain unchanged.
+read. The protected leaf closes immediately after the bounded read, before
+publication of cached bytes and the after-read interleaving checkpoint. Windows
+writers can then proceed without weakening protection during the read. The byte
+ceilings and first-observation cache remain unchanged.
 A deterministic competing writer replaces a checked parent with a link before
 the source open; admission refuses it, while an ordinary source remains readable.
 The shipped CLI exercises linked-parent and nonregular-leaf refusals and a normal
