@@ -654,3 +654,104 @@ fn admission_cli_opens_source_components_without_following_links() -> TestResult
     }
     Ok(())
 }
+
+/// Restores the exact disposable fixture permissions even when an assertion unwinds.
+#[cfg(unix)]
+struct RestoreSourcePermissions(PathBuf, fs::Permissions);
+
+#[cfg(unix)]
+impl Drop for RestoreSourcePermissions {
+    fn drop(&mut self) {
+        assert!(fs::set_permissions(&self.0, self.1.clone()).is_ok());
+    }
+}
+
+/// Every scalar identity loader refuses unreadable and malformed configuration before writes.
+#[test]
+fn admission_cli_scalar_identity_configuration_failures() -> TestResult {
+    let (directory, workspace) = fixture()?;
+    let settings = workspace.pm_root().join("settings.json");
+    let original = fs::read(&settings)?;
+    let baseline = snapshot(directory.path())?;
+    let refuse = || -> TestResult {
+        for args in [
+            vec!["update", "sample-missing", "--title", "Refuse"],
+            vec!["comment", "sample-missing", "Refuse"],
+            vec!["close", "sample-missing", "Refuse"],
+        ] {
+            let mut command = Command::new(env!("CARGO_BIN_EXE_pm-rust"));
+            process_environment::isolate_environment(&mut command);
+            let output = command
+                .current_dir(directory.path())
+                .args(args)
+                .env("PATH", "")
+                .output()?;
+            assert!(!output.status.success());
+            assert!(output.stdout.is_empty());
+        }
+        Ok(())
+    };
+    fs::write(&settings, "{")?;
+    refuse()?;
+    fs::write(&settings, &original)?;
+    #[cfg(unix)]
+    {
+        use std::os::unix::fs::PermissionsExt as _;
+        let restore =
+            RestoreSourcePermissions(settings.clone(), fs::metadata(&settings)?.permissions());
+        fs::set_permissions(&settings, fs::Permissions::from_mode(0o0))?;
+        refuse()?;
+        drop(restore);
+    }
+    #[cfg(windows)]
+    {
+        use std::os::windows::fs::OpenOptionsExt as _;
+        let held = fs::OpenOptions::new()
+            .read(true)
+            .share_mode(0)
+            .open(&settings)?;
+        refuse()?;
+        drop(held);
+    }
+    assert_eq!(snapshot(directory.path())?, baseline);
+    Ok(())
+}
+
+/// Optional collection provenance tolerates an unavailable Git executable in a real repository.
+#[test]
+fn admission_cli_collection_provenance_without_git() -> TestResult {
+    let (directory, workspace) = fixture()?;
+    let mut git = Command::new("git");
+    process_environment::isolate_environment(&mut git);
+    assert!(
+        git.current_dir(directory.path())
+            .args(["init", "--quiet"])
+            .status()?
+            .success()
+    );
+    workspace.create(serde_json::from_value(json!({"id":"sample-provenance","title":"Provenance","description":"","type":"Task","status":"open","priority":2,"tags":[],"body":"","author":"fixture-agent","timestamp":null,"message":null,"provenance_role":null,"force_stale_lock":false}))?)?;
+    let mut command = Command::new(env!("CARGO_BIN_EXE_pm-rust"));
+    process_environment::isolate_environment(&mut command);
+    let output = command
+        .current_dir(directory.path())
+        .args([
+            "test",
+            "sample-provenance",
+            "--add",
+            "command=cargo test",
+            "--author",
+            "fixture-agent",
+        ])
+        .env("PATH", "")
+        .output()?;
+    assert!(
+        output.status.success(),
+        "{}",
+        String::from_utf8_lossy(&output.stderr)
+    );
+    assert_eq!(
+        workspace.get("sample-provenance")?.metadata.extra["tests"][0]["command"],
+        "cargo test"
+    );
+    Ok(())
+}

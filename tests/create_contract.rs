@@ -167,18 +167,20 @@ fn cli_create_emits_json_and_reports_validation_and_conflicts()
         "CLI history",
         "--force-stale-lock",
     ];
-    let output = Command::cargo_bin("pm-rust")?.args(arguments).output()?;
+    let output = Command::new(env!("CARGO_BIN_EXE_pm-rust"))
+        .args(arguments)
+        .output()?;
     assert!(output.status.success());
     let json: Value = serde_json::from_slice(&output.stdout)?;
     assert_eq!(json["item"]["id"], "sample-cli");
     assert_eq!(json["item"]["priority"], 1);
     assert_eq!(json["item_path"], "issues/sample-cli.toon");
-    Command::cargo_bin("pm-rust")?
+    Command::new(env!("CARGO_BIN_EXE_pm-rust"))
         .args(arguments)
         .assert()
         .code(2)
         .stderr(contains("pm item already exists: sample-cli"));
-    Command::cargo_bin("pm-rust")?
+    Command::new(env!("CARGO_BIN_EXE_pm-rust"))
         .args([
             "--workspace",
             workspace.as_ref(),
@@ -195,7 +197,7 @@ fn cli_create_emits_json_and_reports_validation_and_conflicts()
         .assert()
         .code(2)
         .stderr(contains("invalid create request"));
-    Command::cargo_bin("pm-rust")?
+    Command::new(env!("CARGO_BIN_EXE_pm-rust"))
         .args([
             "--workspace",
             workspace.as_ref(),
@@ -212,7 +214,7 @@ fn cli_create_emits_json_and_reports_validation_and_conflicts()
         .assert()
         .code(2)
         .stderr(contains("canonical built-in item types only"));
-    Command::cargo_bin("pm-rust")?
+    Command::new(env!("CARGO_BIN_EXE_pm-rust"))
         .args([
             "--workspace",
             workspace.as_ref(),

@@ -1,0 +1,15 @@
+id: pm-rust-node-tooling-audit
+title: Review the pinned Node test-tool minimatch advisory
+description: "The unchanged crash-harness installation reports ten moderate npm audit package findings, all rooted in minimatch potential denial of service via globparts amplification (GHSA-g3hv-75wg-m249, affected range below 11.0.1). npm audit --prefix tests/harness --json reproduces exit 1 with 10 moderate, 0 high and 0 critical. These are locked Node lint/test-tool dependencies, separate from Rust runtime cargo audit. Review applicability and coordinate the dependency update through the existing dependency maintenance workflow; this admission review does not change pins. Advisory: https://github.com/advisories/GHSA-g3hv-75wg-m249"
+type: Task
+status: open
+priority: 3
+tags[3]: dependencies,security,test-tooling
+created_at: "2026-10-31T04:45:43.007Z"
+updated_at: "2026-10-31T04:45:45.360Z"
+author: codex-agent
+files[1]{path,scope}:
+  tests/harness/package-lock.json,project
+tests[1]{command,scope,provenance{author,created_at,source_kind,source_ref}}:
+  npm audit --prefix tests/harness,project,codex-agent,"2026-10-31T04:45:45.319Z",local_mutation,feat/native-item-admission-previews
+body: ""

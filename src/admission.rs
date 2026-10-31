@@ -354,7 +354,7 @@ fn source_limit() -> AdmissionRefusal {
 fn open_source(root: &Path, relative: &Path) -> std::io::Result<fs::File> {
     use rustix::fs::{Mode, OFlags, open, openat};
     let flags = OFlags::RDONLY | OFlags::CLOEXEC | OFlags::NOFOLLOW | OFlags::NONBLOCK;
-    let mut directory = open("/", flags | OFlags::DIRECTORY, Mode::empty())?;
+    let mut directory = open("/", flags | OFlags::DIRECTORY, Mode::empty());
     let mut components = root.components().chain(relative.components()).peekable();
     while let Some(component) = components.next() {
         let flags = if components.peek().is_some() {
@@ -362,9 +362,11 @@ fn open_source(root: &Path, relative: &Path) -> std::io::Result<fs::File> {
         } else {
             flags
         };
-        directory = openat(&directory, component.as_os_str(), flags, Mode::empty())?;
+        // Carry a failed open unchanged; never attempt later components after failure.
+        directory = directory
+            .and_then(|parent| openat(&parent, component.as_os_str(), flags, Mode::empty()));
     }
-    Ok(fs::File::from(directory))
+    directory.map(fs::File::from).map_err(std::io::Error::from)
 }
 
 /// Pins Windows directories against replacement and refuses every reparse point.
@@ -383,10 +385,16 @@ fn open_source(root: &Path, relative: &Path) -> std::io::Result<fs::File> {
             .read(true)
             .share_mode(1)
             .custom_flags(0x0220_0000) // OPEN_REPARSE_POINT | BACKUP_SEMANTICS
-            .open(&path)?;
-        if file.metadata()?.file_attributes() & 0x400 != 0 {
-            return Err(std::io::Error::other("reparse source refused"));
-        }
+            .open(&path)
+            .and_then(|file| {
+                file.metadata().and_then(|metadata| {
+                    if metadata.file_attributes() & 0x400 != 0 {
+                        Err(std::io::Error::other("reparse source refused"))
+                    } else {
+                        Ok(file)
+                    }
+                })
+            })?;
         handles.push(file);
     }
     // The root handle guarantees a nonempty sequence, including an empty relative path.
@@ -403,12 +411,18 @@ impl Source {
         }
         #[cfg(test)]
         tests::checkpoint(root);
-        let mut file = open_source(root, relative).map_err(source_io_error)?;
-        let metadata = file.metadata().map_err(source_io_error)?;
-        if !metadata.is_file() {
-            return Err(source_error());
-        }
-        let size = metadata.len();
+        // Open and handle admission share one uniform I/O refusal boundary.
+        let (mut file, size) = open_source(root, relative)
+            .and_then(|file| {
+                file.metadata().and_then(|metadata| {
+                    if metadata.is_file() {
+                        Ok((file, metadata.len()))
+                    } else {
+                        Err(std::io::Error::other("nonregular source refused"))
+                    }
+                })
+            })
+            .map_err(source_io_error)?;
         if size > ADMISSION_LIMITS.source_bytes - self.bytes {
             return Err(source_limit());
         }

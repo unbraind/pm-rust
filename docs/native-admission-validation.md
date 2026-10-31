@@ -194,3 +194,16 @@ A deterministic competing writer replaces a checked parent with a link before
 the source open; admission refuses it, while an ordinary source remains readable.
 The shipped CLI exercises linked-parent and nonregular-leaf refusals and a normal
 tracker on every supported OS. The closed-stdout preview regression is retained.
+
+The binary also refuses malformed and unreadable scalar identity settings before
+mutation, preserving the tracker bytes. A real Git fixture with Git absent from
+PATH verifies that optional collection provenance remains optional. Source open,
+metadata and nonregular-file errors share one uniform I/O refusal boundary;
+failed component opens never attempt later components. Coverage includes these
+outcomes in the shipped executable, including the portable error cases, rather
+than relying on unit-test-only instantiations.
+
+Create/read acceptance tests use Cargo's compile-time executable path, consistent
+with the other native contracts. This preserves every assertion while avoiding
+runtime path inference that fails under the pinned nightly Cargo artifact layout.
+No runtime binary-location override is required by the test suite.
