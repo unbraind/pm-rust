@@ -1,0 +1,26 @@
+id: pm-rust-z74f
+title: Ignore managed extension files so the scheduled issue sync can commit
+description: "This repository never ignored managed extension artifacts. From pm-github 2026.10.29 the scheduled pm-github-sync installs its pinned extension into .agents/pm/extensions/pm-github, and the sync refuses those untracked files as changed paths outside its commit scope (seen in pm-starter, https://github.com/unbraind/pm-starter/actions/runs/41421550980). Ignore them and keep the registry tracked, as pm-ts-starter does."
+type: Issue
+status: closed
+priority: 1
+tags[2]: gitignore,sync
+created_at: "2026-11-02T11:43:24.620Z"
+updated_at: "2026-11-02T11:43:44.160Z"
+deadline: "2026-11-09T00:00:00.000Z"
+closed_at: "2026-11-02T11:43:44.132Z"
+completed_at: "2026-11-02T11:43:44.132Z"
+author: claude-orchestrator
+estimated_minutes: 10
+acceptance_criteria: "With an installed pm-github extension present, git ls-files --others --exclude-standard -- .agents/pm lists no paths, and .agents/pm/extensions/.managed-extensions.json stays tracked."
+resolution: "Added the .agents/pm/extensions/* ignore with a re-include for .managed-extensions.json, the rule pm-ts-starter uses."
+expected_result: The scheduled sync's untracked-path check lists no managed extension files.
+actual_result: "With placeholder pm-github extension files in place, git ls-files --others --exclude-standard -- .agents/pm lists 0 paths; the registry stays tracked."
+comments[1]{created_at,author,text}:
+  "2026-11-02T11:43:24.620Z",claude-orchestrator,"Local check: with placeholder pm-github extension files in place, the untracked-path check lists 0 paths and the registry stays tracked."
+files[1]{path,scope}:
+  .gitignore,project
+docs[1]{path,scope}:
+  .gitignore,project
+close_reason: Managed extension artifacts are ignored and the registry stays tracked.
+body: ""
