@@ -24,3 +24,9 @@ cov-no-branch.json
 /.crash-failures/
 
 /tests/bench-oracle/node_modules/
+
+# Restore managed artifacts locally and in CI; track only the registry.
+# The scheduled GitHub issue sync installs its pinned pm-github here and refuses
+# any untracked path outside its commit scope.
+.agents/pm/extensions/*
+!.agents/pm/extensions/.managed-extensions.json

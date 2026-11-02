@@ -31,6 +31,7 @@
 
 ### Bug Fixes
 
+- Ignore managed extension files so the scheduled issue sync can commit ([pm-rust-z74f](https://github.com/unbraind/pm-rust/blob/main/.agents/pm/issues/pm-rust-z74f.toon)) _type:Issue; status:closed; P1_
 - Windows release gate covers the history-directory link refusal ([pm-rust-2g7c](https://github.com/unbraind/pm-rust/blob/main/.agents/pm/issues/pm-rust-2g7c.toon)) _type:Issue; status:closed; P1_
 - Certify only observed crash-oracle checks and durable evidence commits ([pm-rust-crash-oracle-recorder](https://github.com/unbraind/pm-rust/blob/main/.agents/pm/tasks/pm-rust-crash-oracle-recorder.toon)) _type:Task; status:closed; P2_
 - Regenerate changelogs after gated sync and closeout ([pm-rust-closeout-changelog](https://github.com/unbraind/pm-rust/blob/main/.agents/pm/issues/pm-rust-closeout-changelog.toon)) _type:Issue; status:closed; P2_
