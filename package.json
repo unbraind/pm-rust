@@ -6,8 +6,5 @@
     "release:check": "just release-check",
     "changelog:full": "just changelog-full",
     "changelog:check": "just changelog-check"
-  },
-  "overrides": {
-    "minimatch": "^11.0.1"
   }
 }
