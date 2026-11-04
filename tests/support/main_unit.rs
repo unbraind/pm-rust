@@ -1820,3 +1820,24 @@ fn admission_stdio_refusals() -> Result<(), Box<dyn std::error::Error>> {
     }
     Ok(())
 }
+
+/// Discovery never hides a pipe/write/flush failure as a successful inventory.
+#[test]
+fn capabilities_writer_refusals() -> Result<(), Box<dyn std::error::Error>> {
+    let directory = tempfile::tempdir()?;
+    for json in [false, true] {
+        let cli = || Cli {
+            workspace: directory.path().join("missing"),
+            command: Command::Capabilities {
+                protocol: pm_rust::discovery::DISCOVERY_PROTOCOL.into(),
+                operation: None,
+                output_bytes: pm_rust::discovery::DISCOVERY_MAX_BYTES,
+                adapter: None,
+                json,
+            },
+        };
+        assert!(super::run_with_io(cli(), &mut &b""[..], &mut WriteFailure).is_err());
+        assert!(super::run_with_io(cli(), &mut &b""[..], &mut FlushFailure).is_err());
+    }
+    Ok(())
+}

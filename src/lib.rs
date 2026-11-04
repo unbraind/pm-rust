@@ -10,8 +10,11 @@
 pub mod admission;
 mod assurance;
 pub mod changes;
+#[doc(hidden)]
+pub mod cli;
 mod collation;
 mod collections;
+pub mod discovery;
 mod error;
 mod history;
 mod identity_probes;
