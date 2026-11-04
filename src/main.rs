@@ -101,6 +101,16 @@ fn write_encoded_frame_to(
     Ok(())
 }
 
+/// Renders an admitted response and propagates unexpected codec, bound and delivery failures.
+fn write_discovery_to(
+    writer: &mut dyn Write,
+    response: Result<pm_rust::discovery::DiscoveryResponse, pm_rust::discovery::DiscoveryRefusal>,
+    json: bool,
+) -> Result<(), Box<dyn std::error::Error>> {
+    let rendered = response?.render(json)?;
+    write_encoded_frame_to(writer, &rendered)
+}
+
 /// Dispatches one parsed command using process-owned standard streams.
 fn run(cli: Cli) -> Result<(), Box<dyn std::error::Error>> {
     run_with_io(
@@ -132,8 +142,8 @@ fn run_with_io(
                 output_bytes,
                 adapter.as_deref(),
             )?;
-            let response = pm_rust::discovery::discover_capabilities(&request)?;
-            write_encoded_frame_to(writer, &response.render(json)?)?;
+            let response = pm_rust::discovery::discover_capabilities(&request);
+            write_discovery_to(writer, response, json)?;
         }
         Command::PreviewItemMutations { json } => {
             let mut bytes = Vec::new();

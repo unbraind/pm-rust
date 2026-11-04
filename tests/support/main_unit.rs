@@ -1839,5 +1839,21 @@ fn capabilities_writer_refusals() -> Result<(), Box<dyn std::error::Error>> {
         assert!(super::run_with_io(cli(), &mut &b""[..], &mut WriteFailure).is_err());
         assert!(super::run_with_io(cli(), &mut &b""[..], &mut FlushFailure).is_err());
     }
+    let mut response = pm_rust::discovery::discover_capabilities(
+        &pm_rust::discovery::DiscoveryRequest::default(),
+    )?;
+    response.output_bytes = 1;
+    for json in [false, true] {
+        let mut bytes = Vec::new();
+        let error = super::write_discovery_to(&mut bytes, Ok(response.clone()), json)
+            .err()
+            .ok_or("delivery must refuse an invalid response")?;
+        assert!(
+            error
+                .downcast_ref::<pm_rust::discovery::DiscoveryRefusal>()
+                .is_some()
+        );
+        assert!(bytes.is_empty());
+    }
     Ok(())
 }

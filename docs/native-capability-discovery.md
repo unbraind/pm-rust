@@ -57,7 +57,9 @@ SDK installation, independently of executable arguments and symlinks.
   native error enums; admission limits come directly from the producer constant.
 - `scripts/native-adapter-capabilities-revert.mts` replaces only the discovery
   function in a disposable non-git copy and requires a compiled runtime assertion
-  failure. The reviewed source is untouched, then passing tests run again.
+  failure. A second control replaces only CLI delivery with false success and
+requires the writer-refusal regression to fail. The reviewed source is untouched,
+then passing tests run again.
 
 ## Public-copy validation
 
@@ -75,7 +77,7 @@ main `a4e9e18ea2aec4aab08a662252c5f664ea95d720`:
 | --- | ---: |
 | SDK-certified items | 94 |
 | Frozen authoritative files, including 7 SDK preparation files | 201 |
-| Frozen authoritative bytes | 7,088,848 |
+| Frozen authoritative bytes | 7,088,782 |
 | Discovered operations | 25 |
 | Oracle slices / native-only surfaces | 17 / 8 |
 | Argument contracts | 236 |
@@ -83,10 +85,10 @@ main `a4e9e18ea2aec4aab08a662252c5f664ea95d720`:
 | Complete JSON / TOON bytes, including newline | 55,534 / 66,215 |
 | Largest selected-operation JSON response | 9,528 bytes |
 | Total observed output / largest read response | 1,490,481 / 95,779 bytes |
-| Native validation wall time | 3,848 ms |
+| Native validation wall time | 4,862 ms |
 
 Every archived authoritative byte survived SDK preparation, and the frozen
-fingerprint remained `78035830b50e238abded4e20537785b09b6a7866ef32e868ac5696c628431d90`
+fingerprint remained `3221b78fe4314b09e2d206df18130a186b95afaee84b6cc8196d068f13f138bb`
 after discovery and native reads. The shared snapshot helper excludes derived
 root search/lock/checkpoint directories; permissions were frozen across the
 whole owned copy, and complete SDK item/body/relationship read-back also agreed.

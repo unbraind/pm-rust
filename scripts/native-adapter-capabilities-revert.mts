@@ -24,4 +24,20 @@ try {
   assert.match(result.stdout, /test discovery_is_complete_bounded_and_tracker_free \.\.\. FAILED/);
   assert.doesNotMatch(result.stderr, /could not compile/);
   console.log(JSON.stringify({ proof: 'replace only discover_capabilities with unsupported-operation refusal in a disposable non-git copy', compile_succeeded: true, reverted_test: 'discovery_is_complete_bounded_and_tracker_free', passed: 0, failed: 1, reviewed_source_untouched: true }));
+  writeFileSync(path, source);
+  const mainPath = join(scratch, 'src/main.rs');
+  const main = readFileSync(mainPath, 'utf8');
+  const writerStart = main.indexOf('fn write_discovery_to(');
+  const writerBody = main.indexOf('{', writerStart);
+  const writerEnd = main.indexOf('\n}', writerBody) + 2;
+  assert.ok(writerStart > 0 && writerBody > writerStart && writerEnd > writerBody);
+  writeFileSync(mainPath, `${main.slice(0, writerBody + 1)}\n    let _ = (writer, response, json);\n    Ok(())\n}\n${main.slice(writerEnd)}`);
+  const delivery = spawnSync('cargo', ['+1.90.0', 'test', '--locked', '--bin', 'pm-rust', 'tests::capabilities_writer_refusals', '--', '--exact', '--test-threads=2'], {
+    cwd: scratch, encoding: 'utf8', timeout: 600000,
+    env: { PATH: process.env.PATH, HOME: process.env.HOME, CARGO_BUILD_JOBS: '2', CARGO_TARGET_DIR: join(root, 'target') },
+  });
+  assert.equal(delivery.status, 101);
+  assert.match(delivery.stdout, /test tests::capabilities_writer_refusals \.\.\. FAILED/);
+  assert.doesNotMatch(delivery.stderr, /could not compile/);
+  console.log(JSON.stringify({ proof: 'replace only write_discovery_to with false success in the same disposable copy', compile_succeeded: true, reverted_test: 'tests::capabilities_writer_refusals', passed: 0, failed: 1, reviewed_source_untouched: true }));
 } finally { rmSync(scratch, { recursive: true, force: true }); }
