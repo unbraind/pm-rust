@@ -352,6 +352,9 @@ impl DiscoveryResponse {
     /// # Errors
     /// Returns a typed refusal if encoding fails or the whole response exceeds its bound.
     pub fn render(&self, json: bool) -> Result<String, DiscoveryRefusal> {
+        if !(1024..=DISCOVERY_MAX_BYTES).contains(&self.output_bytes) {
+            return Err(refuse(DiscoveryRefusalCode::OutputLimit));
+        }
         self.check_encoded(if json {
             Ok(crate::stringify_json(self, false))
         } else {

@@ -77,7 +77,7 @@ main `a4e9e18ea2aec4aab08a662252c5f664ea95d720`:
 | --- | ---: |
 | SDK-certified items | 94 |
 | Frozen authoritative files, including 7 SDK preparation files | 201 |
-| Frozen authoritative bytes | 7,088,782 |
+| Frozen authoritative bytes | 7,088,743 |
 | Discovered operations | 25 |
 | Oracle slices / native-only surfaces | 17 / 8 |
 | Argument contracts | 236 |
@@ -85,10 +85,10 @@ main `a4e9e18ea2aec4aab08a662252c5f664ea95d720`:
 | Complete JSON / TOON bytes, including newline | 55,534 / 66,215 |
 | Largest selected-operation JSON response | 9,528 bytes |
 | Total observed output / largest read response | 1,490,481 / 95,779 bytes |
-| Native validation wall time | 4,862 ms |
+| Native validation wall time | 5,903 ms |
 
 Every archived authoritative byte survived SDK preparation, and the frozen
-fingerprint remained `3221b78fe4314b09e2d206df18130a186b95afaee84b6cc8196d068f13f138bb`
+fingerprint remained `6c85711a8b8b1e2035a34838d7edb9b1afa8f6ede4a0bcbc4bbef8b5a52c055c`
 after discovery and native reads. The shared snapshot helper excludes derived
 root search/lock/checkpoint directories; permissions were frozen across the
 whole owned copy, and complete SDK item/body/relationship read-back also agreed.
@@ -96,7 +96,7 @@ Both the CLI and SDK example emitted identical discovery data.
 
 ## Release evidence
 
-Local validation includes the PM-linked 6 discovery units, 3 contract tests and
+Local validation includes the PM-linked 7 discovery units, 3 contract tests and
 17 existing CLI dispatch tests, plus a dedicated writer-failure test. The two
 seeded models each run 500 cases. The disposable behavioral revert compiles and
 fails the tracker-free acceptance assertion; the fixed implementation passes
@@ -107,3 +107,8 @@ including the full published-oracle suite and 100 percent line, function,
 region and branch thresholds. The PR records exact-head run URLs and counts;
 those final receipts stay external so recording them does not invalidate the
 head they certify.
+
+The renderer independently checks the 1024..131072 output-byte domain before
+encoding. Caller-modified or received response metadata cannot raise that hard
+ceiling. The added regression fails with the original renderer and passes with
+the guard, covering both encodings and oversized received metadata.

@@ -417,6 +417,23 @@ fn parser_edge_metadata_and_codec_refusal() -> TestResult {
     Ok(())
 }
 
+/// Received or caller-modified response metadata cannot increase the renderer's hard ceiling.
+#[test]
+fn renderer_hard_ceiling_cannot_be_increased_by_received_metadata() -> TestResult {
+    let mut response = discover_capabilities(&DiscoveryRequest::default())?;
+    response.product_version = "x".repeat(DISCOVERY_MAX_BYTES as usize + 1);
+    for budget in [DISCOVERY_MAX_BYTES + 1, u32::MAX] {
+        response.output_bytes = budget;
+        for json in [false, true] {
+            assert!(
+                response.render(json).is_err(),
+                "a received response cannot raise the hard output ceiling"
+            );
+        }
+    }
+    Ok(())
+}
+
 /// Extreme numeric inputs cannot enter either output encoding or create nonfinite values.
 #[test]
 fn seeded_numeric_boundary_fuzz() -> TestResult {
