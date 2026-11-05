@@ -199,7 +199,60 @@ See [cursor semantics and resource bounds](docs/native-changes.md) and the
 [SDK example](examples/changes.rs). The [validation report](docs/native-changes-validation.md)
 records SDK comparisons, seeded sequences, revert proofs and public-data numbers.
 
+## Native capability discovery
+
+Run `pm-rust capabilities` once for the compiled native command surface and its SDK entry points,
+or `pm-rust capabilities --json` for compact JSON. The versioned
+`pm-rust/capabilities/v1` response includes accepted flags, aliases, positional
+arity, defaults, enum choices, conflicts, value delimiters, output dimensions,
+SDK entry points, backend preconditions and recovery JSON Schemas. Its command
+parser is the same definition used by execution. Root workspace options precede
+the command; they are not inherited flags.
+
+```sh
+pm-rust capabilities --json
+pm-rust capabilities --operation list --json
+pm-rust capabilities --operation read-session --output-bytes 16384
+```
+
+The default response is complete, with a hard ceiling of 131072 encoded bytes
+including its newline. `--output-bytes` admits 1024..131072 bytes and bounds both
+encodings. A small ceiling produces a typed refusal with recovery arguments,
+never a truncated availability list. `--operation` selects an exact canonical
+name and restricts both backend operation lists; absent commands and flags are
+unsupported. TOON and JSON decode to the same typed response. Omitted argument
+arrays mean empty, omitted boolean fields mean
+false, and an omitted minimum arity means zero. Hidden deterministic fixture
+flags remain marked as hidden.
+Help and version control flags retain the parser's text output.
+
+Each operation links a real invocation receipt and identifies either an
+`oracle_slice` with its differential receipt or a `native_only` addition. The
+oracle version identifies those tests; it does not imply the full host surface
+is supported. Per-operation scope describes exclusions, including unsupported
+test execution, generic relationship mutation and import/export/sync. Some source,
+parser and operating-system errors remain plain text; structured recovery schemas
+name their actual output streams and preserve the existing error types.
+
+`native_directory: compiled` describes code support and its tracker/policy
+preconditions. An injected backend has no available operations by default.
+`--adapter` accepts an explicit strict JSON `pm-native-adapter/1` manifest and
+returns only its granted, selected operations as `declared_only`. This is
+authorization metadata, without a connectivity probe or permission to execute; the CLI does
+not dispatch remote operations. Existing native adapter admission is reused.
+
+Rust callers use `discovery::discover_capabilities(&DiscoveryRequest::default())`.
+`DiscoveryRequest::from_json` admits one strict request of at most 8192 bytes,
+requiring JSON objects for the request and any adapter declaration, and
+rejecting unknown fields, duplicate keys, invalid versions and numeric domains.
+[`examples/capabilities.rs`](examples/capabilities.rs) emits the same inventory as
+the CLI. Discovery opens no tracker or transport and requires neither Git nor
+Node, so it also works before initialization and on read-only tracker copies.
+See [validation and overlap evidence](docs/native-capability-discovery.md).
+
 ## Without git
+
+Native capability discovery also works without an initialized tracker, Git or Node.
 
 Native item admission previews work in a plain tracker directory with no Git executable.
 

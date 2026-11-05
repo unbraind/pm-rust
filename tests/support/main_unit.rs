@@ -1820,3 +1820,55 @@ fn admission_stdio_refusals() -> Result<(), Box<dyn std::error::Error>> {
     }
     Ok(())
 }
+
+/// Discovery never hides a pipe/write/flush failure as a successful inventory.
+#[test]
+fn capabilities_writer_refusals() -> Result<(), Box<dyn std::error::Error>> {
+    let directory = tempfile::tempdir()?;
+    for json in [false, true] {
+        let refusal = pm_rust::discovery::DiscoveryRequest::from_json(b"null")
+            .err()
+            .ok_or("invalid request must refuse")?;
+        let mut bytes = Vec::new();
+        let error = super::write_discovery_to(&mut bytes, Err(refusal), json)
+            .err()
+            .ok_or("delivery must preserve producer refusal")?;
+        assert_eq!(
+            error
+                .downcast_ref::<pm_rust::discovery::DiscoveryRefusal>()
+                .ok_or("typed refusal")?
+                .code,
+            pm_rust::discovery::DiscoveryRefusalCode::InvalidRequest
+        );
+        assert!(bytes.is_empty());
+        let cli = || Cli {
+            workspace: directory.path().join("missing"),
+            command: Command::Capabilities {
+                protocol: pm_rust::discovery::DISCOVERY_PROTOCOL.into(),
+                operation: None,
+                output_bytes: pm_rust::discovery::DISCOVERY_MAX_BYTES,
+                adapter: None,
+                json,
+            },
+        };
+        assert!(super::run_with_io(cli(), &mut &b""[..], &mut WriteFailure).is_err());
+        assert!(super::run_with_io(cli(), &mut &b""[..], &mut FlushFailure).is_err());
+    }
+    let mut response = pm_rust::discovery::discover_capabilities(
+        &pm_rust::discovery::DiscoveryRequest::default(),
+    )?;
+    response.output_bytes = 1;
+    for json in [false, true] {
+        let mut bytes = Vec::new();
+        let error = super::write_discovery_to(&mut bytes, Ok(response.clone()), json)
+            .err()
+            .ok_or("delivery must refuse an invalid response")?;
+        assert!(
+            error
+                .downcast_ref::<pm_rust::discovery::DiscoveryRefusal>()
+                .is_some()
+        );
+        assert!(bytes.is_empty());
+    }
+    Ok(())
+}
