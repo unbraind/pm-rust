@@ -82,6 +82,21 @@ Those tests exercise existing and absent executables and both runner failure
 paths with a simulated Cargo child. Rust controls use real compilation and the
 pinned oracle in genuine non-git trackers. Fixed-source tests run after restoration.
 
+Round 2 also checks malformed nested manifests against both SDK admission and
+the real CLI, including exact refusal codes and remedies. Parser conflicts are
+advertised in both directions, with independent assertions for every declared
+pair and real conflicting list invocations. Both scratch-copy filters are tested
+with Windows, POSIX and mixed separators plus allowed near-name paths; each
+filter is independently reverted to prove the corresponding assertion fails.
+
+The review body's proposed `Arg::get_default_missing_values()` getter is absent
+from pinned [Clap 4.6.7's public API](https://docs.rs/clap_builder/4.6.7/clap_builder/builder/struct.Arg.html).
+The sole missing-value default is already shared with execution through
+`VALIDATE_CLOSE_DEFAULT`. An independent test now executes every bare
+optional-value flag with the real parser and compares the resulting raw values
+to discovery, so later parser additions cannot silently omit their defaults.
+Changing only discovery's missing default makes this test fail.
+
 ## Public-copy validation
 
 The reproducible tool is `scripts/native-adapter-capabilities-validate.mts`.
@@ -117,8 +132,8 @@ Both the CLI and SDK example emitted identical discovery data.
 
 ## Release evidence
 
-Local validation includes the PM-linked 10 discovery units, 5 contract tests and
-17 existing CLI dispatch tests, plus a dedicated writer-failure test and 4 runner artifact-isolation tests. The two
+Local validation includes the PM-linked 13 discovery units, 6 contract tests and
+17 existing CLI dispatch tests, plus a dedicated writer-failure test and 6 runner tests. The two
 seeded models each run 500 cases. The disposable behavioral revert compiles and
 fails the tracker-free acceptance assertion; the fixed implementation passes
 again afterward. Strict Rust lint/docs, TypeScript and ESLint are checked too.
@@ -129,12 +144,19 @@ region and branch thresholds. The PR records exact-head run URLs and counts;
 those final receipts stay external so recording them does not invalidate the
 head they certify.
 
-The review-round local aggregate passed 607 cases before an existing five-second
+The first review-round local aggregate passed 607 cases before an existing five-second
 native child deadline stopped the orientation suite. That exact case passed an
 unchanged focused retry. The stopped invocation did not reach full coverage;
 fresh final-head CI must certify the complete release aggregate. The writer test
 also directly exercises producer-refusal propagation, the one region missed by
 the prior head's full CI coverage run. The 100 percent thresholds are unchanged.
+
+Round 2's unchanged local aggregate passed 611 cases before the same existing
+five-second native-child deadline stopped orientation. An unchanged focused
+retry also reached the child limit, on a different input. This remains a local
+validation blocker on `pm-rust-local-packet-deadline`; no timeout or threshold was
+relaxed. The stopped aggregate did not reach repository coverage, so component
+checks cannot certify the full gate. Final-head CI receipts belong on the PR.
 
 The renderer independently checks the 1024..131072 output-byte domain before
 encoding. Caller-modified or received response metadata cannot raise that hard

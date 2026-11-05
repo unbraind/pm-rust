@@ -7,7 +7,7 @@ import { join, resolve } from 'node:path';
 const root = resolve(import.meta.dirname, '..');
 const scratch = mkdtempSync(join(tmpdir(), 'native-capabilities-revert-'));
 try {
-  for (const name of ['Cargo.toml', 'Cargo.lock', 'build.rs', 'src', 'tests']) cpSync(join(root, name), join(scratch, name), { recursive: true, filter: path => !path.split('/').includes('node_modules') });
+  for (const name of ['Cargo.toml', 'Cargo.lock', 'build.rs', 'src', 'tests']) cpSync(join(root, name), join(scratch, name), { recursive: true, filter: path => !path.split(/[\\/]/).includes('node_modules') });
   const path = join(scratch, 'src/discovery.rs');
   const source = readFileSync(path, 'utf8');
   const start = source.indexOf('pub fn discover_capabilities(');

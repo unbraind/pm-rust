@@ -143,8 +143,12 @@ fn discovery_must_refuse_and_must_allow_corpora() -> TestResult {
         r#"{"protocol":"pm-rust/capabilities/v1","output_bytes":131072,"operation":[]}"#,
         r#"{"protocol":"pm-rust/capabilities/v1","output_bytes":131072,"adapter":{"abi":"pm-native-adapter/1","capabilities":[,"get"],"max_frame_bytes":10}}"#,
     ] {
-        assert!(
-            DiscoveryRequest::from_json(input.as_bytes()).is_err(),
+        assert_eq!(
+            DiscoveryRequest::from_json(input.as_bytes())
+                .err()
+                .ok_or("request refusal")?
+                .code,
+            DiscoveryRefusalCode::InvalidRequest,
             "{input}"
         );
     }
@@ -307,6 +311,122 @@ fn discovery_rejects_positional_struct_arrays() -> TestResult {
         r#"{"protocol":"pm-rust/capabilities/v1","output_bytes":131072}"#.into(),
         r#"{"protocol":"pm-rust/capabilities/v1","operation":"get","output_bytes":131072,"adapter":{"abi":"pm-native-adapter/1","capabilities":["get"],"max_frame_bytes":1024}}"#.into()] {
         discover_capabilities(&DiscoveryRequest::from_json(input.as_bytes())?)?;
+    }
+    Ok(())
+}
+
+/// Both public admission paths classify malformed adapter content identically.
+#[test]
+fn nested_adapter_refusal_codes_match_cli() -> TestResult {
+    for adapter in [
+        r#"{"abi":"pm-native-adapter/1","capabilities":["destroy"],"max_frame_bytes":1}"#,
+        r#"{"abi":"pm-native-adapter/1","capabilities":["get"],"max_frame_bytes":1,"extra":true}"#,
+        r#"{"abi":"pm-native-adapter/1","capabilities":"get","max_frame_bytes":1}"#,
+        r#"{"abi":"pm-native-adapter/1","capabilities":["get"],"max_frame_bytes":"1"}"#,
+        "{}",
+    ] {
+        let input = format!(
+            r#"{{"protocol":"pm-rust/capabilities/v1","output_bytes":131072,"adapter":{adapter}}}"#
+        );
+        let sdk = DiscoveryRequest::from_json(input.as_bytes())
+            .err()
+            .ok_or("SDK refusal")?;
+        let cli = DiscoveryRequest::from_cli(
+            DISCOVERY_PROTOCOL.into(),
+            None,
+            DISCOVERY_MAX_BYTES,
+            Some(adapter),
+        )
+        .err()
+        .ok_or("CLI refusal")?;
+        assert_eq!(sdk.code, DiscoveryRefusalCode::InvalidAdapter, "{adapter}");
+        assert_eq!(serde_json::to_value(sdk)?, serde_json::to_value(cli)?);
+    }
+    Ok(())
+}
+
+/// Every directed parser declaration is advertised and enforced in both directions.
+#[test]
+fn parser_conflicts_are_reciprocal() -> TestResult {
+    let mut parser = crate::cli::Cli::command();
+    parser.build();
+    for command in parser.get_subcommands() {
+        let inventory = arguments(command);
+        for arg in command.get_arguments() {
+            for conflict in command.get_arg_conflicts_with(arg) {
+                for (left, right) in [(arg, conflict), (conflict, arg)] {
+                    let contract = inventory
+                        .iter()
+                        .find(|value| value.id == left.get_id().as_str())
+                        .ok_or("argument")?;
+                    assert!(
+                        contract.conflicts.contains(&right.get_id().to_string()),
+                        "{}: {} conflicts with {}",
+                        command.get_name(),
+                        left.get_id(),
+                        right.get_id()
+                    );
+                }
+            }
+        }
+    }
+    for (left, right, value) in [
+        ("status", "all", "open"),
+        ("full", "brief", ""),
+        ("after", "offset", "fixture"),
+    ] {
+        let mut args = vec!["pm-rust", "list"];
+        let left_flag = format!("--{left}");
+        let right_flag = format!("--{right}");
+        args.push(&left_flag);
+        if !value.is_empty() {
+            args.push(value);
+        }
+        args.push(&right_flag);
+        if right == "offset" {
+            args.push("1");
+        }
+        assert_eq!(
+            crate::cli::Cli::try_parse_from(args)
+                .err()
+                .ok_or("conflict")?
+                .kind(),
+            clap::error::ErrorKind::ArgumentConflict
+        );
+    }
+    Ok(())
+}
+
+/// Independently execute every bare optional-value flag to verify missing defaults.
+#[test]
+fn missing_defaults_match_bare_parser_execution() -> TestResult {
+    let mut parser = crate::cli::Cli::command();
+    parser.build();
+    for command in parser.get_subcommands() {
+        for contract in arguments(command) {
+            if contract.min_values != 0 || contract.max_values == Some(0) {
+                continue;
+            }
+            let flag = contract.spellings.first().ok_or("optional flag")?;
+            // Ignore unrelated required positional arguments; no product dispatch occurs.
+            let matches = command
+                .clone()
+                .ignore_errors(true)
+                .try_get_matches_from([command.get_name(), flag])?;
+            let values: Vec<String> = matches
+                .get_raw(&contract.id)
+                .into_iter()
+                .flatten()
+                .map(|value| value.to_string_lossy().into_owned())
+                .collect();
+            assert_eq!(
+                contract.missing_defaults,
+                values,
+                "{}: {}",
+                command.get_name(),
+                contract.id
+            );
+        }
     }
     Ok(())
 }

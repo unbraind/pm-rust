@@ -144,6 +144,45 @@ fn discovery_is_complete_bounded_and_tracker_free() -> TestResult {
     Ok(())
 }
 
+/// Real CLI refusal envelopes match SDK decoding without touching a tracker.
+#[test]
+fn nested_adapter_refusals_match_sdk_and_cli() -> TestResult {
+    let directory = tempfile::tempdir()?;
+    for adapter in [
+        r#"{"abi":"pm-native-adapter/1","capabilities":["destroy"],"max_frame_bytes":1}"#,
+        r#"{"abi":"pm-native-adapter/1","capabilities":["get"],"max_frame_bytes":1,"extra":true}"#,
+        r#"{"abi":"pm-native-adapter/1","capabilities":"get","max_frame_bytes":1}"#,
+        r#"{"abi":"pm-native-adapter/1","capabilities":["get"],"max_frame_bytes":1}"#,
+    ] {
+        let request = format!(
+            r#"{{"protocol":"pm-rust/capabilities/v1","output_bytes":131072,"adapter":{adapter}}}"#
+        );
+        let sdk = DiscoveryRequest::from_json(request.as_bytes());
+        let output = native(
+            directory.path(),
+            &["capabilities", "--adapter", adapter, "--json"],
+            None,
+        )?;
+        match sdk {
+            Err(refusal) => {
+                assert_eq!(output.status.code(), Some(2));
+                assert!(output.stdout.is_empty());
+                let cli: Value = serde_json::from_slice(&output.stderr)?;
+                assert_eq!(cli["refusal"], serde_json::to_value(refusal)?);
+            }
+            Ok(request) => {
+                assert!(output.status.success());
+                assert_eq!(
+                    serde_json::from_slice::<Value>(&output.stdout)?,
+                    serde_json::to_value(discover_capabilities(&request)?)?
+                );
+            }
+        }
+    }
+    assert!(snapshot(directory.path())?.is_empty());
+    Ok(())
+}
+
 /// JSON-only ownership output stays truthful without an explicit output flag.
 #[test]
 fn ownership_encodings_match_default_cli_output() -> TestResult {

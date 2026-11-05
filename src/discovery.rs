@@ -119,6 +119,10 @@ impl DiscoveryRequest {
         {
             return Err(refuse(DiscoveryRefusalCode::InvalidAdapter));
         }
+        if let Some(adapter) = value.get("adapter").filter(|adapter| !adapter.is_null()) {
+            serde_json::from_value::<AdapterManifest>(adapter.clone())
+                .map_err(|_| refuse(DiscoveryRefusalCode::InvalidAdapter))?;
+        }
         let request: Self = serde_json::from_value(value)
             .map_err(|_| refuse(DiscoveryRefusalCode::InvalidRequest))?;
         request.validate()?;
@@ -450,8 +454,17 @@ fn arguments(command: &clap::Command) -> Vec<ArgumentContract> {
                     .map(|value| value.get_name().into())
                     .collect(),
                 conflicts: command
-                    .get_arg_conflicts_with(arg)
-                    .iter()
+                    .get_arguments()
+                    .filter(|other| {
+                        command
+                            .get_arg_conflicts_with(arg)
+                            .iter()
+                            .any(|value| value.get_id() == other.get_id())
+                            || command
+                                .get_arg_conflicts_with(other)
+                                .iter()
+                                .any(|value| value.get_id() == arg.get_id())
+                    })
                     .map(|value| value.get_id().as_str().into())
                     .collect(),
                 hidden: arg.is_hide_set(),

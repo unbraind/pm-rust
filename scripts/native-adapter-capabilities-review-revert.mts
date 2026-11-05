@@ -17,7 +17,7 @@ function replace(source: string, before: string, after: string): string {
 
 try {
   for (const name of ['Cargo.toml', 'Cargo.lock', 'build.rs', 'src', 'tests', 'scripts', 'examples']) {
-    cpSync(join(root, name), join(scratch, name), { recursive: true, filter: path => !path.split('/').includes('node_modules') });
+    cpSync(join(root, name), join(scratch, name), { recursive: true, filter: path => !path.split(/[\\/]/).includes('node_modules') });
   }
   // Only the already installed, pinned test oracle is shared; no build artifacts are shared.
   symlinkSync(join(root, 'tests/oracle/node_modules'), join(scratch, 'tests/oracle/node_modules'), 'dir');
@@ -35,9 +35,33 @@ try {
   console.log(JSON.stringify({ behavior: 'checkout binary isolation', failed_as_required: true }));
   writeFileSync(runner, runnerSource);
 
+  // Exercise the actual copy callbacks with Windows and POSIX input on every host.
+  for (const name of ['native-adapter-capabilities-revert.mts', 'native-adapter-capabilities-review-revert.mts']) {
+    const path = join(scratch, 'scripts', name);
+    const fixed = readFileSync(path, 'utf8');
+    writeFileSync(path, replace(fixed, "path.split(/[\\\\/]/)", "path.split('/')"));
+    const result = spawnSync(process.execPath, ['--test', '--test-concurrency=2', '--test-name-pattern=capability copy filters', join(scratch, 'scripts/native-adapter-capabilities-revert.test.mts')], {
+      encoding: 'utf8', env: { PATH: process.env.PATH, HOME: process.env.HOME }, timeout: 60000,
+    });
+    assert.equal(result.status, 1, result.stderr);
+    assert.match(result.stdout, /tests 2/);
+    assert.match(result.stdout, /pass 1/);
+    assert.match(result.stdout, /fail 1/);
+    console.log(JSON.stringify({ behavior: `separator-independent copy: ${name}`, passed: 1, failed: 1 }));
+    writeFileSync(path, fixed);
+  }
+
   const local = '    let local = operations\n        .iter()\n        .filter(|op| !["capabilities", "adapter-check", "help"].contains(&op.name.as_str()))\n        .map(|op| op.name.clone())\n        .collect();\n';
   const remote = '            .filter(|name: &String| {\n                request\n                    .operation\n                    .as_ref()\n                    .is_none_or(|selected| selected == name)\n            })\n';
   const cases = [
+    { name: 'nested adapter SDK refusal classification', target: ['--lib'], test: 'discovery::tests::nested_adapter_refusal_codes_match_cli',
+      mutate: (source: string) => replace(source, '        if let Some(adapter) = value.get("adapter").filter(|adapter| !adapter.is_null()) {\n            serde_json::from_value::<AdapterManifest>(adapter.clone())\n                .map_err(|_| refuse(DiscoveryRefusalCode::InvalidAdapter))?;\n        }\n', '') },
+    { name: 'nested adapter actual CLI parity', target: ['--test', 'capability_contract'], test: 'nested_adapter_refusals_match_sdk_and_cli',
+      mutate: (source: string) => replace(source, '        if let Some(adapter) = value.get("adapter").filter(|adapter| !adapter.is_null()) {\n            serde_json::from_value::<AdapterManifest>(adapter.clone())\n                .map_err(|_| refuse(DiscoveryRefusalCode::InvalidAdapter))?;\n        }\n', '') },
+    { name: 'reciprocal parser conflicts', target: ['--lib'], test: 'discovery::tests::parser_conflicts_are_reciprocal',
+      mutate: (source: string) => replace(source, '                            || command\n                                .get_arg_conflicts_with(other)\n                                .iter()\n                                .any(|value| value.get_id() == arg.get_id())', '') },
+    { name: 'independent missing-default parser oracle', target: ['--lib'], test: 'discovery::tests::missing_defaults_match_bare_parser_execution',
+      mutate: (source: string) => replace(source, 'strings(&[crate::cli::VALIDATE_CLOSE_DEFAULT])', 'strings(&["incorrect-default"])') },
     { name: 'object-only request', target: ['--lib'], test: 'discovery::tests::discovery_rejects_positional_struct_arrays',
       mutate: (source: string) => replace(source, '        if !value.is_object() {\n            return Err(refuse(DiscoveryRefusalCode::InvalidRequest));\n        }\n', '') },
     { name: 'object-only nested adapter', target: ['--lib'], test: 'discovery::tests::discovery_rejects_positional_struct_arrays',

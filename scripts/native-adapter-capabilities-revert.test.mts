@@ -5,7 +5,36 @@ import { existsSync, mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { test } from 'node:test';
-import { pathToFileURL } from 'node:url';
+import { fileURLToPath, pathToFileURL } from 'node:url';
+
+for (const runner of ['native-adapter-capabilities-revert.mts', 'native-adapter-capabilities-review-revert.mts']) {
+  test(`capability copy filters both path separators: ${runner}`, () => {
+    const scratch = mkdtempSync(join(tmpdir(), 'capability-copy-test-'));
+    try {
+      const shim = join(scratch, 'copy-shim.mjs');
+      writeFileSync(shim, `import assert from 'node:assert/strict';
+import fs from 'node:fs';
+import { syncBuiltinESMExports } from 'node:module';
+fs.cpSync = (_source, _destination, options) => {
+  for (const path of ['tests/oracle/node_modules', 'tests/oracle/node_modules/child', 'C:/repo/node_modules/pkg', 'C:\\\\repo\\\\tests\\\\oracle\\\\node_modules', 'C:\\\\repo\\\\node_modules\\\\pkg', 'tests\\\\oracle/node_modules\\\\pkg']) {
+    assert.equal(options.filter(path), false, path);
+  }
+  for (const path of ['tests/oracle', 'src/discovery.rs', 'C:\\\\repo\\\\src', 'node_modules_backup/pkg', 'tests/my_node_modules/pkg']) {
+    assert.equal(options.filter(path), true, path);
+  }
+  throw new Error('separator corpus verified');
+};
+syncBuiltinESMExports();
+`);
+      const result = spawnSync(process.execPath, ['--import', pathToFileURL(shim).href, fileURLToPath(new URL(runner, import.meta.url))], {
+        encoding: 'utf8', timeout: 30000, env: { HOME: scratch, TMPDIR: scratch, TEMP: scratch, TMP: scratch },
+      });
+      assert.equal(result.error, undefined);
+      assert.equal(result.status, 1);
+      assert.match(result.stderr, /Error: separator corpus verified/);
+    } finally { rmSync(scratch, { recursive: true, force: true }); }
+  });
+}
 
 for (const mode of ['existing', 'absent', 'first-failure', 'second-failure']) {
   test(`capability revert isolates checkout artifacts: ${mode}`, () => {
