@@ -219,8 +219,9 @@ The default response is complete, with a hard ceiling of 131072 encoded bytes
 including its newline. `--output-bytes` admits 1024..131072 bytes and bounds both
 encodings. A small ceiling produces a typed refusal with recovery arguments,
 never a truncated availability list. `--operation` selects an exact canonical
-name; absent commands and flags are unsupported. TOON and JSON decode to the same
-typed response. Omitted argument arrays mean empty, omitted boolean fields mean
+name and restricts both backend operation lists; absent commands and flags are
+unsupported. TOON and JSON decode to the same typed response. Omitted argument
+arrays mean empty, omitted boolean fields mean
 false, and an omitted minimum arity means zero. Hidden deterministic fixture
 flags remain marked as hidden.
 Help and version control flags retain the parser's text output.
@@ -236,12 +237,13 @@ name their actual output streams and preserve the existing error types.
 `native_directory: compiled` describes code support and its tracker/policy
 preconditions. An injected backend has no available operations by default.
 `--adapter` accepts an explicit strict JSON `pm-native-adapter/1` manifest and
-returns only its granted operations as `declared_only`. This is authorization
-metadata, without a connectivity probe or permission to execute; the CLI does
+returns only its granted, selected operations as `declared_only`. This is
+authorization metadata, without a connectivity probe or permission to execute; the CLI does
 not dispatch remote operations. Existing native adapter admission is reused.
 
 Rust callers use `discovery::discover_capabilities(&DiscoveryRequest::default())`.
 `DiscoveryRequest::from_json` admits one strict request of at most 8192 bytes,
+requiring JSON objects for the request and any adapter declaration, and
 rejecting unknown fields, duplicate keys, invalid versions and numeric domains.
 [`examples/capabilities.rs`](examples/capabilities.rs) emits the same inventory as
 the CLI. Discovery opens no tracker or transport and requires neither Git nor

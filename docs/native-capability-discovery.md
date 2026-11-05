@@ -59,7 +59,28 @@ SDK installation, independently of executable arguments and symlinks.
   function in a disposable non-git copy and requires a compiled runtime assertion
   failure. A second control replaces only CLI delivery with false success and
 requires the writer-refusal regression to fail. The reviewed source is untouched,
-then passing tests run again.
+then passing tests run again. Its Cargo target lives inside the disposable copy,
+so neither successful nor failed controls replace the checkout executable.
+
+## Review regression controls
+
+All five first-round review threads were valid. Discovery now refuses positional
+struct arrays at the request and adapter boundaries, reports public lifecycle
+wrappers and option-dependent SDK entry points, filters both backend lists by
+the requested operation, and advertises JSON alone for the four ownership
+commands. Actual default CLI ownership output is decoded in the contract test;
+session refusal producers are also compared with their recovery descriptor.
+
+`node scripts/native-adapter-capabilities-review-revert.mts` independently reverts
+each admission, mapping, selection and encoding behavior in a disposable non-git
+copy, requiring a compiled assertion failure for each Rust control. A descriptor
+rename proves the session producer comparison. A separate runner-artifact control
+reintroduces the shared target and requires the artifact-isolation tests to fail.
+Another delivery control replaces a producer refusal with successful rediscovery;
+the writer test requires the original typed refusal and no emitted bytes.
+Those tests exercise existing and absent executables and both runner failure
+paths with a simulated Cargo child. Rust controls use real compilation and the
+pinned oracle in genuine non-git trackers. Fixed-source tests run after restoration.
 
 ## Public-copy validation
 
@@ -77,18 +98,18 @@ main `a4e9e18ea2aec4aab08a662252c5f664ea95d720`:
 | --- | ---: |
 | SDK-certified items | 94 |
 | Frozen authoritative files, including 7 SDK preparation files | 201 |
-| Frozen authoritative bytes | 7,088,743 |
+| Frozen authoritative bytes | 7,088,530 |
 | Discovered operations | 25 |
 | Oracle slices / native-only surfaces | 17 / 8 |
 | Argument contracts | 236 |
 | Real native calls | 129 |
-| Complete JSON / TOON bytes, including newline | 55,534 / 66,215 |
-| Largest selected-operation JSON response | 9,528 bytes |
-| Total observed output / largest read response | 1,490,481 / 95,779 bytes |
-| Native validation wall time | 5,903 ms |
+| Complete JSON / TOON bytes, including newline | 55,754 / 66,443 |
+| Largest selected-operation JSON response | 9,312 bytes |
+| Total observed output / largest read response | 1,486,020 / 95,779 bytes |
+| Native validation wall time | 6,212 ms |
 
 Every archived authoritative byte survived SDK preparation, and the frozen
-fingerprint remained `6c85711a8b8b1e2035a34838d7edb9b1afa8f6ede4a0bcbc4bbef8b5a52c055c`
+fingerprint remained `61529901412a9141a3247588aba210fd6018e2d5ae4038956f8e030c3c0b7ae7`
 after discovery and native reads. The shared snapshot helper excludes derived
 root search/lock/checkpoint directories; permissions were frozen across the
 whole owned copy, and complete SDK item/body/relationship read-back also agreed.
@@ -96,8 +117,8 @@ Both the CLI and SDK example emitted identical discovery data.
 
 ## Release evidence
 
-Local validation includes the PM-linked 7 discovery units, 3 contract tests and
-17 existing CLI dispatch tests, plus a dedicated writer-failure test. The two
+Local validation includes the PM-linked 10 discovery units, 5 contract tests and
+17 existing CLI dispatch tests, plus a dedicated writer-failure test and 4 runner artifact-isolation tests. The two
 seeded models each run 500 cases. The disposable behavioral revert compiles and
 fails the tracker-free acceptance assertion; the fixed implementation passes
 again afterward. Strict Rust lint/docs, TypeScript and ESLint are checked too.
@@ -107,6 +128,13 @@ including the full published-oracle suite and 100 percent line, function,
 region and branch thresholds. The PR records exact-head run URLs and counts;
 those final receipts stay external so recording them does not invalidate the
 head they certify.
+
+The review-round local aggregate passed 607 cases before an existing five-second
+native child deadline stopped the orientation suite. That exact case passed an
+unchanged focused retry. The stopped invocation did not reach full coverage;
+fresh final-head CI must certify the complete release aggregate. The writer test
+also directly exercises producer-refusal propagation, the one region missed by
+the prior head's full CI coverage run. The 100 percent thresholds are unchanged.
 
 The renderer independently checks the 1024..131072 output-byte domain before
 encoding. Caller-modified or received response metadata cannot raise that hard

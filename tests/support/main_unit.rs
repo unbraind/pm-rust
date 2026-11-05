@@ -1826,6 +1826,21 @@ fn admission_stdio_refusals() -> Result<(), Box<dyn std::error::Error>> {
 fn capabilities_writer_refusals() -> Result<(), Box<dyn std::error::Error>> {
     let directory = tempfile::tempdir()?;
     for json in [false, true] {
+        let refusal = pm_rust::discovery::DiscoveryRequest::from_json(b"null")
+            .err()
+            .ok_or("invalid request must refuse")?;
+        let mut bytes = Vec::new();
+        let error = super::write_discovery_to(&mut bytes, Err(refusal), json)
+            .err()
+            .ok_or("delivery must preserve producer refusal")?;
+        assert_eq!(
+            error
+                .downcast_ref::<pm_rust::discovery::DiscoveryRefusal>()
+                .ok_or("typed refusal")?
+                .code,
+            pm_rust::discovery::DiscoveryRefusalCode::InvalidRequest
+        );
+        assert!(bytes.is_empty());
         let cli = || Cli {
             workspace: directory.path().join("missing"),
             command: Command::Capabilities {

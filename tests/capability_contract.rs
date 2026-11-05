@@ -144,6 +144,109 @@ fn discovery_is_complete_bounded_and_tracker_free() -> TestResult {
     Ok(())
 }
 
+/// JSON-only ownership output stays truthful without an explicit output flag.
+#[test]
+fn ownership_encodings_match_default_cli_output() -> TestResult {
+    let (directory, _) = fixture()?;
+    let response = discover_capabilities(&DiscoveryRequest::default())?;
+    let created = native(
+        directory.path(),
+        &[
+            "create",
+            "--id",
+            "sample-encoding",
+            "--title",
+            "Encoding fixture",
+            "--type",
+            "Task",
+            "--author",
+            "fixture-agent",
+        ],
+        None,
+    )?;
+    assert!(created.status.success());
+    for name in ["claim", "release", "start-task", "pause-task"] {
+        let operation = response
+            .operations
+            .iter()
+            .find(|op| op.name == name)
+            .ok_or("operation")?;
+        assert_eq!(operation.encodings, ["json"]);
+        let output = native(
+            directory.path(),
+            &[name, "sample-encoding", "--author", "fixture-agent"],
+            None,
+        )?;
+        assert!(
+            output.status.success(),
+            "{}",
+            String::from_utf8_lossy(&output.stderr)
+        );
+        let value: Value = serde_json::from_slice(&output.stdout)?;
+        assert!(value.is_object());
+    }
+    // Commands with selectable producers retain both encodings.
+    for name in ["list", "close", "capabilities"] {
+        assert_eq!(
+            response
+                .operations
+                .iter()
+                .find(|op| op.name == name)
+                .ok_or("operation")?
+                .encodings,
+            ["toon", "json"]
+        );
+    }
+    Ok(())
+}
+
+/// Actual session refusals match discovery's required and optional envelope keys.
+#[test]
+fn session_refusal_producer_matches_recovery_descriptor() -> TestResult {
+    let (directory, _) = fixture()?;
+    let marker = directory.path().join("cancel");
+    fs::write(&marker, "")?;
+    let response = discover_capabilities(&DiscoveryRequest::default())?;
+    let schema = response
+        .recovery_schemas
+        .iter()
+        .find(|schema| schema.id == "session")
+        .ok_or("session schema")?;
+    let required: BTreeSet<_> = schema
+        .required
+        .iter()
+        .map(|field| field[0].as_str())
+        .collect();
+    let allowed: BTreeSet<_> = schema
+        .required
+        .iter()
+        .chain(&schema.optional)
+        .map(|field| field[0].as_str())
+        .collect();
+    for controls in [
+        vec!["--memory-bytes", "1"],
+        vec!["--output-tokens", "0"],
+        vec!["--cancel-file", marker.to_str().ok_or("marker")?],
+    ] {
+        let mut args = vec!["read-session"];
+        args.extend(controls);
+        let output = native(directory.path(), &args, None)?;
+        assert_eq!(output.status.code(), Some(2));
+        assert!(output.stdout.is_empty());
+        let value: Value = serde_json::from_slice(&output.stderr)?;
+        let fields: BTreeSet<_> = value
+            .as_object()
+            .ok_or("refusal")?
+            .keys()
+            .map(String::as_str)
+            .collect();
+        assert!(required.is_subset(&fields));
+        assert!(fields.is_subset(&allowed));
+        assert_eq!(value["exit_code"], 2);
+    }
+    Ok(())
+}
+
 /// Every advertised operation executes on a genuine tracker, rather than merely parsing help.
 #[test]
 #[allow(clippy::too_many_lines)]

@@ -108,7 +108,18 @@ impl DiscoveryRequest {
         if bytes.len() > DISCOVERY_INPUT_BYTES {
             return Err(refuse(DiscoveryRefusalCode::InvalidRequest));
         }
-        let request: Self = crate::strict_json::from_slice(bytes)
+        let value: serde_json::Value = crate::strict_json::from_slice(bytes)
+            .map_err(|_| refuse(DiscoveryRefusalCode::InvalidRequest))?;
+        if !value.is_object() {
+            return Err(refuse(DiscoveryRefusalCode::InvalidRequest));
+        }
+        if value
+            .get("adapter")
+            .is_some_and(|adapter| !adapter.is_null() && !adapter.is_object())
+        {
+            return Err(refuse(DiscoveryRefusalCode::InvalidAdapter));
+        }
+        let request: Self = serde_json::from_value(value)
             .map_err(|_| refuse(DiscoveryRefusalCode::InvalidRequest))?;
         request.validate()?;
         Ok(request)
@@ -129,7 +140,12 @@ impl DiscoveryRequest {
                 if text.len() > DISCOVERY_INPUT_BYTES {
                     return Err(refuse(DiscoveryRefusalCode::InvalidRequest));
                 }
-                crate::strict_json::from_str::<AdapterManifest>(text)
+                let value: serde_json::Value = crate::strict_json::from_str(text)
+                    .map_err(|_| refuse(DiscoveryRefusalCode::InvalidAdapter))?;
+                if !value.is_object() {
+                    return Err(refuse(DiscoveryRefusalCode::InvalidAdapter));
+                }
+                serde_json::from_value::<AdapterManifest>(value)
                     .map_err(|_| refuse(DiscoveryRefusalCode::InvalidAdapter))
             })
             .transpose()?;
@@ -546,26 +562,47 @@ fn operation(command: &clap::Command) -> Result<OperationContract, DiscoveryRefu
             "Append one canonical comment; no comments editing, redaction or repair.",
         ),
         "claim" => (
-            &["Workspace::claim", "Workspace::claim_next"],
+            &[
+                "Workspace::claim_with_options",
+                "Workspace::claim_next",
+                "Workspace::start_task",
+                "Workspace::claim",
+                "Workspace::update",
+            ],
             Some(
                 "tests/claim_release_differential.rs::claim_release_sequences_match_published_bytes_and_envelopes",
             ),
             "Atomic explicit/next claim; --start is composed and may retain a successful claim if starting fails.",
         ),
         "release" => (
-            &["Workspace::release", "Workspace::update"],
+            &[
+                "Workspace::release_with_options",
+                "Workspace::pause_task",
+                "Workspace::release",
+                "Workspace::update",
+            ],
             Some(
                 "tests/claim_release_differential.rs::claim_release_sequences_match_published_bytes_and_envelopes",
             ),
             "Canonical release policy; --pause composes a status update before release; partial failures retain receipts.",
         ),
         "start-task" => (
-            &["Workspace::claim", "Workspace::update"],
+            &[
+                "Workspace::start_task",
+                "Workspace::claim_with_options",
+                "Workspace::claim",
+                "Workspace::update",
+            ],
             Some("tests/claim_release_differential.rs::composed_lifecycle_matches_published_bytes"),
             "Composed explicit-ID lifecycle only, not an atomic multi-step transaction; partial-success receipts remain authoritative.",
         ),
         "pause-task" => (
-            &["Workspace::update", "Workspace::release"],
+            &[
+                "Workspace::pause_task",
+                "Workspace::release_with_options",
+                "Workspace::update",
+                "Workspace::release",
+            ],
             Some("tests/claim_release_differential.rs::composed_lifecycle_matches_published_bytes"),
             "Composed explicit-ID lifecycle only, not an atomic multi-step transaction; partial-success receipts remain authoritative.",
         ),
@@ -584,7 +621,18 @@ fn operation(command: &clap::Command) -> Result<OperationContract, DiscoveryRefu
     let args = arguments(command);
     let encodings = if name == "help" {
         strings(&["text"])
-    } else if ["get", "create", "update", "comment"].contains(&name) {
+    } else if [
+        "get",
+        "create",
+        "update",
+        "comment",
+        "claim",
+        "release",
+        "start-task",
+        "pause-task",
+    ]
+    .contains(&name)
+    {
         strings(&["json"])
     } else {
         strings(&["toon", "json"])
@@ -863,11 +911,6 @@ fn discover_from_parser(
         .get_subcommands()
         .map(operation)
         .collect::<Result<Vec<_>, _>>()?;
-    let local = all
-        .iter()
-        .filter(|op| !["capabilities", "adapter-check", "help"].contains(&op.name.as_str()))
-        .map(|op| op.name.clone())
-        .collect();
     let operations: Vec<_> = all
         .into_iter()
         .filter(|op| {
@@ -880,6 +923,11 @@ fn discover_from_parser(
     if operations.is_empty() {
         return Err(refuse(DiscoveryRefusalCode::UnsupportedOperation));
     }
+    let local = operations
+        .iter()
+        .filter(|op| !["capabilities", "adapter-check", "help"].contains(&op.name.as_str()))
+        .map(|op| op.name.clone())
+        .collect();
     let adapter = request.adapter.as_ref();
     let remote = adapter.map_or_else(Vec::new, |manifest| {
         manifest
@@ -894,6 +942,12 @@ fn discover_from_parser(
                     AdapterCapability::Release => "release",
                 }
                 .into()
+            })
+            .filter(|name: &String| {
+                request
+                    .operation
+                    .as_ref()
+                    .is_none_or(|selected| selected == name)
             })
             .collect()
     });

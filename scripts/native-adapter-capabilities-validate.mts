@@ -76,6 +76,9 @@ try {
     selectedMax = Math.max(selectedMax, selected.length);
     const response: Inventory = JSON.parse(selected.toString());
     assert.deepEqual(response.operations, [operation]);
+    assert.deepEqual(response.backends[0].operations,
+      ['capabilities', 'adapter-check', 'help'].includes(operation.name) ? [] : [operation.name]);
+    assert.deepEqual(response.backends[1].operations, []);
   }
   // Real reads guided by the discovered native operation/flag surface.
   const names = new Set(inventory.operations.map(operation => operation.name));

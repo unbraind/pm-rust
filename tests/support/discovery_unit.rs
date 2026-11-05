@@ -259,6 +259,144 @@ fn discovery_must_refuse_and_must_allow_corpora() -> TestResult {
     Ok(())
 }
 
+/// Objects are required at both discovery and adapter wire boundaries.
+#[test]
+fn discovery_rejects_positional_struct_arrays() -> TestResult {
+    for input in [
+        r#"["pm-rust/capabilities/v1",null,131072,null]"#,
+        r#"["pm-rust/capabilities/v1","get",131072,null]"#,
+        "null",
+        "true",
+        "0",
+        "\"request\"",
+    ] {
+        assert_eq!(
+            DiscoveryRequest::from_json(input.as_bytes())
+                .err()
+                .ok_or("shape")?
+                .code,
+            DiscoveryRefusalCode::InvalidRequest,
+            "{input}"
+        );
+    }
+    let adapter = r#"["pm-native-adapter/1",["get"],1024]"#;
+    let input = format!(
+        r#"{{"protocol":"pm-rust/capabilities/v1","output_bytes":131072,"adapter":{adapter}}}"#
+    );
+    assert_eq!(
+        DiscoveryRequest::from_json(input.as_bytes())
+            .err()
+            .ok_or("adapter shape")?
+            .code,
+        DiscoveryRefusalCode::InvalidAdapter
+    );
+    let base = DiscoveryRequest::default();
+    assert_eq!(
+        DiscoveryRequest::from_cli(
+            base.protocol.clone(),
+            None,
+            base.output_bytes,
+            Some(adapter)
+        )
+        .err()
+        .ok_or("CLI adapter shape")?
+        .code,
+        DiscoveryRefusalCode::InvalidAdapter
+    );
+    for input in [serde_json::to_string(&base)?,
+        r#"{"protocol":"pm-rust/capabilities/v1","output_bytes":131072}"#.into(),
+        r#"{"protocol":"pm-rust/capabilities/v1","operation":"get","output_bytes":131072,"adapter":{"abi":"pm-native-adapter/1","capabilities":["get"],"max_frame_bytes":1024}}"#.into()] {
+        discover_capabilities(&DiscoveryRequest::from_json(input.as_bytes())?)?;
+    }
+    Ok(())
+}
+
+/// Lifecycle commands include their public wrappers and option-dependent entry points.
+#[test]
+fn ownership_sdk_mappings_include_public_entry_points() -> TestResult {
+    let response = discover_capabilities(&DiscoveryRequest::default())?;
+    for (name, entry_points) in [
+        (
+            "claim",
+            vec![
+                "Workspace::claim_with_options",
+                "Workspace::claim_next",
+                "Workspace::start_task",
+            ],
+        ),
+        (
+            "release",
+            vec!["Workspace::release_with_options", "Workspace::pause_task"],
+        ),
+        (
+            "start-task",
+            vec!["Workspace::start_task", "Workspace::claim_with_options"],
+        ),
+        (
+            "pause-task",
+            vec!["Workspace::pause_task", "Workspace::release_with_options"],
+        ),
+    ] {
+        let operation = response
+            .operations
+            .iter()
+            .find(|op| op.name == name)
+            .ok_or("operation")?;
+        assert_eq!(&operation.sdk[..entry_points.len()], entry_points);
+    }
+    Ok(())
+}
+
+/// Every backend describes only selected operations, including all adapter grant subsets.
+#[test]
+fn selected_operation_filters_every_backend() -> TestResult {
+    let all = discover_capabilities(&DiscoveryRequest::default())?;
+    for op in all.operations {
+        for subset in 0..32 {
+            let adapter = AdapterManifest {
+                abi: crate::native_adapter::NATIVE_ADAPTER_ABI.into(),
+                capabilities: [
+                    AdapterCapability::Changes,
+                    AdapterCapability::Get,
+                    AdapterCapability::List,
+                    AdapterCapability::Claim,
+                    AdapterCapability::Release,
+                ]
+                .into_iter()
+                .enumerate()
+                .filter(|(i, _)| subset & (1 << i) != 0)
+                .map(|(_, cap)| cap)
+                .collect(),
+                max_frame_bytes: 1024,
+            };
+            let granted = adapter
+                .capabilities
+                .iter()
+                .any(|cap| crate::stringify_json(cap, false) == format!("\"{}\"", op.name));
+            let selected = discover_capabilities(&DiscoveryRequest {
+                operation: Some(op.name.clone()),
+                adapter: Some(adapter),
+                ..DiscoveryRequest::default()
+            })?;
+            let local = if ["capabilities", "adapter-check", "help"].contains(&op.name.as_str()) {
+                vec![]
+            } else {
+                vec![op.name.clone()]
+            };
+            assert_eq!(selected.backends[0].operations, local);
+            assert_eq!(
+                selected.backends[1].operations,
+                if granted {
+                    vec![op.name.clone()]
+                } else {
+                    vec![]
+                }
+            );
+        }
+    }
+    Ok(())
+}
+
 /// Authorization manifests are explicitly supplied and use existing ABI admission.
 #[test]
 fn backend_inventory_never_invents_availability() -> TestResult {
@@ -469,7 +607,7 @@ fn seeded_numeric_boundary_fuzz() -> TestResult {
     Ok(())
 }
 
-/// Every recovery descriptor generates its wire schema and native producer variants agree.
+/// Descriptors generate consistent schemas and discovery enums match typed producers.
 #[test]
 fn recovery_schemas_describe_actual_producers() -> TestResult {
     let response = discover_capabilities(&DiscoveryRequest::default())?;
