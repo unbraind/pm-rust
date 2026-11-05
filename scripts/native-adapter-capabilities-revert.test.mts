@@ -5,6 +5,7 @@ import { existsSync, mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { test } from 'node:test';
+import { pathToFileURL } from 'node:url';
 
 for (const mode of ['existing', 'absent', 'first-failure', 'second-failure']) {
   test(`capability revert isolates checkout artifacts: ${mode}`, () => {
@@ -19,7 +20,8 @@ for (const mode of ['existing', 'absent', 'first-failure', 'second-failure']) {
       writeFileSync(runner, readFileSync(new URL('./native-adapter-capabilities-revert.mts', import.meta.url)));
       const binary = join(root, 'target/debug/pm-rust');
       if (mode !== 'absent') writeFileSync(binary, 'fixed executable');
-      const shim = join(scratch, 'cargo-shim.mjs');
+      // A fragment marker also catches path-as-specifier bugs on POSIX hosts.
+      const shim = join(scratch, 'cargo # shim.mjs');
       writeFileSync(shim, `import childProcess from 'node:child_process';
 import { syncBuiltinESMExports } from 'node:module';
 import { mkdirSync, writeFileSync } from 'node:fs';
@@ -40,12 +42,17 @@ syncBuiltinESMExports();
         const value = process.env[name];
         if (value !== undefined) childEnv[name] = value;
       }
-      const result = spawnSync(process.execPath, ['--import', shim, runner], {
+      const result = spawnSync(process.execPath, ['--import', pathToFileURL(shim).href, runner], {
         cwd: root, encoding: 'utf8', timeout: 30000,
         env: childEnv,
       });
       assert.equal(result.error, undefined);
-      assert.equal(result.status, mode.endsWith('failure') ? 1 : 0);
+      assert.equal(result.status, mode.endsWith('failure') ? 1 : 0, result.stderr);
+      if (mode.endsWith('failure')) {
+        assert.match(result.stderr, /0\s*!==\s*101/);
+        if (mode === 'first-failure') assert.equal(result.stdout, '');
+        else assert.equal(JSON.parse(result.stdout).reverted_test, 'discovery_is_complete_bounded_and_tracker_free');
+      }
       if (mode === 'absent') assert.equal(existsSync(binary), false);
       else assert.equal(readFileSync(binary, 'utf8'), 'fixed executable');
     } finally { rmSync(scratch, { recursive: true, force: true }); }
