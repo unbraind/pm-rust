@@ -67,7 +67,7 @@ Run `just orientation-check` for the generated current-oracle differential
 corpus. `node scripts/context-intents-revert.mts` copies text source into a
 scratch directory and requires assertion failures after independently reverting
 intent preparation, compact table behavior and the previous relationship packet
-implementation. All nine new tests and the upgraded existing differentials are
+implementation. All ten new tests and the upgraded existing differentials are
 covered. It leaves the working implementation untouched.
 The packet revert uses a committed patch, so it does not depend on a moving
 `origin/main` reference or remote availability.
@@ -110,13 +110,15 @@ item/history/configuration hashes remain unchanged in every copy.
 Median fresh-process latency in milliseconds, **native / oracle**. Each command
 has five alternating samples per runtime; filesystem caches were not flushed.
 The fixed clocks make packing deterministic. These shared-host observations are
-not latency guarantees. The receipt includes every sample, p95 and binary hash.
+not latency guarantees. They were collected locally on Node 24.19.0; CI uses
+Node 26 and independently runs the release gates. The receipt includes every
+sample, p95 and binary hash.
 
 | Tracker | Brief | Deep | Orient | Handoff | Relationship |
 | --- | ---: | ---: | ---: | ---: | ---: |
-| pm-vcs | 29.6 / 692.1 | 181.5 / 1169.9 | 169.0 / 882.5 | 186.6 / 955.1 | 21.5 / 601.6 |
-| pm-rl | 31.3 / 883.7 | 222.0 / 1194.6 | 242.2 / 1471.0 | 258.0 / 1434.7 | 25.3 / 891.1 |
-| pm-context | 16.8 / 865.4 | 61.0 / 863.5 | 97.5 / 1231.0 | 64.4 / 870.9 | 10.7 / 684.9 |
+| pm-vcs | 52.1 / 1259.3 | 330.1 / 2412.6 | 305.3 / 2406.6 | 182.7 / 1473.7 | 49.3 / 1252.3 |
+| pm-rl | 30.5 / 1639.8 | 486.0 / 3976.9 | 426.0 / 2768.2 | 563.3 / 2953.1 | 53.6 / 1831.5 |
+| pm-context | 147.8 / 4595.0 | 458.9 / 5332.5 | 184.8 / 6679.6 | 231.7 / 5217.1 | 70.6 / 5376.2 |
 
 [Machine-readable receipt](benchmarks/native-context-intents-2026-11-06.json).
 
@@ -124,11 +126,12 @@ not latency guarantees. The receipt includes every sample, p95 and binary hash.
 
 `just orientation-revert-proof` requires behavioral assertion failures, not
 compilation failures. Mutations run in a disposable source copy and are restored
-between checks. The completed run requires 15 assertion failures across 13
-mutation commands and 12 distinct tests, covering all nine new tests.
+between checks. The completed run requires 16 assertion failures across 14
+mutation commands and 13 distinct tests, covering all ten new tests.
 
 | Reverted behavior | Test that fails |
 | --- | --- |
+| Missing oracle dependency preflight | `revert preflight names the missing oracle installation` |
 | Core intent preparation | `core_intent_boundaries_and_budget_receipts` |
 | Core intent preparation | `context_intents_and_sections_match_current_oracle` |
 | Core intent preparation | `context_intents_empty_tracker_match_current_oracle` |

@@ -7,11 +7,11 @@ status: in_progress
 priority: 2
 tags[3]: native,oracle,orientation
 created_at: "2026-11-06T09:15:56.754Z"
-updated_at: "2026-11-06T14:35:38.225Z"
+updated_at: "2026-11-06T15:57:07.002Z"
 author: codex-astra
 acceptance_criteria: "JSON and TOON bytes, status and stderr match the oracle on generated non-git trackers and public tracker copies; retain typed calendar and memory refusals; focused tests fail on behavioral revert; record latency and differential counts."
 parent: pm-rust-s6j4
-comments[17]{created_at,author,text}:
+comments[20]{created_at,author,text}:
   "2026-11-06T09:28:14.771Z",codex-astra,"Implemented core intent preparation, section selection, activity bounds and intent receipts. Current-oracle exploration identified three inherited context drifts: bounded activity excludes timestamps at or after the read clock; test health covers all matching active items and declares its scope; TOON auto-tables choose compact list/null columns only when shorter. Bringing these paths to the requested November contract before running the public-copy corpus."
   "2026-11-06T09:44:02.034Z",codex-astra,"Public-copy packet differential exposed the newer required-root-evidence-first-v1 ordering, reserved root-edge budget, root-edge priority and bounded-relationship omission receipt. Porting those native packet semantics as part of this slice, including updated producer fingerprints. No legacy packet result is being counted as current-oracle evidence."
   "2026-11-06T10:08:53.263Z",codex-astra,"Generated intent comparisons passed before the final expanded matrix. Public-copy exploration exposed the distinction between compact intent estimates and complete JSON wire ceilings, now handled by the shared output-budget path. Current dependency packets also require root-evidence-first ordering and revised refusal text; preserving the existing bounded retry test while eliminating repeated rendering of identical packets."
@@ -29,8 +29,13 @@ comments[17]{created_at,author,text}:
   "2026-11-06T13:38:06.898Z",codex-astra,"Release-binary public-copy validation passed 271 exact comparisons: pm-vcs 99 (62 context, 37 relationships), pm-rl 101 (62, 39), pm-context 71 (60, 11). Together with 378 generated context and 138 generated relationship comparisons, this records 787 exact stdout/stderr/status comparisons. All authoritative copy hashes remained unchanged. The sanitized benchmark receipt records all samples, p50/p95 and the binary hash; five alternating fresh-process samples were measured per runtime and projection. Median native/oracle orient latency was 169.0/882.5 ms, 242.2/1471.0 ms and 97.5/1231.0 ms respectively. Formatting, strict Clippy, private-item rustdoc and release build passed; 398 library, 42 binary, 46 acceptance and 25 Node harness tests passed. The linked lookup run passed 34 tests and the linked Unicode differential passed. The 12-command revert run requires 14 assertion failures across all nine new tests and two upgraded existing tests. First-head CI collection diagnostics were fixed and the focused oracle regression passed. Round-1 review fixes and compatibility evidence are ready for the next push; final-head CI and review remain pending on PR 154."
   "2026-11-06T14:08:29.518Z",codex-astra,"The exact-head CI run was canceled before any job executed; a retry is queued. A local unit-only branch-coverage audit passed 398 library and 42 binary tests and confirmed all four coverage dimensions at 100 percent for the relationship packet module. It also identified unexercised guard cases for a non-array compact-table input and an empty activity timestamp. Extending existing regression fixtures for these guards, then rerunning their positive differentials and behavioral revert proofs. This partial audit is not a full release-gate coverage claim; production behavior and the measured release binary are unchanged."
   "2026-11-06T14:35:36.243Z",codex-astra,"The guard follow-up passed all 398 library tests and all 16 reviewed-contract differentials, retaining the total of 787 reported exact comparisons. The expanded revert proof passed 13 mutation commands with 15 named assertion failures across 12 distinct tests, including all nine new tests. Removing only the empty-timestamp guard now fails the retained-activity regression. Focused instrumented unit runs exercise the non-array table and empty-timestamp paths. Strict Clippy, formatting, TypeScript and ESLint passed. Rebuilding the release executable produced the identical SHA-256 already recorded by all three public-copy receipts, so the measured code and latency artifact remain unchanged. This follow-up changes tests, proof metadata and PM records only. Releasing the claim for final exact-head CI and review on PR 154."
-files[23]{path,scope}:
+  "2026-11-06T14:55:07.418Z",codex-astra,"Review round two identifies a dependency preflight improvement and a closed core-intent representation. The benchmark records the actual local Node runtime; clarify local measurement provenance. Recheck exact oracle packets and behavioral reverts after these focused changes, then release the claim and regenerate the changelog before pushing."
+  "2026-11-06T15:24:50.868Z",codex-astra,"Resume check confirms the expected worktree changes and this author owns the feature claim. Current enum refactor passes 398 library tests, 42 binary tests, the 342 intent comparisons and 16 reviewed contracts, plus strict documentation, formatting, Clippy and typed harness lint. The new dependency preflight passes through the linked test runner. An extra broad crash harness was stopped before completion to keep local gates targeted; no full crash-harness pass is claimed. Feature-specific revert and public-copy receipts are being refreshed before the fix push."
+  "2026-11-06T15:57:01.327Z",codex-astra,"Review round two fixes are verified: closed core-intent enum with named declarations, source-anchored dependency preflight, and explicit local benchmark provenance. Current generated context comparisons pass 378; relationship matrices retain 138 comparisons; fresh public-copy passes are 99, 101 and 71, for 787 reported exact stdout/stderr/status comparisons. All public authoritative hashes remain unchanged. The refreshed receipt records 150 samples and binary SHA-256 298e2f5d5a22920cde2fdf5f30a155c8655ba4bba221048975d3d4b7cb5b12e5. Rust units pass 398 library plus 42 binary; 23 harness/release contracts, strict docs, formatting, Clippy, typed harness lint and the linked preflight pass. The feature revert proof passes 14 isolated mutation commands with 16 named behavioral failures across 13 distinct tests, covering all ten new tests. Positive preflight and core-intent tests pass afterward. The extra broad crash run was stopped and is not claimed as a full gate pass. Output cursors retain the exact published receipt, successful published-CLI replay and explicit native refusal; native implementation remains a follow-up. Final CI and review receipts will be recorded in the PR."
+files[25]{path,scope}:
+  justfile,project
   scripts/context-intents-revert.mts,project
+  scripts/context-intents-revert.test.mts,project
   scripts/context-real-helpers.mts,project
   scripts/context-real.mts,project
   src/cli.rs,project
@@ -53,7 +58,7 @@ files[23]{path,scope}:
   tests/support/orientation_packet_unit.rs,project
   tests/support/orientation_sections_unit.rs,project
   tests/support/toon_output_unit.rs,project
-tests[5]:
+tests[6]:
   - command: just orientation-check
     scope: project
     timeout_seconds: 3600
@@ -93,6 +98,13 @@ tests[5]:
     provenance:
       author: codex-astra
       created_at: "2026-11-06T13:38:04.003Z"
+      source_kind: local_mutation
+      source_ref: native-context-intents-and-relationship-packets
+  - command: node --test --test-concurrency=1 scripts/context-intents-revert.test.mts
+    scope: project
+    provenance:
+      author: codex-astra
+      created_at: "2026-11-06T15:00:02.374Z"
       source_kind: local_mutation
       source_ref: native-context-intents-and-relationship-packets
 docs[2]{path,scope}:

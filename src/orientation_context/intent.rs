@@ -15,10 +15,76 @@ fn positive(raw: Option<&str>) -> Option<usize> {
         .filter(|n| *n > 0 && *n <= 9_007_199_254_740_991)
 }
 
+/// Closed set of built-in context projections.
+#[derive(Clone, Copy)]
+enum CoreIntent {
+    /// Hierarchy and blockers for initial orientation.
+    Orient,
+    /// Progress and decisions for a handoff.
+    Handoff,
+}
+
+/// Static producer defaults and receipt fields for one core projection.
+struct Declaration {
+    /// Declared token budget.
+    budget: usize,
+    /// Fixed receipt overhead.
+    overhead: usize,
+    /// Estimated cost of one producer row.
+    row_cost: usize,
+    /// Default projection depth.
+    depth: &'static str,
+    /// Default selected sections.
+    sections: &'static [&'static str],
+    /// Receipt field groups.
+    field_groups: &'static [&'static str],
+}
+
+impl CoreIntent {
+    /// Parses an already normalized name at the native boundary.
+    fn parse(name: &str) -> Option<Self> {
+        match name {
+            "orient" => Some(Self::Orient),
+            "handoff" => Some(Self::Handoff),
+            _ => None,
+        }
+    }
+
+    /// Returns the published wire spelling.
+    fn name(self) -> &'static str {
+        match self {
+            Self::Orient => "orient",
+            Self::Handoff => "handoff",
+        }
+    }
+
+    /// Resolves the complete static declaration without a string fallback.
+    fn declaration(self) -> Declaration {
+        match self {
+            Self::Orient => Declaration {
+                budget: 3000,
+                overhead: 1200,
+                row_cost: 600,
+                depth: "standard",
+                sections: &["hierarchy", "blockers", "activity"],
+                field_groups: &["summary", "focus", "hierarchy", "blockers", "activity"],
+            },
+            Self::Handoff => Declaration {
+                budget: 2200,
+                overhead: 800,
+                row_cost: 500,
+                depth: "deep",
+                sections: &["activity", "progress", "blockers"],
+                field_groups: &["summary", "focus", "in_progress", "decisions", "activity"],
+            },
+        }
+    }
+}
+
 /// Validated built-in declaration and its effective row ceiling.
 pub(super) struct Intent {
-    /// Normalized core intent name.
-    name: String,
+    /// Validated core projection.
+    core: CoreIntent,
     /// Built-in token declaration.
     declared: usize,
     /// Effective token budget.
@@ -102,29 +168,19 @@ pub(super) fn prepare(
     };
     boundary(workspace, global)?;
     let name = crate::orientation::trim_control(name).to_lowercase();
-    let (declared, overhead, row_cost, depth, sections) = match name.as_str() {
-        "orient" => (
-            3000,
-            1200,
-            600,
-            "standard",
-            vec!["hierarchy", "blockers", "activity"],
-        ),
-        "handoff" => (
-            2200,
-            800,
-            500,
-            "deep",
-            vec!["activity", "progress", "blockers"],
-        ),
-        _ => {
-            return Err(refusal(
+    let core = CoreIntent::parse(&name).ok_or_else(|| refusal(
                 "Native context supports only core orient and handoff intents; use the published pm CLI for other declarations.",
                 2,
                 json!({"code":"unsupported_native_context","field":"for"}),
-            ));
-        }
-    };
+            ))?;
+    let Declaration {
+        budget: declared,
+        overhead,
+        row_cost,
+        depth,
+        sections,
+        ..
+    } = core.declaration();
     let explicit = positive(options.token_budget.as_deref());
     let budget = explicit.unwrap_or(declared);
     if budget < 256 {
@@ -145,7 +201,10 @@ pub(super) fn prepare(
         options.limit = Some(effective.to_string());
     }
     if options.sections.is_empty() && options.depth.is_none() {
-        options.sections = sections.into_iter().map(str::to_owned).collect();
+        options.sections = sections
+            .iter()
+            .map(|section| (*section).to_owned())
+            .collect();
     }
     options.depth.get_or_insert_with(|| depth.to_owned());
     options
@@ -155,7 +214,7 @@ pub(super) fn prepare(
         .token_budget
         .get_or_insert_with(|| declared.to_string());
     Ok(Some(Intent {
-        name,
+        core,
         declared,
         budget,
         derived,
@@ -168,18 +227,20 @@ impl Intent {
     /// Attaches the oracle receipt before continuation and general output budgeting.
     pub(super) fn attach(&self, mut result: ListOutput, original: &ContextOptions) -> ListOutput {
         let Self {
-            name,
+            core,
             declared,
             budget,
             derived,
             overhead,
             row_cost,
         } = self;
+        let name = core.name();
+        let field_groups = core.declaration().field_groups;
         result.value["row_contract"] = json!({"command":"context","row_kind":"collection","row_keys":["high_level","low_level"],"fields":"supported","jq_selector":".row_contract.row_keys[] as $key | getpath($key | split(\".\")) | if type == \"array\" then .[] else if type == \"object\" then to_entries[] else empty end end","toon_encoding":"tabular_when_uniform"});
         let requested = positive(original.limit.as_deref());
         let explicit = requested.is_some_and(|n| n < *derived);
         result.value["budget_derived_limit"] = json!(derived);
-        let mut receipt = json!({"command":"context","intent":name,"source":"core","included_field_groups":if name=="orient" {vec!["summary","focus","hierarchy","blockers","activity"]} else {vec!["summary","focus","in_progress","decisions","activity"]},"token_budget":budget,"declared_token_budget":declared,"token_budget_override":i64::try_from(*budget).unwrap_or(i64::MAX)-i64::try_from(*declared).unwrap_or_default(),"estimated_tokens":0,"within_budget":true,"degradation":"bounded_sections","declaration_feasible":true,"result_omitted":false,"budget_derived_limit":derived,"binding_constraint":if explicit {"explicit_limit"} else {"token_budget"},"limit_reason":if explicit {"The caller supplied a smaller row limit than the budget-derived ceiling."} else {"The selected intent token budget constrains the effective row ceiling."}});
+        let mut receipt = json!({"command":"context","intent":name,"source":"core","included_field_groups":field_groups,"token_budget":budget,"declared_token_budget":declared,"token_budget_override":i64::try_from(*budget).unwrap_or(i64::MAX)-i64::try_from(*declared).unwrap_or_default(),"estimated_tokens":0,"within_budget":true,"degradation":"bounded_sections","declaration_feasible":true,"result_omitted":false,"budget_derived_limit":derived,"binding_constraint":if explicit {"explicit_limit"} else {"token_budget"},"limit_reason":if explicit {"The caller supplied a smaller row limit than the budget-derived ceiling."} else {"The selected intent token budget constrains the effective row ceiling."}});
         if let Some(requested) = requested.filter(|n| n > derived) {
             receipt["limit_reason"] = json!(format!(
                 "The {budget}-token {name} budget carries {derived} rows, so it reduced the caller's --limit {requested}."

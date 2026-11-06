@@ -1,5 +1,5 @@
 import { spawnSync } from 'node:child_process';
-import { cpSync, mkdirSync, mkdtempSync, readFileSync, rmSync, symlinkSync, writeFileSync } from 'node:fs';
+import { cpSync, existsSync, mkdirSync, mkdtempSync, readFileSync, rmSync, symlinkSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { dirname, join, resolve } from 'node:path';
 
@@ -17,6 +17,11 @@ function run(root: string, args: string[], expected: string[]): void {
 }
 
 const source = process.cwd();
+const dependencies = ['oracle', 'orientation-oracle'].map(oracle => {
+  const modules = resolve(source, 'tests', oracle, 'node_modules');
+  if (!existsSync(modules)) throw new Error(`Missing ${oracle} dependencies; run just oracle-install`);
+  return { oracle, modules };
+});
 const scratch = mkdtempSync(join(tmpdir(), 'pm-rust-context-revert-'));
 try {
   const files = spawnSync('git', ['ls-files', '--cached', '--others', '--exclude-standard', '-z'], { cwd: source });
@@ -26,9 +31,22 @@ try {
     mkdirSync(dirname(target), { recursive: true });
     cpSync(join(source, file), target);
   }
-  for (const oracle of ['oracle', 'orientation-oracle']) {
-    symlinkSync(resolve('tests', oracle, 'node_modules'), join(scratch, 'tests', oracle, 'node_modules'), 'junction');
+  for (const { oracle, modules } of dependencies) {
+    symlinkSync(modules, join(scratch, 'tests', oracle, 'node_modules'), 'junction');
   }
+  const preflightPath = join(scratch, 'scripts/context-intents-revert.mts');
+  const preflight = readFileSync(preflightPath, 'utf8');
+  const guard = 'if (!existsSync(modules)) throw new Error(`Missing ${oracle} dependencies; run just oracle-install`);';
+  if (!preflight.includes(guard)) throw new Error('Cannot locate oracle dependency preflight');
+  writeFileSync(preflightPath, preflight.replace(guard, ''));
+  const preflightCommand = ['--test', '--test-reporter=tap', 'scripts/context-intents-revert.test.mts'];
+  const preflightResult = spawnSync(process.execPath, preflightCommand, { cwd: scratch, encoding: 'utf8', timeout: 30_000 });
+  const preflightTest = 'revert preflight names the missing oracle installation';
+  if (preflightResult.error || preflightResult.status !== 1 || !preflightResult.stdout.includes(`not ok 1 - ${preflightTest}`)) {
+    throw new Error('Oracle dependency preflight revert did not produce its assertion failure');
+  }
+  console.log(JSON.stringify({ command: ['node', ...preflightCommand], assertion_failures: [preflightTest], revert_confirmed: true }));
+  writeFileSync(preflightPath, preflight);
   const target = join(scratch, 'src/orientation_context/intent.rs');
   const fixed = readFileSync(target, 'utf8');
   const start = fixed.indexOf('pub(super) fn prepare(');
