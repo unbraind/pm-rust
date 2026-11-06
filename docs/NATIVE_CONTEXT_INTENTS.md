@@ -83,8 +83,8 @@ Latency still measures real elapsed time outside each fresh process.
 
 ## Generated evidence
 
-The focused current-oracle runs pass 430 context comparisons: 342 rich, empty
-and wide intent/section cases, 20 Unicode control cases, and 68 reviewed-contract
+The focused current-oracle runs pass 434 context comparisons: 342 rich, empty
+and wide intent/section cases, 20 Unicode control cases, and 72 reviewed-contract
 cases. The relationship matrices pass 138 comparisons, including the expanded
 40-case reference/edge-limit matrix and the unchanged 12-case budget-floor
 resource guard. Each comparison checks stdout, stderr and exit status over real
@@ -121,9 +121,9 @@ sample, p95 and binary hash.
 
 | Tracker | Brief | Deep | Orient | Handoff | Relationship |
 | --- | ---: | ---: | ---: | ---: | ---: |
-| pm-vcs | 50.9 / 1560.9 | 608.6 / 2970.7 | 515.5 / 2805.5 | 493.9 / 4060.3 | 75.4 / 2177.8 |
-| pm-rl | 38.2 / 900.0 | 226.9 / 1498.5 | 254.1 / 1219.1 | 182.0 / 978.6 | 21.8 / 821.9 |
-| pm-context | 12.7 / 680.2 | 103.4 / 1227.4 | 81.8 / 1622.7 | 71.3 / 864.3 | 9.7 / 531.2 |
+| pm-vcs | 30.1 / 692.3 | 370.1 / 2033.7 | 194.3 / 1154.3 | 292.4 / 1749.5 | 33.8 / 836.0 |
+| pm-rl | 27.7 / 496.8 | 233.9 / 1493.7 | 411.0 / 1764.5 | 292.6 / 1621.6 | 46.0 / 1349.6 |
+| pm-context | 16.4 / 865.1 | 89.4 / 724.9 | 78.1 / 755.6 | 58.6 / 693.4 | 9.3 / 554.5 |
 
 [Machine-readable receipt](benchmarks/native-context-intents-2026-11-06.json).
 
@@ -131,13 +131,21 @@ sample, p95 and binary hash.
 
 `just orientation-revert-proof` requires behavioral assertion failures, not
 compilation failures. Mutations run in a disposable source copy and are restored
-between checks. The completed run requires 19 assertion failures across 17
-mutation commands and 15 distinct tests, covering all twelve new tests.
+between checks. The completed proof covers 26 required assertion failures across 24
+mutation commands and 17 distinct tests, covering all twelve new tests. The
+20-command recipe run and four subsequent isolated retry-guard reverts use the
+same scratch-copy harness; the recipe now includes all 24 mutations.
 
 | Reverted behavior | Test that fails |
 | --- | --- |
 | SDK intent budgets and wire receipts | `context_intent_sdk_budget_boundaries` |
 | Invalid context-setting shapes | `context_settings_shape_boundaries` |
+| SDK intent refusal propagation | `context_intent_sdk_budget_boundaries` |
+| SDK activity-limit validation | `context_settings_shape_boundaries` |
+| Context section compatibility receipt | `amount_and_alias_receipts_preserve_requested_dimensions` |
+| Trailing section retry guard | `orientation_error_recovery_contract` |
+| Trailing section refusal bytes | `context_reviewed_contracts_match_current_oracle` |
+| Section-like values followed by flags | `orientation_error_recovery_contract` and `context_reviewed_contracts_match_current_oracle` |
 | Retained intent estimate stabilization | `context_intent_sdk_budget_boundaries` |
 | Missing oracle dependency preflight | `revert preflight names the missing oracle installation` |
 | Core intent preparation | `core_intent_boundaries_and_budget_receipts` |

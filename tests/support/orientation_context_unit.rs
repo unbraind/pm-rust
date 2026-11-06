@@ -108,6 +108,32 @@ fn context_intent_sdk_budget_boundaries() -> Result<(), Box<dyn std::error::Erro
         None,
     )?;
     assert_eq!(explicit_depth["depth"], "brief");
+    assert_sdk_intent_refusals(&workspace)?;
+    Ok(())
+}
+
+/// SDK entry points retain the typed refusal from intent preparation.
+fn assert_sdk_intent_refusals(workspace: &Workspace) -> Result<(), Box<dyn std::error::Error>> {
+    for (intent, token_budget, code) in [
+        ("unknown", None, "unsupported_native_context"),
+        ("orient", Some("255"), "invalid_argument_value"),
+    ] {
+        let error = workspace
+            .context_with_global(
+                &ContextOptions {
+                    intent: Some(intent.to_owned()),
+                    token_budget: token_budget.map(str::to_owned),
+                    ..Default::default()
+                },
+                NOW,
+                None,
+            )
+            .err()
+            .ok_or("SDK context must preserve intent preparation refusals")?;
+        assert!(
+            matches!(error, PmRustError::CommandRefusal { context: ref payload, .. } if payload["code"] == code)
+        );
+    }
     Ok(())
 }
 
@@ -129,6 +155,25 @@ fn context_settings_shape_boundaries() -> Result<(), Box<dyn std::error::Error>>
         None,
     )?;
     assert_eq!(activity["activity"], json!([]));
+    for raw in ["bad", "-1", "1.5"] {
+        let error = workspace
+            .context_with_global(
+                &ContextOptions {
+                    activity_limit: Some(raw.to_owned()),
+                    ..Default::default()
+                },
+                NOW,
+                None,
+            )
+            .err()
+            .ok_or("invalid activity limits must refuse before projection")?;
+        assert!(
+            error
+                .to_string()
+                .contains("--activity-limit must be a non-negative integer")
+        );
+        assert_eq!(fs::read(&item_path)?, before);
+    }
     fs::write(
         workspace.pm_root().join("settings.json"),
         json!({"id_prefix":"sample-","item_format":"toon","context":{}}).to_string(),

@@ -232,6 +232,23 @@ fn amount_limit_rebases_only_advertised_producer_boundaries()
 #[test]
 fn amount_and_alias_receipts_preserve_requested_dimensions()
 -> Result<(), Box<dyn std::error::Error>> {
+    let selected_context = super::receipt_for(
+        &ListOptions {
+            brief: true,
+            ..ListOptions::default()
+        },
+        false,
+        "context",
+    );
+    assert_eq!(
+        selected_context["legacy_aliases_used"],
+        json!(["--section"])
+    );
+    assert_eq!(selected_context["requested_dimensions"], json!(["include"]));
+    assert_eq!(
+        selected_context["migration_hints"],
+        json!(["--section is a compatibility alias; prefer --output-include <csv>."])
+    );
     for options in [
         ListOptions {
             brief: true,

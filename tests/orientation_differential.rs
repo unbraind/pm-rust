@@ -2279,6 +2279,30 @@ fn context_reviewed_contracts_match_current_oracle() -> TestResult {
     )?;
     let mut comparisons = 0;
     let mut omission_replayed = false;
+    for json in [false, true] {
+        let mut args = vec!["context"];
+        if json {
+            args.push("--json");
+        }
+        args.extend(["--section=bad", "--activity-limit", "--section"]);
+        let expected = oracle(&driver, root.path(), &args)?;
+        assert_eq!(expected.status.code(), Some(2));
+        compare(&expected, &native(root.path(), &args)?, &args);
+        comparisons += 1;
+    }
+    for suffix in ["--json", "--no-tags"] {
+        let args = [
+            "context",
+            "--section=bad",
+            "--activity-limit",
+            "--section",
+            suffix,
+        ];
+        let expected = oracle(&driver, root.path(), &args)?;
+        assert_eq!(expected.status.code(), Some(2));
+        compare(&expected, &native(root.path(), &args)?, &args);
+        comparisons += 1;
+    }
     for controls in [
         vec!["--for", "orient", "--token-budget", "1e2"],
         vec!["--for", "handoff", "--limit", "1e2"],

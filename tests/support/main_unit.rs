@@ -55,6 +55,32 @@ fn orientation_dispatch_boundaries() -> Result<(), Box<dyn std::error::Error>> {
 #[test]
 fn orientation_error_recovery_contract() {
     let strings = |args: &[&str]| args.iter().map(|arg| (*arg).to_owned()).collect::<Vec<_>>();
+    for suffix in [vec![], vec!["--json"], vec!["--no-tags"]] {
+        let mut dangling = strings(&["context", "--section=bad", "--activity-limit", "--section"]);
+        dangling.extend(strings(&suffix));
+        let recovery = super::orientation_error_json(
+            "Context --section must be one of hierarchy",
+            &serde_json::json!({"code":"invalid_argument_value","recovery":{"allowed_values":["hierarchy"]}}),
+            &dangling,
+            2,
+        );
+        assert_eq!(recovery["exit_code"], 2);
+        assert_eq!(recovery["refusal"]["rejected_value"], "bad");
+        assert_eq!(
+            recovery["examples"],
+            serde_json::json!([
+                "pm context --help",
+                "pm contracts --command <command> --flags-only --json"
+            ])
+        );
+    }
+    let retry = super::orientation_error_json(
+        "Context --section must be one of hierarchy",
+        &serde_json::json!({"code":"invalid_argument_value","recovery":{"allowed_values":["hierarchy"]}}),
+        &strings(&["context", "--section", "bad"]),
+        2,
+    );
+    assert_eq!(retry["examples"][0], "pm context --section hierarchy");
     for (args, detail, context) in [
         (
             vec!["context", "--limit", "bad"],

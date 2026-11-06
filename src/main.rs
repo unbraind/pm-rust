@@ -1429,7 +1429,14 @@ fn orientation_error_json(
     if let Some(domain) = context["recovery"].get("allowed_values") {
         result["recovery"]["allowed_values"] = domain.clone();
         result["refusal"] = serde_json::json!({"surface":"--section","rejected_value":result["refusal"]["rejected_value"],"legal_domain":domain,"exit_code":exit_code});
-        if let Some(index) = args.iter().position(|arg| arg == "--section") {
+        if let Some(index) = args
+            .iter()
+            .position(|arg| arg == "--section")
+            .filter(|&index| {
+                args.get(index + 1)
+                    .is_some_and(|value| !value.starts_with("--"))
+            })
+        {
             let mut retry = args.clone();
             domain[0]
                 .as_str()

@@ -7,11 +7,11 @@ status: in_progress
 priority: 2
 tags[3]: native,oracle,orientation
 created_at: "2026-11-06T09:15:56.754Z"
-updated_at: "2026-11-06T18:17:41.289Z"
+updated_at: "2026-11-06T20:17:34.018Z"
 author: codex-astra
 acceptance_criteria: "JSON and TOON bytes, status and stderr match the oracle on generated non-git trackers and public tracker copies; retain typed calendar and memory refusals; focused tests fail on behavioral revert; record latency and differential counts."
 parent: pm-rust-s6j4
-comments[23]{created_at,author,text}:
+comments[28]{created_at,author,text}:
   "2026-11-06T09:28:14.771Z",codex-astra,"Implemented core intent preparation, section selection, activity bounds and intent receipts. Current-oracle exploration identified three inherited context drifts: bounded activity excludes timestamps at or after the read clock; test health covers all matching active items and declares its scope; TOON auto-tables choose compact list/null columns only when shorter. Bringing these paths to the requested November contract before running the public-copy corpus."
   "2026-11-06T09:44:02.034Z",codex-astra,"Public-copy packet differential exposed the newer required-root-evidence-first-v1 ordering, reserved root-edge budget, root-edge priority and bounded-relationship omission receipt. Porting those native packet semantics as part of this slice, including updated producer fingerprints. No legacy packet result is being counted as current-oracle evidence."
   "2026-11-06T10:08:53.263Z",codex-astra,"Generated intent comparisons passed before the final expanded matrix. Public-copy exploration exposed the distinction between compact intent estimates and complete JSON wire ceilings, now handled by the shared output-budget path. Current dependency packets also require root-evidence-first ordering and revised refusal text; preserving the existing bounded retry test while eliminating repeated rendering of identical packets."
@@ -35,7 +35,12 @@ comments[23]{created_at,author,text}:
   "2026-11-06T16:53:38.108Z",codex-astra,"Final-head macOS and Windows Rust suites pass, but both aggregate gates expose uncovered context-budget, intent and read-output paths at the unchanged four-dimensional 100 percent threshold. Reclaiming this feature to add focused behavioral coverage and revert evidence; preserve all thresholds and supported packet bytes."
   "2026-11-06T17:25:31.474Z",codex-astra,"Targeted coverage confirms every branch in context and every line, region, function and branch in the intent module. Wide-tag SDK fixtures exercise retained dual receipts and infeasible intent receipts. Missing/object context settings remain allowed; invalid scalar, array and null context shapes now receive an explicit native refusal instead of approximating the oracle schema-warning fallback. The output follow-up records warning-parity acceptance criteria. Final rendering uses Result::map to transform successful packets while preserving renderer errors unchanged."
   "2026-11-06T18:17:37.155Z",codex-astra,"Coverage follow-up verified: 400 library and 42 binary tests pass; 46 capability, dispatch, harness and release contracts pass; strict documentation, formatting, Clippy and typed harness lint pass. Both new SDK tests pass through pm test --run --match boundaries --progress. The 17-command revert proof requires 19 named behavioral failures across 15 distinct tests, covering all twelve new tests. The expanded reviewed matrix passes 68 byte-exact cases, giving 430 generated context comparisons, 138 generated relationship comparisons and fresh public-copy passes of 99, 101 and 71: 839 reported exact stdout/stderr/status comparisons. Five invalid settings warning/refusal pairs are separate boundary assertions; missing/object settings match exactly and item reads remain available. All public authoritative hashes remain unchanged. The receipt records 150 fresh-process samples, controlled clocks and candidate binary SHA-256 3a263a038269b2e491db1b0ddc640487a1a9de9d7ac46406ee5e5ae68714dd5c. Median ranges are 9.7 to 608.6 ms native and 531.2 to 4060.3 ms oracle on the shared host. New context branches and all four intent-module coverage dimensions are covered locally; full package thresholds remain unchanged and require fresh final-head CI. The preceding candidate passed 728 Rust tests on macOS and Windows but failed aggregate coverage. Final review and CI receipts belong in the PR after this fix push."
-files[26]{path,scope}:
+  "2026-11-06T19:15:21.849Z",codex-astra,"The follow-up head passes the macOS and Windows Rust suites (730 and 724 tests). Aggregate coverage now has one uncovered branch, four regions and two lines; investigating the remaining exact source spans without changing thresholds."
+  "2026-11-06T19:42:15.292Z",codex-astra,"Round 3 completed with one valid diagnostic bounds finding: a final --section token consumed as an activity-limit value could panic while constructing retry examples. The published oracle returns a typed refusal with generic examples. Adding the index guard, JSON/text exact differentials and independent behavioral revert checks; no approximation or relaxed coverage threshold."
+  "2026-11-06T19:52:16.835Z",codex-astra,"The bounds guard passes the recovery unit test and 70 reviewed-contract oracle comparisons, including both new JSON/text refusal cases. Three focused SDK/receipt tests and all four linked PM tests pass. Clippy with warnings denied is clean. Combined revert evidence covers 22 isolated mutation commands, 24 required named failures and 17 distinct tests: the 20-command recipe plus two focused guard reverts using the same scratch-copy harness. All twelve new tests have behavioral revert proofs. Refreshing the public-copy receipt against the rebuilt release binary."
+  "2026-11-06T20:08:12.087Z",codex-astra,"The diagnostic guard now checks for a following value token as well as bounds. All 72 reviewed-contract differentials pass, including four argument-order refusal cases. The final proof matrix covers 24 mutation commands, 26 required named failures and 17 distinct tests; four isolated guard checks supplement the completed 20-command recipe. Clippy is clean and the linked recovery test passes with both refused and ordinary value-token retries. The public-copy differential and latency refresh is in progress; final-head CI and another full bot review will follow the fix push."
+  "2026-11-06T20:17:28.805Z",codex-astra,"Final local evidence: 843 exact comparisons (434 generated context, 138 generated relationships, 271 public-copy comparisons: 99 pm-vcs, 101 pm-rl, 71 pm-context). All three public copies retain authoritative hashes. The final release artifact was measured with 150 alternating fresh-process samples; native median ranges are 9.3-411 ms and oracle 496.8-2033.7 ms on the shared host. The 72 reviewed-contract comparisons and four linked PM tests pass; Clippy, formatting and TypeScript/ESLint pass. Revert evidence covers 24 mutation commands, 26 required named failures and all twelve new tests. Round 3 identified one retry bounds finding, now fixed with bounds and value-token guards plus JSON/text differentials. Fresh CI and round 4 review are required after the push. Items remain in progress for verifier closure."
+files[27]{path,scope}:
   justfile,project
   scripts/context-intents-revert.mts,project
   scripts/context-intents-revert.test.mts,project
@@ -61,8 +66,9 @@ files[26]{path,scope}:
   tests/support/orientation_intent_unit.rs,project
   tests/support/orientation_packet_unit.rs,project
   tests/support/orientation_sections_unit.rs,project
+  tests/support/read_output_unit.rs,project
   tests/support/toon_output_unit.rs,project
-tests[8]:
+tests[10]:
   - command: just orientation-check
     scope: project
     timeout_seconds: 3600
@@ -123,6 +129,20 @@ tests[8]:
     provenance:
       author: codex-astra
       created_at: "2026-11-06T17:25:29.678Z"
+      source_kind: local_mutation
+      source_ref: native-context-intents-and-relationship-packets
+  - command: cargo test -j 2 --locked --lib amount_and_alias_receipts_preserve_requested_dimensions
+    scope: project
+    provenance:
+      author: codex-astra
+      created_at: "2026-11-06T19:18:56.505Z"
+      source_kind: local_mutation
+      source_ref: native-context-intents-and-relationship-packets
+  - command: cargo test -j 2 --locked --bin pm-rust orientation_error_recovery_contract
+    scope: project
+    provenance:
+      author: codex-astra
+      created_at: "2026-11-06T19:43:48.287Z"
       source_kind: local_mutation
       source_ref: native-context-intents-and-relationship-packets
 docs[2]{path,scope}:
