@@ -598,6 +598,16 @@ fn ownership_lineage_scans_corpus_once() -> Result<(), Box<dyn std::error::Error
         if_available: false,
         provenance_role: None,
     };
+    // The mutation locator now rejects missing identities before lineage runs.
+    // Exercise the lineage boundary directly so it still refuses an absent target.
+    let mut absent = request.clone();
+    absent.id = "sample-absent".to_owned();
+    assert!(matches!(
+        ownership_parents(&workspace, &absent),
+        Err(PmRustError::ItemNotFound { id }) if id == absent.id
+    ));
+    assert_eq!(ownership_parents(&workspace, &request)?.len(), 52);
+    assert!(!root.join("runtime/session.json").exists());
     let before = READ_ITEMS_SCANS.get();
     workspace.claim_with_options(&request, &OwnershipOptions::default())?;
     assert_eq!(READ_ITEMS_SCANS.get() - before, 1);

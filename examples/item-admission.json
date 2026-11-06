@@ -1,0 +1,27 @@
+{
+  "author": "example-agent",
+  "mutations": [
+    {
+      "op": "create",
+      "id": "demo-admission",
+      "options": {
+        "title": "Review native admission",
+        "type": "Task",
+        "status": "open",
+        "priority": 2,
+        "createMode": "progressive",
+        "parent": "none",
+        "assignee": "none",
+        "allowDuplicate": true
+      }
+    },
+    {
+      "op": "update",
+      "id": "demo-admission",
+      "options": {
+        "description": "Validate an ordered batch before choosing to apply it.",
+        "tags": "native,preflight"
+      }
+    }
+  ]
+}

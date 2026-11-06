@@ -463,12 +463,7 @@ impl Workspace {
         }
         let path = found.ok_or_else(|| PmRustError::ItemNotFound { id: id.to_owned() })?;
         let document = read_item(&path)?;
-        if document.metadata.id != id {
-            return Err(PmRustError::InvalidItemDocument {
-                path,
-                reason: "stored id does not match the item filename".to_owned(),
-            });
-        }
+        crate::item::validate_file_identity(&path, &document)?;
         Ok(document)
     }
 

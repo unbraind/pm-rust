@@ -4090,6 +4090,7 @@ fn ownership_preset_precedence_and_lock_payload_clock() -> Result<(), Box<dyn st
             preset: preset.to_owned(),
             ownership_enforcement: "strict".to_owned(),
             force_required_for_stale_lock: Some(false),
+            require_close_reason: None,
         };
         assert_eq!(governance.policy(), policy);
         assert_eq!(governance.stale_requires_force(), force);
@@ -5523,5 +5524,76 @@ fn failed_lock_replacement_with_identical_bytes_is_preserved()
     ));
     assert!(path.exists(), "failed writer removed a replacement lock");
     assert_eq!(fs::read_to_string(&path)?, "same receipt");
+    Ok(())
+}
+
+/// Create and update replay never apply documents whose IDs disagree with the target.
+#[test]
+fn admission_recovery_identity_revalidates_planned_and_current_images()
+-> Result<(), Box<dyn std::error::Error>> {
+    for operation in ["create", "update"] {
+        for state in ["missing", "before", "after"] {
+            let (_directory, pm_root, before, history, mut journal) = completed_transaction()?;
+            let item_path = pm_root.join("tasks/sample-unit.toon");
+            let history_path = pm_root.join("history/sample-unit.jsonl");
+            let mut wrong = decode_item(&item_path, &before)?;
+            wrong.metadata.id = "sample-foreign".to_owned();
+            let wrong_bytes = canonical_item_bytes(&wrong)?;
+            journal.item_bytes.clone_from(&wrong_bytes);
+            journal.before_item_hash = history::document_hash(&OrderedDocument::from_document(
+                &decode_item(&item_path, &before)?,
+            ));
+            let journal_path =
+                pm_root.join(format!("runtime/transactions/{operation}-sample-unit.json"));
+            fs::write(&journal_path, serde_json::to_vec(&journal)?)?;
+            match state {
+                "missing" => fs::remove_file(&item_path)?,
+                "after" => fs::write(&item_path, &wrong_bytes)?,
+                _ => {}
+            }
+            let observed = fs::read(&item_path).ok();
+            let saved_journal = fs::read(&journal_path)?;
+            let result = if operation == "create" {
+                recover(&pm_root, "sample-unit")
+            } else {
+                recover_mutation(&pm_root, "update", "sample-unit").map(|_| ())
+            };
+            assert!(
+                matches!(result, Err(PmRustError::RecoveryConflict { .. })),
+                "{operation}/{state}"
+            );
+            assert_eq!(fs::read(&item_path).ok(), observed);
+            assert_eq!(fs::read(&history_path)?, history.as_bytes());
+            assert_eq!(fs::read(&journal_path)?, saved_journal);
+        }
+    }
+    // A valid planned image cannot authorize replay over an unresolvable before-image.
+    let (_directory, pm_root, before, history, mut journal) = completed_transaction()?;
+    let path = pm_root.join("tasks/sample-unit.toon");
+    let mut foreign = decode_item(&path, &before)?;
+    foreign.metadata.id = "sample-foreign".into();
+    journal.before_item_hash = history::document_hash(&OrderedDocument::from_document(&foreign));
+    let foreign_bytes = canonical_item_bytes(&foreign)?;
+    fs::write(&path, &foreign_bytes)?;
+    let pending = pm_root.join("runtime/transactions/update-sample-unit.json");
+    fs::write(&pending, serde_json::to_vec(&journal)?)?;
+    assert!(matches!(
+        recover_mutation(&pm_root, "update", "sample-unit"),
+        Err(PmRustError::RecoveryConflict { .. })
+    ));
+    assert_eq!(fs::read(&path)?, foreign_bytes.as_bytes());
+    assert_eq!(
+        fs::read(pm_root.join("history/sample-unit.jsonl"))?,
+        history.as_bytes()
+    );
+    // Malformed plans also fail before writing a missing target.
+    journal.item_bytes = "not an item".into();
+    fs::write(&pending, serde_json::to_vec(&journal)?)?;
+    fs::remove_file(&path)?;
+    assert!(matches!(
+        recover_mutation(&pm_root, "update", "sample-unit"),
+        Err(PmRustError::RecoveryConflict { .. })
+    ));
+    assert!(!path.exists());
     Ok(())
 }

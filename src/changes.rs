@@ -282,7 +282,9 @@ fn open_history(path: &std::path::Path) -> io::Result<fs::File> {
 }
 
 /// Admits only a regular opened handle and captures its snapshot length.
-fn open_regular_history(path: &std::path::Path) -> Result<(fs::File, u64), ChangeRefusal> {
+pub(crate) fn open_regular_history(
+    path: &std::path::Path,
+) -> Result<(fs::File, u64), ChangeRefusal> {
     let file = open_history(path).map_err(source_error)?;
     let metadata = file.metadata();
     #[cfg(test)]

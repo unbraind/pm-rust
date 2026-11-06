@@ -14,6 +14,8 @@ pub(crate) struct Lifecycle {
     aliases: BTreeMap<String, String>,
     /// Configured in-progress status used by lifecycle buckets.
     progress: String,
+    /// Configured close target, independent of the roles assigned to it.
+    close: String,
     /// Configured fallback active status when no definition carries an active role.
     open: String,
     /// Hierarchy definitions captured by the same settings read as lifecycle roles.
@@ -28,11 +30,18 @@ impl Lifecycle {
         if !schema.is_object() {
             schema = json!({});
         }
+        let external = optional_schema(root, &schema, "statuses")?;
+        let workflow = optional_schema(root, &schema, "workflows")?;
+        Ok(Self::from_values(&settings, &external, &workflow))
+    }
+
+    /// Resolves an already captured schema through the native registry normalizer.
+    pub(crate) fn from_values(settings: &Value, external: &Value, workflow: &Value) -> Self {
+        let schema = &settings["schema"];
         let mut statuses = schema["statuses"].as_array().cloned().unwrap_or_default();
         if statuses.is_empty() {
             statuses = defaults();
         }
-        let external = optional_schema(root, &schema, "statuses")?;
         if let Some(entries) = external.as_array().or_else(|| {
             external["statuses"]
                 .as_array()
@@ -55,30 +64,40 @@ impl Lifecycle {
                 }
             }
         }
-        let workflow = optional_schema(root, &schema, "workflows")?;
-        let workflow = workflow.get("workflow").unwrap_or(&workflow);
+        let workflow = workflow.get("workflow").unwrap_or(workflow);
         let progress = workflow["in_progress_status"]
             .as_str()
             .or_else(|| schema["workflow"]["in_progress_status"].as_str())
             .unwrap_or("in_progress");
-        Ok(Self {
+        Self {
             hierarchy: Hierarchy::new(&settings["schema"]["relationship_kinds"]),
             definitions,
             aliases,
             progress: token(progress),
+            close: token(
+                workflow["close_status"]
+                    .as_str()
+                    .or_else(|| schema["workflow"]["close_status"].as_str())
+                    .unwrap_or("closed"),
+            ),
             open: token(
                 workflow["open_status"]
                     .as_str()
                     .or_else(|| schema["workflow"]["open_status"].as_str())
                     .unwrap_or("open"),
             ),
-        })
+        }
     }
 
     /// Resolves a status token or alias to its canonical registry identity.
     pub(crate) fn canonical(&self, status: &str) -> String {
         let normalized = token(status);
         self.aliases.get(&normalized).cloned().unwrap_or(normalized)
+    }
+
+    /// Tests the configured close identity even when its roles are customized.
+    pub(crate) fn closes(&self, status: &str) -> bool {
+        self.canonical(status) == self.canonical(&self.close)
     }
 
     /// Recognizes a configured status token or alias for strict search filters.
@@ -150,17 +169,22 @@ fn token(value: &str) -> String {
         .join("_")
 }
 
+/// Supplies the same missing-file fallback to captured previews and native reads.
+pub(crate) fn default_schema(name: &str) -> Value {
+    if name == "statuses" {
+        json!({"statuses": defaults()})
+    } else {
+        json!({"workflow":{"draft_status":"draft","open_status":"open","in_progress_status":"in_progress","blocked_status":"blocked","close_status":"closed","canceled_status":"canceled"}})
+    }
+}
+
 /// Loads optional runtime schema data without requiring the scaffold to exist.
 fn optional_schema(root: &Path, schema: &Value, name: &str) -> Result<Value, PmRustError> {
     let fallback = format!("schema/{name}.json");
     let path = root.join(schema["files"][name].as_str().unwrap_or(&fallback));
     match fs::read(&path) {
         Ok(bytes) => Ok(crate::strict_json::from_slice(&bytes).unwrap_or(Value::Null)),
-        Err(error) if error.kind() == std::io::ErrorKind::NotFound => Ok(if name == "statuses" {
-            json!({"statuses": defaults()})
-        } else {
-            json!({"workflow":{"draft_status":"draft","open_status":"open","in_progress_status":"in_progress","blocked_status":"blocked","close_status":"closed","canceled_status":"canceled"}})
-        }),
+        Err(error) if error.kind() == std::io::ErrorKind::NotFound => Ok(default_schema(name)),
         Err(source) => Err(PmRustError::Io { path, source }),
     }
 }

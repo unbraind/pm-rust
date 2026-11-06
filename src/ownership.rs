@@ -256,6 +256,16 @@ pub(crate) fn read_json(path: &Path) -> Result<Value, PmRustError> {
     }
 }
 
+/// Uses the same scoped identity as claim, with an explicit-author SDK fallback.
+pub(crate) fn caller_principal(author: &str) -> String {
+    ATTRIBUTION.with(|slot| {
+        slot.borrow().as_ref().map_or_else(
+            || author.trim().to_owned(),
+            |identity| identity.principal.clone(),
+        )
+    })
+}
+
 /// Stamps identity and provenance before the immutable history record is hashed.
 pub(crate) fn stamp_attribution(entry: &mut crate::history::HistoryEntry<'_>, role: Option<&str>) {
     ATTRIBUTION.with(|slot| {

@@ -1,0 +1,21 @@
+{
+  "protocol": "pm-rust/capabilities/v1",
+  "public_commit": "a4e9e18ea2aec4aab08a662252c5f664ea95d720",
+  "source_items": 94,
+  "source_files": 201,
+  "sdk_preparation_files": 7,
+  "source_bytes": 7088530,
+  "operations": 25,
+  "oracle_slices": 17,
+  "native_only": 8,
+  "argument_contracts": 236,
+  "native_calls": 129,
+  "json_bytes": 55754,
+  "toon_bytes": 66443,
+  "max_selected_json_bytes": 9312,
+  "total_output_bytes": 1486020,
+  "largest_output_bytes": 95779,
+  "elapsed_ms": 6212,
+  "unchanged_source_sha256": "61529901412a9141a3247588aba210fd6018e2d5ae4038956f8e030c3c0b7ae7",
+  "no_git_or_node_on_native_path": true
+}

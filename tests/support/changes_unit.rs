@@ -969,6 +969,30 @@ fn windows_history_filename_admission() -> TestResult {
     Ok(())
 }
 
+/// A directory junction cannot redirect Windows history reads; junctions need no symlink privilege on runners.
+#[cfg(windows)]
+#[test]
+fn windows_history_junction_is_refused() -> TestResult {
+    let (_dir, workspace) = fixture()?;
+    let root = workspace.pm_root();
+    let history = root.join("history");
+    let outside = root.join("outside");
+    fs::create_dir(&outside)?;
+    fs::remove_dir(&history)?;
+    let output = std::process::Command::new("cmd")
+        .args(["/C", "mklink", "/J"])
+        .arg(&history)
+        .arg(&outside)
+        .output()?;
+    assert!(output.status.success());
+    let adapter = LocalChangeAdapter::new(workspace.clone(), SessionCancellation::default());
+    assert!(matches!(
+        adapter.pull(&ChangeRequest::default()),
+        Err(ChangeRefusal::Source)
+    ));
+    Ok(())
+}
+
 /// A real local adapter whose third exchange delivers a delayed copy of its first reply.
 struct DelayedReply {
     /// Genuine backend containing retained canonical history.

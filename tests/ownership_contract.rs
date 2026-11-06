@@ -4,7 +4,7 @@ use std::{collections::BTreeMap, fs};
 
 use pm_rust::{
     AuthorIdentity, CreateItem, OwnershipItem, OwnershipOptions, PmRustError, SelectionOptions,
-    Workspace,
+    Workspace, admission::AdmissionBatch,
 };
 use serde_json::{Value, json};
 
@@ -515,6 +515,77 @@ fn ownership_lock_refusal_precedes_corpus_validation() -> TestResult {
     )?;
     assert!(
         matches!(workspace.claim(&request("alpha")), Err(PmRustError::OwnershipRefusal {context,..}) if context["code"]=="lock_conflict")
+    );
+    Ok(())
+}
+
+/// Previews judge ownership by the batch author alone; an ambient SDK identity is never inherited.
+#[test]
+fn preview_ownership_ignores_an_ambient_scoped_identity() -> TestResult {
+    let (_directory, workspace) = fixture()?;
+    let owner = AuthorIdentity::resolve(Some("alpha"), None, &BTreeMap::new());
+    owner.with(|| workspace.start_task(&request("alpha"), &OwnershipOptions::default()))?;
+    let batch = |author: &str| {
+        AdmissionBatch::from_json(&serde_json::to_vec(&json!({
+            "author": author,
+            "mutations": [{"op": "update", "id": "sample-one", "options": {"title": "Preview"}}],
+        }))?)
+        .map_err(Box::<dyn std::error::Error>::from)
+    };
+    let intruder = batch("intruder")?;
+    let foreign = owner.with(|| workspace.preview_item_mutations(&intruder))?;
+    assert!(!foreign.ok);
+    assert_eq!(foreign.diagnostics[0].code, "ownership_conflict");
+    let admitted = workspace.preview_item_mutations(&batch("alpha")?)?;
+    assert!(admitted.ok, "{:?}", admitted.diagnostics);
+    Ok(())
+}
+
+/// Scoped SDK identity is consistent across claim, collection, lifecycle and release.
+#[test]
+fn scoped_detected_principal_covers_all_ownership_comparisons() -> TestResult {
+    let (directory, workspace) = fixture()?;
+    let identity = AuthorIdentity::resolve(
+        None,
+        None,
+        &BTreeMap::from([("CODEX_THREAD_ID".into(), "fixture-session-one".into())]),
+    );
+    let foreign = AuthorIdentity::resolve(
+        None,
+        None,
+        &BTreeMap::from([("CODEX_THREAD_ID".into(), "fixture-session-two".into())]),
+    );
+    let request = request(&identity.author);
+    let options = OwnershipOptions::default();
+    identity.with(|| workspace.start_task(&request, &options))?;
+    assert_eq!(
+        workspace.get("sample-one")?.metadata.extra["claim_principal"],
+        identity.principal
+    );
+    let collection = pm_rust::CollectionOptions {
+        author: identity.author.clone(),
+        add: vec!["README.md".into()],
+        ..pm_rust::CollectionOptions::default()
+    };
+    assert!(foreign.with(|| workspace.claim(&request)).is_err());
+    assert!(
+        foreign
+            .with(|| workspace.collection("sample-one", "files", &collection, directory.path()))
+            .is_err()
+    );
+    assert!(
+        foreign
+            .with(|| workspace.pause_task(&request, &options))
+            .is_err()
+    );
+    identity.with(|| workspace.collection("sample-one", "files", &collection, directory.path()))?;
+    identity.with(|| workspace.pause_task(&request, &options))?;
+    assert!(
+        !workspace
+            .get("sample-one")?
+            .metadata
+            .extra
+            .contains_key("claim_principal")
     );
     Ok(())
 }
