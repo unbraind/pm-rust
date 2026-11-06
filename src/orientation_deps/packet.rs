@@ -766,8 +766,52 @@ fn render_packet(
         traversal,
         evidence,
         options,
-        &mut BTreeMap::new(),
+        &mut RenderCache::default(),
     )
+}
+
+/// Query-local memoization; every cached producer uses the same graph and controls.
+#[derive(Default)]
+struct RenderCache {
+    /// Stabilized wire costs keyed by complete projection shape.
+    costs: BTreeMap<String, usize>,
+    /// Producer packets keyed by their exact packing budget.
+    packets: BTreeMap<usize, Value>,
+    /// Serialized bytes retained by producer memoization, capped at two MiB.
+    packet_bytes: usize,
+    /// Counts real producer work for deterministic resource assertions.
+    #[cfg(test)]
+    builds: usize,
+}
+
+impl RenderCache {
+    /// Reuses exact producer results while preserving a strict retained-byte ceiling.
+    #[allow(clippy::too_many_arguments)]
+    fn produce(
+        &mut self,
+        graph: &Graph,
+        id: &str,
+        query: &Query,
+        traversal: &Traversal<'_>,
+        evidence: &[String],
+        cursor: Option<&str>,
+        budget: usize,
+    ) -> Result<Value, PmRustError> {
+        if let Some(packet) = self.packets.get(&budget) {
+            return Ok(packet.clone());
+        }
+        #[cfg(test)]
+        {
+            self.builds += 1;
+        }
+        let packet = packet(graph, id, query, traversal, evidence, cursor, budget)?;
+        let bytes = crate::stringify_json(&packet, false).len();
+        if bytes <= (2 * 1024 * 1024usize).saturating_sub(self.packet_bytes) {
+            self.packet_bytes += bytes;
+            self.packets.insert(budget, packet.clone());
+        }
+        Ok(packet)
+    }
 }
 
 /// Reuses exact rendered costs across canonical recovery probes and producer retries.
@@ -779,13 +823,13 @@ fn render_cached(
     traversal: &Traversal<'_>,
     evidence: &[String],
     options: &DepsOptions,
-    costs: &mut BTreeMap<String, usize>,
+    cache: &mut RenderCache,
 ) -> Result<ListOutput, PmRustError> {
     let mut budget = query.tokens;
     // Larger limits render the same rows; skip retries that cannot remove a reference.
     let mut reference_limit = query.edges.min(traversal.missing.len());
     loop {
-        let mut packet = packet(
+        let mut packet = cache.produce(
             graph,
             id,
             query,
@@ -835,7 +879,7 @@ fn render_cached(
         let mut shape = result.clone();
         shape["context"]["meta"]["tokenBudget"] = json!(query.tokens.to_string().len());
         let shape = shape.to_string();
-        if let Some(measured) = costs.get(&shape) {
+        if let Some(measured) = cache.costs.get(&shape) {
             result["context"]["meta"]["usedTokens"] = json!(measured);
         } else {
             let measured = loop {
@@ -845,7 +889,7 @@ fn render_cached(
                 }
                 result["context"]["meta"]["usedTokens"] = json!(measured);
             };
-            costs.insert(shape, measured);
+            cache.costs.insert(shape, measured);
         }
         let measured = result["context"]["meta"]["usedTokens"]
             .as_u64()
@@ -999,13 +1043,13 @@ fn budget_refusal(
                     .sum::<usize>(),
             ),
     );
-    let mut costs = BTreeMap::new();
+    let mut cache = RenderCache::default();
     let bounds = budget_recovery::find(query.tokens, work, &mut |budget| {
         let mut candidate = query.clone();
         candidate.tokens = budget;
         probe_delivery(
             render_cached(
-                graph, id, &candidate, traversal, evidence, options, &mut costs,
+                graph, id, &candidate, traversal, evidence, options, &mut cache,
             )
             .and_then(|result| disclose(result, options)),
         )

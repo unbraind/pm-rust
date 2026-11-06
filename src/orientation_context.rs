@@ -2,7 +2,7 @@
 mod intent;
 mod sections;
 use crate::list_registry::Lifecycle;
-use crate::orientation::{invalid, numeric, records};
+use crate::orientation::{invalid, numeric, records, trim_control};
 use crate::{ContextOptions, ListOutput, PmRustError, Workspace};
 use serde_json::{Value, json};
 use std::collections::{BTreeMap, BTreeSet};
@@ -1125,17 +1125,18 @@ impl Workspace {
         let intent = intent::prepare(self, &mut prepared, global.as_deref())?;
         let options = &prepared;
         let mut settings = crate::ownership::runtime_settings(self.pm_root())?;
-        let depth = options
-            .depth
-            .as_deref()
-            .filter(|s| !s.is_empty())
-            .unwrap_or_else(|| {
-                settings["context"]["default_depth"]
-                    .as_str()
-                    .unwrap_or("brief")
-            })
-            .trim()
-            .to_lowercase();
+        let depth = trim_control(
+            options
+                .depth
+                .as_deref()
+                .filter(|s| !s.is_empty())
+                .unwrap_or_else(|| {
+                    settings["context"]["default_depth"]
+                        .as_str()
+                        .unwrap_or("brief")
+                }),
+        )
+        .to_lowercase();
         if !["brief", "standard", "deep", "full"].contains(&depth.as_str()) {
             return Err(invalid(
                 "Context --depth must be one of brief|standard|deep|full",
@@ -1162,7 +1163,7 @@ impl Workspace {
         if !options.sections.is_empty() {
             names.clear();
             for requested in &options.sections {
-                let normalized = requested.trim().to_lowercase();
+                let normalized = trim_control(requested).to_lowercase();
                 let Some(name) = sections::NAMES.iter().find(|name| **name == normalized) else {
                     let domain = sections::selected("full", &settings);
                     return Err(crate::collections::refusal(
@@ -1552,6 +1553,7 @@ impl Workspace {
             &crate::ListOptions {
                 limit: original.limit.clone(),
                 token_budget: original.token_budget.clone(),
+                brief: !original.sections.is_empty(),
                 toon: options.toon,
                 ..Default::default()
             },
@@ -1559,7 +1561,7 @@ impl Workspace {
             &["high_level", "low_level"],
         )?;
         if result.get("context_intent").is_some() && result.get("read_output").is_some() {
-            crate::list_intent::stabilize(&mut result);
+            crate::read_output::stabilize_orientation(&mut result, options.toon);
         }
         Ok(result)
     }

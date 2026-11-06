@@ -1872,3 +1872,23 @@ fn capabilities_writer_refusals() -> Result<(), Box<dyn std::error::Error>> {
     }
     Ok(())
 }
+/// Current orientation compaction leaves legacy collection and history diagnostics intact.
+#[test]
+fn current_orientation_diagnostics_preserve_other_commands()
+-> Result<(), Box<dyn std::error::Error>> {
+    for (args, compact) in [
+        (vec!["context"], true),
+        (vec!["item", "deps"], true),
+        (vec!["item", "test"], false),
+        (vec!["history"], false),
+    ] {
+        let payload = serde_json::json!({"title":"Expected refusal","detail":"Expected refusal","recovery":{"normalized_args":args}});
+        let mut output = Vec::new();
+        super::write_cursor_refusal_to(&mut output, &payload)?;
+        assert_eq!(
+            String::from_utf8(output)?.contains("What happened:"),
+            !compact
+        );
+    }
+    Ok(())
+}

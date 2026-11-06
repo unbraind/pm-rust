@@ -61,6 +61,17 @@ fn core_intent_boundaries_and_budget_receipts() -> Result<(), Box<dyn std::error
             };
             let mut prepared = original.clone();
             let intent = prepare(&workspace, &mut prepared, None)?.ok_or("missing intent")?;
+            if raw == "50000" && limit == "100" {
+                let effective = if name == "orient" { "81" } else { "98" };
+                assert_eq!(prepared.limit.as_deref(), Some(effective));
+                let receipt = intent.attach(json!({"filters":{}}).into(), &original);
+                assert_eq!(
+                    receipt["warnings"],
+                    json!([format!(
+                        "limit_overridden_by_intent:--limit 100->{effective}"
+                    )])
+                );
+            }
             let result = intent.attach(
                 json!({"filters":{},"payload":"long".repeat(6000)}).into(),
                 &original,

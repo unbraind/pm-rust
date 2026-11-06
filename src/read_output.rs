@@ -33,6 +33,28 @@ fn update_output(result: &mut ListOutput, toon: bool) {
     }
 }
 
+/// Stabilizes current wire receipts while preserving estimates for an omitted intent result.
+pub(crate) fn stabilize_orientation(result: &mut ListOutput, toon: bool) {
+    for _ in 0..8 {
+        let before = (
+            result["context_intent"]["estimated_tokens"].clone(),
+            result["read_output"]["estimated_tokens"].clone(),
+        );
+        if result["context_intent"]["result_omitted"] != true {
+            update(result, "context_intent", false);
+        }
+        update_output(result, toon);
+        if before
+            == (
+                result["context_intent"]["estimated_tokens"].clone(),
+                result["read_output"]["estimated_tokens"].clone(),
+            )
+        {
+            break;
+        }
+    }
+}
+
 /// Stabilizes a self-referential receipt estimate after changing output content.
 pub(crate) fn update(result: &mut ListOutput, key: &str, pretty: bool) {
     for _ in 0..8 {
@@ -240,6 +262,8 @@ fn receipt_for(options: &ListOptions, default_budget: bool, command: &str) -> Va
         dimensions.push("include");
         aliases.push(if options.full {
             "--full"
+        } else if command == "context" {
+            "--section"
         } else if command == "history" {
             "--compact"
         } else {
@@ -277,6 +301,7 @@ fn receipt_for(options: &ListOptions, default_budget: bool, command: &str) -> Va
                 "--full" => "--output-include full",
                 "--brief" => "--output-include brief",
                 "--compact" => "--output-include compact",
+                "--section" => "--output-include <csv>",
                 "--limit" => "--output-limit <n>",
                 "--token-budget" => "--output-budget <tokens>",
                 _ => "--output-limit unbounded",
@@ -726,10 +751,9 @@ pub(crate) fn apply_orientation(
     let explicit = options
         .token_budget
         .as_deref()
-        .filter(|raw| {
-            !raw.trim().is_empty() && raw.trim().bytes().all(|byte| byte.is_ascii_digit())
-        })
-        .and_then(|raw| raw.trim().parse::<usize>().ok())
+        .map(crate::orientation::trim_control)
+        .filter(|raw| !raw.is_empty() && raw.bytes().all(|byte| byte.is_ascii_digit()))
+        .and_then(|raw| raw.parse::<usize>().ok())
         .filter(|value| *value > 0);
     if options.full {
         return Ok(result);

@@ -249,6 +249,10 @@ fn section_critical_ordering_ties() -> Result<(), Box<dyn std::error::Error>> {
 /// Compact activity retains deleted streams, deterministic ties and original filesystem failures.
 #[test]
 fn section_activity_storage_and_ordering() -> Result<(), Box<dyn std::error::Error>> {
+    assert!(activity_before(NOW, "zzz-invalid"));
+    assert!(activity_before("000-invalid", "zzz-invalid"));
+    assert!(!activity_before("not-a-time", NOW));
+    assert!(activity_before("000-invalid", NOW));
     let (_directory, workspace, _lifecycle) = workspace()?;
     let history = workspace.pm_root().join("history");
     assert_eq!(
@@ -339,6 +343,19 @@ fn configured_sections_preserve_activity_errors_and_stale_order()
     )?;
     assert_eq!(result["activity"].as_array().map(Vec::len), Some(0));
     assert_eq!(result["staleness"][0]["id"], "sample-older");
+    let limited = build(
+        &workspace,
+        &["activity"],
+        &corpus,
+        &[],
+        &[],
+        &BTreeSet::new(),
+        &lifecycle,
+        "2099-01-01T00:00:00.000Z",
+        10,
+        &json!({"context":{"activity_limit":1}}),
+    )?;
+    assert_eq!(limited["activity"].as_array().map(Vec::len), Some(1));
     fs::write(pm.join("history/sample-gone.jsonl"), "invalid JSON")?;
     assert!(
         build(

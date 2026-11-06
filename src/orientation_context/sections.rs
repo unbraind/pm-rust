@@ -152,6 +152,18 @@ fn activity(workspace: &Workspace, limit: usize, now: &str) -> Result<Value, PmR
     activity_entries(workspace, &mut entries, &path, limit, now)
 }
 
+/// Matches published timestamp comparison, including its lexical fallback for invalid values.
+fn activity_before(timestamp: &str, now: &str) -> bool {
+    let left = crate::list::timestamp_key(timestamp).0;
+    let right = crate::list::timestamp_key(now).0;
+    if let (Some(left), Some(right)) = (left, right)
+        && left != right
+    {
+        return left < right;
+    }
+    crate::collation::compare(timestamp, now).is_lt()
+}
+
 /// Traverses retained activity entries while preserving directory-iteration failures.
 fn activity_entries(
     workspace: &Workspace,
@@ -170,9 +182,7 @@ fn activity_entries(
         let name = name.to_string_lossy();
         if let Some(id) = name.strip_suffix(".jsonl") {
             for entry in records(workspace, id)? {
-                if text(&entry, "ts").is_empty()
-                    || super::date_compare(text(&entry, "ts"), now).is_ge()
-                {
+                if text(&entry, "ts").is_empty() || !activity_before(text(&entry, "ts"), now) {
                     continue;
                 }
                 let mut row = json!({"id":id,"op":entry["op"].as_str().unwrap_or("unknown"),"ts":text(&entry,"ts"),"author":entry["author"].as_str().unwrap_or("unknown")});

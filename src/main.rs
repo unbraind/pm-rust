@@ -1995,17 +1995,32 @@ fn write_list_to(
     Ok(())
 }
 
+/// Selects the current context/dependency diagnostic contract without changing other commands.
+fn current_orientation_refusal(payload: &serde_json::Value) -> bool {
+    let command = &payload["recovery"]["normalized_args"];
+    payload["recovery"]["token_budget"].is_object()
+        || command[0] == "context"
+        || (command[0] == "item" && command[1] == "deps")
+}
+
 /// Current orientation diagnostics omit a detail that duplicates the title.
 fn compact_orientation_refusal(payload: &serde_json::Value) -> bool {
-    payload["detail"] == payload["title"]
-        && (payload["recovery"]["token_budget"].is_object()
-            || matches!(
-                payload["recovery"]["normalized_args"][0].as_str(),
-                Some("context" | "item")
-            ))
+    payload["detail"] == payload["title"] && current_orientation_refusal(payload)
+}
+
+/// Preserves line breaks while replacing control characters in current diagnostic text.
+fn orientation_diagnostic_text(payload: &serde_json::Value, text: String) -> String {
+    if !current_orientation_refusal(payload) {
+        return text;
+    }
+    text.replace("\r\n", "\n")
+        .chars()
+        .map(|c| if c.is_control() && c != '\n' { ' ' } else { c })
+        .collect()
 }
 
 /// Writes the published human-readable cursor diagnostic when JSON was not requested.
+#[allow(clippy::too_many_lines)]
 fn write_cursor_refusal_to(
     writer: &mut dyn Write,
     payload: &serde_json::Value,
@@ -2108,7 +2123,8 @@ fn write_cursor_refusal_to(
             parts.push(format!("  {key}: {value}"));
         }
     }
-    writer.write_all(format!("{}\n", parts.join("\n")).as_bytes())?;
+    let output = orientation_diagnostic_text(payload, format!("{}\n", parts.join("\n")));
+    writer.write_all(output.as_bytes())?;
     writer.flush().map_err(Into::into)
 }
 

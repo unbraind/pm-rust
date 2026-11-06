@@ -680,3 +680,43 @@ fn packet_probe_classification_respects_refusal_boundaries() {
     assert!(probe_delivery(Ok(json!({"context":{"nodes":[]}}).into())) == Probe::Fits);
     assert!(probe_delivery(Ok(json!({"output_budget_exceeded":{"reason":"requested_budget_infeasible","omitted_result":true}}).into())) == Probe::OutputConstraints);
 }
+
+/// Retry memoization bounds producer work and retained bytes without changing packet contents.
+#[test]
+fn packet_retry_cache_bounds_work_and_storage() -> Result<(), Box<dyn std::error::Error>> {
+    let (_root, workspace) = workspace()?;
+    let mut row = item("sample-root");
+    row["dependencies"] = json!([{"id":"sample-missing","kind":"related"}]);
+    let graph = Graph::new(&[row], &Lifecycle::load(workspace.pm_root())?);
+    let query = Query::new(&DepsOptions::default(), None)?;
+    let traversal = Traversal::new(&graph, "sample-root", &query);
+    let mut cache = RenderCache::default();
+    let expected = super::packet(&graph, "sample-root", &query, &traversal, &[], None, 600)?;
+    for _ in 0..128 {
+        assert_eq!(
+            cache.produce(&graph, "sample-root", &query, &traversal, &[], None, 600)?,
+            expected
+        );
+    }
+    assert_eq!(
+        cache.builds, 1,
+        "a repeated producer budget must not repeat graph packing"
+    );
+    assert!(cache.packet_bytes > 0 && cache.packet_bytes < 2 * 1024 * 1024);
+    let mut full = RenderCache {
+        packet_bytes: 2 * 1024 * 1024,
+        ..Default::default()
+    };
+    assert_eq!(
+        full.produce(&graph, "sample-root", &query, &traversal, &[], None, 600)?,
+        expected
+    );
+    assert_eq!(full.packet_bytes, 2 * 1024 * 1024);
+    assert!(full.packets.is_empty());
+    assert!(
+        cache
+            .produce(&graph, "sample-root", &query, &traversal, &[], None, 1)
+            .is_err()
+    );
+    Ok(())
+}

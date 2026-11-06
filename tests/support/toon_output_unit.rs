@@ -29,6 +29,12 @@ fn current_context_tables_keep_ambiguous_cells_lossless() -> Result<(), Box<dyn 
         assert!(super::table_contract(&rows, true).is_none());
     }
     assert!(super::table_contract(&json!([{"id":"one"}]), true).is_some());
+    let repeated: Vec<_> = (0..20)
+        .flat_map(|_| source.as_array().into_iter().flatten().cloned())
+        .collect();
+    let rendered = super::stringify_toon(&json!({"output_default":"toon","rows":repeated}).into())?;
+    assert!(rendered.contains("list_columns:"));
+    assert!(rendered.contains("null_columns"));
     Ok(())
 }
 

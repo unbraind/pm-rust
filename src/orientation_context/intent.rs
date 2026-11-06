@@ -6,7 +6,7 @@ use serde_json::json;
 
 /// Positive decimal controls accepted by the published intent layer.
 fn positive(raw: Option<&str>) -> Option<usize> {
-    let raw = raw?.trim();
+    let raw = crate::orientation::trim_control(raw?);
     if raw.is_empty() || !raw.bytes().all(|b| b.is_ascii_digit()) {
         return None;
     }
@@ -101,7 +101,7 @@ pub(super) fn prepare(
         return Ok(None);
     };
     boundary(workspace, global)?;
-    let name = name.trim().to_lowercase();
+    let name = crate::orientation::trim_control(name).to_lowercase();
     let (declared, overhead, row_cost, depth, sections) = match name.as_str() {
         "orient" => (
             3000,
