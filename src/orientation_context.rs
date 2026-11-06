@@ -1,7 +1,8 @@
 //! Context ranking, focus packing, optional sections and omission receipts.
+mod intent;
 mod sections;
 use crate::list_registry::Lifecycle;
-use crate::orientation::{invalid, numeric, records};
+use crate::orientation::{invalid, numeric, records, trim_control};
 use crate::{ContextOptions, ListOutput, PmRustError, Workspace};
 use serde_json::{Value, json};
 use std::collections::{BTreeMap, BTreeSet};
@@ -1106,7 +1107,7 @@ impl Workspace {
     /// Renders ranked focus, selected context sections and the oracle's omission receipt.
     ///
     /// # Errors
-    /// Returns numeric, unsupported-depth, item or history read errors.
+    /// Returns invalid controls, unsupported runtime or settings contracts, and storage errors.
     pub fn context(&self, options: &ContextOptions, now: &str) -> Result<ListOutput, PmRustError> {
         self.context_with_global(options, now, extension_health_global())
     }
@@ -1119,18 +1120,33 @@ impl Workspace {
         now: &str,
         global: Option<std::path::PathBuf>,
     ) -> Result<ListOutput, PmRustError> {
-        let settings = crate::ownership::runtime_settings(self.pm_root())?;
-        let depth = options
-            .depth
-            .as_deref()
-            .filter(|s| !s.is_empty())
-            .unwrap_or_else(|| {
-                settings["context"]["default_depth"]
-                    .as_str()
-                    .unwrap_or("brief")
-            })
-            .trim()
-            .to_lowercase();
+        let original = options;
+        let mut prepared = options.clone();
+        let intent = intent::prepare(self, &mut prepared, global.as_deref())?;
+        let options = &prepared;
+        let mut settings = crate::ownership::runtime_settings(self.pm_root())?;
+        if settings
+            .get("context")
+            .is_some_and(|context| !context.is_object())
+        {
+            return Err(crate::collections::refusal(
+                "Native context does not certify invalid context settings diagnostics; use the published pm CLI.",
+                2,
+                json!({"code":"unsupported_native_context","field":"settings.context","required":"Use object-valued context settings or the published pm CLI for schema-warning fallback."}),
+            ));
+        }
+        let depth = trim_control(
+            options
+                .depth
+                .as_deref()
+                .filter(|s| !s.is_empty())
+                .unwrap_or_else(|| {
+                    settings["context"]["default_depth"]
+                        .as_str()
+                        .unwrap_or("brief")
+                }),
+        )
+        .to_lowercase();
         if !["brief", "standard", "deep", "full"].contains(&depth.as_str()) {
             return Err(invalid(
                 "Context --depth must be one of brief|standard|deep|full",
@@ -1153,7 +1169,37 @@ impl Workspace {
             } else {
                 10
             });
-        let names = sections::selected(&depth, &settings);
+        let mut names = sections::selected(&depth, &settings);
+        if !options.sections.is_empty() {
+            names.clear();
+            for requested in &options.sections {
+                let normalized = trim_control(requested).to_lowercase();
+                let Some(name) = sections::NAMES.iter().find(|name| **name == normalized) else {
+                    let domain = sections::selected("full", &settings);
+                    return Err(crate::collections::refusal(
+                        format!("Context --section must be one of {}", domain.join("|")),
+                        2,
+                        json!({"code":"invalid_argument_value","next_steps":[format!("Allowed values: {}",domain.join("|")),"Run \"pm context --help\" to confirm command-specific constraints."],"examples":["pm context --section hierarchy","pm context --help"],"recovery":{"allowed_values":domain}}),
+                    ));
+                };
+                if !names.contains(name) {
+                    names.push(*name);
+                }
+            }
+        }
+        if let Some(raw) = options
+            .activity_limit
+            .as_deref()
+            .filter(|raw| !raw.is_empty())
+        {
+            let value = numeric(
+                raw,
+                true,
+                0,
+                "--activity-limit must be a non-negative integer".to_owned(),
+            )?;
+            settings["context"]["activity_limit"] = json!(value);
+        }
         let budget = options
             .token_budget
             .as_ref()
@@ -1271,6 +1317,9 @@ impl Workspace {
         }
         if let Some(budget) = &options.token_budget {
             semantic["tokenBudget"] = json!(budget);
+        }
+        if let Some(intent) = &options.intent {
+            semantic["for"] = json!(intent);
         }
         let contract = json!({"pmRoot":crate::pagination::query_root(&self.query_pm_root().to_string_lossy()),"options":semantic});
         let hash = crate::history::sha256_digest(
@@ -1489,9 +1538,13 @@ impl Workspace {
             .map(|name| json!({"name":name,"restore_with":format!("--section {name}")}))
             .collect();
         result["omission_receipt"] = json!({"has_omissions":!groups.is_empty(),"omitted_field_group_count":groups.len(),"omitted_field_groups":groups,"summary_scope":"matching_items"});
+        if let Some(intent) = &intent {
+            result = intent.attach(result.into(), original).value;
+        }
         if options.after.is_some() {
             for key in [
                 "applied_limit",
+                "context_intent",
                 "filters",
                 "has_more",
                 "now",
@@ -1505,14 +1558,21 @@ impl Workspace {
         crate::read_output::apply_orientation(
             result.into(),
             &crate::ListOptions {
-                limit: options.limit.clone(),
-                token_budget: options.token_budget.clone(),
+                limit: original.limit.clone(),
+                token_budget: original.token_budget.clone(),
+                brief: !original.sections.is_empty(),
                 toon: options.toon,
                 ..Default::default()
             },
             "context",
             &["high_level", "low_level"],
         )
+        .map(|mut result| {
+            if result.get("context_intent").is_some() && result.get("read_output").is_some() {
+                crate::read_output::stabilize_orientation(&mut result, options.toon);
+            }
+            result
+        })
     }
 }
 

@@ -8,6 +8,12 @@ use std::fs;
 /// Brief context selection and output controls.
 #[derive(Clone, Debug, Default)]
 pub struct ContextOptions {
+    /// Core orientation contract: orient or handoff.
+    pub intent: Option<String>,
+    /// Explicit optional sections, in requested order.
+    pub sections: Vec<String>,
+    /// Maximum retained activity entries.
+    pub activity_limit: Option<String>,
     /// Maximum focus rows; absent retains the oracle's per-group default.
     pub limit: Option<String>,
     /// Focus packing token ceiling.
@@ -80,6 +86,11 @@ pub(crate) fn invalid(detail: impl Into<String>) -> PmRustError {
     refusal(detail, 2, json!({"code":"invalid_argument_value"}))
 }
 
+/// Trims the ECMAScript whitespace domain, retaining NEL and accepting BOM.
+pub(crate) fn trim_control(raw: &str) -> &str {
+    raw.trim_matches(|c: char| c == '\u{feff}' || c != '\u{0085}' && c.is_whitespace())
+}
+
 /// Parses JavaScript numeric option forms without lossy integer casts.
 pub(crate) fn numeric(
     raw: &str,
@@ -87,7 +98,7 @@ pub(crate) fn numeric(
     minimum: usize,
     detail: String,
 ) -> Result<usize, PmRustError> {
-    let normalized = raw.trim();
+    let normalized = trim_control(raw);
     let number = if normalized.is_empty() {
         0.0
     } else if let Some((digits, radix)) = [

@@ -55,6 +55,32 @@ fn orientation_dispatch_boundaries() -> Result<(), Box<dyn std::error::Error>> {
 #[test]
 fn orientation_error_recovery_contract() {
     let strings = |args: &[&str]| args.iter().map(|arg| (*arg).to_owned()).collect::<Vec<_>>();
+    for suffix in [vec![], vec!["--json"], vec!["--no-tags"]] {
+        let mut dangling = strings(&["context", "--section=bad", "--activity-limit", "--section"]);
+        dangling.extend(strings(&suffix));
+        let recovery = super::orientation_error_json(
+            "Context --section must be one of hierarchy",
+            &serde_json::json!({"code":"invalid_argument_value","recovery":{"allowed_values":["hierarchy"]}}),
+            &dangling,
+            2,
+        );
+        assert_eq!(recovery["exit_code"], 2);
+        assert_eq!(recovery["refusal"]["rejected_value"], "bad");
+        assert_eq!(
+            recovery["examples"],
+            serde_json::json!([
+                "pm context --help",
+                "pm contracts --command <command> --flags-only --json"
+            ])
+        );
+    }
+    let retry = super::orientation_error_json(
+        "Context --section must be one of hierarchy",
+        &serde_json::json!({"code":"invalid_argument_value","recovery":{"allowed_values":["hierarchy"]}}),
+        &strings(&["context", "--section", "bad"]),
+        2,
+    );
+    assert_eq!(retry["examples"][0], "pm context --section hierarchy");
     for (args, detail, context) in [
         (
             vec!["context", "--limit", "bad"],
@@ -1869,6 +1895,26 @@ fn capabilities_writer_refusals() -> Result<(), Box<dyn std::error::Error>> {
                 .is_some()
         );
         assert!(bytes.is_empty());
+    }
+    Ok(())
+}
+/// Current orientation compaction leaves legacy collection and history diagnostics intact.
+#[test]
+fn current_orientation_diagnostics_preserve_other_commands()
+-> Result<(), Box<dyn std::error::Error>> {
+    for (args, compact) in [
+        (vec!["context"], true),
+        (vec!["item", "deps"], true),
+        (vec!["item", "test"], false),
+        (vec!["history"], false),
+    ] {
+        let payload = serde_json::json!({"title":"Expected refusal","detail":"Expected refusal","recovery":{"normalized_args":args}});
+        let mut output = Vec::new();
+        super::write_cursor_refusal_to(&mut output, &payload)?;
+        assert_eq!(
+            String::from_utf8(output)?.contains("What happened:"),
+            !compact
+        );
     }
     Ok(())
 }

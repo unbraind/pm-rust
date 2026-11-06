@@ -2,6 +2,7 @@
 use serde_json::{Value, json};
 use sha2::Digest;
 use std::{
+    fmt::Write,
     fs,
     path::{Path, PathBuf},
     process::{Command, Output},
@@ -553,7 +554,22 @@ fn orientation_driver(
     root: &Path,
     published: &published_cli::PublishedCli,
 ) -> Result<PathBuf, Box<dyn std::error::Error>> {
-    let path = write_driver(root, published)?;
+    let current = PathBuf::from(env!("CARGO_MANIFEST_DIR"))
+        .join("tests/orientation-oracle/node_modules/@unbrained/pm-cli");
+    let current = published_cli::PublishedCli {
+        entry: current.join("dist/cli.js"),
+        package_root: current,
+    };
+    let legacy = write_driver(root, published)?;
+    fs::rename(&legacy, root.join("legacy-driver.mjs"))?;
+    let metadata: Value =
+        serde_json::from_slice(&fs::read(current.package_root.join("package.json"))?)?;
+    assert_eq!(metadata["version"], "2026.11.5");
+    assert!(
+        current.entry.is_file(),
+        "Run just orientation-oracle-install"
+    );
+    let path = write_driver(root, &current)?;
     let script = fs::read_to_string(&path)?;
     fs::write(
         &path,
@@ -565,6 +581,12 @@ fn orientation_driver(
 }
 /// Executes one published invocation in a synthetic fixed-clock tracker.
 fn oracle(driver: &Path, root: &Path, args: &[&str]) -> Result<Output, Box<dyn std::error::Error>> {
+    let legacy = driver.with_file_name("legacy-driver.mjs");
+    let driver = if args.contains(&"context") || args.contains(&"deps") {
+        driver
+    } else {
+        &legacy
+    };
     let mut arguments = vec![driver.to_string_lossy().into_owned()];
     arguments.extend(args.iter().map(ToString::to_string));
     let interpreter =
@@ -603,15 +625,25 @@ fn compare(expected: &Output, actual: &Output, args: &[&str]) {
         String::from_utf8_lossy(&actual.stderr),
         String::from_utf8_lossy(&expected.stderr)
     );
-    assert_eq!(
+    assert!(
+        actual.stdout == expected.stdout,
+        "{args:?}: stdout\nnative: {}\noracle: {}",
         String::from_utf8_lossy(&actual.stdout),
-        String::from_utf8_lossy(&expected.stdout),
-        "{args:?}: stdout"
+        String::from_utf8_lossy(&expected.stdout)
     );
-    assert_eq!(
+    assert!(
+        actual.stderr == expected.stderr,
+        "{args:?}: stderr\nnative: {}\noracle: {}",
         String::from_utf8_lossy(&actual.stderr),
-        String::from_utf8_lossy(&expected.stderr),
-        "{args:?}: stderr"
+        String::from_utf8_lossy(&expected.stderr)
+    );
+    println!(
+        "exact_orientation_differential:{}",
+        if args[0] == "history" {
+            "legacy"
+        } else {
+            "current"
+        }
     );
 }
 /// Seals a synthetic retained-history proof with an independently sorted JSON digest.
@@ -1434,7 +1466,6 @@ fn unsupported_orientation_flags_refuse_explicitly() -> TestResult {
         (
             "context",
             vec![
-                "--for",
                 "--date",
                 "--from",
                 "--to",
@@ -1449,8 +1480,6 @@ fn unsupported_orientation_flags_refuse_explicitly() -> TestResult {
                 "--parent",
                 "--format",
                 "--fields",
-                "--section",
-                "--activity-limit",
                 "--stale-threshold",
                 "--explain-ranking",
             ],
@@ -1920,7 +1949,9 @@ fn relationship_reference_limits_match_oracle() -> TestResult {
     start["dependencies"] = json!([
         {"id":"sample-missing","kind":"related_to","created_at":CLOCK},
         {"id":"sample-missing","kind":"related_to","created_at":CLOCK},
-        {"id":"sample-other","kind":"blocked_by","created_at":CLOCK}
+        {"id":"sample-other","kind":"blocked_by","created_at":CLOCK},
+        {"id":"sample-parent","kind":"related","created_at":CLOCK},
+        {"id":"sample-parent","kind":"blocked_by","created_at":CLOCK}
     ]);
     let mut unrelated = item("sample-unrelated", "Task", "closed", 2);
     unrelated["parent"] = json!("sample-unreachable");
@@ -1932,7 +1963,7 @@ fn relationship_reference_limits_match_oracle() -> TestResult {
         vec!["--max-depth", "0"],
         vec!["--summary"],
     ] {
-        for (limit, budget) in [("1", "300"), ("2", "1200"), ("40", "300")] {
+        for (limit, budget) in [("1", "300"), ("1", "1200"), ("2", "1200"), ("40", "300")] {
             for encoding in [vec![], vec!["--json"]] {
                 let mut args = vec![
                     "deps",
@@ -2039,5 +2070,440 @@ fn padded_inverse_blockers_match_oracle() -> TestResult {
         assert_eq!(document["blockers"][0]["blocked_by"], "sample-inverse");
         compare(&expected, &native(root.path(), &args)?, &args);
     }
+    Ok(())
+}
+
+/// Rich non-git trackers retain exact intent, section and continuation packets.
+#[test]
+fn context_intents_and_sections_match_current_oracle() -> TestResult {
+    context_intents_fixture(1)
+}
+
+/// Empty non-git trackers retain intent defaults, suggestions and refusal receipts.
+#[test]
+fn context_intents_empty_tracker_match_current_oracle() -> TestResult {
+    context_intents_fixture(0)
+}
+
+/// Wide evidence distinguishes compact intent estimates from complete wire budgets.
+#[test]
+fn context_intents_wire_budget_match_current_oracle() -> TestResult {
+    context_intents_fixture(2)
+}
+
+/// Runs the same control matrix independently, allowing the fixed two-worker pool to balance it.
+#[allow(clippy::too_many_lines)]
+fn context_intents_fixture(richness: usize) -> TestResult {
+    let Some(published) = published_cli::published_cli_or_skip("current context intents") else {
+        return Ok(());
+    };
+    let scratch = tempfile::tempdir()?;
+    let driver = orientation_driver(scratch.path(), &published)?;
+    let mut comparisons = 0;
+    let root = tempfile::tempdir()?;
+    assert!(
+        oracle(&driver, root.path(), &["init", "sample-", "--defaults"])?
+            .status
+            .success()
+    );
+    if richness == 1 {
+        rich_fixture(root.path())?;
+    }
+    if richness == 2 {
+        let mut row = item("sample-wide", "Feature", "open", 1);
+        row["title"] = json!("Bounded orientation evidence ".repeat(7));
+        fixture(root.path(), &[row])?;
+        fs::write(
+            root.path().join(".agents/pm/history/sample-wide.jsonl"),
+            format!(
+                "{}\n",
+                json!({"ts":"2026-08-21T10:00:00.000Z","op":"update","author":"fixture","message":"Retained continuation evidence ".repeat(6)})
+            ),
+        )?;
+    }
+    for controls in [
+        vec!["--for", "orient", "--token-budget", "255"],
+        vec!["--section", "activity", "--activity-limit", "0"],
+        vec!["--section", " WORKLOAD ", "--section", "workload"],
+        vec!["--section", "bad"],
+        vec!["--section=bad"],
+        vec!["--section", "activity", "--section", "bad"],
+        vec!["--activity-limit", "bad"],
+        vec!["--activity-limit=bad"],
+        vec!["--for=orient", "--token-budget=255"],
+        vec!["--for", "orient", "--token_budget", "255"],
+        vec!["--for", "orient", "--token_budget=255"],
+        vec!["--for", "handoff", "--token-budget", "0"],
+    ] {
+        for format in [vec![], vec!["--json"]] {
+            let mut args = vec!["context"];
+            args.extend(&controls);
+            args.extend(&format);
+            compare(
+                &oracle(&driver, root.path(), &args)?,
+                &native(root.path(), &args)?,
+                &args,
+            );
+            comparisons += 1;
+        }
+    }
+    for intent in ["orient", "handoff", " ORIENT "] {
+        for controls in [
+            vec![],
+            vec!["--limit", "0"],
+            vec!["--limit", "1"],
+            vec!["--limit", "50"],
+            vec!["--token-budget", "256"],
+            vec!["--token-budget", "1000"],
+            vec!["--token-budget", "1600"],
+            vec!["--token-budget", "2200"],
+            vec!["--token_budget", "5000"],
+            vec!["--token-budget", "0x400"],
+            vec!["--depth", "brief"],
+            vec!["--depth", "full"],
+            vec![
+                "--section",
+                "blockers",
+                "--section",
+                "activity",
+                "--activity-limit",
+                "1",
+            ],
+            vec!["--section", "recently_created", "--no-tags"],
+        ] {
+            for format in [vec![], vec!["--json"]] {
+                let mut args = vec!["context", "--for", intent];
+                args.extend(&controls);
+                args.extend(&format);
+                compare(
+                    &oracle(&driver, root.path(), &args)?,
+                    &native(root.path(), &args)?,
+                    &args,
+                );
+                comparisons += 1;
+            }
+        }
+        let mut cursor = None;
+        for _ in 0..4 {
+            let mut args = vec!["context", "--for", intent, "--limit", "1", "--json"];
+            if let Some(cursor) = cursor.as_deref() {
+                args.extend(["--after", cursor]);
+            }
+            let expected = oracle(&driver, root.path(), &args)?;
+            compare(&expected, &native(root.path(), &args)?, &args);
+            comparisons += 1;
+            cursor = serde_json::from_slice::<Value>(&expected.stdout)?["next_cursor"]
+                .as_str()
+                .map(ToString::to_string);
+            if cursor.is_none() {
+                break;
+            }
+        }
+    }
+    println!("current intent and section differentials (fixture {richness}): {comparisons}");
+    Ok(())
+}
+
+/// ECMAScript option whitespace accepts BOM while retaining NEL as significant input.
+#[test]
+fn context_control_whitespace_matches_current_oracle() -> TestResult {
+    let Some(published) = published_cli::published_cli_or_skip("context control whitespace") else {
+        return Ok(());
+    };
+    let scratch = tempfile::tempdir()?;
+    let driver = orientation_driver(scratch.path(), &published)?;
+    let root = tempfile::tempdir()?;
+    assert!(
+        oracle(&driver, root.path(), &["init", "sample-", "--defaults"])?
+            .status
+            .success()
+    );
+    for controls in [
+        vec!["--for", "\u{feff}ORIENT\u{2003}"],
+        vec!["--for", "orient", "--token-budget", "\u{feff}1000\u{feff}"],
+        vec!["--for", "handoff", "--limit", "\u{feff}1"],
+        vec!["--section", "\u{feff}activity"],
+        vec!["--depth", "\u{feff}deep"],
+        vec!["--activity-limit", "\u{feff}1"],
+        vec!["--for", "orient", "--token-budget", "\u{0085}1000"],
+        vec!["--for", "orient", "--limit", "\u{0085}1"],
+        vec!["--activity-limit", "\u{0085}1"],
+        vec!["--section", "\u{0085}activity"],
+    ] {
+        for encoding in [vec![], vec!["--json"]] {
+            let mut args = vec!["context"];
+            args.extend(&controls);
+            args.extend(&encoding);
+            compare(
+                &oracle(&driver, root.path(), &args)?,
+                &native(root.path(), &args)?,
+                &args,
+            );
+        }
+    }
+    Ok(())
+}
+
+/// Reviewed edge contracts remain oracle-exact, with unsupported native continuation explicit.
+#[test]
+#[allow(clippy::too_many_lines)]
+fn context_reviewed_contracts_match_current_oracle() -> TestResult {
+    let Some(published) = published_cli::published_cli_or_skip("reviewed context contracts") else {
+        return Ok(());
+    };
+    let scratch = tempfile::tempdir()?;
+    let driver = orientation_driver(scratch.path(), &published)?;
+    let root = tempfile::tempdir()?;
+    assert!(
+        oracle(&driver, root.path(), &["init", "sample-", "--defaults"])?
+            .status
+            .success()
+    );
+    rich_fixture(root.path())?;
+    let mut history = format!(
+        "{}\n{}\n{}\n",
+        json!({"ts":"not-a-time","op":"update","author":"fixture"}),
+        json!({"ts":"000-invalid","op":"update","author":"fixture"}),
+        json!({"ts":"","op":"empty_timestamp","author":"fixture"})
+    );
+    for index in 0..50 {
+        writeln!(
+            history,
+            "{}",
+            json!({"ts":format!("2026-08-21T10:00:{index:02}.000Z"),"op":"update","author":"fixture","message":"Retained review evidence"})
+        )?;
+    }
+    fs::write(
+        root.path().join(".agents/pm/history/sample-review.jsonl"),
+        history,
+    )?;
+    let mut comparisons = 0;
+    let mut omission_replayed = false;
+    for json in [false, true] {
+        let mut args = vec!["context"];
+        if json {
+            args.push("--json");
+        }
+        args.extend(["--section=bad", "--activity-limit", "--section"]);
+        let expected = oracle(&driver, root.path(), &args)?;
+        assert_eq!(expected.status.code(), Some(2));
+        compare(&expected, &native(root.path(), &args)?, &args);
+        comparisons += 1;
+    }
+    for suffix in ["--json", "--no-tags"] {
+        let args = [
+            "context",
+            "--section=bad",
+            "--activity-limit",
+            "--section",
+            suffix,
+        ];
+        let expected = oracle(&driver, root.path(), &args)?;
+        assert_eq!(expected.status.code(), Some(2));
+        compare(&expected, &native(root.path(), &args)?, &args);
+        comparisons += 1;
+    }
+    for controls in [
+        vec!["--for", "orient", "--token-budget", "1e2"],
+        vec!["--for", "handoff", "--limit", "1e2"],
+        vec!["--section", "hierarchy", "--section", "invalid"],
+        vec!["--section", "activity", "--activity-limit", "100"],
+        vec![
+            "--for",
+            "orient",
+            "--section",
+            "tests",
+            "--section",
+            "activity",
+            "--activity-limit",
+            "50",
+            "--token-budget",
+            "700",
+        ],
+        vec!["--for", "handoff", "--token-budget", "256"],
+    ] {
+        for encoding in [vec![], vec!["--json"]] {
+            let mut args = vec!["context"];
+            args.extend(&controls);
+            args.extend(&encoding);
+            let expected = oracle(&driver, root.path(), &args)?;
+            compare(&expected, &native(root.path(), &args)?, &args);
+            comparisons += 1;
+            if !encoding.is_empty() && expected.status.success() {
+                let result: Value = serde_json::from_slice(&expected.stdout)?;
+                if controls == vec!["--section", "activity", "--activity-limit", "100"] {
+                    assert!(
+                        result["activity"]
+                            .as_array()
+                            .is_some_and(|rows| rows.iter().any(|row| row["ts"] == "000-invalid"))
+                    );
+                    assert!(result["activity"].as_array().is_some_and(|rows| {
+                        rows.iter()
+                            .all(|row| row["ts"] != "not-a-time" && row["ts"] != "")
+                    }));
+                }
+                if let Some(command) = result["budget_exceeded"]["restore_with"].as_str() {
+                    let retry: Vec<_> = command.split_whitespace().skip(1).collect();
+                    assert!(!retry.contains(&"--section"));
+                    let restored = oracle(&driver, root.path(), &retry)?;
+                    assert!(restored.status.success());
+                    compare(&restored, &native(root.path(), &retry)?, &retry);
+                    comparisons += 1;
+                    omission_replayed = true;
+                }
+            }
+        }
+    }
+    assert!(
+        omission_replayed,
+        "must exercise the oracle's receipt-only recovery"
+    );
+    let rows: Vec<_> = (0..30)
+        .map(|index| item(&format!("sample-review-{index}"), "Task", "open", 1))
+        .collect();
+    fixture(root.path(), &rows)?;
+    let mut handoff = false;
+    for budget in ["1200", "1600", "2200", "3000", "5000"] {
+        let args = [
+            "context",
+            "--depth",
+            "full",
+            "--limit",
+            "30",
+            "--token-budget",
+            budget,
+            "--json",
+        ];
+        let expected = oracle(&driver, root.path(), &args)?;
+        compare(&expected, &native(root.path(), &args)?, &args);
+        comparisons += 1;
+        if !expected.status.success() {
+            continue;
+        }
+        let result: Value = serde_json::from_slice(&expected.stdout)?;
+        if result["continuation_kind"] != "output_cursor" {
+            continue;
+        }
+        let cursor = result["output_budget_truncation"]["recovery"]["cursor"]
+            .as_str()
+            .ok_or("output cursor")?;
+        let mut retry = args.to_vec();
+        retry.extend(["--output-cursor", cursor]);
+        assert!(oracle(&driver, root.path(), &retry)?.status.success());
+        let refused = native(root.path(), &retry)?;
+        assert_eq!(refused.status.code(), Some(2));
+        let refusal: Value = serde_json::from_slice(&refused.stderr)?;
+        assert_eq!(refusal["code"], "unsupported_native_option");
+        assert!(
+            refusal["detail"]
+                .as_str()
+                .is_some_and(|detail| detail.contains("published pm CLI"))
+        );
+        handoff = true;
+        break;
+    }
+    assert!(
+        handoff,
+        "must replay a published output cursor and refuse it natively"
+    );
+    let wide = tempfile::tempdir()?;
+    assert!(
+        oracle(&driver, wide.path(), &["init", "sample-", "--defaults"])?
+            .status
+            .success()
+    );
+    let mut row = item("sample-wire-budget", "Task", "open", 2);
+    row["title"] = json!("Retained budget evidence ".repeat(8));
+    row["tags"] = json!((0..300).map(|i| format!("tag-{i:03}")).collect::<Vec<_>>());
+    fixture(wide.path(), &[row])?;
+    let item_path = wide.path().join(".agents/pm/tasks/sample-wire-budget.toon");
+    let before = fs::read(&item_path)?;
+    let mut dual_receipt = false;
+    for intent in ["orient", "handoff"] {
+        for budget in [
+            "256", "700", "1000", "1200", "1300", "1400", "1450", "1500", "1600", "2200", "3000",
+            "5000",
+        ] {
+            for encoding in [vec![], vec!["--json"]] {
+                let mut args = vec![
+                    "context",
+                    "--for",
+                    intent,
+                    "--limit",
+                    "1",
+                    "--token-budget",
+                    budget,
+                ];
+                args.extend(&encoding);
+                let expected = oracle(&driver, wide.path(), &args)?;
+                compare(&expected, &native(wide.path(), &args)?, &args);
+                comparisons += 1;
+                if !encoding.is_empty() && expected.status.success() {
+                    let value: Value = serde_json::from_slice(&expected.stdout)?;
+                    dual_receipt |= value["context_intent"].is_object()
+                        && value["context_intent"]["result_omitted"] != true
+                        && value["read_output"].is_object();
+                }
+            }
+        }
+    }
+    assert!(
+        dual_receipt,
+        "must compare a retained intent with its wire receipt"
+    );
+    let settings_path = wide.path().join(".agents/pm/settings.json");
+    let original_settings: Value = serde_json::from_slice(&fs::read(&settings_path)?)?;
+    for context in [None, Some(json!({}))] {
+        let mut settings = original_settings.clone();
+        if let Some(context) = context {
+            settings["context"] = context;
+        } else {
+            settings
+                .as_object_mut()
+                .ok_or("settings object")?
+                .shift_remove("context");
+        }
+        fs::write(&settings_path, settings.to_string())?;
+        for encoding in [vec![], vec!["--json"]] {
+            let mut args = vec!["context", "--section", "activity", "--activity-limit", "0"];
+            args.extend(encoding);
+            compare(
+                &oracle(&driver, wide.path(), &args)?,
+                &native(wide.path(), &args)?,
+                &args,
+            );
+            comparisons += 1;
+        }
+    }
+    for context in [
+        Value::Null,
+        json!("legacy"),
+        json!([]),
+        json!(1),
+        json!(true),
+    ] {
+        let mut settings = original_settings.clone();
+        settings["context"] = context;
+        let settings = settings.to_string();
+        fs::write(&settings_path, &settings)?;
+        let args = ["context", "--for", "orient", "--json"];
+        let published = oracle(&driver, wide.path(), &args)?;
+        assert!(published.status.success());
+        assert!(
+            String::from_utf8_lossy(&published.stderr).contains("settings_read_invalid_schema")
+        );
+        let refused = native(wide.path(), &args)?;
+        assert_eq!(refused.status.code(), Some(2));
+        let payload: Value = serde_json::from_slice(&refused.stderr)?;
+        assert_eq!(payload["code"], "unsupported_native_context");
+        assert!(
+            payload["required"]
+                .as_str()
+                .is_some_and(|required| required.contains("object-valued context settings"))
+        );
+        assert_eq!(fs::read(&settings_path)?, settings.as_bytes());
+    }
+    assert_eq!(fs::read(item_path)?, before);
+    println!("reviewed context differentials: {comparisons}");
     Ok(())
 }

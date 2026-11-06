@@ -344,7 +344,7 @@ pub struct DiscoveryResponse {
     pub protocol: String,
     /// Crate release, not an inferred compatibility guarantee.
     pub product_version: String,
-    /// Pinned published oracle used by differential receipts.
+    /// Baseline published oracle; an operation's scope names any newer independent pin.
     pub oracle_version: String,
     /// Unlisted methods/options are unavailable; never fall back by version.
     pub unknown_is_unsupported: bool,
@@ -526,8 +526,10 @@ fn operation(command: &clap::Command) -> Result<OperationContract, DiscoveryRefu
         ),
         "context" => (
             &["Workspace::context"],
-            Some("tests/orientation_differential.rs::context_sections_match_oracle"),
-            "Brief orientation with native supported depth/sections; refuses sources with 10000 or more items; no dynamic extension execution.",
+            Some(
+                "tests/orientation_differential.rs::context_intents_and_sections_match_current_oracle",
+            ),
+            "Oracle 2026.11.5: core orient/handoff intents, explicit sections and activity limits; generic output cursors require the published CLI; refuses sources with 10000 or more items, invalid context-setting shapes and runtime intent declarations; no dynamic extension execution.",
         ),
         "history" => (
             &["Workspace::history"],
@@ -537,7 +539,7 @@ fn operation(command: &clap::Command) -> Result<OperationContract, DiscoveryRefu
         "deps" => (
             &["Workspace::deps"],
             Some("tests/orientation_differential.rs::relationship_packets_match_oracle"),
-            "Read dependency tree/graph/packet only; supported direction/kind/bounds are runtime validated.",
+            "Oracle 2026.11.5: read dependency tree/graph/packet only; supported direction/kind/bounds are runtime validated.",
         ),
         "search" => (
             &["Workspace::search"],

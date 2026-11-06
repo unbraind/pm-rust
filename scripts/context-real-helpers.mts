@@ -10,7 +10,7 @@ export function authoritative(directory: string, prefix = ''): Map<string, strin
     if (!prefix && ['runtime', 'locks', 'transactions', 'checkpoints', 'search'].includes(entry.name)) continue;
     if (entry.isDirectory()) {
       for (const [key, value] of authoritative(join(directory, entry.name), relative)) hashes.set(key, value);
-    } else if (entry.name.endsWith('.toon') || entry.name.endsWith('.jsonl')) {
+    } else if (entry.name.endsWith('.toon') || entry.name.endsWith('.jsonl') || entry.name.endsWith('.json')) {
       hashes.set(relative, createHash('sha256').update(readFileSync(join(directory, entry.name))).digest('hex'));
     }
   }

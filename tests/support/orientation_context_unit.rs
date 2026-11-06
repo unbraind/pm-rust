@@ -21,6 +21,209 @@ fn item(id: &str, status: &str) -> Value {
     json!({"id":id,"title":id,"description":"","type":"Task","status":status,"priority":2,"tags":[],"created_at":NOW,"updated_at":NOW})
 }
 
+/// SDK intents retain compact intent estimates and requested wire estimates independently.
+#[test]
+fn context_intent_sdk_budget_boundaries() -> Result<(), Box<dyn std::error::Error>> {
+    let (_root, workspace, _) = workspace()?;
+    let mut row = item("sample-budget", "open");
+    row["title"] = json!("Retained budget evidence ".repeat(8));
+    row["tags"] = json!((0..300).map(|i| format!("tag-{i:03}")).collect::<Vec<_>>());
+    fs::write(
+        workspace.pm_root().join("tasks/sample-budget.toon"),
+        toon_format::encode_default(&row)?,
+    )?;
+    let mut saw_wire_receipt = false;
+    let mut saw_omitted_intent = false;
+    for name in ["orient", "handoff"] {
+        for toon in [false, true] {
+            for budget in [
+                "256", "700", "1000", "1200", "1300", "1400", "1450", "1500", "1600", "2200",
+                "3000", "5000",
+            ] {
+                let result = workspace.context_with_global(
+                    &ContextOptions {
+                        intent: Some(name.to_owned()),
+                        token_budget: Some(budget.to_owned()),
+                        limit: Some("1".to_owned()),
+                        toon,
+                        ..Default::default()
+                    },
+                    NOW,
+                    None,
+                )?;
+                if result["context_intent"].is_object() {
+                    assert_eq!(result["context_intent"]["intent"], name);
+                    saw_omitted_intent |= result["context_intent"]["result_omitted"] == true;
+                    if result["context_intent"]["result_omitted"] != true {
+                        saw_wire_receipt |= result["read_output"].is_object();
+                        assert_eq!(
+                            result["context_intent"]["estimated_tokens"],
+                            crate::stringify_json(&result, false).len().div_ceil(4)
+                        );
+                    }
+                }
+                if result["read_output"].is_object() {
+                    let wire = if toon {
+                        crate::stringify_toon(&result)?
+                    } else {
+                        result.stringify_read_json()
+                    };
+                    assert_eq!(
+                        result["read_output"]["estimated_tokens"],
+                        wire.len().div_ceil(4)
+                    );
+                }
+            }
+        }
+    }
+    assert!(
+        saw_wire_receipt,
+        "must certify a retained intent with a separate wire ceiling"
+    );
+    assert!(
+        saw_omitted_intent,
+        "must retain the omitted intent estimate"
+    );
+    let explicit = workspace.context_with_global(
+        &ContextOptions {
+            intent: Some("orient".to_owned()),
+            sections: vec!["progress".to_owned()],
+            depth: Some("brief".to_owned()),
+            activity_limit: Some("2".to_owned()),
+            ..Default::default()
+        },
+        NOW,
+        None,
+    )?;
+    assert_eq!(explicit["depth"], "brief");
+    assert!(explicit["progress"].is_array());
+    assert!(explicit.get("hierarchy").is_none());
+    let explicit_depth = workspace.context_with_global(
+        &ContextOptions {
+            intent: Some("handoff".to_owned()),
+            depth: Some("brief".to_owned()),
+            ..Default::default()
+        },
+        NOW,
+        None,
+    )?;
+    assert_eq!(explicit_depth["depth"], "brief");
+    assert_sdk_intent_refusals(&workspace)?;
+    Ok(())
+}
+
+/// SDK entry points retain the typed refusal from intent preparation.
+fn assert_sdk_intent_refusals(workspace: &Workspace) -> Result<(), Box<dyn std::error::Error>> {
+    for (intent, token_budget, code) in [
+        ("unknown", None, "unsupported_native_context"),
+        ("orient", Some("255"), "invalid_argument_value"),
+    ] {
+        let error = workspace
+            .context_with_global(
+                &ContextOptions {
+                    intent: Some(intent.to_owned()),
+                    token_budget: token_budget.map(str::to_owned),
+                    ..Default::default()
+                },
+                NOW,
+                None,
+            )
+            .err()
+            .ok_or("SDK context must preserve intent preparation refusals")?;
+        assert!(
+            matches!(error, PmRustError::CommandRefusal { context: ref payload, .. } if payload["code"] == code)
+        );
+    }
+    Ok(())
+}
+
+/// Partial settings remain readable; unsupported context shapes refuse before projection.
+#[test]
+fn context_settings_shape_boundaries() -> Result<(), Box<dyn std::error::Error>> {
+    let (_root, workspace, _) = workspace()?;
+    let row = item("sample-settings", "open");
+    let item_path = workspace.pm_root().join("tasks/sample-settings.toon");
+    fs::write(&item_path, toon_format::encode_default(&row)?)?;
+    let before = fs::read(&item_path)?;
+    let activity = workspace.context_with_global(
+        &ContextOptions {
+            sections: vec!["activity".to_owned()],
+            activity_limit: Some("0".to_owned()),
+            ..Default::default()
+        },
+        NOW,
+        None,
+    )?;
+    assert_eq!(activity["activity"], json!([]));
+    for raw in ["bad", "-1", "1.5"] {
+        let error = workspace
+            .context_with_global(
+                &ContextOptions {
+                    activity_limit: Some(raw.to_owned()),
+                    ..Default::default()
+                },
+                NOW,
+                None,
+            )
+            .err()
+            .ok_or("invalid activity limits must refuse before projection")?;
+        assert!(
+            error
+                .to_string()
+                .contains("--activity-limit must be a non-negative integer")
+        );
+        assert_eq!(fs::read(&item_path)?, before);
+    }
+    fs::write(
+        workspace.pm_root().join("settings.json"),
+        json!({"id_prefix":"sample-","item_format":"toon","context":{}}).to_string(),
+    )?;
+    let repeated = workspace.context_with_global(
+        &ContextOptions {
+            sections: vec!["activity".to_owned(), "activity".to_owned()],
+            activity_limit: Some("0".to_owned()),
+            ..Default::default()
+        },
+        NOW,
+        None,
+    )?;
+    assert_eq!(repeated["activity"], activity["activity"]);
+    assert!(
+        workspace
+            .context_with_global(
+                &ContextOptions {
+                    sections: vec!["unknown".to_owned()],
+                    ..Default::default()
+                },
+                NOW,
+                None,
+            )
+            .is_err()
+    );
+    for context in [
+        Value::Null,
+        json!("legacy"),
+        json!([]),
+        json!(1),
+        json!(true),
+    ] {
+        fs::write(
+            workspace.pm_root().join("settings.json"),
+            json!({"id_prefix":"sample-","item_format":"toon","context":context}).to_string(),
+        )?;
+        let error = workspace
+            .context_with_global(&ContextOptions::default(), NOW, None)
+            .err()
+            .ok_or("invalid settings diagnostics require the published CLI")?;
+        assert!(
+            matches!(error, PmRustError::CommandRefusal { context: ref payload, .. } if payload["code"] == "unsupported_native_context" && payload["field"] == "settings.context")
+        );
+        assert_eq!(workspace.list(crate::ItemFilter::default())?.count, 1);
+        assert_eq!(fs::read(&item_path)?, before);
+    }
+    Ok(())
+}
+
 /// The SDK context read retains custom progress classifications and non-active count boundaries.
 #[test]
 fn custom_progress_receipts_use_active_summary_counts() -> Result<(), Box<dyn std::error::Error>> {
@@ -454,7 +657,7 @@ fn deep_sections_preserve_relationships_and_evidence() -> Result<(), Box<dyn std
         result["tests"]["recent_runs"],
         json!({"passed":2,"failed":1,"skipped":3})
     );
-    assert_eq!(result["activity"][0]["id"], "sample-deleted");
+    assert_eq!(result["activity"], json!([]));
     assert_eq!(result["staleness"][0]["id"], "sample-child");
     assert_eq!(result["omission_receipt"]["has_omissions"], false);
     for depth in ["standard", "deep", "full"] {

@@ -2,6 +2,47 @@
 
 use serde_json::{Value, json};
 
+/// Current tables distinguish absent cells, explicit nulls and ambiguous list delimiters.
+#[test]
+fn current_context_tables_keep_ambiguous_cells_lossless() -> Result<(), Box<dyn std::error::Error>>
+{
+    let source = json!([
+        {"id":"one","empty":null,"tags":["a","b"],"mixed":["semi;colon"],"blank":[""],"numeric":[1],"map":{"a":true}},
+        {"id":"two","empty":null,"tags":[],"mixed":[],"blank":[],"numeric":null,"map":"literal"},
+        {"id":"three","empty":null,"mixed":["safe"],"blank":["text"],"numeric":["safe"],"map":{}}
+    ]);
+    let (rows, encoding) = super::table_contract(&source, true).ok_or("missing table")?;
+    // Captured independently from pm 2026.11.5 encodePmTableRows({ compact: true }).
+    assert_eq!(
+        rows,
+        json!([
+            {"id":"one","tags":"a;b","mixed":"[\"semi;colon\"]","blank":"[\"\"]","numeric":"[1]","map":"{\"a\":true}"},
+            {"id":"two","tags":"","mixed":"[]","blank":"[]","numeric":"null","map":"\"literal\""},
+            {"id":"three","tags":null,"mixed":"[\"safe\"]","blank":"[\"text\"]","numeric":"[\"safe\"]","map":"{}"}
+        ])
+    );
+    assert_eq!(
+        encoding,
+        json!({"json_columns":["mixed","blank","numeric","map"],"absent":[[2,"tags"]],"list_columns":{"tags":";"},"null_columns":["empty"],"null_column_index":[1]})
+    );
+    for rows in [
+        Value::Null,
+        json!([]),
+        json!([1]),
+        json!([{"a":1},{"b":2},{"c":3}]),
+    ] {
+        assert!(super::table_contract(&rows, true).is_none());
+    }
+    assert!(super::table_contract(&json!([{"id":"one"}]), true).is_some());
+    let repeated: Vec<_> = (0..20)
+        .flat_map(|_| source.as_array().into_iter().flatten().cloned())
+        .collect();
+    let rendered = super::stringify_toon(&json!({"output_default":"toon","rows":repeated}).into())?;
+    assert!(rendered.contains("list_columns:"));
+    assert!(rendered.contains("null_columns"));
+    Ok(())
+}
+
 /// Object rows retain explicit null, empty and nested facts while envelopes remain compact.
 #[test]
 fn toon_rows_preserve_explicit_facts() -> Result<(), Box<dyn std::error::Error>> {

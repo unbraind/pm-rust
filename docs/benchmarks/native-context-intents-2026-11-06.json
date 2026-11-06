@@ -1,0 +1,1196 @@
+{
+  "oracle": "2026.11.5",
+  "toolchains": {
+    "rust": "1.90.0",
+    "node": "24.19.0"
+  },
+  "method": {
+    "environment": "local measurement on Node 24.19.0; CI independently uses Node 26",
+    "tracker_layout": "non-git scratch copies of public trackers",
+    "processes": "fresh process for every command",
+    "ordering": "alternating native and oracle",
+    "samples_per_runtime_and_command": 5,
+    "clocks": "fixed wall clock and oracle monotonic packing clock",
+    "filesystem_cache": "not flushed",
+    "host_load": "shared host; no performance guarantee",
+    "copy_exclusions": "installed extension packages and rebuildable runtime caches"
+  },
+  "generated": {
+    "context_comparisons": 434,
+    "relationship_comparisons": 138,
+    "context_breakdown": {
+      "rich_empty_wide": 342,
+      "unicode_controls": 20,
+      "reviewed_contracts": 72
+    }
+  },
+  "public_comparisons": 271,
+  "total_reported_comparisons": 843,
+  "revert_proof": {
+    "mutation_commands": 24,
+    "assertion_failures": 26,
+    "distinct_tests": 17,
+    "new_tests_covered": 12,
+    "execution": "20-command recipe run plus four isolated retry-guard mutations using the same scratch-copy harness"
+  },
+  "trackers": {
+    "pm-vcs": {
+      "oracle": "2026.11.5",
+      "clock": "2026-11-06T12:00:00.000Z",
+      "comparisons": 99,
+      "context_comparisons": 62,
+      "packet_comparisons": 37,
+      "packet_roots": 3,
+      "item_count": 173,
+      "authoritative_files": 352,
+      "authoritative_unchanged": true,
+      "binary_sha256": "cf26cad65cae241591cf6ad833d3e216b8184d2e42dcd5fac70dfd7192645aba",
+      "timings": [
+        {
+          "command": "context --limit 10",
+          "runtime": "native",
+          "samples": 5,
+          "p50_ms": 30.1,
+          "p95_ms": 36.5
+        },
+        {
+          "command": "context --limit 10",
+          "runtime": "oracle",
+          "samples": 5,
+          "p50_ms": 692.3,
+          "p95_ms": 907.5
+        },
+        {
+          "command": "context --depth deep --limit 10",
+          "runtime": "native",
+          "samples": 5,
+          "p50_ms": 370.1,
+          "p95_ms": 521.4
+        },
+        {
+          "command": "context --depth deep --limit 10",
+          "runtime": "oracle",
+          "samples": 5,
+          "p50_ms": 2033.7,
+          "p95_ms": 3061.4
+        },
+        {
+          "command": "context --for orient --limit 10",
+          "runtime": "native",
+          "samples": 5,
+          "p50_ms": 194.3,
+          "p95_ms": 223.4
+        },
+        {
+          "command": "context --for orient --limit 10",
+          "runtime": "oracle",
+          "samples": 5,
+          "p50_ms": 1154.3,
+          "p95_ms": 1569.6
+        },
+        {
+          "command": "context --for handoff --limit 10",
+          "runtime": "native",
+          "samples": 5,
+          "p50_ms": 292.4,
+          "p95_ms": 382.9
+        },
+        {
+          "command": "context --for handoff --limit 10",
+          "runtime": "oracle",
+          "samples": 5,
+          "p50_ms": 1749.5,
+          "p95_ms": 1915.7
+        },
+        {
+          "command": "deps <relationship-root> --format context --token-budget 5000",
+          "runtime": "native",
+          "samples": 5,
+          "p50_ms": 33.8,
+          "p95_ms": 55.7
+        },
+        {
+          "command": "deps <relationship-root> --format context --token-budget 5000",
+          "runtime": "oracle",
+          "samples": 5,
+          "p50_ms": 836,
+          "p95_ms": 1129.4
+        }
+      ],
+      "samples": [
+        {
+          "command": "context --limit 10",
+          "runtime": "native",
+          "round": 0,
+          "ms": 36.48591500002658
+        },
+        {
+          "command": "context --limit 10",
+          "runtime": "oracle",
+          "round": 0,
+          "ms": 686.5704419999965
+        },
+        {
+          "command": "context --limit 10",
+          "runtime": "oracle",
+          "round": 1,
+          "ms": 675.2809249999991
+        },
+        {
+          "command": "context --limit 10",
+          "runtime": "native",
+          "round": 1,
+          "ms": 30.138154999993276
+        },
+        {
+          "command": "context --limit 10",
+          "runtime": "native",
+          "round": 2,
+          "ms": 32.813853999978164
+        },
+        {
+          "command": "context --limit 10",
+          "runtime": "oracle",
+          "round": 2,
+          "ms": 692.3368140000093
+        },
+        {
+          "command": "context --limit 10",
+          "runtime": "oracle",
+          "round": 3,
+          "ms": 907.4950459999964
+        },
+        {
+          "command": "context --limit 10",
+          "runtime": "native",
+          "round": 3,
+          "ms": 24.483359999983804
+        },
+        {
+          "command": "context --limit 10",
+          "runtime": "native",
+          "round": 4,
+          "ms": 25.62577600000077
+        },
+        {
+          "command": "context --limit 10",
+          "runtime": "oracle",
+          "round": 4,
+          "ms": 777.5086890000093
+        },
+        {
+          "command": "context --depth deep --limit 10",
+          "runtime": "native",
+          "round": 0,
+          "ms": 268.06750699999975
+        },
+        {
+          "command": "context --depth deep --limit 10",
+          "runtime": "oracle",
+          "round": 0,
+          "ms": 3061.4354969999986
+        },
+        {
+          "command": "context --depth deep --limit 10",
+          "runtime": "oracle",
+          "round": 1,
+          "ms": 2658.0143229999812
+        },
+        {
+          "command": "context --depth deep --limit 10",
+          "runtime": "native",
+          "round": 1,
+          "ms": 521.365386999998
+        },
+        {
+          "command": "context --depth deep --limit 10",
+          "runtime": "native",
+          "round": 2,
+          "ms": 413.500853000005
+        },
+        {
+          "command": "context --depth deep --limit 10",
+          "runtime": "oracle",
+          "round": 2,
+          "ms": 1447.704441000009
+        },
+        {
+          "command": "context --depth deep --limit 10",
+          "runtime": "oracle",
+          "round": 3,
+          "ms": 2033.7395259999903
+        },
+        {
+          "command": "context --depth deep --limit 10",
+          "runtime": "native",
+          "round": 3,
+          "ms": 223.12686499999836
+        },
+        {
+          "command": "context --depth deep --limit 10",
+          "runtime": "native",
+          "round": 4,
+          "ms": 370.0953959999897
+        },
+        {
+          "command": "context --depth deep --limit 10",
+          "runtime": "oracle",
+          "round": 4,
+          "ms": 1415.7079709999962
+        },
+        {
+          "command": "context --for orient --limit 10",
+          "runtime": "native",
+          "round": 0,
+          "ms": 217.10236799999257
+        },
+        {
+          "command": "context --for orient --limit 10",
+          "runtime": "oracle",
+          "round": 0,
+          "ms": 1154.331971000007
+        },
+        {
+          "command": "context --for orient --limit 10",
+          "runtime": "oracle",
+          "round": 1,
+          "ms": 957.8497220000136
+        },
+        {
+          "command": "context --for orient --limit 10",
+          "runtime": "native",
+          "round": 1,
+          "ms": 176.2873870000185
+        },
+        {
+          "command": "context --for orient --limit 10",
+          "runtime": "native",
+          "round": 2,
+          "ms": 194.30264000000898
+        },
+        {
+          "command": "context --for orient --limit 10",
+          "runtime": "oracle",
+          "round": 2,
+          "ms": 1071.0361430000048
+        },
+        {
+          "command": "context --for orient --limit 10",
+          "runtime": "oracle",
+          "round": 3,
+          "ms": 1569.5971259999787
+        },
+        {
+          "command": "context --for orient --limit 10",
+          "runtime": "native",
+          "round": 3,
+          "ms": 223.41279600001872
+        },
+        {
+          "command": "context --for orient --limit 10",
+          "runtime": "native",
+          "round": 4,
+          "ms": 179.29198000000906
+        },
+        {
+          "command": "context --for orient --limit 10",
+          "runtime": "oracle",
+          "round": 4,
+          "ms": 1441.3682820000104
+        },
+        {
+          "command": "context --for handoff --limit 10",
+          "runtime": "native",
+          "round": 0,
+          "ms": 179.03137000001152
+        },
+        {
+          "command": "context --for handoff --limit 10",
+          "runtime": "oracle",
+          "round": 0,
+          "ms": 1749.549468000012
+        },
+        {
+          "command": "context --for handoff --limit 10",
+          "runtime": "oracle",
+          "round": 1,
+          "ms": 1648.6338969999633
+        },
+        {
+          "command": "context --for handoff --limit 10",
+          "runtime": "native",
+          "round": 1,
+          "ms": 292.4180480000214
+        },
+        {
+          "command": "context --for handoff --limit 10",
+          "runtime": "native",
+          "round": 2,
+          "ms": 255.05693699995754
+        },
+        {
+          "command": "context --for handoff --limit 10",
+          "runtime": "oracle",
+          "round": 2,
+          "ms": 1750.9027539999806
+        },
+        {
+          "command": "context --for handoff --limit 10",
+          "runtime": "oracle",
+          "round": 3,
+          "ms": 1915.7114379999693
+        },
+        {
+          "command": "context --for handoff --limit 10",
+          "runtime": "native",
+          "round": 3,
+          "ms": 380.38493500003824
+        },
+        {
+          "command": "context --for handoff --limit 10",
+          "runtime": "native",
+          "round": 4,
+          "ms": 382.89996700000484
+        },
+        {
+          "command": "context --for handoff --limit 10",
+          "runtime": "oracle",
+          "round": 4,
+          "ms": 1598.4833440000075
+        },
+        {
+          "command": "deps <relationship-root> --format context --token-budget 5000",
+          "runtime": "native",
+          "round": 0,
+          "ms": 55.73893599997973
+        },
+        {
+          "command": "deps <relationship-root> --format context --token-budget 5000",
+          "runtime": "oracle",
+          "round": 0,
+          "ms": 1129.3653489999706
+        },
+        {
+          "command": "deps <relationship-root> --format context --token-budget 5000",
+          "runtime": "oracle",
+          "round": 1,
+          "ms": 858.6011390000349
+        },
+        {
+          "command": "deps <relationship-root> --format context --token-budget 5000",
+          "runtime": "native",
+          "round": 1,
+          "ms": 34.35724499996286
+        },
+        {
+          "command": "deps <relationship-root> --format context --token-budget 5000",
+          "runtime": "native",
+          "round": 2,
+          "ms": 27.32340600003954
+        },
+        {
+          "command": "deps <relationship-root> --format context --token-budget 5000",
+          "runtime": "oracle",
+          "round": 2,
+          "ms": 677.7276549999951
+        },
+        {
+          "command": "deps <relationship-root> --format context --token-budget 5000",
+          "runtime": "oracle",
+          "round": 3,
+          "ms": 768.4073089999729
+        },
+        {
+          "command": "deps <relationship-root> --format context --token-budget 5000",
+          "runtime": "native",
+          "round": 3,
+          "ms": 28.98318099998869
+        },
+        {
+          "command": "deps <relationship-root> --format context --token-budget 5000",
+          "runtime": "native",
+          "round": 4,
+          "ms": 33.79914900002768
+        },
+        {
+          "command": "deps <relationship-root> --format context --token-budget 5000",
+          "runtime": "oracle",
+          "round": 4,
+          "ms": 836.0307559999637
+        }
+      ]
+    },
+    "pm-rl": {
+      "oracle": "2026.11.5",
+      "clock": "2026-11-06T12:00:00.000Z",
+      "comparisons": 101,
+      "context_comparisons": 62,
+      "packet_comparisons": 39,
+      "packet_roots": 3,
+      "item_count": 126,
+      "authoritative_files": 258,
+      "authoritative_unchanged": true,
+      "binary_sha256": "cf26cad65cae241591cf6ad833d3e216b8184d2e42dcd5fac70dfd7192645aba",
+      "timings": [
+        {
+          "command": "context --limit 10",
+          "runtime": "native",
+          "samples": 5,
+          "p50_ms": 27.7,
+          "p95_ms": 39.3
+        },
+        {
+          "command": "context --limit 10",
+          "runtime": "oracle",
+          "samples": 5,
+          "p50_ms": 496.8,
+          "p95_ms": 878.6
+        },
+        {
+          "command": "context --depth deep --limit 10",
+          "runtime": "native",
+          "samples": 5,
+          "p50_ms": 233.9,
+          "p95_ms": 444.5
+        },
+        {
+          "command": "context --depth deep --limit 10",
+          "runtime": "oracle",
+          "samples": 5,
+          "p50_ms": 1493.7,
+          "p95_ms": 1510.4
+        },
+        {
+          "command": "context --for orient --limit 10",
+          "runtime": "native",
+          "samples": 5,
+          "p50_ms": 411,
+          "p95_ms": 435.4
+        },
+        {
+          "command": "context --for orient --limit 10",
+          "runtime": "oracle",
+          "samples": 5,
+          "p50_ms": 1764.5,
+          "p95_ms": 1988.1
+        },
+        {
+          "command": "context --for handoff --limit 10",
+          "runtime": "native",
+          "samples": 5,
+          "p50_ms": 292.6,
+          "p95_ms": 307.1
+        },
+        {
+          "command": "context --for handoff --limit 10",
+          "runtime": "oracle",
+          "samples": 5,
+          "p50_ms": 1621.6,
+          "p95_ms": 2245.8
+        },
+        {
+          "command": "deps <relationship-root> --format context --token-budget 5000",
+          "runtime": "native",
+          "samples": 5,
+          "p50_ms": 46,
+          "p95_ms": 48.1
+        },
+        {
+          "command": "deps <relationship-root> --format context --token-budget 5000",
+          "runtime": "oracle",
+          "samples": 5,
+          "p50_ms": 1349.6,
+          "p95_ms": 1494
+        }
+      ],
+      "samples": [
+        {
+          "command": "context --limit 10",
+          "runtime": "native",
+          "round": 0,
+          "ms": 39.263709999999264
+        },
+        {
+          "command": "context --limit 10",
+          "runtime": "oracle",
+          "round": 0,
+          "ms": 798.0886860000028
+        },
+        {
+          "command": "context --limit 10",
+          "runtime": "oracle",
+          "round": 1,
+          "ms": 878.5602329999965
+        },
+        {
+          "command": "context --limit 10",
+          "runtime": "native",
+          "round": 1,
+          "ms": 26.821241999976337
+        },
+        {
+          "command": "context --limit 10",
+          "runtime": "native",
+          "round": 2,
+          "ms": 27.7082320000045
+        },
+        {
+          "command": "context --limit 10",
+          "runtime": "oracle",
+          "round": 2,
+          "ms": 496.8021379999991
+        },
+        {
+          "command": "context --limit 10",
+          "runtime": "oracle",
+          "round": 3,
+          "ms": 429.41797300000326
+        },
+        {
+          "command": "context --limit 10",
+          "runtime": "native",
+          "round": 3,
+          "ms": 26.592854000016814
+        },
+        {
+          "command": "context --limit 10",
+          "runtime": "native",
+          "round": 4,
+          "ms": 27.71479100000579
+        },
+        {
+          "command": "context --limit 10",
+          "runtime": "oracle",
+          "round": 4,
+          "ms": 443.9360539999907
+        },
+        {
+          "command": "context --depth deep --limit 10",
+          "runtime": "native",
+          "round": 0,
+          "ms": 444.4769619999861
+        },
+        {
+          "command": "context --depth deep --limit 10",
+          "runtime": "oracle",
+          "round": 0,
+          "ms": 1510.4333139999944
+        },
+        {
+          "command": "context --depth deep --limit 10",
+          "runtime": "oracle",
+          "round": 1,
+          "ms": 1168.4212820000248
+        },
+        {
+          "command": "context --depth deep --limit 10",
+          "runtime": "native",
+          "round": 1,
+          "ms": 206.63719899998978
+        },
+        {
+          "command": "context --depth deep --limit 10",
+          "runtime": "native",
+          "round": 2,
+          "ms": 192.11571600000025
+        },
+        {
+          "command": "context --depth deep --limit 10",
+          "runtime": "oracle",
+          "round": 2,
+          "ms": 1502.4781829999993
+        },
+        {
+          "command": "context --depth deep --limit 10",
+          "runtime": "oracle",
+          "round": 3,
+          "ms": 1493.6695860000036
+        },
+        {
+          "command": "context --depth deep --limit 10",
+          "runtime": "native",
+          "round": 3,
+          "ms": 372.04754599998705
+        },
+        {
+          "command": "context --depth deep --limit 10",
+          "runtime": "native",
+          "round": 4,
+          "ms": 233.89541700002155
+        },
+        {
+          "command": "context --depth deep --limit 10",
+          "runtime": "oracle",
+          "round": 4,
+          "ms": 1260.3741800000134
+        },
+        {
+          "command": "context --for orient --limit 10",
+          "runtime": "native",
+          "round": 0,
+          "ms": 197.7131759999902
+        },
+        {
+          "command": "context --for orient --limit 10",
+          "runtime": "oracle",
+          "round": 0,
+          "ms": 1603.18705399998
+        },
+        {
+          "command": "context --for orient --limit 10",
+          "runtime": "oracle",
+          "round": 1,
+          "ms": 1988.134263999993
+        },
+        {
+          "command": "context --for orient --limit 10",
+          "runtime": "native",
+          "round": 1,
+          "ms": 316.3267000000051
+        },
+        {
+          "command": "context --for orient --limit 10",
+          "runtime": "native",
+          "round": 2,
+          "ms": 411.0041119999951
+        },
+        {
+          "command": "context --for orient --limit 10",
+          "runtime": "oracle",
+          "round": 2,
+          "ms": 1769.7924920000078
+        },
+        {
+          "command": "context --for orient --limit 10",
+          "runtime": "oracle",
+          "round": 3,
+          "ms": 1764.4991489999811
+        },
+        {
+          "command": "context --for orient --limit 10",
+          "runtime": "native",
+          "round": 3,
+          "ms": 435.35719199999585
+        },
+        {
+          "command": "context --for orient --limit 10",
+          "runtime": "native",
+          "round": 4,
+          "ms": 434.07490400000825
+        },
+        {
+          "command": "context --for orient --limit 10",
+          "runtime": "oracle",
+          "round": 4,
+          "ms": 1620.472528000013
+        },
+        {
+          "command": "context --for handoff --limit 10",
+          "runtime": "native",
+          "round": 0,
+          "ms": 307.1329169999808
+        },
+        {
+          "command": "context --for handoff --limit 10",
+          "runtime": "oracle",
+          "round": 0,
+          "ms": 1621.6319729999814
+        },
+        {
+          "command": "context --for handoff --limit 10",
+          "runtime": "oracle",
+          "round": 1,
+          "ms": 1195.6615389999934
+        },
+        {
+          "command": "context --for handoff --limit 10",
+          "runtime": "native",
+          "round": 1,
+          "ms": 178.51704299999983
+        },
+        {
+          "command": "context --for handoff --limit 10",
+          "runtime": "native",
+          "round": 2,
+          "ms": 237.14646899999934
+        },
+        {
+          "command": "context --for handoff --limit 10",
+          "runtime": "oracle",
+          "round": 2,
+          "ms": 1345.2463219999918
+        },
+        {
+          "command": "context --for handoff --limit 10",
+          "runtime": "oracle",
+          "round": 3,
+          "ms": 2135.8526349999884
+        },
+        {
+          "command": "context --for handoff --limit 10",
+          "runtime": "native",
+          "round": 3,
+          "ms": 292.60221899999306
+        },
+        {
+          "command": "context --for handoff --limit 10",
+          "runtime": "native",
+          "round": 4,
+          "ms": 295.8231869999727
+        },
+        {
+          "command": "context --for handoff --limit 10",
+          "runtime": "oracle",
+          "round": 4,
+          "ms": 2245.7707339999906
+        },
+        {
+          "command": "deps <relationship-root> --format context --token-budget 5000",
+          "runtime": "native",
+          "round": 0,
+          "ms": 48.0616399999999
+        },
+        {
+          "command": "deps <relationship-root> --format context --token-budget 5000",
+          "runtime": "oracle",
+          "round": 0,
+          "ms": 1480.625039000006
+        },
+        {
+          "command": "deps <relationship-root> --format context --token-budget 5000",
+          "runtime": "oracle",
+          "round": 1,
+          "ms": 1349.356499000016
+        },
+        {
+          "command": "deps <relationship-root> --format context --token-budget 5000",
+          "runtime": "native",
+          "round": 1,
+          "ms": 46.016525999992155
+        },
+        {
+          "command": "deps <relationship-root> --format context --token-budget 5000",
+          "runtime": "native",
+          "round": 2,
+          "ms": 38.22723099999712
+        },
+        {
+          "command": "deps <relationship-root> --format context --token-budget 5000",
+          "runtime": "oracle",
+          "round": 2,
+          "ms": 1493.9578010000114
+        },
+        {
+          "command": "deps <relationship-root> --format context --token-budget 5000",
+          "runtime": "oracle",
+          "round": 3,
+          "ms": 1349.600471999991
+        },
+        {
+          "command": "deps <relationship-root> --format context --token-budget 5000",
+          "runtime": "native",
+          "round": 3,
+          "ms": 47.16039799997816
+        },
+        {
+          "command": "deps <relationship-root> --format context --token-budget 5000",
+          "runtime": "native",
+          "round": 4,
+          "ms": 33.07923499998287
+        },
+        {
+          "command": "deps <relationship-root> --format context --token-budget 5000",
+          "runtime": "oracle",
+          "round": 4,
+          "ms": 1063.1484359999886
+        }
+      ]
+    },
+    "pm-context": {
+      "oracle": "2026.11.5",
+      "clock": "2026-11-06T12:00:00.000Z",
+      "comparisons": 71,
+      "context_comparisons": 60,
+      "packet_comparisons": 11,
+      "packet_roots": 1,
+      "item_count": 101,
+      "authoritative_files": 208,
+      "authoritative_unchanged": true,
+      "binary_sha256": "cf26cad65cae241591cf6ad833d3e216b8184d2e42dcd5fac70dfd7192645aba",
+      "timings": [
+        {
+          "command": "context --limit 10",
+          "runtime": "native",
+          "samples": 5,
+          "p50_ms": 16.4,
+          "p95_ms": 23.7
+        },
+        {
+          "command": "context --limit 10",
+          "runtime": "oracle",
+          "samples": 5,
+          "p50_ms": 865.1,
+          "p95_ms": 1155.9
+        },
+        {
+          "command": "context --depth deep --limit 10",
+          "runtime": "native",
+          "samples": 5,
+          "p50_ms": 89.4,
+          "p95_ms": 105.2
+        },
+        {
+          "command": "context --depth deep --limit 10",
+          "runtime": "oracle",
+          "samples": 5,
+          "p50_ms": 724.9,
+          "p95_ms": 959.7
+        },
+        {
+          "command": "context --for orient --limit 10",
+          "runtime": "native",
+          "samples": 5,
+          "p50_ms": 78.1,
+          "p95_ms": 122
+        },
+        {
+          "command": "context --for orient --limit 10",
+          "runtime": "oracle",
+          "samples": 5,
+          "p50_ms": 755.6,
+          "p95_ms": 1099.4
+        },
+        {
+          "command": "context --for handoff --limit 10",
+          "runtime": "native",
+          "samples": 5,
+          "p50_ms": 58.6,
+          "p95_ms": 78.2
+        },
+        {
+          "command": "context --for handoff --limit 10",
+          "runtime": "oracle",
+          "samples": 5,
+          "p50_ms": 693.4,
+          "p95_ms": 744
+        },
+        {
+          "command": "deps <relationship-root> --format context --token-budget 5000",
+          "runtime": "native",
+          "samples": 5,
+          "p50_ms": 9.3,
+          "p95_ms": 14.7
+        },
+        {
+          "command": "deps <relationship-root> --format context --token-budget 5000",
+          "runtime": "oracle",
+          "samples": 5,
+          "p50_ms": 554.5,
+          "p95_ms": 832.5
+        }
+      ],
+      "samples": [
+        {
+          "command": "context --limit 10",
+          "runtime": "native",
+          "round": 0,
+          "ms": 11.819682999994257
+        },
+        {
+          "command": "context --limit 10",
+          "runtime": "oracle",
+          "round": 0,
+          "ms": 569.5061350000033
+        },
+        {
+          "command": "context --limit 10",
+          "runtime": "oracle",
+          "round": 1,
+          "ms": 797.2989830000006
+        },
+        {
+          "command": "context --limit 10",
+          "runtime": "native",
+          "round": 1,
+          "ms": 15.257618999996339
+        },
+        {
+          "command": "context --limit 10",
+          "runtime": "native",
+          "round": 2,
+          "ms": 16.444438999998965
+        },
+        {
+          "command": "context --limit 10",
+          "runtime": "oracle",
+          "round": 2,
+          "ms": 865.121542000008
+        },
+        {
+          "command": "context --limit 10",
+          "runtime": "oracle",
+          "round": 3,
+          "ms": 919.7305710000073
+        },
+        {
+          "command": "context --limit 10",
+          "runtime": "native",
+          "round": 3,
+          "ms": 23.673282000003383
+        },
+        {
+          "command": "context --limit 10",
+          "runtime": "native",
+          "round": 4,
+          "ms": 23.701405999992858
+        },
+        {
+          "command": "context --limit 10",
+          "runtime": "oracle",
+          "round": 4,
+          "ms": 1155.8742740000016
+        },
+        {
+          "command": "context --depth deep --limit 10",
+          "runtime": "native",
+          "round": 0,
+          "ms": 105.16085100000782
+        },
+        {
+          "command": "context --depth deep --limit 10",
+          "runtime": "oracle",
+          "round": 0,
+          "ms": 874.1492030000081
+        },
+        {
+          "command": "context --depth deep --limit 10",
+          "runtime": "oracle",
+          "round": 1,
+          "ms": 959.706302000006
+        },
+        {
+          "command": "context --depth deep --limit 10",
+          "runtime": "native",
+          "round": 1,
+          "ms": 94.20706200000132
+        },
+        {
+          "command": "context --depth deep --limit 10",
+          "runtime": "native",
+          "round": 2,
+          "ms": 89.39785300000221
+        },
+        {
+          "command": "context --depth deep --limit 10",
+          "runtime": "oracle",
+          "round": 2,
+          "ms": 692.759831000003
+        },
+        {
+          "command": "context --depth deep --limit 10",
+          "runtime": "oracle",
+          "round": 3,
+          "ms": 724.9408700000058
+        },
+        {
+          "command": "context --depth deep --limit 10",
+          "runtime": "native",
+          "round": 3,
+          "ms": 68.09018700000888
+        },
+        {
+          "command": "context --depth deep --limit 10",
+          "runtime": "native",
+          "round": 4,
+          "ms": 54.44465299999865
+        },
+        {
+          "command": "context --depth deep --limit 10",
+          "runtime": "oracle",
+          "round": 4,
+          "ms": 583.0812589999987
+        },
+        {
+          "command": "context --for orient --limit 10",
+          "runtime": "native",
+          "round": 0,
+          "ms": 50.09409699999378
+        },
+        {
+          "command": "context --for orient --limit 10",
+          "runtime": "oracle",
+          "round": 0,
+          "ms": 708.3361609999993
+        },
+        {
+          "command": "context --for orient --limit 10",
+          "runtime": "oracle",
+          "round": 1,
+          "ms": 676.3814669999992
+        },
+        {
+          "command": "context --for orient --limit 10",
+          "runtime": "native",
+          "round": 1,
+          "ms": 121.99501900000905
+        },
+        {
+          "command": "context --for orient --limit 10",
+          "runtime": "native",
+          "round": 2,
+          "ms": 78.1137299999973
+        },
+        {
+          "command": "context --for orient --limit 10",
+          "runtime": "oracle",
+          "round": 2,
+          "ms": 755.6020720000088
+        },
+        {
+          "command": "context --for orient --limit 10",
+          "runtime": "oracle",
+          "round": 3,
+          "ms": 972.0388710000116
+        },
+        {
+          "command": "context --for orient --limit 10",
+          "runtime": "native",
+          "round": 3,
+          "ms": 57.959107000002405
+        },
+        {
+          "command": "context --for orient --limit 10",
+          "runtime": "native",
+          "round": 4,
+          "ms": 86.4212120000011
+        },
+        {
+          "command": "context --for orient --limit 10",
+          "runtime": "oracle",
+          "round": 4,
+          "ms": 1099.3992219999927
+        },
+        {
+          "command": "context --for handoff --limit 10",
+          "runtime": "native",
+          "round": 0,
+          "ms": 55.31520399999863
+        },
+        {
+          "command": "context --for handoff --limit 10",
+          "runtime": "oracle",
+          "round": 0,
+          "ms": 588.3167439999961
+        },
+        {
+          "command": "context --for handoff --limit 10",
+          "runtime": "oracle",
+          "round": 1,
+          "ms": 744.0152549999912
+        },
+        {
+          "command": "context --for handoff --limit 10",
+          "runtime": "native",
+          "round": 1,
+          "ms": 56.79986500000814
+        },
+        {
+          "command": "context --for handoff --limit 10",
+          "runtime": "native",
+          "round": 2,
+          "ms": 58.648841000001994
+        },
+        {
+          "command": "context --for handoff --limit 10",
+          "runtime": "oracle",
+          "round": 2,
+          "ms": 690.4278449999983
+        },
+        {
+          "command": "context --for handoff --limit 10",
+          "runtime": "oracle",
+          "round": 3,
+          "ms": 728.3055369999929
+        },
+        {
+          "command": "context --for handoff --limit 10",
+          "runtime": "native",
+          "round": 3,
+          "ms": 63.07214099999692
+        },
+        {
+          "command": "context --for handoff --limit 10",
+          "runtime": "native",
+          "round": 4,
+          "ms": 78.1516990000091
+        },
+        {
+          "command": "context --for handoff --limit 10",
+          "runtime": "oracle",
+          "round": 4,
+          "ms": 693.3795539999992
+        },
+        {
+          "command": "deps <relationship-root> --format context --token-budget 5000",
+          "runtime": "native",
+          "round": 0,
+          "ms": 14.718691000001854
+        },
+        {
+          "command": "deps <relationship-root> --format context --token-budget 5000",
+          "runtime": "oracle",
+          "round": 0,
+          "ms": 832.524814000004
+        },
+        {
+          "command": "deps <relationship-root> --format context --token-budget 5000",
+          "runtime": "oracle",
+          "round": 1,
+          "ms": 661.8361120000045
+        },
+        {
+          "command": "deps <relationship-root> --format context --token-budget 5000",
+          "runtime": "native",
+          "round": 1,
+          "ms": 9.934489999999641
+        },
+        {
+          "command": "deps <relationship-root> --format context --token-budget 5000",
+          "runtime": "native",
+          "round": 2,
+          "ms": 9.263466999997036
+        },
+        {
+          "command": "deps <relationship-root> --format context --token-budget 5000",
+          "runtime": "oracle",
+          "round": 2,
+          "ms": 482.71385200000077
+        },
+        {
+          "command": "deps <relationship-root> --format context --token-budget 5000",
+          "runtime": "oracle",
+          "round": 3,
+          "ms": 554.5333600000013
+        },
+        {
+          "command": "deps <relationship-root> --format context --token-budget 5000",
+          "runtime": "native",
+          "round": 3,
+          "ms": 9.34375599998748
+        },
+        {
+          "command": "deps <relationship-root> --format context --token-budget 5000",
+          "runtime": "native",
+          "round": 4,
+          "ms": 9.13760000000184
+        },
+        {
+          "command": "deps <relationship-root> --format context --token-budget 5000",
+          "runtime": "oracle",
+          "round": 4,
+          "ms": 497.197662999999
+        }
+      ]
+    }
+  }
+}

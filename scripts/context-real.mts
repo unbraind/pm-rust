@@ -13,7 +13,7 @@ if (!Number.isSafeInteger(sampleCount) || sampleCount < 1) throw new Error('Samp
 const output = resolve(argument('--output'));
 if (!existsSync(join(root, '.pm-rust-read-copy'))) throw new Error('Only a marked scratch tracker copy is accepted');
 const binaryHash = createHash('sha256').update(readFileSync(binary)).digest('hex');
-const clock = '2026-10-19T12:00:00.000Z';
+const clock = '2026-11-06T12:00:00.000Z';
 const home = join(root, 'synthetic-home');
 const environment = {
   PATH: process.env.PATH, HOME: home, USERPROFILE: home,
@@ -107,6 +107,21 @@ for (const depth of [[], ['--depth', 'deep']]) {
   }
 }
 
+for (const intent of ['orient', 'handoff']) {
+  for (const controls of [[], ['--limit', '1'], ['--limit', '50'], ['--token-budget', '256'], ['--token-budget', '1000'], ['--token-budget', '5000'], ['--section', 'blockers'], ['--section', 'activity', '--activity-limit', '2']]) {
+    for (const encoding of [[], ['--json']]) {
+      const args = ['context', '--for', intent, ...controls, ...encoding];
+      const oracle = run('oracle', args);
+      const native = run('native', args);
+      if (oracle.status !== native.status || !oracle.bytes.equals(native.bytes)) {
+        writeFileSync(join(root, 'oracle-output.private'), oracle.bytes);
+        writeFileSync(join(root, 'native-output.private'), native.bytes);
+        throw new Error(`Intent parity failed: ${args.join(' ')}`);
+      }
+      comparisons += 1;
+    }
+  }
+}
 console.log(JSON.stringify({ phase: 'context-parity', comparisons }));
 
 /** Return the nearest-rank latency percentile. */
@@ -117,30 +132,37 @@ function percentile(values: number[], quantile: number): number {
 
 const samples: { command: string; runtime: string; round: number; ms: number }[] = [];
 const timings = [];
-for (const depth of [[], ['--depth', 'deep']]) {
-  const args = ['context', ...depth, '--limit', '10'];
+const measurements = [
+  ...[[], ['--depth', 'deep'], ['--for', 'orient'], ['--for', 'handoff']].map(controls => {
+    const args = ['context', ...controls, '--limit', '10'];
+    return { args, label: args.join(' ') };
+  }),
+  { args: ['deps', [...roots][0], '--format', 'context', '--token-budget', '5000'], label: 'deps <relationship-root> --format context --token-budget 5000' },
+];
+for (const { args, label } of measurements) {
   rmSync(join(tracker, 'runtime'), { recursive: true, force: true });
-  run('oracle', args);
-  run('native', args);
+  const oracle = run('oracle', args);
+  const native = run('native', args);
+  if (oracle.status !== 0 || native.status !== 0 || !oracle.bytes.equals(native.bytes)) throw new Error(`Benchmark preflight failed: ${label}`);
   for (let round = 0; round < sampleCount; round += 1) {
     const order: ('native' | 'oracle')[] = round % 2 === 0 ? ['native', 'oracle'] : ['oracle', 'native'];
     for (const runtime of order) {
       const result = run(runtime, args);
       if (result.status !== 0) throw new Error(`Benchmark failed: ${runtime}`);
-      samples.push({ command: args.join(' '), runtime, round, ms: result.ms });
+      samples.push({ command: label, runtime, round, ms: result.ms });
     }
-    if ((round + 1) % 5 === 0) console.log(JSON.stringify({ phase: 'timing', command: args.join(' '), rounds: round + 1 }));
+    if ((round + 1) % 5 === 0) console.log(JSON.stringify({ phase: 'timing', command: label, rounds: round + 1 }));
   }
   for (const runtime of ['native', 'oracle']) {
-    const values = samples.filter(row => row.command === args.join(' ') && row.runtime === runtime).map(row => row.ms);
-    timings.push({ command: args.join(' '), runtime, samples: values.length, p50_ms: percentile(values, 0.5), p95_ms: percentile(values, 0.95) });
+    const values = samples.filter(row => row.command === label && row.runtime === runtime).map(row => row.ms);
+    timings.push({ command: label, runtime, samples: values.length, p50_ms: percentile(values, 0.5), p95_ms: percentile(values, 0.95) });
   }
 }
 const after = authoritative(tracker);
 if (createHash('sha256').update(readFileSync(binary)).digest('hex') !== binaryHash) throw new Error('Native binary changed during the run');
 if (before.size !== after.size || [...before].some(([key, hash]) => after.get(key) !== hash)) throw new Error('Authoritative copy changed');
 const receipt = {
-  oracle: '2026.10.14', clock, comparisons, context_comparisons: comparisons - packetComparisons, packet_comparisons: packetComparisons, packet_roots: roots.size,
+  oracle: '2026.11.5', clock, comparisons, context_comparisons: comparisons - packetComparisons, packet_comparisons: packetComparisons, packet_roots: roots.size,
   item_count: [...before.keys()].filter(key => key.endsWith('.toon')).length,
   authoritative_files: before.size, authoritative_unchanged: true,
   binary_sha256: binaryHash,

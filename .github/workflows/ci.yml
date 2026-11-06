@@ -30,9 +30,9 @@ jobs:
     # depth-1 clone there is almost nothing to walk, so the audit would pass
     # vacuously and report a clean history it never actually inspected.
     runs-on: ${{ matrix.os }}
-    # Windows exhausted 20 minutes during passing differential tests on PR 132.
-    # Keep Unix budgets and allow the complete Windows corpus plus cleanup.
-    timeout-minutes: ${{ matrix.os == 'windows-latest' && 35 || 20 }}
+    # Current context/dependency parity adds a substantial serial oracle matrix.
+    # Allow the complete corpus and cleanup without reducing workers or assertions.
+    timeout-minutes: ${{ matrix.os == 'windows-latest' && 50 || 35 }}
     strategy:
       fail-fast: false
       matrix:
@@ -75,6 +75,7 @@ jobs:
         run: |
           set -euo pipefail
           npm ci --prefix tests/oracle --ignore-scripts
+          npm ci --prefix tests/orientation-oracle --ignore-scripts
           oracle_root=$(node -p "require('node:path').resolve('tests/oracle/node_modules/@unbrained/pm-cli')")
           echo "PM_NODE_CLI=$oracle_root" >> "$GITHUB_ENV"
       - run: cargo test --locked --all-targets --all-features
@@ -111,6 +112,7 @@ jobs:
         run: |
           set -euo pipefail
           npm ci --prefix tests/oracle --ignore-scripts
+          npm ci --prefix tests/orientation-oracle --ignore-scripts
           oracle_root=$(node -p "require('node:path').resolve('tests/oracle/node_modules/@unbrained/pm-cli')")
           echo "PM_NODE_CLI=$oracle_root" >> "$GITHUB_ENV"
       - name: Build release binary
@@ -123,9 +125,9 @@ jobs:
   release-check:
     name: ${{ matrix.gate }}
     runs-on: ${{ matrix.os }}
-    # Windows exhausted 35 minutes during the second, instrumented oracle pass.
-    # Preserve every gate and threshold; budget for both full passes and cleanup.
-    timeout-minutes: ${{ matrix.os == 'windows-latest' && 60 || 35 }}
+    # The current orientation matrix runs in both ordinary and instrumented passes.
+    # Preserve every gate and threshold, including all four coverage dimensions.
+    timeout-minutes: ${{ matrix.os == 'windows-latest' && 90 || 60 }}
     strategy:
       fail-fast: false
       matrix:
@@ -188,6 +190,7 @@ jobs:
         run: |
           set -euo pipefail
           npm ci --prefix tests/oracle --ignore-scripts
+          npm ci --prefix tests/orientation-oracle --ignore-scripts
           oracle_root=$(node -p "require('node:path').resolve('tests/oracle/node_modules/@unbrained/pm-cli')")
           echo "PM_NODE_CLI=$oracle_root" >> "$GITHUB_ENV"
       - name: Install Bun for the Bun aggregate

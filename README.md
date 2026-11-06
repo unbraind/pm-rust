@@ -6,12 +6,16 @@ native applications.
 
 The project is pre-release. Its current delivery slice reads workspaces and
 creates, updates, comments on, closes, claims, and releases canonical items
-against the published `pm` 2026.10.21 on-disk contract. Production code, tests, benchmarks,
+against the published `pm` 2026.10.21 on-disk contract, with context and dependency
+reads independently compared against 2026.11.5. Production code, tests, benchmarks,
 and build tooling use Rust and typed test harnesses; the distributed binary does not require Node.js,
 Bun, JavaScript, or TypeScript.
 
 See [large tracker hot-path benchmarks](docs/NATIVE_HOT_PATHS.md) for `just bench`,
 the generated 1k/10k/50k matrix, peak RSS, byte comparisons and known parity gaps.
+
+See [native context intents](docs/NATIVE_CONTEXT_INTENTS.md) for core orient/handoff
+packets, explicit sections and current-oracle evidence.
 
 See the [command and storage parity matrix](docs/CLI_PARITY_2026_10_2.md) and
 [2026.10.7 pagination contract](docs/LIST_PAGINATION_2026_10_5.md) for supported
@@ -442,8 +446,13 @@ Dependabot tracks this manifest; oracle upgrades must also update the native
 compatibility version and tooling contracts. Changelog generation keeps its
 separate exact pm-changelog/CLI pairing.
 
+Context and dependency differentials use the independent 2026.11.5 pin in
+`tests/orientation-oracle`. `just oracle-install` installs both contracts; history
+continues to use the baseline oracle.
+
 ```bash
 npm ci --prefix tests/oracle --ignore-scripts
+npm ci --prefix tests/orientation-oracle --ignore-scripts
 export PM_NODE_CLI="$PWD/tests/oracle/node_modules/@unbrained/pm-cli"
 export PM_RUST_REQUIRE_PUBLISHED_CLI=1
 cargo test --locked --test pagination_differential

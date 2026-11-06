@@ -152,6 +152,15 @@ fn encode(value: &Value, depth: usize) -> String {
 
 /// Renders object scalars with quoted strings and arrays with the TOON codec.
 fn render(value: &Value, depth: usize) -> String {
+    render_contract(
+        value,
+        depth,
+        value["output_default"] == "toon" || value["edge_basis"].is_string(),
+    )
+}
+
+/// Preserves legacy command tables while using compact columns for current context.
+fn render_contract(value: &Value, depth: usize, current_context: bool) -> String {
     if let Some(fields) = value.as_object() {
         if fields.is_empty() {
             return "{}".to_owned();
@@ -165,23 +174,33 @@ fn render(value: &Value, depth: usize) -> String {
                     if fields.contains_key(&format!("{key}_encoding")) {
                         expanded
                     } else {
-                        table(value).map_or_else(
-                            || expanded.clone(),
-                            |(rows, encoding)| {
-                                let tabular = encode(
-                                    &json!({key:rows, format!("{key}_encoding"):encoding}),
-                                    depth,
-                                );
-                                if tabular.len() < expanded.len() {
-                                    tabular
-                                } else {
-                                    expanded.clone()
-                                }
-                            },
-                        )
+                        let mut smallest = expanded;
+                        for (rows, encoding) in (if current_context {
+                            table_contract(value, false)
+                        } else {
+                            table(value)
+                        })
+                        .into_iter()
+                        .chain(
+                            current_context
+                                .then(|| table_contract(value, true))
+                                .flatten(),
+                        ) {
+                            let candidate = encode(
+                                &json!({key:rows, format!("{key}_encoding"):encoding}),
+                                depth,
+                            );
+                            if candidate.len() < smallest.len() {
+                                smallest = candidate;
+                            }
+                        }
+                        smallest
                     }
                 } else if value.as_object().is_some_and(|fields| !fields.is_empty()) {
-                    format!("{indent}{key}:\n{}", render(value, depth + 1))
+                    format!(
+                        "{indent}{key}:\n{}",
+                        render_contract(value, depth + 1, current_context)
+                    )
                 } else {
                     format!("{indent}{key}: {}", read_json(value))
                 }
@@ -197,8 +216,17 @@ fn render(value: &Value, depth: usize) -> String {
 
 /// Builds a bounded union-column table for nested or sparse object rows.
 fn table(value: &Value) -> Option<(Value, Value)> {
+    if value.as_array()?.len() < 2 {
+        return None;
+    }
+    table_contract(value, false)
+}
+
+/// Builds current compact list/null columns only for the newer context contract.
+#[allow(clippy::too_many_lines)]
+fn table_contract(value: &Value, current: bool) -> Option<(Value, Value)> {
     let rows = value.as_array()?;
-    if rows.len() < 2 || !rows.iter().all(Value::is_object) {
+    if rows.is_empty() || !rows.iter().all(Value::is_object) {
         return None;
     }
     let mut columns = Vec::<String>::new();
@@ -214,11 +242,41 @@ fn table(value: &Value) -> Option<(Value, Value)> {
     if rows.len() * columns.len() > present * 2 {
         return None;
     }
+    let nulls: Vec<_> = columns
+        .iter()
+        .filter(|key| {
+            current
+                && rows
+                    .iter()
+                    .all(|row| row.get(*key).is_some_and(Value::is_null))
+        })
+        .cloned()
+        .collect();
+    let lists: Vec<_> = columns
+        .iter()
+        .filter(|key| {
+            current
+                && rows.iter().all(|row| {
+                    row.get(*key).is_none_or(|cell| {
+                        cell.as_array().is_some_and(|values| {
+                            values.iter().all(|value| {
+                                value
+                                    .as_str()
+                                    .is_some_and(|value| !value.is_empty() && !value.contains(';'))
+                            })
+                        })
+                    })
+                })
+        })
+        .cloned()
+        .collect();
     let nested: Vec<_> = columns
         .iter()
         .filter(|key| {
-            rows.iter()
-                .any(|row| row[*key].is_array() || row[*key].is_object())
+            !lists.contains(key)
+                && rows
+                    .iter()
+                    .any(|row| row[*key].is_array() || row[*key].is_object())
         })
         .cloned()
         .collect();
@@ -226,9 +284,19 @@ fn table(value: &Value) -> Option<(Value, Value)> {
     let mut encoded = Vec::new();
     for (index, row) in rows.iter().enumerate() {
         let mut fields = Map::new();
-        for key in &columns {
+        for key in columns.iter().filter(|key| !nulls.contains(key)) {
             let value = if let Some(value) = row.get(key) {
-                if nested.contains(key) {
+                if lists.contains(key) {
+                    json!(
+                        value
+                            .as_array()
+                            .into_iter()
+                            .flatten()
+                            .filter_map(Value::as_str)
+                            .collect::<Vec<_>>()
+                            .join(";")
+                    )
+                } else if nested.contains(key) {
                     json!(read_json(value))
                 } else {
                     value.clone()
@@ -241,10 +309,23 @@ fn table(value: &Value) -> Option<(Value, Value)> {
         }
         encoded.push(Value::Object(fields));
     }
-    Some((
-        json!(encoded),
-        json!({"json_columns":nested,"absent":absent}),
-    ))
+    let mut encoding = json!({"json_columns":nested,"absent":absent});
+    if !lists.is_empty() {
+        encoding["list_columns"] =
+            Value::Object(lists.into_iter().map(|key| (key, json!(";"))).collect());
+    }
+    if !nulls.is_empty() {
+        encoding["null_columns"] = json!(nulls);
+        encoding["null_column_index"] = json!(
+            columns
+                .iter()
+                .enumerate()
+                .filter(|(_, key)| nulls.contains(key))
+                .map(|(i, _)| i)
+                .collect::<Vec<_>>()
+        );
+    }
+    Some((json!(encoded), encoding))
 }
 
 #[cfg(test)]
