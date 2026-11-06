@@ -7,11 +7,11 @@ status: in_progress
 priority: 2
 tags[3]: native,oracle,orientation
 created_at: "2026-11-06T09:15:56.754Z"
-updated_at: "2026-11-06T15:57:07.002Z"
+updated_at: "2026-11-06T18:17:41.289Z"
 author: codex-astra
 acceptance_criteria: "JSON and TOON bytes, status and stderr match the oracle on generated non-git trackers and public tracker copies; retain typed calendar and memory refusals; focused tests fail on behavioral revert; record latency and differential counts."
 parent: pm-rust-s6j4
-comments[20]{created_at,author,text}:
+comments[23]{created_at,author,text}:
   "2026-11-06T09:28:14.771Z",codex-astra,"Implemented core intent preparation, section selection, activity bounds and intent receipts. Current-oracle exploration identified three inherited context drifts: bounded activity excludes timestamps at or after the read clock; test health covers all matching active items and declares its scope; TOON auto-tables choose compact list/null columns only when shorter. Bringing these paths to the requested November contract before running the public-copy corpus."
   "2026-11-06T09:44:02.034Z",codex-astra,"Public-copy packet differential exposed the newer required-root-evidence-first-v1 ordering, reserved root-edge budget, root-edge priority and bounded-relationship omission receipt. Porting those native packet semantics as part of this slice, including updated producer fingerprints. No legacy packet result is being counted as current-oracle evidence."
   "2026-11-06T10:08:53.263Z",codex-astra,"Generated intent comparisons passed before the final expanded matrix. Public-copy exploration exposed the distinction between compact intent estimates and complete JSON wire ceilings, now handled by the shared output-budget path. Current dependency packets also require root-evidence-first ordering and revised refusal text; preserving the existing bounded retry test while eliminating repeated rendering of identical packets."
@@ -32,7 +32,10 @@ comments[20]{created_at,author,text}:
   "2026-11-06T14:55:07.418Z",codex-astra,"Review round two identifies a dependency preflight improvement and a closed core-intent representation. The benchmark records the actual local Node runtime; clarify local measurement provenance. Recheck exact oracle packets and behavioral reverts after these focused changes, then release the claim and regenerate the changelog before pushing."
   "2026-11-06T15:24:50.868Z",codex-astra,"Resume check confirms the expected worktree changes and this author owns the feature claim. Current enum refactor passes 398 library tests, 42 binary tests, the 342 intent comparisons and 16 reviewed contracts, plus strict documentation, formatting, Clippy and typed harness lint. The new dependency preflight passes through the linked test runner. An extra broad crash harness was stopped before completion to keep local gates targeted; no full crash-harness pass is claimed. Feature-specific revert and public-copy receipts are being refreshed before the fix push."
   "2026-11-06T15:57:01.327Z",codex-astra,"Review round two fixes are verified: closed core-intent enum with named declarations, source-anchored dependency preflight, and explicit local benchmark provenance. Current generated context comparisons pass 378; relationship matrices retain 138 comparisons; fresh public-copy passes are 99, 101 and 71, for 787 reported exact stdout/stderr/status comparisons. All public authoritative hashes remain unchanged. The refreshed receipt records 150 samples and binary SHA-256 298e2f5d5a22920cde2fdf5f30a155c8655ba4bba221048975d3d4b7cb5b12e5. Rust units pass 398 library plus 42 binary; 23 harness/release contracts, strict docs, formatting, Clippy, typed harness lint and the linked preflight pass. The feature revert proof passes 14 isolated mutation commands with 16 named behavioral failures across 13 distinct tests, covering all ten new tests. Positive preflight and core-intent tests pass afterward. The extra broad crash run was stopped and is not claimed as a full gate pass. Output cursors retain the exact published receipt, successful published-CLI replay and explicit native refusal; native implementation remains a follow-up. Final CI and review receipts will be recorded in the PR."
-files[25]{path,scope}:
+  "2026-11-06T16:53:38.108Z",codex-astra,"Final-head macOS and Windows Rust suites pass, but both aggregate gates expose uncovered context-budget, intent and read-output paths at the unchanged four-dimensional 100 percent threshold. Reclaiming this feature to add focused behavioral coverage and revert evidence; preserve all thresholds and supported packet bytes."
+  "2026-11-06T17:25:31.474Z",codex-astra,"Targeted coverage confirms every branch in context and every line, region, function and branch in the intent module. Wide-tag SDK fixtures exercise retained dual receipts and infeasible intent receipts. Missing/object context settings remain allowed; invalid scalar, array and null context shapes now receive an explicit native refusal instead of approximating the oracle schema-warning fallback. The output follow-up records warning-parity acceptance criteria. Final rendering uses Result::map to transform successful packets while preserving renderer errors unchanged."
+  "2026-11-06T18:17:37.155Z",codex-astra,"Coverage follow-up verified: 400 library and 42 binary tests pass; 46 capability, dispatch, harness and release contracts pass; strict documentation, formatting, Clippy and typed harness lint pass. Both new SDK tests pass through pm test --run --match boundaries --progress. The 17-command revert proof requires 19 named behavioral failures across 15 distinct tests, covering all twelve new tests. The expanded reviewed matrix passes 68 byte-exact cases, giving 430 generated context comparisons, 138 generated relationship comparisons and fresh public-copy passes of 99, 101 and 71: 839 reported exact stdout/stderr/status comparisons. Five invalid settings warning/refusal pairs are separate boundary assertions; missing/object settings match exactly and item reads remain available. All public authoritative hashes remain unchanged. The receipt records 150 fresh-process samples, controlled clocks and candidate binary SHA-256 3a263a038269b2e491db1b0ddc640487a1a9de9d7ac46406ee5e5ae68714dd5c. Median ranges are 9.7 to 608.6 ms native and 531.2 to 4060.3 ms oracle on the shared host. New context branches and all four intent-module coverage dimensions are covered locally; full package thresholds remain unchanged and require fresh final-head CI. The preceding candidate passed 728 Rust tests on macOS and Windows but failed aggregate coverage. Final review and CI receipts belong in the PR after this fix push."
+files[26]{path,scope}:
   justfile,project
   scripts/context-intents-revert.mts,project
   scripts/context-intents-revert.test.mts,project
@@ -54,11 +57,12 @@ files[25]{path,scope}:
   tests/harness/tsconfig.json,project
   tests/orientation_differential.rs,project
   tests/support/main_unit.rs,project
+  tests/support/orientation_context_unit.rs,project
   tests/support/orientation_intent_unit.rs,project
   tests/support/orientation_packet_unit.rs,project
   tests/support/orientation_sections_unit.rs,project
   tests/support/toon_output_unit.rs,project
-tests[6]:
+tests[8]:
   - command: just orientation-check
     scope: project
     timeout_seconds: 3600
@@ -105,6 +109,20 @@ tests[6]:
     provenance:
       author: codex-astra
       created_at: "2026-11-06T15:00:02.374Z"
+      source_kind: local_mutation
+      source_ref: native-context-intents-and-relationship-packets
+  - command: cargo test -j 2 --locked --lib context_intent_sdk_budget_boundaries
+    scope: project
+    provenance:
+      author: codex-astra
+      created_at: "2026-11-06T17:25:27.481Z"
+      source_kind: local_mutation
+      source_ref: native-context-intents-and-relationship-packets
+  - command: cargo test -j 2 --locked --lib context_settings_shape_boundaries
+    scope: project
+    provenance:
+      author: codex-astra
+      created_at: "2026-11-06T17:25:29.678Z"
       source_kind: local_mutation
       source_ref: native-context-intents-and-relationship-packets
 docs[2]{path,scope}:

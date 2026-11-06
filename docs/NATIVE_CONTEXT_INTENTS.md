@@ -47,7 +47,9 @@ directories with `unsupported_native_context`, even when extension diagnostics
 are omitted. Unknown intents receive the same typed native boundary. Ordinary
 non-intent reads retain their established extension policy. Nonweekly recurrence,
 non-UTC schedules, 10000-item memory rollups and uncertified derived ranking state
-continue to refuse explicitly.
+continue to refuse explicitly. Invalid scalar, array or null `context` settings
+receive `unsupported_native_context`; the published schema-warning fallback
+remains a follow-up. Missing and object-valued context settings remain allowed.
 
 Remaining calendar, timezone, memory and derived recovery work is specified in
 [pm-rust-context-calendar-memory](../.agents/pm/features/pm-rust-context-calendar-memory.toon).
@@ -67,7 +69,7 @@ Run `just orientation-check` for the generated current-oracle differential
 corpus. `node scripts/context-intents-revert.mts` copies text source into a
 scratch directory and requires assertion failures after independently reverting
 intent preparation, compact table behavior and the previous relationship packet
-implementation. All ten new tests and the upgraded existing differentials are
+implementation. All twelve new tests and the upgraded existing differentials are
 covered. It leaves the working implementation untouched.
 The packet revert uses a committed patch, so it does not depend on a moving
 `origin/main` reference or remote availability.
@@ -81,15 +83,18 @@ Latency still measures real elapsed time outside each fresh process.
 
 ## Generated evidence
 
-The focused current-oracle runs pass 378 context comparisons: 342 rich, empty
-and wide intent/section cases, 20 Unicode control cases, and 16 reviewed-contract
+The focused current-oracle runs pass 430 context comparisons: 342 rich, empty
+and wide intent/section cases, 20 Unicode control cases, and 68 reviewed-contract
 cases. The relationship matrices pass 138 comparisons, including the expanded
 40-case reference/edge-limit matrix and the unchanged 12-case budget-floor
 resource guard. Each comparison checks stdout, stderr and exit status over real
 non-git trackers. Published output-cursor replay and its native typed refusal
 are additional boundary assertions, not counted as native cursor parity.
+The reviewed matrix includes wide-tag packets with separate intent and wire
+receipts. Five invalid settings shapes check the oracle warning and explicit
+native refusal, and are excluded from the parity count.
 
-The local positive unit run passes 398 library and 42 binary tests. The complete
+The local positive unit run passes 400 library and 42 binary tests. The complete
 orientation run initially passed 34 of 35 tests; its concurrent debug timing
 guard exceeded five seconds on the shared host. The final focused guard passes
 all 12 cases serially, without relaxing the threshold. Full cross-platform
@@ -116,9 +121,9 @@ sample, p95 and binary hash.
 
 | Tracker | Brief | Deep | Orient | Handoff | Relationship |
 | --- | ---: | ---: | ---: | ---: | ---: |
-| pm-vcs | 52.1 / 1259.3 | 330.1 / 2412.6 | 305.3 / 2406.6 | 182.7 / 1473.7 | 49.3 / 1252.3 |
-| pm-rl | 30.5 / 1639.8 | 486.0 / 3976.9 | 426.0 / 2768.2 | 563.3 / 2953.1 | 53.6 / 1831.5 |
-| pm-context | 147.8 / 4595.0 | 458.9 / 5332.5 | 184.8 / 6679.6 | 231.7 / 5217.1 | 70.6 / 5376.2 |
+| pm-vcs | 50.9 / 1560.9 | 608.6 / 2970.7 | 515.5 / 2805.5 | 493.9 / 4060.3 | 75.4 / 2177.8 |
+| pm-rl | 38.2 / 900.0 | 226.9 / 1498.5 | 254.1 / 1219.1 | 182.0 / 978.6 | 21.8 / 821.9 |
+| pm-context | 12.7 / 680.2 | 103.4 / 1227.4 | 81.8 / 1622.7 | 71.3 / 864.3 | 9.7 / 531.2 |
 
 [Machine-readable receipt](benchmarks/native-context-intents-2026-11-06.json).
 
@@ -126,11 +131,14 @@ sample, p95 and binary hash.
 
 `just orientation-revert-proof` requires behavioral assertion failures, not
 compilation failures. Mutations run in a disposable source copy and are restored
-between checks. The completed run requires 16 assertion failures across 14
-mutation commands and 13 distinct tests, covering all ten new tests.
+between checks. The completed run requires 19 assertion failures across 17
+mutation commands and 15 distinct tests, covering all twelve new tests.
 
 | Reverted behavior | Test that fails |
 | --- | --- |
+| SDK intent budgets and wire receipts | `context_intent_sdk_budget_boundaries` |
+| Invalid context-setting shapes | `context_settings_shape_boundaries` |
+| Retained intent estimate stabilization | `context_intent_sdk_budget_boundaries` |
 | Missing oracle dependency preflight | `revert preflight names the missing oracle installation` |
 | Core intent preparation | `core_intent_boundaries_and_budget_receipts` |
 | Core intent preparation | `context_intents_and_sections_match_current_oracle` |

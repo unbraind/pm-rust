@@ -60,6 +60,7 @@ try {
   if (start < 0 || depth !== 0) throw new Error('Cannot locate intent preparation');
   writeFileSync(target, `${fixed.slice(0, body)}{ let _ = (workspace, options, global); Ok(None) }${fixed.slice(end)}`);
   run(scratch, ['--lib', 'core_intent_boundaries_and_budget_receipts'], ['orientation_context::intent::tests::core_intent_boundaries_and_budget_receipts']);
+  run(scratch, ['--lib', 'context_intent_sdk_budget_boundaries'], ['orientation_context::tests::context_intent_sdk_budget_boundaries']);
   run(scratch, ['--test', 'orientation_differential', 'context_intents_'], ['context_intents_and_sections_match_current_oracle', 'context_intents_empty_tracker_match_current_oracle', 'context_intents_wire_budget_match_current_oracle']);
   run(scratch, ['--test', 'orientation_differential', 'context_reviewed_contracts_match_current_oracle'], ['context_reviewed_contracts_match_current_oracle']);
   writeFileSync(target, fixed);
@@ -98,6 +99,21 @@ try {
   writeFileSync(contextPath, context.replace(stabilize, 'crate::list_intent::stabilize(&mut result);'));
   run(scratch, ['--test', 'orientation_differential', 'context_reviewed_contracts_match_current_oracle'], ['context_reviewed_contracts_match_current_oracle']);
   writeFileSync(contextPath, context);
+  const settingsStart = context.indexOf('        if settings', context.indexOf('let mut settings ='));
+  const settingsEnd = context.indexOf('        let depth = trim_control(', settingsStart);
+  if (settingsStart < 0 || settingsEnd < 0 || !context.slice(settingsStart, settingsEnd).includes('settings.context')) {
+    throw new Error('Cannot locate invalid context settings boundary');
+  }
+  writeFileSync(contextPath, context.slice(0, settingsStart) + context.slice(settingsEnd));
+  run(scratch, ['--lib', 'context_settings_shape_boundaries'], ['orientation_context::tests::context_settings_shape_boundaries']);
+  writeFileSync(contextPath, context);
+  const outputPath = join(scratch, 'src/read_output.rs');
+  const output = readFileSync(outputPath, 'utf8');
+  const retainedIntent = 'if result["context_intent"]["result_omitted"] != true {';
+  if (!output.includes(retainedIntent)) throw new Error('Cannot locate retained intent estimate update');
+  writeFileSync(outputPath, output.replace(retainedIntent, 'if false {'));
+  run(scratch, ['--lib', 'context_intent_sdk_budget_boundaries'], ['orientation_context::tests::context_intent_sdk_budget_boundaries']);
+  writeFileSync(outputPath, output);
   const controlsPath = join(scratch, 'src/orientation.rs');
   const controls = readFileSync(controlsPath, 'utf8');
   const trimming = String.raw`raw.trim_matches(|c: char| c == '\u{feff}' || c != '\u{0085}' && c.is_whitespace())`;

@@ -1107,7 +1107,7 @@ impl Workspace {
     /// Renders ranked focus, selected context sections and the oracle's omission receipt.
     ///
     /// # Errors
-    /// Returns numeric, unsupported-depth, item or history read errors.
+    /// Returns invalid controls, unsupported runtime or settings contracts, and storage errors.
     pub fn context(&self, options: &ContextOptions, now: &str) -> Result<ListOutput, PmRustError> {
         self.context_with_global(options, now, extension_health_global())
     }
@@ -1125,6 +1125,16 @@ impl Workspace {
         let intent = intent::prepare(self, &mut prepared, global.as_deref())?;
         let options = &prepared;
         let mut settings = crate::ownership::runtime_settings(self.pm_root())?;
+        if settings
+            .get("context")
+            .is_some_and(|context| !context.is_object())
+        {
+            return Err(crate::collections::refusal(
+                "Native context does not certify invalid context settings diagnostics; use the published pm CLI.",
+                2,
+                json!({"code":"unsupported_native_context","field":"settings.context","required":"Use object-valued context settings or the published pm CLI for schema-warning fallback."}),
+            ));
+        }
         let depth = trim_control(
             options
                 .depth
@@ -1188,9 +1198,6 @@ impl Workspace {
                 0,
                 "--activity-limit must be a non-negative integer".to_owned(),
             )?;
-            if !settings["context"].is_object() {
-                settings["context"] = json!({});
-            }
             settings["context"]["activity_limit"] = json!(value);
         }
         let budget = options
@@ -1548,7 +1555,7 @@ impl Workspace {
             }
             result["continuation_contract"] = json!({"fingerprint":fingerprint,"metadata":"reference","restore_with":"omit --after"});
         }
-        let mut result = crate::read_output::apply_orientation(
+        crate::read_output::apply_orientation(
             result.into(),
             &crate::ListOptions {
                 limit: original.limit.clone(),
@@ -1559,11 +1566,13 @@ impl Workspace {
             },
             "context",
             &["high_level", "low_level"],
-        )?;
-        if result.get("context_intent").is_some() && result.get("read_output").is_some() {
-            crate::read_output::stabilize_orientation(&mut result, options.toon);
-        }
-        Ok(result)
+        )
+        .map(|mut result| {
+            if result.get("context_intent").is_some() && result.get("read_output").is_some() {
+                crate::read_output::stabilize_orientation(&mut result, options.toon);
+            }
+            result
+        })
     }
 }
 

@@ -2382,6 +2382,104 @@ fn context_reviewed_contracts_match_current_oracle() -> TestResult {
         handoff,
         "must replay a published output cursor and refuse it natively"
     );
+    let wide = tempfile::tempdir()?;
+    assert!(
+        oracle(&driver, wide.path(), &["init", "sample-", "--defaults"])?
+            .status
+            .success()
+    );
+    let mut row = item("sample-wire-budget", "Task", "open", 2);
+    row["title"] = json!("Retained budget evidence ".repeat(8));
+    row["tags"] = json!((0..300).map(|i| format!("tag-{i:03}")).collect::<Vec<_>>());
+    fixture(wide.path(), &[row])?;
+    let item_path = wide.path().join(".agents/pm/tasks/sample-wire-budget.toon");
+    let before = fs::read(&item_path)?;
+    let mut dual_receipt = false;
+    for intent in ["orient", "handoff"] {
+        for budget in [
+            "256", "700", "1000", "1200", "1300", "1400", "1450", "1500", "1600", "2200", "3000",
+            "5000",
+        ] {
+            for encoding in [vec![], vec!["--json"]] {
+                let mut args = vec![
+                    "context",
+                    "--for",
+                    intent,
+                    "--limit",
+                    "1",
+                    "--token-budget",
+                    budget,
+                ];
+                args.extend(&encoding);
+                let expected = oracle(&driver, wide.path(), &args)?;
+                compare(&expected, &native(wide.path(), &args)?, &args);
+                comparisons += 1;
+                if !encoding.is_empty() && expected.status.success() {
+                    let value: Value = serde_json::from_slice(&expected.stdout)?;
+                    dual_receipt |= value["context_intent"].is_object()
+                        && value["context_intent"]["result_omitted"] != true
+                        && value["read_output"].is_object();
+                }
+            }
+        }
+    }
+    assert!(
+        dual_receipt,
+        "must compare a retained intent with its wire receipt"
+    );
+    let settings_path = wide.path().join(".agents/pm/settings.json");
+    let original_settings: Value = serde_json::from_slice(&fs::read(&settings_path)?)?;
+    for context in [None, Some(json!({}))] {
+        let mut settings = original_settings.clone();
+        if let Some(context) = context {
+            settings["context"] = context;
+        } else {
+            settings
+                .as_object_mut()
+                .ok_or("settings object")?
+                .shift_remove("context");
+        }
+        fs::write(&settings_path, settings.to_string())?;
+        for encoding in [vec![], vec!["--json"]] {
+            let mut args = vec!["context", "--section", "activity", "--activity-limit", "0"];
+            args.extend(encoding);
+            compare(
+                &oracle(&driver, wide.path(), &args)?,
+                &native(wide.path(), &args)?,
+                &args,
+            );
+            comparisons += 1;
+        }
+    }
+    for context in [
+        Value::Null,
+        json!("legacy"),
+        json!([]),
+        json!(1),
+        json!(true),
+    ] {
+        let mut settings = original_settings.clone();
+        settings["context"] = context;
+        let settings = settings.to_string();
+        fs::write(&settings_path, &settings)?;
+        let args = ["context", "--for", "orient", "--json"];
+        let published = oracle(&driver, wide.path(), &args)?;
+        assert!(published.status.success());
+        assert!(
+            String::from_utf8_lossy(&published.stderr).contains("settings_read_invalid_schema")
+        );
+        let refused = native(wide.path(), &args)?;
+        assert_eq!(refused.status.code(), Some(2));
+        let payload: Value = serde_json::from_slice(&refused.stderr)?;
+        assert_eq!(payload["code"], "unsupported_native_context");
+        assert!(
+            payload["required"]
+                .as_str()
+                .is_some_and(|required| required.contains("object-valued context settings"))
+        );
+        assert_eq!(fs::read(&settings_path)?, settings.as_bytes());
+    }
+    assert_eq!(fs::read(item_path)?, before);
     println!("reviewed context differentials: {comparisons}");
     Ok(())
 }
