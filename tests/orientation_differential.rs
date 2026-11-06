@@ -2261,9 +2261,10 @@ fn context_reviewed_contracts_match_current_oracle() -> TestResult {
     );
     rich_fixture(root.path())?;
     let mut history = format!(
-        "{}\n{}\n",
+        "{}\n{}\n{}\n",
         json!({"ts":"not-a-time","op":"update","author":"fixture"}),
-        json!({"ts":"000-invalid","op":"update","author":"fixture"})
+        json!({"ts":"000-invalid","op":"update","author":"fixture"}),
+        json!({"ts":"","op":"empty_timestamp","author":"fixture"})
     );
     for index in 0..50 {
         writeln!(
@@ -2312,11 +2313,10 @@ fn context_reviewed_contracts_match_current_oracle() -> TestResult {
                             .as_array()
                             .is_some_and(|rows| rows.iter().any(|row| row["ts"] == "000-invalid"))
                     );
-                    assert!(
-                        result["activity"]
-                            .as_array()
-                            .is_some_and(|rows| rows.iter().all(|row| row["ts"] != "not-a-time"))
-                    );
+                    assert!(result["activity"].as_array().is_some_and(|rows| {
+                        rows.iter()
+                            .all(|row| row["ts"] != "not-a-time" && row["ts"] != "")
+                    }));
                 }
                 if let Some(command) = result["budget_exceeded"]["restore_with"].as_str() {
                     let retry: Vec<_> = command.split_whitespace().skip(1).collect();

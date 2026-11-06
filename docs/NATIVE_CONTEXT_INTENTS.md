@@ -124,8 +124,8 @@ not latency guarantees. The receipt includes every sample, p95 and binary hash.
 
 `just orientation-revert-proof` requires behavioral assertion failures, not
 compilation failures. Mutations run in a disposable source copy and are restored
-between checks. The completed run requires 14 assertion failures across 12
-mutation commands and 11 distinct tests, covering all nine new tests.
+between checks. The completed run requires 15 assertion failures across 13
+mutation commands and 12 distinct tests, covering all nine new tests.
 
 | Reverted behavior | Test that fails |
 | --- | --- |
@@ -138,6 +138,7 @@ mutation commands and 11 distinct tests, covering all nine new tests.
 | Public current-renderer selection | `current_context_tables_keep_ambiguous_cells_lossless` |
 | Configured activity cap | `configured_sections_preserve_activity_errors_and_stale_order` |
 | Activity timestamp comparison | `context_reviewed_contracts_match_current_oracle` |
+| Empty activity timestamp guard | `section_activity_storage_and_ordering` |
 | Omitted-intent estimates and selected wire costs | `context_reviewed_contracts_match_current_oracle` |
 | ECMAScript option normalization | `context_control_whitespace_matches_current_oracle` |
 | Producer memoization | `packet_retry_cache_bounds_work_and_storage` |

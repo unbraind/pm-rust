@@ -68,6 +68,11 @@ try {
   writeFileSync(sectionsPath, sections.replace(cutoff, 'super::date_compare(text(&entry, "ts"), now).is_ge()'));
   run(scratch, ['--test', 'orientation_differential', 'context_reviewed_contracts_match_current_oracle'], ['context_reviewed_contracts_match_current_oracle']);
   writeFileSync(sectionsPath, sections);
+  const emptyTimestamp = 'text(&entry, "ts").is_empty() || ';
+  if (!sections.includes(emptyTimestamp)) throw new Error('Cannot locate empty activity timestamp refusal');
+  writeFileSync(sectionsPath, sections.replace(emptyTimestamp, ''));
+  run(scratch, ['--lib', 'section_activity_storage_and_ordering'], ['orientation_context::sections::tests::section_activity_storage_and_ordering']);
+  writeFileSync(sectionsPath, sections);
   const contextPath = join(scratch, 'src/orientation_context.rs');
   const context = readFileSync(contextPath, 'utf8');
   const stabilize = 'crate::read_output::stabilize_orientation(&mut result, options.toon);';

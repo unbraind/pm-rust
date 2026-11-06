@@ -25,7 +25,12 @@ fn current_context_tables_keep_ambiguous_cells_lossless() -> Result<(), Box<dyn 
         encoding,
         json!({"json_columns":["mixed","blank","numeric","map"],"absent":[[2,"tags"]],"list_columns":{"tags":";"},"null_columns":["empty"],"null_column_index":[1]})
     );
-    for rows in [json!([]), json!([1]), json!([{"a":1},{"b":2},{"c":3}])] {
+    for rows in [
+        Value::Null,
+        json!([]),
+        json!([1]),
+        json!([{"a":1},{"b":2},{"c":3}]),
+    ] {
         assert!(super::table_contract(&rows, true).is_none());
     }
     assert!(super::table_contract(&json!([{"id":"one"}]), true).is_some());

@@ -26,9 +26,9 @@
   "public_comparisons": 271,
   "total_reported_comparisons": 787,
   "revert_proof": {
-    "mutation_commands": 12,
-    "assertion_failures": 14,
-    "distinct_tests": 11,
+    "mutation_commands": 13,
+    "assertion_failures": 15,
+    "distinct_tests": 12,
     "new_tests_covered": 9
   },
   "trackers": {

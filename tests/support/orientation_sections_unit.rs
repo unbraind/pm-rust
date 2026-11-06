@@ -279,7 +279,11 @@ fn section_activity_storage_and_ordering() -> Result<(), Box<dyn std::error::Err
         ),
         (
             "sample-b",
-            vec![json!({"ts":NOW}), json!({"ts":"2026-08-01T00:00:00.000Z"})],
+            vec![
+                json!({"ts":NOW}),
+                json!({"ts":"2026-08-01T00:00:00.000Z"}),
+                json!({"ts":"","op":"empty_timestamp"}),
+            ],
         ),
     ] {
         fs::write(
@@ -291,6 +295,7 @@ fn section_activity_storage_and_ordering() -> Result<(), Box<dyn std::error::Err
         )?;
     }
     let rows = activity(&workspace, 10, "2099-01-01T00:00:00.000Z")?;
+    assert_eq!(rows.as_array().map(Vec::len), Some(4));
     assert_eq!(rows[0]["op"], "create");
     assert_eq!(rows[0]["msg"], "Retained evidence");
     assert_eq!(rows[2]["author"], "unknown");
