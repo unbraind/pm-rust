@@ -1,6 +1,8 @@
 # Native agent orientation
 
-The published oracle is locked by `tests/oracle/package.json` and its lockfile.
+The current context and dependency oracle is locked to 2026.11.5 by
+`tests/orientation-oracle/package.json` and its lockfile. See
+[native context intents](NATIVE_CONTEXT_INTENTS.md) for the newer contract.
 This slice belongs to [pm-rust-u4al](../.agents/pm/epics/pm-rust-u4al.toon), tracked
 in [pm-rust-xb3s](../.agents/pm/features/pm-rust-xb3s.toon). Publication and
 release automation remain disabled.
@@ -28,15 +30,15 @@ tag elision match the published read surface. Future deadlines, reminders and
 nonrecurring and weekly UTC scheduled events participate in the agenda, including
 compact references to focus items.
 
-Supported controls: `--limit` / `--max-items`, `--token-budget` /
+Supported controls: `--for orient|handoff`, repeated `--section`, `--activity-limit`, `--limit` / `--max-items`, `--token-budget` /
 `--token_budget`, `--depth brief|standard|deep|full`, `--after` / native `--cursor`, `--no-tags`, `--no-extension-health`, and
 `--json`. A hidden native `--timestamp` supplies the deterministic read clock
 used by conformance fixtures; it is excluded from published error recovery.
 
-Deferred context flags: `--for`, `--date`, `--from`, `--to`, `--past`, `--type`,
+Deferred context flags: `--date`, `--from`, `--to`, `--past`, `--type`,
 `--tag`, `--priority`, `--assignee`, `--assignee-filter` / `--assignee_filter`,
 `--sprint`, `--release`, `--parent`, `--format`, `--fields`,
-`--section`, `--activity-limit`, `--stale-threshold`, and
+`--stale-threshold`, and
 `--explain-ranking` / `--explain_ranking`. Workspace-memory rollups at 10,000 items, non-weekly recurrence and
 non-UTC scheduled events are explicit native context refusals. Invalid or stale
 derived ranking snapshots also refuse explicitly. Semantic claim affinity and
@@ -56,6 +58,9 @@ Discovery skips ordinary files and symlinked extension directories, matching
 the oracle's directory-entry policy.
 
 ## History
+
+History retains the 2026.10.21 oracle contract. The newer newest-first projection
+and its total/order fields are deferred with the richer history feature.
 
 `history <id>` defaults to compact timeline rows: record index, time,
 operation, author, patch count and changed fields. `--full` retains complete
@@ -103,12 +108,14 @@ options. This PR adds no dependency writer or alternate journal path.
 
 All three commands defer canonical read-output controls (`--output-include`,
 `--output-limit`, `--output-budget`, `--output-format`, `--output-session`,
-`--output-cursor`, `--output-row-contract`). Other deferred oracle global flags
+`--output-cursor`, `--output-row-contract`), except that dependency reads accept
+`--output-format json|toon` for executable recovery commands. Other deferred oracle global flags
 are `--lean`, `--token-accounting`, `--quiet`, `--no-changed-fields`,
-`--full-changed-fields`, `--id-only`, `--pm-path`, `--path`, `--no-extensions`,
+`--full-changed-fields`, `--id-only`, `--no-extensions`,
 `--no-pager`, `--explain`, `--all`, `--profile`, and `--author`. Use the existing
-native `--workspace` for discovery. Claimed flags follow the canonical command;
-the oracle's `ctx` and `item deps` spellings are deferred.
+native `--workspace` for discovery; root `--pm-path` and `--path` are aliases and
+must precede the command. Claimed flags follow the canonical command. The
+`item deps` recovery namespace is accepted; `ctx` remains deferred.
 Numeric controls are restricted to the JavaScript safe integer range; larger
 values refuse with `unsupported_native_value`. History still floors supported
 fractional limits. Unsupported options fail closed using the published problem-envelope shape,

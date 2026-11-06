@@ -30,3 +30,5 @@ cov-no-branch.json
 # any untracked path outside its commit scope.
 .agents/pm/extensions/*
 !.agents/pm/extensions/.managed-extensions.json
+
+/tests/orientation-oracle/node_modules/

@@ -288,6 +288,13 @@ fn project(mut result: Value, summary: bool, aliases: &Value) -> Value {
     } else {
         complete_receipt()
     };
+    if result["context"]["meta"]["truncated"] == true {
+        let group = json!({"name":"relationship_context_bounds","restore_with":"--token-budget <n> --node-limit <n> --edge-limit <n> --max-depth <n>"});
+        let primary = result["projection"]["declared_field_groups"][0].clone();
+        result["projection"]["declared_field_groups"] = json!([primary, group]);
+        result["omission_receipt"] = json!({"has_omissions":true,"omitted_field_group_count":1,"omitted_field_groups":[group]});
+    }
+
     result
 }
 

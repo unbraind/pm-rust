@@ -623,7 +623,7 @@ fn finalize_orientation(
     measured: usize,
     command: &str,
 ) {
-    if command == "context" {
+    if command == "context" && result["summary"].is_object() {
         let mut states = json!({});
         let mut needs_states = false;
         let mut delivered = String::new();
@@ -735,7 +735,11 @@ pub(crate) fn apply_orientation(
         return Ok(result);
     }
     let budget = explicit.unwrap_or(if options.toon { 4000 } else { 6000 });
-    if explicit.is_none() && measure(&result, options.toon) <= budget {
+    let covered_intent = result["context_intent"]["command"] == "context"
+        && result["context_intent"]["within_budget"] == true
+        && result["context_intent"]["token_budget"].as_u64()
+            == explicit.map(|budget| budget as u64);
+    if (explicit.is_none() || covered_intent) && measure(&result, options.toon) <= budget {
         return Ok(result);
     }
     let source = if explicit.is_some() {
@@ -757,6 +761,12 @@ pub(crate) fn apply_orientation(
             }
         }
         receipt = Value::Object(ordered);
+    }
+    let refusal_receipt = receipt.clone();
+    if covered_intent {
+        for key in ["budget_source", "budget_tokens"] {
+            receipt.as_object_mut().map(|map| map.shift_remove(key));
+        }
     }
     let states: Vec<_> = row_keys
         .iter()
@@ -798,7 +808,7 @@ pub(crate) fn apply_orientation(
         update_output(&mut result, options.toon);
         if measure(&result, options.toon) > budget {
             let omitted = measure(&result, options.toon);
-            let mut minimal = result["read_output"].clone();
+            let mut minimal = refusal_receipt;
             minimal
                 .as_object_mut()
                 .map(|map| map.shift_remove("compacted_row_paths"));

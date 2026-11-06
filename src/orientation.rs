@@ -8,6 +8,12 @@ use std::fs;
 /// Brief context selection and output controls.
 #[derive(Clone, Debug, Default)]
 pub struct ContextOptions {
+    /// Core orientation contract: orient or handoff.
+    pub intent: Option<String>,
+    /// Explicit optional sections, in requested order.
+    pub sections: Vec<String>,
+    /// Maximum retained activity entries.
+    pub activity_limit: Option<String>,
     /// Maximum focus rows; absent retains the oracle's per-group default.
     pub limit: Option<String>,
     /// Focus packing token ceiling.

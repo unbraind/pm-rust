@@ -251,13 +251,16 @@ fn section_critical_ordering_ties() -> Result<(), Box<dyn std::error::Error>> {
 fn section_activity_storage_and_ordering() -> Result<(), Box<dyn std::error::Error>> {
     let (_directory, workspace, _lifecycle) = workspace()?;
     let history = workspace.pm_root().join("history");
-    assert_eq!(activity(&workspace, 10)?, json!([]));
+    assert_eq!(
+        activity(&workspace, 10, "2099-01-01T00:00:00.000Z")?,
+        json!([])
+    );
     fs::write(&history, "not a directory")?;
-    assert!(activity(&workspace, 10).is_err());
+    assert!(activity(&workspace, 10, "2099-01-01T00:00:00.000Z").is_err());
     let error = fs::read_dir(&history).err().ok_or("filesystem refusal")?;
     let expected_kind = error.kind();
     assert!(
-        matches!(activity_entries(&workspace, &mut [Err(error)].into_iter(), &history, 10), Err(PmRustError::Io {path, source}) if path == history && source.kind() == expected_kind)
+        matches!(activity_entries(&workspace, &mut [Err(error)].into_iter(), &history, 10, "2099-01-01T00:00:00.000Z"), Err(PmRustError::Io {path, source}) if path == history && source.kind() == expected_kind)
     );
     fs::remove_file(&history)?;
     fs::create_dir(&history)?;
@@ -283,13 +286,18 @@ fn section_activity_storage_and_ordering() -> Result<(), Box<dyn std::error::Err
             }),
         )?;
     }
-    let rows = activity(&workspace, 10)?;
+    let rows = activity(&workspace, 10, "2099-01-01T00:00:00.000Z")?;
     assert_eq!(rows[0]["op"], "create");
     assert_eq!(rows[0]["msg"], "Retained evidence");
     assert_eq!(rows[2]["author"], "unknown");
-    assert_eq!(activity(&workspace, 1)?.as_array().map(Vec::len), Some(1));
+    assert_eq!(
+        activity(&workspace, 1, "2099-01-01T00:00:00.000Z")?
+            .as_array()
+            .map(Vec::len),
+        Some(1)
+    );
     fs::write(history.join("sample-b.jsonl"), "invalid JSON")?;
-    assert!(activity(&workspace, 10).is_err());
+    assert!(activity(&workspace, 10, "2099-01-01T00:00:00.000Z").is_err());
     Ok(())
 }
 
@@ -329,7 +337,7 @@ fn configured_sections_preserve_activity_errors_and_stale_order()
         10,
         &json!({"context":{"activity_limit":1}}),
     )?;
-    assert_eq!(result["activity"].as_array().map(Vec::len), Some(1));
+    assert_eq!(result["activity"].as_array().map(Vec::len), Some(0));
     assert_eq!(result["staleness"][0]["id"], "sample-older");
     fs::write(pm.join("history/sample-gone.jsonl"), "invalid JSON")?;
     assert!(

@@ -285,6 +285,9 @@ fn run_with_io(
             return write_search_to(&mut std::io::stdout().lock(), &result, json);
         }
         Command::Context {
+            intent,
+            sections,
+            activity_limit,
             limit,
             token_budget,
             depth,
@@ -298,6 +301,9 @@ fn run_with_io(
             let now = timestamp.unwrap_or_else(pm_rust::current_timestamp);
             let result = workspace.context(
                 &pm_rust::ContextOptions {
+                    intent,
+                    sections,
+                    activity_limit,
                     limit,
                     token_budget,
                     depth,
@@ -1026,6 +1032,9 @@ fn main() -> ExitCode {
                 args.insert(0, command);
                 let allowed = match args[0].as_str() {
                     "context" => vec![
+                        "--for",
+                        "--section",
+                        "--activity-limit",
                         "--limit",
                         "--max-items",
                         "--token-budget",
@@ -1321,6 +1330,13 @@ fn unhandled_error_json(detail: &str, exit_code: u8) -> serde_json::Value {
 /// Preserves the published canonical dependency spelling in recovery arguments.
 fn orientation_arguments(args: &[String]) -> Vec<String> {
     let mut args = args.to_vec();
+    if args.first().is_some_and(|arg| arg == "context") {
+        for arg in &mut args {
+            if arg == "--token_budget" || arg.starts_with("--token_budget=") {
+                *arg = arg.replacen("--token_budget", "--token-budget", 1);
+            }
+        }
+    }
     if args.first().is_some_and(|arg| arg == "deps") {
         args.insert(0, "item".to_owned());
     }
@@ -1328,6 +1344,7 @@ fn orientation_arguments(args: &[String]) -> Vec<String> {
 }
 
 /// Matches orientation command failures to the published problem envelope.
+#[allow(clippy::too_many_lines)]
 fn orientation_error_json(
     detail: &str,
     context: &serde_json::Value,
@@ -1342,18 +1359,42 @@ fn orientation_error_json(
     }
 
     if context["code"] == "invalid_argument_value" {
-        context["required"] =
-            serde_json::json!("Use values that match documented command constraints.");
-        context["title"] = serde_json::json!("Invalid argument value");
-        context["next_steps"] = serde_json::json!([
-            "Check allowed values in command help, then rerun with corrected input."
-        ]);
-        context["examples"] = serde_json::json!([
-            format!("pm {command} --help"),
-            "pm contracts --command <command> --flags-only --json".to_owned()
-        ]);
+        for (key, value) in [
+            (
+                "required",
+                serde_json::json!("Use values that match documented command constraints."),
+            ),
+            ("title", serde_json::json!("Invalid argument value")),
+            (
+                "next_steps",
+                serde_json::json!([
+                    "Check allowed values in command help, then rerun with corrected input."
+                ]),
+            ),
+            (
+                "examples",
+                serde_json::json!([
+                    format!("pm {command} --help"),
+                    "pm contracts --command <command> --flags-only --json"
+                ]),
+            ),
+        ] {
+            if context.get(key).is_none() {
+                context[key] = value;
+            }
+        }
     }
     let mut result = ownership_error_json(detail, &context, &args);
+    if command != "history" {
+        let mut normalized = Vec::new();
+        for arg in args.iter().filter(|arg| arg.starts_with("--")) {
+            let flag = arg.split_once('=').map_or(arg.as_str(), |(flag, _)| flag);
+            if !normalized.contains(&flag) {
+                normalized.push(flag);
+            }
+        }
+        result["recovery"]["provided_fields"] = serde_json::json!(normalized);
+    }
     if context["code"] == "item_not_found" {
         result["required"] =
             serde_json::json!("Use an existing item ID from current tracker data.");
@@ -1370,7 +1411,50 @@ fn orientation_error_json(
         result["flag"] = serde_json::json!("id");
         result["value"] = context["id"].clone();
     } else {
-        result["refusal"] = command_refusal_detail(detail, &args, exit_code);
+        let expanded: Vec<_> = args
+            .iter()
+            .flat_map(|arg| {
+                if command != "history"
+                    && arg.starts_with("--")
+                    && let Some((flag, value)) = arg.split_once('=')
+                {
+                    vec![flag.to_owned(), value.to_owned()]
+                } else {
+                    vec![arg.clone()]
+                }
+            })
+            .collect();
+        result["refusal"] = command_refusal_detail(detail, &expanded, exit_code);
+    }
+    if let Some(domain) = context["recovery"].get("allowed_values") {
+        result["recovery"]["allowed_values"] = domain.clone();
+        result["refusal"] = serde_json::json!({"surface":"--section","rejected_value":result["refusal"]["rejected_value"],"legal_domain":domain,"exit_code":exit_code});
+        if let Some(index) = args.iter().position(|arg| arg == "--section") {
+            let mut retry = args.clone();
+            domain[0]
+                .as_str()
+                .unwrap_or_default()
+                .clone_into(&mut retry[index + 1]);
+            result["examples"] = serde_json::json!([
+                format!(
+                    "pm {}",
+                    retry
+                        .iter()
+                        .map(|arg| pm_rust::quote_command_arg(arg))
+                        .collect::<Vec<_>>()
+                        .join(" ")
+                ),
+                "pm context --help"
+            ]);
+        } else {
+            result["examples"] = serde_json::json!([
+                "pm context --help",
+                "pm contracts --command <command> --flags-only --json"
+            ]);
+        }
+    }
+    if let Some(flag) = context.get("flag") {
+        result["refusal"] = serde_json::json!({"surface":flag,"rejected_value":context["value"],"exit_code":exit_code});
     }
     if detail.starts_with("--strict-exit requires --verify") {
         result["recovery"]["missing"] = serde_json::json!(["--verify"]);
@@ -1381,6 +1465,11 @@ fn orientation_error_json(
                 .collect::<Vec<_>>()
                 .join(" ")
         ));
+    }
+    if !json_requested(&args)
+        && let Some(why) = context.get("why")
+    {
+        result["why"] = why.clone();
     }
     result["exit_code"] = serde_json::json!(exit_code);
     // Insertion order is part of the wire contract.
@@ -1906,6 +1995,16 @@ fn write_list_to(
     Ok(())
 }
 
+/// Current orientation diagnostics omit a detail that duplicates the title.
+fn compact_orientation_refusal(payload: &serde_json::Value) -> bool {
+    payload["detail"] == payload["title"]
+        && (payload["recovery"]["token_budget"].is_object()
+            || matches!(
+                payload["recovery"]["normalized_args"][0].as_str(),
+                Some("context" | "item")
+            ))
+}
+
 /// Writes the published human-readable cursor diagnostic when JSON was not requested.
 fn write_cursor_refusal_to(
     writer: &mut dyn Write,
@@ -1935,10 +2034,12 @@ fn write_cursor_refusal_to(
                 .map(|step| format!("  - {}", step.as_str().unwrap_or_default())),
         );
     }
-    parts.push(format!(
-        "\nWhat happened:\n  {}",
-        payload["detail"].as_str().unwrap_or_default()
-    ));
+    if !compact_orientation_refusal(payload) {
+        parts.push(format!(
+            "\nWhat happened:\n  {}",
+            payload["detail"].as_str().unwrap_or_default()
+        ));
+    }
     if let Some(why) = payload["why"].as_str() {
         parts.push(format!("\nWhy:\n  {why}"));
     } else if payload["recovery"]["token_budget"].is_object() {
@@ -2008,8 +2109,7 @@ fn write_cursor_refusal_to(
         }
     }
     writer.write_all(format!("{}\n", parts.join("\n")).as_bytes())?;
-    writer.flush()?;
-    Ok(())
+    writer.flush().map_err(Into::into)
 }
 
 /// Renders compact, verified packet recovery without inventing attempted-command fields.

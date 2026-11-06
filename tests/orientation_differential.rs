@@ -553,7 +553,22 @@ fn orientation_driver(
     root: &Path,
     published: &published_cli::PublishedCli,
 ) -> Result<PathBuf, Box<dyn std::error::Error>> {
-    let path = write_driver(root, published)?;
+    let current = PathBuf::from(env!("CARGO_MANIFEST_DIR"))
+        .join("tests/orientation-oracle/node_modules/@unbrained/pm-cli");
+    let current = published_cli::PublishedCli {
+        entry: current.join("dist/cli.js"),
+        package_root: current,
+    };
+    let legacy = write_driver(root, published)?;
+    fs::rename(&legacy, root.join("legacy-driver.mjs"))?;
+    let metadata: Value =
+        serde_json::from_slice(&fs::read(current.package_root.join("package.json"))?)?;
+    assert_eq!(metadata["version"], "2026.11.5");
+    assert!(
+        current.entry.is_file(),
+        "Run just orientation-oracle-install"
+    );
+    let path = write_driver(root, &current)?;
     let script = fs::read_to_string(&path)?;
     fs::write(
         &path,
@@ -565,6 +580,12 @@ fn orientation_driver(
 }
 /// Executes one published invocation in a synthetic fixed-clock tracker.
 fn oracle(driver: &Path, root: &Path, args: &[&str]) -> Result<Output, Box<dyn std::error::Error>> {
+    let legacy = driver.with_file_name("legacy-driver.mjs");
+    let driver = if args.contains(&"context") || args.contains(&"deps") {
+        driver
+    } else {
+        &legacy
+    };
     let mut arguments = vec![driver.to_string_lossy().into_owned()];
     arguments.extend(args.iter().map(ToString::to_string));
     let interpreter =
@@ -603,15 +624,25 @@ fn compare(expected: &Output, actual: &Output, args: &[&str]) {
         String::from_utf8_lossy(&actual.stderr),
         String::from_utf8_lossy(&expected.stderr)
     );
-    assert_eq!(
+    assert!(
+        actual.stdout == expected.stdout,
+        "{args:?}: stdout\nnative: {}\noracle: {}",
         String::from_utf8_lossy(&actual.stdout),
-        String::from_utf8_lossy(&expected.stdout),
-        "{args:?}: stdout"
+        String::from_utf8_lossy(&expected.stdout)
     );
-    assert_eq!(
+    assert!(
+        actual.stderr == expected.stderr,
+        "{args:?}: stderr\nnative: {}\noracle: {}",
         String::from_utf8_lossy(&actual.stderr),
-        String::from_utf8_lossy(&expected.stderr),
-        "{args:?}: stderr"
+        String::from_utf8_lossy(&expected.stderr)
+    );
+    println!(
+        "exact_orientation_differential:{}",
+        if args[0] == "history" {
+            "legacy"
+        } else {
+            "current"
+        }
     );
 }
 /// Seals a synthetic retained-history proof with an independently sorted JSON digest.
@@ -1434,7 +1465,6 @@ fn unsupported_orientation_flags_refuse_explicitly() -> TestResult {
         (
             "context",
             vec![
-                "--for",
                 "--date",
                 "--from",
                 "--to",
@@ -1449,8 +1479,6 @@ fn unsupported_orientation_flags_refuse_explicitly() -> TestResult {
                 "--parent",
                 "--format",
                 "--fields",
-                "--section",
-                "--activity-limit",
                 "--stale-threshold",
                 "--explain-ranking",
             ],
@@ -2039,5 +2067,136 @@ fn padded_inverse_blockers_match_oracle() -> TestResult {
         assert_eq!(document["blockers"][0]["blocked_by"], "sample-inverse");
         compare(&expected, &native(root.path(), &args)?, &args);
     }
+    Ok(())
+}
+
+/// Rich non-git trackers retain exact intent, section and continuation packets.
+#[test]
+fn context_intents_and_sections_match_current_oracle() -> TestResult {
+    context_intents_fixture(1)
+}
+
+/// Empty non-git trackers retain intent defaults, suggestions and refusal receipts.
+#[test]
+fn context_intents_empty_tracker_match_current_oracle() -> TestResult {
+    context_intents_fixture(0)
+}
+
+/// Wide evidence distinguishes compact intent estimates from complete wire budgets.
+#[test]
+fn context_intents_wire_budget_match_current_oracle() -> TestResult {
+    context_intents_fixture(2)
+}
+
+/// Runs the same control matrix independently, allowing the fixed two-worker pool to balance it.
+#[allow(clippy::too_many_lines)]
+fn context_intents_fixture(richness: usize) -> TestResult {
+    let Some(published) = published_cli::published_cli_or_skip("current context intents") else {
+        return Ok(());
+    };
+    let scratch = tempfile::tempdir()?;
+    let driver = orientation_driver(scratch.path(), &published)?;
+    let mut comparisons = 0;
+    let root = tempfile::tempdir()?;
+    assert!(
+        oracle(&driver, root.path(), &["init", "sample-", "--defaults"])?
+            .status
+            .success()
+    );
+    if richness == 1 {
+        rich_fixture(root.path())?;
+    }
+    if richness == 2 {
+        let mut row = item("sample-wide", "Feature", "open", 1);
+        row["title"] = json!("Bounded orientation evidence ".repeat(7));
+        fixture(root.path(), &[row])?;
+        fs::write(
+            root.path().join(".agents/pm/history/sample-wide.jsonl"),
+            format!(
+                "{}\n",
+                json!({"ts":"2026-08-21T10:00:00.000Z","op":"update","author":"fixture","message":"Retained continuation evidence ".repeat(6)})
+            ),
+        )?;
+    }
+    for controls in [
+        vec!["--for", "orient", "--token-budget", "255"],
+        vec!["--section", "activity", "--activity-limit", "0"],
+        vec!["--section", " WORKLOAD ", "--section", "workload"],
+        vec!["--section", "bad"],
+        vec!["--section=bad"],
+        vec!["--section", "activity", "--section", "bad"],
+        vec!["--activity-limit", "bad"],
+        vec!["--activity-limit=bad"],
+        vec!["--for=orient", "--token-budget=255"],
+        vec!["--for", "orient", "--token_budget", "255"],
+        vec!["--for", "orient", "--token_budget=255"],
+        vec!["--for", "handoff", "--token-budget", "0"],
+    ] {
+        for format in [vec![], vec!["--json"]] {
+            let mut args = vec!["context"];
+            args.extend(&controls);
+            args.extend(&format);
+            compare(
+                &oracle(&driver, root.path(), &args)?,
+                &native(root.path(), &args)?,
+                &args,
+            );
+            comparisons += 1;
+        }
+    }
+    for intent in ["orient", "handoff", " ORIENT "] {
+        for controls in [
+            vec![],
+            vec!["--limit", "0"],
+            vec!["--limit", "1"],
+            vec!["--limit", "50"],
+            vec!["--token-budget", "256"],
+            vec!["--token-budget", "1000"],
+            vec!["--token-budget", "1600"],
+            vec!["--token-budget", "2200"],
+            vec!["--token_budget", "5000"],
+            vec!["--token-budget", "0x400"],
+            vec!["--depth", "brief"],
+            vec!["--depth", "full"],
+            vec![
+                "--section",
+                "blockers",
+                "--section",
+                "activity",
+                "--activity-limit",
+                "1",
+            ],
+            vec!["--section", "recently_created", "--no-tags"],
+        ] {
+            for format in [vec![], vec!["--json"]] {
+                let mut args = vec!["context", "--for", intent];
+                args.extend(&controls);
+                args.extend(&format);
+                compare(
+                    &oracle(&driver, root.path(), &args)?,
+                    &native(root.path(), &args)?,
+                    &args,
+                );
+                comparisons += 1;
+            }
+        }
+        let mut cursor = None;
+        for _ in 0..4 {
+            let mut args = vec!["context", "--for", intent, "--limit", "1", "--json"];
+            if let Some(cursor) = cursor.as_deref() {
+                args.extend(["--after", cursor]);
+            }
+            let expected = oracle(&driver, root.path(), &args)?;
+            compare(&expected, &native(root.path(), &args)?, &args);
+            comparisons += 1;
+            cursor = serde_json::from_slice::<Value>(&expected.stdout)?["next_cursor"]
+                .as_str()
+                .map(ToString::to_string);
+            if cursor.is_none() {
+                break;
+            }
+        }
+    }
+    println!("current intent and section differentials (fixture {richness}): {comparisons}");
     Ok(())
 }

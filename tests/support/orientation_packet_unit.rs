@@ -200,7 +200,7 @@ fn packet_traversal_and_continuation() -> Result<(), Box<dyn std::error::Error>>
     let cursor = first["meta"]["nextCursor"].as_str().ok_or("cursor")?;
     let second = packet(&graph, "sample-root", &query, &[], Some(cursor), 10000)?;
     assert_ne!(first["nodes"][0]["id"], second["nodes"][0]["id"]);
-    let contract = json!({"rootId":"sample-root","direction":"both","kinds":[],"maxDepth":3});
+    let contract = json!({"rootId":"sample-root","direction":"both","kinds":[],"maxDepth":3,"ordering":"required-root-evidence-first-v1"});
     let fingerprint = crate::history::sha256_digest(
         format!(
             "relationship-context\0{}",

@@ -454,7 +454,7 @@ fn deep_sections_preserve_relationships_and_evidence() -> Result<(), Box<dyn std
         result["tests"]["recent_runs"],
         json!({"passed":2,"failed":1,"skipped":3})
     );
-    assert_eq!(result["activity"][0]["id"], "sample-deleted");
+    assert_eq!(result["activity"], json!([]));
     assert_eq!(result["staleness"][0]["id"], "sample-child");
     assert_eq!(result["omission_receipt"]["has_omissions"], false);
     for depth in ["standard", "deep", "full"] {

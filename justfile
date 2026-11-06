@@ -38,8 +38,20 @@ export PM_TELEMETRY_SOURCE_CONTEXT := "test"
 export PM_NODE_CLI := env_var_or_default("PM_NODE_CLI", justfile_directory() / "tests/oracle/node_modules/@unbrained/pm-cli")
 
 # Install the shared local and CI parity oracle without resolving new versions.
-oracle-install:
+oracle-install: orientation-oracle-install
     npm ci --prefix tests/oracle --ignore-scripts
+
+# Install the independent current orientation contract oracle.
+orientation-oracle-install:
+    npm ci --prefix tests/orientation-oracle --ignore-scripts
+
+# Run the focused current orientation contract.
+orientation-check: oracle-install
+    RUST_TEST_THREADS=2 PM_RUST_REQUIRE_PUBLISHED_CLI=1 cargo test -j 2 --locked --test orientation_differential
+
+# Prove the new intent tests reject the previous behavior in a disposable copy.
+orientation-revert-proof:
+    node scripts/context-intents-revert.mts
 
 # Run the standalone typed crash-conformance CLI (Linux and strace required).
 [positional-arguments]
@@ -50,7 +62,7 @@ crash *args:
 crash-check:
     npm ci --prefix tests/harness --ignore-scripts
     tests/harness/node_modules/.bin/tsc -p tests/harness/tsconfig.json
-    tests/harness/node_modules/.bin/eslint -c tests/harness/eslint.config.mjs scripts/crash-*.mts scripts/native-adapter-*.mts
+    tests/harness/node_modules/.bin/eslint -c tests/harness/eslint.config.mjs scripts/crash-*.mts scripts/native-adapter-*.mts scripts/context-*.mts
     node --test --test-concurrency=1 scripts/crash-*.test.mts scripts/native-adapter-*.test.mts
     node scripts/crash-history-prefix.mts
     node scripts/crash-evidence-commits.mts

@@ -142,14 +142,14 @@ fn completion(closed: usize, total: usize) -> Value {
 }
 
 /// Reads compact activity from all retained streams, including deleted-item history.
-fn activity(workspace: &Workspace, limit: usize) -> Result<Value, PmRustError> {
+fn activity(workspace: &Workspace, limit: usize, now: &str) -> Result<Value, PmRustError> {
     let path = workspace.pm_root().join("history");
     let mut entries = match std::fs::read_dir(&path) {
         Ok(entries) => entries,
         Err(error) if error.kind() == std::io::ErrorKind::NotFound => return Ok(json!([])),
         Err(source) => return Err(PmRustError::Io { path, source }),
     };
-    activity_entries(workspace, &mut entries, &path, limit)
+    activity_entries(workspace, &mut entries, &path, limit, now)
 }
 
 /// Traverses retained activity entries while preserving directory-iteration failures.
@@ -158,6 +158,7 @@ fn activity_entries(
     entries: &mut dyn Iterator<Item = std::io::Result<std::fs::DirEntry>>,
     path: &std::path::Path,
     limit: usize,
+    now: &str,
 ) -> Result<Value, PmRustError> {
     let mut rows = Vec::new();
     for entry in entries {
@@ -169,6 +170,11 @@ fn activity_entries(
         let name = name.to_string_lossy();
         if let Some(id) = name.strip_suffix(".jsonl") {
             for entry in records(workspace, id)? {
+                if text(&entry, "ts").is_empty()
+                    || super::date_compare(text(&entry, "ts"), now).is_ge()
+                {
+                    continue;
+                }
                 let mut row = json!({"id":id,"op":entry["op"].as_str().unwrap_or("unknown"),"ts":text(&entry,"ts"),"author":entry["author"].as_str().unwrap_or("unknown")});
                 if entry["message"]
                     .as_str()
@@ -294,7 +300,7 @@ pub(super) fn build(
         result[name] = match *name {
             "hierarchy" => hierarchy(&parents,&tree,lifecycle,limit,None),
             "progress" => hierarchy(&parents,&progress_tree,lifecycle,limit,Some(blocked)),
-            "activity" => activity(workspace, settings["context"]["activity_limit"].as_u64().and_then(|n|usize::try_from(n).ok()).unwrap_or(10))?,
+            "activity" => activity(workspace, settings["context"]["activity_limit"].as_u64().and_then(|n|usize::try_from(n).ok()).unwrap_or(10), now)?,
             "recently_created" | "unparented" => {
                 let mut items = nonterminal.clone();
                 if *name == "recently_created" {
@@ -347,7 +353,8 @@ pub(super) fn build(
                 let mut with_runs = 0;
                 let mut totals = [0u64;3];
                 let mut failing = BTreeSet::new();
-                for item in active {
+                let matching: Vec<_> = corpus.iter().filter(|item| lifecycle.role(text(item, "status"), "active")).collect();
+                for item in &matching {
                     with_tests += usize::from(super::count(item,"tests") > 0);
                     with_runs += usize::from(super::count(item,"test_runs") > 0);
                     for run in item["test_runs"].as_array().into_iter().flatten() {
@@ -355,7 +362,7 @@ pub(super) fn build(
                         if run["failed"].as_u64().unwrap_or_default() > 0 { failing.insert(text(item,"id")); }
                     }
                 }
-                json!({"items_with_tests":with_tests,"items_with_recent_runs":with_runs,"recent_runs":{"passed":totals[0],"failed":totals[1],"skipped":totals[2]},"items_failing":failing})
+                json!({"scope":"matching_active_items","total_items":matching.len(),"items_with_tests":with_tests,"items_with_recent_runs":with_runs,"recent_runs":{"passed":totals[0],"failed":totals[1],"skipped":totals[2]},"items_failing":failing})
             }
         };
     }

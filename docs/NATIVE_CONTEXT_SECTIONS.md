@@ -1,5 +1,9 @@
 # Native context sections and relationship packets
 
+This document records the October slice and its historical evidence. The
+[current intent and packet contract](NATIVE_CONTEXT_INTENTS.md) supersedes its
+activity, test-health, packet-ordering and TOON representation details.
+
 Tracked by [pm-rust-s6j4](../.agents/pm/tasks/pm-rust-s6j4.toon), under
 [pm-rust-u4al](../.agents/pm/epics/pm-rust-u4al.toon). The published oracle remains
 locked to `@unbrained/pm-cli@2026.10.14`.
