@@ -3,7 +3,7 @@ import { createHash } from 'node:crypto';
 import { readFileSync, rmSync, writeFileSync, existsSync } from 'node:fs';
 import { resolve, join } from 'node:path';
 import { performance } from 'node:perf_hooks';
-import { argument, authoritative, relationshipRoots } from './context-real-helpers.mts';
+import { argument, authoritative, relationshipRoots, verifiedOracleVersion } from './context-real-helpers.mts';
 
 const root = resolve(argument('--copy'));
 const driver = resolve(argument('--driver'));
@@ -33,6 +33,8 @@ function run(runtime: 'native' | 'oracle', args: string[]): { bytes: Buffer; ms:
   return { bytes: Buffer.concat([result.stdout, Buffer.from('\0'), result.stderr]), ms, status: result.status };
 }
 
+const driverHash = createHash('sha256').update(readFileSync(driver)).digest('hex');
+const oracleVersion = verifiedOracleVersion(driver, root, environment);
 const tracker = join(root, '.agents/pm');
 const before = authoritative(tracker);
 let comparisons = 0;
@@ -161,8 +163,9 @@ for (const { args, label } of measurements) {
 const after = authoritative(tracker);
 if (createHash('sha256').update(readFileSync(binary)).digest('hex') !== binaryHash) throw new Error('Native binary changed during the run');
 if (before.size !== after.size || [...before].some(([key, hash]) => after.get(key) !== hash)) throw new Error('Authoritative copy changed');
+if (createHash('sha256').update(readFileSync(driver)).digest('hex') !== driverHash) throw new Error('Oracle driver changed during the run');
 const receipt = {
-  oracle: '2026.11.5', clock, comparisons, context_comparisons: comparisons - packetComparisons, packet_comparisons: packetComparisons, packet_roots: roots.size,
+  oracle: oracleVersion, oracle_driver_sha256: driverHash, clock, comparisons, context_comparisons: comparisons - packetComparisons, packet_comparisons: packetComparisons, packet_roots: roots.size,
   item_count: [...before.keys()].filter(key => key.endsWith('.toon')).length,
   authoritative_files: before.size, authoritative_unchanged: true,
   binary_sha256: binaryHash,

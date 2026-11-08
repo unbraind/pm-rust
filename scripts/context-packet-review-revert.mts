@@ -1,14 +1,14 @@
-import { assertNamedTests, copyWorkingTree, checkedGit, verifyMutation } from './context-revert-helpers.mts';
-import { spawnSync } from 'node:child_process';
-import { mkdtempSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
+import { ProofProcesses, verifyAsyncMutation } from './context-proof-process.mts';
+import { assertNamedTests, copyWorkingTree, checkedGit } from './context-revert-helpers.mts';
+import { mkdtempSync, readFileSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 
 /** Require the focused regression to pass, or fail at its named assertion under mutation. */
-function check(root: string, name: string, reverted: boolean): void {
+async function check(root: string, name: string, reverted: boolean): Promise<void> {
   const command = ['test', '-j', '2', '--locked', '--lib', name];
-  const result = spawnSync('cargo', command, {
-    cwd: root, encoding: 'utf8', maxBuffer: 16 * 1024 * 1024,
+  const result = await processes.run('cargo', command, {
+    cwd: root, maxBuffer: 16 * 1024 * 1024,
     env: { ...process.env, CARGO_BUILD_JOBS: '2', RUST_TEST_THREADS: '2', CARGO_TARGET_DIR: join(root, 'target') },
   });
   assertNamedTests(result, [`orientation_deps::packet::tests::${name}`], reverted);
@@ -17,6 +17,7 @@ function check(root: string, name: string, reverted: boolean): void {
 
 const source = process.cwd();
 const scratch = mkdtempSync(join(tmpdir(), 'pm-rust-packet-review-'));
+const processes = new ProofProcesses();
 try {
   copyWorkingTree(source, scratch);
   const path = join(scratch, 'src/orientation_deps/packet.rs');
@@ -37,13 +38,15 @@ try {
   ];
   for (const mutation of mutations) {
     if (!fixed.includes(mutation.before)) throw new Error(`Cannot locate mutation for ${mutation.name}`);
-    verifyMutation(reverted => check(scratch, mutation.name, reverted),
+    await verifyAsyncMutation(async reverted => check(scratch, mutation.name, reverted),
       () => writeFileSync(path, fixed.replace(mutation.before, mutation.after)),
       () => writeFileSync(path, fixed));
   }
   const patch = join(scratch, 'tests/fixtures/orientation-packet-root-priority.patch');
   checkedGit(scratch, ['apply', '--reverse', '--check', patch], 'The retained packet behavior revert fixture no longer applies');
   console.log('Packet behavior revert fixture applies to the fixed implementation.');
+} catch (error) {
+  if (!processes.wasInterrupted) throw error;
 } finally {
-  rmSync(scratch, { recursive: true, force: true });
+  await processes.cleanup(scratch);
 }

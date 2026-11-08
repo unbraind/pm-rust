@@ -1763,3 +1763,72 @@ fn context_stored_settings_fallback_precedes_overrides() -> Result<(), Box<dyn s
     }
     Ok(())
 }
+
+/// Warning metadata survives every post-settings refusal while preserving its typed cause.
+#[test]
+fn context_settings_warning_survives_refusals() -> Result<(), Box<dyn std::error::Error>> {
+    let (root, workspace, _) = workspace()?;
+    assert!(!root.path().join(".git").exists());
+    let controls = [
+        ContextOptions {
+            activity_limit: Some("-1".into()),
+            ..Default::default()
+        },
+        ContextOptions {
+            activity_limit: Some("bad".into()),
+            ..Default::default()
+        },
+        ContextOptions {
+            depth: Some("bad".into()),
+            ..Default::default()
+        },
+        ContextOptions {
+            sections: vec!["bad".into()],
+            ..Default::default()
+        },
+        ContextOptions {
+            token_budget: Some("bad".into()),
+            ..Default::default()
+        },
+        ContextOptions {
+            limit: Some("bad".into()),
+            ..Default::default()
+        },
+        ContextOptions {
+            intent: Some("bad".into()),
+            ..Default::default()
+        },
+    ];
+    for fallback in [false, true] {
+        let settings = json!({"context":{"activity_limit":i32::from(!fallback)}}).to_string();
+        fs::write(workspace.pm_root().join("settings.json"), &settings)?;
+        for options in &controls {
+            for toon in [false, true] {
+                let options = ContextOptions {
+                    toon,
+                    ..options.clone()
+                };
+                let error = workspace
+                    .context_with_global(&options, NOW, None)
+                    .err()
+                    .ok_or("invalid control must refuse")?;
+                assert_eq!(error.settings_warning().is_some(), fallback);
+                assert_eq!(std::error::Error::source(&error).is_some(), fallback);
+                let cause = match &error {
+                    PmRustError::ContextSettingsFallback { source } => source.as_ref(),
+                    other => other,
+                };
+                assert!(
+                    matches!(cause, PmRustError::CommandRefusal { .. }),
+                    "{cause:?}"
+                );
+                assert_eq!(error.to_string(), cause.to_string());
+                assert_eq!(
+                    fs::read_to_string(workspace.pm_root().join("settings.json"))?,
+                    settings
+                );
+            }
+        }
+    }
+    Ok(())
+}

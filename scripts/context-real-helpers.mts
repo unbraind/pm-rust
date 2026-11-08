@@ -1,3 +1,4 @@
+import { spawnSync } from 'node:child_process';
 import { createHash } from 'node:crypto';
 import { readFileSync, readdirSync } from 'node:fs';
 import { join } from 'node:path';
@@ -48,4 +49,16 @@ export function relationshipRoots(items: Record<string, unknown>[]): Set<string>
     if (selected) roots.add(String(selected.id));
   }
   return roots;
+}
+
+/** Verify the version through the exact driver used for every measured invocation. */
+export function verifiedOracleVersion(driver: string, root: string, environment: NodeJS.ProcessEnv): string {
+  const expected = '2026.11.5';
+  const result = spawnSync(process.execPath, [driver, '--version'], {
+    cwd: root, env: environment, encoding: 'utf8', timeout: 30_000, maxBuffer: 1024 * 1024,
+  });
+  if (result.error || result.status !== 0 || result.stderr.trim() || result.stdout.trim() !== expected) {
+    throw new Error('Real-copy driver must verify the pinned oracle version 2026.11.5');
+  }
+  return result.stdout.trim();
 }

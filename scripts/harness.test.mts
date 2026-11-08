@@ -27,6 +27,7 @@ for (const signal of ['SIGINT', 'SIGTERM'] as const) {
       for (const [name, bytes] of originals) writeFileSync(join(root, `src/${name}.rs`), bytes);
       const script = join(root, 'scripts/perf-revert-proof.mts');
       writeFileSync(script, readFileSync(new URL('./perf-revert-proof.mts', import.meta.url)));
+      writeFileSync(join(root, 'scripts/context-proof-process.mts'), readFileSync(new URL('./context-proof-process.mts', import.meta.url)));
       const cargo = join(root, 'bin/cargo');
       const cargoProgram = join(root, 'cargo.mjs');
       writeFileSync(cargoProgram, `import { spawn } from 'node:child_process';
@@ -66,15 +67,20 @@ setInterval(() => {}, 1000);
 `);
       // Observe restored sandbox bytes before the runner's own exit cleanup removes them.
       const observer = join(root, 'observe-cleanup.mjs');
-      writeFileSync(observer, `import { existsSync, readFileSync, writeFileSync } from 'node:fs';
+      writeFileSync(observer, `import fs, { existsSync, readFileSync, writeFileSync } from 'node:fs';
+import { syncBuiltinESMExports } from 'node:module';
 import { join } from 'node:path';
-process.on('exit', () => {
+const remove = fs.rmSync;
+fs.rmSync = (path, options) => {
   const source = process.env.PM_PROOF_ROOT;
-  if (!existsSync(join(source, 'ready'))) return;
+  if (!existsSync(join(source, 'ready'))) return remove(path, options);
   const marker = JSON.parse(readFileSync(join(source, 'ready'), 'utf8'));
+  if (path !== marker.root) return remove(path, options);
   const restored = ['ownership', 'mutation'].map(name => readFileSync(join(marker.root, 'src', name + '.rs'), 'utf8') === readFileSync(join(source, 'src', name + '.rs'), 'utf8'));
   writeFileSync(join(source, 'restored.json'), JSON.stringify(restored));
-});
+  return remove(path, options);
+};
+syncBuiltinESMExports();
 `);
       writeFileSync(cargo, '#!/bin/sh\nexec "$PM_PROOF_NODE" "$PM_PROOF_CHILD" "$@"\n');
       chmodSync(cargo, 0o755);

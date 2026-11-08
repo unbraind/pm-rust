@@ -1,10 +1,10 @@
+import { ProofProcesses, verifyAsyncMutation } from './context-proof-process.mts';
 /** Independent review mutations run only in a disposable source copy with real pinned oracles. */
 import assert from 'node:assert/strict';
-import { spawnSync } from 'node:child_process';
 import { mkdtempSync, readFileSync, rmSync, symlinkSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join, resolve } from 'node:path';
-import { assertNamedTests, copyWorkingTree, escapeTestName, verifyMutation } from './context-revert-helpers.mts';
+import { assertNamedTests, copyWorkingTree, escapeTestName, supportedProofs } from './context-revert-helpers.mts';
 
 const source = process.cwd();
 const scratch = mkdtempSync(join(tmpdir(), 'pm-context-review-'));
@@ -18,16 +18,17 @@ for (const name of ['PATH', 'HOME', 'CARGO_HOME', 'RUSTUP_HOME', 'LD_LIBRARY_PAT
 }
 
 /** Require a real named test result; compiler failures and empty selections are rejected. */
-function check(target: string[], name: string, reverted: boolean): void {
+async function check(target: string[], name: string, reverted: boolean): Promise<void> {
   const node = target[0] === 'node';
   const args = node ? ['--test-reporter=tap', `--test-name-pattern=^${escapeTestName(name)}$`, ...target.slice(1)] : ['test', '-j', '2', '--locked', ...target, name, '--', '--exact', '--test-threads=2'];
-  const result = spawnSync(node ? process.execPath : 'cargo', args, {
-    cwd: scratch, env: childEnv, encoding: 'utf8', timeout: 900_000, maxBuffer: 8 * 1024 * 1024,
+  const result = await processes.run(node ? process.execPath : 'cargo', args, {
+    cwd: scratch, env: childEnv, timeout: 900_000, maxBuffer: 8 * 1024 * 1024,
   });
   assertNamedTests(result, [name], reverted, node);
   console.log(JSON.stringify({ command: [node ? 'node' : 'cargo', ...args], reverted, result: reverted ? 'named behavioral failure' : 'pass' }));
 }
 
+const processes = new ProofProcesses();
 try {
   copyWorkingTree(source, scratch);
   for (const oracle of ['oracle', 'orientation-oracle']) {
@@ -38,11 +39,11 @@ try {
       target: ['node', '--test', '--test-concurrency=2', 'scripts/context-intents-revert.test.mts'], test: 'all worktree proof copies tolerate unstaged deletions' },
     { path: 'scripts/context-real-helpers.mts', before: " || entry.name.endsWith('.json')", after: '',
       target: ['node', '--test', '--test-concurrency=2', 'scripts/harness.test.mts'], test: 'authoritative snapshots exclude caches only at the tracker root' },
-    { path: 'scripts/perf-revert-proof.mts', before: '  for (const pid of ownedGroups) {\n    stopGroup(pid, \'SIGTERM\');', after: '  ownedGroups.clear();\n  for (const pid of ownedGroups) {\n    stopGroup(pid, \'SIGTERM\');',
+    { path: 'scripts/context-proof-process.mts', before: "    for (const pid of this.groups) {\n      this.stop(pid, 'SIGTERM');", after: "    this.groups.clear();\n    for (const pid of this.groups) {\n      this.stop(pid, 'SIGTERM');",
       target: ['node', '--test', '--test-concurrency=2', 'scripts/harness.test.mts'], test: 'revert proof restores both source files on SIGTERM (parent only)' },
-    { path: 'scripts/perf-revert-proof.mts', before: 'process.kill(-pid, signal)', after: 'process.kill(pid, signal)',
+    { path: 'scripts/context-proof-process.mts', before: 'process.kill(-pid, signal)', after: 'process.kill(pid, signal)',
       target: ['node', '--test', '--test-concurrency=2', 'scripts/harness.test.mts'], test: 'revert proof restores both source files on SIGTERM (parent only)' },
-    { path: 'scripts/perf-revert-proof.mts', before: '  try { process.kill(-pid, signal); }', after: "  if (signal === 'SIGKILL') return;\n  try { process.kill(-pid, signal); }",
+    { path: 'scripts/context-proof-process.mts', before: "    if (!this.groups.has(pid)) return;", after: "    if (signal === 'SIGKILL') return;\n    if (!this.groups.has(pid)) return;",
       target: ['node', '--test', '--test-concurrency=2', 'scripts/harness.test.mts'], test: 'revert proof restores both source files on SIGTERM (stubborn descendant)' },
     { path: 'src/orientation_context.rs', before: 'let settings_fallback = sections::settings_fallback(&mut settings);', after: 'let settings_fallback = false;',
       target: ['--lib'], test: 'orientation_context::tests::context_stored_settings_fallback_precedes_overrides' },
@@ -99,13 +100,12 @@ try {
       target: ['--lib'], test: 'toon_output::tests::current_compact_tables_round_trip_through_pinned_sdk' })),
   ];
   let executed = 0;
-  for (const proof of cases) {
-    if (process.argv[2] && !proof.test.includes(process.argv[2])) continue;
+  for (const proof of supportedProofs(cases, process.argv[2])) {
     executed += 1;
     const path = join(scratch, proof.path);
     const fixed = readFileSync(path, 'utf8');
     assert.equal(fixed.split(proof.before).length, 2, `stale or ambiguous mutation: ${proof.path}: ${proof.before}`);
-    verifyMutation(reverted => check(proof.target, proof.test, reverted),
+    await verifyAsyncMutation(async reverted => check(proof.target, proof.test, reverted),
       () => writeFileSync(path, fixed.replace(proof.before, proof.after)),
       () => writeFileSync(path, fixed));
   }
@@ -114,7 +114,9 @@ try {
   if (!process.argv[2]) {
     rmSync(join(scratch, 'tests/orientation-oracle/node_modules'));
     for (const name of ['history_invalid_filename_matches_oracle', 'history_reserved_patch_paths_match_oracle', 'history_matches_oracle', 'bounded_history_and_refusals_match_oracle']) {
-      check(['--test', 'orientation_differential'], name, false);
+      await check(['--test', 'orientation_differential'], name, false);
     }
   }
-} finally { rmSync(scratch, { recursive: true, force: true }); }
+} catch (error) {
+  if (!processes.wasInterrupted) throw error;
+} finally { await processes.cleanup(scratch); }

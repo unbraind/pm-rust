@@ -1918,3 +1918,33 @@ fn current_orientation_diagnostics_preserve_other_commands()
     }
     Ok(())
 }
+
+/// Warning frames and refusal metadata retain their encoding and writer error contracts.
+#[test]
+fn context_warning_rendering_preserves_refusal_metadata() -> Result<(), Box<dyn std::error::Error>>
+{
+    let warning = "synthetic settings warning";
+    for json in [false, true] {
+        let mut bytes = Vec::new();
+        super::write_settings_warning_to(&mut bytes, warning, json)?;
+        if json {
+            let payload: serde_json::Value = serde_json::from_slice(&bytes)?;
+            assert_eq!(payload["type"], "warning");
+            assert_eq!(payload["warning_details"][0]["message"], warning);
+        } else {
+            assert_eq!(String::from_utf8(bytes)?, format!("{warning}\n"));
+        }
+        assert!(super::write_settings_warning_to(&mut WriteFailure, warning, json).is_err());
+    }
+    let mut refusal = serde_json::json!({"code":"invalid_argument_value"});
+    super::attach_settings_warning(&mut refusal, None);
+    assert!(refusal.get("warnings").is_none());
+    super::attach_settings_warning(&mut refusal, Some(warning));
+    assert_eq!(refusal["code"], "invalid_argument_value");
+    assert_eq!(
+        refusal["warnings"],
+        serde_json::json!(["settings_read_invalid_schema"])
+    );
+    assert_eq!(refusal["warning_details"][0]["message"], warning);
+    Ok(())
+}

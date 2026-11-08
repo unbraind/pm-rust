@@ -10,6 +10,9 @@ use serde_json::ser::Formatter;
 use std::io;
 use std::{collections::BTreeMap, ops::Deref};
 
+/// Shared warning text for successful reads and refusal causes.
+pub(crate) const SETTINGS_FALLBACK_WARNING: &str = "[pm] warning: settings_read_invalid_schema — settings.json could not be loaded and pm fell back to defaults; run pm health for remediation.";
+
 /// Bounded list envelope with lossless JSON serialization of UTF-16 cuts.
 ///
 /// Rust strings cannot contain an unpaired surrogate. The immutable `Value`
@@ -30,7 +33,7 @@ impl ListOutput {
     /// Returns the published settings fallback diagnostic for a successful context read.
     #[must_use]
     pub fn settings_warning(&self) -> Option<&'static str> {
-        self.settings_warning.then_some("[pm] warning: settings_read_invalid_schema — settings.json could not be loaded and pm fell back to defaults; run pm health for remediation.")
+        self.settings_warning.then_some(SETTINGS_FALLBACK_WARNING)
     }
 
     /// Reports whether the published renderer selects compact brief-list JSON.

@@ -193,3 +193,72 @@ Round-3 final local validation:
   and crash checks. No assertion failure was reported before the cap. The full
   coverage gate and final-head external reviews remain CI requirements; no
   complete coverage percentage or aggregate pass is claimed.
+
+## Review round 4 continuation
+
+This continuation retains the existing branch, PR and item
+`pm-rust-context-intents`. Main was already included. No inline thread is
+answered, resolved or reacted to by this continuation.
+
+| Finding | General rule and package-wide fix | Regression / independent revert |
+| --- | --- | --- |
+| PRRT_kwDOTwgMRs61Bm1P (already resolved) | Read-only receipts include every authoritative persisted format. Preserve the earlier root/nested JSON assertions and cover insertion, removal and modification in custom directories. | `JSON snapshot additions removals and changes are authoritative in every custom directory`; removing JSON inclusion must fail. |
+| PRRT_kwDOTwgMRs61Cfjp | Scratch ownership lasts until owned subprocesses and descendants stop. All nine context, adapter, changes and performance proof entry points (including this round's safety proof) share asynchronous process ownership, interruption, escalation and drain-before-cleanup. Every nested proof command runs in its scratch source. | Both signals through every entry point; preserve all eight earlier performance signal/delivery cases. Replacing group signaling with direct-child signaling must fail. |
+| PRRT_kwDOTwgMRs61Cfjt | Measurement provenance must be observed through the actual driver. Run its `--version` before tracker/cache work, require the pinned release, and bind receipts to the driver's unchanged SHA-256. | Real driver processes with wrong, absent, failed or noisy versions refuse before output or cache changes. Removing the version comparison must fail. |
+| PRRT_kwDOTwgMRs61Cfjw | Disposable mutation destinations cannot alias live source. Every copy materializes symlinks as independent files. Git-enumerated copies explicitly exclude dependency junctions, including links not excluded by directory-only Git ignore patterns. | Absolute, relative and directory symlinks; every actual copy callback writes only its independent copy. Revert each of the six distinct copying implementations independently. |
+| PRRT_kwDOTwgMRs61Cfj2 | Baseline selection must respect platform support. Default Windows selection reports skipped signal proofs and retains all ordinary proofs; explicit signal selection directs the operator to Unix. | Exercise both platform branches and explicit/default selection on every host. Removing the Windows guard must fail. |
+| PRRT_kwDOTwgMRs61Cfj_ | Diagnostics survive every refusal after settings fallback. SDK errors retain the typed original cause plus a warning accessor. JSON refusals append published warning fields to the error envelope; text prints the warning before the refusal. | Seven SDK refusal types, valid/invalid stored settings, both encodings, unchanged non-git tracker bytes; expanded exact pinned-oracle matrix. Independently remove SDK propagation and CLI warning attachment. |
+| Latest review body: Windows performance descendants | Termination must cover the complete owned tree. Shared Windows interruption uses `taskkill /T /F`; inability to prove termination retains scratch inputs and fails explicitly. | Simulate the Windows process boundary on every host, checking complete-tree arguments and retained scratch on termination failure. Removing `/T` must fail. Native Windows execution remains a CI responsibility. |
+
+The class search covers every proof subprocess/copy/removal path, all authoritative
+snapshot consumers, settings-warning producers, SDK context evaluation and CLI
+error encodings. Runtime oracle junctions remain explicitly shared dependencies,
+separate from source mutation destinations. The crate is the shipped product;
+the private npm development package has no published native npm/Bun artifact or
+committed `dist/`. Existing real non-git CLI/SDK differential consumers remain
+mandatory; no tests, budgets, timeouts or coverage thresholds are relaxed.
+
+`node scripts/context-safety-revert.mts` requires the named assertion for each
+mutation, with a passing baseline and a passing restored control. All mutation
+and compiler output is confined to disposable copies. The earlier aggregate
+release gate exhausted its 3300-second cap during instrumented tests. Under the
+original task's runtime exception, ordinary tests and individual required gates
+run locally; full instrumented coverage remains a final-head CI requirement.
+
+Round-4 behavioral evidence: the managed PM test passed its original 13 mutations
+and 26 passing before/after controls (39 commands). The added Windows selection
+call and dependency-junction exclusion each passed an independent three-command
+control. `node scripts/context-review-revert.mts SIGTERM` passed six retained
+performance safety mutations with twelve passing controls (18 commands).
+Together these are 21 mutations, 42 passing controls and 63 commands. The
+canonical safety script includes all 15 new controls; the two late controls were
+executed separately rather than claiming a second full invocation.
+
+Round-4 final local validation:
+
+- `cargo test -j 2 --locked --lib --bins --test identity_audit --test release_pipeline_contract`:
+  411 library, 43 binary, 7 identity and 20 pipeline tests passed (481 total).
+- `cargo test -j 2 --locked --test orientation_differential context_invalid_stored_activity_limits_match_current_oracle`:
+  132 exact comparisons passed. The same command with
+  `PM_NODE_INTERPRETER=bun` independently passed all 132 comparisons.
+- `just crash-check`: TypeScript, ESLint, 116 Node tests (zero skipped), history
+  prefix verification and retained evidence-commit verification passed. After
+  adding the safety proof's own entry point to the shared property, the expanded
+  safety file independently passed all 24 tests. The separate
+  `node --test --test-concurrency=2 scripts/harness.test.mts` passed 27 tests.
+- Both new linked SDK/renderer tests passed via `pm test --run --match warning`.
+  Project run-artifact tracking remains disabled; PM comments retain the results.
+- Formatting, all-target warnings-denied Clippy, private-item rustdoc, dependency
+  audit and final TypeScript/ESLint checks passed. The dependency audit retains
+  its existing allowed unmaintained-dependency warning.
+- Strict self-host health passed with an isolated global environment. Existing
+  guidance, stale-item and historical provenance-domain advisories remain under
+  their existing tracker work; append-only history was not repaired or rewritten.
+- The earlier 55-minute aggregate timeout remains the runtime evidence for the
+  task's exception. This continuation does not claim a full local release gate,
+  full instrumented coverage, or native Windows interruption execution. Those
+  remain final-head CI/review requirements.
+
+The claim is released while the item remains in progress for orchestrator
+verification. `just changelog-full` and `just changelog-check` pass after the last
+tracker write; the generated changelog is unchanged.

@@ -315,16 +315,7 @@ fn run_with_io(
                 &now,
             )?;
             if let Some(warning) = result.settings_warning() {
-                if json {
-                    let payload = serde_json::json!({"type":"warning","warnings":["settings_read_invalid_schema"],"warning_details":[{"code":"settings_read_invalid_schema","message":warning}]});
-                    writeln!(
-                        std::io::stderr().lock(),
-                        "{}",
-                        pm_rust::stringify_json(&payload, false)
-                    )?;
-                } else {
-                    writeln!(std::io::stderr().lock(), "{warning}")?;
-                }
+                write_settings_warning_to(&mut std::io::stderr().lock(), warning, json)?;
             }
             write_search_to(&mut std::io::stdout().lock(), &result, json)?;
         }
@@ -1115,6 +1106,23 @@ fn main() -> ExitCode {
     match run(cli) {
         Ok(()) => ExitCode::SUCCESS,
         Err(error) => {
+            let settings_warning = error
+                .downcast_ref::<pm_rust::PmRustError>()
+                .and_then(pm_rust::PmRustError::settings_warning);
+            let args = published_read_arguments(std::env::args_os().skip(1));
+            if !json_requested(&args)
+                && let Some(warning) = settings_warning
+            {
+                let _ = write_settings_warning_to(&mut std::io::stderr().lock(), warning, false);
+            }
+            let error: &(dyn std::error::Error + 'static) =
+                if let Some(pm_rust::PmRustError::ContextSettingsFallback { source }) =
+                    error.downcast_ref::<pm_rust::PmRustError>()
+                {
+                    source.as_ref()
+                } else {
+                    error.as_ref()
+                };
             if let Some(refusal) = error.downcast_ref::<pm_rust::discovery::DiscoveryRefusal>() {
                 let payload = serde_json::json!({"ok":false,"refusal":refusal,"exit_code":2});
                 let _ = write_json_to(&mut std::io::stderr().lock(), &payload);
@@ -1153,7 +1161,8 @@ fn main() -> ExitCode {
             }) = error.downcast_ref::<pm_rust::PmRustError>()
             {
                 let args = published_read_arguments(std::env::args_os().skip(1));
-                let payload = command_error_json(detail, context, &args, *exit_code);
+                let mut payload = command_error_json(detail, context, &args, *exit_code);
+                attach_settings_warning(&mut payload, settings_warning);
                 let mut stderr = std::io::stderr().lock();
                 let _ = write_command_refusal_to(&mut stderr, detail, context, &args, &payload);
                 return ExitCode::from(*exit_code);
@@ -1209,7 +1218,8 @@ fn main() -> ExitCode {
                 error.downcast_ref::<pm_rust::PmRustError>()
             {
                 let args = published_read_arguments(std::env::args_os().skip(1));
-                let payload = cursor_error_json(code, detail, &args);
+                let mut payload = cursor_error_json(code, detail, &args);
+                attach_settings_warning(&mut payload, settings_warning);
                 let mut stderr = std::io::stderr().lock();
                 let _ = if json_requested(&args) {
                     write_json_to(&mut stderr, &payload)
@@ -2178,5 +2188,28 @@ fn append_budget_recovery(parts: &mut Vec<String>, recovery: &serde_json::Value)
             candidate["command"].as_str().unwrap_or_default(),
             candidate["reason"].as_str().unwrap_or_default()
         ));
+    }
+}
+
+/// Emit the same warning frame before either a successful context packet or its refusal.
+fn write_settings_warning_to(
+    writer: &mut dyn Write,
+    warning: &str,
+    json: bool,
+) -> std::io::Result<()> {
+    if json {
+        let payload = serde_json::json!({"type":"warning","warnings":["settings_read_invalid_schema"],"warning_details":[{"code":"settings_read_invalid_schema","message":warning}]});
+        writeln!(writer, "{}", pm_rust::stringify_json(&payload, false))
+    } else {
+        writeln!(writer, "{warning}")
+    }
+}
+
+/// Preserve warning details inside the published JSON refusal envelope.
+fn attach_settings_warning(payload: &mut serde_json::Value, warning: Option<&str>) {
+    if let Some(warning) = warning {
+        payload["warnings"] = serde_json::json!(["settings_read_invalid_schema"]);
+        payload["warning_details"] =
+            serde_json::json!([{"code":"settings_read_invalid_schema","message":warning}]);
     }
 }

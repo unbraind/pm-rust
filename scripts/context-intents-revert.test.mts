@@ -1,3 +1,4 @@
+import { syncSpawnBridge } from './context-test-process-shim.mts';
 import { assertNamedTests, copyWorkingTree, checkedGit, verifyMutation } from './context-revert-helpers.mts';
 import assert from 'node:assert/strict';
 import { spawnSync } from 'node:child_process';
@@ -102,6 +103,7 @@ childProcess.spawnSync = (command, args, options) => {
   if (options.env.PM_RUST_REQUIRE_PUBLISHED_CLI !== '1') throw new Error('oracle must be required');
   return { status: 101, stdout: 'test orientation_context::intent::tests::core_intent_boundaries_and_budget_receipts ... FAILED\\ntest result: FAILED\\n', stderr: 'oracle setup failed' };
 };
+${syncSpawnBridge}
 syncBuiltinESMExports();
 `);
     const childEnv = { ...process.env };
@@ -161,6 +163,7 @@ childProcess.spawnSync = (command, args, options) => {
   assert.equal(existsSync(join(options.cwd, 'deleted-dir')), false);
   throw new Error('live-copy control reached');
 };
+${syncSpawnBridge}
 syncBuiltinESMExports();
 `);
     const childEnv = { ...process.env };

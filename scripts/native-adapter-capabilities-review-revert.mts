@@ -1,8 +1,8 @@
+import { ProofProcesses, verifyAsyncMutation } from './context-proof-process.mts';
 /** Prove review regressions with independent behavior reverts in an isolated non-git copy. */
 import assert from 'node:assert/strict';
-import { assertNamedTests, verifyMutation } from './context-revert-helpers.mts';
-import { spawnSync } from 'node:child_process';
-import { cpSync, mkdirSync, mkdtempSync, readFileSync, rmSync, symlinkSync, writeFileSync } from 'node:fs';
+import { assertNamedTests } from './context-revert-helpers.mts';
+import { cpSync, mkdirSync, mkdtempSync, readFileSync, symlinkSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join, resolve } from 'node:path';
 
@@ -16,9 +16,10 @@ function replace(source: string, before: string, after: string): string {
   return source.replace(before, after);
 }
 
+const processes = new ProofProcesses();
 try {
   for (const name of ['Cargo.toml', 'Cargo.lock', 'build.rs', 'src', 'tests', 'scripts', 'examples']) {
-    cpSync(join(root, name), join(scratch, name), { recursive: true, filter: path => !path.split(/[\\/]/).includes('node_modules') });
+    cpSync(join(root, name), join(scratch, name), { recursive: true, dereference: true, filter: path => !path.split(/[\\/]/).includes('node_modules') });
   }
   // Only the already installed, pinned test oracle is shared; no build artifacts are shared.
   symlinkSync(join(root, 'tests/oracle/node_modules'), join(scratch, 'tests/oracle/node_modules'), 'dir');
@@ -28,11 +29,11 @@ try {
   const runner = join(scratch, 'scripts/native-adapter-capabilities-revert.mts');
   const runnerSource = readFileSync(runner, 'utf8');
   const nodeTests = join(scratch, 'scripts/native-adapter-capabilities-revert.test.mts');
-  const baseline = spawnSync(process.execPath, ['--test', '--test-reporter=tap', '--test-concurrency=2', nodeTests], { encoding: 'utf8', timeout: 60000 });
+  const baseline = await processes.run(process.execPath, ['--test', '--test-reporter=tap', '--test-concurrency=2', nodeTests], { cwd: scratch, timeout: 60000 });
   assertNamedTests(baseline, ['capability revert isolates checkout artifacts: existing'], false, true);
   writeFileSync(runner, runnerSource.replaceAll("CARGO_TARGET_DIR: join(scratch, 'target')", "CARGO_TARGET_DIR: join(root, 'target')"));
-  const isolation = spawnSync(process.execPath, ['--test', '--test-reporter=tap', '--test-concurrency=2', nodeTests], {
-    encoding: 'utf8', env: { PATH: process.env.PATH, HOME: process.env.HOME }, timeout: 60000,
+  const isolation = await processes.run(process.execPath, ['--test', '--test-reporter=tap', '--test-concurrency=2', nodeTests], {
+    cwd: scratch, env: { PATH: process.env.PATH, HOME: process.env.HOME }, timeout: 60000,
   });
   assertNamedTests(isolation, ['capability revert isolates checkout artifacts: existing'], true, true);
   assert.match(isolation.stdout, /sabotaged executable/);
@@ -44,8 +45,8 @@ try {
     const path = join(scratch, 'scripts', name);
     const fixed = readFileSync(path, 'utf8');
     writeFileSync(path, replace(fixed, "path.split(/[\\\\/]/)", "path.split('/')"));
-    const result = spawnSync(process.execPath, ['--test', '--test-reporter=tap', '--test-concurrency=2', '--test-name-pattern=capability copy filters', join(scratch, 'scripts/native-adapter-capabilities-revert.test.mts')], {
-      encoding: 'utf8', env: { PATH: process.env.PATH, HOME: process.env.HOME }, timeout: 60000,
+    const result = await processes.run(process.execPath, ['--test', '--test-reporter=tap', '--test-concurrency=2', '--test-name-pattern=capability copy filters', join(scratch, 'scripts/native-adapter-capabilities-revert.test.mts')], {
+      cwd: scratch, env: { PATH: process.env.PATH, HOME: process.env.HOME }, timeout: 60000,
     });
     assertNamedTests(result, [`capability copy filters both path separators: ${name}`], true, true);
     assert.match(result.stdout, /tests 2/);
@@ -97,9 +98,9 @@ try {
   for (const proof of cases) {
     writeFileSync(library, original);
     writeFileSync(mainPath, originalMain);
-    verifyMutation(reverted => {
-      const result = spawnSync('cargo', ['+1.90.0', 'test', '-j', '2', '--locked', ...proof.target, proof.test, '--', '--exact', '--test-threads=2'], {
-        cwd: scratch, env: childEnv, encoding: 'utf8', timeout: 900000, maxBuffer: 4 * 1024 * 1024,
+    await verifyAsyncMutation(async reverted => {
+      const result = await processes.run('cargo', ['+1.90.0', 'test', '-j', '2', '--locked', ...proof.target, proof.test, '--', '--exact', '--test-threads=2'], {
+        cwd: scratch, env: childEnv, timeout: 900000, maxBuffer: 4 * 1024 * 1024,
       });
       assertNamedTests(result, [proof.test], reverted);
     }, () => {
@@ -115,10 +116,12 @@ try {
   writeFileSync(mainPath, originalMain);
   // Rerun every affected Rust regression after restoring the implementation.
   for (const target of [['--lib', 'discovery::'], ['--test', 'capability_contract'], ['--bin', 'pm-rust', 'tests::capabilities_writer_refusals']]) {
-    const result = spawnSync('cargo', ['+1.90.0', 'test', '--locked', ...target, '--', '--test-threads=2'], {
-      cwd: scratch, env: childEnv, encoding: 'utf8', timeout: 900000, maxBuffer: 4 * 1024 * 1024,
+    const result = await processes.run('cargo', ['+1.90.0', 'test', '--locked', ...target, '--', '--test-threads=2'], {
+      cwd: scratch, env: childEnv, timeout: 900000, maxBuffer: 4 * 1024 * 1024,
     });
     assert.equal(result.status, 0, result.stderr);
     console.log(result.stdout.match(/test result: ok\..*/)?.[0]);
   }
-} finally { rmSync(scratch, { recursive: true, force: true }); }
+} catch (error) {
+  if (!processes.wasInterrupted) throw error;
+} finally { await processes.cleanup(scratch); }

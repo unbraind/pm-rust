@@ -2782,13 +2782,16 @@ fn context_invalid_stored_activity_limits_match_current_oracle() -> TestResult {
             vec![],
             vec!["--activity-limit", "0"],
             vec!["--activity-limit", "1"],
+            vec!["--activity-limit", "-1"],
+            vec!["--activity-limit", "bad"],
+            vec!["--token-budget", "bad"],
         ] {
             for encoding in [vec![], vec!["--json"]] {
                 let mut args = vec!["context", "--section", "activity"];
                 args.extend(&controls);
                 args.extend(&encoding);
                 let expected = oracle(&driver, root.path(), &args)?;
-                assert!(expected.status.success());
+
                 let actual = native(root.path(), &args)?;
                 compare(&expected, &actual, &args);
                 assert_eq!(fs::read(&path)?, before);

@@ -1,9 +1,9 @@
+import { ProofProcesses, verifyAsyncMutation } from './context-proof-process.mts';
 import assert from 'node:assert/strict';
-import { spawnSync } from 'node:child_process';
-import { cpSync, mkdtempSync, readFileSync, rmSync, symlinkSync, writeFileSync } from 'node:fs';
+import { cpSync, mkdtempSync, readFileSync, symlinkSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join, resolve } from 'node:path';
-import { assertNamedTests, verifyMutation } from './context-revert-helpers.mts';
+import { assertNamedTests } from './context-revert-helpers.mts';
 
 const root = resolve(import.meta.dirname, '..');
 const scratch = mkdtempSync(join(tmpdir(), 'native-adapter-revert-'));
@@ -11,8 +11,9 @@ const scratch = mkdtempSync(join(tmpdir(), 'native-adapter-revert-'));
 const abi = join(scratch, 'src/native_adapter.rs');
 const cli = join(scratch, 'src/main.rs');
 const strict = join(scratch, 'src/strict_json.rs');
+const processes = new ProofProcesses();
 try {
-for (const name of ['Cargo.toml', 'Cargo.lock', 'build.rs', 'src', 'tests', 'examples']) cpSync(join(root, name), join(scratch, name), { recursive: true, filter: path => !path.split(/[\\/]/).includes('node_modules') });
+for (const name of ['Cargo.toml', 'Cargo.lock', 'build.rs', 'src', 'tests', 'examples']) cpSync(join(root, name), join(scratch, name), { recursive: true, dereference: true, filter: path => !path.split(/[\\/]/).includes('node_modules') });
 for (const oracle of ['oracle', 'orientation-oracle']) symlinkSync(join(root, 'tests', oracle, 'node_modules'), join(scratch, 'tests', oracle, 'node_modules'), 'junction');
 const originals = new Map([abi, cli, strict].map(path => [path, readFileSync(path, 'utf8')]));
 const strictBefore = '    let mut reader = serde_json::Deserializer::from_slice(bytes);\n    let StrictValue(value) = StrictValue::deserialize(&mut reader)?;\n    reader.end()?;\n    serde_json::from_value(value)';
@@ -44,14 +45,16 @@ const cases = [
     const original = originals.get(proof.path);
     assert.ok(original);
     assert.equal(original.split(proof.before).length, 2, `Unique behavioral edit required: ${proof.name}`);
-    verifyMutation(reverted => {
-      const result = spawnSync('cargo', ['+1.90.0', 'test', '-j', '2', '--locked', ...proof.target, proof.test, '--', '--exact', '--test-threads=2'], {
-        cwd: scratch, env: { ...process.env, CARGO_BUILD_JOBS: '2', RUST_TEST_THREADS: '2', CARGO_TARGET_DIR: join(scratch, 'target') }, encoding: 'utf8', maxBuffer: 4 * 1024 * 1024,
+    await verifyAsyncMutation(async reverted => {
+      const result = await processes.run('cargo', ['+1.90.0', 'test', '-j', '2', '--locked', ...proof.target, proof.test, '--', '--exact', '--test-threads=2'], {
+        cwd: scratch, env: { ...process.env, CARGO_BUILD_JOBS: '2', RUST_TEST_THREADS: '2', CARGO_TARGET_DIR: join(scratch, 'target') }, maxBuffer: 4 * 1024 * 1024,
       });
       assertNamedTests(result, [proof.test], reverted);
     }, () => writeFileSync(proof.path, original.replace(proof.before, proof.after)), () => writeFileSync(proof.path, original));
     console.log(JSON.stringify({ behavior: proof.name, test: proof.test, failed_as_required: true }));
   }
+} catch (error) {
+  if (!processes.wasInterrupted) throw error;
 } finally {
-  rmSync(scratch, { recursive: true, force: true });
+  await processes.cleanup(scratch);
 }

@@ -1,3 +1,4 @@
+import { syncSpawnBridge } from './context-test-process-shim.mts';
 /** Exercise the revert runner's real subprocess and artifact boundary without compiling Rust. */
 import assert from 'node:assert/strict';
 import { spawnSync } from 'node:child_process';
@@ -47,7 +48,7 @@ for (const mode of ['existing', 'absent', 'first-failure', 'second-failure']) {
       writeFileSync(join(root, 'src/main.rs'), '/* fixture */\nfn write_discovery_to() {\n    fixed()\n}\n');
       const runner = join(root, 'scripts/native-adapter-capabilities-revert.mts');
       writeFileSync(runner, readFileSync(new URL('./native-adapter-capabilities-revert.mts', import.meta.url)));
-      writeFileSync(join(root, 'scripts/context-revert-helpers.mts'), readFileSync(new URL('./context-revert-helpers.mts', import.meta.url)));
+      for (const helper of ['context-revert-helpers.mts', 'context-proof-process.mts']) writeFileSync(join(root, 'scripts', helper), readFileSync(new URL(helper, import.meta.url)));
       const binary = join(root, 'target/debug/pm-rust');
       if (mode !== 'absent') writeFileSync(binary, 'fixed executable');
       // A fragment marker also catches path-as-specifier bugs on POSIX hosts.
@@ -66,6 +67,7 @@ const fail = ${JSON.stringify(mode)} === (delivery ? 'second-failure' : 'first-f
 const mutated = readFileSync(join(options.cwd, delivery ? 'src/main.rs' : 'src/discovery.rs'), 'utf8').includes(delivery ? 'let _ = (writer' : 'let _ = request');
 return {status:mutated && !fail ? 101 : 0, stderr:'', stdout:'test ' + (delivery ? 'tests::capabilities_writer_refusals' : 'discovery_is_complete_bounded_and_tracker_free') + ' ... ' + (mutated && !fail ? 'FAILED' : 'ok')};
 };
+${syncSpawnBridge}
 syncBuiltinESMExports();
 `);
       const childEnv: NodeJS.ProcessEnv = { HOME: scratch };

@@ -57,10 +57,22 @@ export function checkedGit(root: string, args: string[], message: string): strin
 export function copyWorkingTree(source: string, scratch: string): void {
   const files = checkedGit(source, ['ls-files', '--cached', '--others', '--exclude-standard', '-z'], 'Cannot enumerate package source');
   for (const file of new Set(files.split('\0').filter(Boolean))) {
+    if (file.split(/[\\/]/).includes('node_modules')) continue;
     const input = join(source, file);
     if (!lstatSync(input, { throwIfNoEntry: false })) continue;
     const target = join(scratch, file);
     mkdirSync(dirname(target), { recursive: true });
-    cpSync(input, target, { verbatimSymlinks: true });
+    cpSync(input, target, { dereference: true, recursive: true, filter: path => !path.split(/[\\/]/).includes('node_modules') });
   }
+}
+
+/** Filter platform-specific proof contracts before baseline checks, with an explicit skip receipt. */
+export function supportedProofs<T extends { test: string }>(proofs: T[], selected?: string, platform: NodeJS.Platform = process.platform, report: (message: string) => void = console.log): T[] {
+  return proofs.filter(proof => {
+    if (selected && !proof.test.includes(selected)) return false;
+    if (platform !== 'win32' || !/\bSIG(?:INT|TERM)\b/.test(proof.test)) return true;
+    if (selected) throw new Error('Selected signal proof requires a Unix host');
+    report(JSON.stringify({ skipped: proof.test, reason: 'Signal proof requires a Unix host' }));
+    return false;
+  });
 }

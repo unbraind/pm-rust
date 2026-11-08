@@ -1120,10 +1120,6 @@ impl Workspace {
         now: &str,
         global: Option<std::path::PathBuf>,
     ) -> Result<ListOutput, PmRustError> {
-        let original = options;
-        let mut prepared = options.clone();
-        let intent = intent::prepare(self, &mut prepared, global.as_deref())?;
-        let options = &prepared;
         let mut settings = crate::ownership::runtime_settings(self.pm_root())?;
         if settings
             .get("context")
@@ -1136,6 +1132,32 @@ impl Workspace {
             ));
         }
         let settings_fallback = sections::settings_fallback(&mut settings);
+        self.context_with_settings(options, now, global, settings, settings_fallback)
+            .map_err(|error| {
+                if settings_fallback {
+                    PmRustError::ContextSettingsFallback {
+                        source: Box::new(error),
+                    }
+                } else {
+                    error
+                }
+            })
+    }
+
+    /// Evaluate one context request using the captured settings and warning policy.
+    #[allow(clippy::too_many_lines)]
+    fn context_with_settings(
+        &self,
+        options: &ContextOptions,
+        now: &str,
+        global: Option<std::path::PathBuf>,
+        mut settings: Value,
+        settings_fallback: bool,
+    ) -> Result<ListOutput, PmRustError> {
+        let original = options;
+        let mut prepared = options.clone();
+        let intent = intent::prepare(self, &mut prepared, global.as_deref())?;
+        let options = &prepared;
         let depth = trim_control(
             options
                 .depth
