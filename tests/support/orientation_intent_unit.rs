@@ -119,3 +119,51 @@ fn core_intent_boundaries_and_budget_receipts() -> Result<(), Box<dyn std::error
     assert!(prepare(&workspace, &mut options, Some(&global)).is_err());
     Ok(())
 }
+
+/// Removing a temporary row contract recomputes feasibility across each declared ceiling.
+#[test]
+fn retained_context_intent_feasibility_matches_projection() -> Result<(), Box<dyn std::error::Error>>
+{
+    let root = tempfile::tempdir()?;
+    let pm = root.path().join(".agents/pm");
+    fs::create_dir_all(pm.join("tasks"))?;
+    fs::write(pm.join("settings.json"), "{}")?;
+    let workspace = Workspace::discover(root.path())?;
+    for name in ["orient", "handoff"] {
+        for toon in [false, true] {
+            let original = ContextOptions {
+                intent: Some(name.into()),
+                token_budget: Some("50000".into()),
+                toon,
+                ..Default::default()
+            };
+            let intent = prepare(&workspace, &mut original.clone(), None)?.ok_or("intent")?;
+            let mut feasible = 0;
+            let mut infeasible = 0;
+            for count in 40..100 {
+                let result = intent.attach(
+                    json!({"filters":{},"payload":vec!["x".repeat(130); count]}).into(),
+                    &original,
+                );
+                let measured = read_output::estimate(&result, false);
+                assert_eq!(result["context_intent"]["estimated_tokens"], measured);
+                let expected = measured <= intent.declared;
+                assert_eq!(
+                    result["context_intent"]["declaration_feasible"], expected,
+                    "{name}, toon={toon}, count={count}"
+                );
+                if expected {
+                    feasible += 1;
+                } else {
+                    infeasible += 1;
+                }
+                assert!(result.get("row_contract").is_none());
+            }
+            assert!(
+                feasible > 0 && infeasible > 0,
+                "must cross the declaration boundary"
+            );
+        }
+    }
+    Ok(())
+}

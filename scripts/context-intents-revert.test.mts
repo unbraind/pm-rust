@@ -1,10 +1,10 @@
-import { checkedGit } from './context-revert-helpers.mts';
+import { assertNamedTests, checkedGit, verifyMutation } from './context-revert-helpers.mts';
 import assert from 'node:assert/strict';
 import { spawnSync } from 'node:child_process';
 import { mkdirSync, mkdtempSync, rmSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
-import { fileURLToPath } from 'node:url';
+import { fileURLToPath, pathToFileURL } from 'node:url';
 import test from 'node:test';
 
 /** Both missing oracle installations fail before source copying or compilation. */
@@ -40,4 +40,78 @@ test('revert Git failures preserve diagnostics for source scans and patch checks
   } finally {
     rmSync(root, { recursive: true, force: true });
   }
+});
+
+/** Proof admission requires the selected test in both control and mutation runs. */
+test('revert proof rejects unrelated failures skipped tests and invalid controls', () => {
+  for (const node of [false, true]) {
+    for (const name of ['selected', 'name.with[regex](characters)', 'preflight names setup']) {
+      for (const reverted of [false, true]) {
+        const line = node ? `${reverted ? 'not ok' : 'ok'} 1 - ${name}` : `test ${name} ... ${reverted ? 'FAILED' : 'ok'}`;
+        const status = reverted ? (node ? 1 : 101) : 0;
+        const valid = { status, stdout: `${line}\n`, stderr: '' };
+        assertNamedTests(valid, [name], reverted, node);
+        for (const invalid of [
+          { ...valid, stdout: line.replace(name, 'unrelated') },
+          { ...valid, stdout: `${line} # SKIP unavailable\n` },
+          { ...valid, stdout: `${line} # TODO unavailable\n` },
+          { ...valid, stdout: '' },
+          { ...valid, status: null },
+          { ...valid, stderr: 'could not compile' },
+          { ...valid, error: new Error('spawn failed') },
+        ]) assert.throws(() => assertNamedTests(invalid, [name], reverted, node));
+      }
+    }
+  }
+  const events: string[] = [];
+  assert.throws(() => verifyMutation(() => { throw new Error('baseline setup failure'); }, () => events.push('mutate'), () => events.push('restore')));
+  assert.equal(events.length, 0, 'a failing baseline must prevent mutation');
+  verifyMutation(reverted => events.push(reverted ? 'fail selected' : 'pass selected'), () => events.push('mutate'), () => events.push('restore'));
+  assert.deepEqual(events, ['pass selected', 'mutate', 'fail selected', 'restore', 'pass selected']);
+  events.length = 0;
+  assert.throws(() => verifyMutation(reverted => { if (reverted) throw new Error('wrong failure'); }, () => events.push('mutate'), () => events.push('restore')));
+  assert.deepEqual(events, ['mutate', 'restore']);
+});
+
+/** Just's dependency graph installs imported runtime modules before standalone harness checks. */
+test('standalone harness check installs the orientation oracle first', () => {
+  const result = spawnSync('just', ['--dump', '--dump-format', 'json'], {
+    cwd: fileURLToPath(new URL('..', import.meta.url)), encoding: 'utf8', timeout: 10_000,
+  });
+  assert.ifError(result.error);
+  assert.equal(result.status, 0, result.stderr);
+  const manifest = JSON.parse(result.stdout) as { recipes: Record<string, { dependencies: { recipe: string }[] }> };
+  const dependencies = (recipe: string): string[] => manifest.recipes[recipe].dependencies.flatMap(dependency => [dependency.recipe, ...dependencies(dependency.recipe)]);
+  for (const recipe of ['crash-check', 'orientation-revert-proof']) {
+    for (const oracle of ['oracle-install', 'orientation-oracle-install']) {
+      assert.ok(dependencies(recipe).includes(oracle), `${recipe} must install ${oracle}`);
+    }
+  }
+});
+
+/** Exercise the actual runner: a broken oracle/control cannot be certified as a mutation. */
+test('intent runner rejects setup failures before certifying a mutation', () => {
+  const scratch = mkdtempSync(join(tmpdir(), 'pm-context-baseline-'));
+  try {
+    const shim = join(scratch, 'cargo-shim.mjs');
+    writeFileSync(shim, `import childProcess from 'node:child_process';
+import { syncBuiltinESMExports } from 'node:module';
+const original = childProcess.spawnSync;
+childProcess.spawnSync = (command, args, options) => {
+  if (command !== 'cargo') return original(command, args, options);
+  if (options.env.PM_RUST_REQUIRE_PUBLISHED_CLI !== '1') throw new Error('oracle must be required');
+  return { status: 101, stdout: 'test orientation_context::intent::tests::core_intent_boundaries_and_budget_receipts ... FAILED\\ntest result: FAILED\\n', stderr: 'oracle setup failed' };
+};
+syncBuiltinESMExports();
+`);
+    const childEnv = { ...process.env };
+    delete childEnv.NODE_TEST_CONTEXT;
+    const result = spawnSync(process.execPath, ['--import', pathToFileURL(shim).href, fileURLToPath(new URL('./context-intents-revert.mts', import.meta.url))], {
+      cwd: fileURLToPath(new URL('..', import.meta.url)), env: childEnv, encoding: 'utf8', timeout: 30_000,
+    });
+    assert.ifError(result.error);
+    assert.equal(result.status, 1);
+    assert.match(result.stderr, /Unexpected test exit status/);
+    assert.ok(!result.stdout.includes('"reverted":true'), 'setup failures cannot certify a behavioral revert');
+  } finally { rmSync(scratch, { recursive: true, force: true }); }
 });

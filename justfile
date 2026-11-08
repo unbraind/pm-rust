@@ -50,7 +50,7 @@ orientation-check: oracle-install
     RUST_TEST_THREADS=2 PM_RUST_REQUIRE_PUBLISHED_CLI=1 cargo test -j 2 --locked --test orientation_differential
 
 # Prove the new intent tests reject the previous behavior in a disposable copy.
-orientation-revert-proof:
+orientation-revert-proof: oracle-install
     node scripts/context-intents-revert.mts
 
 # Run the standalone typed crash-conformance CLI (Linux and strace required).
@@ -59,7 +59,7 @@ crash *args:
     node scripts/crash-cli.mts "$@"
 
 # Targeted TypeScript harness checks; Rust tests/build remain separate.
-crash-check:
+crash-check: oracle-install
     npm ci --prefix tests/harness --ignore-scripts
     tests/harness/node_modules/.bin/tsc -p tests/harness/tsconfig.json
     tests/harness/node_modules/.bin/eslint -c tests/harness/eslint.config.mjs scripts/crash-*.mts scripts/native-adapter-*.mts scripts/context-*.mts

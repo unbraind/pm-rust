@@ -1,10 +1,16 @@
 import { execFile, type ChildProcess } from 'node:child_process';
 import { createHash } from 'node:crypto';
-import { mkdirSync, readFileSync, writeFileSync } from 'node:fs';
+import { cpSync, mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
+import { tmpdir } from 'node:os';
 import { dirname, join } from 'node:path';
 import { fileURLToPath } from 'node:url';
 
-const repo = join(dirname(fileURLToPath(import.meta.url)), '..');
+const sourceRoot = join(dirname(fileURLToPath(import.meta.url)), '..');
+const repo = mkdtempSync(join(tmpdir(), 'pm-perf-revert-'));
+process.on('exit', () => rmSync(repo, { recursive: true, force: true }));
+for (const name of ['Cargo.toml', 'Cargo.lock', 'build.rs', 'src', 'tests', 'examples']) {
+  cpSync(join(sourceRoot, name), join(repo, name), { recursive: true, filter: path => !path.split(/[\\/]/).includes('node_modules') });
+}
 const ownershipPath = join(repo, 'src/ownership.rs');
 const mutationPath = join(repo, 'src/mutation.rs');
 const originalOwnership = readFileSync(ownershipPath, 'utf8');
@@ -36,9 +42,9 @@ let activeChild: ChildProcess | undefined;
 
 /** Execute a real regression, distinguishing its assertion from compiler or tool failures. */
 async function run(test: { name: string; failure: string }, reverted: boolean): Promise<void> {
-  const args = ['+1.90.0', 'test', '--quiet', '--locked', '--lib', test.name];
+  const args = ['+1.90.0', 'test', '-j', '2', '--quiet', '--locked', '--lib', test.name, '--', '--exact', '--test-threads=2'];
   const child = await new Promise<{ status: number; stdout: string }>((resolve, reject) => {
-    activeChild = execFile('cargo', args, { cwd: repo, encoding: 'utf8', maxBuffer: 16 * 1024 * 1024 }, (error, stdout) => {
+    activeChild = execFile('cargo', args, { cwd: repo, env: { ...process.env, CARGO_BUILD_JOBS: '2', RUST_TEST_THREADS: '2', CARGO_TARGET_DIR: join(repo, 'target') }, encoding: 'utf8', maxBuffer: 16 * 1024 * 1024 }, (error, stdout) => {
       activeChild = undefined;
       if (error?.signal === 'SIGINT' || error?.signal === 'SIGTERM') interrupt(error.signal);
       if (error && (typeof error.code !== 'number' || error.signal || error.killed)) {
@@ -73,6 +79,8 @@ for (const signal of ['SIGINT', 'SIGTERM'] as const) {
   process.on(signal, () => interrupt(signal));
 }
 
+for (const test of cases) await run(test, false);
+
 try {
   // Keep the test observations and all safety checks. Revert only the two
   // optimized behaviors: full payload retention and per-entry metadata work.
@@ -86,8 +94,8 @@ for (const test of cases) await run(test, false);
 if (readFileSync(ownershipPath, 'utf8') !== originalOwnership || readFileSync(mutationPath, 'utf8') !== originalMutation) {
   throw new Error('Candidate source bytes were not restored');
 }
-mkdirSync(join(repo, 'target'), { recursive: true });
-writeFileSync(join(repo, 'target/native-revert-proof.json'), `${JSON.stringify({
+mkdirSync(join(sourceRoot, 'target'), { recursive: true });
+writeFileSync(join(sourceRoot, 'target/native-revert-proof.json'), `${JSON.stringify({
   complete: true, candidate_commit: process.env.BENCH_HEAD_SHA ?? null,
   source_restored: true, source_sha256: {
     ownership: createHash('sha256').update(originalOwnership).digest('hex'),

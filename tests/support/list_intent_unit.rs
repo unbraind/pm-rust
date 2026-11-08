@@ -172,3 +172,38 @@ fn cursor_intents_disclose_effective_infeasibility_without_losing_metadata() {
     );
     assert_eq!(result["context_intent"]["result_omitted"], true);
 }
+
+/// The list intent obeys the same retained-projection feasibility rule as context intents.
+#[test]
+fn retained_list_intent_feasibility_matches_projection() {
+    for toon in [false, true] {
+        let options = ListOptions {
+            intent: Some("triage".into()),
+            token_budget: Some("50000".into()),
+            toon,
+            ..Default::default()
+        };
+        let mut feasible = 0;
+        let mut infeasible = 0;
+        for count in 60..110 {
+            let result = super::attach(
+                json!({"items":[],"payload":vec!["x".repeat(130);count]}),
+                &options,
+                50000,
+            );
+            let measured = crate::read_output::estimate(&result, false);
+            assert_eq!(result["context_intent"]["estimated_tokens"], measured);
+            let expected = measured <= 3200;
+            assert_eq!(
+                result["context_intent"]["declaration_feasible"], expected,
+                "toon={toon}, count={count}"
+            );
+            if expected {
+                feasible += 1;
+            } else {
+                infeasible += 1;
+            }
+        }
+        assert!(feasible > 0 && infeasible > 0);
+    }
+}

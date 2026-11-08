@@ -278,7 +278,7 @@ impl Intent {
                 .value
                 .as_object_mut()
                 .map(|map| map.shift_remove("row_contract"));
-            read_output::update(&mut result, "context_intent", false);
+            read_output::stabilize_intent(&mut result);
         }
         result
     }

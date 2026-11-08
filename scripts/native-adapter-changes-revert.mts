@@ -1,5 +1,6 @@
 /** Behavioral regressions run only in an owned disposable copy, never the reviewed checkout. */
 import assert from 'node:assert/strict';
+import { assertNamedTests } from './context-revert-helpers.mts';
 import { spawn } from 'node:child_process';
 import { cpSync, mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
@@ -67,7 +68,7 @@ async function revertedTest(test: string, childEnv: NodeJS.ProcessEnv): Promise<
 }
 
 try {
-  for (const path of ['Cargo.toml','Cargo.lock','build.rs','src']) cpSync(join(root,path),join(scratch,path),{recursive:true});
+  for (const path of ['Cargo.toml','Cargo.lock','build.rs','src','examples']) cpSync(join(root,path),join(scratch,path),{recursive:true});
   mkdirSync(join(scratch,'tests'));
   for (const path of ['support','fixtures']) cpSync(join(root,'tests',path),join(scratch,'tests',path),{recursive:true});
   const original=readFileSync(source,'utf8');
@@ -77,17 +78,18 @@ try {
     if (value!==undefined) childEnv[name]=value;
   }
 
-  childEnv.CARGO_TARGET_DIR=join(root,'target');
+  childEnv.CARGO_TARGET_DIR=join(scratch,'target');
   childEnv.CARGO_BUILD_JOBS='2';
   childEnv.PM_SENTRY_DISABLED='1';
   childEnv.PM_TELEMETRY_SOURCE_CONTEXT='test';
   for (const proof of proofs) {
     assert.equal(original.split(proof.before).length,2,`unique behavioral change: ${proof.name}`);
-    writeFileSync(source,original.replace(proof.before,proof.after));
-    const result=await revertedTest(proof.test,childEnv);
-    assert.equal(result.error,undefined,`${proof.name} must finish within its bounded compilation window`);
-    assert.notEqual(result.status,0,`${proof.name} must fail`);
-    assert.match(result.stdout,/test result: FAILED/u,`compile/launch failures are not revert proof: ${result.stderr}`);
+    assertNamedTests(await revertedTest(proof.test,childEnv), [`changes::tests::${proof.test}`], false);
+    try {
+      writeFileSync(source,original.replace(proof.before,proof.after));
+      assertNamedTests(await revertedTest(proof.test,childEnv), [`changes::tests::${proof.test}`], true);
+    } finally { writeFileSync(source,original); }
+    assertNamedTests(await revertedTest(proof.test,childEnv), [`changes::tests::${proof.test}`], false);
     console.log(JSON.stringify({behavior:proof.name,test:proof.test,failed_as_required:true}));
   }
 } finally { rmSync(scratch,{recursive:true,force:true}); }

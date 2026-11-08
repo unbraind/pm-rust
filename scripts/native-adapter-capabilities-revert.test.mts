@@ -41,19 +41,20 @@ for (const mode of ['existing', 'absent', 'first-failure', 'second-failure']) {
     const scratch = mkdtempSync(join(tmpdir(), 'capability-runner-test-'));
     try {
       const root = join(scratch, 'repo');
-      for (const name of ['scripts', 'src', 'tests', 'target/debug']) mkdirSync(join(root, name), { recursive: true });
+      for (const name of ['scripts', 'src', 'tests', 'examples', 'target/debug']) mkdirSync(join(root, name), { recursive: true });
       for (const name of ['Cargo.toml', 'Cargo.lock', 'build.rs']) writeFileSync(join(root, name), 'fixture');
       writeFileSync(join(root, 'src/discovery.rs'), '/* fixture */\npub fn discover_capabilities() {\n    fixed()\n}\n');
       writeFileSync(join(root, 'src/main.rs'), '/* fixture */\nfn write_discovery_to() {\n    fixed()\n}\n');
       const runner = join(root, 'scripts/native-adapter-capabilities-revert.mts');
       writeFileSync(runner, readFileSync(new URL('./native-adapter-capabilities-revert.mts', import.meta.url)));
+      writeFileSync(join(root, 'scripts/context-revert-helpers.mts'), readFileSync(new URL('./context-revert-helpers.mts', import.meta.url)));
       const binary = join(root, 'target/debug/pm-rust');
       if (mode !== 'absent') writeFileSync(binary, 'fixed executable');
       // A fragment marker also catches path-as-specifier bugs on POSIX hosts.
       const shim = join(scratch, 'cargo # shim.mjs');
       writeFileSync(shim, `import childProcess from 'node:child_process';
 import { syncBuiltinESMExports } from 'node:module';
-import { mkdirSync, writeFileSync } from 'node:fs';
+import { mkdirSync, readFileSync, writeFileSync } from 'node:fs';
 import { join } from 'node:path';
 childProcess.spawnSync = (command, args, options) => {
 if (command !== 'cargo') throw new Error('unexpected tool');
@@ -62,7 +63,8 @@ mkdirSync(join(target, 'debug'), {recursive:true});
 writeFileSync(join(target, 'debug/pm-rust'), 'sabotaged executable');
 const delivery = args.includes('--bin');
 const fail = ${JSON.stringify(mode)} === (delivery ? 'second-failure' : 'first-failure');
-return {status:fail ? 0 : 101, stderr:'', stdout:'test ' + (delivery ? 'tests::capabilities_writer_refusals' : 'discovery_is_complete_bounded_and_tracker_free') + ' ... ' + (fail ? 'ok' : 'FAILED')};
+const mutated = readFileSync(join(options.cwd, delivery ? 'src/main.rs' : 'src/discovery.rs'), 'utf8').includes(delivery ? 'let _ = (writer' : 'let _ = request');
+return {status:mutated && !fail ? 101 : 0, stderr:'', stdout:'test ' + (delivery ? 'tests::capabilities_writer_refusals' : 'discovery_is_complete_bounded_and_tracker_free') + ' ... ' + (mutated && !fail ? 'FAILED' : 'ok')};
 };
 syncBuiltinESMExports();
 `);

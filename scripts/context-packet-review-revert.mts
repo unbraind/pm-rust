@@ -1,4 +1,4 @@
-import { checkedGit } from './context-revert-helpers.mts';
+import { assertNamedTests, checkedGit, verifyMutation } from './context-revert-helpers.mts';
 import { spawnSync } from 'node:child_process';
 import { cpSync, mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
@@ -9,13 +9,9 @@ function check(root: string, name: string, reverted: boolean): void {
   const command = ['test', '-j', '2', '--locked', '--lib', name];
   const result = spawnSync('cargo', command, {
     cwd: root, encoding: 'utf8', maxBuffer: 16 * 1024 * 1024,
-    env: { ...process.env, CARGO_BUILD_JOBS: '2', RUST_TEST_THREADS: '2' },
+    env: { ...process.env, CARGO_BUILD_JOBS: '2', RUST_TEST_THREADS: '2', CARGO_TARGET_DIR: join(root, 'target') },
   });
-  const output = `${result.stdout}\n${result.stderr}`;
-  const valid = reverted
-    ? result.status !== 0 && output.includes('test result: FAILED') && output.includes(`${name} ... FAILED`)
-    : result.status === 0 && output.includes('1 passed; 0 failed');
-  if (result.error || !valid) throw new Error(`Packet review proof failed: ${name}, reverted=${reverted}`);
+  assertNamedTests(result, [`orientation_deps::packet::tests::${name}`], reverted);
   console.log(JSON.stringify({ command: ['cargo', ...command], reverted, result: reverted ? 'named assertion failure' : 'pass' }));
 }
 
@@ -46,14 +42,9 @@ try {
   ];
   for (const mutation of mutations) {
     if (!fixed.includes(mutation.before)) throw new Error(`Cannot locate mutation for ${mutation.name}`);
-    check(scratch, mutation.name, false);
-    try {
-      writeFileSync(path, fixed.replace(mutation.before, mutation.after));
-      check(scratch, mutation.name, true);
-    } finally {
-      writeFileSync(path, fixed);
-    }
-    check(scratch, mutation.name, false);
+    verifyMutation(reverted => check(scratch, mutation.name, reverted),
+      () => writeFileSync(path, fixed.replace(mutation.before, mutation.after)),
+      () => writeFileSync(path, fixed));
   }
   const patch = join(scratch, 'tests/fixtures/orientation-packet-root-priority.patch');
   checkedGit(scratch, ['apply', '--reverse', '--check', patch], 'The retained packet behavior revert fixture no longer applies');

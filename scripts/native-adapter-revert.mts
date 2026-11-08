@@ -1,10 +1,19 @@
 import assert from 'node:assert/strict';
 import { spawnSync } from 'node:child_process';
-import { readFileSync, writeFileSync } from 'node:fs';
+import { cpSync, mkdtempSync, readFileSync, rmSync, symlinkSync, writeFileSync } from 'node:fs';
+import { tmpdir } from 'node:os';
+import { join, resolve } from 'node:path';
+import { assertNamedTests, verifyMutation } from './context-revert-helpers.mts';
 
-const abi = new URL('../src/native_adapter.rs', import.meta.url);
-const cli = new URL('../src/main.rs', import.meta.url);
-const strict = new URL('../src/strict_json.rs', import.meta.url);
+const root = resolve(import.meta.dirname, '..');
+const scratch = mkdtempSync(join(tmpdir(), 'native-adapter-revert-'));
+
+const abi = join(scratch, 'src/native_adapter.rs');
+const cli = join(scratch, 'src/main.rs');
+const strict = join(scratch, 'src/strict_json.rs');
+try {
+for (const name of ['Cargo.toml', 'Cargo.lock', 'build.rs', 'src', 'tests', 'examples']) cpSync(join(root, name), join(scratch, name), { recursive: true, filter: path => !path.split(/[\\/]/).includes('node_modules') });
+for (const oracle of ['oracle', 'orientation-oracle']) symlinkSync(join(root, 'tests', oracle, 'node_modules'), join(scratch, 'tests', oracle, 'node_modules'), 'junction');
 const originals = new Map([abi, cli, strict].map(path => [path, readFileSync(path, 'utf8')]));
 const strictBefore = '    let mut reader = serde_json::Deserializer::from_slice(bytes);\n    let StrictValue(value) = StrictValue::deserialize(&mut reader)?;\n    reader.end()?;\n    serde_json::from_value(value)';
 const strictAfter = '    serde_json::from_slice(bytes)';
@@ -25,23 +34,24 @@ const cases = [
     before: '    let discover = || Workspace::discover(&cli.workspace);',
     after: '    Workspace::discover(&cli.workspace)?;\n    let discover = || Workspace::discover(&cli.workspace);' },
   { path: cli, target: ['--bin', 'pm-rust'], name: 'CLI flush failure', test: 'tests::native_adapter_stdio_refusals',
-    before: '    writer.flush()?;\n    Ok(())\n}\n\n/// Dispatches one parsed command',
-    after: '    let _ = writer.flush();\n    Ok(())\n}\n\n/// Dispatches one parsed command' },
+    before: '    writer.flush()?;\n    Ok(())\n}\n\n/// Renders an admitted response',
+    after: '    let _ = writer.flush();\n    Ok(())\n}\n\n/// Renders an admitted response' },
 ];
-try {
-  for (const proof of cases) {
+  const selected = process.argv[2];
+  const proofs = cases.filter(proof => selected === undefined || proof.name === selected);
+  assert.ok(proofs.length > 0, 'Unknown adapter proof name');
+  for (const proof of proofs) {
     const original = originals.get(proof.path);
     assert.ok(original);
     assert.equal(original.split(proof.before).length, 2, `Unique behavioral edit required: ${proof.name}`);
-    writeFileSync(proof.path, original.replace(proof.before, proof.after));
-    const result = spawnSync('cargo', ['test', '--locked', ...proof.target, proof.test, '--', '--exact'], {
-      env: { ...process.env, CARGO_BUILD_JOBS: '1' }, encoding: 'utf8', maxBuffer: 4 * 1024 * 1024,
-    });
-    assert.notEqual(result.status, 0, `${proof.name} must fail when behavior is reverted`);
-    assert.match(result.stdout, /test result: FAILED/, 'A compile or launch failure is not revert proof');
+    verifyMutation(reverted => {
+      const result = spawnSync('cargo', ['+1.90.0', 'test', '-j', '2', '--locked', ...proof.target, proof.test, '--', '--exact', '--test-threads=2'], {
+        cwd: scratch, env: { ...process.env, CARGO_BUILD_JOBS: '2', RUST_TEST_THREADS: '2', CARGO_TARGET_DIR: join(scratch, 'target') }, encoding: 'utf8', maxBuffer: 4 * 1024 * 1024,
+      });
+      assertNamedTests(result, [proof.test], reverted);
+    }, () => writeFileSync(proof.path, original.replace(proof.before, proof.after)), () => writeFileSync(proof.path, original));
     console.log(JSON.stringify({ behavior: proof.name, test: proof.test, failed_as_required: true }));
-    writeFileSync(proof.path, original);
   }
 } finally {
-  for (const [path, original] of originals) writeFileSync(path, original);
+  rmSync(scratch, { recursive: true, force: true });
 }

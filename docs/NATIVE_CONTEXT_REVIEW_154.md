@@ -67,3 +67,38 @@ PM_NODE_INTERPRETER=bun cargo test -j 2 --locked --test orientation_differential
 PM_NODE_INTERPRETER=bun cargo test -j 2 --locked --test orientation_differential context_successful_reads_preserve_settings_bytes
 PM_NODE_INTERPRETER=bun cargo test -j 2 --locked --lib current_compact_tables_round_trip_through_pinned_sdk
 ```
+
+## Auto round 2
+
+The existing branch and PR are reused; current main is already included. The two
+resolved findings above (Git diagnostics and compact-table reconstruction) remain
+covered. Six remaining findings are addressed by their general contract:
+
+| Review thread | Rule and package scope | Regression and behavioral revert |
+| --- | --- | --- |
+| PRRT_kwDOTwgMRs60_iKa | Standalone gates install every imported dependency. `crash-check` and `orientation-revert-proof` depend on `oracle-install`, which installs both oracles before their consumers. | Inspect Just's parsed dependency graph; removing the prerequisite fails the named Node test. |
+| PRRT_kwDOTwgMRs60_iKb | A failing control is never mutation evidence. Context intent proofs require the published oracle, pass the same tests before each mutation, restore exact source and rerun the controls. Native adapter and performance proof runners receive the same baseline requirement. Native adapter mutations now use a disposable copy. | An actual runner with a failed setup cannot emit a successful mutation receipt. A workflow adversary requires the order pass/mutate/fail/restore/pass and refuses mutation after baseline failure. |
+| PRRT_kwDOTwgMRs60_iKe | Proofs identify the specific behavioral test. Cargo and explicit TAP reporters share exact named result validation across context, packet and adapter runners. | The outcome corpus rejects unrelated names, skips, TODOs, empty selections, compiler errors, spawn errors and signals. Disabling named validation fails the corpus. |
+| PRRT_kwDOTwgMRs60_iKg | Feasibility describes retained output after temporary metadata is removed. Shared stabilization fixes both context intents and list triage. Omitted-result estimates remain preserved. | 240 context and 100 list projection cases cross their declared ceilings in JSON/TOON options. Reverting either attachment call fails its own projection test. |
+| PRRT_kwDOTwgMRs60_iKi | Node admission preserves reserved root evidence at tight budgets. The existing generous-budget cost and stability checks remain. | Four neighboring tight budgets admit exactly the first node and preserve every root edge for it. Removing reservation enforcement fails the existing named packet test. |
+| PRRT_kwDOTwgMRs60_iKj | Tests inspect the producer's return before any repair. The receipt matrix checks the raw `apply_orientation` result and requires both receipts in each encoding. | Removing producer stabilization fails the raw-return test; the test no longer calls stabilization before assertions. |
+
+The audit covers shared SDK and CLI output paths, list/search/collection reads,
+context/history/dependencies, legacy and current TOON contracts, and real non-git
+fixtures. The root npm package is private and has no separate published native
+artifact or committed `dist/`. Node/Bun acceptance uses the actual pinned decoder
+and CLI drivers. All prior tests, timing guards and coverage thresholds remain.
+
+Round-2 focused evidence: the managed context proof passed 21 mutations, 42
+before/after controls and four baseline-only history tests. Both final recipe
+prerequisites passed an additional independent revert check. The ordinary Node
+harness passed 93 tests. Node and Bun each passed the 72-comparison reviewed
+context matrix; Bun also decoded the compact-table fixtures, and list triage
+still matched the pinned CLI. Full unit and aggregate claims are tracked
+separately on the item.
+
+The previous aggregate exhausted its 55-minute local cap with instrumented
+coverage unfinished. Under the task's approximately-one-hour runtime exception,
+this round runs the ordinary Rust suite and individual required checks; full
+instrumented coverage remains an exact-head CI requirement. No full aggregate or
+four-dimensional 100-percent result is inferred from these focused checks.

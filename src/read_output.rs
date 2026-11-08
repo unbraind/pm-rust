@@ -40,22 +40,7 @@ pub(crate) fn stabilize_orientation(result: &mut ListOutput, toon: bool) {
             result["context_intent"]["estimated_tokens"].clone(),
             result["read_output"]["estimated_tokens"].clone(),
         );
-        if result["context_intent"]["result_omitted"] != true {
-            update(result, "context_intent", false);
-            let measured = estimate(result, false) as u64;
-            result.value["context_intent"]["within_budget"] = json!(
-                measured
-                    <= result["context_intent"]["token_budget"]
-                        .as_u64()
-                        .unwrap_or_default()
-            );
-            result.value["context_intent"]["declaration_feasible"] = json!(
-                measured
-                    <= result["context_intent"]["declared_token_budget"]
-                        .as_u64()
-                        .unwrap_or_default()
-            );
-        }
+        stabilize_intent(result);
         update_output(result, toon);
         if before
             == (
@@ -63,6 +48,33 @@ pub(crate) fn stabilize_orientation(result: &mut ListOutput, toon: bool) {
                 result["read_output"]["estimated_tokens"].clone(),
             )
         {
+            break;
+        }
+    }
+}
+
+/// Recomputes retained intent feasibility after projection changes, preserving omitted estimates.
+pub(crate) fn stabilize_intent(result: &mut ListOutput) {
+    if result["context_intent"]["result_omitted"] == true {
+        return;
+    }
+    for _ in 0..8 {
+        update(result, "context_intent", false);
+        let before = result["context_intent"].clone();
+        let measured = estimate(result, false) as u64;
+        result.value["context_intent"]["within_budget"] = json!(
+            measured
+                <= result["context_intent"]["token_budget"]
+                    .as_u64()
+                    .unwrap_or_default()
+        );
+        result.value["context_intent"]["declaration_feasible"] = json!(
+            measured
+                <= result["context_intent"]["declared_token_budget"]
+                    .as_u64()
+                    .unwrap_or_default()
+        );
+        if before == result["context_intent"] {
             break;
         }
     }

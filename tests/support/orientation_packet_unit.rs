@@ -801,6 +801,61 @@ fn packet_direct_reservations_are_reused() -> Result<(), Box<dyn std::error::Err
         }
         previous = Some(comparable);
     }
+    assert_tight_node_admission(&workspace, &query)?;
+    Ok(())
+}
+
+/// A cheap additional node cannot consume reservations for direct root evidence.
+fn assert_tight_node_admission(
+    workspace: &Workspace,
+    query: &Query,
+) -> Result<(), Box<dyn std::error::Error>> {
+    // Reserve several root edges so a cheaper second node could otherwise displace them.
+    let mut root = item("sample-root");
+    root["dependencies"] = json!([
+        {"id":"sample-a","kind":"parent"},
+        {"id":"sample-a","kind":"blocks"},
+        {"id":"sample-a","kind":"related"},
+        {"id":"sample-a","kind":"implements"},
+        {"id":"sample-b","kind":"related"}
+    ]);
+    let graph = Graph::new(
+        &[root, item("sample-a"), item("sample-b")],
+        &Lifecycle::load(workspace.pm_root())?,
+    );
+    let traversal = Traversal::new(&graph, "sample-root", query);
+    let generous = super::packet(&graph, "sample-root", query, &traversal, &[], None, 10000)?;
+    let first = &generous["nodes"][0];
+    assert_eq!(first["id"], "sample-a");
+    let tight = cost(&graph.details["sample-root"])
+        + cost(&json!([]))
+        + cost(first)
+        + traversal.reservations["sample-a"];
+    for budget in tight..tight + 4 {
+        let packed = super::packet(&graph, "sample-root", query, &traversal, &[], None, budget)?;
+        assert_eq!(
+            packed["nodes"]
+                .as_array()
+                .ok_or("nodes")?
+                .iter()
+                .map(|node| text(node, "id"))
+                .collect::<Vec<_>>(),
+            vec!["sample-a"]
+        );
+        assert_eq!(
+            *packed["edges"].as_array().ok_or("packed edges")?,
+            generous["edges"]
+                .as_array()
+                .ok_or("edges")?
+                .iter()
+                .filter(
+                    |edge| text(edge, "source") == "sample-a" || text(edge, "target") == "sample-a"
+                )
+                .cloned()
+                .collect::<Vec<_>>()
+        );
+        assert_eq!(packed["meta"]["omittedNodes"], 1);
+    }
     Ok(())
 }
 

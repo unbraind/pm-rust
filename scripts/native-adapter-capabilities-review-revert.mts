@@ -1,5 +1,6 @@
 /** Prove review regressions with independent behavior reverts in an isolated non-git copy. */
 import assert from 'node:assert/strict';
+import { assertNamedTests, verifyMutation } from './context-revert-helpers.mts';
 import { spawnSync } from 'node:child_process';
 import { cpSync, mkdirSync, mkdtempSync, readFileSync, rmSync, symlinkSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
@@ -26,11 +27,14 @@ try {
   const originalMain = readFileSync(mainPath, 'utf8');
   const runner = join(scratch, 'scripts/native-adapter-capabilities-revert.mts');
   const runnerSource = readFileSync(runner, 'utf8');
+  const nodeTests = join(scratch, 'scripts/native-adapter-capabilities-revert.test.mts');
+  const baseline = spawnSync(process.execPath, ['--test', '--test-reporter=tap', '--test-concurrency=2', nodeTests], { encoding: 'utf8', timeout: 60000 });
+  assertNamedTests(baseline, ['capability revert isolates checkout artifacts: existing'], false, true);
   writeFileSync(runner, runnerSource.replaceAll("CARGO_TARGET_DIR: join(scratch, 'target')", "CARGO_TARGET_DIR: join(root, 'target')"));
-  const isolation = spawnSync(process.execPath, ['--test', '--test-concurrency=2', join(scratch, 'scripts/native-adapter-capabilities-revert.test.mts')], {
+  const isolation = spawnSync(process.execPath, ['--test', '--test-reporter=tap', '--test-concurrency=2', nodeTests], {
     encoding: 'utf8', env: { PATH: process.env.PATH, HOME: process.env.HOME }, timeout: 60000,
   });
-  assert.equal(isolation.status, 1);
+  assertNamedTests(isolation, ['capability revert isolates checkout artifacts: existing'], true, true);
   assert.match(isolation.stdout, /sabotaged executable/);
   console.log(JSON.stringify({ behavior: 'checkout binary isolation', failed_as_required: true }));
   writeFileSync(runner, runnerSource);
@@ -40,10 +44,10 @@ try {
     const path = join(scratch, 'scripts', name);
     const fixed = readFileSync(path, 'utf8');
     writeFileSync(path, replace(fixed, "path.split(/[\\\\/]/)", "path.split('/')"));
-    const result = spawnSync(process.execPath, ['--test', '--test-concurrency=2', '--test-name-pattern=capability copy filters', join(scratch, 'scripts/native-adapter-capabilities-revert.test.mts')], {
+    const result = spawnSync(process.execPath, ['--test', '--test-reporter=tap', '--test-concurrency=2', '--test-name-pattern=capability copy filters', join(scratch, 'scripts/native-adapter-capabilities-revert.test.mts')], {
       encoding: 'utf8', env: { PATH: process.env.PATH, HOME: process.env.HOME }, timeout: 60000,
     });
-    assert.equal(result.status, 1, result.stderr);
+    assertNamedTests(result, [`capability copy filters both path separators: ${name}`], true, true);
     assert.match(result.stdout, /tests 2/);
     assert.match(result.stdout, /pass 1/);
     assert.match(result.stdout, /fail 1/);
@@ -93,14 +97,18 @@ try {
   for (const proof of cases) {
     writeFileSync(library, original);
     writeFileSync(mainPath, originalMain);
-    if (proof.main) writeFileSync(mainPath, proof.mutate(originalMain));
-    else writeFileSync(library, proof.mutate(original));
-    const result = spawnSync('cargo', ['+1.90.0', 'test', '--locked', ...proof.target, proof.test, '--', '--exact', '--test-threads=2'], {
-      cwd: scratch, env: childEnv, encoding: 'utf8', timeout: 900000, maxBuffer: 4 * 1024 * 1024,
+    verifyMutation(reverted => {
+      const result = spawnSync('cargo', ['+1.90.0', 'test', '-j', '2', '--locked', ...proof.target, proof.test, '--', '--exact', '--test-threads=2'], {
+        cwd: scratch, env: childEnv, encoding: 'utf8', timeout: 900000, maxBuffer: 4 * 1024 * 1024,
+      });
+      assertNamedTests(result, [proof.test], reverted);
+    }, () => {
+      if (proof.main) writeFileSync(mainPath, proof.mutate(originalMain));
+      else writeFileSync(library, proof.mutate(original));
+    }, () => {
+      writeFileSync(library, original);
+      writeFileSync(mainPath, originalMain);
     });
-    assert.equal(result.status, 101, `${proof.name}: ${result.stderr}`);
-    assert.doesNotMatch(result.stderr, /could not compile/);
-    assert.match(result.stdout, /test result: FAILED\. 0 passed; 1 failed/, result.stderr);
     console.log(JSON.stringify({ behavior: proof.name, test: proof.test, passed: 0, failed: 1, compile_succeeded: true }));
   }
   writeFileSync(library, original);

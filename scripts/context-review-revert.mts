@@ -4,7 +4,7 @@ import { spawnSync } from 'node:child_process';
 import { cpSync, mkdirSync, mkdtempSync, readFileSync, rmSync, symlinkSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { dirname, join, resolve } from 'node:path';
-import { checkedGit } from './context-revert-helpers.mts';
+import { assertNamedTests, checkedGit, verifyMutation } from './context-revert-helpers.mts';
 
 const source = process.cwd();
 const scratch = mkdtempSync(join(tmpdir(), 'pm-context-review-'));
@@ -20,15 +20,11 @@ for (const name of ['PATH', 'HOME', 'CARGO_HOME', 'RUSTUP_HOME', 'LD_LIBRARY_PAT
 /** Require a real named test result; compiler failures and empty selections are rejected. */
 function check(target: string[], name: string, reverted: boolean): void {
   const node = target[0] === 'node';
-  const args = node ? target.slice(1) : ['test', '-j', '2', '--locked', ...target, name, '--', '--exact', '--test-threads=2'];
+  const args = node ? ['--test-reporter=tap', `--test-name-pattern=${name}`, ...target.slice(1)] : ['test', '-j', '2', '--locked', ...target, name, '--', '--exact', '--test-threads=2'];
   const result = spawnSync(node ? process.execPath : 'cargo', args, {
     cwd: scratch, env: childEnv, encoding: 'utf8', timeout: 900_000, maxBuffer: 8 * 1024 * 1024,
   });
-  const output = `${result.stdout}\n${result.stderr}`;
-  assert.ifError(result.error);
-  assert.equal(result.status, reverted ? (node ? 1 : 101) : 0, output);
-  assert.doesNotMatch(output, /could not compile/);
-  assert.ok(node ? output.includes(reverted ? 'fail 1' : 'fail 0') : output.includes(`test ${name} ... ${reverted ? 'FAILED' : 'ok'}`), output);
+  assertNamedTests(result, [name], reverted, node);
   console.log(JSON.stringify({ command: [node ? 'node' : 'cargo', ...args], reverted, result: reverted ? 'named behavioral failure' : 'pass' }));
 }
 
@@ -42,8 +38,22 @@ try {
     symlinkSync(resolve(source, 'tests', oracle, 'node_modules'), join(scratch, 'tests', oracle, 'node_modules'), 'junction');
   }
   const cases = [
-    { path: 'scripts/context-revert-helpers.mts', before: "${result.stderr ?? ''}", after: '',
+    { path: 'scripts/context-revert-helpers.mts', before: "${message}: ${result.error?.message ?? ''}${result.stderr ?? ''}", after: "${message}: ${result.error?.message ?? ''}",
       target: ['node', '--test', '--test-concurrency=2', 'scripts/context-intents-revert.test.mts'], test: 'revert Git failures preserve diagnostics for source scans and patch checks' },
+    { path: 'scripts/context-revert-helpers.mts', before: '  check(false);\n  try {', after: '  try {',
+      target: ['node', '--test', '--test-concurrency=2', 'scripts/context-intents-revert.test.mts'], test: 'revert proof rejects unrelated failures skipped tests and invalid controls' },
+    { path: 'justfile', before: 'crash-check: oracle-install', after: 'crash-check:',
+      target: ['node', '--test', '--test-concurrency=2', 'scripts/context-intents-revert.test.mts'], test: 'standalone harness check installs the orientation oracle first' },
+    { path: 'justfile', before: 'orientation-revert-proof: oracle-install', after: 'orientation-revert-proof:',
+      target: ['node', '--test', '--test-concurrency=2', 'scripts/context-intents-revert.test.mts'], test: 'standalone harness check installs the orientation oracle first' },
+    { path: 'src/orientation_context/intent.rs', before: '            read_output::stabilize_intent(&mut result);', after: '            read_output::update(&mut result, "context_intent", false);',
+      target: ['--lib'], test: 'orientation_context::intent::tests::retained_context_intent_feasibility_matches_projection' },
+    { path: 'src/list_intent.rs', before: '        read_output::stabilize_intent(&mut result);', after: '        read_output::update(&mut result, "context_intent", false);',
+      target: ['--lib'], test: 'list_intent::tests::retained_list_intent_feasibility_matches_projection' },
+    { path: 'src/orientation_deps/packet.rs', before: 'if used + reserved + tokens + edge_cost > budget {', after: 'if false {',
+      target: ['--lib'], test: 'orientation_deps::packet::tests::packet_direct_reservations_are_reused' },
+    { path: 'scripts/context-revert-helpers.mts', before: '  for (const name of names) {', after: '  for (const name of names.filter(() => false)) {',
+      target: ['node', '--test', '--test-concurrency=2', 'scripts/context-intents-revert.test.mts'], test: 'revert proof rejects unrelated failures skipped tests and invalid controls' },
     ...['sections', 'activity_limit'].map(id => ({ path: 'src/discovery.rs', before: `                "${id}",\n`, after: '',
       target: ['--test', 'capability_contract'], test: 'discovery_is_complete_bounded_and_tracker_free' })),
     { path: 'tests/orientation_differential.rs', before: '        return Ok(None);\n    }\n    let current =', after: '        return Ok(Some(root.join("invalid-driver.mjs")));\n    }\n    let current =',
@@ -54,7 +64,7 @@ try {
       target: ['--test', 'orientation_differential'], test: 'context_successful_reads_preserve_settings_bytes' },
     { path: 'src/read_output.rs', before: '    if measured > budget {\n        let changed = compact_strings(&mut result.value);', after: '    if false && measured > budget {\n        let changed = compact_strings(&mut result.value);',
       target: ['--lib'], test: 'orientation_context::tests::context_intent_sdk_budget_boundaries' },
-    { path: 'src/read_output.rs', before: '            let measured = estimate(result, false) as u64;', after: '            let measured = 0;',
+    { path: 'src/read_output.rs', before: '        let measured = estimate(result, false) as u64;', after: '        let measured = 0;',
       target: ['--lib'], test: 'read_output::tests::stabilized_orientation_receipts_respect_final_ceilings' },
     { path: 'src/read_output.rs', before: '        stabilize_orientation(result, toon);', after: '        update_output(result, toon);',
       target: ['--lib'], test: 'read_output::tests::stabilized_orientation_receipts_respect_final_ceilings' },
@@ -78,12 +88,9 @@ try {
     const path = join(scratch, proof.path);
     const fixed = readFileSync(path, 'utf8');
     assert.equal(fixed.split(proof.before).length, 2, `stale or ambiguous mutation: ${proof.path}: ${proof.before}`);
-    check(proof.target, proof.test, false);
-    try {
-      writeFileSync(path, fixed.replace(proof.before, proof.after));
-      check(proof.target, proof.test, true);
-    } finally { writeFileSync(path, fixed); }
-    check(proof.target, proof.test, false);
+    verifyMutation(reverted => check(proof.target, proof.test, reverted),
+      () => writeFileSync(path, fixed.replace(proof.before, proof.after)),
+      () => writeFileSync(path, fixed));
   }
   // Verify the actual history tests with only their baseline oracle available.
   assert.ok(executed > 0, 'review proof filter selected no mutations');

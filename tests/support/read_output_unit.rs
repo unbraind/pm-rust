@@ -617,6 +617,7 @@ fn assert_toon_budget_contract() -> Result<(), Box<dyn std::error::Error>> {
 fn stabilized_orientation_receipts_respect_final_ceilings() -> Result<(), Box<dyn std::error::Error>>
 {
     for toon in [false, true] {
+        let mut both_receipts = 0;
         for padding in 0..8 {
             for budget in [319, 320, 321, 998, 999, 1000, 1001] {
                 let mut source: crate::ListOutput = json!({
@@ -626,7 +627,7 @@ fn stabilized_orientation_receipts_respect_final_ceilings() -> Result<(), Box<dy
                         "token_budget":budget,"declared_token_budget":320,"declaration_feasible":true,"result_omitted":false}
                 }).into();
                 super::update(&mut source, "context_intent", false);
-                let mut output = super::apply_orientation(
+                let output = super::apply_orientation(
                     source,
                     &ListOptions {
                         toon,
@@ -637,7 +638,7 @@ fn stabilized_orientation_receipts_respect_final_ceilings() -> Result<(), Box<dy
                     &["low_level"],
                 )?;
                 if output["context_intent"].is_object() && output["read_output"].is_object() {
-                    super::stabilize_orientation(&mut output, toon);
+                    both_receipts += 1;
                     let compact = super::estimate(&output, false);
                     assert_eq!(output["context_intent"]["estimated_tokens"], compact);
                     assert_eq!(output["context_intent"]["within_budget"], compact <= budget);
@@ -651,6 +652,10 @@ fn stabilized_orientation_receipts_respect_final_ceilings() -> Result<(), Box<dy
                 }
             }
         }
+        assert!(
+            both_receipts > 0,
+            "must check returned packets with both receipts"
+        );
         for budget in [99, 100, 999, 1000] {
             let mut stale: crate::ListOutput = json!({"padding":"x".repeat(budget * 4),
                 "context_intent":{"estimated_tokens":0,"within_budget":true,"declaration_feasible":true,
