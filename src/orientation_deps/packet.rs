@@ -389,8 +389,16 @@ impl Query {
     }
 }
 
+#[cfg(test)]
+thread_local! {
+    /// Counts row measurements on this test thread without affecting production behavior.
+    static COST_CALLS: std::cell::Cell<usize> = const { std::cell::Cell::new(0) };
+}
+
 /// Estimates compact row tokens using UTF-8 JSON bytes.
 fn cost(value: &Value) -> usize {
+    #[cfg(test)]
+    COST_CALLS.with(|calls| calls.set(calls.get() + 1));
     crate::stringify_json(value, false).len().div_ceil(4).max(1)
 }
 
@@ -439,6 +447,10 @@ struct Traversal<'a> {
     discovered: Vec<(&'a str, usize, &'a str, &'static str)>,
     /// Incident root edges reused for roles and direct counts.
     direct: Vec<(&'a str, &'a Value)>,
+    /// Root-incident edge costs indexed by endpoint, counting each self-loop once.
+    reservations: BTreeMap<&'a str, usize>,
+    /// Direct semantic reasons indexed by neighboring node.
+    reasons: BTreeMap<&'a str, BTreeSet<&'static str>>,
     /// Direct edge counts in published role order.
     direct_counts: Value,
     /// Cursor contract digest, computed once per query.
@@ -493,8 +505,18 @@ impl<'a> Traversal<'a> {
                 .then_with(|| crate::collation::compare(a.0, b.0))
         });
         let mut direct_counts = json!({"prerequisite":0,"dependent":0,"ancestor":0,"descendant":0,"provenance":0,"related":0});
+        let mut reservations = BTreeMap::new();
+        let mut reasons: BTreeMap<_, BTreeSet<_>> = BTreeMap::new();
         for (id, edge) in &direct {
+            let edge_cost = cost(edge);
+            let source = text(edge, "source");
+            let target = text(edge, "target");
+            *reservations.entry(source).or_default() += edge_cost;
+            if source != target {
+                *reservations.entry(target).or_default() += edge_cost;
+            }
             let name = role(edge, id);
+            reasons.entry(*id).or_default().insert(name);
             direct_counts[name] = json!(direct_counts[name].as_u64().unwrap_or_default() + 1);
         }
         let contract = json!({"rootId":root,"direction":query.direction,"kinds":query.kinds,"maxDepth":query.depth,"ordering":"required-root-evidence-first-v1"});
@@ -519,6 +541,8 @@ impl<'a> Traversal<'a> {
             discovered,
             direct,
             direct_counts,
+            reservations,
+            reasons,
             fingerprint,
             visited: queue.len(),
             inspected,
@@ -577,11 +601,7 @@ fn packet(
     let mut nodes = Vec::new();
     let mut reserved = 0;
     for (id, distance, via, initial_role) in discovered.iter().skip(start).take(query.nodes) {
-        let reasons: BTreeSet<_> = direct
-            .iter()
-            .filter(|(next, _)| next == id)
-            .map(|(next, edge)| role(edge, next))
-            .collect();
+        let reasons = traversal.reasons.get(id).cloned().unwrap_or_default();
         let role = if *distance == 1 {
             ROLES
                 .iter()
@@ -605,11 +625,7 @@ fn packet(
         if used + tokens > budget {
             break;
         }
-        let edge_cost: usize = direct
-            .iter()
-            .filter(|(_, edge)| text(edge, "source") == *id || text(edge, "target") == *id)
-            .map(|(_, edge)| cost(edge))
-            .sum();
+        let edge_cost = traversal.reservations.get(id).copied().unwrap_or_default();
         if used + reserved + tokens + edge_cost > budget {
             if !nodes.is_empty() {
                 break;
@@ -775,6 +791,8 @@ fn render_packet(
 struct RenderCache {
     /// Stabilized wire costs keyed by complete projection shape.
     costs: BTreeMap<String, usize>,
+    /// Serialized shape-key bytes retained by cost memoization, capped at two MiB.
+    cost_bytes: usize,
     /// Producer packets keyed by their exact packing budget.
     packets: BTreeMap<usize, Value>,
     /// Serialized bytes retained by producer memoization, capped at two MiB.
@@ -889,7 +907,10 @@ fn render_cached(
                 }
                 result["context"]["meta"]["usedTokens"] = json!(measured);
             };
-            cache.costs.insert(shape, measured);
+            if shape.len() <= (2 * 1024 * 1024usize).saturating_sub(cache.cost_bytes) {
+                cache.cost_bytes += shape.len();
+                cache.costs.insert(shape, measured);
+            }
         }
         let measured = result["context"]["meta"]["usedTokens"]
             .as_u64()

@@ -38,8 +38,10 @@ packets declare the omitted relationship bounds, and continuation fingerprints
 identify this ordering contract. Tree and graph reads retain their own contracts.
 Recovery still checks every candidate required by the oracle's bounded search.
 Query-local memoization avoids repeating producer work and retains at most two
-MiB of serialized producer packets; the existing five-second debug-process guard
-remains unchanged.
+MiB of serialized producer packets and, separately, two MiB of serialized
+render-cost shape keys. Root-incident reservation costs and semantic reasons are
+indexed once per query and reused across packing retries. The existing
+five-second debug-process guard remains unchanged.
 
 Native reads execute no extension code and write no tracker state. Core intents
 refuse workspace `context-intents.json` declarations and installed extension
@@ -163,3 +165,12 @@ same scratch-copy harness; the recipe now includes all 24 mutations.
 | Producer memoization | `packet_retry_cache_bounds_work_and_storage` |
 | Context/dependency diagnostic scope | `current_orientation_diagnostics_preserve_other_commands` |
 | Current relationship packet implementation | `relationship_packets_match_oracle` |
+
+The packet resource review adds `packet_direct_reservations_are_reused` and
+`packet_render_cost_keys_are_bounded`. The first checks source/target and
+self-loop reservation semantics and counts row measurements across retries.
+The second exercises reference-trimming retries and recovery budgets in JSON
+and TOON, checks retained key bytes against the two-MiB cap, and compares cached
+delivery with a fresh cache. Run `node scripts/context-packet-review-revert.mts`
+to require both tests to pass, fail at named assertions with each corresponding
+behavior reverted in a disposable copy, and pass again after restoration.

@@ -5,13 +5,13 @@ type: Feature
 pm_format_version: 2
 status: in_progress
 priority: 2
-tags[3]: native,oracle,orientation
+tags[4]: "gh:unbraind/pm-rust#154",native,oracle,orientation
 created_at: "2026-11-06T09:15:56.754Z"
-updated_at: "2026-11-06T20:17:34.018Z"
+updated_at: "2026-11-08T06:47:17.969Z"
 author: codex-astra
 acceptance_criteria: "JSON and TOON bytes, status and stderr match the oracle on generated non-git trackers and public tracker copies; retain typed calendar and memory refusals; focused tests fail on behavioral revert; record latency and differential counts."
 parent: pm-rust-s6j4
-comments[28]{created_at,author,text}:
+comments[34]{created_at,author,text}:
   "2026-11-06T09:28:14.771Z",codex-astra,"Implemented core intent preparation, section selection, activity bounds and intent receipts. Current-oracle exploration identified three inherited context drifts: bounded activity excludes timestamps at or after the read clock; test health covers all matching active items and declares its scope; TOON auto-tables choose compact list/null columns only when shorter. Bringing these paths to the requested November contract before running the public-copy corpus."
   "2026-11-06T09:44:02.034Z",codex-astra,"Public-copy packet differential exposed the newer required-root-evidence-first-v1 ordering, reserved root-edge budget, root-edge priority and bounded-relationship omission receipt. Porting those native packet semantics as part of this slice, including updated producer fingerprints. No legacy packet result is being counted as current-oracle evidence."
   "2026-11-06T10:08:53.263Z",codex-astra,"Generated intent comparisons passed before the final expanded matrix. Public-copy exploration exposed the distinction between compact intent estimates and complete JSON wire ceilings, now handled by the shared output-budget path. Current dependency packets also require root-evidence-first ordering and revised refusal text; preserving the existing bounded retry test while eliminating repeated rendering of identical packets."
@@ -40,10 +40,17 @@ comments[28]{created_at,author,text}:
   "2026-11-06T19:52:16.835Z",codex-astra,"The bounds guard passes the recovery unit test and 70 reviewed-contract oracle comparisons, including both new JSON/text refusal cases. Three focused SDK/receipt tests and all four linked PM tests pass. Clippy with warnings denied is clean. Combined revert evidence covers 22 isolated mutation commands, 24 required named failures and 17 distinct tests: the 20-command recipe plus two focused guard reverts using the same scratch-copy harness. All twelve new tests have behavioral revert proofs. Refreshing the public-copy receipt against the rebuilt release binary."
   "2026-11-06T20:08:12.087Z",codex-astra,"The diagnostic guard now checks for a following value token as well as bounds. All 72 reviewed-contract differentials pass, including four argument-order refusal cases. The final proof matrix covers 24 mutation commands, 26 required named failures and 17 distinct tests; four isolated guard checks supplement the completed 20-command recipe. Clippy is clean and the linked recovery test passes with both refused and ordinary value-token retries. The public-copy differential and latency refresh is in progress; final-head CI and another full bot review will follow the fix push."
   "2026-11-06T20:17:28.805Z",codex-astra,"Final local evidence: 843 exact comparisons (434 generated context, 138 generated relationships, 271 public-copy comparisons: 99 pm-vcs, 101 pm-rl, 71 pm-context). All three public copies retain authoritative hashes. The final release artifact was measured with 150 alternating fresh-process samples; native median ranges are 9.3-411 ms and oracle 496.8-2033.7 ms on the shared host. The 72 reviewed-contract comparisons and four linked PM tests pass; Clippy, formatting and TypeScript/ESLint pass. Revert evidence covers 24 mutation commands, 26 required named failures and all twelve new tests. Round 3 identified one retry bounds finding, now fixed with bounds and value-token guards plus JSON/text differentials. Fresh CI and round 4 review are required after the push. Items remain in progress for verifier closure."
-files[27]{path,scope}:
+  "2026-11-08T06:28:16.110Z",codex-agent,"Review round: fetched all review threads with complete comments; two unresolved findings PRRT_kwDOTwgMRs60vKzU (repeated direct-edge reservation scans) and PRRT_kwDOTwgMRs60vKzd (unbounded render-cost shape keys) are valid. Latest CodeRabbit body has no outside-diff findings. Branch is current with remote and contains main. Plan: index reservation costs and direct roles once per traversal, cap retained shape-key bytes, add behavioral regression and disposable revert proofs, self-review the full PR diff, run required native and harness gates, commit tracker evidence and push without resolving threads."
+  "2026-11-08T06:34:47.704Z",codex-agent,"Implemented one traversal-time index for direct-edge reservation costs and semantic reasons (including source/target and self-loop semantics), plus a separate two-MiB retained shape-key byte cap. Focused cargo test -j 2 --locked --lib packet_ passes 14/14 in 52.49 seconds. New regressions compare cached/fresh JSON and TOON delivery over real non-git trackers and count packing measurements deterministically. Self-review found the adjacent role scan and stale packet-behavior revert fixture; both are corrected. Disposable revert proof and full native verification follow."
+  "2026-11-08T06:38:05.921Z",codex-agent,"Both isolated behavioral mutations reached named assertion failures: restoring the packet() direct-edge reservation scan fails packet_direct_reservations_are_reused; removing only the render_cached() shape-cap guard fails packet_render_cost_keys_are_bounded on retained bytes. Each mutation runs in a disposable source copy and restores in finally, followed by a positive rerun. Pinned pm merge install refreshed clone-local drivers; health --check-only --require-merge-drivers --strict-exit passes under a fresh home (global extension skew is local-only). No existing provenance/history was rewritten. The full just release-check runs ordinary and instrumented full suites; prior local orientation-only runs exceeded 30 minutes, so the aggregate is estimated beyond the requested approximately 60-minute local budget and is deferred to CI at unchanged thresholds. Targeted native, harness, identity, changelog and self-host checks will certify this round locally."
+  "2026-11-08T06:40:25.635Z",codex-agent,"Revert proof complete: node scripts/context-packet-review-revert.mts passed all six commands (four positive runs and two required named assertion failures) and verified the refreshed legacy packet patch applies. Restoring only the per-node direct-edge scan fails packet_direct_reservations_are_reused; removing only the serialized-shape capacity guard fails packet_render_cost_keys_are_bounded on actual retained bytes. Both tests pass again after finally restoration. The pinned pm test --run --match \"check-lookup.mts packet_\" --timeout 180 --progress run in a disposable tracker passes one linked command containing 14/14 packet tests; no run artefacts were written to the package tracker. TypeScript tsc, ESLint, one context preflight test and the history-prefix gate pass. Native and current-oracle relationship gates are running with two workers and isolated Git identity settings."
+  "2026-11-08T06:45:18.492Z",codex-agent,"Final review-round validation: cargo +1.90.0 test -j 2 --locked --lib --bins --test identity_audit --test release_pipeline_contract passes 402 library + 42 binary + 7 identity + 20 release contract tests (471 total). cargo +1.90.0 test -j 2 --locked --test orientation_differential relationship_ -- --nocapture passes 6/6 tests and 138 exact current-oracle stdout/stderr/status comparisons, including the unchanged five-second packet floor guard. Formatting, all-target/all-feature Clippy with denied warnings, strict private documentation, TypeScript tsc and ESLint pass. The existing preflight passes 1/1; pinned linked pm test passes 14/14 packet tests in a disposable tracker. The two isolated behavioral reverts fail their named regressions and all four positive proof runs pass. Evidence retention passes 21 receipts / 37 commit references; history-prefix verification passes. Self-review of the complete PR found and fixed the matching direct-role scan and refreshed the legacy packet revert fixture; no other valid same-class instance or outside-diff finding remains. No committed dist exists. No thresholds changed. Full release/coverage certification remains deferred to final-head CI under the approximately 60-minute local aggregate budget. Releasing only this authors claim; the item remains in progress for orchestrator verification. Changelog regeneration/check and a fresh-home full strict tracker-health check follow the final tracker write."
+  "2026-11-08T06:47:17.967Z",codex-agent,"Deeper post-validation audit: health --check-only --require-merge-drivers --strict-exit --full detects two pre-existing history-chain mismatches for pm-rust-bj7a and pm-rust-unih. A clean origin/main tracker archive independently reproduces exactly the same two mismatches, and both affected item/history pairs are unchanged from main. Evidence is appended to existing follow-up pm-rust-b4yl; no duplicate follow-up and no history rewriting. Standard CI-mode strict health still passes, but full history integrity remains an explicit baseline risk. The first changelog generation completed; regenerating again after this follow-up evidence before the final check and commit."
+files[28]{path,scope}:
   justfile,project
   scripts/context-intents-revert.mts,project
   scripts/context-intents-revert.test.mts,project
+  scripts/context-packet-review-revert.mts,project
   scripts/context-real-helpers.mts,project
   scripts/context-real.mts,project
   src/cli.rs,project
@@ -68,7 +75,7 @@ files[27]{path,scope}:
   tests/support/orientation_sections_unit.rs,project
   tests/support/read_output_unit.rs,project
   tests/support/toon_output_unit.rs,project
-tests[10]:
+tests[12]:
   - command: just orientation-check
     scope: project
     timeout_seconds: 3600
@@ -143,6 +150,20 @@ tests[10]:
     provenance:
       author: codex-astra
       created_at: "2026-11-06T19:43:48.287Z"
+      source_kind: local_mutation
+      source_ref: native-context-intents-and-relationship-packets
+  - command: CARGO_BUILD_JOBS=2 RUST_TEST_THREADS=2 node scripts/context-packet-review-revert.mts
+    scope: project
+    provenance:
+      author: codex-agent
+      created_at: "2026-11-08T06:34:44.771Z"
+      source_kind: local_mutation
+      source_ref: native-context-intents-and-relationship-packets
+  - command: CARGO_BUILD_JOBS=2 RUST_TEST_THREADS=2 node scripts/check-lookup.mts packet_
+    scope: project
+    provenance:
+      author: codex-agent
+      created_at: "2026-11-08T06:34:46.209Z"
       source_kind: local_mutation
       source_ref: native-context-intents-and-relationship-packets
 docs[2]{path,scope}:

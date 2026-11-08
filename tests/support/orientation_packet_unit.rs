@@ -720,3 +720,163 @@ fn packet_retry_cache_bounds_work_and_storage() -> Result<(), Box<dyn std::error
     );
     Ok(())
 }
+
+/// Reservations retain source/target matching and measure each root edge only once per query.
+#[test]
+fn packet_direct_reservations_are_reused() -> Result<(), Box<dyn std::error::Error>> {
+    let (_directory, workspace) = workspace()?;
+    let mut root = item("sample-root");
+    root["dependencies"] = json!([
+        {"id":"sample-root","kind":"related"},
+        {"id":"sample-a","kind":"parent"},
+        {"id":"sample-a","kind":"blocks"},
+        {"id":"sample-b","kind":"related"}
+    ]);
+    let mut other = item("sample-b");
+    other["dependencies"] = json!([{"id":"sample-root","kind":"blocked_by"}]);
+    let graph = Graph::new(
+        &[root, item("sample-a"), other],
+        &Lifecycle::load(workspace.pm_root())?,
+    );
+    let query = Query::new(&DepsOptions::default(), None)?;
+    COST_CALLS.with(|calls| calls.set(0));
+    let traversal = Traversal::new(&graph, "sample-root", &query);
+    assert_eq!(
+        COST_CALLS.with(std::cell::Cell::get),
+        traversal.direct.len()
+    );
+    for id in graph.details.keys() {
+        let expected: usize = traversal
+            .direct
+            .iter()
+            .filter(|(_, edge)| text(edge, "source") == id || text(edge, "target") == id)
+            .map(|(_, edge)| cost(edge))
+            .sum();
+        assert_eq!(
+            traversal
+                .reservations
+                .get(id.as_str())
+                .copied()
+                .unwrap_or_default(),
+            expected
+        );
+        let reasons: BTreeSet<_> = traversal
+            .direct
+            .iter()
+            .filter(|(next, _)| next == id)
+            .map(|(next, edge)| role(edge, next))
+            .collect();
+        assert_eq!(
+            traversal
+                .reasons
+                .get(id.as_str())
+                .cloned()
+                .unwrap_or_default(),
+            reasons
+        );
+    }
+    assert_eq!(
+        traversal.reservations["sample-root"],
+        traversal
+            .direct
+            .iter()
+            .map(|(_, edge)| cost(edge))
+            .sum::<usize>()
+    );
+    let mut previous = None;
+    for budget in [10000, 9999, 9998] {
+        COST_CALLS.with(|calls| calls.set(0));
+        let packet = super::packet(&graph, "sample-root", &query, &traversal, &[], None, budget)?;
+        let measurements = COST_CALLS.with(std::cell::Cell::get);
+        assert_eq!(
+            measurements,
+            2 + packet["nodes"].as_array().ok_or("nodes")?.len()
+                + packet["edges"].as_array().ok_or("edges")?.len(),
+            "packing retries must not remeasure direct-edge reservations"
+        );
+        let mut comparable = packet;
+        comparable["meta"]["tokenBudget"] = json!(0);
+        if let Some(previous) = previous {
+            assert_eq!(comparable, previous);
+        }
+        previous = Some(comparable);
+    }
+    Ok(())
+}
+
+/// Distinct reference projections share a bounded key cache without changing delivery.
+#[test]
+fn packet_render_cost_keys_are_bounded() -> Result<(), Box<dyn std::error::Error>> {
+    const CAP: usize = 2 * 1024 * 1024;
+    let (_directory, workspace) = workspace()?;
+    let mut root = item("sample-root");
+    root["status"] = json!("x".repeat(8192));
+    root["dependencies"] = json!(
+        (0..32)
+            .map(|index| json!({
+                "id":format!("sample-missing-{index:02}"), "kind":"related"
+            }))
+            .collect::<Vec<_>>()
+    );
+    let graph = Graph::new(&[root], &Lifecycle::load(workspace.pm_root())?);
+    for toon in [false, true] {
+        let options = DepsOptions {
+            toon,
+            ..Default::default()
+        };
+        let mut query = Query::new(&options, None)?;
+        query.tokens = 1_000_000;
+        query.nodes = 1;
+        let traversal = Traversal::new(&graph, "sample-root", &query);
+        let mut cache = RenderCache::default();
+        for budget in [10000, 12500] {
+            query.tokens = budget;
+            let expected = render_packet(&graph, "sample-root", &query, &traversal, &[], &options)?;
+            let result = render_cached(
+                &graph,
+                "sample-root",
+                &query,
+                &traversal,
+                &[],
+                &options,
+                &mut cache,
+            )?;
+            assert!(result.value == expected.value, "cached delivery changed");
+            let retained: usize = cache.costs.keys().map(String::len).sum();
+            assert!(
+                retained <= CAP,
+                "retained serialized shape keys exceeded two MiB: {retained}"
+            );
+            assert_eq!(cache.cost_bytes, retained);
+        }
+        assert!(cache.cost_bytes > CAP / 2);
+        assert!(
+            cache.costs.len() < 32,
+            "the corpus must exercise a cache-cap refusal"
+        );
+        let retained = cache.cost_bytes;
+        let entries = cache.costs.len();
+        render_cached(
+            &graph,
+            "sample-root",
+            &query,
+            &traversal,
+            &[],
+            &options,
+            &mut cache,
+        )?;
+        assert_eq!((cache.cost_bytes, cache.costs.len()), (retained, entries));
+        query.tokens = 10000;
+        render_cached(
+            &graph,
+            "sample-root",
+            &query,
+            &traversal,
+            &[],
+            &options,
+            &mut cache,
+        )?;
+        assert_eq!((cache.cost_bytes, cache.costs.len()), (retained, entries));
+    }
+    Ok(())
+}
