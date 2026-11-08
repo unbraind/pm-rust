@@ -10,8 +10,7 @@
         "status": "open",
         "priority": 2,
         "createMode": "progressive",
-        "parent": "none",
-        "assignee": "none",
+        "unset": ["parent", "assignee"],
         "allowDuplicate": true
       }
     },

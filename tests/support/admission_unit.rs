@@ -27,7 +27,7 @@ fn batch(mutations: &Value) -> Result<AdmissionBatch, AdmissionRefusal> {
 
 /// Complete progressive creation, including explicit scope assertions.
 fn create(id: &str) -> Value {
-    json!({"op":"create","id":id,"options":{"title":"Fixture","type":"Task","status":"open","priority":2,"createMode":"progressive","parent":"none","assignee":"none","allowDuplicate":true}})
+    json!({"op":"create","id":id,"options":{"title":"Fixture","type":"Task","status":"open","priority":2,"createMode":"progressive","unset":["parent","assignee"],"allowDuplicate":true}})
 }
 
 /// Builds a native item through the SDK rather than duplicating normalization.
@@ -116,6 +116,7 @@ fn admission_strict_input_and_limits() -> TestResult {
         "createMode",
         "parent",
         "assignee",
+        "unset",
         "allowDuplicate",
     ] {
         let mut intent = create("demo-new");
@@ -179,8 +180,7 @@ fn admission_ordered_verdicts_and_required_fields() -> TestResult {
         "status",
         "priority",
         "createMode",
-        "parent",
-        "assignee",
+        "unset",
         "allowDuplicate",
     ] {
         let mut intent = create("demo-new");
@@ -217,6 +217,10 @@ fn admission_ordered_verdicts_and_required_fields() -> TestResult {
         (json!({"createMode":"progressive"}), "unsupported_options"),
         (json!({"parent":"none"}), "unsupported_options"),
         (json!({"assignee":"none"}), "unsupported_options"),
+        (
+            json!({"unset":["parent","assignee"]}),
+            "unsupported_options",
+        ),
         (json!({"allowDuplicate":true}), "unsupported_options"),
     ] {
         let preview = workspace.preview_item_mutations(&batch(
@@ -245,6 +249,40 @@ fn admission_ordered_verdicts_and_required_fields() -> TestResult {
             .code,
         "admission_invalid_request"
     );
+    Ok(())
+}
+
+/// Explicit clear fields replace placeholders and never infer or mutate scope.
+#[test]
+fn admission_create_requires_exact_explicit_unset_scope() -> TestResult {
+    let (_directory, workspace) = fixture()?;
+    for unset in [
+        json!([]),
+        json!(["parent"]),
+        json!(["other", "assignee"]),
+        json!(["parent", "other"]),
+        json!(["parent", "parent"]),
+        json!(["parent", "assignee", "other"]),
+    ] {
+        let mut intent = create("demo-new");
+        intent["options"]["unset"] = unset;
+        let preview = workspace.preview_item_mutations(&batch(&json!([intent]))?)?;
+        assert_eq!(preview.diagnostics[0].field, Some("unset"));
+    }
+    for field in ["parent", "assignee"] {
+        let mut intent = create("demo-new");
+        intent["options"][field] = json!("none");
+        let preview = workspace.preview_item_mutations(&batch(&json!([intent]))?)?;
+        assert_eq!(preview.diagnostics[0].field, Some(field));
+    }
+    let mut intent = create("demo-new");
+    intent["options"]["unset"] = json!(["assignee", "parent"]);
+    assert!(
+        workspace
+            .preview_item_mutations(&batch(&json!([intent]))?)?
+            .ok
+    );
+    assert!(workspace.get("demo-new").is_err());
     Ok(())
 }
 

@@ -3,25 +3,28 @@ import assert from 'node:assert/strict';
 import { mkdtemp, readFile, writeFile, rename, rm } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import path from 'node:path';
-import { spawnSync } from 'node:child_process';
+import { spawnSync, type SpawnSyncReturns } from 'node:child_process';
 import { createRequire } from 'node:module';
 import { pathToFileURL } from 'node:url';
-process.once('uncaughtException', error => { console.error(JSON.stringify({error:error.message,context:error.context,stack:error.stack?.split('\n').slice(0,5)})); process.exitCode=1; });
+import type * as PublishedSdk from '@unbrained/pm-cli/sdk';
+process.once('uncaughtException', error => { console.error(JSON.stringify({error:error.message,context:('context' in error ? error.context : undefined),stack:error.stack?.split('\n').slice(0,5)})); process.exitCode=1; });
 process.env.PM_SENTRY_DISABLED = '1';
 process.env.PM_TELEMETRY_SOURCE_CONTEXT = 'test';
-const oracle = createRequire(new URL('../oracle/package.json', import.meta.url));
-const sdk = await import(pathToFileURL(oracle.resolve('@unbrained/pm-cli/sdk')).href);
+const oracle = createRequire(new URL('./package.json', import.meta.url));
+const sdk = await import(pathToFileURL(oracle.resolve('@unbrained/pm-cli/sdk')).href) as typeof PublishedSdk;
+const binary: string = process.env.PM_RUST_ADMISSION_BINARY ?? assert.fail('PM_RUST_ADMISSION_BINARY must select the tested native binary');
 const directory = await mkdtemp(path.join(tmpdir(), 'native-admission-oracle-'));
 const pmRoot = path.join(directory, '.agents/pm');
-const create = (id, options = {}) => ({op:'create',id,options:{title:'Admission differential fixture',type:'Task',status:'open',priority:2,createMode:'progressive',parent:'none',assignee:'none',allowDuplicate:true,...options}});
+/** Build the canonical supported create slice without inheriting ambient scope. */
+const create = (id: string, options: PublishedSdk.BulkItemCreateMutation['options'] = {}): PublishedSdk.BulkItemCreateMutation => ({op:'create',id,options:{title:'Admission differential fixture',type:'Task',status:'open',priority:2,createMode:'progressive',unset:['parent','assignee'],allowDuplicate:true,...options}});
 let cases = 0;
 try {
   await sdk.init('sample', {defaults:true,agentGuidance:'skip'}, {pmRoot,noExtensions:true});
   await sdk.create({...create('sample-existing').options,id:'sample-existing',author:'fixture-agent'}, {pmRoot,noExtensions:true});
   await sdk.focus('sample-existing',{}, {pmRoot,noExtensions:true});
-  const corpus = [
+  const corpus: PublishedSdk.BulkItemMutation[][] = [
     ...['Epic','Feature','Task','Chore','Issue','Decision','Event','Reminder','Milestone','Meeting','Plan'].map((type,i)=>[create(`sample-type-${i}`,{type})]),
-    ...['',' , ','A,,B','__proto__,constructor'].map(tags=>[{op:'update',id:'sample-existing',options:{tags}}]),
+    ...['',' , ','A,,B','__proto__,constructor'].map((tags): PublishedSdk.BulkItemMutation[] =>[{op:'update',id:'sample-existing',options:{tags}}]),
     [{op:'update',id:'sample-existing',options:{status:'in_progress'}}],
     [create('sample-new')], [create('sample-new',{title:undefined})], [create('sample-new',{title:' \r\n '})],
     [create('sample-new',{priority:5})], [create('sample-new',{type:'Unknown'})],
@@ -33,7 +36,7 @@ try {
     [create('sample-existing')], [create('sample-new'),create('sample-new')],
     [create('sample-bad',{title:''}),{op:'update',id:'sample-bad',options:{body:'dependent'}},create('sample-independent')],
   ];
-  const statuses=[];
+  const statuses: {id: string; roles: string[]}[] = [];
   for (let i=0;i<20;i++) {
     const token=`stage_${i}`;
     const statusFile=path.join(pmRoot,'schema/statuses.json');
@@ -42,18 +45,19 @@ try {
     corpus.push([create(`sample-custom-${i}`,{status:token})]);
   }
   const sourceBefore = await sdk.get('sample-existing', {}, {pmRoot,noExtensions:true});
-  async function check(mutations,author='fixture-agent') {
+  /** Compare only the declared native slice against published mutation admission. */
+  async function check(mutations: readonly PublishedSdk.BulkItemMutation[],author='fixture-agent'): Promise<void> {
     const batch={author,mutations};
-    const native=spawnSync(process.env.PM_RUST_ADMISSION_BINARY,['--workspace',directory,'preview-item-mutations','--json'],{input:JSON.stringify(batch),encoding:'utf8',env:{...process.env,GIT_CEILING_DIRECTORIES:path.dirname(directory)}});
+    const native: SpawnSyncReturns<string> = spawnSync(binary,['--workspace',directory,'preview-item-mutations','--json'],{input:JSON.stringify(batch),encoding:'utf8',env:{...process.env,GIT_CEILING_DIRECTORIES:path.dirname(directory)}});
     assert.equal(native.status,0,native.stderr);
-    const preview=JSON.parse(native.stdout);
-    let admitted=true, refusedIndex;
+    const preview=JSON.parse(native.stdout) as {ok: boolean; diagnostics: {state: string; index: number}[]};
+    let admitted=true; let refusedIndex: number | undefined;
     try {await sdk.previewItemMutations({pmRoot,transactionId:`admission-oracle-${cases}`,author:batch.author,mutations});}
-    catch(error) {admitted=false;refusedIndex=error.context?.transaction_operation?.index;}
+    catch(error) {admitted=false;refusedIndex=(error as {context?: {transaction_operation?: {index?: number}}}).context?.transaction_operation?.index;}
     assert.equal(preview.ok,admitted,JSON.stringify({mutations,preview}));
     if (refusedIndex !== undefined) assert.equal(preview.diagnostics.find(row=>row.state==='refused')?.index,refusedIndex);
     // Both native renderers carry the same typed decision in a non-git tracker.
-    const toon=spawnSync(process.env.PM_RUST_ADMISSION_BINARY,['--workspace',directory,'preview-item-mutations'],{input:JSON.stringify(batch),encoding:'utf8',env:{...process.env,PATH:'',GIT_CEILING_DIRECTORIES:path.dirname(directory)}});
+    const toon: SpawnSyncReturns<string> = spawnSync(binary,['--workspace',directory,'preview-item-mutations'],{input:JSON.stringify(batch),encoding:'utf8',env:{...process.env,PATH:'',GIT_CEILING_DIRECTORIES:path.dirname(directory)}});
     assert.equal(toon.status,0,toon.stderr);
     assert.match(toon.stdout,new RegExp(`ok: ${admitted}`));
     cases++;
@@ -62,7 +66,7 @@ try {
   assert.deepEqual(await sdk.get('sample-existing', {}, {pmRoot,noExtensions:true}),sourceBefore);
   assert.equal((await readFile(path.join(pmRoot,'tasks/sample-existing.toon'),'utf8')).includes('Admission differential fixture'),true);
   const settingsFile=path.join(pmRoot,'settings.json');
-  const initialSettings=JSON.parse(await readFile(settingsFile,'utf8'));
+  const initialSettings=JSON.parse(await readFile(settingsFile,'utf8')) as {governance: Record<string, unknown>; schema: {workflow: Record<string, unknown>; statuses: {id: string; roles: string[]}[]; files: Record<string, string>}};
   const fields=[{title:'Changed'},{description:'Changed'},{body:'Changed'},{priority:0},{tags:'one,two'},{status:'in_progress'}];
   for (const preset of ['strict','minimal','custom','default']) {
     for (const owner of ['fixture-agent','another-agent']) {
@@ -86,15 +90,16 @@ try {
     await writeFile(path.join(pmRoot,'schema/statuses.json'),JSON.stringify({statuses:[{id:close,roles:[i%2?'draft':'active']}]}));
     const workflowFile=path.join(pmRoot,'schema/workflows.json');
     await writeFile(workflowFile,JSON.stringify({workflow:settings.schema.workflow}));
-    await check([create(`sample-close-${i}`,{status:close})]);
-    // Configured closure updates are outside the declared native scalar slice.
-    // The native apply/property corpus checks their refusal independently: the
-    // pinned transaction preview currently admits active-role closure updates.
-    const closingBatch={author:'fixture-agent',mutations:[{op:'update',id:'sample-existing',options:{status:close}}]};
-    for (const output of [[],['--json']]) {
-      const native=spawnSync(process.env.PM_RUST_ADMISSION_BINARY,['--workspace',directory,'preview-item-mutations',...output],{input:JSON.stringify(closingBatch),encoding:'utf8',env:{...process.env,PATH:'',GIT_CEILING_DIRECTORIES:path.dirname(directory)}});
-      assert.equal(native.status,0,native.stderr);
-      assert.match(native.stdout,/close_reason_required/);
+    // Configured closure creates and updates are outside the declared native
+    // slice. Published previews differ across versions here; native admission
+    // must retain its documented author-controlled close-reason requirement.
+    for (const mutations of [[create(`sample-close-${i}`,{status:close})], [{op:'update',id:'sample-existing',options:{status:close}}]] as PublishedSdk.BulkItemMutation[][]) {
+      const closingBatch={author:'fixture-agent',mutations};
+      for (const output of [[],['--json']]) {
+        const native: SpawnSyncReturns<string> = spawnSync(binary,['--workspace',directory,'preview-item-mutations',...output],{input:JSON.stringify(closingBatch),encoding:'utf8',env:{...process.env,PATH:'',GIT_CEILING_DIRECTORIES:path.dirname(directory)}});
+        assert.equal(native.status,0,native.stderr);
+        assert.match(native.stdout,/close_reason_required/);
+      }
     }
   }
   // Missing schema files use the published default registry, even with embedded overrides.
@@ -114,12 +119,12 @@ try {
     await rename(canonicalFile,aliasFile);
     try {
       await assert.rejects(sdk.get(identityTarget,{}, {pmRoot,noExtensions:true}));
-      const mutations=[{op:'update',id:identityTarget,options:{title:'Must refuse'}}];
+      const mutations: PublishedSdk.BulkItemMutation[] = [{op:'update',id:identityTarget,options:{title:'Must refuse'}}];
       await assert.rejects(sdk.previewItemMutations({pmRoot,transactionId:`identity-${i}`,author:'fixture-agent',mutations}));
       for (const output of [[],['--json']]) {
-        const native=spawnSync(process.env.PM_RUST_ADMISSION_BINARY,['--workspace',directory,'preview-item-mutations',...output],{input:JSON.stringify({author:'fixture-agent',mutations}),encoding:'utf8',env:{...process.env,PATH:'',GIT_CEILING_DIRECTORIES:path.dirname(directory)}});
+        const native: SpawnSyncReturns<string> = spawnSync(binary,['--workspace',directory,'preview-item-mutations',...output],{input:JSON.stringify({author:'fixture-agent',mutations}),encoding:'utf8',env:{...process.env,PATH:'',GIT_CEILING_DIRECTORIES:path.dirname(directory)}});
         assert.equal(native.status,2,native.stderr);
-        const refusal=JSON.parse(native.stderr);assert.equal(refusal.code,'admission_source');assert.match(refusal.required,/filename/);assert.ok(refusal.limits.source_rows>0);
+        const refusal=JSON.parse(native.stderr) as {code: string; required: string; limits: {source_rows: number}};assert.equal(refusal.code,'admission_source');assert.match(refusal.required,/filename/);assert.ok(refusal.limits.source_rows>0);
         assert.deepEqual(await readFile(aliasFile),identityBytes);
       }
     } finally {await rename(aliasFile,canonicalFile);}

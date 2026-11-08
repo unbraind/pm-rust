@@ -64,7 +64,7 @@ fn snapshot(root: &Path) -> Result<BTreeMap<PathBuf, Vec<u8>>, std::io::Error> {
 
 /// Canonical progressive create with every scope assertion explicit.
 fn create(id: &str) -> Value {
-    json!({"op":"create","id":id,"options":{"title":"A native admission fixture","type":"Task","status":"open","priority":2,"createMode":"progressive","parent":"none","assignee":"none","allowDuplicate":true}})
+    json!({"op":"create","id":id,"options":{"title":"A native admission fixture","type":"Task","status":"open","priority":2,"createMode":"progressive","unset":["parent","assignee"],"allowDuplicate":true}})
 }
 
 /// CLI stdin boundary and compact agent rendering work without Node or Git.
@@ -303,7 +303,7 @@ fn admission_published_preview_oracle_matches_the_declared_slice() -> TestResult
     process_environment::isolate_environment(&mut command);
     let output = command
         .current_dir(env!("CARGO_MANIFEST_DIR"))
-        .arg("tests/support/admission-oracle.mjs")
+        .arg("tests/oracle/admission-oracle.mts")
         .env("PM_RUST_ADMISSION_BINARY", env!("CARGO_BIN_EXE_pm-rust"))
         .output()?;
     assert!(

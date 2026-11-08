@@ -82,8 +82,10 @@ source state; there is no saved plan, replay journal or idempotency cache.
 The declared v1 slice uses canonical `{op,id,options}` intents and an explicit
 batch `author`. Creates require a full ID, title, built-in `type`, canonical
 active/draft `status`, integer `priority` (0..4), `createMode: "progressive"`,
-`parent: "none"`, `assignee: "none"` and `allowDuplicate: true`. Description,
-CSV tags and body are optional. These scope assertions prevent ambient focus
+`unset: ["parent", "assignee"]` and `allowDuplicate: true`. Description,
+CSV tags and body are optional. This uses the published CLI spelling
+`--unset parent --unset assignee`; placeholder scope tokens such as `none`
+are refused. These scope assertions prevent ambient focus
 from choosing a parent; similarity bypass is explicit. Existing create targets
 are read and adopted as `unchanged`, matching the core coordinator. This is
 adoption of current state, not proof that the incoming content matches it.
@@ -97,7 +99,10 @@ Strict ownership protects every scalar update and annotation, including
 no-op replacements; previews return `ownership_conflict` with a remedy. A
 configured close target retains an enabled governance close-reason requirement
 even with an active/draft role and returns `close_reason_required`; use the
-published close API for it. Aliases, terminal/blocked
+published close API for it. Configured closure creates and updates are outside
+the supported parity slice and have independent native refusal checks. Published
+preview versions differ on these unsupported operations, so they cannot serve
+as the oracle for the native close-reason requirement. Aliases, terminal/blocked
 transitions, reopening, unblocking and dependency-sensitive transitions refuse
 with a remedy directing callers to the published SDK. Custom field/type
 schemas, metadata requirements and type workflows also return an explicit
