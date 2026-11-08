@@ -79,7 +79,7 @@ covered. Six remaining findings are addressed by their general contract:
 | PRRT_kwDOTwgMRs60_iKa | Standalone gates install every imported dependency. `crash-check` and `orientation-revert-proof` depend on `oracle-install`, which installs both oracles before their consumers. | Inspect Just's parsed dependency graph; removing the prerequisite fails the named Node test. |
 | PRRT_kwDOTwgMRs60_iKb | A failing control is never mutation evidence. Context intent proofs require the published oracle, pass the same tests before each mutation, restore exact source and rerun the controls. Native adapter and performance proof runners receive the same baseline requirement. Native adapter mutations now use a disposable copy. | An actual runner with a failed setup cannot emit a successful mutation receipt. A workflow adversary requires the order pass/mutate/fail/restore/pass and refuses mutation after baseline failure. |
 | PRRT_kwDOTwgMRs60_iKe | Proofs identify the specific behavioral test. Cargo and explicit TAP reporters share exact named result validation across context, packet and adapter runners. | The outcome corpus rejects unrelated names, skips, TODOs, empty selections, compiler errors, spawn errors and signals. Disabling named validation fails the corpus. |
-| PRRT_kwDOTwgMRs60_iKg | Feasibility describes retained output after temporary metadata is removed. Shared stabilization fixes both context intents and list triage. Omitted-result estimates remain preserved. | 240 context and 100 list projection cases cross their declared ceilings in JSON/TOON options. Reverting either attachment call fails its own projection test. |
+| PRRT_kwDOTwgMRs60_iKg | Feasibility describes retained output after temporary metadata is removed. Current context stabilization recomputes the retained receipt. Legacy list retains its separately pinned pre-projection feasibility contract. Omitted-result estimates remain preserved. | 240 current-context cases cross their declared ceilings in JSON/TOON options. Another 100 cases guard the legacy list contract; applying current-context recalculation there fails the compatibility property. Reverting the context attachment correction fails its projection test. |
 | PRRT_kwDOTwgMRs60_iKi | Node admission preserves reserved root evidence at tight budgets. The existing generous-budget cost and stability checks remain. | Four neighboring tight budgets admit exactly the first node and preserve every root edge for it. Removing reservation enforcement fails the existing named packet test. |
 | PRRT_kwDOTwgMRs60_iKj | Tests inspect the producer's return before any repair. The receipt matrix checks the raw `apply_orientation` result and requires both receipts in each encoding. | Removing producer stabilization fails the raw-return test; the test no longer calls stabilization before assertions. |
 
@@ -112,3 +112,14 @@ restore omission and checkout build output) fail the selected test. Literal test
 names now share escaping for selection and TAP validation, including parentheses.
 All 25 general harness tests pass through the managed pm runner; the three Rust
 harness contracts and Bun's actual general-harness invocation pass too.
+
+The package-wide audit also verified the legacy list boundary against the pinned
+2026.10.21 CLI. Its unchanged `legacy_cursor_fingerprint_matches_published` test
+uses 75 synthetic rows and `--limit 69 --for triage --token-budget 100000`:
+the published receipt requires `declaration_feasible: false`. Applying the new
+context rule emits `true` and breaks byte parity. The current context contract
+uses its independent oracle and is corrected; list preserves its supported older
+serialization contract. The original cursor comparison remains unchanged and
+passes. A 100-case compatibility property witnesses both feasibility outcomes
+and the metadata-removal boundary, and fails if context recalculation leaks into
+legacy list. This is a versioned contract boundary, not a skipped finding.

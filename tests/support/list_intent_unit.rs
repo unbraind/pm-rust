@@ -173,9 +173,9 @@ fn cursor_intents_disclose_effective_infeasibility_without_losing_metadata() {
     assert_eq!(result["context_intent"]["result_omitted"], true);
 }
 
-/// The list intent obeys the same retained-projection feasibility rule as context intents.
+/// Legacy list receipts preserve the pinned pre-projection feasibility contract.
 #[test]
-fn retained_list_intent_feasibility_matches_projection() {
+fn legacy_list_intent_feasibility_preserves_published_projection() {
     for toon in [false, true] {
         let options = ListOptions {
             intent: Some("triage".into()),
@@ -185,6 +185,7 @@ fn retained_list_intent_feasibility_matches_projection() {
         };
         let mut feasible = 0;
         let mut infeasible = 0;
+        let mut metadata_boundary = false;
         for count in 60..110 {
             let result = super::attach(
                 json!({"items":[],"payload":vec!["x".repeat(130);count]}),
@@ -193,7 +194,11 @@ fn retained_list_intent_feasibility_matches_projection() {
             );
             let measured = crate::read_output::estimate(&result, false);
             assert_eq!(result["context_intent"]["estimated_tokens"], measured);
-            let expected = measured <= 3200;
+            let mut declared_projection = result.clone();
+            declared_projection.value["row_contract"] = json!({"command":"list","row_kind":"collection","row_keys":["items"],"fields":"supported","jq_selector":".row_contract.row_keys[] as $key | getpath($key | split(\".\")) | if type == \"array\" then .[] else if type == \"object\" then to_entries[] else empty end end","toon_encoding":"tabular_when_uniform"});
+            crate::read_output::update(&mut declared_projection, "context_intent", false);
+            let expected = crate::read_output::estimate(&declared_projection, false) <= 3200;
+            metadata_boundary |= measured <= 3200 && !expected;
             assert_eq!(
                 result["context_intent"]["declaration_feasible"], expected,
                 "toon={toon}, count={count}"
@@ -204,6 +209,6 @@ fn retained_list_intent_feasibility_matches_projection() {
                 infeasible += 1;
             }
         }
-        assert!(feasible > 0 && infeasible > 0);
+        assert!(feasible > 0 && infeasible > 0 && metadata_boundary);
     }
 }

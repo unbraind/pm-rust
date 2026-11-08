@@ -53,7 +53,7 @@ pub(crate) fn stabilize_orientation(result: &mut ListOutput, toon: bool) {
     }
 }
 
-/// Recomputes retained intent feasibility after projection changes, preserving omitted estimates.
+/// Recomputes current context feasibility after projection changes, preserving omitted estimates.
 pub(crate) fn stabilize_intent(result: &mut ListOutput) {
     if result["context_intent"]["result_omitted"] == true {
         return;

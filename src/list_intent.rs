@@ -177,7 +177,7 @@ pub(crate) fn attach(
         let mut map = result.as_object().cloned().unwrap_or_default();
         map.shift_remove("row_contract");
         result.value = Value::Object(map);
-        read_output::stabilize_intent(&mut result);
+        read_output::update(&mut result, "context_intent", false);
     }
     result
 }

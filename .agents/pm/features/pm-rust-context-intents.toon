@@ -7,13 +7,13 @@ status: in_progress
 priority: 2
 tags[4]: "gh:unbraind/pm-rust#154",native,oracle,orientation
 created_at: "2026-11-06T09:15:56.754Z"
-updated_at: "2026-11-08T13:27:14.281Z"
+updated_at: "2026-11-08T14:01:42.029Z"
 assignee: codex-agent
 claim_principal: codex-agent
 author: codex-astra
 acceptance_criteria: "JSON and TOON bytes, status and stderr match the oracle on generated non-git trackers and public tracker copies; retain typed calendar and memory refusals; focused tests fail on behavioral revert; record latency and differential counts."
 parent: pm-rust-s6j4
-comments[47]{created_at,author,text}:
+comments[48]{created_at,author,text}:
   "2026-11-06T09:28:14.771Z",codex-astra,"Implemented core intent preparation, section selection, activity bounds and intent receipts. Current-oracle exploration identified three inherited context drifts: bounded activity excludes timestamps at or after the read clock; test health covers all matching active items and declares its scope; TOON auto-tables choose compact list/null columns only when shorter. Bringing these paths to the requested November contract before running the public-copy corpus."
   "2026-11-06T09:44:02.034Z",codex-astra,"Public-copy packet differential exposed the newer required-root-evidence-first-v1 ordering, reserved root-edge budget, root-edge priority and bounded-relationship omission receipt. Porting those native packet semantics as part of this slice, including updated producer fingerprints. No legacy packet result is being counted as current-oracle evidence."
   "2026-11-06T10:08:53.263Z",codex-astra,"Generated intent comparisons passed before the final expanded matrix. Public-copy exploration exposed the distinction between compact intent estimates and complete JSON wire ceilings, now handled by the shared output-budget path. Current dependency packets also require root-evidence-first ordering and revised refusal text; preserving the existing bounded retry test while eliminating repeated rendering of identical packets."
@@ -61,6 +61,7 @@ comments[47]{created_at,author,text}:
   "2026-11-08T13:01:55.599Z",codex-agent,"Managed revert proof passed: 21 mutations, 42 baseline/restored controls and four baseline-only history tests (67 commands); the two final recipe dependency changes also passed six focused proof commands. Current context Node tests and adapter artifact tests pass 11/11; list triage still matches the pinned CLI; Node and Bun reviewed-contract matrices each pass 72 comparisons. The changes-runner baseline exposed a missing compile-time examples input in selective scratch copies, now included; failure diagnostics are retained. Native adapter proofs pass all nine cases including a repaired stale flush anchor. The prior documented release-check exceeded 55 minutes while only 18 of 34 instrumented targets completed. The managed proof now takes 19 minutes under current shared-host load, so the full aggregate cannot reasonably be expected within the task approximately-60-minute limit. Following that explicit runtime exception: run the ordinary Rust suite and individual required gates with two workers, defer full instrumented coverage to exact-head CI, and make no full-aggregate/100-percent claim."
   "2026-11-08T13:07:04.277Z",codex-agent,"Broad runner verification passed: nine native-adapter mutations (18 controls), the selected UTF-8 changes mutation (two controls), two capability producer/writer mutations (four controls), and two performance mutations (four controls). The capability review runner passed 14 Rust mutations with 28 controls plus three Node adversaries and final restored suites of 13, 6 and 1 tests. Selective snapshots now include compile-time examples, and unexpected test exits retain diagnostics. Current recipes install both pinned oracles and both prerequisite reverts also passed through pm test --run. Fresh fetch confirms main is already included and the remote PR branch has not diverged. Starting isolated-home ordinary Rust and individual release checks; the full-coverage runtime exception remains explicit."
   "2026-11-08T13:27:14.280Z",codex-agent,"The first ordinary Rust run completed 533 tests in 12 targets, then correctly failed harness_contract because the six existing interruption fixtures assumed mutation occurred in the checkout before any baseline. Updated those same tests without relaxing their 15-second/5-second bounds: two passing controls precede mutation; the checkout sources and build artifacts stay unchanged; both sandbox source files restore byte-for-byte before scratch cleanup; all SIGINT/SIGTERM and process-group/parent/cargo deliveries remain. All six now pass. Three independent reverts (omit baseline, omit interrupt restoration, write build output in checkout) each cause the named test to fail with passing before/after controls. Shared literal-name escaping now covers Node selection as well as TAP results. The full 25-test Node harness passed through pm test --run; all three Rust harness contracts and Bun harness_behavior passed. TypeScript/ESLint now include the harness fixture. Rerunning the ordinary suite and individual gates on this correction."
+  "2026-11-08T14:01:40.817Z",codex-agent,"Compatibility boundary verified for the feasibility class: the unchanged legacy_cursor_fingerprint_matches_published test failed only when current-context recalculation was applied to legacy list. The pinned pm 2026.10.21 oracle emits declaration_feasible=false for 75 synthetic rows with --limit 69 --for triage --token-budget 100000; recalculation emitted true. Under the required versioned-serialization rule, legacy list must preserve that published pre-projection contract, while the independent current context contract receives the reviewed correction. Restored legacy list behavior; the original cursor test now passes unchanged. The new 100-case legacy property retains both true/false outcomes and witnesses the metadata boundary; applying context recalculation there produces a named failure with passing before/after controls. No existing test or threshold was weakened. The ordinary run passed all orientation cases and 25/26 pagination cases before this correction. Finishing pagination, all remaining targets and individual gates on the corrected boundary; full one-invocation aggregate/coverage remains for CI under the runtime exception."
 files[41]{path,scope}:
   justfile,project
   scripts/context-intents-revert.mts,project
@@ -103,7 +104,7 @@ files[41]{path,scope}:
   tests/support/orientation_sections_unit.rs,project
   tests/support/read_output_unit.rs,project
   tests/support/toon_output_unit.rs,project
-tests[19]:
+tests[20]:
   - command: just orientation-check
     scope: project
     timeout_seconds: 3600
@@ -248,6 +249,14 @@ tests[19]:
     provenance:
       author: codex-agent
       created_at: "2026-11-08T13:25:41.209Z"
+      source_kind: local_mutation
+      source_ref: native-context-intents-and-relationship-packets
+  - command: node scripts/check-lookup.mts legacy_list_intent_feasibility
+    scope: project
+    timeout_seconds: 120
+    provenance:
+      author: codex-agent
+      created_at: "2026-11-08T14:01:41.968Z"
       source_kind: local_mutation
       source_ref: native-context-intents-and-relationship-packets
 docs[3]{path,scope}:
