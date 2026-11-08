@@ -9,6 +9,11 @@ export interface TestOutcome {
   error?: Error;
 }
 
+/** Escape a literal test name for both subprocess selection and result validation. */
+export function escapeTestName(name: string): string {
+  return name.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+}
+
 /** Require each named result, rejecting setup failures, skipped tests and unrelated failures. */
 export function assertNamedTests(result: TestOutcome, names: string[], reverted: boolean, node = false): void {
   assert.ifError(result.error);
@@ -17,7 +22,7 @@ export function assertNamedTests(result: TestOutcome, names: string[], reverted:
   assert.ok(names.length > 0, 'A proof must select named tests');
   assert.doesNotMatch(output, /could not compile/);
   for (const name of names) {
-    const escaped = name.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+    const escaped = escapeTestName(name);
     const line = node
       ? `${reverted ? 'not ok' : 'ok'} \\d+ - ${escaped}`
       : `test ${escaped} \\.\\.\\. ${reverted ? 'FAILED' : 'ok'}`;

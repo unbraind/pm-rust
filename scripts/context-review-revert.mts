@@ -4,7 +4,7 @@ import { spawnSync } from 'node:child_process';
 import { cpSync, mkdirSync, mkdtempSync, readFileSync, rmSync, symlinkSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { dirname, join, resolve } from 'node:path';
-import { assertNamedTests, checkedGit, verifyMutation } from './context-revert-helpers.mts';
+import { assertNamedTests, checkedGit, escapeTestName, verifyMutation } from './context-revert-helpers.mts';
 
 const source = process.cwd();
 const scratch = mkdtempSync(join(tmpdir(), 'pm-context-review-'));
@@ -20,7 +20,7 @@ for (const name of ['PATH', 'HOME', 'CARGO_HOME', 'RUSTUP_HOME', 'LD_LIBRARY_PAT
 /** Require a real named test result; compiler failures and empty selections are rejected. */
 function check(target: string[], name: string, reverted: boolean): void {
   const node = target[0] === 'node';
-  const args = node ? ['--test-reporter=tap', `--test-name-pattern=${name}`, ...target.slice(1)] : ['test', '-j', '2', '--locked', ...target, name, '--', '--exact', '--test-threads=2'];
+  const args = node ? ['--test-reporter=tap', `--test-name-pattern=^${escapeTestName(name)}$`, ...target.slice(1)] : ['test', '-j', '2', '--locked', ...target, name, '--', '--exact', '--test-threads=2'];
   const result = spawnSync(node ? process.execPath : 'cargo', args, {
     cwd: scratch, env: childEnv, encoding: 'utf8', timeout: 900_000, maxBuffer: 8 * 1024 * 1024,
   });
@@ -54,6 +54,12 @@ try {
       target: ['--lib'], test: 'orientation_deps::packet::tests::packet_direct_reservations_are_reused' },
     { path: 'scripts/context-revert-helpers.mts', before: '  for (const name of names) {', after: '  for (const name of names.filter(() => false)) {',
       target: ['node', '--test', '--test-concurrency=2', 'scripts/context-intents-revert.test.mts'], test: 'revert proof rejects unrelated failures skipped tests and invalid controls' },
+    { path: 'scripts/perf-revert-proof.mts', before: 'for (const test of cases) await run(test, false);\n\ntry {', after: 'try {',
+      target: ['node', '--test', '--test-concurrency=2', 'scripts/harness.test.mts'], test: 'revert proof restores both source files on SIGTERM (parent only)' },
+    { path: 'scripts/perf-revert-proof.mts', before: '  activeChild?.kill(signal);\n  restore();', after: '  activeChild?.kill(signal);',
+      target: ['node', '--test', '--test-concurrency=2', 'scripts/harness.test.mts'], test: 'revert proof restores both source files on SIGTERM (parent only)' },
+    { path: 'scripts/perf-revert-proof.mts', before: "CARGO_TARGET_DIR: join(repo, 'target')", after: "CARGO_TARGET_DIR: join(sourceRoot, 'target')",
+      target: ['node', '--test', '--test-concurrency=2', 'scripts/harness.test.mts'], test: 'revert proof restores both source files on SIGTERM (parent only)' },
     ...['sections', 'activity_limit'].map(id => ({ path: 'src/discovery.rs', before: `                "${id}",\n`, after: '',
       target: ['--test', 'capability_contract'], test: 'discovery_is_complete_bounded_and_tracker_free' })),
     { path: 'tests/orientation_differential.rs', before: '        return Ok(None);\n    }\n    let current =', after: '        return Ok(Some(root.join("invalid-driver.mjs")));\n    }\n    let current =',

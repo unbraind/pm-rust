@@ -102,3 +102,13 @@ coverage unfinished. Under the task's approximately-one-hour runtime exception,
 this round runs the ordinary Rust suite and individual required checks; full
 instrumented coverage remains an exact-head CI requirement. No full aggregate or
 four-dimensional 100-percent result is inferred from these focused checks.
+
+The full ordinary run caught the performance interruption fixture's former
+in-place-mutation assumption. Its six existing signal/delivery tests now observe
+both sandbox source files restored before cleanup, require both passing controls
+before mutation, and assert that checkout source/build artifacts stay unchanged.
+The same signal limits remain. Three independent reverts (baseline omission,
+restore omission and checkout build output) fail the selected test. Literal test
+names now share escaping for selection and TAP validation, including parentheses.
+All 25 general harness tests pass through the managed pm runner; the three Rust
+harness contracts and Bun's actual general-harness invocation pass too.

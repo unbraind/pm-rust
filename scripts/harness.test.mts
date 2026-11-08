@@ -6,7 +6,7 @@ import { tmpdir } from 'node:os';
 import { basename, join } from 'node:path';
 import { test } from 'node:test';
 import { setTimeout } from 'node:timers/promises';
-import { fileURLToPath } from 'node:url';
+import { fileURLToPath, pathToFileURL } from 'node:url';
 import { argument, authoritative, relationshipRoots } from './context-real-helpers.mts';
 import { measure } from './latency-measure.mts';
 import { measureRuntimes } from './bench-schedule.mts';
@@ -22,43 +22,85 @@ for (const signal of ['SIGINT', 'SIGTERM'] as const) {
       mkdirSync(join(root, 'src'));
       mkdirSync(join(root, 'scripts'));
       mkdirSync(join(root, 'bin'));
+      for (const name of ['tests', 'examples']) mkdirSync(join(root, name));
+      for (const name of ['Cargo.toml', 'Cargo.lock', 'build.rs']) writeFileSync(join(root, name), 'synthetic compile input');
       for (const [name, bytes] of originals) writeFileSync(join(root, `src/${name}.rs`), bytes);
       const script = join(root, 'scripts/perf-revert-proof.mts');
       writeFileSync(script, readFileSync(new URL('./perf-revert-proof.mts', import.meta.url)));
       const cargo = join(root, 'bin/cargo');
       const cargoProgram = join(root, 'cargo.mjs');
-      writeFileSync(cargoProgram, "import { renameSync, writeFileSync } from 'node:fs';\nwriteFileSync('ready.stage', String(process.pid));\nrenameSync('ready.stage', 'ready');\nsetInterval(() => {}, 1000);\n");
-      writeFileSync(cargo, '#!/bin/sh\nexec "$PM_PROOF_NODE" "$PM_PROOF_CHILD"\n');
+      writeFileSync(cargoProgram, `import { appendFileSync, mkdirSync, readFileSync, renameSync, writeFileSync } from 'node:fs';
+import { join } from 'node:path';
+const source = process.env.PM_PROOF_ROOT;
+const names = ['ownership', 'mutation'];
+mkdirSync(process.env.CARGO_TARGET_DIR, { recursive: true });
+writeFileSync(join(process.env.CARGO_TARGET_DIR, 'synthetic-artifact'), 'compiler output');
+const fixed = names.every(name => readFileSync(join(source, 'src', name + '.rs'), 'utf8') === readFileSync(join(process.cwd(), 'src', name + '.rs'), 'utf8'));
+if (fixed) {
+  appendFileSync(join(source, 'baselines.jsonl'), JSON.stringify(process.argv.slice(2)) + '\\n');
+  console.log('test result: ok. 1 passed; 0 failed;');
+  process.exit(0);
+}
+writeFileSync(join(source, 'ready.stage'), JSON.stringify({ pid: process.pid, root: process.cwd() }));
+renameSync(join(source, 'ready.stage'), join(source, 'ready'));
+setInterval(() => {}, 1000);
+`);
+      // Observe restored sandbox bytes before the runner's own exit cleanup removes them.
+      const observer = join(root, 'observe-cleanup.mjs');
+      writeFileSync(observer, `import { existsSync, readFileSync, writeFileSync } from 'node:fs';
+import { join } from 'node:path';
+process.on('exit', () => {
+  const source = process.env.PM_PROOF_ROOT;
+  if (!existsSync(join(source, 'ready'))) return;
+  const marker = JSON.parse(readFileSync(join(source, 'ready'), 'utf8'));
+  const restored = ['ownership', 'mutation'].map(name => readFileSync(join(marker.root, 'src', name + '.rs'), 'utf8') === readFileSync(join(source, 'src', name + '.rs'), 'utf8'));
+  writeFileSync(join(source, 'restored.json'), JSON.stringify(restored));
+});
+`);
+      writeFileSync(cargo, '#!/bin/sh\nexec "$PM_PROOF_NODE" "$PM_PROOF_CHILD" "$@"\n');
       chmodSync(cargo, 0o755);
-      const child = spawn(process.execPath, [script], {
+      const child = spawn(process.execPath, ['--import', pathToFileURL(observer).href, script], {
         cwd: root, detached: true, stdio: 'ignore',
         env: { ...process.env, PATH: `${join(root, 'bin')}:${process.env.PATH ?? ''}`,
-          PM_PROOF_NODE: process.execPath, PM_PROOF_CHILD: cargoProgram },
+          PM_PROOF_NODE: process.execPath, PM_PROOF_CHILD: cargoProgram, PM_PROOF_ROOT: root },
       });
       const completed = new Promise<{ code: number | null; signal: NodeJS.Signals | null }>((resolve, reject) => {
         child.once('error', reject);
         child.once('exit', (code, signal) => resolve({ code, signal }));
       });
+      let sandbox: string | undefined;
       try {
         for (let attempt = 0; !existsSync(join(root, 'ready')) && attempt < 500; attempt++) await setTimeout(10);
         assert.ok(existsSync(join(root, 'ready')), 'cargo never reached the rewritten-source phase');
-        const rawPid = readFileSync(join(root, 'ready'), 'utf8');
-        assert.match(rawPid, /^[1-9][0-9]*$/);
-        const cargoPid = Number(rawPid);
+        const marker = JSON.parse(readFileSync(join(root, 'ready'), 'utf8')) as { pid: number; root: string };
+        const cargoPid = marker.pid;
+        sandbox = marker.root;
+        assert.notEqual(sandbox, root);
+        assert.equal(existsSync(join(root, 'target')), false, 'checkout build artifacts remain untouched');
+        const baselines = readFileSync(join(root, 'baselines.jsonl'), 'utf8').trim().split('\n').map(line => JSON.parse(line) as string[]);
+        assert.equal(baselines.length, 2, 'both passing controls must precede mutation');
+        assert.ok(baselines[0].includes('ownership::tests::ownership_lineage_scans_corpus_once'));
+        assert.ok(baselines[1].includes('mutation::tests::locator_metadata_work_depends_on_directories_and_targets'));
         assert.ok(Number.isSafeInteger(cargoPid) && cargoPid > 1, 'cargo PID must identify an ordinary child process');
-        for (const [name, bytes] of originals) assert.notEqual(readFileSync(join(root, `src/${name}.rs`), 'utf8'), bytes);
+        for (const [name, bytes] of originals) {
+          assert.equal(readFileSync(join(root, `src/${name}.rs`), 'utf8'), bytes, 'checkout stays unchanged during mutation');
+          assert.notEqual(readFileSync(join(sandbox, `src/${name}.rs`), 'utf8'), bytes);
+        }
         assert.ok(child.pid && child.pid > 1);
         const target = delivery === 'process group' ? -child.pid : delivery === 'parent only' ? child.pid :
           cargoPid;
         process.kill(target, signal);
         const result = await completed;
         for (const [name, bytes] of originals) assert.equal(readFileSync(join(root, `src/${name}.rs`), 'utf8'), bytes);
+        assert.deepEqual(JSON.parse(readFileSync(join(root, 'restored.json'), 'utf8')), [true, true], 'both sandbox sources restore before exit');
+        assert.equal(existsSync(sandbox), false, 'owned scratch and build artifacts are removed');
         assert.deepEqual(result, { code: signal === 'SIGINT' ? 130 : 143, signal: null });
       } finally {
         if (child.pid) {
           try { process.kill(-child.pid, 'SIGKILL'); } catch { /* The process group already exited. */ }
         }
         await completed;
+        if (sandbox !== undefined) rmSync(sandbox, { recursive: true, force: true });
         rmSync(root, { recursive: true, force: true });
       }
     });
