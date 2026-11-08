@@ -1135,6 +1135,7 @@ impl Workspace {
                 json!({"code":"unsupported_native_context","field":"settings.context","required":"Use object-valued context settings or the published pm CLI for schema-warning fallback."}),
             ));
         }
+        let settings_fallback = sections::settings_fallback(&mut settings);
         let depth = trim_control(
             options
                 .depth
@@ -1220,7 +1221,11 @@ impl Workspace {
                 crate::read_projection::Projection::ContextSections
             })?
             .collect::<Result<Vec<_>, _>>()?;
-        let lifecycle = Lifecycle::load(self.pm_root())?;
+        let lifecycle = if settings_fallback {
+            Lifecycle::from_values(&settings, &Value::Null, &Value::Null)
+        } else {
+            Lifecycle::load(self.pm_root())?
+        };
         let blocked = crate::selection::dependency_blocked_ids(&documents, &lifecycle);
         // Keep the list's default source order while projecting this one captured corpus.
         documents.sort_by_cached_key(|document| {
@@ -1568,6 +1573,7 @@ impl Workspace {
             &["high_level", "low_level"],
         )
         .map(|mut result| {
+            result.settings_warning = settings_fallback;
             if result.get("context_intent").is_some() && result.get("read_output").is_some() {
                 crate::read_output::stabilize_orientation(&mut result, options.toon);
             }

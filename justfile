@@ -62,7 +62,7 @@ crash *args:
 crash-check: oracle-install
     npm ci --prefix tests/harness --ignore-scripts
     tests/harness/node_modules/.bin/tsc -p tests/harness/tsconfig.json
-    tests/harness/node_modules/.bin/eslint -c tests/harness/eslint.config.mjs scripts/crash-*.mts scripts/native-adapter-*.mts scripts/context-*.mts scripts/harness.test.mts
+    tests/harness/node_modules/.bin/eslint -c tests/harness/eslint.config.mjs scripts/crash-*.mts scripts/native-adapter-*.mts scripts/context-*.mts scripts/harness.test.mts scripts/perf-revert-proof.mts
     node --test --test-concurrency=1 scripts/crash-*.test.mts scripts/native-adapter-*.test.mts scripts/context-*.test.mts
     node scripts/crash-history-prefix.mts
     node scripts/crash-evidence-commits.mts

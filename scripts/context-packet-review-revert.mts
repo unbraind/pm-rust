@@ -1,8 +1,8 @@
-import { assertNamedTests, checkedGit, verifyMutation } from './context-revert-helpers.mts';
+import { assertNamedTests, copyWorkingTree, checkedGit, verifyMutation } from './context-revert-helpers.mts';
 import { spawnSync } from 'node:child_process';
-import { cpSync, mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
+import { mkdtempSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
-import { dirname, join } from 'node:path';
+import { join } from 'node:path';
 
 /** Require the focused regression to pass, or fail at its named assertion under mutation. */
 function check(root: string, name: string, reverted: boolean): void {
@@ -18,12 +18,7 @@ function check(root: string, name: string, reverted: boolean): void {
 const source = process.cwd();
 const scratch = mkdtempSync(join(tmpdir(), 'pm-rust-packet-review-'));
 try {
-  const files = checkedGit(source, ['ls-files', '--cached', '--others', '--exclude-standard', '-z'], 'Cannot enumerate package source');
-  for (const file of new Set(files.split('\0').filter(Boolean))) {
-    const target = join(scratch, file);
-    mkdirSync(dirname(target), { recursive: true });
-    cpSync(join(source, file), target);
-  }
+  copyWorkingTree(source, scratch);
   const path = join(scratch, 'src/orientation_deps/packet.rs');
   const fixed = readFileSync(path, 'utf8');
   const mutations = [

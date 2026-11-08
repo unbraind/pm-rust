@@ -1,7 +1,7 @@
-import { assertNamedTests, checkedGit, verifyMutation } from './context-revert-helpers.mts';
+import { assertNamedTests, copyWorkingTree, checkedGit, verifyMutation } from './context-revert-helpers.mts';
 import assert from 'node:assert/strict';
 import { spawnSync } from 'node:child_process';
-import { mkdirSync, mkdtempSync, rmSync, writeFileSync } from 'node:fs';
+import { cpSync, existsSync, mkdirSync, mkdtempSync, readFileSync, rmSync, symlinkSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { fileURLToPath, pathToFileURL } from 'node:url';
@@ -114,4 +114,64 @@ syncBuiltinESMExports();
     assert.match(result.stderr, /Unexpected test exit status/);
     assert.ok(!result.stdout.includes('"reverted":true'), 'setup failures cannot certify a behavioral revert');
   } finally { rmSync(scratch, { recursive: true, force: true }); }
+});
+
+/** Every proof runner copies existing tracked and untracked files despite unstaged deletions. */
+test('all worktree proof copies tolerate unstaged deletions', () => {
+  const root = mkdtempSync(join(tmpdir(), 'pm-rust-live-copy-'));
+  try {
+    const source = join(root, 'source');
+    mkdirSync(source);
+    for (const path of ['scripts', 'src', 'tests/support', 'tests/fixtures', 'tests/oracle/package.json', 'tests/orientation-oracle/package.json', 'Cargo.toml', 'Cargo.lock', 'build.rs', 'justfile']) {
+      cpSync(fileURLToPath(new URL(`../${path}`, import.meta.url)), join(source, path), { recursive: true });
+    }
+    checkedGit(source, ['init', '--quiet'], 'fixture init');
+    writeFileSync(join(source, '.git/info/exclude'), 'node_modules\n');
+    for (const file of ['retained.txt', 'deleted.txt', 'deleted-dir/child.txt']) {
+      mkdirSync(join(source, file, '..'), { recursive: true });
+      writeFileSync(join(source, file), file);
+    }
+    checkedGit(source, ['add', 'retained.txt', 'deleted.txt', 'deleted-dir/child.txt'], 'fixture add');
+    rmSync(join(source, 'deleted.txt'));
+    rmSync(join(source, 'deleted-dir'), { recursive: true });
+    writeFileSync(join(source, 'untracked.txt'), 'untracked');
+    for (const oracle of ['oracle', 'orientation-oracle']) {
+      mkdirSync(join(source, 'tests', oracle), { recursive: true });
+      symlinkSync(fileURLToPath(new URL(`../tests/${oracle}/node_modules`, import.meta.url)), join(source, 'tests', oracle, 'node_modules'), 'junction');
+    }
+    const copied = join(root, 'copy');
+    mkdirSync(copied);
+    copyWorkingTree(source, copied);
+    assert.equal(readFileSync(join(copied, 'retained.txt'), 'utf8'), 'retained.txt');
+    assert.equal(readFileSync(join(copied, 'untracked.txt'), 'utf8'), 'untracked');
+    assert.equal(existsSync(join(copied, 'deleted.txt')), false);
+    assert.equal(existsSync(join(copied, 'deleted-dir')), false);
+    const shim = join(root, 'copy-control.mjs');
+    writeFileSync(shim, `import childProcess from 'node:child_process';
+import assert from 'node:assert/strict';
+import { existsSync, readFileSync } from 'node:fs';
+import { join } from 'node:path';
+import { syncBuiltinESMExports } from 'node:module';
+const original = childProcess.spawnSync;
+childProcess.spawnSync = (command, args, options) => {
+  if (command !== 'cargo' && command !== process.execPath) return original(command, args, options);
+  assert.equal(readFileSync(join(options.cwd, 'retained.txt'), 'utf8'), 'retained.txt');
+  assert.equal(readFileSync(join(options.cwd, 'untracked.txt'), 'utf8'), 'untracked');
+  assert.equal(existsSync(join(options.cwd, 'deleted.txt')), false);
+  assert.equal(existsSync(join(options.cwd, 'deleted-dir')), false);
+  throw new Error('live-copy control reached');
+};
+syncBuiltinESMExports();
+`);
+    const childEnv = { ...process.env };
+    delete childEnv.NODE_TEST_CONTEXT;
+    for (const script of ['context-intents-revert.mts', 'context-packet-review-revert.mts', 'context-review-revert.mts']) {
+      const result = spawnSync(process.execPath, ['--import', pathToFileURL(shim).href, join(source, 'scripts', script)], {
+        cwd: source, env: childEnv, encoding: 'utf8', timeout: 30_000,
+      });
+      assert.ifError(result.error);
+      assert.equal(result.status, 1);
+      assert.match(result.stderr, /live-copy control reached/, script);
+    }
+  } finally { rmSync(root, { recursive: true, force: true }); }
 });

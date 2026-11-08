@@ -1,5 +1,7 @@
 import { spawnSync } from 'node:child_process';
 import assert from 'node:assert/strict';
+import { cpSync, lstatSync, mkdirSync } from 'node:fs';
+import { dirname, join } from 'node:path';
 
 /** Minimal subprocess outcome accepted by both synchronous and bounded async runners. */
 export interface TestOutcome {
@@ -49,4 +51,16 @@ export function checkedGit(root: string, args: string[], message: string): strin
     throw new Error(`${message}: ${result.error?.message ?? ''}${result.stderr ?? ''}`);
   }
   return result.stdout;
+}
+
+/** Copy the live worktree, including untracked files and excluding unstaged deletions. */
+export function copyWorkingTree(source: string, scratch: string): void {
+  const files = checkedGit(source, ['ls-files', '--cached', '--others', '--exclude-standard', '-z'], 'Cannot enumerate package source');
+  for (const file of new Set(files.split('\0').filter(Boolean))) {
+    const input = join(source, file);
+    if (!lstatSync(input, { throwIfNoEntry: false })) continue;
+    const target = join(scratch, file);
+    mkdirSync(dirname(target), { recursive: true });
+    cpSync(input, target, { verbatimSymlinks: true });
+  }
 }

@@ -67,6 +67,50 @@ pub(super) fn selected(depth: &str, settings: &Value) -> Vec<&'static str> {
         .collect()
 }
 
+/// Discard invalid stored context settings before request-specific controls are applied.
+/// The published settings reader falls back as a whole, rather than repairing one field.
+pub(super) fn settings_fallback(settings: &mut Value) -> bool {
+    let context = &settings["context"];
+    let invalid = ["activity_limit", "stale_threshold_days"]
+        .iter()
+        .any(|key| {
+            context.get(key).is_some_and(|value| {
+                !value
+                    .as_f64()
+                    .is_some_and(|n| n > 0.0 && n <= 9_007_199_254_740_991.0 && n.fract() == 0.0)
+            })
+        })
+        || [
+            ("default_depth", &["brief", "standard", "deep"][..]),
+            ("next_ranking_policy", &["priority_floor", "weighted"][..]),
+        ]
+        .iter()
+        .any(|(key, allowed)| {
+            context
+                .get(key)
+                .is_some_and(|value| !value.as_str().is_some_and(|text| allowed.contains(&text)))
+        })
+        || context.get("sections").is_some_and(|sections| {
+            !sections.is_object()
+                || NAMES
+                    .iter()
+                    .any(|key| sections.get(key).is_some_and(|value| !value.is_boolean()))
+        });
+    if invalid {
+        *settings = json!({});
+    } else {
+        for key in ["activity_limit", "stale_threshold_days"] {
+            if let Some(value) = settings["context"][key].as_f64() {
+                // The validator above proves a positive, exact JavaScript-safe integer.
+                #[allow(clippy::cast_possible_truncation, clippy::cast_sign_loss)]
+                let integer = value as u64;
+                settings["context"][key] = json!(integer);
+            }
+        }
+    }
+    invalid
+}
+
 /// Compares structural criticality for hierarchy children and unparented rows.
 fn critical(a: &Value, b: &Value, lifecycle: &Lifecycle) -> std::cmp::Ordering {
     status_rank(a, lifecycle)

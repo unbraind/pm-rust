@@ -1,8 +1,8 @@
-import { assertNamedTests, checkedGit, verifyMutation } from './context-revert-helpers.mts';
+import { assertNamedTests, copyWorkingTree, checkedGit, verifyMutation } from './context-revert-helpers.mts';
 import { spawnSync } from 'node:child_process';
-import { cpSync, existsSync, mkdirSync, mkdtempSync, readFileSync, rmSync, symlinkSync, writeFileSync } from 'node:fs';
+import { existsSync, mkdtempSync, readFileSync, rmSync, symlinkSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
-import { dirname, join, resolve } from 'node:path';
+import { join, resolve } from 'node:path';
 
 /** Run exactly the required assertions with oracle setup mandatory in every control. */
 function run(root: string, args: string[], expected: string[], reverted: boolean): void {
@@ -32,12 +32,7 @@ const dependencies = ['oracle', 'orientation-oracle'].map(oracle => {
 });
 const scratch = mkdtempSync(join(tmpdir(), 'pm-rust-context-revert-'));
 try {
-  const files = checkedGit(source, ['ls-files', '--cached', '--others', '--exclude-standard', '-z'], 'Cannot enumerate package source');
-  for (const file of new Set(files.split('\0').filter(Boolean))) {
-    const target = join(scratch, file);
-    mkdirSync(dirname(target), { recursive: true });
-    cpSync(join(source, file), target);
-  }
+  copyWorkingTree(source, scratch);
   for (const { oracle, modules } of dependencies) {
     symlinkSync(modules, join(scratch, 'tests', oracle, 'node_modules'), 'junction');
   }

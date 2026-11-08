@@ -2733,3 +2733,68 @@ fn context_successful_reads_preserve_settings_bytes() -> TestResult {
     }
     Ok(())
 }
+
+/// Invalid stored limits fall back before explicit CLI overrides in non-git trackers.
+#[test]
+fn context_invalid_stored_activity_limits_match_current_oracle() -> TestResult {
+    let Some(published) = published_cli::published_cli_or_skip("stored context limit fallback")
+    else {
+        return Ok(());
+    };
+    let scratch = tempfile::tempdir()?;
+    let Some(driver) = orientation_driver(scratch.path(), &published)? else {
+        return Ok(());
+    };
+    let root = tempfile::tempdir()?;
+    assert!(
+        oracle(&driver, root.path(), &["init", "sample-", "--defaults"])?
+            .status
+            .success()
+    );
+    fixture(root.path(), &[item("sample-activity", "Task", "open", 1)])?;
+    fs::write(
+        root.path().join(".agents/pm/history/sample-activity.jsonl"),
+        format!(
+            "{}\n",
+            json!({"ts":"2026-08-21T10:00:00.000Z","op":"update","author":"fixture","patch":[]})
+        ),
+    )?;
+    let path = root.path().join(".agents/pm/settings.json");
+    let original: Value = serde_json::from_slice(&fs::read(&path)?)?;
+    for context in [
+        json!({"activity_limit":0}),
+        json!({"activity_limit":-1}),
+        json!({"activity_limit":1.5}),
+        json!({"activity_limit":"2"}),
+        json!({"activity_limit":null}),
+        json!({"activity_limit":1}),
+        json!({"stale_threshold_days":0}),
+        json!({"default_depth":"full"}),
+        json!({"next_ranking_policy":"unknown"}),
+        json!({"sections":{"activity":0}}),
+        json!({"sections":{"activity":false,"future_field":null}}),
+    ] {
+        let mut settings = original.clone();
+        settings["context"] = context;
+        let before = serde_json::to_vec_pretty(&settings)?;
+        fs::write(&path, &before)?;
+        for controls in [
+            vec![],
+            vec!["--activity-limit", "0"],
+            vec!["--activity-limit", "1"],
+        ] {
+            for encoding in [vec![], vec!["--json"]] {
+                let mut args = vec!["context", "--section", "activity"];
+                args.extend(&controls);
+                args.extend(&encoding);
+                let expected = oracle(&driver, root.path(), &args)?;
+                assert!(expected.status.success());
+                let actual = native(root.path(), &args)?;
+                compare(&expected, &actual, &args);
+                assert_eq!(fs::read(&path)?, before);
+                assert!(!root.path().join(".git").exists());
+            }
+        }
+    }
+    Ok(())
+}

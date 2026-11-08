@@ -1,10 +1,10 @@
 /** Independent review mutations run only in a disposable source copy with real pinned oracles. */
 import assert from 'node:assert/strict';
 import { spawnSync } from 'node:child_process';
-import { cpSync, mkdirSync, mkdtempSync, readFileSync, rmSync, symlinkSync, writeFileSync } from 'node:fs';
+import { mkdtempSync, readFileSync, rmSync, symlinkSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
-import { dirname, join, resolve } from 'node:path';
-import { assertNamedTests, checkedGit, escapeTestName, verifyMutation } from './context-revert-helpers.mts';
+import { join, resolve } from 'node:path';
+import { assertNamedTests, copyWorkingTree, escapeTestName, verifyMutation } from './context-revert-helpers.mts';
 
 const source = process.cwd();
 const scratch = mkdtempSync(join(tmpdir(), 'pm-context-review-'));
@@ -29,15 +29,26 @@ function check(target: string[], name: string, reverted: boolean): void {
 }
 
 try {
-  for (const file of checkedGit(source, ['ls-files', '--cached', '--others', '--exclude-standard', '-z'], 'Cannot enumerate package source').split('\0').filter(Boolean)) {
-    const path = join(scratch, file);
-    mkdirSync(dirname(path), { recursive: true });
-    cpSync(join(source, file), path);
-  }
+  copyWorkingTree(source, scratch);
   for (const oracle of ['oracle', 'orientation-oracle']) {
     symlinkSync(resolve(source, 'tests', oracle, 'node_modules'), join(scratch, 'tests', oracle, 'node_modules'), 'junction');
   }
   const cases = [
+    { path: 'scripts/context-revert-helpers.mts', before: '    if (!lstatSync(input, { throwIfNoEntry: false })) continue;', after: '',
+      target: ['node', '--test', '--test-concurrency=2', 'scripts/context-intents-revert.test.mts'], test: 'all worktree proof copies tolerate unstaged deletions' },
+    { path: 'scripts/context-real-helpers.mts', before: " || entry.name.endsWith('.json')", after: '',
+      target: ['node', '--test', '--test-concurrency=2', 'scripts/harness.test.mts'], test: 'authoritative snapshots exclude caches only at the tracker root' },
+    { path: 'scripts/perf-revert-proof.mts', before: '  for (const pid of ownedGroups) {\n    stopGroup(pid, \'SIGTERM\');', after: '  ownedGroups.clear();\n  for (const pid of ownedGroups) {\n    stopGroup(pid, \'SIGTERM\');',
+      target: ['node', '--test', '--test-concurrency=2', 'scripts/harness.test.mts'], test: 'revert proof restores both source files on SIGTERM (parent only)' },
+    { path: 'scripts/perf-revert-proof.mts', before: 'process.kill(-pid, signal)', after: 'process.kill(pid, signal)',
+      target: ['node', '--test', '--test-concurrency=2', 'scripts/harness.test.mts'], test: 'revert proof restores both source files on SIGTERM (parent only)' },
+    { path: 'scripts/perf-revert-proof.mts', before: '  try { process.kill(-pid, signal); }', after: "  if (signal === 'SIGKILL') return;\n  try { process.kill(-pid, signal); }",
+      target: ['node', '--test', '--test-concurrency=2', 'scripts/harness.test.mts'], test: 'revert proof restores both source files on SIGTERM (stubborn descendant)' },
+    { path: 'src/orientation_context.rs', before: 'let settings_fallback = sections::settings_fallback(&mut settings);', after: 'let settings_fallback = false;',
+      target: ['--lib'], test: 'orientation_context::tests::context_stored_settings_fallback_precedes_overrides' },
+    { path: 'src/orientation_context.rs', before: 'let settings_fallback = sections::settings_fallback(&mut settings);', after: 'let settings_fallback = false;',
+      target: ['--test', 'orientation_differential'], test: 'context_invalid_stored_activity_limits_match_current_oracle' },
+
     { path: 'scripts/context-revert-helpers.mts', before: "${message}: ${result.error?.message ?? ''}${result.stderr ?? ''}", after: "${message}: ${result.error?.message ?? ''}",
       target: ['node', '--test', '--test-concurrency=2', 'scripts/context-intents-revert.test.mts'], test: 'revert Git failures preserve diagnostics for source scans and patch checks' },
     { path: 'scripts/context-revert-helpers.mts', before: '  check(false);\n  try {', after: '  try {',
@@ -54,9 +65,9 @@ try {
       target: ['--lib'], test: 'orientation_deps::packet::tests::packet_direct_reservations_are_reused' },
     { path: 'scripts/context-revert-helpers.mts', before: '  for (const name of names) {', after: '  for (const name of names.filter(() => false)) {',
       target: ['node', '--test', '--test-concurrency=2', 'scripts/context-intents-revert.test.mts'], test: 'revert proof rejects unrelated failures skipped tests and invalid controls' },
-    { path: 'scripts/perf-revert-proof.mts', before: 'for (const test of cases) await run(test, false);\n\ntry {', after: 'try {',
+    { path: 'scripts/perf-revert-proof.mts', before: '  for (const test of cases) await run(test, false);\n\n  try {', after: '  try {',
       target: ['node', '--test', '--test-concurrency=2', 'scripts/harness.test.mts'], test: 'revert proof restores both source files on SIGTERM (parent only)' },
-    { path: 'scripts/perf-revert-proof.mts', before: '  activeChild?.kill(signal);\n  restore();', after: '  activeChild?.kill(signal);',
+    { path: 'scripts/perf-revert-proof.mts', before: '  writeFileSync(ownershipPath, originalOwnership);\n  writeFileSync(mutationPath, originalMutation);', after: '',
       target: ['node', '--test', '--test-concurrency=2', 'scripts/harness.test.mts'], test: 'revert proof restores both source files on SIGTERM (parent only)' },
     { path: 'scripts/perf-revert-proof.mts', before: "CARGO_TARGET_DIR: join(repo, 'target')", after: "CARGO_TARGET_DIR: join(sourceRoot, 'target')",
       target: ['node', '--test', '--test-concurrency=2', 'scripts/harness.test.mts'], test: 'revert proof restores both source files on SIGTERM (parent only)' },

@@ -9,5 +9,5 @@
     "types": ["node"],
     "skipLibCheck": true
   },
-  "include": ["../../scripts/crash-*.mts", "../../scripts/native-adapter-*.mts", "../../scripts/context-*.mts", "../../scripts/harness.test.mts"]
+  "include": ["../../scripts/crash-*.mts", "../../scripts/native-adapter-*.mts", "../../scripts/context-*.mts", "../../scripts/harness.test.mts", "../../scripts/perf-revert-proof.mts"]
 }

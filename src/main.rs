@@ -314,6 +314,18 @@ fn run_with_io(
                 },
                 &now,
             )?;
+            if let Some(warning) = result.settings_warning() {
+                if json {
+                    let payload = serde_json::json!({"type":"warning","warnings":["settings_read_invalid_schema"],"warning_details":[{"code":"settings_read_invalid_schema","message":warning}]});
+                    writeln!(
+                        std::io::stderr().lock(),
+                        "{}",
+                        pm_rust::stringify_json(&payload, false)
+                    )?;
+                } else {
+                    writeln!(std::io::stderr().lock(), "{warning}")?;
+                }
+            }
             write_search_to(&mut std::io::stdout().lock(), &result, json)?;
         }
         Command::History {

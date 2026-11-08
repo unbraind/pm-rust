@@ -1,6 +1,6 @@
 //! Focus ranking, packing, lifecycle and agenda boundary acceptance.
 use super::*;
-use std::fs;
+use std::{fmt::Write, fs};
 const NOW: &str = "2026-08-22T10:00:00.000Z";
 /// Creates a minimal real tracker and validated lifecycle registry.
 fn workspace() -> Result<(tempfile::TempDir, Workspace, Lifecycle), Box<dyn std::error::Error>> {
@@ -1665,6 +1665,101 @@ fn legacy_blocker_aliases_keep_the_resolved_target() -> Result<(), Box<dyn std::
             blocker_ids(&root, &corpus, &lifecycle, true),
             vec!["sample-inverse", "sample-target"]
         );
+    }
+    Ok(())
+}
+
+/// Stored validation precedes every SDK override, preserves old data and never writes settings.
+#[test]
+fn context_stored_settings_fallback_precedes_overrides() -> Result<(), Box<dyn std::error::Error>> {
+    let (root, workspace, _) = workspace()?;
+    assert!(!root.path().join(".git").exists());
+    fs::write(
+        workspace.pm_root().join("tasks/sample-activity.toon"),
+        toon_format::encode_default(&item("sample-activity", "open"))?,
+    )?;
+    let history = (0..12).fold(String::new(), |mut output, i| {
+        let _ = writeln!(output, "{}", json!({"ts":format!("2026-08-21T10:00:{i:02}.000Z"),"op":"update","author":"fixture","patch":[]}));
+        output
+    });
+    fs::write(
+        workspace.pm_root().join("history/sample-activity.jsonl"),
+        history,
+    )?;
+    let invalid = [
+        json!({"activity_limit":0}),
+        json!({"activity_limit":-1}),
+        json!({"activity_limit":1.5}),
+        json!({"activity_limit":"2"}),
+        json!({"activity_limit":null}),
+        json!({"activity_limit":true}),
+        json!({"activity_limit":9_007_199_254_740_992u64}),
+        json!({"stale_threshold_days":0}),
+        json!({"stale_threshold_days":-1}),
+        json!({"stale_threshold_days":null}),
+        json!({"default_depth":"full"}),
+        json!({"default_depth":null}),
+        json!({"next_ranking_policy":"unknown"}),
+        json!({"next_ranking_policy":null}),
+        json!({"sections":null}),
+        json!({"sections":[]}),
+        json!({"sections":{"activity":0}}),
+    ];
+    let valid = [
+        json!({}),
+        json!({"activity_limit":1}),
+        json!({"activity_limit":1.0}),
+        json!({"activity_limit":9_007_199_254_740_991u64}),
+        json!({"default_depth":"deep"}),
+        json!({"next_ranking_policy":"weighted"}),
+        json!({"next_ranking_policy":"priority_floor"}),
+        json!({"stale_threshold_days":7}),
+        json!({"sections":{"activity":false,"future_field":null}}),
+        json!({"future_field":null}),
+    ];
+    for (contexts, fallback) in [(&invalid[..], true), (&valid[..], false)] {
+        for context in contexts {
+            let settings = json!({"id_prefix":"sample-","item_format":"toon","context":context});
+            let before = settings.to_string();
+            fs::write(workspace.pm_root().join("settings.json"), &before)?;
+            for toon in [false, true] {
+                for override_limit in [None, Some("0"), Some("1")] {
+                    let result = workspace.context_with_global(
+                        &ContextOptions {
+                            sections: vec!["activity".to_owned()],
+                            activity_limit: override_limit.map(str::to_owned),
+                            toon,
+                            ..Default::default()
+                        },
+                        NOW,
+                        None,
+                    )?;
+                    let expected = override_limit
+                        .and_then(|raw| raw.parse::<usize>().ok())
+                        .unwrap_or_else(|| {
+                            if fallback {
+                                10
+                            } else {
+                                context["activity_limit"]
+                                    .as_f64()
+                                    .map_or(10, |n| if n < 2.0 { 1 } else { 12 })
+                                    .min(12)
+                            }
+                        });
+                    assert_eq!(
+                        result["activity"].as_array().map(Vec::len),
+                        Some(expected),
+                        "{context}, {override_limit:?}"
+                    );
+                    assert_eq!(result.settings_warning().is_some(), fallback);
+                    assert_eq!(
+                        fs::read_to_string(workspace.pm_root().join("settings.json"))?,
+                        before
+                    );
+                    assert!(result.get("settings_warning").is_none());
+                }
+            }
+        }
     }
     Ok(())
 }

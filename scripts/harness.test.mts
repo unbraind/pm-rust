@@ -13,7 +13,7 @@ import { measureRuntimes } from './bench-schedule.mts';
 import { benchmarkOracleVersion } from './bench-oracle-version.mts';
 
 for (const signal of ['SIGINT', 'SIGTERM'] as const) {
-  for (const delivery of ['process group', 'parent only', 'cargo only'] as const) {
+  for (const delivery of ['process group', 'parent only', 'cargo only', 'stubborn descendant'] as const) {
     test(`revert proof restores both source files on ${signal} (${delivery})`, { skip: process.platform === 'win32', timeout: 15000 }, async () => {
       // Separate delivery targets exercise either callback arriving first, plus terminal process groups.
       const root = mkdtempSync(join(tmpdir(), 'pm-rust-interrupt-'));
@@ -29,7 +29,9 @@ for (const signal of ['SIGINT', 'SIGTERM'] as const) {
       writeFileSync(script, readFileSync(new URL('./perf-revert-proof.mts', import.meta.url)));
       const cargo = join(root, 'bin/cargo');
       const cargoProgram = join(root, 'cargo.mjs');
-      writeFileSync(cargoProgram, `import { appendFileSync, mkdirSync, readFileSync, renameSync, writeFileSync } from 'node:fs';
+      writeFileSync(cargoProgram, `import { spawn } from 'node:child_process';
+import { appendFileSync, existsSync, mkdirSync, readFileSync, renameSync, writeFileSync } from 'node:fs';
+import { setTimeout } from 'node:timers/promises';
 import { join } from 'node:path';
 const source = process.env.PM_PROOF_ROOT;
 const names = ['ownership', 'mutation'];
@@ -41,7 +43,24 @@ if (fixed) {
   console.log('test result: ok. 1 passed; 0 failed;');
   process.exit(0);
 }
-writeFileSync(join(source, 'ready.stage'), JSON.stringify({ pid: process.pid, root: process.cwd() }));
+const worker = spawn(process.execPath, ['--input-type=module', '-e', ` + '`' + `
+import { existsSync, writeFileSync } from 'node:fs';
+import { join } from 'node:path';
+const source = process.env.PM_PROOF_ROOT;
+let stopping = false;
+for (const signal of ['SIGINT', 'SIGTERM']) process.on(signal, () => {
+  if (stopping || process.env.PM_PROOF_STUBBORN === '1') return;
+  stopping = true;
+  setTimeout(() => {
+    writeFileSync(join(source, 'worker-stopped.json'), JSON.stringify(existsSync(join(process.cwd(), 'src/ownership.rs'))));
+    process.exit(0);
+  }, 150);
+});
+writeFileSync(join(source, 'worker-ready'), String(process.pid));
+setInterval(() => {}, 1000);
+` + '`' + `], { stdio: 'ignore' });
+while (!existsSync(join(source, 'worker-ready'))) await setTimeout(5);
+writeFileSync(join(source, 'ready.stage'), JSON.stringify({ pid: process.pid, worker: worker.pid, root: process.cwd() }));
 renameSync(join(source, 'ready.stage'), join(source, 'ready'));
 setInterval(() => {}, 1000);
 `);
@@ -62,18 +81,21 @@ process.on('exit', () => {
       const child = spawn(process.execPath, ['--import', pathToFileURL(observer).href, script], {
         cwd: root, detached: true, stdio: 'ignore',
         env: { ...process.env, PATH: `${join(root, 'bin')}:${process.env.PATH ?? ''}`,
-          PM_PROOF_NODE: process.execPath, PM_PROOF_CHILD: cargoProgram, PM_PROOF_ROOT: root },
+          PM_PROOF_NODE: process.execPath, PM_PROOF_CHILD: cargoProgram, PM_PROOF_ROOT: root,
+          PM_PROOF_STUBBORN: delivery === 'stubborn descendant' ? '1' : '0' },
       });
       const completed = new Promise<{ code: number | null; signal: NodeJS.Signals | null }>((resolve, reject) => {
         child.once('error', reject);
         child.once('exit', (code, signal) => resolve({ code, signal }));
       });
       let sandbox: string | undefined;
+      let ownedCargo: number | undefined;
       try {
         for (let attempt = 0; !existsSync(join(root, 'ready')) && attempt < 500; attempt++) await setTimeout(10);
         assert.ok(existsSync(join(root, 'ready')), 'cargo never reached the rewritten-source phase');
-        const marker = JSON.parse(readFileSync(join(root, 'ready'), 'utf8')) as { pid: number; root: string };
+        const marker = JSON.parse(readFileSync(join(root, 'ready'), 'utf8')) as { pid: number; worker: number; root: string };
         const cargoPid = marker.pid;
+        ownedCargo = cargoPid;
         sandbox = marker.root;
         assert.notEqual(sandbox, root);
         assert.equal(existsSync(join(root, 'target')), false, 'checkout build artifacts remain untouched');
@@ -87,17 +109,27 @@ process.on('exit', () => {
           assert.notEqual(readFileSync(join(sandbox, `src/${name}.rs`), 'utf8'), bytes);
         }
         assert.ok(child.pid && child.pid > 1);
-        const target = delivery === 'process group' ? -child.pid : delivery === 'parent only' ? child.pid :
+        const target = delivery === 'process group' ? -child.pid : delivery === 'parent only' || delivery === 'stubborn descendant' ? child.pid :
           cargoPid;
         process.kill(target, signal);
         const result = await completed;
         for (const [name, bytes] of originals) assert.equal(readFileSync(join(root, `src/${name}.rs`), 'utf8'), bytes);
         assert.deepEqual(JSON.parse(readFileSync(join(root, 'restored.json'), 'utf8')), [true, true], 'both sandbox sources restore before exit');
+        if (delivery === 'stubborn descendant') {
+          const state = spawnSync('ps', ['-p', String(marker.worker), '-o', 'stat='], { encoding: 'utf8' });
+          assert.ifError(state.error);
+          assert.ok(state.status === 1 || state.stdout.trim().startsWith('Z'), 'uncooperative descendant must stop before cleanup');
+        } else {
+          assert.equal(JSON.parse(readFileSync(join(root, 'worker-stopped.json'), 'utf8')), true, 'descendants must stop while their scratch sources still exist');
+        }
         assert.equal(existsSync(sandbox), false, 'owned scratch and build artifacts are removed');
         assert.deepEqual(result, { code: signal === 'SIGINT' ? 130 : 143, signal: null });
       } finally {
         if (child.pid) {
           try { process.kill(-child.pid, 'SIGKILL'); } catch { /* The process group already exited. */ }
+        }
+        if (ownedCargo !== undefined) {
+          try { process.kill(-ownedCargo, 'SIGKILL'); } catch { /* The owned Cargo group already exited. */ }
         }
         await completed;
         if (sandbox !== undefined) rmSync(sandbox, { recursive: true, force: true });
@@ -214,12 +246,18 @@ test('authoritative snapshots exclude caches only at the tracker root', () => {
         mkdirSync(folder, { recursive: true });
         writeFileSync(join(folder, 'item.toon'), 'title: before\n');
         writeFileSync(join(folder, 'item.jsonl'), '{}\n');
+        writeFileSync(join(folder, 'item.json'), '{}\n');
       }
     }
+    writeFileSync(join(root, 'settings.json'), '{}\n');
     const before = authoritative(root);
-    assert.equal(before.size, 10);
+    writeFileSync(join(root, 'settings.json'), '{"changed":true}\n');
+    assert.notEqual(authoritative(root).get('settings.json'), before.get('settings.json'));
+    writeFileSync(join(root, 'settings.json'), '{}\n');
+    assert.equal(before.size, 16);
+    assert.ok(before.has('settings.json'));
     for (const name of ['runtime', 'locks', 'transactions', 'checkpoints', 'search']) {
-      for (const extension of ['toon', 'jsonl']) {
+      for (const extension of ['toon', 'jsonl', 'json']) {
         const relative = join('custom-types', name, `item.${extension}`);
         assert.ok(before.has(relative));
         writeFileSync(join(root, name, `item.${extension}`), 'cache changed\n');

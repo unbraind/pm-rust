@@ -1,6 +1,6 @@
 import tseslint from 'typescript-eslint';
 
 export default tseslint.config(
-  { files: ['scripts/crash-*.mts', 'scripts/native-adapter-*.mts', 'scripts/context-*.mts', 'scripts/harness.test.mts'], extends: [tseslint.configs.recommended],
+  { files: ['scripts/crash-*.mts', 'scripts/native-adapter-*.mts', 'scripts/context-*.mts', 'scripts/harness.test.mts', 'scripts/perf-revert-proof.mts'], extends: [tseslint.configs.recommended],
     rules: { '@typescript-eslint/no-non-null-assertion': 'off' } },
 );

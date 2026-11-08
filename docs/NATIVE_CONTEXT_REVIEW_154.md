@@ -145,3 +145,51 @@ legacy list. This is a versioned contract boundary, not a skipped finding.
   the managed run and focused reruns with exact commands and counts.
 - The complete single-invocation release/coverage gate and final-head external
   reviews remain CI requirements under the documented runtime exception.
+
+
+## Review round 3: remaining non-blocking findings
+
+The existing branch includes main and retains all earlier tests. No review thread
+was answered or resolved by this round.
+
+| Thread | General rule and fix | Regression |
+| --- | --- | --- |
+| PRRT_kwDOTwgMRs61Bm1L | Copy live working-tree state, rather than assuming every indexed path exists. All three Git-enumerated proof runners share `copyWorkingTree`, which skips absent paths before creating directories. | A real Git fixture has unstaged file and directory deletions, retained tracked files and untracked files. It exercises the shared helper and every actual runner. |
+| PRRT_kwDOTwgMRs61Bm1P | Read-only certification must fingerprint every authoritative persisted format. The existing shared snapshot reader already includes JSON; its property now mutates both root settings JSON and nested JSON alongside the original TOON and JSONL corpus. | Every authoritative mutation changes its hash; root cache mutations remain excluded and nested cache-named directories remain authoritative. |
+| PRRT_kwDOTwgMRs61Bm1S | Scratch ownership outlives every subprocess using its files. On Unix, Cargo runs in a dedicated process group; interruption signals the group, escalates when necessary, waits for workers to stop and only then permits exit cleanup. Failed drains retain the tree. | Eight signal/delivery cases include parent-only signals, direct Cargo signals, terminal groups and descendants that ignore graceful termination. Original source-restoration and checkout-isolation assertions remain. |
+| PRRT_kwDOTwgMRs61Bm1W | Validate stored settings before request overrides and use the published whole-settings fallback. Activity/staleness limits, default depth, ranking policy and section switches share validation. Valid numeric spellings such as `1.0` are normalized in memory. Successful CLI warnings preserve the JSON and TOON contracts; SDK warnings remain separate from serialized output. | A 162-case SDK matrix and 66 exact CLI comparisons cover fallback, valid stored values and explicit zero/nonzero overrides in non-git trackers. Settings bytes never change. |
+
+Package searches covered every Git copy loop, exit-time scratch removal,
+authoritative snapshot consumer and stored context-field reader. Fixed-list
+native proof copies do not enumerate absent Git entries. Crash snapshots already
+include arbitrary file types; the separate changes proof owns timeout process
+groups without an exit-time deletion handler. The Rust crate is the product; the
+private npm development package has no separately packed native consumer or
+committed `dist/`. Both output encodings use the same native SDK implementation.
+
+Behavioral proofs use disposable copies and require named assertions, with a
+passing control before mutation and after restoration. Ten independent mutations
+cover the copy guard, JSON inclusion, whole-process signaling, drain ordering,
+forced termination, original restoration/baseline/build isolation, SDK settings
+fallback and exact CLI fallback diagnostics. No test or threshold was removed.
+
+
+Round-3 final local validation:
+
+- `cargo +1.90.0 test --locked --all-targets --all-features`, with two workers,
+  passed all 757 tests across 34 targets in one aggregate invocation.
+- `just crash-check` passed TypeScript, ESLint, all 94 Node tests (zero skipped),
+  append-only history verification and all retained crash-evidence receipts.
+  The final managed focused command passed 33 Node tests in a scratch tracker.
+- `bun test scripts/harness.test.mts` passed all 27 tests at the unchanged
+  timeout on retry. The first attempt timed out under host load.
+- Formatting, warnings-denied Clippy, private-item rustdoc, identity audit,
+  dependency audit and changelog verification passed. The dependency audit
+  retained its existing allowed unmaintained-dependency warning. Strict self-host
+  health passed with an isolated global extension root; the shared global install
+  has an unrelated extension-host version mismatch and was left unchanged.
+- `timeout --kill-after=10s 3300s just release-check` exited 124 during the
+  instrumented orientation suite, after completing the entire ordinary suite
+  and crash checks. No assertion failure was reported before the cap. The full
+  coverage gate and final-head external reviews remain CI requirements; no
+  complete coverage percentage or aggregate pass is claimed.
