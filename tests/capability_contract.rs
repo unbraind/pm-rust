@@ -92,7 +92,28 @@ fn snapshot(root: &Path) -> Result<BTreeMap<PathBuf, Vec<u8>>, std::io::Error> {
 #[test]
 fn discovery_is_complete_bounded_and_tracker_free() -> TestResult {
     let directory = tempfile::tempdir()?;
-    let expected = serde_json::to_value(discover_capabilities(&DiscoveryRequest::default())?)?;
+    let response = discover_capabilities(&DiscoveryRequest::default())?;
+    let context = response
+        .operations
+        .iter()
+        .find(|op| op.name == "context")
+        .ok_or("context")?;
+    for id in [
+        "intent",
+        "depth",
+        "sections",
+        "activity_limit",
+        "token_budget",
+        "limit",
+        "after",
+    ] {
+        assert!(context.arguments.iter().any(|arg| arg.id == id));
+        assert!(
+            context.dimensions.iter().any(|dimension| dimension == id),
+            "missing context dimension {id}"
+        );
+    }
+    let expected = serde_json::to_value(response)?;
     for json_output in [false, true] {
         let args = if json_output {
             vec!["--workspace", "missing", "capabilities", "--json"]

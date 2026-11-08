@@ -1,3 +1,4 @@
+import { checkedGit } from './context-revert-helpers.mts';
 import { spawnSync } from 'node:child_process';
 import { cpSync, mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
@@ -21,9 +22,8 @@ function check(root: string, name: string, reverted: boolean): void {
 const source = process.cwd();
 const scratch = mkdtempSync(join(tmpdir(), 'pm-rust-packet-review-'));
 try {
-  const files = spawnSync('git', ['ls-files', '--cached', '--others', '--exclude-standard', '-z'], { cwd: source });
-  if (files.status !== 0) throw new Error('Cannot enumerate package source');
-  for (const file of new Set(files.stdout.toString().split('\0').filter(Boolean))) {
+  const files = checkedGit(source, ['ls-files', '--cached', '--others', '--exclude-standard', '-z'], 'Cannot enumerate package source');
+  for (const file of new Set(files.split('\0').filter(Boolean))) {
     const target = join(scratch, file);
     mkdirSync(dirname(target), { recursive: true });
     cpSync(join(source, file), target);
@@ -56,8 +56,7 @@ try {
     check(scratch, mutation.name, false);
   }
   const patch = join(scratch, 'tests/fixtures/orientation-packet-root-priority.patch');
-  const applied = spawnSync('git', ['apply', '--reverse', '--check', patch], { cwd: scratch });
-  if (applied.status !== 0) throw new Error('The retained packet behavior revert fixture no longer applies');
+  checkedGit(scratch, ['apply', '--reverse', '--check', patch], 'The retained packet behavior revert fixture no longer applies');
   console.log('Packet behavior revert fixture applies to the fixed implementation.');
 } finally {
   rmSync(scratch, { recursive: true, force: true });

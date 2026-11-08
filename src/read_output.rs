@@ -42,6 +42,19 @@ pub(crate) fn stabilize_orientation(result: &mut ListOutput, toon: bool) {
         );
         if result["context_intent"]["result_omitted"] != true {
             update(result, "context_intent", false);
+            let measured = estimate(result, false) as u64;
+            result.value["context_intent"]["within_budget"] = json!(
+                measured
+                    <= result["context_intent"]["token_budget"]
+                        .as_u64()
+                        .unwrap_or_default()
+            );
+            result.value["context_intent"]["declaration_feasible"] = json!(
+                measured
+                    <= result["context_intent"]["declared_token_budget"]
+                        .as_u64()
+                        .unwrap_or_default()
+            );
         }
         update_output(result, toon);
         if before
@@ -52,6 +65,15 @@ pub(crate) fn stabilize_orientation(result: &mut ListOutput, toon: bool) {
         {
             break;
         }
+    }
+}
+
+/// Stabilizes every receipt that can change the orientation delivery size before checking its ceiling.
+fn update_orientation_output(result: &mut ListOutput, toon: bool) {
+    if result["context_intent"].is_object() {
+        stabilize_orientation(result, toon);
+    } else {
+        update_output(result, toon);
     }
 }
 
@@ -821,7 +843,7 @@ pub(crate) fn apply_orientation(
         .map(str::to_owned)
         .collect();
     result.value["read_output"] = receipt;
-    update_output(&mut result, options.toon);
+    update_orientation_output(&mut result, options.toon);
     let measured = measure(&result, options.toon);
     if measured > budget {
         let changed = compact_strings(&mut result.value);
@@ -829,7 +851,7 @@ pub(crate) fn apply_orientation(
         compact_collections(&mut result, options.toon, budget, |value| {
             finalize_orientation(value, &states, budget, source, &hints, measured, command);
         });
-        update_output(&mut result, options.toon);
+        update_orientation_output(&mut result, options.toon);
         if measure(&result, options.toon) > budget {
             let omitted = measure(&result, options.toon);
             let mut minimal = refusal_receipt;
@@ -849,7 +871,7 @@ pub(crate) fn apply_orientation(
             );
         }
     }
-    update_output(&mut result, options.toon);
+    update_orientation_output(&mut result, options.toon);
     if options.toon {
         crate::toon_output::validate(&result)?;
     }

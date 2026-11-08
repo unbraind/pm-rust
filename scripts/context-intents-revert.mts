@@ -1,3 +1,4 @@
+import { checkedGit } from './context-revert-helpers.mts';
 import { spawnSync } from 'node:child_process';
 import { cpSync, existsSync, mkdirSync, mkdtempSync, readFileSync, rmSync, symlinkSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
@@ -24,9 +25,8 @@ const dependencies = ['oracle', 'orientation-oracle'].map(oracle => {
 });
 const scratch = mkdtempSync(join(tmpdir(), 'pm-rust-context-revert-'));
 try {
-  const files = spawnSync('git', ['ls-files', '--cached', '--others', '--exclude-standard', '-z'], { cwd: source });
-  if (files.status !== 0) throw new Error('Cannot enumerate package source');
-  for (const file of new Set(files.stdout.toString().split('\0').filter(Boolean))) {
+  const files = checkedGit(source, ['ls-files', '--cached', '--others', '--exclude-standard', '-z'], 'Cannot enumerate package source');
+  for (const file of new Set(files.split('\0').filter(Boolean))) {
     const target = join(scratch, file);
     mkdirSync(dirname(target), { recursive: true });
     cpSync(join(source, file), target);
@@ -160,8 +160,7 @@ try {
   writeFileSync(join(scratch, packetPath), packets.replace('self.packets.get(&budget)', 'self.packets.get(&usize::MAX)'));
   run(scratch, ['--lib', 'packet_retry_cache_bounds_work_and_storage'], ['orientation_deps::packet::tests::packet_retry_cache_bounds_work_and_storage']);
   writeFileSync(join(scratch, packetPath), packets);
-  const previous = spawnSync('git', ['apply', '--reverse', join(scratch, 'tests/fixtures/orientation-packet-root-priority.patch')], { cwd: scratch });
-  if (previous.status !== 0) throw new Error('Cannot apply the stored packet behavior revert');
+  checkedGit(scratch, ['apply', '--reverse', join(scratch, 'tests/fixtures/orientation-packet-root-priority.patch')], 'Cannot apply the stored packet behavior revert');
   run(scratch, ['--test', 'orientation_differential', 'relationship_packets_match_oracle'], ['relationship_packets_match_oracle']);
 } finally {
   rmSync(scratch, { recursive: true, force: true });

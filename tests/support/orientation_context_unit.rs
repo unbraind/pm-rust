@@ -36,14 +36,14 @@ fn context_intent_sdk_budget_boundaries() -> Result<(), Box<dyn std::error::Erro
     let mut saw_omitted_intent = false;
     for name in ["orient", "handoff"] {
         for toon in [false, true] {
-            for budget in [
-                "256", "700", "1000", "1200", "1300", "1400", "1450", "1500", "1600", "2200",
-                "3000", "5000",
-            ] {
+            let budgets = (256..=2300)
+                .map(|n| n.to_string())
+                .chain(["3000".to_owned(), "5000".to_owned()]);
+            for budget in budgets {
                 let result = workspace.context_with_global(
                     &ContextOptions {
                         intent: Some(name.to_owned()),
-                        token_budget: Some(budget.to_owned()),
+                        token_budget: Some(budget.clone()),
                         limit: Some("1".to_owned()),
                         toon,
                         ..Default::default()
@@ -54,6 +54,13 @@ fn context_intent_sdk_budget_boundaries() -> Result<(), Box<dyn std::error::Erro
                 if result["context_intent"].is_object() {
                     assert_eq!(result["context_intent"]["intent"], name);
                     saw_omitted_intent |= result["context_intent"]["result_omitted"] == true;
+                    if result["context_intent"]["within_budget"] == true {
+                        assert!(
+                            crate::stringify_json(&result, false).len().div_ceil(4)
+                                <= budget.parse::<usize>()?,
+                            "intent exceeds {budget}: {name}, toon={toon}"
+                        );
+                    }
                     if result["context_intent"]["result_omitted"] != true {
                         saw_wire_receipt |= result["read_output"].is_object();
                         assert_eq!(
@@ -68,10 +75,14 @@ fn context_intent_sdk_budget_boundaries() -> Result<(), Box<dyn std::error::Erro
                     } else {
                         result.stringify_read_json()
                     };
-                    assert_eq!(
-                        result["read_output"]["estimated_tokens"],
-                        wire.len().div_ceil(4)
-                    );
+                    let measured = wire.len().div_ceil(4);
+                    assert_eq!(result["read_output"]["estimated_tokens"], measured);
+                    if result["read_output"]["within_budget"] == true {
+                        assert!(
+                            measured <= budget.parse::<usize>()?,
+                            "wire estimate {measured} exceeds {budget}: {name}, toon={toon}"
+                        );
+                    }
                 }
             }
         }

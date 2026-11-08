@@ -880,3 +880,103 @@ fn packet_render_cost_keys_are_bounded() -> Result<(), Box<dyn std::error::Error
     }
     Ok(())
 }
+
+/// Cumulative admission retains only complete producer entries within the shared byte ceiling.
+#[test]
+fn packet_producer_cache_cumulative_admission() -> Result<(), Box<dyn std::error::Error>> {
+    const CAP: usize = 2 * 1024 * 1024;
+    let (_root, workspace) = workspace()?;
+    let mut root = item("sample-root");
+    root["status"] = json!("x".repeat(384 * 1024));
+    let graph = Graph::new(&[root], &Lifecycle::load(workspace.pm_root())?);
+    let query = Query::new(&DepsOptions::default(), None)?;
+    let traversal = Traversal::new(&graph, "sample-root", &query);
+    let mut cache = RenderCache::default();
+    let mut retained = 0;
+    for budget in [1_000_000, 999_999, 999_998, 999_997] {
+        let expected = super::packet(&graph, "sample-root", &query, &traversal, &[], None, budget)?;
+        let bytes = crate::stringify_json(&expected, false).len();
+        assert!(
+            bytes < CAP && bytes > CAP / 3,
+            "each packet fits but three exceed the cap"
+        );
+        assert_eq!(
+            cache.produce(&graph, "sample-root", &query, &traversal, &[], None, budget)?,
+            expected
+        );
+        if retained + bytes <= CAP {
+            retained += bytes;
+            assert!(cache.packets.contains_key(&budget));
+        } else {
+            assert!(
+                !cache.packets.contains_key(&budget),
+                "cumulative cache admission overflowed"
+            );
+        }
+        assert_eq!(cache.packet_bytes, retained);
+        assert_eq!(
+            cache.packet_bytes,
+            cache
+                .packets
+                .values()
+                .map(|value| crate::stringify_json(value, false).len())
+                .sum::<usize>()
+        );
+        assert!(cache.packet_bytes <= CAP);
+    }
+    assert_eq!(cache.packets.len(), 2);
+    Ok(())
+}
+
+/// Shared rendering matches a fresh cache across decimal budget widths and byte alignments.
+#[test]
+fn packet_cached_rendering_preserves_budget_digit_widths() -> Result<(), Box<dyn std::error::Error>>
+{
+    let (_root, workspace) = workspace()?;
+    for toon in [false, true] {
+        let mut witnessed_growth = false;
+        for padding in 0..8 {
+            let mut root = item("sample-root");
+            root["status"] = json!("x".repeat(32));
+            root["title"] = json!("x".repeat(32 + padding));
+            let graph = Graph::new(&[root], &Lifecycle::load(workspace.pm_root())?);
+            let options = DepsOptions {
+                toon,
+                ..Default::default()
+            };
+            let mut query = Query::new(&options, None)?;
+            let traversal = Traversal::new(&graph, "sample-root", &query);
+            let mut cache = RenderCache::default();
+            let mut previous = 0;
+            for budget in [999, 1000, 9999, 10000, 1000, 999] {
+                query.tokens = budget;
+                let expected =
+                    render_packet(&graph, "sample-root", &query, &traversal, &[], &options)?;
+                let actual = render_cached(
+                    &graph,
+                    "sample-root",
+                    &query,
+                    &traversal,
+                    &[],
+                    &options,
+                    &mut cache,
+                )?;
+                assert_eq!(
+                    actual.value, expected.value,
+                    "toon={toon}, padding={padding}, budget={budget}"
+                );
+                let measured = tokens(&actual.value, toon);
+                assert_eq!(actual["context"]["meta"]["usedTokens"], measured);
+                if budget == 1000 && previous > 0 {
+                    witnessed_growth |= measured > previous;
+                }
+                previous = measured;
+            }
+        }
+        assert!(
+            witnessed_growth,
+            "padding must expose usedTokens growth across a budget digit boundary, toon={toon}"
+        );
+    }
+    Ok(())
+}

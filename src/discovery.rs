@@ -669,6 +669,8 @@ fn operation(command: &clap::Command) -> Result<OperationContract, DiscoveryRefu
                 "intent",
                 "token_budget",
                 "depth",
+                "sections",
+                "activity_limit",
                 "format",
                 "direction",
                 "kind",

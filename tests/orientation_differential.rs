@@ -25,7 +25,7 @@ fn history_invalid_filename_matches_oracle() -> TestResult {
         return Ok(());
     };
     let scratch = tempfile::tempdir()?;
-    let driver = orientation_driver(scratch.path(), &published)?;
+    let driver = write_driver(scratch.path(), &published)?;
     let root = tempfile::tempdir()?;
     assert!(
         oracle(&driver, root.path(), &["init", "sample-", "--defaults"])?
@@ -67,7 +67,9 @@ fn deps_mixed_case_dangling_matches_oracle() -> TestResult {
         return Ok(());
     };
     let scratch = tempfile::tempdir()?;
-    let driver = orientation_driver(scratch.path(), &published)?;
+    let Some(driver) = orientation_driver(scratch.path(), &published)? else {
+        return Ok(());
+    };
     let root = tempfile::tempdir()?;
     assert!(
         oracle(&driver, root.path(), &["init", "sample-", "--defaults"])?
@@ -145,7 +147,9 @@ fn deps_no_active_blocker_matches_oracle() -> TestResult {
         return Ok(());
     };
     let scratch = tempfile::tempdir()?;
-    let driver = orientation_driver(scratch.path(), &published)?;
+    let Some(driver) = orientation_driver(scratch.path(), &published)? else {
+        return Ok(());
+    };
     let root = tempfile::tempdir()?;
     assert!(
         oracle(&driver, root.path(), &["init", "sample-", "--defaults"])?
@@ -190,7 +194,9 @@ fn context_non_unicode_environment_matches_oracle() -> TestResult {
         return Ok(());
     };
     let scratch = tempfile::tempdir()?;
-    let driver = orientation_driver(scratch.path(), &published)?;
+    let Some(driver) = orientation_driver(scratch.path(), &published)? else {
+        return Ok(());
+    };
     let root = tempfile::tempdir()?;
     assert!(
         oracle(&driver, root.path(), &["init", "sample-", "--defaults"])?
@@ -226,7 +232,9 @@ fn context_non_active_progress_matches_oracle() -> TestResult {
         return Ok(());
     };
     let scratch = tempfile::tempdir()?;
-    let driver = orientation_driver(scratch.path(), &published)?;
+    let Some(driver) = orientation_driver(scratch.path(), &published)? else {
+        return Ok(());
+    };
     let root = tempfile::tempdir()?;
     assert!(
         oracle(&driver, root.path(), &["init", "sample-", "--defaults"])?
@@ -295,7 +303,9 @@ fn deps_dangling_parents_match_oracle() -> TestResult {
         return Ok(());
     };
     let scratch = tempfile::tempdir()?;
-    let driver = orientation_driver(scratch.path(), &published)?;
+    let Some(driver) = orientation_driver(scratch.path(), &published)? else {
+        return Ok(());
+    };
     for (status, parent, explicit, blocker) in [
         ("open", "sample-deleted", false, ""),
         ("closed", "sample-deleted", false, ""),
@@ -386,7 +396,7 @@ fn history_reserved_patch_paths_match_oracle() -> TestResult {
         return Ok(());
     };
     let scratch = tempfile::tempdir()?;
-    let driver = orientation_driver(scratch.path(), &published)?;
+    let driver = write_driver(scratch.path(), &published)?;
     let root = tempfile::tempdir()?;
     for args in [
         vec!["init", "sample-", "--defaults"],
@@ -432,7 +442,9 @@ fn context_numeric_control_domains() -> TestResult {
         return Ok(());
     };
     let scratch = tempfile::tempdir()?;
-    let driver = orientation_driver(scratch.path(), &published)?;
+    let Some(driver) = orientation_driver(scratch.path(), &published)? else {
+        return Ok(());
+    };
     let root = tempfile::tempdir()?;
     assert!(
         oracle(&driver, root.path(), &["init", "sample-", "--defaults"])?
@@ -467,7 +479,9 @@ fn context_static_extension_contract() -> TestResult {
         return Ok(());
     };
     let scratch = tempfile::tempdir()?;
-    let driver = orientation_driver(scratch.path(), &published)?;
+    let Some(driver) = orientation_driver(scratch.path(), &published)? else {
+        return Ok(());
+    };
     let root = tempfile::tempdir()?;
     assert!(
         oracle(&driver, root.path(), &["init", "sample-", "--defaults"])?
@@ -553,12 +567,36 @@ fn context_usage_disabled_is_read_only() -> TestResult {
 fn orientation_driver(
     root: &Path,
     published: &published_cli::PublishedCli,
-) -> Result<PathBuf, Box<dyn std::error::Error>> {
+) -> Result<Option<PathBuf>, Box<dyn std::error::Error>> {
     let current = PathBuf::from(env!("CARGO_MANIFEST_DIR"))
         .join("tests/orientation-oracle/node_modules/@unbrained/pm-cli");
+    orientation_driver_at(
+        root,
+        published,
+        &current,
+        std::env::var("PM_RUST_REQUIRE_PUBLISHED_CLI").is_ok(),
+    )
+}
+
+/// Gates the independently pinned current oracle without imposing it on history-only reads.
+fn orientation_driver_at(
+    root: &Path,
+    published: &published_cli::PublishedCli,
+    current: &Path,
+    required: bool,
+) -> Result<Option<PathBuf>, Box<dyn std::error::Error>> {
+    if !current.join("dist/cli.js").is_file() {
+        if required {
+            return Err(
+                "current orientation oracle required; run just orientation-oracle-install".into(),
+            );
+        }
+        println!("skip: no current orientation oracle found (run just orientation-oracle-install)");
+        return Ok(None);
+    }
     let current = published_cli::PublishedCli {
         entry: current.join("dist/cli.js"),
-        package_root: current,
+        package_root: current.to_path_buf(),
     };
     let legacy = write_driver(root, published)?;
     fs::rename(&legacy, root.join("legacy-driver.mjs"))?;
@@ -577,12 +615,12 @@ fn orientation_driver(
             "Object.defineProperty(performance, 'now', {{value:()=>0, configurable:true}});\n{script}"
         ),
     )?;
-    Ok(path)
+    Ok(Some(path))
 }
 /// Executes one published invocation in a synthetic fixed-clock tracker.
 fn oracle(driver: &Path, root: &Path, args: &[&str]) -> Result<Output, Box<dyn std::error::Error>> {
     let legacy = driver.with_file_name("legacy-driver.mjs");
-    let driver = if args.contains(&"context") || args.contains(&"deps") {
+    let driver = if args.contains(&"context") || args.contains(&"deps") || !legacy.is_file() {
         driver
     } else {
         &legacy
@@ -743,7 +781,9 @@ fn context_sections_match_oracle() -> TestResult {
         return Ok(());
     };
     let scratch = tempfile::tempdir()?;
-    let driver = orientation_driver(scratch.path(), &published)?;
+    let Some(driver) = orientation_driver(scratch.path(), &published)? else {
+        return Ok(());
+    };
     let root = tempfile::tempdir()?;
     assert!(
         oracle(&driver, root.path(), &["init", "sample-", "--defaults"])?
@@ -799,7 +839,9 @@ fn context_completion_rounding_matches_oracle() -> TestResult {
         return Ok(());
     };
     let scratch = tempfile::tempdir()?;
-    let driver = orientation_driver(scratch.path(), &published)?;
+    let Some(driver) = orientation_driver(scratch.path(), &published)? else {
+        return Ok(());
+    };
     let root = tempfile::tempdir()?;
     assert!(
         oracle(&driver, root.path(), &["init", "sample-", "--defaults"])?
@@ -836,7 +878,9 @@ fn context_cursor_refusals_match_oracle() -> TestResult {
         return Ok(());
     };
     let scratch = tempfile::tempdir()?;
-    let driver = orientation_driver(scratch.path(), &published)?;
+    let Some(driver) = orientation_driver(scratch.path(), &published)? else {
+        return Ok(());
+    };
     let root = tempfile::tempdir()?;
     assert!(
         oracle(&driver, root.path(), &["init", "sample-", "--defaults"])?
@@ -881,7 +925,9 @@ fn context_blocked_fallback_deep_matches_oracle() -> TestResult {
         return Ok(());
     };
     let scratch = tempfile::tempdir()?;
-    let driver = orientation_driver(scratch.path(), &published)?;
+    let Some(driver) = orientation_driver(scratch.path(), &published)? else {
+        return Ok(());
+    };
     let root = tempfile::tempdir()?;
     assert!(
         oracle(&driver, root.path(), &["init", "sample-", "--defaults"])?
@@ -919,7 +965,9 @@ fn relationship_packets_match_oracle() -> TestResult {
         return Ok(());
     };
     let scratch = tempfile::tempdir()?;
-    let driver = orientation_driver(scratch.path(), &published)?;
+    let Some(driver) = orientation_driver(scratch.path(), &published)? else {
+        return Ok(());
+    };
     let root = tempfile::tempdir()?;
     assert!(
         oracle(&driver, root.path(), &["init", "sample-", "--defaults"])?
@@ -989,7 +1037,9 @@ fn relationship_external_namespaces_match_oracle() -> TestResult {
         return Ok(());
     };
     let scratch = tempfile::tempdir()?;
-    let driver = orientation_driver(scratch.path(), &published)?;
+    let Some(driver) = orientation_driver(scratch.path(), &published)? else {
+        return Ok(());
+    };
     let root = tempfile::tempdir()?;
     assert!(
         oracle(&driver, root.path(), &["init", "sample-", "--defaults"])?
@@ -1047,7 +1097,9 @@ fn relationship_packet_refusals_match_oracle() -> TestResult {
         return Ok(());
     };
     let scratch = tempfile::tempdir()?;
-    let driver = orientation_driver(scratch.path(), &published)?;
+    let Some(driver) = orientation_driver(scratch.path(), &published)? else {
+        return Ok(());
+    };
     let root = tempfile::tempdir()?;
     assert!(
         oracle(&driver, root.path(), &["init", "sample-", "--defaults"])?
@@ -1082,7 +1134,9 @@ fn context_matches_oracle() -> TestResult {
         return Ok(());
     };
     let scratch = tempfile::tempdir()?;
-    let driver = orientation_driver(scratch.path(), &published)?;
+    let Some(driver) = orientation_driver(scratch.path(), &published)? else {
+        return Ok(());
+    };
     let root = tempfile::tempdir()?;
     let initialized = oracle(&driver, root.path(), &["init", "sample-", "--defaults"])?;
     assert!(
@@ -1150,7 +1204,9 @@ fn deps_matches_oracle() -> TestResult {
         return Ok(());
     };
     let scratch = tempfile::tempdir()?;
-    let driver = orientation_driver(scratch.path(), &published)?;
+    let Some(driver) = orientation_driver(scratch.path(), &published)? else {
+        return Ok(());
+    };
     let root = tempfile::tempdir()?;
     let initialized = oracle(&driver, root.path(), &["init", "sample-", "--defaults"])?;
     assert!(
@@ -1193,7 +1249,7 @@ fn history_matches_oracle() -> TestResult {
         return Ok(());
     };
     let scratch = tempfile::tempdir()?;
-    let driver = orientation_driver(scratch.path(), &published)?;
+    let driver = write_driver(scratch.path(), &published)?;
     let root = tempfile::tempdir()?;
     let initialized = oracle(&driver, root.path(), &["init", "sample-", "--defaults"])?;
     assert!(
@@ -1341,7 +1397,9 @@ fn orientation_reads_preserve_storage_during_concurrent_writes() -> TestResult {
         return Ok(());
     };
     let scratch = tempfile::tempdir()?;
-    let driver = orientation_driver(scratch.path(), &published)?;
+    let Some(driver) = orientation_driver(scratch.path(), &published)? else {
+        return Ok(());
+    };
     let root = tempfile::tempdir()?;
     assert!(
         oracle(&driver, root.path(), &["init", "sample-", "--defaults"])?
@@ -1523,7 +1581,9 @@ fn context_group_caps_and_affinity_match_oracle() -> TestResult {
         return Ok(());
     };
     let scratch = tempfile::tempdir()?;
-    let driver = orientation_driver(scratch.path(), &published)?;
+    let Some(driver) = orientation_driver(scratch.path(), &published)? else {
+        return Ok(());
+    };
     let root = tempfile::tempdir()?;
     assert!(
         oracle(&driver, root.path(), &["init", "sample-", "--defaults"])?
@@ -1612,7 +1672,9 @@ fn context_weekly_calendar_matches_oracle() -> TestResult {
         return Ok(());
     };
     let scratch = tempfile::tempdir()?;
-    let driver = orientation_driver(scratch.path(), &published)?;
+    let Some(driver) = orientation_driver(scratch.path(), &published)? else {
+        return Ok(());
+    };
     let root = tempfile::tempdir()?;
     assert!(
         oracle(&driver, root.path(), &["init", "sample-", "--defaults"])?
@@ -1651,7 +1713,7 @@ fn bounded_history_and_refusals_match_oracle() -> TestResult {
         return Ok(());
     };
     let scratch = tempfile::tempdir()?;
-    let driver = orientation_driver(scratch.path(), &published)?;
+    let driver = write_driver(scratch.path(), &published)?;
     let root = tempfile::tempdir()?;
     for args in [
         vec!["init", "sample-", "--defaults"],
@@ -1729,7 +1791,9 @@ fn real_copy_harness_accepts_matching_packet_refusals() -> TestResult {
         return Ok(());
     };
     let scratch = tempfile::tempdir()?;
-    let driver = orientation_driver(scratch.path(), &published)?;
+    let Some(driver) = orientation_driver(scratch.path(), &published)? else {
+        return Ok(());
+    };
     let root = tempfile::tempdir()?;
     assert!(
         oracle(&driver, root.path(), &["init", "sample-", "--defaults"])?
@@ -1826,7 +1890,9 @@ fn relationship_root_evidence_floor_retains_oracle_parity() -> TestResult {
         return Ok(());
     };
     let scratch = tempfile::tempdir()?;
-    let driver = orientation_driver(scratch.path(), &published)?;
+    let Some(driver) = orientation_driver(scratch.path(), &published)? else {
+        return Ok(());
+    };
     let root = tempfile::tempdir()?;
     assert!(
         oracle(&driver, root.path(), &["init", "sample-", "--defaults"])?
@@ -1880,7 +1946,9 @@ fn relationship_large_edge_limit_finishes_at_budget_floor() -> TestResult {
         return Ok(());
     };
     let scratch = tempfile::tempdir()?;
-    let driver = orientation_driver(scratch.path(), &published)?;
+    let Some(driver) = orientation_driver(scratch.path(), &published)? else {
+        return Ok(());
+    };
     let root = tempfile::tempdir()?;
     assert!(
         oracle(&driver, root.path(), &["init", "sample-", "--defaults"])?
@@ -1937,7 +2005,9 @@ fn relationship_reference_limits_match_oracle() -> TestResult {
         return Ok(());
     };
     let scratch = tempfile::tempdir()?;
-    let driver = orientation_driver(scratch.path(), &published)?;
+    let Some(driver) = orientation_driver(scratch.path(), &published)? else {
+        return Ok(());
+    };
     let root = tempfile::tempdir()?;
     assert!(
         oracle(&driver, root.path(), &["init", "sample-", "--defaults"])?
@@ -1995,7 +2065,9 @@ fn blocked_focus_cursor_pages_match_october_21_oracle() -> TestResult {
         return Ok(());
     };
     let scratch = tempfile::tempdir()?;
-    let driver = orientation_driver(scratch.path(), &published)?;
+    let Some(driver) = orientation_driver(scratch.path(), &published)? else {
+        return Ok(());
+    };
     let root = tempfile::tempdir()?;
     assert!(
         oracle(&driver, root.path(), &["init", "sample-", "--defaults"])?
@@ -2044,7 +2116,9 @@ fn padded_inverse_blockers_match_oracle() -> TestResult {
         return Ok(());
     };
     let scratch = tempfile::tempdir()?;
-    let driver = orientation_driver(scratch.path(), &published)?;
+    let Some(driver) = orientation_driver(scratch.path(), &published)? else {
+        return Ok(());
+    };
     let root = tempfile::tempdir()?;
     assert!(
         oracle(&driver, root.path(), &["init", "sample-", "--defaults"])?
@@ -2098,7 +2172,9 @@ fn context_intents_fixture(richness: usize) -> TestResult {
         return Ok(());
     };
     let scratch = tempfile::tempdir()?;
-    let driver = orientation_driver(scratch.path(), &published)?;
+    let Some(driver) = orientation_driver(scratch.path(), &published)? else {
+        return Ok(());
+    };
     let mut comparisons = 0;
     let root = tempfile::tempdir()?;
     assert!(
@@ -2211,7 +2287,9 @@ fn context_control_whitespace_matches_current_oracle() -> TestResult {
         return Ok(());
     };
     let scratch = tempfile::tempdir()?;
-    let driver = orientation_driver(scratch.path(), &published)?;
+    let Some(driver) = orientation_driver(scratch.path(), &published)? else {
+        return Ok(());
+    };
     let root = tempfile::tempdir()?;
     assert!(
         oracle(&driver, root.path(), &["init", "sample-", "--defaults"])?
@@ -2252,7 +2330,9 @@ fn context_reviewed_contracts_match_current_oracle() -> TestResult {
         return Ok(());
     };
     let scratch = tempfile::tempdir()?;
-    let driver = orientation_driver(scratch.path(), &published)?;
+    let Some(driver) = orientation_driver(scratch.path(), &published)? else {
+        return Ok(());
+    };
     let root = tempfile::tempdir()?;
     assert!(
         oracle(&driver, root.path(), &["init", "sample-", "--defaults"])?
@@ -2463,14 +2543,24 @@ fn context_reviewed_contracts_match_current_oracle() -> TestResult {
                 .ok_or("settings object")?
                 .shift_remove("context");
         }
-        fs::write(&settings_path, settings.to_string())?;
+        let settings = settings.to_string();
+        fs::write(&settings_path, &settings)?;
         for encoding in [vec![], vec!["--json"]] {
             let mut args = vec!["context", "--section", "activity", "--activity-limit", "0"];
             args.extend(encoding);
-            compare(
-                &oracle(&driver, wide.path(), &args)?,
-                &native(wide.path(), &args)?,
-                &args,
+            let expected = oracle(&driver, wide.path(), &args)?;
+            assert!(expected.status.success());
+            assert_eq!(
+                fs::read(&settings_path)?,
+                settings.as_bytes(),
+                "oracle read changed settings"
+            );
+            let actual = native(wide.path(), &args)?;
+            compare(&expected, &actual, &args);
+            assert_eq!(
+                fs::read(&settings_path)?,
+                settings.as_bytes(),
+                "native read changed settings"
             );
             comparisons += 1;
         }
@@ -2505,5 +2595,141 @@ fn context_reviewed_contracts_match_current_oracle() -> TestResult {
     }
     assert_eq!(fs::read(item_path)?, before);
     println!("reviewed context differentials: {comparisons}");
+    Ok(())
+}
+
+/// Unsupported declarations retain typed native refusals in both CLI spellings and encodings.
+#[test]
+fn context_unknown_intents_have_explicit_cli_boundaries() -> TestResult {
+    let Some(published) = published_cli::published_cli_or_skip("unknown intent boundaries") else {
+        return Ok(());
+    };
+    let scratch = tempfile::tempdir()?;
+    let Some(driver) = orientation_driver(scratch.path(), &published)? else {
+        return Ok(());
+    };
+    let root = tempfile::tempdir()?;
+    assert!(
+        oracle(&driver, root.path(), &["init", "sample-", "--defaults"])?
+            .status
+            .success()
+    );
+    for control in [vec!["--for", "unknown"], vec!["--for=unknown"]] {
+        for json in [false, true] {
+            let mut args = vec!["context"];
+            args.extend(&control);
+            if json {
+                args.push("--json");
+            }
+            let actual = native(root.path(), &args)?;
+            assert_eq!(actual.status.code(), Some(2));
+            assert!(actual.stdout.is_empty());
+            if json {
+                let payload: Value = serde_json::from_slice(&actual.stderr)?;
+                assert_eq!(payload["code"], "unsupported_native_context");
+                assert!(payload["required"].is_string());
+            }
+            assert!(
+                String::from_utf8_lossy(&actual.stderr)
+                    .contains("Native context supports only core orient and handoff intents")
+            );
+            let expected = oracle(&driver, root.path(), &args)?;
+            assert_eq!(expected.status.code(), Some(2));
+            assert!(String::from_utf8_lossy(&expected.stderr).contains("Unknown context intent"));
+            if json {
+                let payload: Value = serde_json::from_slice(&expected.stderr)?;
+                assert_eq!(payload["code"], "unknown_context_intent");
+                assert_eq!(payload["refusal"]["rejected_value"], "unknown");
+            }
+            assert!(
+                !String::from_utf8_lossy(&expected.stderr).contains("unsupported_native_context")
+            );
+        }
+    }
+    Ok(())
+}
+
+/// A missing current install skips only current reads; required runs fail and history still executes.
+#[test]
+fn orientation_oracles_are_gated_independently() -> TestResult {
+    let Some(published) = published_cli::published_cli_or_skip("independent history oracle") else {
+        return Ok(());
+    };
+    let scratch = tempfile::tempdir()?;
+    let absent = scratch.path().join("missing-current");
+    assert!(orientation_driver_at(scratch.path(), &published, &absent, false)?.is_none());
+    assert!(orientation_driver_at(scratch.path(), &published, &absent, true).is_err());
+    let driver = write_driver(scratch.path(), &published)?;
+    let root = tempfile::tempdir()?;
+    assert!(
+        oracle(&driver, root.path(), &["init", "sample-", "--defaults"])?
+            .status
+            .success()
+    );
+    fixture(root.path(), &[item("sample-a", "Task", "open", 1)])?;
+    let args = ["history", "sample-a", "--json"];
+    let expected = oracle(&driver, root.path(), &args)?;
+    assert!(expected.status.success());
+    compare(&expected, &native(root.path(), &args)?, &args);
+    Ok(())
+}
+
+/// Every successful native or oracle read preserves settings bytes before another invocation.
+#[test]
+fn context_successful_reads_preserve_settings_bytes() -> TestResult {
+    let Some(published) = published_cli::published_cli_or_skip("read-only context settings") else {
+        return Ok(());
+    };
+    let scratch = tempfile::tempdir()?;
+    let Some(driver) = orientation_driver(scratch.path(), &published)? else {
+        return Ok(());
+    };
+    let root = tempfile::tempdir()?;
+    assert!(
+        oracle(&driver, root.path(), &["init", "sample-", "--defaults"])?
+            .status
+            .success()
+    );
+    let path = root.path().join(".agents/pm/settings.json");
+    let original: Value = serde_json::from_slice(&fs::read(&path)?)?;
+    for context in [None, Some(json!({})), Some(json!({"activity_limit":1}))] {
+        let mut settings = original.clone();
+        if let Some(context) = context {
+            settings["context"] = context;
+        } else {
+            settings
+                .as_object_mut()
+                .ok_or("settings")?
+                .shift_remove("context");
+        }
+        let before = serde_json::to_vec_pretty(&settings)?;
+        fs::write(&path, &before)?;
+        assert!(!root.path().join(".git").exists());
+        for controls in [
+            vec!["--section", "activity", "--activity-limit", "0"],
+            vec!["--for", "orient"],
+            vec!["--for=handoff"],
+        ] {
+            for encoding in [vec![], vec!["--json"]] {
+                let mut args = vec!["context"];
+                args.extend(&controls);
+                args.extend(&encoding);
+                let expected = oracle(&driver, root.path(), &args)?;
+                assert!(expected.status.success());
+                assert_eq!(
+                    fs::read(&path)?,
+                    before,
+                    "oracle read changed settings: {args:?}"
+                );
+                let actual = native(root.path(), &args)?;
+                compare(&expected, &actual, &args);
+                assert_eq!(
+                    fs::read(&path)?,
+                    before,
+                    "native read changed settings: {args:?}"
+                );
+            }
+        }
+    }
     Ok(())
 }

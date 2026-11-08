@@ -280,3 +280,62 @@ fn brief_envelopes_preserve_partial_and_unchecked_sources() {
         1
     ));
 }
+
+/// Rendered compact tables reconstruct exact source rows through the current pinned SDK.
+#[test]
+fn current_compact_tables_round_trip_through_pinned_sdk() -> Result<(), Box<dyn std::error::Error>>
+{
+    use std::{
+        io::Write,
+        path::Path,
+        process::{Command, Stdio},
+    };
+    let decoder = Path::new(env!("CARGO_MANIFEST_DIR"));
+    if !decoder
+        .join("tests/orientation-oracle/node_modules/@unbrained/pm-cli/dist/cli.js")
+        .is_file()
+    {
+        assert!(
+            std::env::var("PM_RUST_REQUIRE_PUBLISHED_CLI").is_err(),
+            "run just orientation-oracle-install"
+        );
+        println!("skip: compact table decoder requires the current orientation oracle");
+        return Ok(());
+    }
+    for offset in 0..4 {
+        let source: Vec<_> = (0..60).map(|index| {
+            let mut row = json!({"id":format!("row-{index:03}"),"empty":null,"tags":["a","b"],"other_null":null,"mixed":["semi;colon"],"tail":null});
+            match (index + offset) % 4 {
+                0 => { row["tags"] = json!([]); row["mixed"] = json!([]); }
+                1 => { row.as_object_mut().map(|map| map.shift_remove("tags")); }
+                2 => { row["mixed"] = json!(["", "safe"]); }
+                _ => {}
+            }
+            row
+        }).collect();
+        let wire = super::stringify_toon(&json!({"output_default":"toon","rows":source}).into())?;
+        let mut command = Command::new(
+            std::env::var("PM_NODE_INTERPRETER").unwrap_or_else(|_| "node".to_owned()),
+        );
+        command
+            .arg(decoder.join("tests/oracle/launch.mts"))
+            .arg("--entry")
+            .arg(decoder.join("scripts/context-table-decode.mts"))
+            .stdin(Stdio::piped())
+            .stdout(Stdio::piped())
+            .stderr(Stdio::piped());
+        let mut child = command.spawn()?;
+        child
+            .stdin
+            .take()
+            .ok_or("decoder stdin")?
+            .write_all(serde_json::to_string(&json!({"wire":wire,"source":source}))?.as_bytes())?;
+        let output = child.wait_with_output()?;
+        assert!(
+            output.status.success(),
+            "{}",
+            String::from_utf8_lossy(&output.stderr)
+        );
+    }
+    Ok(())
+}

@@ -611,3 +611,97 @@ fn assert_toon_budget_contract() -> Result<(), Box<dyn std::error::Error>> {
     ));
     Ok(())
 }
+
+/// Final self-referential receipts never advertise a ceiling smaller than the retained packet.
+#[test]
+fn stabilized_orientation_receipts_respect_final_ceilings() -> Result<(), Box<dyn std::error::Error>>
+{
+    for toon in [false, true] {
+        for padding in 0..8 {
+            for budget in [319, 320, 321, 998, 999, 1000, 1001] {
+                let mut source: crate::ListOutput = json!({
+                    "output_default":"toon", "depth":"brief",
+                    "low_level":[{"id":"sample-a","tags":vec!["evidence"; 180 + padding]}],
+                    "context_intent":{"command":"context","estimated_tokens":0,"within_budget":true,
+                        "token_budget":budget,"declared_token_budget":320,"declaration_feasible":true,"result_omitted":false}
+                }).into();
+                super::update(&mut source, "context_intent", false);
+                let mut output = super::apply_orientation(
+                    source,
+                    &ListOptions {
+                        toon,
+                        token_budget: Some(budget.to_string()),
+                        ..Default::default()
+                    },
+                    "context",
+                    &["low_level"],
+                )?;
+                if output["context_intent"].is_object() && output["read_output"].is_object() {
+                    super::stabilize_orientation(&mut output, toon);
+                    let compact = super::estimate(&output, false);
+                    assert_eq!(output["context_intent"]["estimated_tokens"], compact);
+                    assert_eq!(output["context_intent"]["within_budget"], compact <= budget);
+                    assert_eq!(
+                        output["context_intent"]["declaration_feasible"],
+                        compact <= 320
+                    );
+                }
+                if output["read_output"]["within_budget"] == true {
+                    assert!(super::measure(&output, toon) <= budget);
+                }
+            }
+        }
+        for budget in [99, 100, 999, 1000] {
+            let mut stale: crate::ListOutput = json!({"padding":"x".repeat(budget * 4),
+                "context_intent":{"estimated_tokens":0,"within_budget":true,"declaration_feasible":true,
+                    "token_budget":budget,"declared_token_budget":budget,"result_omitted":false},
+                "read_output":{"estimated_tokens":0}}).into();
+            super::update_orientation_output(&mut stale, toon);
+            assert_eq!(stale["context_intent"]["within_budget"], false);
+            assert_eq!(stale["context_intent"]["declaration_feasible"], false);
+            assert_eq!(
+                stale["context_intent"]["estimated_tokens"],
+                super::estimate(&stale, false)
+            );
+            assert_eq!(
+                stale["read_output"]["estimated_tokens"],
+                super::measure(&stale, toon)
+            );
+        }
+    }
+    Ok(())
+}
+
+/// Every shared read command enforces its wire ceiling after all receipt updates.
+#[test]
+fn shared_read_commands_bound_final_self_referential_receipts()
+-> Result<(), Box<dyn std::error::Error>> {
+    for command in ["list", "search", "files", "docs", "test"] {
+        for toon in [false, true] {
+            for padding in 0..4 {
+                for budget in [319, 320, 321, 998, 999, 1000, 1001] {
+                    let source = envelope(8, 80 + padding);
+                    let options = ListOptions {
+                        toon,
+                        output_budget: Some(budget.to_string()),
+                        intent: (command == "list").then(|| "triage".to_owned()),
+                        ..Default::default()
+                    };
+                    let source = if command == "list" {
+                        crate::list_intent::attach(source, &options, 5000)
+                    } else {
+                        source.into()
+                    };
+                    let output = super::apply_command(source, &options, command)?;
+                    if output["read_output"]["within_budget"] == true {
+                        assert!(
+                            super::measure(&output, toon) <= budget,
+                            "{command}, toon={toon}, padding={padding}, budget={budget}"
+                        );
+                    }
+                }
+            }
+        }
+    }
+    Ok(())
+}
