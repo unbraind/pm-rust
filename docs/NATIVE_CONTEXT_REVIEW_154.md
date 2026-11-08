@@ -123,3 +123,25 @@ serialization contract. The original cursor comparison remains unchanged and
 passes. A 100-case compatibility property witnesses both feasibility outcomes
 and the metadata-removal boundary, and fails if context recalculation leaks into
 legacy list. This is a versioned contract boundary, not a skipped finding.
+
+## Final local validation for this round
+
+- All 34 ordinary Rust targets were exercised: 755 distinct tests passed across
+  the full ordinary run and the corrected/remaining target reruns. The final
+  correction reran all 409 library and 42 binary tests, all 26 pagination tests,
+  the seven previously unexecuted integration targets and all examples: 558
+  tests across 15 targets passed. Earlier unchanged targets account for the
+  remaining 197 tests. This is not a passing single aggregate invocation.
+- Formatting, warnings-denied Clippy, private-item rustdoc, TypeScript/ESLint,
+  all 93 crash/context/adapter Node tests, crash history/evidence checks,
+  dependency audit, isolated strict self-host health and changelog verification
+  passed. The separate managed general Node harness passed all 25 tests.
+- Node/Bun each passed the 72-comparison reviewed context matrix. Bun also passed
+  compact-table decoding and the corrected general interruption harness.
+- Behavioral proofs cover the current context correction, the legacy list
+  compatibility boundary, both oracle prerequisites, exact named results,
+  passing baselines, raw returned receipts, tight root-edge reservations, codec
+  reconstruction and interrupted-copy restoration. The existing pm item records
+  the managed run and focused reruns with exact commands and counts.
+- The complete single-invocation release/coverage gate and final-head external
+  reviews remain CI requirements under the documented runtime exception.
