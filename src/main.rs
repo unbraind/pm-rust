@@ -1024,10 +1024,14 @@ where
     I: IntoIterator<Item = S>,
     S: AsRef<std::ffi::OsStr>,
 {
-    let mut values = args
-        .into_iter()
-        .map(|arg| arg.as_ref().to_string_lossy().into_owned());
-    while let Some(arg) = values.next() {
+    let mut values = args.into_iter();
+    while let Some(raw) = values.next() {
+        let arg = raw.as_ref().to_string_lossy();
+        // Workspace is a top-level option. Rejected command option values must
+        // never redirect the diagnostic reader into another tracker.
+        if !arg.starts_with('-') || arg == "--" {
+            break;
+        }
         for flag in ["--workspace", "--pm-path", "--path"] {
             if let Some(value) = arg.strip_prefix(&format!("{flag}=")) {
                 return PathBuf::from(value);
@@ -1035,7 +1039,7 @@ where
             if arg == *flag
                 && let Some(value) = values.next()
             {
-                return PathBuf::from(value);
+                return PathBuf::from(value.as_ref());
             }
         }
     }

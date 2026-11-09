@@ -1999,3 +1999,57 @@ fn context_warning_rendering_preserves_refusal_metadata() -> Result<(), Box<dyn 
     }
     Ok(())
 }
+
+/// Raw refusal diagnostics use the parser's top-level workspace spelling only.
+#[test]
+fn parser_refusal_workspace_selection_matches_native_scope()
+-> Result<(), Box<dyn std::error::Error>> {
+    use clap::Parser as _;
+    use std::path::PathBuf;
+    for flag in ["--workspace", "--pm-path", "--path"] {
+        for folder in ["fixture space", "context", "nested/tracker"] {
+            for args in [
+                vec![flag.to_owned(), folder.to_owned()],
+                vec![format!("{flag}={folder}")],
+            ] {
+                let parsed = Cli::try_parse_from(
+                    std::iter::once("pm-rust".to_owned())
+                        .chain(args.clone())
+                        .chain(["context".to_owned()]),
+                )?;
+                assert_eq!(super::native_workspace_path(&args), parsed.workspace);
+                let mut refused = args;
+                refused.extend([
+                    "context".to_owned(),
+                    "--output-cursor".to_owned(),
+                    "--workspace=unrelated".to_owned(),
+                ]);
+                assert_eq!(
+                    super::native_workspace_path(&refused),
+                    PathBuf::from(folder)
+                );
+            }
+        }
+    }
+    for args in [
+        vec![],
+        vec!["context", "--path=unrelated"],
+        vec!["--", "--path=unrelated"],
+        vec!["--unknown"],
+        vec!["--workspace"],
+        vec!["--pm-path"],
+        vec!["--path"],
+    ] {
+        assert_eq!(super::native_workspace_path(args), PathBuf::from("."));
+    }
+    #[cfg(unix)]
+    {
+        use std::{ffi::OsString, os::unix::ffi::OsStringExt as _};
+        let path = OsString::from_vec(b"tracker-\xff".to_vec());
+        assert_eq!(
+            super::native_workspace_path([OsString::from("--path"), path.clone()]),
+            PathBuf::from(path)
+        );
+    }
+    Ok(())
+}

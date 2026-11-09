@@ -17,7 +17,7 @@ if (process.platform !== 'win32' && process.env.PM_PROOF_PROCESS_REGISTRY) {
   const originalSpawn = childProcess.spawn;
   childProcess.spawn = ((...args: Parameters<typeof spawn>) => {
     const child = originalSpawn(...args);
-    const options = args[2];
+    const options = (Array.isArray(args[1]) ? args[2] : args[1]) as SpawnOptions | undefined;
     if (options?.detached && child.pid !== undefined) {
       writeFileSync(join(registry, `${child.pid}.pid`), String(child.pid));
       if (args[0] === process.execPath) writeFileSync(join(registry, `${child.pid}.owner`), String(child.pid));
@@ -46,6 +46,7 @@ export class ProofProcesses {
   private interrupted: NodeJS.Signals | undefined;
   private handlers = new Map<NodeJS.Signals, () => void>();
   private cleanupSafe = true;
+  private terminationError: Error | undefined;
   private draining: Promise<void> | undefined;
 
   /** Reports whether the runner must stop without certifying further controls. */
@@ -61,6 +62,9 @@ export class ProofProcesses {
         this.collectNested();
         for (const pid of this.runners.keys()) this.stopRunner(pid, signal);
         for (const pid of this.groups) this.stop(pid, signal);
+        // A restoring runner may itself ignore termination. Begin its bounded
+        // grace period now instead of waiting for an exit event that never comes.
+        void this.drain().catch(failure => { this.cleanupSafe = false; this.terminationError ??= failure as Error; });
       };
       this.handlers.set(signal, handler);
       process.on(signal, handler);
@@ -112,7 +116,7 @@ export class ProofProcesses {
       catch { this.cleanupSafe = false; }
     } else {
       try { process.kill(-pid, signal); } catch (error) {
-        if ((error as NodeJS.ErrnoException).code !== 'ESRCH') { this.cleanupSafe = false; throw error; }
+        this.failedStop(pid, true, error);
       }
     }
   }
@@ -120,18 +124,35 @@ export class ProofProcesses {
   /** Stop a nested runner itself, allowing its own restoration finally block to finish. */
   private stopRunner(pid: number, signal: NodeJS.Signals): void {
     try { process.kill(pid, signal); }
-    catch (error) { if ((error as NodeJS.ErrnoException).code !== 'ESRCH') { this.cleanupSafe = false; throw error; } }
+    catch (error) { this.failedStop(pid, false, error); }
+  }
+
+  /** Query executable membership; zombie processes cannot access scratch inputs. */
+  private live(pid: number, group: boolean): boolean {
+    const rows = execFileSync('ps', ['-eo', group ? 'pgid=,stat=' : 'pid=,stat='], { encoding: 'utf8' });
+    return rows.split('\n').some(row => {
+      const [identity, state = ''] = row.trim().split(/\s+/);
+      return Number(identity) === pid && !state.startsWith('Z');
+    });
+  }
+
+  /** Signal callbacks never throw past restoration; EPERM needs positive absence evidence. */
+  private failedStop(pid: number, group: boolean, failure: unknown): void {
+    const code = (failure as NodeJS.ErrnoException).code;
+    if (code === 'ESRCH') return;
+    if (code === 'EPERM') {
+      try { if (!this.live(pid, group)) return; }
+      catch { /* An unavailable process table cannot prove safe cleanup. */ }
+    }
+    this.cleanupSafe = false;
+    this.terminationError ??= failure as Error;
   }
 
   /** Wait for executable members, keeping inputs until both workers and restoring runners stop. */
   private async reap(pid: number, group: boolean): Promise<void> {
     const started = performance.now();
     for (;;) {
-      const rows = execFileSync('ps', ['-eo', group ? 'pgid=,stat=' : 'pid=,stat='], { encoding: 'utf8' });
-      const live = rows.split('\n').some(row => {
-        const [identity, state = ''] = row.trim().split(/\s+/);
-        return Number(identity) === pid && !state.startsWith('Z');
-      });
+      const live = this.live(pid, group);
       if (!live) return;
       if (performance.now() - started >= (group ? 1000 : 5000)) {
         if (group) this.stop(pid, 'SIGKILL'); else this.stopRunner(pid, 'SIGKILL');
@@ -201,7 +222,12 @@ export class ProofProcesses {
     /** Terminate the tree immediately, then escalate independently of inherited pipe closure. */
     const stop = (): void => {
       if (pid === undefined) return;
+      this.collectNested();
       this.stop(pid, 'SIGTERM');
+      if (process.platform !== 'win32' && this.runners.has(pid)) {
+        drained = this.drain();
+        void drained.catch(failure => { error = failure as Error; child.stdout!.destroy(); child.stderr!.destroy(); });
+      }
       escalation ??= globalThis.setTimeout(() => this.stop(pid, 'SIGKILL'), 1000);
     };
     const timer = globalThis.setTimeout(() => { error = new Error('Proof subprocess timeout'); stop(); }, timeout);
@@ -225,7 +251,12 @@ export class ProofProcesses {
           }
           // Unix groups can outlive the leader. Windows retains ownership until the
           // job supervisor attests that the kernel job is empty; the timeout stays armed.
-          if (process.platform !== 'win32') drained = this.drain();
+          if (process.platform !== 'win32') {
+            // Drain now owns escalation. A second timer can race its SIGKILL and
+            // hit an already-dead Darwin group with EPERM during restoration.
+            if (escalation) clearTimeout(escalation);
+            drained = this.drain();
+          }
           void drained.catch(failure => { error = failure; child.stdout!.destroy(); child.stderr!.destroy(); });
         });
         child.once('close', status => {
@@ -243,6 +274,7 @@ export class ProofProcesses {
         });
       }).then(async result => {
         await drained;
+        if (this.terminationError) throw this.terminationError;
         if (this.interrupted) { process.exitCode = this.interrupted === 'SIGINT' ? 130 : 143; throw new Error('Proof interrupted'); }
         return result;
       });

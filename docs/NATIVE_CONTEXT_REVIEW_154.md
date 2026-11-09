@@ -382,3 +382,14 @@ case after 1294.747 ms; the aggregate macOS job instead failed SIGINT after
 are now checked before reading that receipt, so cleanup errors retain their
 cause. All signal cases and timeout bounds remain in place. Exact-head macOS
 verification is required before claiming that platform is certified.
+
+Captured stderr on the next macOS head identified `kill EPERM` from the
+one-second timeout callback, with exit 1 before restoration. Both stubborn signal
+variants reproduce it. The timer and the drain loop independently escalated the
+same group. Leader exit now transfers escalation to the drain, and signal errors
+are retained by the owner instead of escaping a callback. Darwin `EPERM` is
+accepted only when `ps` positively proves no executable member remains; live or
+unreadable membership refuses restoration and retains scratch. Group and nested
+PID adversaries cover absent, zombie, live and unavailable states. A stalled
+loop adversary deterministically exposes duplicate escalation. All three
+independent reverts fail their named regression and all six controls pass.

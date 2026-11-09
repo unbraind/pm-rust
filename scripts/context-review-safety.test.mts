@@ -197,7 +197,7 @@ process.on('SIGTERM',()=>{writeFileSync(${JSON.stringify(marker + '.stopped')},S
 setInterval(()=>{},1000);`;
     writeFileSync(nested, `import {setTimeout} from 'node:timers/promises';import {writeFileSync,existsSync} from 'node:fs';import {ProofProcesses} from ${module};
 const owned = new ProofProcesses();
-try { await owned.run(process.execPath, ['--input-type=module','-e',${JSON.stringify(worker)}]); } finally { await owned.cleanup(${JSON.stringify(join(root, 'nested-scratch'))}); await setTimeout(200); writeFileSync(${JSON.stringify(marker+'.owner-stopped')},String(existsSync(${JSON.stringify(join(root,'scratch'))}))); }`);
+try { await owned.run(process.execPath, ['--input-type=module','-e',${JSON.stringify(worker)}]); } finally { await owned.cleanup(${JSON.stringify(join(root, 'nested-scratch'))}); await setTimeout(1200); writeFileSync(${JSON.stringify(marker+'.owner-stopped')},String(existsSync(${JSON.stringify(join(root,'scratch'))}))); }`);
     const parent = `import {spawn} from 'node:child_process'; import {existsSync} from 'node:fs'; import {setTimeout} from 'node:timers/promises';
 spawn(process.execPath,[${JSON.stringify(nested)}],{detached:true,stdio:'ignore',env:process.env});
 while(!existsSync(${JSON.stringify(marker)})) await setTimeout(5);
@@ -229,8 +229,9 @@ finally { await owned.cleanup(${JSON.stringify(join(root, 'scratch'))}); }`);
 }
 
 /** Cleanup must own detached descendants before their delayed constructors run. */
-for (const ending of ['exit', 'SIGTERM'] as const) {
-  test(`outer cleanup owns delayed nested constructors on ${ending}`, { skip: process.platform === 'win32', timeout: 20_000 }, async () => {
+for (const { ending, twoArguments } of [false, true].flatMap(twoArguments =>
+  (['exit', 'SIGTERM'] as const).map(ending => ({ ending, twoArguments })))) {
+  test(`outer cleanup owns delayed nested constructors on ${ending}${twoArguments ? ' (two-argument spawn)' : ''}`, { skip: process.platform === 'win32', timeout: 20_000 }, async () => {
     const root = mkdtempSync(join(tmpdir(), 'pm-delayed-owner-'));
     const scratch = join(root, 'scratch'); mkdirSync(scratch);
     const marker = join(root, 'ready');
@@ -242,7 +243,7 @@ writeFileSync(${JSON.stringify(marker)},String(process.pid));
 await setTimeout(10000);
 const {ProofProcesses}=await import(${module});new ProofProcesses();writeFileSync(${JSON.stringify(marker+'.constructor')},'too late');`);
     const parent = `import {spawn} from 'node:child_process';import {existsSync} from 'node:fs';import {setTimeout} from 'node:timers/promises';
-spawn(process.execPath,[${JSON.stringify(nested)}],{detached:true,stdio:'ignore'});
+${twoArguments ? `spawn(process.execPath,{detached:true,stdio:'ignore',env:{...process.env,NODE_OPTIONS:(process.env.NODE_OPTIONS??'')+' --import='+${JSON.stringify(JSON.stringify(pathToFileURL(nested).href))}}});` : `spawn(process.execPath,[${JSON.stringify(nested)}],{detached:true,stdio:'ignore'});`}
 while(!existsSync(${JSON.stringify(marker)})) await setTimeout(5);
 ${ending === 'exit' ? 'process.exit(0)' : 'setInterval(()=>{},1000)'}`;
     const manager = join(root, 'manager.mjs');
@@ -535,4 +536,44 @@ process.exitCode = 0;
       rmSync(join(root, 'scratch'), { force: true, recursive: true });
     }
   } finally { rmSync(root, { recursive: true, force: true }); }
+});
+
+/** Darwin may report EPERM for an already-dead group; live or unreadable groups stay protected. */
+test('signal errors require positive termination evidence before restoration', () => {
+  const root=mkdtempSync(join(tmpdir(),'pm-signal-evidence-'));
+  try {
+    for(const runner of [false,true]) for(const state of ['absent','zombie','live','unavailable']) {
+      const script=join(root,'signal.mjs');
+      writeFileSync(script, `import assert from 'node:assert/strict';import childProcess from 'node:child_process';import {EventEmitter} from 'node:events';import {PassThrough} from 'node:stream';import {syncBuiltinESMExports} from 'node:module';import {mkdirSync,writeFileSync} from 'node:fs';
+let clock=0,killed=false,checks=0;Object.defineProperty(performance,'now',{value:()=>clock+=1100});
+process.kill=(_pid,signal)=>{if(signal==='SIGKILL'){killed=true;throw Object.assign(new Error('kill EPERM'),{code:'EPERM'})}return true;};
+childProcess.execFileSync=()=>{if(!killed)return '424242 S';checks++;if(checks===1&&${JSON.stringify(state)}==='unavailable')throw new Error('process table unavailable');if(checks===1&&${JSON.stringify(state)}==='live')return '424242 S';return ${JSON.stringify(state)}==='zombie'?'424242 Z':'';};
+childProcess.spawn=()=>{const child=new EventEmitter();child.pid=424242;child.stdout=new PassThrough();child.stderr=new PassThrough();setImmediate(()=>{child.emit('exit',0,null);child.stdout.end();child.stderr.end();child.emit('close',0)});return child;};syncBuiltinESMExports();
+const {ProofProcesses,verifyAsyncMutation}=await import(${JSON.stringify(pathToFileURL(join(packageRoot,'scripts/context-proof-process.mts')).href)});const owned=new ProofProcesses();
+if(${runner})writeFileSync(owned.registry+'/424242.owner','424242');
+const scratch=${JSON.stringify(join(root,'scratch'))};mkdirSync(scratch,{recursive:true});let input='fixed';
+const run=()=>verifyAsyncMutation(async reverted=>{if(reverted)await owned.run('cargo',[])},()=>{input='mutated'},()=>{input='fixed'},owned);
+if(${state==='absent'||state==='zombie'}){await run();assert.equal(input,'fixed');await owned.cleanup(scratch);}
+else{await assert.rejects(run());assert.equal(input,'mutated');await assert.rejects(owned.cleanup(scratch),/scratch retained/);}
+assert.ok(killed);`);
+      const result=spawnSync(process.execPath,[script],{encoding:'utf8',timeout:10000,env:{...process.env,TMPDIR:root,TEMP:root,TMP:root}});
+      assert.equal(result.status,0,`${runner} ${state}: ${result.stderr}`);
+    }
+  } finally {rmSync(root,{recursive:true,force:true});}
+});
+
+/** Only the draining owner escalates after leader exit, even when the event loop stalls. */
+test('leader exit transfers escalation to the drain without a duplicate timer', () => {
+  const root=mkdtempSync(join(tmpdir(),'pm-escalation-transfer-'));
+  try {
+    const script=join(root,'escalation.mjs');
+    writeFileSync(script, `import assert from 'node:assert/strict';import childProcess from 'node:child_process';import {EventEmitter} from 'node:events';import {PassThrough} from 'node:stream';import {syncBuiltinESMExports} from 'node:module';
+let clock=0,kills=0;Object.defineProperty(performance,'now',{value:()=>clock+=1100});const started=Date.now();
+process.kill=(_pid,signal)=>{if(signal==='SIGKILL'){kills++;while(Date.now()-started<1200){}if(kills>1)throw Object.assign(new Error('kill EPERM'),{code:'EPERM'});}return true;};
+childProcess.execFileSync=()=>kills?'':'424242 S';
+childProcess.spawn=()=>{const child=new EventEmitter();child.pid=424242;child.stdout=new PassThrough();child.stderr=new PassThrough();setTimeout(()=>{child.emit('exit',0,null);child.stdout.end();child.stderr.end();child.emit('close',0)},20);return child;};syncBuiltinESMExports();
+const {ProofProcesses}=await import(${JSON.stringify(pathToFileURL(join(packageRoot,'scripts/context-proof-process.mts')).href)});const owned=new ProofProcesses();await owned.run('cargo',[],{timeout:1});assert.equal(kills,1);await owned.cleanup(${JSON.stringify(join(root,'scratch'))});`);
+    const result=spawnSync(process.execPath,[script],{encoding:'utf8',timeout:10000});
+    assert.equal(result.status,0,result.stderr);
+  } finally {rmSync(root,{recursive:true,force:true});}
 });
