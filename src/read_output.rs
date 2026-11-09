@@ -126,8 +126,8 @@ pub(crate) fn compact_strings(value: &mut Value, preserve_intent: bool) -> bool 
             .iter_mut()
             .fold(false, |changed, row| compact_strings(row, false) | changed),
         Value::Object(map) => map.iter_mut().fold(false, |changed, (key, row)| {
-            (!matches!(key.as_str(), "focus_row_states")
-                && !(preserve_intent && key == "context_intent")
+            (!(matches!(key.as_str(), "focus_row_states")
+                || (preserve_intent && key == "context_intent"))
                 && compact_strings(row, false))
                 | changed
         }),

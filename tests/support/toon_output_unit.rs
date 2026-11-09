@@ -108,7 +108,7 @@ fn toon_rows_preserve_explicit_facts() -> Result<(), Box<dyn std::error::Error>>
 #[test]
 fn toon_wire_shapes_preserve_values_and_disclose_sparse_cells()
 -> Result<(), Box<dyn std::error::Error>> {
-    use super::{compact, complete_brief, render_contract, table};
+    use super::{compact, render_contract, table};
     assert_eq!(render_contract(&json!({}), 0, false), "{}");
     assert_eq!(render_contract(&json!([]), 0, false), "[]");
     assert_eq!(render_contract(&json!("quoted"), 1, false), "  \"quoted\"");
@@ -136,6 +136,12 @@ fn toon_wire_shapes_preserve_values_and_disclose_sparse_cells()
         encoding,
         json!({"json_columns":["tags"],"absent":[[0,"parent"]]})
     );
+    assert_complete_brief_projection()
+}
+
+/// Complete-list summaries preserve every explicit exception to brief compaction.
+fn assert_complete_brief_projection() -> Result<(), Box<dyn std::error::Error>> {
+    use super::{complete_brief, render_contract};
     let brief = json!({"items":[],"count":0,"total":0,"has_more":false,"truncated":false,"projection":{"mode":"brief","fields":["id","status","type","title"]},"completeness":{"status":"complete","unreadable_item_count":0,"unreadable_directory_count":0},"sorting":{"sort":"default"},"omission_receipt":{"has_omissions":true,"omitted_field_group_count":1,"omitted_field_groups":[{"name":"full_item_fields","restore_with":"--full"}]}});
     assert_eq!(
         complete_brief(&brief),

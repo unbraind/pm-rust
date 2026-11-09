@@ -2890,6 +2890,12 @@ fn context_invalid_stored_activity_limits_match_current_oracle() -> TestResult {
     Ok(())
 }
 
+/// Extract the published settings diagnostic without normalizing refusal details.
+fn warning_line(text: &str) -> Option<&str> {
+    text.lines()
+        .find(|line| line.starts_with("[pm] warning: settings_read_invalid_schema"))
+}
+
 /// Parser refusals retain the stored settings warning exactly like the published CLI.
 #[test]
 fn context_parser_refusals_preserve_settings_warnings() -> TestResult {
@@ -2931,10 +2937,7 @@ fn context_parser_refusals_preserve_settings_warnings() -> TestResult {
             if encoding.is_empty() {
                 let native_stderr = String::from_utf8_lossy(&actual.stderr).into_owned();
                 let oracle_stderr = String::from_utf8_lossy(&expected.stderr).into_owned();
-                fn warning_line(text: &str) -> Option<&str> {
-                    text.lines()
-                        .find(|line| line.starts_with("[pm] warning: settings_read_invalid_schema"))
-                }
+
                 // The warning bytes are the published contract; the refusal body is native.
                 assert_eq!(
                     warning_line(&native_stderr),

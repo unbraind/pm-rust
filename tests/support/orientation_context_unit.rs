@@ -1669,11 +1669,10 @@ fn legacy_blocker_aliases_keep_the_resolved_target() -> Result<(), Box<dyn std::
     Ok(())
 }
 
-/// Stored validation precedes every SDK override, preserves old data and never writes settings.
-#[test]
-fn context_stored_settings_fallback_precedes_overrides() -> Result<(), Box<dyn std::error::Error>> {
-    let (root, workspace, _) = workspace()?;
-    assert!(!root.path().join(".git").exists());
+/// Populate independent activity and custom-lifecycle evidence for fallback tests.
+fn stored_settings_lifecycle_fixture(
+    workspace: &Workspace,
+) -> Result<(), Box<dyn std::error::Error>> {
     fs::write(
         workspace.pm_root().join("tasks/sample-activity.toon"),
         toon_format::encode_default(&item("sample-activity", "open"))?,
@@ -1697,6 +1696,15 @@ fn context_stored_settings_fallback_precedes_overrides() -> Result<(), Box<dyn s
         workspace.pm_root().join("history/sample-activity.jsonl"),
         history,
     )?;
+    Ok(())
+}
+
+/// Stored validation precedes every SDK override, preserves old data and never writes settings.
+#[test]
+fn context_stored_settings_fallback_precedes_overrides() -> Result<(), Box<dyn std::error::Error>> {
+    let (root, workspace, _) = workspace()?;
+    assert!(!root.path().join(".git").exists());
+    stored_settings_lifecycle_fixture(&workspace)?;
     let invalid = [
         json!({"activity_limit":0}),
         json!({"activity_limit":-1}),
@@ -1772,7 +1780,7 @@ fn context_stored_settings_fallback_precedes_overrides() -> Result<(), Box<dyn s
                     // queued item is in progress, after fallback it is unknown.
                     assert_eq!(
                         result["summary"]["in_progress"],
-                        json!(if fallback { 0 } else { 1 }),
+                        json!(i32::from(!fallback)),
                         "{context}, {override_limit:?}"
                     );
                     assert_eq!(result.settings_warning().is_some(), fallback);

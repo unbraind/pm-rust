@@ -1,8 +1,9 @@
 /** Owned proof subprocesses: drain descendants before restoring or deleting scratch inputs. */
 import childProcess, { execFileSync, spawn, type SpawnOptions } from 'node:child_process';
-import { mkdtempSync, readdirSync, rmSync, writeFileSync, type Dirent } from 'node:fs';
+import { existsSync, mkdtempSync, readdirSync, rmSync, writeFileSync, type Dirent } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
+import { pathToFileURL } from 'node:url';
 import { syncBuiltinESMExports } from 'node:module';
 import { randomUUID } from 'node:crypto';
 import { windowsJob } from './context-windows-job.mts';
@@ -174,10 +175,17 @@ export class ProofProcesses {
     let escalation: ReturnType<typeof globalThis.setTimeout> | undefined;
     const marker = `proof-job-drained-${randomUUID()}`;
     const invocation = process.platform === 'win32' ? windowsJob(command, args, marker) : { command, args };
+    // A disposable mutation must preload its own helper, not a fixed ancestor's
+    // cached module. Replace only our injected option and retain caller options.
+    const inherited = spawnOptions.env ?? process.env;
+    const previousPreload = inherited.PM_PROOF_PRELOAD_OPTION;
+    const nodeOptions = previousPreload ? (inherited.NODE_OPTIONS ?? '').replace(previousPreload, '') : inherited.NODE_OPTIONS ?? '';
+    const candidate = typeof spawnOptions.cwd === 'string' ? join(spawnOptions.cwd, 'scripts/context-proof-process.mts') : '';
+    const preload = `--import=${JSON.stringify(candidate && existsSync(candidate) ? pathToFileURL(candidate).href : import.meta.url)}`;
     const child = spawn(invocation.command, invocation.args, { ...spawnOptions,
       env: { ...(spawnOptions.env ?? process.env), PM_PROOF_PROCESS_REGISTRY: this.registry,
         ...(process.platform === 'win32' ? {} : {
-          NODE_OPTIONS: `${spawnOptions.env?.NODE_OPTIONS ?? process.env.NODE_OPTIONS ?? ''} --import=${JSON.stringify(import.meta.url)}`,
+          NODE_OPTIONS: `${nodeOptions} ${preload}`, PM_PROOF_PRELOAD_OPTION: preload,
         }),
       },
       detached: process.platform !== 'win32', stdio: ['ignore', 'pipe', 'pipe'] });

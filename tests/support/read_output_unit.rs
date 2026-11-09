@@ -786,7 +786,7 @@ fn shared_read_commands_bound_final_self_referential_receipts()
     }
     Ok(())
 }
-/// Item metadata named context_intent compacts while the top-level declaration stays immutable.
+/// Item metadata named `context_intent` compacts while the top-level declaration stays immutable.
 #[test]
 fn item_metadata_named_context_intent_compacts_under_budgets()
 -> Result<(), Box<dyn std::error::Error>> {
