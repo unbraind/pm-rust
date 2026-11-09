@@ -519,3 +519,128 @@ After the last tracker write and claim release, `just changelog-full` and
 `just changelog-check` pass without a changelog diff. Clean-home self-host
 health and the complete history-prefix check pass. The existing
 `pm-rust-context-intents` item remains in progress with its claim released.
+
+## Four remaining native findings
+
+The continuation retains the existing branch and tracker item
+`pm-rust-context-intents`. The initial fetched branch matched `7b1d9fd`, and
+`origin/main` was already an ancestor. Deferred harness/test findings remain
+outside this change. No review thread was replied to, resolved or reacted to.
+
+| Full thread id | Fix commit | Regression | Published oracle |
+| --- | --- | --- | --- |
+| PRRT_kwDOTwgMRs61TMqr | 656198e | `list_intent_stabilization_respects_wire_budget` | `triage_stabilized_wire_budget_matches_published`: exact stdout, stderr and status at budgets 1403 and 1401 |
+| PRRT_kwDOTwgMRs61TMql | 5dc3dc1 | Rustdoc-only explanation on `Intent::attach` | No behavior change |
+| PRRT_kwDOTwgMRs61VSbU | 656198e | `whole_settings_validation_preserves_legacy_documents` | `context_invalid_document_discards_overrides_matches_oracle`: 28 exact comparisons |
+| PRRT_kwDOTwgMRs61VSbR | 9174201 | `context_refusal_argument_roles` | `context_refusal_value_roles_match_current_oracle`: 50 exact comparisons |
+
+Every list wire estimate now stabilizes the retained intent before the
+compactor tests admission, including its binary-search probes. The boundary
+fixture has a stabilized size of 1402 tokens: a 1403-token ceiling retains
+11 rows, while a 1401-token ceiling retains six rows in a 1340-token packet.
+Both match the pinned published CLI exactly. Existing infeasible-budget
+refusals retain their published contract.
+
+Native settings projections share whole-document validation before use.
+The schema records the published 2026.11.5 core field types, required fields,
+enumerations and numeric constraints. Invalid unrelated settings discard all
+context overrides before section selection, activity limits and explicit
+request controls, retaining the published warning. Lifecycle/schema loading,
+search, history, selection, read sessions, mutation preparation, admission and
+CLI identity reads use the same validation boundary. Unsupported admission
+configuration remains a conservative refusal. Unknown extension-owned keys
+remain readable. Versionless native partial documents retain their existing
+omitted-field, null-alias and fractional-search-limit reader contracts;
+versioned published documents receive complete required-field validation.
+The oracle fixture uses synthetic non-git trackers and verifies that reads
+preserve the settings bytes.
+
+Refusal normalization preserves the role of flag-shaped numeric values before
+stripping native workspace/clock controls. The published parser also treats
+`--path` as an alias of its global `--pm-path`: missing values keep the same
+argument surface, recovery spelling, encoding, status and diagnostic bytes.
+The differential includes both separate and equals path spellings and the
+native-only `--workspace`/`--timestamp` value cases and the legacy
+`--max-items`/`--token_budget` numeric aliases.
+
+Independent behavioral reverts run only in a disposable source copy. Removing
+the list stabilization hook fails both its unit and oracle regression.
+Restoring author/context-only settings validation fails the new settings unit
+and oracle regression. Restoring the original argument-normalization function
+fails both the refusal unit and oracle regression. All six named failures are
+runtime assertions, with twelve passing fixed controls before/after exact
+restoration. The final required-field schema receives an additional repeat of
+both settings failures and four passing fixed controls. Reverts never alter
+the package implementation.
+
+Focused commands (the five linked `pm test --run --progress` commands pass
+with results recording disabled):
+
+```sh
+CARGO_BUILD_JOBS=2 RUST_TEST_THREADS=2 cargo test -j 2 --locked --lib list_intent_stabilization_respects_wire_budget
+CARGO_BUILD_JOBS=2 RUST_TEST_THREADS=2 cargo test -j 2 --locked --lib settings::tests
+CARGO_BUILD_JOBS=2 RUST_TEST_THREADS=2 cargo test -j 2 --locked --bin pm-rust context_refusal_argument_roles
+PM_RUST_REQUIRE_PUBLISHED_CLI=1 RUST_TEST_THREADS=2 cargo test -j 2 --locked --test pagination_differential triage_stabilized_wire_budget_matches_published
+PM_RUST_REQUIRE_PUBLISHED_CLI=1 RUST_TEST_THREADS=2 cargo test -j 2 --locked --test orientation_differential context_invalid_document_discards_overrides_matches_oracle
+PM_RUST_REQUIRE_PUBLISHED_CLI=1 RUST_TEST_THREADS=2 cargo test -j 2 --locked --test orientation_differential context_refusal_value_roles_match_current_oracle
+```
+
+
+The alias follow-up independently reverts `context_path_usage` and
+`orientation_arguments`: each revert fails both the refusal unit and the
+50-case oracle matrix. Eight fixed controls pass. Across this continuation,
+six distinct regression tests fail their behavioral reverts, with 24 passing
+fixed controls including the final-schema and alias repeats.
+
+The complete pinned-nightly all-target/all-feature run passes **780 tests
+across 34 targets**, with no failures or ignored tests. After the alias
+follow-up, fresh instrumented checks pass all **45 CLI binary tests**, the
+expanded **50-comparison oracle test**, and the format-boundary library test
+(**47 Rust test executions**). The latter keeps the malformed `markdown`
+refusal and adds the schema-valid legacy `json_markdown` refusal; whole-document
+validation otherwise rejects the malformed spelling before the native format
+boundary. These changed-path runs retain the complete profiles using
+`--no-clean`; no source exclusion or coverage threshold changes.
+
+Coverage collection uses **nightly-2026-08-06**. The final full-source report
+uses **cargo-llvm-cov 0.9.1**, matching the previous verified receipt. Its official
+release archive SHA256 is
+`b3f68e625481fed9b16444174f3fa5ebcdbde4a1878803a35eabe2dcefcdc41a`,
+verified against the GitHub release asset digest before extracting the isolated
+tool. The host's 0.8.7 reporter additionally includes `build.rs`; the final
+0.9.1 report uses its unchanged default source scope, as before. No build-script
+behavior, report exclusion flags or thresholds were changed.
+
+| Metric | Covered / total | Percent |
+| --- | --- | --- |
+| Lines | 17967 / 17967 | 100% |
+| Functions | 1876 / 1876 | 100% |
+| Regions | 29034 / 29034 | 100% |
+| Branches | 4034 / 4034 | 100% |
+
+The full run uses the command from the preceding continuation. Portable
+commands for the additional instrumented checks and final report are below;
+the actual intermediate reports are scratch artifacts, not tracked files.
+Use the verified 0.9.1 reporter for the final report command.
+
+```sh
+CARGO_BUILD_JOBS=2 RUST_TEST_THREADS=2 cargo +nightly-2026-08-06 llvm-cov --no-clean --locked --branch --bin pm-rust --all-features --json --output-path coverage-branch.json
+CARGO_BUILD_JOBS=2 RUST_TEST_THREADS=2 PM_RUST_REQUIRE_PUBLISHED_CLI=1 cargo +nightly-2026-08-06 llvm-cov --no-clean --locked --branch --test orientation_differential --all-features --json --output-path coverage-branch.json -- context_refusal_value_roles_match_current_oracle --exact
+CARGO_BUILD_JOBS=2 RUST_TEST_THREADS=2 cargo +nightly-2026-08-06 llvm-cov --no-clean --locked --branch --lib --all-features --json --output-path coverage-branch.json -- mutation::tests::validation_rejects_every_unsupported_request_shape --exact
+cargo +nightly-2026-08-06 llvm-cov report --branch --json --output-path coverage-branch.json
+```
+
+The unchanged four-total assertion passes. Formatting, warnings-denied Clippy,
+private-item Rustdoc, TypeScript and ESLint pass. Dependency audit retains only
+the existing allowed unmaintained-library advisory. Self-host health passes
+with existing advisories. The previously measured full release aggregate
+exceeded the task runtime exception, so no duplicate aggregate pass is claimed.
+Platform CI on the final pushed head remains separate evidence. No merge or
+release is performed.
+
+After the last tracker write and claim release, `just changelog-full`,
+`just changelog-check` and the complete history-prefix check pass. The changelog
+has no diff. Clean-home self-host health also passes after release, retaining
+its existing advisories. The existing item remains `in_progress` and unclaimed
+for orchestrator verification. Only the review receipt and matching tracker
+history change after source commit `9174201`.
