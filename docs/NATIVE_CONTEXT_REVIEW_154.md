@@ -428,3 +428,25 @@ Final local acceptance used two workers at most:
 The previously measured local full aggregate exceeded 55 minutes after only
 18 of 34 instrumented targets. Under the task's runtime exception, full
 instrumented coverage remains an exact-head CI gate at the unchanged thresholds.
+
+## Round-six fix commits for orchestration
+
+| Thread | Fix commits | Failing revert assertion |
+| --- | --- | --- |
+| PRRT_kwDOTwgMRs61Cfjp | 6a9c1ea, 9967ee3 | All proof runners stop descendants before cleanup under SIGINT/SIGTERM |
+| PRRT_kwDOTwgMRs61GaS4 | 407fef2 | orientation_wire_string_compaction_retains_fitting_rows |
+| PRRT_kwDOTwgMRs61GaS5 | 6a9c1ea, 407fef2 | All managed mutation targets match the live package |
+| PRRT_kwDOTwgMRs61GlW4 | 6a9c1ea, 2577eab | Failed worker reap retains mutated inputs until termination is confirmed |
+| PRRT_kwDOTwgMRs61GlW_ | 13a42e7, 9967ee3 | Outer cleanup owns delayed nested constructors on exit |
+| PRRT_kwDOTwgMRs61GlXF | 6a9c1ea | Proof copies skip dangling file and directory links across every runner |
+| PRRT_kwDOTwgMRs61GlXH | 9967ee3 | Outer cleanup owns delayed nested constructors on SIGTERM; both spawn forms |
+| PRRT_kwDOTwgMRs61GlXM | 751df1a, 2577eab | context_parser_refusals_preserve_settings_warnings |
+| PRRT_kwDOTwgMRs61GlXS | e05542c | item_metadata_named_context_intent_compacts_under_budgets |
+| PRRT_kwDOTwgMRs61GlXU | e05542c, 2577eab | legacy_envelopes_with_current_marker_fields_keep_legacy_tables |
+| PRRT_kwDOTwgMRs61GlXX | e05542c, 6a9c1ea | current_compact_tables_round_trip_through_pinned_sdk; Node and Bun |
+| PRRT_kwDOTwgMRs61GlXZ | 751df1a, 13a42e7 | context_stored_settings_fallback_precedes_overrides |
+| PRRT_kwDOTwgMRs61KYdu | 2577eab | dependency_wire_measurement_matches_delivery |
+| PRRT_kwDOTwgMRs61KYdx | 2577eab, 407fef2 | Proof diagnostics preserve Unicode across independent stream chunk boundaries |
+| PRRT_kwDOTwgMRs61KYd0 | 2577eab | parser_refusal_workspace_selection_matches_native_scope |
+| PRRT_kwDOTwgMRs61KnIW | 2577eab, 407fef2 | Signal evidence and failed-reap fixtures explicitly simulate Unix from Windows |
+| PRRT_kwDOTwgMRs61LAm1 | 407fef2 | parser_refusal_workspace_selection_matches_native_scope; native Unix/Windows strings |
