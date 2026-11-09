@@ -225,6 +225,10 @@ pub(super) fn prepare(
 
 impl Intent {
     /// Attaches the oracle receipt before continuation and general output budgeting.
+    ///
+    /// The omission recovery command drops explicit sections and activity controls.
+    /// Preserve the requested projection by retrying the original command with a
+    /// higher `--token-budget`, starting with `restore_with` and increasing if needed.
     pub(super) fn attach(&self, mut result: ListOutput, original: &ContextOptions) -> ListOutput {
         let Self {
             core,
