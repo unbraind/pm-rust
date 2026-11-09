@@ -300,7 +300,10 @@ fn project(mut result: Value, summary: bool, aliases: &Value) -> Value {
 
 /// Measures the delivered output after hidden discovery metadata is suppressed.
 fn tokens(result: &Value, toon: bool) -> usize {
-    let output = ListOutput::from(result.clone());
+    let mut output = ListOutput::from(result.clone());
+    // Deps commands use the current context table contract; the measure must
+    // match the encoding the write path selected by command.
+    output.current_contract = true;
     let bytes = if toon {
         crate::toon_output::render_output(&output).len()
     } else {

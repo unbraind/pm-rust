@@ -106,7 +106,11 @@ pub(crate) fn update(result: &mut ListOutput, key: &str, pretty: bool) {
 /// UTF-16 unit so an astral character never becomes a lone surrogate escape
 /// (published 2026.10.17+ contract, GH-1478). Already-malformed values keep the
 /// lossless overrides that [`crate::ListOutput`] serialization retains.
-pub(crate) fn compact_strings(value: &mut Value) -> bool {
+///
+/// Only the top-level declaration is protected by `preserve_intent`; rows with
+/// identically named item metadata compact like any other long string so a
+/// fitting result is delivered instead of being omitted.
+pub(crate) fn compact_strings(value: &mut Value, preserve_intent: bool) -> bool {
     match value {
         Value::String(text) if text.encode_utf16().count() > 240 => {
             let units = text.encode_utf16().take(240).collect::<Vec<_>>();
@@ -120,9 +124,11 @@ pub(crate) fn compact_strings(value: &mut Value) -> bool {
         }
         Value::Array(rows) => rows
             .iter_mut()
-            .fold(false, |changed, row| compact_strings(row) | changed),
+            .fold(false, |changed, row| compact_strings(row, false) | changed),
         Value::Object(map) => map.iter_mut().fold(false, |changed, (key, row)| {
-            (!matches!(key.as_str(), "focus_row_states" | "context_intent") && compact_strings(row))
+            (!matches!(key.as_str(), "focus_row_states")
+                && !(preserve_intent && key == "context_intent")
+                && compact_strings(row, false))
                 | changed
         }),
         _ => false,
@@ -670,7 +676,7 @@ fn compact_budget(
         .map(str::to_owned)
         .collect::<Vec<_>>();
     let measured = measure(&result, options.toon);
-    let strings_compacted = compact_strings(&mut result.value);
+    let strings_compacted = compact_strings(&mut result.value, true);
     // The pair-preserving cut (GH-1478) can no longer introduce a lone-surrogate
     // override during compaction, so the entry validation already proved the
     // envelope encodable and this pass cannot fail.
@@ -851,6 +857,10 @@ pub(crate) fn apply_orientation(
     command: &'static str,
     row_keys: &[&str],
 ) -> Result<ListOutput, PmRustError> {
+    // The TOON table contract is selected once by command, never by declaration
+    // fields that arbitrary documents may carry.
+    let current_contract = matches!(command, "context" | "deps");
+    result.current_contract = current_contract;
     let explicit = options
         .token_budget
         .as_deref()
@@ -931,7 +941,7 @@ pub(crate) fn apply_orientation(
         // A compatibility projection is measured only after delivery is impossible;
         // its compacted declaration is never returned to a caller.
         let compact = |target: &mut ListOutput, preserve_intent: bool| {
-            let changed = compact_strings(&mut target.value);
+            let changed = compact_strings(&mut target.value, preserve_intent);
             target.value["read_output"]["strings_compacted"] = json!(changed);
             compact_collections_with_policy(
                 target,
@@ -968,6 +978,7 @@ pub(crate) fn apply_orientation(
             result = ListOutput::from(
                 json!({"output_budget_exceeded":{"omitted_result":true,"reason":"requested_budget_infeasible","restore_with":"Unbounded","recovery":{"outputBudget":"unbounded"}},"read_output":minimal}),
             );
+            result.current_contract = current_contract;
         }
     }
     update_orientation_output(&mut result, options.toon);

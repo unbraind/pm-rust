@@ -37,9 +37,40 @@ fn current_context_tables_keep_ambiguous_cells_lossless() -> Result<(), Box<dyn 
     let repeated: Vec<_> = (0..20)
         .flat_map(|_| source.as_array().into_iter().flatten().cloned())
         .collect();
-    let rendered = super::stringify_toon(&json!({"output_default":"toon","rows":repeated}).into())?;
+    let mut output: crate::ListOutput = json!({"output_default":"toon","rows":repeated}).into();
+    output.current_contract = true;
+    let rendered = super::stringify_toon(&output)?;
     assert!(rendered.contains("list_columns:"));
     assert!(rendered.contains("null_columns"));
+    Ok(())
+}
+
+/// Legacy commands keep legacy tables even when documents carry current marker fields.
+#[test]
+fn legacy_envelopes_with_current_marker_fields_keep_legacy_tables()
+-> Result<(), Box<dyn std::error::Error>> {
+    // An assurance declaration can contain edge_basis or output_default fields;
+    // the command contract, not those fields, selects the table encoding.
+    let rows: Vec<_> = (0..24)
+        .map(|index| match index % 3 {
+            0 => json!({"id":format!("row-{index:03}"),"empty":null,"detail":{"deep":true},"tags":["a"]}),
+            1 => json!({"id":format!("row-{index:03}"),"empty":null,"detail":{"deep":false},"tags":[]}),
+            _ => json!({"id":format!("row-{index:03}"),"empty":null,"detail":"literal"}),
+        })
+        .collect();
+    let mut legacy: crate::ListOutput =
+        json!({"edge_basis":"deduplicated_directed","output_default":"toon","declarations":rows}).into();
+    legacy.current_contract = false;
+    let rendered = super::stringify_toon(&legacy)?;
+    assert!(rendered.contains("json_columns"), "{rendered}");
+    assert!(
+        !rendered.contains("null_columns"),
+        "legacy commands must not emit compact null columns: {rendered}"
+    );
+    legacy.current_contract = true;
+    let current = super::stringify_toon(&legacy)?;
+    assert!(current.contains("null_columns"), "{current}");
+    assert_ne!(rendered, current);
     Ok(())
 }
 
@@ -60,7 +91,7 @@ fn toon_rows_preserve_explicit_facts() -> Result<(), Box<dyn std::error::Error>>
     ]});
     assert_eq!(super::compact(&source), Some(expected.clone()));
     let rendered = super::stringify_toon(&source.into())?;
-    assert_eq!(rendered, format!("{}\n", super::render(&expected, 0)));
+    assert_eq!(rendered, format!("{}\n", super::render_contract(&expected, 0, false)));
     // Fixed wire captured independently from the pinned published formatter.
     assert_eq!(
         rendered,
@@ -73,10 +104,10 @@ fn toon_rows_preserve_explicit_facts() -> Result<(), Box<dyn std::error::Error>>
 #[test]
 fn toon_wire_shapes_preserve_values_and_disclose_sparse_cells()
 -> Result<(), Box<dyn std::error::Error>> {
-    use super::{compact, complete_brief, render, table};
-    assert_eq!(render(&json!({}), 0), "{}");
-    assert_eq!(render(&json!([]), 0), "[]");
-    assert_eq!(render(&json!("quoted"), 1), "  \"quoted\"");
+    use super::{compact, complete_brief, render_contract, table};
+    assert_eq!(render_contract(&json!({}), 0, false), "{}");
+    assert_eq!(render_contract(&json!([]), 0, false), "[]");
+    assert_eq!(render_contract(&json!("quoted"), 1, false), "  \"quoted\"");
     assert_eq!(
         compact(
             &json!({"absent":null,"array":[],"object":{},"groups":{"omitted_field_groups":[]}})
@@ -138,17 +169,18 @@ fn toon_wire_shapes_preserve_values_and_disclose_sparse_cells()
         assert_eq!(super::stringify_toon(&value.into())?, "{}\n");
     }
     assert_eq!(
-        render(&json!({"empty":{},"list":[]}), 0),
+        render_contract(&json!({"empty":{},"list":[]}), 0, false),
         "empty: {}\nlist: []"
     );
     // Explicit encoding metadata suppresses automatic re-encoding of table rows.
-    let encoded = render(
+    let encoded = render_contract(
         &json!({"rows":[{"nested":[1]},{"nested":[2]}],"rows_encoding":{"json_columns":["nested"]}}),
         0,
+        false,
     );
     assert!(encoded.contains("rows_encoding:"));
     // A union table can be larger than an ordinary pair of tiny nested rows.
-    assert!(render(&json!({"rows":[{"a":[1]},{"a":[2]}]}), 0).contains("rows[2]:"));
+    assert!(render_contract(&json!({"rows":[{"a":[1]},{"a":[2]}]}), 0, false).contains("rows[2]:"));
     assert_eq!(
         super::javascript_numbers(
             "rows[2]{id,n}:\n  \"1e+21\",1000000000000000000000\n  \"escaped\\\"quote\",-0.0000001\n"
@@ -194,14 +226,14 @@ fn raw_overrides_refuse_toon_without_panicking() {
 
 /// Verifies scalar and nested read coercion without changing numeric strings.
 fn assert_read_number_domain() -> Result<(), Box<dyn std::error::Error>> {
-    use super::{render, table};
+    use super::{render_contract, table};
     let (rows, _) = table(
         &json!([{"nested":[9_007_199_254_740_993_u64]},{"nested":[9_007_199_254_740_992_u64]}]),
     )
     .ok_or("missing numeric table")?;
     assert_eq!(rows[0]["nested"], "[9007199254740992]");
     assert_eq!(
-        render(&json!({"n":9_007_199_254_740_993_u64}), 0),
+        render_contract(&json!({"n":9_007_199_254_740_993_u64}), 0, false),
         "n: 9007199254740992"
     );
     let mut numeric = json!([-9_007_199_254_740_993_i64, 9_007_199_254_740_993_u64, -42, 42, 1.5, {"safe":null,"text":"9007199254740993"}]);
@@ -302,9 +334,14 @@ fn current_compact_tables_round_trip_through_pinned_sdk() -> Result<(), Box<dyn 
         println!("skip: compact table decoder requires the current orientation oracle");
         return Ok(());
     }
-    for offset in 0..4 {
+    for (variant, offset) in (0..8usize).map(|combined| (combined / 4, combined % 4)) {
         let source: Vec<_> = (0..60).map(|index| {
-            let mut row = json!({"id":format!("row-{index:03}"),"empty":null,"tags":["a","b"],"other_null":null,"mixed":["semi;colon"],"tail":null});
+            let mut row = match variant {
+                // Integer-like keys sort like JavaScript Object.keys before the
+                // insertion-order string keys, so column positions stay aligned.
+                1 => json!({"tail":"x","2":format!("a{index}"),"id":format!("row-{index:03}"),"empty":null,"10":"b","3":null,"tags":["a","b"],"mixed":["semi;colon"]}),
+                _ => json!({"id":format!("row-{index:03}"),"empty":null,"tags":["a","b"],"other_null":null,"mixed":["semi;colon"],"tail":null}),
+            };
             match (index + offset) % 4 {
                 0 => { row["tags"] = json!([]); row["mixed"] = json!([]); }
                 1 => { row.as_object_mut().map(|map| map.shift_remove("tags")); }
@@ -313,7 +350,9 @@ fn current_compact_tables_round_trip_through_pinned_sdk() -> Result<(), Box<dyn 
             }
             row
         }).collect();
-        let wire = super::stringify_toon(&json!({"output_default":"toon","rows":source}).into())?;
+        let mut envelope: crate::ListOutput = json!({"output_default":"toon","rows":source}).into();
+        envelope.current_contract = true;
+        let wire = super::stringify_toon(&envelope)?;
         let mut command = Command::new(
             std::env::var("PM_NODE_INTERPRETER").unwrap_or_else(|_| "node".to_owned()),
         );

@@ -14,10 +14,14 @@ pub fn stringify_toon(output: &ListOutput) -> Result<String, crate::PmRustError>
 }
 
 /// Renders an envelope whose encoding has already been validated by the read pipeline.
+///
+/// The table contract is the caller's selected command contract, stored on
+/// [`crate::ListOutput`]; it is never inferred from declaration fields that
+/// arbitrary documents (for example assurance declarations) may contain.
 pub(crate) fn render_output(output: &ListOutput) -> String {
     let value = complete_brief(&output.value);
     let compacted = compact(&value).unwrap_or_else(|| json!({}));
-    format!("{}\n", render(&compacted, 0))
+    format!("{}\n", render_contract(&compacted, 0, output.current_contract))
 }
 
 /// Recognizes only the published identity projection, including its priority extension.
@@ -151,15 +155,6 @@ fn encode(value: &Value, depth: usize) -> String {
 }
 
 /// Renders object scalars with quoted strings and arrays with the TOON codec.
-fn render(value: &Value, depth: usize) -> String {
-    render_contract(
-        value,
-        depth,
-        value["output_default"] == "toon" || value["edge_basis"].is_string(),
-    )
-}
-
-/// Preserves legacy command tables while using compact columns for current context.
 fn render_contract(value: &Value, depth: usize, current_context: bool) -> String {
     if let Some(fields) = value.as_object() {
         if fields.is_empty() {
@@ -214,6 +209,33 @@ fn render_contract(value: &Value, depth: usize, current_context: bool) -> String
     }
 }
 
+/// Orders object keys exactly like JavaScript `Object.keys` for table rows.
+///
+/// Integer-like keys (canonical array indices) come first in ascending
+/// numeric order; every other key keeps its insertion order, matching the
+/// pinned SDK encoder and decoder on the same rows.
+fn javascript_keys(map: &Map<String, Value>) -> Vec<&str> {
+    // JavaScript treats exactly the canonical array-index strings as integer keys.
+    let array_index = |key: &str| -> Option<u32> {
+        let index = key.parse::<u32>().ok()?;
+        (index != u32::MAX && index.to_string() == key).then_some(index)
+    };
+    let mut indices: Vec<(&str, u32)> = map
+        .keys()
+        .filter_map(|key| array_index(key).map(|index| (key.as_str(), index)))
+        .collect();
+    indices.sort_unstable_by_key(|&(_, index)| index);
+    indices
+        .into_iter()
+        .map(|(key, _)| key)
+        .chain(
+            map.keys()
+                .map(String::as_str)
+                .filter(|key| array_index(key).is_none()),
+        )
+        .collect()
+}
+
 /// Builds a bounded union-column table for nested or sparse object rows.
 fn table(value: &Value) -> Option<(Value, Value)> {
     if value.as_array()?.len() < 2 {
@@ -232,10 +254,12 @@ fn table_contract(value: &Value, current: bool) -> Option<(Value, Value)> {
     let mut columns = Vec::<String>::new();
     let mut present = 0;
     for row in rows {
-        for key in row.as_object().into_iter().flat_map(Map::keys) {
+        // The SDK rebuilds its column union from JavaScript Object.keys order;
+        // integer-like keys ascend first, then insertion-order string keys.
+        for key in row.as_object().into_iter().flat_map(javascript_keys) {
             present += 1;
-            if !columns.contains(key) {
-                columns.push(key.clone());
+            if !columns.iter().any(|column| column == key) {
+                columns.push(key.to_owned());
             }
         }
     }

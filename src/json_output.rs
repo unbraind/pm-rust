@@ -27,6 +27,11 @@ pub struct ListOutput {
     pub(crate) cuts: BTreeMap<String, String>,
     /// Settings-reader warning retained outside the serialized query envelope.
     pub(crate) settings_warning: bool,
+    /// Whether this command's wire uses the current context table contract.
+    ///
+    /// Selected once from the executed command, never inferred from
+    /// declaration fields inside the rendered value.
+    pub(crate) current_contract: bool,
 }
 
 impl ListOutput {
@@ -74,6 +79,7 @@ impl ListOutput {
             value,
             cuts: overrides,
             settings_warning: false,
+            current_contract: false,
         }
     }
 
@@ -128,6 +134,7 @@ impl From<Value> for ListOutput {
             value,
             cuts: BTreeMap::new(),
             settings_warning: false,
+            current_contract: false,
         }
     }
 }
