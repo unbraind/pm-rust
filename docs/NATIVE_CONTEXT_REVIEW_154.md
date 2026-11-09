@@ -450,3 +450,72 @@ instrumented coverage remains an exact-head CI gate at the unchanged thresholds.
 | PRRT_kwDOTwgMRs61KYd0 | 2577eab | parser_refusal_workspace_selection_matches_native_scope |
 | PRRT_kwDOTwgMRs61KnIW | 2577eab, 407fef2 | Signal evidence and failed-reap fixtures explicitly simulate Unix from Windows |
 | PRRT_kwDOTwgMRs61LAm1 | 407fef2 | parser_refusal_workspace_selection_matches_native_scope; native Unix/Windows strings |
+
+
+## Scoped behavioral parity continuation
+
+Commit `62023ed` addresses the two behavioral findings retained for this PR.
+Compaction restores the captured original focus classifications before every
+binary-search probe, including probes that grow after a shorter prefix fits.
+The context fallback decision now also rejects a supplied non-string
+`author_default`, discarding the stored context limit along with the invalid
+settings. Valid author strings retain their configured limit.
+
+| Full thread id | Fix commit | Regression | Published oracle |
+| --- | --- | --- | --- |
+| PRRT_kwDOTwgMRs61PgcM | 62023ed | `growing_compaction_probes_preserve_custom_focus_classifications`; `context_growing_compaction_probes_match_current_oracle` | 4 exact JSON/TOON comparisons against pm 2026.11.5 |
+| PRRT_kwDOTwgMRs61PgcC | 62023ed | `invalid_author_discards_context_settings`; `context_invalid_author_fallback_matches_current_oracle` | 16 exact JSON/TOON comparisons against pm 2026.11.5 |
+
+Each original function fails both its unit and oracle regression in a disposable
+source copy. With the original compactor, the 8000-token oracle case reports
+five in-progress and five open rows instead of ten in-progress rows. With the
+original settings fallback, invalid attribution retains one activity entry and
+omits the published warning instead of returning the default ten entries.
+Fixed controls pass through the package-pinned `pm test --run --progress`.
+The oracle tests compare complete stdout, stderr and exit status in synthetic
+non-git trackers; the settings fixture also verifies that reads preserve the
+stored settings bytes. No review threads were modified.
+
+
+Validation commands for this continuation:
+
+```sh
+RUST_TEST_THREADS=2 cargo test -j 2 --locked --lib
+PM_RUST_REQUIRE_PUBLISHED_CLI=1 PM_SENTRY_DISABLED=1 PM_TELEMETRY_SOURCE_CONTEXT=test RUST_TEST_THREADS=2 cargo test -j 2 --locked --test orientation_differential context_growing_compaction_probes_match_current_oracle -- --exact
+PM_RUST_REQUIRE_PUBLISHED_CLI=1 PM_SENTRY_DISABLED=1 PM_TELEMETRY_SOURCE_CONTEXT=test RUST_TEST_THREADS=2 cargo test -j 2 --locked --test orientation_differential context_invalid_author_fallback_matches_current_oracle -- --exact
+PM_RUST_REQUIRE_PUBLISHED_CLI=1 PM_SENTRY_DISABLED=1 PM_TELEMETRY_SOURCE_CONTEXT=test CARGO_BUILD_JOBS=2 RUST_TEST_THREADS=2 cargo +nightly-2026-08-06 llvm-cov --locked --branch --all-targets --all-features --json --output-path coverage-branch.json
+```
+
+The coverage command uses cargo-llvm-cov 0.9.1, matching the tool version from
+the previous verified coverage receipt. The separate library run passes
+418 tests; the separate identity audit passes 7 tests. Formatting, strict
+all-target/all-feature Clippy, private-item rustdoc and clean-home self-host
+health checks pass. The security audit retains only the repository's existing
+allowed `unsafe-libyaml` unmaintained-library advisory. The full release
+aggregate is not duplicated because the prior measured aggregate exceeded the
+task's runtime exception.
+
+
+The complete pinned-nightly run passes **773 tests across 34 targets**, with
+zero failures and zero ignored tests. The unchanged exact four-total assertion
+passes on the generated Linux report:
+
+| Metric | Covered / total | Percent |
+| --- | --- | --- |
+| Lines | 17811 / 17811 | 100% |
+| Functions | 1851 / 1851 | 100% |
+| Regions | 28746 / 28746 | 100% |
+| Branches | 3984 / 3984 | 100% |
+
+All four negative controls were additionally rerun with only the corresponding
+production function reverted and the other scoped fix retained. Each reached
+its named assertion failure, rather than a compilation error or timeout. The
+package implementation stayed fixed throughout; the complete instrumented run
+provides the final passing controls. Platform CI after the forthcoming push
+remains separate from this complete local Linux evidence.
+
+
+After the last tracker write and claim release, `just changelog-full` and
+`just changelog-check` pass without a changelog diff. Clean-home self-host
+health and the complete history-prefix check pass. The existing
+`pm-rust-context-intents` item remains in progress with its claim released.
