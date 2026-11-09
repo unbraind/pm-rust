@@ -8,7 +8,7 @@ import { test } from 'node:test';
 import { setTimeout } from 'node:timers/promises';
 import { fileURLToPath, pathToFileURL } from 'node:url';
 import { authoritative, benchmarkPreflight, verifiedOracleVersion } from './context-real-helpers.mts';
-import { checkedGit, copyWorkingTree, supportedProofs } from './context-revert-helpers.mts';
+import { assertNamedTests, checkedGit, copyWorkingTree, supportedProofs } from './context-revert-helpers.mts';
 import { ProofProcesses, verifyAsyncMutation } from './context-proof-process.mts';
 import { windowsJob } from './context-windows-job.mts';
 import { syncSpawnBridge } from './context-test-process-shim.mts';
@@ -214,7 +214,7 @@ catch(error) { if(!owned.wasInterrupted) throw error; }
 finally { await owned.cleanup(${JSON.stringify(join(root, 'scratch'))}); }`);
     mkdirSync(join(root, 'scratch')); mkdirSync(join(root, 'nested-scratch'));
     const child = spawn(process.execPath, [manager], { stdio: ['ignore', 'pipe', 'pipe'] });
-    child.stdout.resume(); let stderr = ''; child.stderr.on('data', chunk => { stderr += String(chunk); });
+    child.stdout.resume(); let stderr = ''; child.stderr.setEncoding('utf8'); child.stderr.on('data', (chunk: string) => { stderr += chunk; });
     const finished = new Promise<number | null>(resolve => child.once('exit', resolve));
     try {
       for (let i=0; !existsSync(marker) && i<1000; i++) { if(child.exitCode!==null) break; await setTimeout(10); }
@@ -257,7 +257,7 @@ try {await owned.run(process.execPath,['--input-type=module','-e',${JSON.stringi
 catch(error){if(!owned.wasInterrupted)throw error;}
 finally{await owned.cleanup(${JSON.stringify(scratch)});}`);
     const child = spawn(process.execPath,[manager],{stdio:['ignore','ignore','pipe']});
-    let diagnostic='';child.stderr.on('data',chunk=>{diagnostic+=String(chunk)});
+    let diagnostic='';child.stderr.setEncoding('utf8');child.stderr.on('data',(chunk: string)=>{diagnostic+=chunk});
     const finished = new Promise<number|null>(resolve=>child.once('exit',resolve));
     try {
       for(let i=0;!existsSync(marker)&&i<1000;i++) {if(child.exitCode!==null)break;await setTimeout(10);}
@@ -281,6 +281,9 @@ test('failed worker reap retains mutated inputs until termination is confirmed',
   try {
     const script=join(root,'reap.mjs');
     writeFileSync(script, `import assert from 'node:assert/strict';import childProcess from 'node:child_process';import {EventEmitter} from 'node:events';import {PassThrough} from 'node:stream';import {syncBuiltinESMExports} from 'node:module';
+// Exercise the Unix reap contract regardless of the host running the fixture.
+Object.defineProperty(process,'platform',{value:'win32',configurable:true});
+Object.defineProperty(process,'platform',{value:'darwin'});
 let unavailable=true;
 childProcess.execFileSync=()=>{if(unavailable)throw new Error('termination unavailable');return '';};
 process.kill=()=>true;
@@ -468,7 +471,7 @@ syncBuiltinESMExports();
       const child = spawn(process.execPath, ['--import', pathToFileURL(shim).href, join(source, 'scripts', runner), ...(runner === 'context-review-revert.mts' ? ['context_stored_settings_fallback'] : [])], {
         cwd: source, stdio: ['ignore', 'pipe', 'pipe'], env: { ...process.env, PM_PROOF_MARKER: marker },
       });
-      let stderr = ''; child.stderr.on('data', chunk => { stderr += String(chunk); }); child.stdout.resume();
+      let stderr = ''; child.stderr.setEncoding('utf8'); child.stderr.on('data', (chunk: string) => { stderr += chunk; }); child.stdout.resume();
       const finished = new Promise<number | null>((resolve, reject) => { child.once('error', reject); child.once('exit', resolve); });
       try {
         for (let i = 0; !existsSync(marker) && i < 1000; i++) { if (child.exitCode !== null) break; await setTimeout(10); }
@@ -610,10 +613,12 @@ test('simulated process registries never leak into the parent ownership scope', 
   const root=mkdtempSync(join(tmpdir(),'pm-simulation-scope-'));
   const registry=join(root,'parent');mkdirSync(registry);
   try {
-    const result=spawnSync(process.execPath,['--test','--test-concurrency=1','--test-name-pattern=Windows proof interruption|signal errors require',fileURLToPath(import.meta.url)],{
-      encoding:'utf8',timeout:30000,env:{...process.env,PM_PROOF_PROCESS_REGISTRY:registry},
+    const environment: NodeJS.ProcessEnv={...process.env,PM_PROOF_PROCESS_REGISTRY:registry};
+    delete environment.NODE_TEST_CONTEXT;
+    const result=spawnSync(process.execPath,['--test','--test-reporter=tap','--test-concurrency=1','--test-name-pattern=Windows proof interruption|signal errors require',fileURLToPath(import.meta.url)],{
+      encoding:'utf8',timeout:30000,env:environment,
     });
-    assert.equal(result.status,0,result.stderr+result.stdout);
+    assertNamedTests(result,['Windows proof interruption terminates the complete tree or retains scratch inputs','signal errors require positive termination evidence before restoration'],false,true);
     assert.deepEqual(readdirSync(registry),[],'synthetic PID registrations belong to the fixture only');
   } finally {rmSync(root,{recursive:true,force:true});}
 });

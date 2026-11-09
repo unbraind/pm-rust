@@ -35,6 +35,8 @@ try {
     symlinkSync(resolve(source, 'tests', oracle, 'node_modules'), join(scratch, 'tests', oracle, 'node_modules'), 'junction');
   }
   const cases = [
+    { path: 'src/orientation_deps.rs', before: 'output.current_contract = true;', after: 'output.current_contract = false;', target: ['--lib'], test: 'orientation_deps::tests::dependency_wire_measurement_matches_delivery' },
+    { path: 'src/main.rs', before: '            prefix.push(raw.to_owned());\n        } else {', after: '            prefix.push(raw.to_string_lossy().into_owned().into());\n        } else {', target: ['--bin', 'pm-rust'], test: 'tests::parser_refusal_workspace_selection_matches_native_scope' },
     { path: 'scripts/context-revert-helpers.mts', before: '    if (!lstatSync(input, { throwIfNoEntry: false }) || absentLink(input)) continue;', after: '',
       target: ['node', '--test', '--test-concurrency=2', 'scripts/context-intents-revert.test.mts'], test: 'all worktree proof copies tolerate unstaged deletions' },
     { path: 'scripts/context-real-helpers.mts', before: " || entry.name.endsWith('.json')", after: '',
@@ -81,7 +83,7 @@ try {
     { path: 'src/orientation_context.rs', before: '        let depth = trim_control(', after: '        let _ = std::fs::write(self.pm_root().join("settings.json"), settings.to_string());\n        let depth = trim_control(',
       target: ['--test', 'orientation_differential'], test: 'context_successful_reads_preserve_settings_bytes' },
     { path: 'src/read_output.rs', before: '    let changed = compact_strings(&mut target.value, preserve_intent);', after: '    let changed = false;',
-      target: ['--lib'], test: 'orientation_context::tests::context_intent_sdk_budget_boundaries' },
+      target: ['--lib'], test: 'read_output::tests::orientation_wire_string_compaction_retains_fitting_rows' },
     { path: 'src/read_output.rs', before: '        let measured = estimate(result, false) as u64;', after: '        let measured = 0;',
       target: ['--lib'], test: 'read_output::tests::stabilized_orientation_receipts_respect_final_ceilings' },
     { path: 'src/read_output.rs', before: '        stabilize_orientation(result, toon);', after: '        update_output(result, toon);',

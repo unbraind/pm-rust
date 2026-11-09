@@ -2042,10 +2042,18 @@ fn parser_refusal_workspace_selection_matches_native_scope()
     ] {
         assert_eq!(super::native_workspace_path(args), PathBuf::from("."));
     }
-    #[cfg(unix)]
+    #[cfg(any(unix, windows))]
     {
-        use std::{ffi::OsString, os::unix::ffi::OsStringExt as _};
-        let path = OsString::from_vec(b"tracker-\xff".to_vec());
+        use std::ffi::OsString;
+        #[cfg(unix)]
+        use std::os::unix::ffi::OsStringExt as _;
+        #[cfg(windows)]
+        use std::os::windows::ffi::OsStringExt as _;
+        let mut path = OsString::from("tracker-");
+        #[cfg(unix)]
+        path.push(OsString::from_vec(vec![0xff]));
+        #[cfg(windows)]
+        path.push(OsString::from_wide(&[0xd800]));
         for flag in ["--workspace", "--pm-path", "--path"] {
             let mut inline = OsString::from(format!("{flag}="));
             inline.push(&path);

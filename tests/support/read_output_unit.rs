@@ -857,3 +857,41 @@ fn item_metadata_named_context_intent_compacts_under_budgets()
     }
     Ok(())
 }
+
+/// Every orientation command compacts nested user strings before dropping a fitting result.
+#[test]
+fn orientation_wire_string_compaction_retains_fitting_rows()
+-> Result<(), Box<dyn std::error::Error>> {
+    for command in ["context", "history", "deps"] {
+        for toon in [false, true] {
+            for budget in [1000usize, 2000] {
+                let source = json!({"rows":[{"id":"sample-a","title":"m".repeat(10000),"context_intent":"n".repeat(10000)}]});
+                let output = super::apply_orientation(
+                    source.into(),
+                    &ListOptions {
+                        toon,
+                        token_budget: Some(budget.to_string()),
+                        ..Default::default()
+                    },
+                    command,
+                    &["rows"],
+                )?;
+                assert_ne!(
+                    output["read_output"]["result_omitted"], true,
+                    "{command} {toon} {budget}"
+                );
+                assert_eq!(output["read_output"]["strings_compacted"], true);
+                for key in ["title", "context_intent"] {
+                    assert_eq!(
+                        output["rows"][0][key]
+                            .as_str()
+                            .map(|text| text.encode_utf16().count()),
+                        Some(241)
+                    );
+                }
+                assert!(super::measure(&output, toon) <= budget);
+            }
+        }
+    }
+    Ok(())
+}

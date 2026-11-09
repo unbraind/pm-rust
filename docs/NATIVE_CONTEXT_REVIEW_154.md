@@ -410,3 +410,21 @@ Simulated PID registrations are confined to the fixture. A parent-scope
 adversary verifies that refused mock cleanup cannot leave synthetic identities
 for a real proof owner to adopt. Named mutation admission also refuses timeout
 and parent-cancellation results; those are not behavioral revert evidence.
+
+| Additional thread | General rule and fix | Regression |
+| --- | --- | --- |
+| PRRT_kwDOTwgMRs61LAm1 | A mutation must exercise its selected test on every admitted host. The path corpus now includes native malformed OS strings on both Unix and Windows, so Windows retains the mutation. | Separate and equals workspace spellings preserve invalid UTF-8 bytes on Unix and unpaired UTF-16 on Windows, across every native alias. |
+
+Final local acceptance used two workers at most:
+
+- `cargo +1.90.0 test -j 2 --locked --all-targets --all-features`, isolated home and Git configuration: **769 passed across 34 targets**, no failures.
+- `just crash-check`: **137 passed, one Windows-kernel-only skip**, no failures; pinned TypeScript/ESLint, the real Linux syscall corpus, history-prefix and retained-commit checks pass. Its first attempt found a fixture environment type inference error; the corrected rerun passes.
+- `node --test --test-concurrency=1 scripts/harness.test.mts`: **27 passed**.
+- Strict all-target/all-feature Clippy, fmt and private-item rustdoc pass. `cargo audit` passes with its existing allowed unmaintained-library advisory.
+- The complete managed review proof passes **34 mutations, 68 passing controls and four baseline-only history checks**. The ineffective SDK fixture was retained; a new direct context/history/deps wire-compaction property supplies the actual negative control.
+- Safety evidence includes the complete **46-mutation** run plus **eight focused additions**, each with passing before/after controls. The final portable failed-reap simulation and final path mutation also pass their independent revert proofs. Timeout/cancellation output cannot certify a behavioral failure.
+- Bun passes pinned-SDK compact-table decoding and exact dependency oracle parity.
+
+The previously measured local full aggregate exceeded 55 minutes after only
+18 of 34 instrumented targets. Under the task's runtime exception, full
+instrumented coverage remains an exact-head CI gate at the unchanged thresholds.

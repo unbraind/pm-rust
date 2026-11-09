@@ -97,7 +97,8 @@ syncBuiltinESMExports();
       });
       child.stdout.resume();
       let diagnostic = '';
-      child.stderr.on('data', chunk => { diagnostic += String(chunk); });
+      child.stderr.setEncoding('utf8');
+      child.stderr.on('data', (chunk: string) => { diagnostic += chunk; });
       const completed = new Promise<{ code: number | null; signal: NodeJS.Signals | null }>((resolve, reject) => {
         child.once('error', reject);
         child.once('exit', (code, signal) => resolve({ code, signal }));
