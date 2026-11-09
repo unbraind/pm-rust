@@ -3112,3 +3112,145 @@ fn workspace_args_with_flag(mut args: Vec<String>) -> Vec<String> {
     args.push("--workspace".to_owned());
     args
 }
+
+/// Growing wire-budget probes retain the published custom in-progress classification.
+#[test]
+fn context_growing_compaction_probes_match_current_oracle() -> TestResult {
+    let Some(published) = published_cli::published_cli_or_skip("growing custom focus probes")
+    else {
+        return Ok(());
+    };
+    let scratch = tempfile::tempdir()?;
+    let Some(driver) = orientation_driver(scratch.path(), &published)? else {
+        return Ok(());
+    };
+    let root = tempfile::tempdir()?;
+    assert!(
+        oracle(&driver, root.path(), &["init", "sample-", "--defaults"])?
+            .status
+            .success()
+    );
+    let pm = root.path().join(".agents/pm");
+    let path = pm.join("settings.json");
+    let mut settings: Value = serde_json::from_slice(&fs::read(&path)?)?;
+    settings["schema"]["workflow"]["in_progress_status"] = json!("working");
+    let statuses = json!([
+        {"id":"open","roles":["active","default_open"]},
+        {"id":"working","roles":["active"]},
+        {"id":"closed","roles":["terminal","terminal_done","default_close"]}
+    ]);
+    settings["schema"]["statuses"] = statuses.clone();
+    fs::write(&path, serde_json::to_vec(&settings)?)?;
+    fs::write(
+        pm.join("schema/statuses.json"),
+        json!({"statuses":statuses}).to_string(),
+    )?;
+    fs::write(
+        pm.join("schema/workflows.json"),
+        json!({"workflow":{"in_progress_status":"working","open_status":"open"}}).to_string(),
+    )?;
+    let rows: Vec<_> = (0..20)
+        .map(|index| {
+            let mut row = item(&format!("sample-probe-{index:02}"), "Task", "working", 1);
+            row["title"] = json!("Growing probe classification ".repeat(8));
+            row["tags"] = json!(
+                (0..9)
+                    .map(|i| format!("tag-{i:02}-{}", "x".repeat(220)))
+                    .collect::<Vec<_>>()
+            );
+            row
+        })
+        .collect();
+    fixture(root.path(), &rows)?;
+    let mut compacted = false;
+    for budget in ["8000", "12000"] {
+        for encoding in [vec![], vec!["--json"]] {
+            let mut args = vec!["context", "--for", "orient", "--token-budget", budget];
+            args.extend(&encoding);
+            let expected = oracle(&driver, root.path(), &args)?;
+            assert!(expected.status.success());
+            compare(&expected, &native(root.path(), &args)?, &args);
+            if !encoding.is_empty() {
+                let output: Value = serde_json::from_slice(&expected.stdout)?;
+                if output["read_output"]["rows_compacted"] == true {
+                    let count = output["low_level"].as_array().map_or(0, Vec::len);
+                    let derived = output["budget_derived_limit"]
+                        .as_u64()
+                        .ok_or("derived limit")?;
+                    if count > 1 {
+                        assert!((derived / 2) < count as u64 && (count as u64) < derived);
+                        compacted = true;
+                        assert_eq!(output["summary"]["returned_focus"]["in_progress"], count);
+                        assert_eq!(output["summary"]["returned_focus"]["open"], 0);
+                    }
+                }
+            }
+        }
+    }
+    assert!(
+        compacted,
+        "must deliver multiple custom-status rows after wire compaction"
+    );
+    Ok(())
+}
+
+/// Invalid non-context settings cause warning-backed default activity limits before overrides.
+#[test]
+fn context_invalid_author_fallback_matches_current_oracle() -> TestResult {
+    let Some(published) = published_cli::published_cli_or_skip("whole settings fallback") else {
+        return Ok(());
+    };
+    let scratch = tempfile::tempdir()?;
+    let Some(driver) = orientation_driver(scratch.path(), &published)? else {
+        return Ok(());
+    };
+    let root = tempfile::tempdir()?;
+    assert!(
+        oracle(&driver, root.path(), &["init", "sample-", "--defaults"])?
+            .status
+            .success()
+    );
+    fixture(root.path(), &[item("sample-activity", "Task", "open", 1)])?;
+    let records: Vec<_> = (0..12).map(|i|json!({"ts":format!("2026-08-21T10:{i:02}:00.000Z"),"op":"update","author":"fixture","patch":[]})).collect();
+    fs::write(
+        root.path().join(".agents/pm/history/sample-activity.jsonl"),
+        json_lines(&records),
+    )?;
+    let path = root.path().join(".agents/pm/settings.json");
+    let original: Value = serde_json::from_slice(&fs::read(&path)?)?;
+    for author in [json!(42), Value::Null, json!("fixture"), json!("")] {
+        let invalid = !author.is_string();
+        let mut settings = original.clone();
+        settings["author_default"] = author;
+        settings["context"] = json!({"activity_limit":1});
+        let before = serde_json::to_vec_pretty(&settings)?;
+        fs::write(&path, &before)?;
+        for controls in [vec![], vec!["--activity-limit", "0"]] {
+            for encoding in [vec![], vec!["--json"]] {
+                let mut args = vec!["context", "--section", "activity"];
+                args.extend(&controls);
+                args.extend(&encoding);
+                let expected = oracle(&driver, root.path(), &args)?;
+                assert!(expected.status.success());
+                compare(&expected, &native(root.path(), &args)?, &args);
+                assert_eq!(fs::read(&path)?, before);
+                if !encoding.is_empty() {
+                    let output: Value = serde_json::from_slice(&expected.stdout)?;
+                    let count = if controls.is_empty() {
+                        if invalid { 10 } else { 1 }
+                    } else {
+                        0
+                    };
+                    assert_eq!(output["activity"].as_array().map(Vec::len), Some(count));
+                    assert_eq!(
+                        String::from_utf8_lossy(&expected.stderr)
+                            .contains("settings_read_invalid_schema"),
+                        invalid
+                    );
+                }
+            }
+        }
+    }
+    assert!(!root.path().join(".git").exists());
+    Ok(())
+}

@@ -390,3 +390,18 @@ fn configured_sections_preserve_activity_errors_and_stale_order()
     );
     Ok(())
 }
+
+/// An invalid attribution field invalidates the context settings along with the document.
+#[test]
+fn invalid_author_discards_context_settings() {
+    for author in [json!(42), Value::Null, json!(false), json!([]), json!({})] {
+        let mut settings = json!({"author_default":author,"context":{"activity_limit":1}});
+        assert!(super::settings_fallback(&mut settings));
+        assert_eq!(settings, json!({}));
+    }
+    for author in ["", "fixture"] {
+        let mut settings = json!({"author_default":author,"context":{"activity_limit":1}});
+        assert!(!super::settings_fallback(&mut settings));
+        assert_eq!(settings["context"]["activity_limit"], 1);
+    }
+}

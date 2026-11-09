@@ -938,6 +938,7 @@ pub(crate) fn apply_orientation(
     let measured = measure(&result, options.toon);
     if measured > budget {
         let original = result["context_intent"].is_object().then(|| result.clone());
+        let focus_row_states = result["summary"]["focus_row_states"].clone();
         // A compatibility projection is measured only after delivery is impossible;
         // its compacted declaration is never returned to a caller.
         let compact = |target: &mut ListOutput, preserve_intent: bool| {
@@ -949,6 +950,11 @@ pub(crate) fn apply_orientation(
                 budget,
                 preserve_intent,
                 |value| {
+                    // Binary-search probes can grow after a fitting shorter prefix.
+                    // Always classify from the captured full response, never a prior probe.
+                    if focus_row_states.is_object() {
+                        value["summary"]["focus_row_states"] = focus_row_states.clone();
+                    }
                     finalize_orientation(value, &states, budget, source, &hints, measured, command);
                 },
             );

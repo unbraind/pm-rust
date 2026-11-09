@@ -7,11 +7,13 @@ status: in_progress
 priority: 2
 tags[4]: "gh:unbraind/pm-rust#154",native,oracle,orientation
 created_at: "2026-11-06T09:15:56.754Z"
-updated_at: "2026-11-09T13:08:26.713Z"
+updated_at: "2026-11-09T13:56:16.789Z"
+assignee: codex-agent
+claim_principal: codex-agent
 author: codex-astra
 acceptance_criteria: "JSON and TOON bytes, status and stderr match the oracle on generated non-git trackers and public tracker copies; retain typed calendar and memory refusals; focused tests fail on behavioral revert; record latency and differential counts."
 parent: pm-rust-s6j4
-comments[86]{created_at,author,text}:
+comments[88]{created_at,author,text}:
   "2026-11-06T09:28:14.771Z",codex-astra,"Implemented core intent preparation, section selection, activity bounds and intent receipts. Current-oracle exploration identified three inherited context drifts: bounded activity excludes timestamps at or after the read clock; test health covers all matching active items and declares its scope; TOON auto-tables choose compact list/null columns only when shorter. Bringing these paths to the requested November contract before running the public-copy corpus."
   "2026-11-06T09:44:02.034Z",codex-astra,"Public-copy packet differential exposed the newer required-root-evidence-first-v1 ordering, reserved root-edge budget, root-edge priority and bounded-relationship omission receipt. Porting those native packet semantics as part of this slice, including updated producer fingerprints. No legacy packet result is being counted as current-oracle evidence."
   "2026-11-06T10:08:53.263Z",codex-astra,"Generated intent comparisons passed before the final expanded matrix. Public-copy exploration exposed the distinction between compact intent estimates and complete JSON wire ceilings, now handled by the shared output-budget path. Current dependency packets also require root-evidence-first ordering and revised refusal text; preserving the existing bounded retry test while eliminating repeated rendering of identical packets."
@@ -98,6 +100,8 @@ comments[86]{created_at,author,text}:
   "2026-11-09T12:27:24.859Z",codex-agent,"Expanded focused regression passed through pm test --run (1 passed, zero failures), including malformed-settings text and JSON cases. Strict all-target/all-feature Clippy, formatting and private-item rustdoc checks pass. The full pinned-nightly instrumented suite is now executing. History-prefix verification passed for all changed streams; approved branch author email verified."
   "2026-11-09T13:06:40.338Z",codex-agent,"Coverage floor restored. Complete command: PM_RUST_REQUIRE_PUBLISHED_CLI=1 PM_SENTRY_DISABLED=1 PM_TELEMETRY_SOURCE_CONTEXT=test CARGO_BUILD_JOBS=2 RUST_TEST_THREADS=2 cargo +nightly-2026-08-06 llvm-cov --locked --branch --all-targets --all-features --json --output-path coverage-branch.json. All 769 tests across 34 targets passed. The host report tool was 0.8.7, which additionally reported build.rs unlike CI. Verified the official SHA256 for isolated cargo-llvm-cov 0.9.1, matching CI, and regenerated the report from the same complete instrumented data with cargo +nightly-2026-08-06 llvm-cov report --branch --json --output-path coverage-branch.json; the exact four-total gate passes. Final local Linux totals: lines 17803/17803, functions 1850/1850, regions 28731/28731, branches 3980/3980, all exactly 100 percent. Before Linux CI: lines 17799/17800, functions 1849/1849, regions 28727/28730, branches 3980/3982. Reported macOS baseline: lines 17709/17710, functions 1835/1835, regions 28566/28569, branches 3940/3942. No coverage exclusions, thresholds or build-script behavior changed. Regression cases exercise scalar context settings and malformed settings in text/JSON, explicit tracker aliases and no-tracker refusals. The impossible empty-successor conditional in the parser-refusal workspace scan was removed while retaining iterator fallback semantics. Focused pm-linked regression, strict Clippy, fmt, private rustdoc and history-prefix checks pass. Main remains included; preserve test commit 8098497. No review-thread operations or issue-161 work performed. Releasing the claim without closing; platform aggregate CI on the pushed head remains pending."
   "2026-11-09T13:08:26.711Z",codex-agent,"Final metadata checks: just changelog-full and just changelog-check pass, with no changelog diff. node scripts/crash-history-prefix.mts passes for every changed history stream. Self-host command node tests/oracle/launch.mts health --check-only --require-merge-drivers --strict-exit passes with a clean temporary home, matching fresh CI state. The regular home fails only on the existing installed pm-github 2026.11.8 versus pinned host 2026.10.21 extension skew; no package or global installation was changed. Source fix commit 1404fc1 retains the prior test commit 8098497. Claim remains released, item remains in_progress. CI on the forthcoming pushed receipt head is not yet verified."
+  "2026-11-09T13:45:12.546Z",codex-agent,"Continuing PR 154 from coverage head 4502aa2. Remote branch matches and contains origin/main. Scope is only PRRT_kwDOTwgMRs61PgcM (immutable focus classifications across growing compaction probes) and PRRT_kwDOTwgMRs61PgcC (whole-document settings validation before context fallback). Will preserve existing work, add behavioral and published-oracle regressions, rerun pinned-nightly four-total coverage, fmt and strict Clippy, then release the claim without closing."
+  "2026-11-09T13:56:16.786Z",codex-agent,"Both scoped fixes have behavioral negative controls in a disposable source copy. Restoring the original apply_orientation fails growing_compaction_probes_preserve_custom_focus_classifications (zero custom in-progress rows instead of three) and context_growing_compaction_probes_match_current_oracle (at budget 8000, native counts five of ten retained working rows as open; published counts all ten in progress). Restoring the original settings_fallback fails invalid_author_discards_context_settings and context_invalid_author_fallback_matches_current_oracle (missing warning and one activity entry rather than the published default ten). Fixed oracle controls pass four growing-probe comparisons and sixteen author/default/override comparisons across TOON and JSON, against published pm 2026.11.5 in synthetic non-git trackers. The settings change adds the missing attribution-field check to the existing all-or-default decision; valid strings, including the empty string accepted by the published schema, retain the stored limit. No review-thread actions taken."
 files[52]:
   - path: justfile
     scope: project
@@ -217,7 +221,7 @@ files[52]:
     scope: project
   - path: tests/support/toon_output_unit.rs
     scope: project
-tests[37]:
+tests[39]:
   - command: just orientation-check
     scope: project
     timeout_seconds: 3600
@@ -499,6 +503,22 @@ tests[37]:
     provenance:
       author: codex-agent
       created_at: "2026-11-09T12:21:45.285Z"
+      source_kind: local_mutation
+      source_ref: native-context-intents-and-relationship-packets
+  - command: PM_RUST_REQUIRE_PUBLISHED_CLI=1 PM_SENTRY_DISABLED=1 PM_TELEMETRY_SOURCE_CONTEXT=test RUST_TEST_THREADS=2 node scripts/check-lookup.mts context_growing_compaction_probes_match_current_oracle orientation_differential
+    scope: project
+    timeout_seconds: 600
+    provenance:
+      author: codex-agent
+      created_at: "2026-11-09T13:54:37.169Z"
+      source_kind: local_mutation
+      source_ref: native-context-intents-and-relationship-packets
+  - command: PM_RUST_REQUIRE_PUBLISHED_CLI=1 PM_SENTRY_DISABLED=1 PM_TELEMETRY_SOURCE_CONTEXT=test RUST_TEST_THREADS=2 node scripts/check-lookup.mts context_invalid_author_fallback_matches_current_oracle orientation_differential
+    scope: project
+    timeout_seconds: 600
+    provenance:
+      author: codex-agent
+      created_at: "2026-11-09T13:55:20.852Z"
       source_kind: local_mutation
       source_ref: native-context-intents-and-relationship-packets
 docs[3]:

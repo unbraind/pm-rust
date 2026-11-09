@@ -895,3 +895,43 @@ fn orientation_wire_string_compaction_retains_fitting_rows()
     }
     Ok(())
 }
+
+/// A fitting short prefix cannot erase custom classifications used by larger probes.
+#[test]
+fn growing_compaction_probes_preserve_custom_focus_classifications()
+-> Result<(), Box<dyn std::error::Error>> {
+    let rows: Vec<_> = (0..20)
+        .map(|i| json!({"id":format!("sample-{i:02}"),"status":if i < 10 {"open"} else {"working"},"title":"x".repeat(180)}))
+        .collect();
+    let source = json!({"context_intent":{},"summary":{"focus_row_states":{"low_level":format!("{}{}", "o".repeat(10), "i".repeat(10))}},"high_level":[],"low_level":rows,"blocked_fallback":[]});
+    for toon in [false, true] {
+        let mut grew = false;
+        for budget in [1000, 1400] {
+            let output = super::apply_orientation(
+                source.clone().into(),
+                &ListOptions {
+                    toon,
+                    token_budget: Some(budget.to_string()),
+                    ..Default::default()
+                },
+                "context",
+                &["high_level", "low_level", "blocked_fallback"],
+            )?;
+            let retained = output["low_level"].as_array().map_or(0, Vec::len);
+            if (11..20).contains(&retained) {
+                grew = true;
+                assert_eq!(
+                    output["summary"]["returned_focus"]["in_progress"],
+                    retained - 10,
+                    "budget {budget}, toon {toon}"
+                );
+                assert_eq!(output["summary"]["returned_focus"]["open"], 10);
+            }
+        }
+        assert!(
+            grew,
+            "must retain a growing prefix with a custom status: toon {toon}"
+        );
+    }
+    Ok(())
+}
