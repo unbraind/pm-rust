@@ -3,7 +3,7 @@ import { createHash } from 'node:crypto';
 import { readFileSync, rmSync, writeFileSync, existsSync } from 'node:fs';
 import { resolve, join } from 'node:path';
 import { performance } from 'node:perf_hooks';
-import { argument, authoritative, relationshipRoots, verifiedOracleVersion } from './context-real-helpers.mts';
+import { argument, authoritative, benchmarkPreflight, relationshipRoots, verifiedOracleVersion } from './context-real-helpers.mts';
 
 const root = resolve(argument('--copy'));
 const driver = resolve(argument('--driver'));
@@ -134,23 +134,25 @@ function percentile(values: number[], quantile: number): number {
 
 const samples: { command: string; runtime: string; round: number; ms: number }[] = [];
 const timings = [];
+const unavailableTimings: { command: string; reason: string }[] = [];
 const measurements = [
   ...[[], ['--depth', 'deep'], ['--for', 'orient'], ['--for', 'handoff']].map(controls => {
     const args = ['context', ...controls, '--limit', '10'];
     return { args, label: args.join(' ') };
   }),
-  { args: ['deps', [...roots][0], '--format', 'context', '--token-budget', '5000'], label: 'deps <relationship-root> --format context --token-budget 5000' },
+  { args: ['deps', [...roots][0], '--format', 'context', '--token-budget', '5000', '--json'], label: 'deps <relationship-root> --format context --token-budget 5000 --json' },
 ];
 for (const { args, label } of measurements) {
   rmSync(join(tracker, 'runtime'), { recursive: true, force: true });
   const oracle = run('oracle', args);
   const native = run('native', args);
-  if (oracle.status !== 0 || native.status !== 0 || !oracle.bytes.equals(native.bytes)) throw new Error(`Benchmark preflight failed: ${label}`);
+  const unavailable = benchmarkPreflight(oracle, native, label, args[0] === 'deps');
+  if (unavailable) { unavailableTimings.push({ command: label, reason: unavailable }); continue; }
   for (let round = 0; round < sampleCount; round += 1) {
     const order: ('native' | 'oracle')[] = round % 2 === 0 ? ['native', 'oracle'] : ['oracle', 'native'];
     for (const runtime of order) {
       const result = run(runtime, args);
-      if (result.status !== 0) throw new Error(`Benchmark failed: ${runtime}`);
+      benchmarkPreflight(oracle, result, label);
       samples.push({ command: label, runtime, round, ms: result.ms });
     }
     if ((round + 1) % 5 === 0) console.log(JSON.stringify({ phase: 'timing', command: label, rounds: round + 1 }));
@@ -169,7 +171,7 @@ const receipt = {
   item_count: [...before.keys()].filter(key => key.endsWith('.toon')).length,
   authoritative_files: before.size, authoritative_unchanged: true,
   binary_sha256: binaryHash,
-  timings, samples,
+  timings, samples, unavailable_timings: unavailableTimings,
 };
 writeFileSync(output, `${JSON.stringify(receipt, null, 2)}\n`);
 console.log(JSON.stringify({ comparisons, authoritative_unchanged: true, timings }));

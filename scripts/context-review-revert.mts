@@ -39,7 +39,7 @@ try {
       target: ['node', '--test', '--test-concurrency=2', 'scripts/context-intents-revert.test.mts'], test: 'all worktree proof copies tolerate unstaged deletions' },
     { path: 'scripts/context-real-helpers.mts', before: " || entry.name.endsWith('.json')", after: '',
       target: ['node', '--test', '--test-concurrency=2', 'scripts/harness.test.mts'], test: 'authoritative snapshots exclude caches only at the tracker root' },
-    { path: 'scripts/context-proof-process.mts', before: "    for (const pid of this.groups) {\n      this.stop(pid, 'SIGTERM');", after: "    this.groups.clear();\n    for (const pid of this.groups) {\n      this.stop(pid, 'SIGTERM');",
+    { path: 'scripts/context-proof-process.mts', before: '  private async drain(): Promise<void> {', after: '  private async drain(): Promise<void> { this.groups.clear(); return;',
       target: ['node', '--test', '--test-concurrency=2', 'scripts/harness.test.mts'], test: 'revert proof restores both source files on SIGTERM (parent only)' },
     { path: 'scripts/context-proof-process.mts', before: 'process.kill(-pid, signal)', after: 'process.kill(pid, signal)',
       target: ['node', '--test', '--test-concurrency=2', 'scripts/harness.test.mts'], test: 'revert proof restores both source files on SIGTERM (parent only)' },

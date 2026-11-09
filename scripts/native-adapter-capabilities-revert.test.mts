@@ -48,7 +48,7 @@ for (const mode of ['existing', 'absent', 'first-failure', 'second-failure']) {
       writeFileSync(join(root, 'src/main.rs'), '/* fixture */\nfn write_discovery_to() {\n    fixed()\n}\n');
       const runner = join(root, 'scripts/native-adapter-capabilities-revert.mts');
       writeFileSync(runner, readFileSync(new URL('./native-adapter-capabilities-revert.mts', import.meta.url)));
-      for (const helper of ['context-revert-helpers.mts', 'context-proof-process.mts']) writeFileSync(join(root, 'scripts', helper), readFileSync(new URL(helper, import.meta.url)));
+      for (const helper of ['context-revert-helpers.mts', 'context-proof-process.mts', 'context-windows-job.mts']) writeFileSync(join(root, 'scripts', helper), readFileSync(new URL(helper, import.meta.url)));
       const binary = join(root, 'target/debug/pm-rust');
       if (mode !== 'absent') writeFileSync(binary, 'fixed executable');
       // A fragment marker also catches path-as-specifier bugs on POSIX hosts.

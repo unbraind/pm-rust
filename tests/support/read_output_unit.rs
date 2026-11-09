@@ -4,6 +4,82 @@ use super::{Continuation, capture, compact_strings, finalize, receipt, retain};
 use crate::ListOptions;
 use serde_json::{Value, json};
 
+/// Every collection walker preserves declarations while continuing to compact actual rows.
+#[test]
+fn intent_declarations_are_immutable_during_wire_compaction()
+-> Result<(), Box<dyn std::error::Error>> {
+    for toon in [false, true] {
+        for count in [2, 20, 80] {
+            let groups = (0..count)
+                .map(|i| format!("field-group-{i}"))
+                .collect::<Vec<_>>();
+            let declaration = json!({"command":"context","included_field_groups":groups,"future":{"groups":groups},"description":"m".repeat(500)});
+            let mut source = json!({"context_intent":declaration,"activity":[{"title":"a"},{"title":"b"}],"read_output":{"compacted_row_paths":[]}});
+            super::compact_strings(&mut source);
+            assert_eq!(source["context_intent"], declaration);
+            let mut candidates = Vec::new();
+            super::collections(&source, "", &mut candidates);
+            assert_eq!(candidates, vec![("/activity".to_owned(), 2)]);
+            let mut output = crate::ListOutput::from(source);
+            super::compact_collections(&mut output, toon, 1, |_| {});
+            assert_eq!(output["context_intent"], declaration);
+            assert_eq!(output["activity"].as_array().map(Vec::len), Some(1));
+            assert_eq!(
+                output["read_output"]["compacted_row_paths"],
+                json!(["activity"])
+            );
+            for budget in [400, 600, 800, 1000, 1200, 1600] {
+                let mut public_declaration = declaration.clone();
+                public_declaration["token_budget"] = json!(budget);
+                public_declaration["declared_token_budget"] = json!(3000);
+                let source = json!({"context_intent":public_declaration,"activity":[{"title":"a"},{"title":"b"}]});
+                let mut list_declaration = public_declaration.clone();
+                list_declaration["command"] = json!("list");
+                list_declaration["source"] = json!("core");
+                list_declaration["intent"] = json!("triage");
+                let list_source = json!({"context_intent":list_declaration,"items":[{"id":"sample-a","title":"a"},{"id":"sample-b","title":"b"}],"count":2,"total":2});
+                let outputs = [
+                    super::apply_orientation(
+                        source.into(),
+                        &ListOptions {
+                            toon,
+                            token_budget: Some(budget.to_string()),
+                            ..Default::default()
+                        },
+                        "context",
+                        &["activity"],
+                    )?,
+                    super::apply_command(
+                        list_source.into(),
+                        &ListOptions {
+                            toon,
+                            output_budget: Some(budget.to_string()),
+                            ..Default::default()
+                        },
+                        "list",
+                    )?,
+                ];
+                for output in outputs {
+                    if output.get("context_intent").is_some() {
+                        assert_eq!(
+                            output["context_intent"]["included_field_groups"],
+                            declaration["included_field_groups"]
+                        );
+                        assert_eq!(output["context_intent"]["future"], declaration["future"]);
+                        assert_eq!(
+                            output["context_intent"]["description"],
+                            declaration["description"]
+                        );
+                    } else {
+                        assert_eq!(output["read_output"]["result_omitted"], true);
+                    }
+                }
+            }
+        }
+    }
+    Ok(())
+}
+
 /// Adapts simple unit-test envelopes to the lossless output type.
 fn apply(value: Value, options: &ListOptions) -> Result<crate::ListOutput, crate::PmRustError> {
     super::apply(value.into(), options)

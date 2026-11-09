@@ -2147,6 +2147,37 @@ fn padded_inverse_blockers_match_oracle() -> TestResult {
     Ok(())
 }
 
+/// Complete omissions preserve pinned receipt measurements without clipped declarations.
+#[test]
+fn context_omitted_intent_receipt_matches_current_oracle() -> TestResult {
+    let Some(published) = published_cli::published_cli_or_skip("omitted intent receipt") else {
+        return Ok(());
+    };
+    let scratch = tempfile::tempdir()?;
+    let Some(driver) = orientation_driver(scratch.path(), &published)? else {
+        return Ok(());
+    };
+    let root = tempfile::tempdir()?;
+    assert!(
+        oracle(&driver, root.path(), &["init", "sample-", "--defaults"])?
+            .status
+            .success()
+    );
+    for intent in ["orient", "handoff"] {
+        for format in [vec![], vec!["--json"]] {
+            let mut args = vec!["context", "--for", intent, "--token-budget", "256"];
+            args.extend(format);
+            compare(
+                &oracle(&driver, root.path(), &args)?,
+                &native(root.path(), &args)?,
+                &args,
+            );
+        }
+    }
+    assert!(!root.path().join(".git").exists());
+    Ok(())
+}
+
 /// Rich non-git trackers retain exact intent, section and continuation packets.
 #[test]
 fn context_intents_and_sections_match_current_oracle() -> TestResult {
@@ -2731,6 +2762,63 @@ fn context_successful_reads_preserve_settings_bytes() -> TestResult {
             }
         }
     }
+    Ok(())
+}
+
+/// Malformed item reads retain fallback diagnostics through the CLI boundary.
+#[test]
+fn context_item_faults_preserve_settings_warning_in_every_encoding() -> TestResult {
+    let Some(published) = published_cli::published_cli_or_skip("context item fault warnings")
+    else {
+        return Ok(());
+    };
+    let scratch = tempfile::tempdir()?;
+    let driver = write_driver(scratch.path(), &published)?;
+    let root = tempfile::tempdir()?;
+    assert!(
+        oracle(&driver, root.path(), &["init", "sample-", "--defaults"])?
+            .status
+            .success()
+    );
+    fixture(root.path(), &[item("sample-broken", "Task", "open", 1)])?;
+    let path = root.path().join(".agents/pm/settings.json");
+    let mut settings: Value = serde_json::from_slice(&fs::read(&path)?)?;
+    settings["context"] = json!({"activity_limit":0});
+    let before = serde_json::to_vec(&settings)?;
+    fs::write(&path, &before)?;
+    let broken = root.path().join(".agents/pm/tasks/sample-broken.toon");
+    for content in [
+        "<<<<<<< conflict\n=======\n>>>>>>> conflict\n",
+        "id: [broken\n",
+    ] {
+        fs::write(&broken, content)?;
+        for intent in [vec![], vec!["--for", "orient"], vec!["--for", "handoff"]] {
+            for encoding in [vec![], vec!["--json"]] {
+                let mut args = vec!["context"];
+                args.extend(&intent);
+                args.extend(&encoding);
+                let output = native(root.path(), &args)?;
+                assert_eq!(output.status.code(), Some(2));
+                let stderr = String::from_utf8(output.stderr)?;
+                if encoding.is_empty() {
+                    assert!(stderr.contains("settings_read_invalid_schema"), "{stderr}");
+                    assert!(stderr.contains("pm-rust:"), "{stderr}");
+                } else {
+                    let payload: Value = serde_json::from_str(&stderr)?;
+                    assert_eq!(payload["warnings"], json!(["settings_read_invalid_schema"]));
+                    assert!(
+                        payload["error"]
+                            .as_str()
+                            .is_some_and(|value| value.contains("sample-broken"))
+                    );
+                }
+                assert!(output.stdout.is_empty());
+                assert_eq!(fs::read(&path)?, before);
+                assert_eq!(fs::read_to_string(&broken)?, content);
+            }
+        }
+    }
+    assert!(!root.path().join(".git").exists());
     Ok(())
 }
 

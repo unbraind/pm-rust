@@ -314,10 +314,7 @@ fn run_with_io(
                 },
                 &now,
             )?;
-            if let Some(warning) = result.settings_warning() {
-                write_settings_warning_to(&mut std::io::stderr().lock(), warning, json)?;
-            }
-            write_search_to(&mut std::io::stdout().lock(), &result, json)?;
+            return write_context_to(writer, &mut std::io::stderr().lock(), &result, json);
         }
         Command::History {
             id,
@@ -1172,6 +1169,7 @@ fn main() -> ExitCode {
             {
                 let args = published_read_arguments(std::env::args_os().skip(1));
                 let mut payload = ownership_error_json(detail, context, &args);
+                attach_settings_warning(&mut payload, settings_warning);
                 if context["code"] == "lock_conflict" {
                     preserve_lock_scope(
                         &mut payload,
@@ -1198,6 +1196,7 @@ fn main() -> ExitCode {
                     &serde_json::json!({"code":"lock_conflict"}),
                     &args,
                 );
+                attach_settings_warning(&mut payload, settings_warning);
                 preserve_lock_scope(
                     &mut payload,
                     &std::env::args_os()
@@ -1227,7 +1226,12 @@ fn main() -> ExitCode {
                     write_cursor_refusal_to(&mut stderr, &payload)
                 };
             } else {
-                eprintln!("pm-rust: {error}");
+                let _ = write_runtime_error_to(
+                    &mut std::io::stderr().lock(),
+                    error,
+                    settings_warning,
+                    json_requested(&args),
+                );
             }
             ExitCode::from(2)
         }
@@ -2212,4 +2216,33 @@ fn attach_settings_warning(payload: &mut serde_json::Value, warning: Option<&str
         payload["warning_details"] =
             serde_json::json!([{"code":"settings_read_invalid_schema","message":warning}]);
     }
+}
+
+/// Preserve independent settings diagnostics even for unclassified item and I/O errors.
+fn write_runtime_error_to(
+    writer: &mut dyn Write,
+    error: &dyn std::error::Error,
+    warning: Option<&str>,
+    json: bool,
+) -> std::io::Result<()> {
+    if json && warning.is_some() {
+        let mut payload = serde_json::json!({"error":format!("pm-rust: {error}"),"exit_code":2});
+        attach_settings_warning(&mut payload, warning);
+        writeln!(writer, "{}", pm_rust::stringify_json(&payload, true))
+    } else {
+        writeln!(writer, "pm-rust: {error}")
+    }
+}
+
+/// Render context through caller-owned streams, including diagnostic write failures.
+fn write_context_to(
+    writer: &mut dyn Write,
+    diagnostics: &mut dyn Write,
+    result: &pm_rust::ListOutput,
+    json: bool,
+) -> Result<(), Box<dyn std::error::Error>> {
+    if let Some(warning) = result.settings_warning() {
+        write_settings_warning_to(diagnostics, warning, json)?;
+    }
+    write_search_to(writer, result, json)
 }

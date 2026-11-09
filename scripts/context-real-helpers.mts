@@ -3,6 +3,19 @@ import { createHash } from 'node:crypto';
 import { readFileSync, readdirSync } from 'node:fs';
 import { join } from 'node:path';
 
+/** Timing is optional only for byte-identical, structured dependency budget refusals. */
+export function benchmarkPreflight(oracle: { bytes: Buffer; status: number | null }, native: { bytes: Buffer; status: number | null }, label: string, dependency = false): string | undefined {
+  if (oracle.status !== native.status || !oracle.bytes.equals(native.bytes)) throw new Error(`Benchmark parity failed: ${label}`);
+  if (oracle.status === 0) return undefined;
+  if (dependency && oracle.status === 2) {
+    try {
+      const payload: { code?: string; recovery?: { token_budget?: { requested_tokens?: number } } } = JSON.parse(oracle.bytes.toString().split('\0')[1]);
+      if (payload.code === 'invalid_argument_value' && payload.recovery?.token_budget?.requested_tokens === 5000) return 'dependency_token_budget_infeasible';
+    } catch { /* Non-budget failures remain hard failures. */ }
+  }
+  throw new Error(`Benchmark preflight failed: ${label}`);
+}
+
 /** Hash authoritative item and append-only history files without retaining their contents. */
 export function authoritative(directory: string, prefix = ''): Map<string, string> {
   const hashes = new Map<string, string>();

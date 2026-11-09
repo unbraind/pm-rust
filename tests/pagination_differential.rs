@@ -136,6 +136,26 @@ fn compare_outputs(
     Ok(native)
 }
 
+/// Legacy list omissions preserve the pinned terminal receipt in both encodings.
+#[test]
+fn triage_omitted_intent_receipts_match_published() -> TestResult {
+    let directory = fixture(2, 80)?;
+    for budget in ["1", "256"] {
+        let flags = [
+            "--for",
+            "triage",
+            "--token-budget",
+            "100000",
+            "--output-budget",
+            budget,
+        ];
+        compare(directory.path(), &flags, false)?;
+        compare_toon(directory.path(), &flags, false)?;
+    }
+    assert!(!directory.path().join(".git").exists());
+    Ok(())
+}
+
 /// Combined ceilings bind the uncapped snapshot and accept an unchanged replay.
 #[test]
 fn combined_output_ceilings_replay_the_uncapped_snapshot() -> TestResult {

@@ -7,9 +7,11 @@ import { join } from 'node:path';
 import { test } from 'node:test';
 import { setTimeout } from 'node:timers/promises';
 import { fileURLToPath, pathToFileURL } from 'node:url';
-import { authoritative, verifiedOracleVersion } from './context-real-helpers.mts';
+import { authoritative, benchmarkPreflight, verifiedOracleVersion } from './context-real-helpers.mts';
 import { checkedGit, copyWorkingTree, supportedProofs } from './context-revert-helpers.mts';
-import { verifyAsyncMutation } from './context-proof-process.mts';
+import { ProofProcesses, verifyAsyncMutation } from './context-proof-process.mts';
+import { windowsJob } from './context-windows-job.mts';
+import { syncSpawnBridge } from './context-test-process-shim.mts';
 
 const packageRoot = fileURLToPath(new URL('..', import.meta.url));
 const runners = ['context-intents-revert.mts', 'context-packet-review-revert.mts', 'context-review-revert.mts', 'context-safety-revert.mts', 'native-adapter-revert.mts', 'native-adapter-capabilities-revert.mts', 'native-adapter-capabilities-review-revert.mts', 'native-adapter-changes-revert.mts', 'perf-revert-proof.mts'];
@@ -61,6 +63,185 @@ test('async proof controls restore exactly and never mutate after a failed basel
   events.length = 0;
   await assert.rejects(verifyAsyncMutation(async reverted => { if (reverted) throw new Error('wrong failure'); }, () => events.push('mutate'), () => events.push('restore')));
   assert.deepEqual(events, ['mutate', 'restore']);
+});
+
+test('Windows safety selection excludes every unsupported mutation before its baseline', () => {
+  const cases = [
+    { name: 'safe', test: 'ordinary' },
+    ...Array.from({ length: 7 }, (_, i) => ({ name: `symlink-${i}`, test: 'symlink fixture', unixOnly: true })),
+    { name: 'descendant groups', test: 'runner SIGTERM' },
+    { name: 'nested runner ownership', test: 'outer detached owner exit', unixOnly: true },
+    { name: 'later safe', test: 'ordinary' },
+  ];
+  const receipts: string[] = [];
+  assert.deepEqual(supportedProofs(cases, undefined, 'win32', row => receipts.push(row)), [cases[0], cases[10]]);
+  assert.equal(receipts.length, 9);
+  assert.deepEqual(supportedProofs(cases, undefined, 'linux'), cases);
+  for (const name of ['symlink', 'descendant', 'nested']) assert.throws(() => supportedProofs(cases, name, 'win32'), /requires a Unix host/);
+  const root = mkdtempSync(join(tmpdir(), 'pm-safety-selection-'));
+  try {
+    const shim = join(root, 'platform.mjs');
+    writeFileSync(shim, `import childProcess from 'node:child_process';
+import { syncBuiltinESMExports } from 'node:module';
+Object.defineProperty(process, 'platform', {value:'win32'});
+childProcess.spawn = () => { throw new Error('unsupported baseline executed'); };
+syncBuiltinESMExports();`);
+    for (const selected of ['symlink isolation', 'dependency junction', 'nested runner ownership']) {
+      const result = spawnSync(process.execPath, ['--import', pathToFileURL(shim).href, join(packageRoot, 'scripts/context-safety-revert.mts'), selected], { cwd: packageRoot, encoding: 'utf8', timeout: 30_000, env: { ...process.env, TEMP: root, TMP: root } });
+      assert.equal(result.status, 1);
+      assert.match(result.stderr, /requires a Unix host/);
+      assert.doesNotMatch(result.stderr, /unsupported baseline executed/);
+    }
+  } finally { rmSync(root, { recursive: true, force: true }); }
+});
+
+test('benchmark preflight records only identical dependency budget refusals as unavailable', () => {
+  const result = (status: number | null, payload: unknown): { status: number | null; bytes: Buffer } => ({ status, bytes: Buffer.from(`\0${JSON.stringify(payload)}`) });
+  const refusal = result(2, { code: 'invalid_argument_value', recovery: { token_budget: { requested_tokens: 5000 } } });
+  assert.equal(benchmarkPreflight(refusal, refusal, 'deps', true), 'dependency_token_budget_infeasible');
+  const success = result(0, { context: {} });
+  assert.equal(benchmarkPreflight(success, success, 'context'), undefined);
+  for (const bad of [result(1, {}), result(null, {}), result(2, { code: 'invalid_argument_value' }), result(2, { code: 'runtime_error', recovery: { token_budget: { requested_tokens: 5000 } } })]) {
+    assert.throws(() => benchmarkPreflight(bad, bad, 'deps', true), /preflight failed/);
+    assert.throws(() => benchmarkPreflight(refusal, bad, 'deps', true), /parity failed/);
+  }
+  assert.throws(() => benchmarkPreflight(refusal, refusal, 'context'), /preflight failed/);
+  assert.throws(() => benchmarkPreflight(success, result(0, { changed: true }), 'context'), /parity failed/);
+});
+
+test('real-copy receipts survive infeasible timing while rejecting parity and runtime failures', () => {
+  const root = mkdtempSync(join(tmpdir(), 'pm-timing-receipt-'));
+  try {
+    mkdirSync(join(root,'.agents/pm'),{recursive:true});
+    writeFileSync(join(root,'.pm-rust-read-copy'),'synthetic');
+    const driver=join(root,'driver.mjs'); writeFileSync(driver,'synthetic driver');
+    const shim=join(root,'timing-shim.mjs');
+    for (const mode of ['budget','status','output','runtime']) {
+      writeFileSync(shim, `import childProcess from 'node:child_process'; import {syncBuiltinESMExports} from 'node:module';
+childProcess.spawnSync=(command,args)=>{
+const native=command!==process.execPath; const argv=native?args:args.slice(1);
+let status=0, stdout=JSON.stringify({context:{meta:{}}}), stderr='';
+if(argv[0]==='--version') return {status:0,stdout:'2026.11.5\\n',stderr:''};
+if(argv[0]==='list') stdout=JSON.stringify({items:[{id:'sample-a',parent:'sample-b'},{id:'sample-b'}]});
+if(argv[0]==='deps' && argv.includes('5000')) {
+ status=${mode === 'runtime' ? 1 : 2}; stdout='';
+ stderr=JSON.stringify({code:'invalid_argument_value',recovery:{token_budget:{requested_tokens:5000}}});
+ if(native && ${mode === 'status'}) status=1;
+ if(native && ${mode === 'output'}) stderr+='different';
+}
+return {status,stdout:Buffer.from(stdout),stderr:Buffer.from(stderr)};
+}; syncBuiltinESMExports();`);
+      const output=join(root,`receipt-${mode}.json`);
+      const result=spawnSync(process.execPath,['--import',pathToFileURL(shim).href,join(packageRoot,'scripts/context-real.mts'),'--copy',root,'--driver',driver,'--binary',driver,'--samples','1','--output',output],{encoding:'utf8',timeout:30000});
+      if(mode==='budget') {
+        assert.equal(result.status,0,result.stderr);
+        const receipt=JSON.parse(readFileSync(output,'utf8')) as {unavailable_timings:{reason:string}[];samples:unknown[];authoritative_unchanged:boolean};
+        assert.equal(receipt.unavailable_timings[0].reason,'dependency_token_budget_infeasible');
+        assert.equal(receipt.samples.length,8);
+        assert.equal(receipt.authoritative_unchanged,true);
+      } else {
+        assert.equal(result.status,1,result.stderr);
+        assert.match(result.stderr,mode==='runtime'?/preflight failed/:/parity failed/);
+        assert.equal(existsSync(output),false);
+      }
+    }
+  } finally {rmSync(root,{recursive:true,force:true});}
+});
+
+test('Windows ownership persists after leader exit until inherited pipes are stopped', () => {
+  const root=mkdtempSync(join(tmpdir(),'pm-windows-orphan-'));
+  try {
+    const script=join(root,'orphan.mjs');
+    writeFileSync(script, `import assert from 'node:assert/strict';
+import childProcess from 'node:child_process';import {EventEmitter} from 'node:events';import {PassThrough} from 'node:stream';import {syncBuiltinESMExports} from 'node:module';import {existsSync,mkdirSync} from 'node:fs';
+Object.defineProperty(process,'platform',{value:'win32'});
+let child, killed=false;
+const scratch=${JSON.stringify(join(root,'scratch'))};mkdirSync(scratch);
+childProcess.spawn=(command,args)=>{assert.equal(command,'powershell.exe');assert.ok(Buffer.from(args.at(-1),'base64').toString('utf16le').includes('PROC_THREAD_ATTRIBUTE_JOB_LIST'));child=new EventEmitter();child.pid=424242;child.stdout=new PassThrough();child.stderr=new PassThrough();setImmediate(()=>child.emit('exit',0,null));return child;};
+childProcess.execFileSync=(command,args)=>{assert.equal(command,'taskkill');assert.deepEqual(args,['/pid','424242','/T','/F']);assert.ok(existsSync(scratch));killed=true;setImmediate(()=>{child.stdout.end();child.stderr.end();child.emit('close',0);});};
+syncBuiltinESMExports();
+const {ProofProcesses}=await import(${JSON.stringify(pathToFileURL(join(packageRoot,'scripts/context-proof-process.mts')).href)});
+const owned=new ProofProcesses();const result=await owned.run('cargo',[],{timeout:50});
+assert.ok(killed);assert.match(result.error.message,/timeout/);await owned.cleanup(scratch);assert.equal(existsSync(scratch),false);`);
+    const result=spawnSync(process.execPath,[script],{encoding:'utf8',timeout:10000,env:{...process.env,TEMP:root,TMP:root}});
+    assert.equal(result.status,0,result.stderr);
+  } finally {rmSync(root,{recursive:true,force:true});}
+});
+
+test('Windows synchronous controls preserve original job argv and exact diagnostics', () => {
+  const root=mkdtempSync(join(tmpdir(),'pm-job-controls-'));
+  try {
+    const script=join(root,'control.mjs');
+    const args=['test','space and "quote"','trailing\\'];
+    writeFileSync(script, `import assert from 'node:assert/strict';import childProcess from 'node:child_process';import {syncBuiltinESMExports} from 'node:module';import {mkdirSync} from 'node:fs';
+Object.defineProperty(process,'platform',{value:'win32'});
+childProcess.spawnSync=(command,args)=>{assert.equal(command,'cargo');assert.deepEqual(args,${JSON.stringify(args)});return {status:0,stdout:'named control',stderr:'original diagnostic'};};
+${syncSpawnBridge}
+syncBuiltinESMExports();
+const {ProofProcesses}=await import(${JSON.stringify(pathToFileURL(join(packageRoot,'scripts/context-proof-process.mts')).href)});
+const owned=new ProofProcesses();const scratch=${JSON.stringify(join(root,'scratch'))};mkdirSync(scratch);
+try {const result=await owned.run('cargo',${JSON.stringify(args)});assert.ifError(result.error);assert.equal(result.status,0);assert.equal(result.stdout,'named control');assert.equal(result.stderr,'original diagnostic');}finally {await owned.cleanup(scratch);}`);
+    const result=spawnSync(process.execPath,[script],{encoding:'utf8',timeout:10000,env:{...process.env,TEMP:root,TMP:root}});
+    assert.equal(result.status,0,result.stderr);
+  } finally {rmSync(root,{recursive:true,force:true});}
+});
+
+for (const ending of ['exit', 'SIGTERM'] as const) {
+  test(`outer ownership drains nested detached groups on ${ending}`, { skip: process.platform === 'win32', timeout: 20_000 }, async () => {
+    const root = mkdtempSync(join(tmpdir(), 'pm-nested-proof-'));
+    const manager = join(root, 'manager.mjs'); const nested = join(root, 'nested.mjs'); const marker = join(root, 'ready');
+    const module = JSON.stringify(pathToFileURL(join(packageRoot, 'scripts/context-proof-process.mts')).href);
+    const worker = `import {existsSync,writeFileSync} from 'node:fs';
+writeFileSync(${JSON.stringify(marker)}, String(process.pid));
+process.on('SIGTERM',()=>{writeFileSync(${JSON.stringify(marker + '.stopped')},String(existsSync(${JSON.stringify(join(root,'scratch'))})));process.exit(0)});
+setInterval(()=>{},1000);`;
+    writeFileSync(nested, `import {setTimeout} from 'node:timers/promises';import {writeFileSync,existsSync} from 'node:fs';import {ProofProcesses} from ${module};
+const owned = new ProofProcesses();
+try { await owned.run(process.execPath, ['--input-type=module','-e',${JSON.stringify(worker)}]); } finally { await owned.cleanup(${JSON.stringify(join(root, 'nested-scratch'))}); await setTimeout(200); writeFileSync(${JSON.stringify(marker+'.owner-stopped')},String(existsSync(${JSON.stringify(join(root,'scratch'))}))); }`);
+    const parent = `import {spawn} from 'node:child_process'; import {existsSync} from 'node:fs'; import {setTimeout} from 'node:timers/promises';
+spawn(process.execPath,[${JSON.stringify(nested)}],{detached:true,stdio:'ignore',env:process.env});
+while(!existsSync(${JSON.stringify(marker)})) await setTimeout(5);
+${ending === 'exit' ? 'process.exit(0);' : 'setInterval(()=>{},1000);'}`;
+    writeFileSync(manager, `import {ProofProcesses} from ${module};
+const owned=new ProofProcesses();
+try { await owned.run(process.execPath,['--input-type=module','-e',${JSON.stringify(parent)}],{timeout:10000,cwd:${JSON.stringify(join(root,'scratch'))}}); }
+catch(error) { if(!owned.wasInterrupted) throw error; }
+finally { await owned.cleanup(${JSON.stringify(join(root, 'scratch'))}); }`);
+    mkdirSync(join(root, 'scratch')); mkdirSync(join(root, 'nested-scratch'));
+    const child = spawn(process.execPath, [manager], { stdio: ['ignore', 'pipe', 'pipe'] });
+    child.stdout.resume(); let stderr = ''; child.stderr.on('data', chunk => { stderr += String(chunk); });
+    const finished = new Promise<number | null>(resolve => child.once('exit', resolve));
+    try {
+      for (let i=0; !existsSync(marker) && i<1000; i++) { if(child.exitCode!==null) break; await setTimeout(10); }
+      assert.ok(existsSync(marker), stderr);
+      if (ending !== 'exit') child.kill(ending);
+      assert.equal(await finished, ending === 'exit' ? 0 : 143, stderr);
+      assert.equal(readFileSync(marker + '.stopped','utf8'), 'true');
+      assert.equal(readFileSync(marker + '.owner-stopped','utf8'), 'true', 'nested restoration finishes before outer input removal');
+      assert.equal(existsSync(join(root,'scratch')),false);
+    } finally {
+      if (child.exitCode===null) child.kill('SIGKILL');
+      if(existsSync(marker)) { try { process.kill(Number(readFileSync(marker,'utf8')),'SIGKILL'); } catch { /* drained */ } }
+      await finished;
+      rmSync(root,{recursive:true,force:true});
+    }
+  });
+}
+
+test('Windows kernel jobs drain orphaned descendants before returning output', { skip: process.platform !== 'win32', timeout: 30_000 }, async () => {
+  const root = mkdtempSync(join(tmpdir(), 'pm-windows-job-'));
+  const owned = new ProofProcesses();
+  try {
+    const marker = join(root, 'worker');
+    const worker = `require('node:fs').writeFileSync(${JSON.stringify(marker)},String(process.pid));setInterval(()=>{},1000);`;
+    const parent = `const {spawn}=require('node:child_process'); const fs=require('node:fs'); spawn(process.execPath,['-e',${JSON.stringify(worker)}],{stdio:'inherit'}); const timer=setInterval(()=>{if(fs.existsSync(${JSON.stringify(marker)}))process.exit(0)},10);`;
+    const result = await owned.run(process.execPath,['-e',parent],{timeout:15000});
+    assert.ifError(result.error); assert.equal(result.status,0);
+    const pid=Number(readFileSync(marker,'utf8'));
+    assert.throws(()=>process.kill(pid,0));
+    const invocation=windowsJob(process.execPath,['space and "quote"','trailing\\'], 'marker');
+    assert.equal(invocation.command,'powershell.exe');
+  } finally { await owned.cleanup(root); }
 });
 
 test('JSON snapshot additions removals and changes are authoritative in every custom directory', () => {

@@ -262,3 +262,98 @@ Round-4 final local validation:
 The claim is released while the item remains in progress for orchestrator
 verification. `just changelog-full` and `just changelog-check` pass after the last
 tracker write; the generated changelog is unchanged.
+
+## Review round 5 continuation
+
+The eight unresolved threads were read with every comment; the latest review
+body adds no outside-diff findings. The existing clean branch matches the remote
+head and already contains main. This continuation reuses
+`pm-rust-context-intents` and leaves thread replies and resolution to the owner.
+
+| Thread | General rule, scope and regression |
+| --- | --- |
+| PRRT_kwDOTwgMRs61Cfjp | The existing async runner already stops Cargo descendants before scratch removal. Retain both signals through all nine proof entry points; independently revert group signaling to require the named descendant assertion failure. |
+| PRRT_kwDOTwgMRs61E7rv, PRRT_kwDOTwgMRs61FGhA | Platform selection precedes every baseline. Share the selector across both review runners; mark all seven symlink mutations Unix-only, report each skip and reject an explicitly selected unsupported control. Supported later controls remain selected. The property exercises default and explicit selection on both platforms and invokes the actual safety entry point. |
+| PRRT_kwDOTwgMRs61FGg1 | Ownership includes nested detached runner groups. Inherit a scoped registration directory, adopt nested registrations on interruption and drain, rescan while draining, and tolerate concurrent registration removal without skipping siblings. Both direct-parent exit and parent-only SIGTERM must stop the nested worker while scratch still exists. |
+| PRRT_kwDOTwgMRs61FGg6 | A direct child's exit does not establish descendant termination. Windows commands start suspended inside a kernel job before resuming; kill-on-close retains orphan ownership and an empty-job receipt precedes release. Keep the timeout armed across exit and inherited pipe closure. Cross-host adversarial controls cover the exit/close gap and failure retention; a native Windows integration test checks actual orphan termination. |
+| PRRT_kwDOTwgMRs61FGg- | Successful parity and feasible timing are separate claims. Only an identical structured dependency-budget refusal may produce an unavailable timing receipt. Status, output and unrelated runtime failures still abort; every sampled success also retains byte parity. The actual receipt entry point is tested with all four outcomes and unchanged synthetic non-git data. |
+| PRRT_kwDOTwgMRs61FGhE | Independent diagnostics survive generic item failures as well as typed refusals. JSON embeds the original item error and settings warning in one valid document; text retains its existing warning/error output. Preserve the warning in ownership/lock envelopes too. Exercise malformed/conflicted items through default/orient/handoff in both encodings and unchanged non-git trackers, plus writer failures. |
+| PRRT_kwDOTwgMRs61FGhM | Declaration metadata is immutable under payload compaction. Exclude the complete intent declaration from both collection and string compaction in the shared read-output layer. A generated corpus varies metadata cardinality and encoding, verifies nested/future declaration values, and still requires actual activity rows to shrink. |
+
+The class search includes every proof runner, all platform-filter consumers,
+shared snapshot and benchmark consumers, native SDK context failures and CLI
+error dispatch, and both shared JSON/TOON compaction walkers. The crate remains
+the shipped product: the private npm/Bun development wrappers have no packed
+native consumer or committed dist artifact. All new fixture data is synthetic.
+The existing whole-package release timeout exception applies; full instrumented
+coverage and native Windows job execution remain final-head CI requirements.
+
+The older drain-bypass mutation now bypasses the complete shared drain function;
+clearing only its in-memory set is no longer a behavioral revert because scoped
+registrations repopulate that set. Its original named SIGTERM assertion remains
+unchanged. No existing test, coverage threshold or timeout is weakened.
+
+Windows job assignment uses the documented
+[process-creation job-list attribute](https://learn.microsoft.com/en-us/windows/win32/api/processthreadsapi/nf-processthreadsapi-updateprocthreadattribute)
+so ownership exists during creation, including interruption before resumption.
+The stream-control bridge decodes the same serialized invocation, preserving
+original argv and diagnostics in isolated controls on either platform. Isolated
+fixture copies include the complete helper module dependency.
+
+Round-5 behavioral evidence: fifteen class mutations require fifteen named
+failures and thirty passing controls. The six retained SIGTERM mutations
+still require six named failures and twelve passing controls. CI-log inspection
+also found a logical/physical temp-path mismatch in the restoration observer;
+all eight original Unix signal tests now execute through a directory symlink,
+and reverting only canonical comparison fails the original named assertion.
+The combined evidence is twenty-two distinct mutations and forty-four passing
+before/after controls, sixty-six required executions, all in disposable copies.
+The original group deadlines and every existing assertion remain unchanged.
+
+The unchanged intent matrices exposed one compatibility detail while validating
+the metadata fix: a completely omitted packet retains the published historical
+compaction measurement in `omitted_result_estimated_tokens`. Delivery protects
+the declaration. If delivery is impossible, the same compactor also measures a
+private historical projection and retains the conservative estimate floor;
+that projection is never delivered. The property now covers seventy-two budget
+cases through both shared output paths as well as the collection walker.
+The new four-comparison `context_omitted_intent_receipt_matches_current_oracle`
+regression independently verifies the pinned JSON and TOON terminal receipts.
+Removing either delivery protection or the receipt floor fails a named test.
+
+Final code validation includes 125 passing Node tests and one explicit native
+Windows integration skip through `just --no-deps crash-check`, with TypeScript,
+ESLint, history-prefix and evidence retention checks. The locked oracle packages
+were installed first; skipping prerequisite installs kept those packages stable
+while parity processes ran. All recipe checks ran unchanged. Fourteen shared
+read-output tests, all forty-three binary tests, the three intent matrices
+(342 comparisons), reviewed contracts (72 comparisons), and four new terminal
+receipt comparisons pass. The malformed-item boundary passes twelve cases on
+Node and twelve with the oracle launched through Bun. The real-copy harness
+accepts matching refusals, writes its receipt and retains authoritative bytes.
+
+The initial ordinary all-target attempt completed eighteen targets and 599
+passing tests before exposing the terminal-receipt differences. That failing
+attempt was stopped; all four affected intent/reviewed tests pass after the fix.
+The missing-runtime check also passes on a stable executable after the earlier
+concurrent rebuild. This is not a passing final-head aggregate run. The full
+release/coverage gate exceeds the original local runtime allowance and remains
+required in CI, together with native Windows execution. Thresholds are unchanged.
+
+
+The class search includes the legacy list-triage declaration. Its canonical
+output-budget path uses the same protected delivery policy and historical
+terminal-receipt measurement as context. Four additional pinned-CLI JSON/TOON
+comparisons and seven list SDK tests pass; both list delivery and receipt-floor
+controls independently fail on behavioral revert. The context and list terminal
+receipts together add eight comparisons to the 414 existing intent/reviewed
+comparisons, 422 total. No schema, ordering, test threshold or timeout changes.
+
+
+Final stable-code Rust gate: `cargo +1.90.0 test -j 2 --locked --all-features
+--lib --bins --test identity_audit --test release_pipeline_contract` passes all
+482 tests: 412 library, 43 binary, 7 identity and 20 release pipeline contracts.
+The final shared-output and list SDK subsets pass 14 and 7 tests. The pinned pm
+runner also passes the safety command in a disposable tracker, with strict
+isolated health passing. Full package release coverage and native Windows
+execution remain required in CI; no whole-package aggregate pass is claimed.

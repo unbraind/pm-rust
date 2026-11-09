@@ -17,6 +17,10 @@ for (const signal of ['SIGINT', 'SIGTERM'] as const) {
     test(`revert proof restores both source files on ${signal} (${delivery})`, { skip: process.platform === 'win32', timeout: 15000 }, async () => {
       // Separate delivery targets exercise either callback arriving first, plus terminal process groups.
       const root = mkdtempSync(join(tmpdir(), 'pm-rust-interrupt-'));
+      const physicalTemp = join(root, 'tmp');
+      const logicalTemp = join(root, 'tmp-alias');
+      mkdirSync(physicalTemp);
+      symlinkSync(physicalTemp, logicalTemp, 'dir');
       const originals = new Map(['ownership', 'mutation'].map(name => [name,
         readFileSync(new URL(`../src/${name}.rs`, import.meta.url), 'utf8')]));
       mkdirSync(join(root, 'src'));
@@ -27,7 +31,7 @@ for (const signal of ['SIGINT', 'SIGTERM'] as const) {
       for (const [name, bytes] of originals) writeFileSync(join(root, `src/${name}.rs`), bytes);
       const script = join(root, 'scripts/perf-revert-proof.mts');
       writeFileSync(script, readFileSync(new URL('./perf-revert-proof.mts', import.meta.url)));
-      writeFileSync(join(root, 'scripts/context-proof-process.mts'), readFileSync(new URL('./context-proof-process.mts', import.meta.url)));
+      for (const helper of ['context-proof-process.mts', 'context-windows-job.mts']) writeFileSync(join(root, 'scripts', helper), readFileSync(new URL(helper, import.meta.url)));
       const cargo = join(root, 'bin/cargo');
       const cargoProgram = join(root, 'cargo.mjs');
       writeFileSync(cargoProgram, `import { spawn } from 'node:child_process';
@@ -75,7 +79,8 @@ fs.rmSync = (path, options) => {
   const source = process.env.PM_PROOF_ROOT;
   if (!existsSync(join(source, 'ready'))) return remove(path, options);
   const marker = JSON.parse(readFileSync(join(source, 'ready'), 'utf8'));
-  if (path !== marker.root) return remove(path, options);
+  if (!existsSync(path) || !existsSync(marker.root)) return remove(path, options);
+  if (fs.realpathSync(path) !== fs.realpathSync(marker.root)) return remove(path, options);
   const restored = ['ownership', 'mutation'].map(name => readFileSync(join(marker.root, 'src', name + '.rs'), 'utf8') === readFileSync(join(source, 'src', name + '.rs'), 'utf8'));
   writeFileSync(join(source, 'restored.json'), JSON.stringify(restored));
   return remove(path, options);
@@ -88,7 +93,7 @@ syncBuiltinESMExports();
         cwd: root, detached: true, stdio: 'ignore',
         env: { ...process.env, PATH: `${join(root, 'bin')}:${process.env.PATH ?? ''}`,
           PM_PROOF_NODE: process.execPath, PM_PROOF_CHILD: cargoProgram, PM_PROOF_ROOT: root,
-          PM_PROOF_STUBBORN: delivery === 'stubborn descendant' ? '1' : '0' },
+          TMPDIR: logicalTemp, PM_PROOF_STUBBORN: delivery === 'stubborn descendant' ? '1' : '0' },
       });
       const completed = new Promise<{ code: number | null; signal: NodeJS.Signals | null }>((resolve, reject) => {
         child.once('error', reject);

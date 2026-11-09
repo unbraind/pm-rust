@@ -122,7 +122,8 @@ pub(crate) fn compact_strings(value: &mut Value) -> bool {
             .iter_mut()
             .fold(false, |changed, row| compact_strings(row) | changed),
         Value::Object(map) => map.iter_mut().fold(false, |changed, (key, row)| {
-            (key != "focus_row_states" && compact_strings(row)) | changed
+            (!matches!(key.as_str(), "focus_row_states" | "context_intent") && compact_strings(row))
+                | changed
         }),
         _ => false,
     }
@@ -130,42 +131,59 @@ pub(crate) fn compact_strings(value: &mut Value) -> bool {
 
 /// Lists arrays eligible for compaction, excluding immutable envelope metadata.
 fn collections(value: &Value, pointer: &str, candidates: &mut Vec<(String, usize)>) {
+    collections_with_policy(value, pointer, candidates, true);
+}
+
+/// Share collection discovery with the historical omitted-receipt measurement only.
+fn collections_with_policy(
+    value: &Value,
+    pointer: &str,
+    candidates: &mut Vec<(String, usize)>,
+    preserve_intent: bool,
+) {
     match value {
         Value::Array(rows) => {
             if rows.len() > 1 {
                 candidates.push((pointer.to_owned(), rows.len()));
             }
             for (index, row) in rows.iter().enumerate() {
-                collections(row, &format!("{pointer}/{index}"), candidates);
+                collections_with_policy(
+                    row,
+                    &format!("{pointer}/{index}"),
+                    candidates,
+                    preserve_intent,
+                );
             }
         }
         Value::Object(map) => {
             for (key, row) in map {
                 if pointer.is_empty()
-                    && matches!(
-                        key.as_str(),
-                        "applied_bound"
-                            | "completeness"
-                            | "budget_retention_policy"
-                            | "continuation_contract"
-                            | "continuation_kind"
-                            | "continuation_path"
-                            | "filters"
-                            | "omission_receipt"
-                            | "output_budget_truncation"
-                            | "projection"
-                            | "read_output"
-                            | "read_session"
-                            | "row_contract"
-                            | "sorting"
-                    )
+                    && ((preserve_intent && key == "context_intent")
+                        || matches!(
+                            key.as_str(),
+                            "applied_bound"
+                                | "completeness"
+                                | "budget_retention_policy"
+                                | "continuation_contract"
+                                | "continuation_kind"
+                                | "continuation_path"
+                                | "filters"
+                                | "omission_receipt"
+                                | "output_budget_truncation"
+                                | "projection"
+                                | "read_output"
+                                | "read_session"
+                                | "row_contract"
+                                | "sorting"
+                        ))
                 {
                     continue;
                 }
-                collections(
+                collections_with_policy(
                     row,
                     &format!("{pointer}/{}", key.replace('~', "~0").replace('/', "~1")),
                     candidates,
+                    preserve_intent,
                 );
             }
         }
@@ -517,6 +535,17 @@ fn compact_collections(
     result: &mut ListOutput,
     toon: bool,
     budget: usize,
+    finalize: impl FnMut(&mut Value),
+) {
+    compact_collections_with_policy(result, toon, budget, true, finalize);
+}
+
+/// Use the identical compactor for delivery and for the pinned historical omission measurement.
+fn compact_collections_with_policy(
+    result: &mut ListOutput,
+    toon: bool,
+    budget: usize,
+    preserve_intent: bool,
     mut finalize: impl FnMut(&mut Value),
 ) {
     for _ in 0..64 {
@@ -526,7 +555,11 @@ fn compact_collections(
             break;
         }
         let mut candidates = Vec::new();
-        collections(&result.value, "", &mut candidates);
+        if preserve_intent {
+            collections(&result.value, "", &mut candidates);
+        } else {
+            collections_with_policy(&result.value, "", &mut candidates, false);
+        }
         candidates.sort_by(|a, b| b.1.cmp(&a.1).then_with(|| a.0.cmp(&b.0)));
         let Some((pointer, length)) = candidates.first() else {
             break;
@@ -571,19 +604,29 @@ fn compact_collections(
     }
 }
 
+/// Versioned collection behavior and the source of the output ceiling.
+#[derive(Clone, Copy)]
+struct CompactionPolicy {
+    /// Receipt spelling of the effective ceiling.
+    source: &'static str,
+    /// Protect declarations for delivery; historical projections are measured only.
+    preserve_intent: bool,
+}
+
 /// Chooses the largest row collection and retains its largest feasible prefix.
 fn compact_rows(
     result: &mut ListOutput,
     state: &Continuation,
     budget: usize,
-    source: &str,
+    policy: CompactionPolicy,
     hints: &[String],
     measured: usize,
     options: &ListOptions,
 ) {
+    let source = policy.source;
     let unbounded_amount = options.output_limit.as_deref() == Some("unbounded");
     let toon = options.toon;
-    compact_collections(result, toon, budget, |value| {
+    let finalize_rows = |value: &mut Value| {
         finalize(
             value,
             state,
@@ -593,7 +636,12 @@ fn compact_rows(
             measured,
             unbounded_amount,
         );
-    });
+    };
+    if policy.preserve_intent {
+        compact_collections(result, toon, budget, finalize_rows);
+    } else {
+        compact_collections_with_policy(result, toon, budget, false, finalize_rows);
+    }
     finalize(
         &mut result.value,
         state,
@@ -632,17 +680,38 @@ fn compact_budget(
     } else {
         "canonical"
     };
+    let original = result["context_intent"].is_object().then(|| result.clone());
     compact_rows(
         &mut result,
         state,
         budget,
-        source,
+        CompactionPolicy {
+            source,
+            preserve_intent: true,
+        },
         &hints,
         measured,
         options,
     );
     if measure(&result, options.toon) > budget {
-        let omitted_estimate = measure(&result, options.toon);
+        let legacy_estimate = original
+            .map(|mut legacy| {
+                compact_rows(
+                    &mut legacy,
+                    state,
+                    budget,
+                    CompactionPolicy {
+                        source,
+                        preserve_intent: false,
+                    },
+                    &hints,
+                    measured,
+                    options,
+                );
+                measure(&legacy, options.toon)
+            })
+            .unwrap_or_default();
+        let omitted_estimate = measure(&result, options.toon).max(legacy_estimate);
         let mut minimal = receipt_for(options, default_budget, state.command);
         minimal["legacy_aliases_used"] = json!([]);
         minimal["migration_hints"] = json!([]);
@@ -858,14 +927,32 @@ pub(crate) fn apply_orientation(
     update_orientation_output(&mut result, options.toon);
     let measured = measure(&result, options.toon);
     if measured > budget {
-        let changed = compact_strings(&mut result.value);
-        result.value["read_output"]["strings_compacted"] = json!(changed);
-        compact_collections(&mut result, options.toon, budget, |value| {
-            finalize_orientation(value, &states, budget, source, &hints, measured, command);
-        });
-        update_orientation_output(&mut result, options.toon);
+        let original = result["context_intent"].is_object().then(|| result.clone());
+        // A compatibility projection is measured only after delivery is impossible;
+        // its compacted declaration is never returned to a caller.
+        let compact = |target: &mut ListOutput, preserve_intent: bool| {
+            let changed = compact_strings(&mut target.value);
+            target.value["read_output"]["strings_compacted"] = json!(changed);
+            compact_collections_with_policy(
+                target,
+                options.toon,
+                budget,
+                preserve_intent,
+                |value| {
+                    finalize_orientation(value, &states, budget, source, &hints, measured, command);
+                },
+            );
+            update_orientation_output(target, options.toon);
+        };
+        compact(&mut result, true);
         if measure(&result, options.toon) > budget {
-            let omitted = measure(&result, options.toon);
+            let legacy_estimate = original
+                .map(|mut legacy| {
+                    compact(&mut legacy, false);
+                    measure(&legacy, options.toon)
+                })
+                .unwrap_or_default();
+            let omitted = measure(&result, options.toon).max(legacy_estimate);
             let mut minimal = refusal_receipt;
             minimal
                 .as_object_mut()

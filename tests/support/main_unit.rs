@@ -1923,6 +1923,34 @@ fn current_orientation_diagnostics_preserve_other_commands()
 #[test]
 fn context_warning_rendering_preserves_refusal_metadata() -> Result<(), Box<dyn std::error::Error>>
 {
+    let root = tempfile::tempdir()?;
+    let pm = root.path().join(".agents/pm");
+    fs::create_dir_all(pm.join("tasks"))?;
+    fs::create_dir(pm.join("history"))?;
+    for settings in ["{}", r#"{"context":{"activity_limit":0}}"#] {
+        fs::write(pm.join("settings.json"), settings)?;
+        let result = pm_rust::Workspace::discover(root.path())?.context(
+            &pm_rust::ContextOptions {
+                no_extension_health: true,
+                ..Default::default()
+            },
+            "2026-08-22T10:00:00.000Z",
+        )?;
+        for json in [false, true] {
+            let mut output = Vec::new();
+            let mut diagnostics = Vec::new();
+            super::write_context_to(&mut output, &mut diagnostics, &result, json)?;
+            assert!(!output.is_empty());
+            assert_eq!(diagnostics.is_empty(), settings == "{}");
+            assert!(
+                super::write_context_to(&mut WriteFailure, &mut Vec::new(), &result, json).is_err()
+            );
+            assert_eq!(
+                super::write_context_to(&mut Vec::new(), &mut WriteFailure, &result, json).is_err(),
+                settings != "{}"
+            );
+        }
+    }
     let warning = "synthetic settings warning";
     for json in [false, true] {
         let mut bytes = Vec::new();
@@ -1946,5 +1974,28 @@ fn context_warning_rendering_preserves_refusal_metadata() -> Result<(), Box<dyn 
         serde_json::json!(["settings_read_invalid_schema"])
     );
     assert_eq!(refusal["warning_details"][0]["message"], warning);
+    for detail in ["merge conflict markers", "invalid item", "item I/O failure"] {
+        for json in [false, true] {
+            for warning in [None, Some(warning)] {
+                let error = std::io::Error::other(detail);
+                let mut bytes = Vec::new();
+                super::write_runtime_error_to(&mut bytes, &error, warning, json)?;
+                if json && warning.is_some() {
+                    let payload: serde_json::Value = serde_json::from_slice(&bytes)?;
+                    assert_eq!(payload["error"], format!("pm-rust: {detail}"));
+                    assert_eq!(
+                        payload["warning_details"][0]["message"],
+                        warning.unwrap_or_default()
+                    );
+                } else {
+                    assert_eq!(bytes, format!("pm-rust: {detail}\n").as_bytes());
+                }
+                assert!(
+                    super::write_runtime_error_to(&mut WriteFailure, &error, warning, json)
+                        .is_err()
+                );
+            }
+        }
+    }
     Ok(())
 }

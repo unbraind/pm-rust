@@ -67,12 +67,13 @@ export function copyWorkingTree(source: string, scratch: string): void {
 }
 
 /** Filter platform-specific proof contracts before baseline checks, with an explicit skip receipt. */
-export function supportedProofs<T extends { test: string }>(proofs: T[], selected?: string, platform: NodeJS.Platform = process.platform, report: (message: string) => void = console.log): T[] {
+export function supportedProofs<T extends { test: string; name?: string; unixOnly?: boolean }>(proofs: T[], selected?: string, platform: NodeJS.Platform = process.platform, report: (message: string) => void = console.log): T[] {
   return proofs.filter(proof => {
-    if (selected && !proof.test.includes(selected)) return false;
-    if (platform !== 'win32' || !/\bSIG(?:INT|TERM)\b/.test(proof.test)) return true;
-    if (selected) throw new Error('Selected signal proof requires a Unix host');
-    report(JSON.stringify({ skipped: proof.test, reason: 'Signal proof requires a Unix host' }));
+    if (selected && !(proof.name ?? proof.test).includes(selected)) return false;
+    if (platform !== 'win32' || !(proof.unixOnly || /\bSIG(?:INT|TERM)\b/.test(proof.test))) return true;
+    const kind = proof.unixOnly ? (/symlink/.test(proof.test) ? 'symlink' : 'process') : 'signal';
+    if (selected) throw new Error(`Selected ${kind} proof requires a Unix host`);
+    report(JSON.stringify({ skipped: proof.name ?? proof.test, reason: `${kind} proof requires a Unix host` }));
     return false;
   });
 }
