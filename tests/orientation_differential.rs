@@ -2898,6 +2898,7 @@ fn warning_line(text: &str) -> Option<&str> {
 
 /// Parser refusals retain the stored settings warning exactly like the published CLI.
 #[test]
+#[allow(clippy::too_many_lines)]
 fn context_parser_refusals_preserve_settings_warnings() -> TestResult {
     let Some(published) = published_cli::published_cli_or_skip("stored settings parser refusal")
     else {
@@ -3008,7 +3009,10 @@ fn context_parser_refusals_preserve_settings_warnings() -> TestResult {
             "non-object context must not warn: {args:?}"
         );
         if encoding.is_empty() {
-            assert!(text.contains("does not support --output-cursor"), "{args:?}");
+            assert!(
+                text.contains("does not support --output-cursor"),
+                "{args:?}"
+            );
         } else {
             let payload: Value = serde_json::from_slice(&refused.stderr)?;
             assert!(payload.get("warnings").is_none(), "{args:?}");
@@ -3028,10 +3032,12 @@ fn context_parser_refusals_preserve_settings_warnings() -> TestResult {
     ] {
         let mut args: Vec<String> = spelling;
         args.extend(
-            ["context", "--section", "activity", "--output-cursor", " "]
-                .map(str::to_owned),
+            ["context", "--section", "activity", "--output-cursor", " "].map(str::to_owned),
         );
-        let refused = native(root.path(), &args.iter().map(String::as_str).collect::<Vec<_>>())?;
+        let refused = native(
+            root.path(),
+            &args.iter().map(String::as_str).collect::<Vec<_>>(),
+        )?;
         assert_eq!(refused.status.code(), Some(2), "{args:?}");
         let text = String::from_utf8_lossy(&refused.stderr);
         assert!(
@@ -3075,6 +3081,29 @@ fn context_parser_refusals_preserve_settings_warnings() -> TestResult {
         text.starts_with("[pm] warning: settings_read_invalid_schema"),
         "argument-selected tracker must warn: {selected:?}"
     );
+    // Discovery still succeeds with unreadable settings. Parser refusals retain
+    // their own diagnostic instead of inventing a schema-fallback warning.
+    let malformed = b"{invalid settings";
+    fs::write(&path, malformed)?;
+    for encoding in [vec![], vec!["--json"]] {
+        let mut args = vec!["context", "--section", "activity", "--output-cursor", " "];
+        args.extend(&encoding);
+        let refused = native(root.path(), &args)?;
+        assert_eq!(refused.status.code(), Some(2), "{args:?}");
+        assert_eq!(fs::read(&path)?, malformed);
+        if encoding.is_empty() {
+            let text = String::from_utf8_lossy(&refused.stderr);
+            assert!(
+                text.contains("does not support --output-cursor"),
+                "{args:?}"
+            );
+            assert!(!text.contains("[pm] warning:"), "{args:?}");
+        } else {
+            let payload: Value = serde_json::from_slice(&refused.stderr)?;
+            assert_eq!(payload["code"], "unsupported_native_option", "{args:?}");
+            assert!(payload.get("warnings").is_none(), "{args:?}");
+        }
+    }
     Ok(())
 }
 

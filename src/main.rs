@@ -1031,9 +1031,15 @@ where
         let flags = ["--workspace", "--pm-path", "--path"];
         if flags.iter().any(|flag| raw == std::ffi::OsStr::new(flag)) {
             prefix.push(raw.to_owned());
-            if let Some(value) = values.next() {
-                prefix.push(value.as_ref().to_owned());
-            }
+            // Parser refusals reach this scanner only with a context command,
+            // so a leading workspace flag always has a following argument.
+            // Extend directly, retaining parser fallback for incomplete input.
+            prefix.extend(
+                values
+                    .by_ref()
+                    .take(1)
+                    .map(|value| value.as_ref().to_owned()),
+            );
         } else if flags.iter().any(|flag| {
             raw.as_encoded_bytes()
                 .starts_with(format!("{flag}=").as_bytes())
