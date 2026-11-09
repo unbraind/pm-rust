@@ -1054,13 +1054,13 @@ fn context_path_usage(args: &[String]) -> Option<(serde_json::Value, bool)> {
     if args.first().is_none_or(|command| command != "context") {
         return None;
     }
+    let mut args = orientation_arguments(args);
     let index = args.windows(2).position(|pair| {
         matches!(
             pair[0].as_str(),
             "--activity-limit" | "--limit" | "--token-budget"
         ) && matches!(pair[1].split('=').next(), Some("--path" | "--pm-path"))
     })?;
-    let mut args = args.to_vec();
     args[index + 1] = args[index + 1].replacen("--path", "--pm-path", 1);
     let separate_path = args[index + 1] == "--pm-path";
     let surface = if separate_path && args.get(index + 2).is_none() {
@@ -1443,13 +1443,15 @@ fn unhandled_error_json(detail: &str, exit_code: u8) -> serde_json::Value {
     serde_json::json!({"code":"unknown_error","required":"Inspect command input and runtime state, then retry.","exit_code":exit_code,"type":"urn:pm-cli:error:unknown_error","title":"Unhandled error","detail":detail,"why":"Unexpected runtime failures can occur from environment or extension-level issues.","examples":["pm --help","pm health --json"],"refusal":{"surface":"command","exit_code":exit_code}})
 }
 
-/// Preserves the published canonical dependency spelling in recovery arguments.
+/// Preserves published context aliases and the dependency namespace in recovery arguments.
 fn orientation_arguments(args: &[String]) -> Vec<String> {
     let mut args = args.to_vec();
     if args.first().is_some_and(|arg| arg == "context") {
         for arg in &mut args {
             if arg == "--token_budget" || arg.starts_with("--token_budget=") {
                 *arg = arg.replacen("--token_budget", "--token-budget", 1);
+            } else if arg == "--max-items" || arg.starts_with("--max-items=") {
+                *arg = arg.replacen("--max-items", "--limit", 1);
             }
         }
     }

@@ -7,13 +7,13 @@ status: in_progress
 priority: 2
 tags[4]: "gh:unbraind/pm-rust#154",native,oracle,orientation
 created_at: "2026-11-06T09:15:56.754Z"
-updated_at: "2026-11-09T18:35:57.534Z"
+updated_at: "2026-11-09T19:30:56.105Z"
 assignee: codex-agent
 claim_principal: codex-agent
 author: codex-astra
 acceptance_criteria: "JSON and TOON bytes, status and stderr match the oracle on generated non-git trackers and public tracker copies; retain typed calendar and memory refusals; focused tests fail on behavioral revert; record latency and differential counts."
 parent: pm-rust-s6j4
-comments[94]{created_at,author,text}:
+comments[95]{created_at,author,text}:
   "2026-11-06T09:28:14.771Z",codex-astra,"Implemented core intent preparation, section selection, activity bounds and intent receipts. Current-oracle exploration identified three inherited context drifts: bounded activity excludes timestamps at or after the read clock; test health covers all matching active items and declares its scope; TOON auto-tables choose compact list/null columns only when shorter. Bringing these paths to the requested November contract before running the public-copy corpus."
   "2026-11-06T09:44:02.034Z",codex-astra,"Public-copy packet differential exposed the newer required-root-evidence-first-v1 ordering, reserved root-edge budget, root-edge priority and bounded-relationship omission receipt. Porting those native packet semantics as part of this slice, including updated producer fingerprints. No legacy packet result is being counted as current-oracle evidence."
   "2026-11-06T10:08:53.263Z",codex-astra,"Generated intent comparisons passed before the final expanded matrix. Public-copy exploration exposed the distinction between compact intent estimates and complete JSON wire ceilings, now handled by the shared output-budget path. Current dependency packets also require root-evidence-first ordering and revised refusal text; preserving the existing bounded retry test while eliminating repeated rendering of identical packets."
@@ -108,7 +108,8 @@ comments[94]{created_at,author,text}:
   "2026-11-09T18:14:39.235Z",codex-agent,"PRRT_kwDOTwgMRs61TMql: added rustdoc on Intent::attach explaining that omission recovery drops explicit sections and activity controls; retry the original command with a larger token budget starting at restore_with and increase as needed. Documentation only. Other scoped fixes remain in progress."
   "2026-11-09T18:20:13.570Z",codex-agent,"Native fixes now pass the new focused comparisons: list stabilization admits 11 rows at 1403 tokens and six rows at 1401 tokens with exact published bytes; whole-document context fallback passes 28 comparisons; refusal argument roles pass 30 comparisons, including the published global-path alias parser behavior. Shared settings validation precedes schema, lifecycle, search, context, session, identity and mutation projections. Versionless legacy partial documents preserve existing null-alias and fractional-search-limit reader contracts; versioned documents use the published supplied-field schema. Admission refusals remain conservative. Earlier broad native failures identified legacy compatibility and strict-preview boundaries, now covered by unchanged focused assertions; the transient session self-exec fixture passes on isolated retry. Independent function reverts and the complete pinned-nightly four-metric run are underway."
   "2026-11-09T18:35:57.528Z",codex-agent,"Scoped native changes are ready for commit. PRRT_kwDOTwgMRs61TMqr stabilizes the list intent together with each wire estimate before admission; its unit and published-oracle tests both fail when that function change is removed. The 1403/1401-token cases retain 11/six rows with exact bytes. PRRT_kwDOTwgMRs61VSbU routes settings projections through whole-document validation before use; invalid unrelated sections discard all context overrides and warn. Required fields are enforced in versioned settings, while supported versionless native partial documents preserve their old reader contract. PRRT_kwDOTwgMRs61VSbR retains rejected flag-shaped values and matches the published path-alias parser roles; its unit and 30-case oracle regressions both fail on the original argument-normalization function. All four linked tests pass with results recording disabled. Six distinct negative controls reached named assertion failures in the disposable source copy; restored controls and final-schema revalidation are being completed. Formatting, strict Clippy, private-item Rustdoc, TypeScript, ESLint, clean-home self-host health and the allowed-advisory audit pass. No final coverage claim yet; the full pinned-nightly run is executing."
-files[64]:
+  "2026-11-09T19:30:56.102Z",codex-agent,"VSbR class completion: legacy --max-items and --token_budget aliases now preserve the same numeric argument roles and canonical recovery spelling as the published CLI. The expanded 50-case exact differential passes, including native-only flag-shaped values and global path aliases in both encodings. Reverting context_path_usage alone and orientation_arguments alone each fails the same unit and oracle regressions; eight fixed before/after controls pass. The coverage-only fixture retains malformed markdown refusal and adds published-schema-valid json_markdown refusal, exercising the native format boundary after whole-document validation. Complete pinned-nightly all-target/all-feature run: 780 tests across 34 targets, zero failed or ignored. Fresh instrumented CLI and changed-path runs: 45 binary tests plus the 50-case oracle test and one format-boundary library test, all passed. Verified official cargo-llvm-cov 0.9.1 archive SHA256 b3f68e625481fed9b16444174f3fa5ebcdbde4a1878803a35eabe2dcefcdc41a; this is the same reporter version used by the prior receipt. It regenerates the complete accumulated report without changing source exclusions or thresholds: lines 17967/17967, functions 1876/1876, regions 29034/29034, branches 4034/4034, all exactly 100 percent. Host 0.8.7 additionally included build.rs; no build-script behavior or coverage policy changed. Deferred issue-161 findings and all review threads remain untouched."
+files[65]:
   - path: justfile
     scope: project
   - path: scripts/context-intents-revert.mts
@@ -232,6 +233,8 @@ files[64]:
   - path: tests/support/list_intent_unit.rs
     scope: project
   - path: tests/support/main_unit.rs
+    scope: project
+  - path: tests/support/mutation_unit.rs
     scope: project
   - path: tests/support/orientation_context_unit.rs
     scope: project

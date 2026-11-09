@@ -2112,6 +2112,27 @@ fn context_refusal_argument_roles() {
         assert_eq!(payload["code"], "invalid_command_usage");
         assert_eq!(payload.get("why").is_none(), json);
     }
+    for (args, expected) in [
+        (
+            vec!["context", "--max-items", "--path", "--json"],
+            "--limit",
+        ),
+        (
+            vec!["context", "--token_budget", "--path=tracker", "--json"],
+            "--token-budget",
+        ),
+    ] {
+        let Some((payload, _)) = super::context_path_usage(&strings(&args)) else {
+            assert!(super::context_path_usage(&strings(&args)).is_some());
+            return;
+        };
+        assert_eq!(payload["refusal"]["surface"], expected);
+        assert_eq!(payload["recovery"]["normalized_args"][1], expected);
+    }
+    assert_eq!(
+        super::orientation_arguments(&strings(&["context", "--max-items=1", "--token_budget=2"])),
+        strings(&["context", "--limit=1", "--token-budget=2"])
+    );
     for flag in [
         "--activity-limit",
         "--limit",

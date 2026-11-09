@@ -3342,7 +3342,13 @@ fn context_refusal_value_roles_match_current_oracle() -> TestResult {
             .status
             .success()
     );
-    for flag in ["--activity-limit", "--limit", "--token-budget"] {
+    for flag in [
+        "--activity-limit",
+        "--limit",
+        "--token-budget",
+        "--max-items",
+        "--token_budget",
+    ] {
         for value in [
             "--path",
             "--workspace",
