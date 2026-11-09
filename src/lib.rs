@@ -37,6 +37,7 @@ mod read_projection;
 mod read_session;
 mod search;
 mod selection;
+mod settings;
 pub mod strict_json;
 mod toon_output;
 mod workspace;

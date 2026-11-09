@@ -1120,18 +1120,16 @@ impl Workspace {
         now: &str,
         global: Option<std::path::PathBuf>,
     ) -> Result<ListOutput, PmRustError> {
-        let mut settings = crate::ownership::runtime_settings(self.pm_root())?;
-        if settings
-            .get("context")
-            .is_some_and(|context| !context.is_object())
-        {
+        let read = crate::ownership::runtime_settings(self.pm_root())?;
+        let mut settings = read.value;
+        if read.unsupported_context {
             return Err(crate::collections::refusal(
                 "Native context does not certify invalid context settings diagnostics; use the published pm CLI.",
                 2,
                 json!({"code":"unsupported_native_context","field":"settings.context","required":"Use object-valued context settings or the published pm CLI for schema-warning fallback."}),
             ));
         }
-        let settings_fallback = sections::settings_fallback(&mut settings);
+        let settings_fallback = read.fallback | sections::settings_fallback(&mut settings);
         self.context_with_settings(options, now, global, settings, settings_fallback)
             .map_err(|error| {
                 if settings_fallback {
@@ -1152,15 +1150,13 @@ impl Workspace {
     /// unreadable tracker produces no warning: the runtime path owns that error.
     #[must_use]
     pub fn context_settings_warning(&self) -> Option<&'static str> {
-        let mut settings = crate::ownership::runtime_settings(self.pm_root()).ok()?;
-        if settings
-            .get("context")
-            .is_some_and(|context| !context.is_object())
-        {
+        let read = crate::ownership::runtime_settings(self.pm_root()).ok()?;
+        let mut settings = read.value;
+        if read.unsupported_context {
             // The hard non-object refusal boundary matches the runtime path.
             return None;
         }
-        let fallback = sections::settings_fallback(&mut settings);
+        let fallback = read.fallback | sections::settings_fallback(&mut settings);
         fallback.then_some(crate::json_output::SETTINGS_FALLBACK_WARNING)
     }
 

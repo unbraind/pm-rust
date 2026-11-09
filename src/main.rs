@@ -761,9 +761,7 @@ fn run_collection_with_cwd(
     args: CollectionArgs,
     cwd: std::io::Result<PathBuf>,
 ) -> Result<(), Box<dyn std::error::Error>> {
-    let settings: serde_json::Value = pm_rust::strict_json::from_str(&std::fs::read_to_string(
-        workspace.pm_root().join("settings.json"),
-    )?)?;
+    let settings = workspace.read_settings()?;
     let identity = mutation_identity(args.author.as_deref(), settings["author_default"].as_str());
     let result = workspace.collection(
         &args.id,
@@ -885,9 +883,7 @@ fn ownership_request(
             reason: "author must not be empty".to_owned(),
         }));
     }
-    let settings: serde_json::Value = pm_rust::strict_json::from_slice(&std::fs::read(
-        workspace.pm_root().join("settings.json"),
-    )?)?;
+    let settings = workspace.read_settings()?;
     let identity = mutation_identity(args.author.as_deref(), settings["author_default"].as_str());
     let request = OwnershipItem {
         id: args.id.unwrap_or_default(),
@@ -912,9 +908,7 @@ fn scalar_identity(
     workspace: &Workspace,
     author: Option<&str>,
 ) -> Result<AuthorIdentity, Box<dyn std::error::Error>> {
-    let settings: serde_json::Value = pm_rust::strict_json::from_slice(&std::fs::read(
-        workspace.pm_root().join("settings.json"),
-    )?)?;
+    let settings = workspace.read_settings()?;
     Ok(mutation_identity(
         author,
         settings["author_default"].as_str(),
@@ -1055,9 +1049,54 @@ where
     Cli::try_parse_from(prefix).map_or_else(|_| PathBuf::from("."), |cli| cli.workspace)
 }
 
+/// Preserves the published parser role when a context value names its global path option.
+fn context_path_usage(args: &[String]) -> Option<(serde_json::Value, bool)> {
+    if args.first().is_none_or(|command| command != "context") {
+        return None;
+    }
+    let index = args.windows(2).position(|pair| {
+        matches!(
+            pair[0].as_str(),
+            "--activity-limit" | "--limit" | "--token-budget"
+        ) && matches!(pair[1].split('=').next(), Some("--path" | "--pm-path"))
+    })?;
+    let mut args = args.to_vec();
+    args[index + 1] = args[index + 1].replacen("--path", "--pm-path", 1);
+    let separate_path = args[index + 1] == "--pm-path";
+    let surface = if separate_path && args.get(index + 2).is_none() {
+        "--pm-path"
+    } else {
+        args[index].as_str()
+    };
+    let metavar = if surface == "--pm-path" { "dir" } else { "n" };
+    let detail = format!("error: option '{surface} <{metavar}>' argument missing");
+    // Commander consumes the following token as the global path, even --json.
+    let json = json_requested(&args)
+        && !(separate_path && args.get(index + 2).is_some_and(|arg| arg == "--json"));
+    let context = serde_json::json!({"code":"invalid_command_usage","required":"Use the command with valid arguments and options.","title":"Invalid command usage","examples":["pm --help","pm context --help"]});
+    let mut payload = orientation_error_json(&detail, &context, &args, 2);
+    payload["refusal"] = serde_json::json!({"surface":surface,"exit_code":2});
+    if json {
+        payload.as_object_mut().map(|map| map.shift_remove("why"));
+    } else {
+        payload["why"] = serde_json::json!("Commander validates CLI contracts before execution.");
+    }
+    Some((payload, json))
+}
+
 /// Parses the command line and maps success or failure to the process exit code.
 #[allow(clippy::too_many_lines)]
 fn main() -> ExitCode {
+    let args = published_read_arguments(std::env::args_os().skip(1));
+    if let Some((payload, json)) = context_path_usage(&args) {
+        let mut stderr = std::io::stderr().lock();
+        let _ = if json {
+            write_json_to(&mut stderr, &payload)
+        } else {
+            write_cursor_refusal_to(&mut stderr, &payload)
+        };
+        return ExitCode::from(2);
+    }
     let cli = match Cli::try_parse_from(native_arguments(std::env::args_os().collect())) {
         Ok(cli) => cli,
         Err(error) => {
@@ -1705,6 +1744,20 @@ where
             .any(|prefix| arg.starts_with(prefix))
         {
             arguments.push(arg);
+            // These options accept flag-shaped values. Preserve that role before
+            // considering native-only controls in the next iteration.
+            if arguments.last().is_some_and(|arg| {
+                matches!(
+                    arg.as_str(),
+                    "--activity-limit"
+                        | "--limit"
+                        | "--max-items"
+                        | "--token-budget"
+                        | "--token_budget"
+                )
+            }) {
+                arguments.extend(args.by_ref().take(1));
+            }
         }
     }
     if arguments.starts_with(&["item".to_owned(), "deps".to_owned()]) {

@@ -1853,3 +1853,57 @@ fn configured_no_active_role_blockers_match_oracle() -> TestResult {
     compare_toon(directory.path(), &flags, true)?;
     Ok(())
 }
+
+/// A one-digit estimate increase cannot push the admitted list packet over its wire ceiling.
+#[test]
+fn triage_stabilized_wire_budget_matches_published() -> TestResult {
+    let directory = fixture(12, 1)?;
+    let tasks = directory.path().join(".agents/pm/tasks");
+    for index in 0..12 {
+        let id = format!("demo-{index:04}");
+        let width = match index {
+            0 => 500,
+            10 => 59,
+            _ => 51,
+        };
+        fs::write(
+            tasks.join(format!("{id}.toon")),
+            format!(
+                "id: {id}\ntitle: {}\ndescription: \"\"\ntype: Task\nstatus: open\npriority: 0\ntags: []\ncreated_at: \"2026-09-01T00:00:00.000Z\"\nupdated_at: \"2026-09-01T00:00:00.000Z\"\nbody: \"\"\n",
+                "x".repeat(width)
+            ),
+        )?;
+    }
+    let flags = [
+        "--for",
+        "triage",
+        "--output-limit",
+        "11",
+        "--output-budget",
+        "1403",
+    ];
+    let output = compare(directory.path(), &flags, true)?;
+    assert_eq!(output["read_output"]["estimated_tokens"], 1402);
+    assert_eq!(
+        (pm_rust::stringify_json(&output, true).len() + 1).div_ceil(4),
+        1402
+    );
+
+    let output = compare(
+        directory.path(),
+        &[
+            "--for",
+            "triage",
+            "--output-limit",
+            "11",
+            "--output-budget",
+            "1401",
+        ],
+        true,
+    )?;
+    assert_eq!(output["read_output"]["within_budget"], true);
+    assert_eq!(output["read_output"]["estimated_tokens"], 1340);
+    assert_eq!(output["count"], 6);
+    assert!((pm_rust::stringify_json(&output, true).len() + 1).div_ceil(4) <= 1401);
+    Ok(())
+}

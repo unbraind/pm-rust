@@ -212,7 +212,7 @@ impl Workspace {
                 )
             })
             .transpose()?;
-        let settings = crate::ownership::runtime_settings(self.pm_root())?;
+        let settings = crate::ownership::runtime_settings(self.pm_root())?.value;
         let prefix = settings["id_prefix"].as_str().unwrap_or_default();
         let normalized = if id.contains('-') || prefix.is_empty() {
             id.to_owned()

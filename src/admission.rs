@@ -546,17 +546,19 @@ impl Source {
         {
             source.root = root.to_path_buf();
         }
-        let settings = source.json(root, Path::new("settings.json"))?;
+        let read = crate::settings::validated(source.json(root, Path::new("settings.json"))?);
+        let settings = read.value;
         crate::mutation::validate_preview_settings(&source.files[Path::new("settings.json")])
             .map_err(|_| source_error())?;
-        let mut unsupported = [
-            &settings["schema"]["fields"],
-            &settings["schema"]["type_workflows"],
-            &settings["item_types"]["definitions"],
-            &settings["validation"]["metadata_required_fields"],
-        ]
-        .iter()
-        .any(|v| declares_contract(v));
+        let mut unsupported = read.fallback
+            || [
+                &settings["schema"]["fields"],
+                &settings["schema"]["type_workflows"],
+                &settings["item_types"]["definitions"],
+                &settings["validation"]["metadata_required_fields"],
+            ]
+            .iter()
+            .any(|v| declares_contract(v));
         let mut statuses = crate::list_registry::default_schema("statuses");
         let mut workflows = crate::list_registry::default_schema("workflows");
         for (name, key) in [

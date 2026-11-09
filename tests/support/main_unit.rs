@@ -2064,3 +2064,62 @@ fn parser_refusal_workspace_selection_matches_native_scope()
     }
     Ok(())
 }
+
+/// Refusal normalization preserves rejected values and the published path-option parser roles.
+#[test]
+fn context_refusal_argument_roles() {
+    let strings = |args: &[&str]| args.iter().map(|arg| (*arg).to_owned()).collect::<Vec<_>>();
+    for args in [
+        vec![],
+        vec!["list"],
+        vec!["context"],
+        vec!["context", "--limit", "bad"],
+        vec!["context", "--activity-limit", "--workspace", "--json"],
+    ] {
+        assert!(super::context_path_usage(&strings(&args)).is_none());
+    }
+    for (args, json, surface) in [
+        (
+            vec!["context", "--activity-limit", "--path"],
+            false,
+            "--pm-path",
+        ),
+        (
+            vec!["context", "--activity-limit", "--path", "--json"],
+            false,
+            "--activity-limit",
+        ),
+        (
+            vec!["context", "--limit", "--pm-path", "tracker", "--json"],
+            true,
+            "--limit",
+        ),
+        (
+            vec!["context", "--token-budget", "--path=tracker", "--json"],
+            true,
+            "--token-budget",
+        ),
+    ] {
+        let Some((payload, actual_json)) = super::context_path_usage(&strings(&args)) else {
+            assert!(
+                super::context_path_usage(&strings(&args)).is_some(),
+                "missing parser refusal"
+            );
+            return;
+        };
+        assert_eq!(actual_json, json);
+        assert_eq!(payload["refusal"]["surface"], surface);
+        assert_eq!(payload["code"], "invalid_command_usage");
+        assert_eq!(payload.get("why").is_none(), json);
+    }
+    for flag in [
+        "--activity-limit",
+        "--limit",
+        "--max-items",
+        "--token-budget",
+        "--token_budget",
+    ] {
+        let args = strings(&["context", flag, "--path", "--json"]);
+        assert_eq!(super::published_read_arguments(args.clone()), args);
+    }
+}

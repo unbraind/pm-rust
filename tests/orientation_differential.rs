@@ -3254,3 +3254,110 @@ fn context_invalid_author_fallback_matches_current_oracle() -> TestResult {
     assert!(!root.path().join(".git").exists());
     Ok(())
 }
+
+/// Invalid unrelated sections discard all context overrides before ordinary reads.
+#[test]
+fn context_invalid_document_discards_overrides_matches_oracle() -> TestResult {
+    let Some(published) = published_cli::published_cli_or_skip("whole settings document") else {
+        return Ok(());
+    };
+    let scratch = tempfile::tempdir()?;
+    let Some(driver) = orientation_driver(scratch.path(), &published)? else {
+        return Ok(());
+    };
+    let root = tempfile::tempdir()?;
+    assert!(
+        oracle(&driver, root.path(), &["init", "sample-", "--defaults"])?
+            .status
+            .success()
+    );
+    fixture(root.path(), &[item("sample-activity", "Task", "open", 1)])?;
+    let records: Vec<_> = (0..12).map(|i|json!({"ts":format!("2026-08-21T10:{i:02}:00.000Z"),"op":"update","author":"fixture","patch":[]})).collect();
+    fs::write(
+        root.path().join(".agents/pm/history/sample-activity.jsonl"),
+        json_lines(&records),
+    )?;
+    let path = root.path().join(".agents/pm/settings.json");
+    let original: Value = serde_json::from_slice(&fs::read(&path)?)?;
+    for (key, value, invalid) in [
+        ("extensions", json!(42), true),
+        ("extensions", json!({"enabled":[42],"disabled":[]}), true),
+        ("search", json!({"max_results":"bad"}), true),
+        ("providers", json!({"ollama":{"model":false}}), true),
+        ("locks", json!({"ttl_seconds":1.5}), true),
+        ("extensions", original["extensions"].clone(), false),
+        ("future_section", json!({"unknown":null}), false),
+    ] {
+        let mut settings = original.clone();
+        settings[key] = value;
+        settings["context"] = json!({"activity_limit":1});
+        let before = serde_json::to_vec_pretty(&settings)?;
+        fs::write(&path, &before)?;
+        for args in [
+            vec!["context", "--section", "activity"],
+            vec!["context", "--section", "activity", "--json"],
+            vec![
+                "context",
+                "--section",
+                "activity",
+                "--activity-limit",
+                "0",
+                "--json",
+            ],
+            vec!["context", "--activity-limit", "bad", "--json"],
+        ] {
+            let expected = oracle(&driver, root.path(), &args)?;
+            compare(&expected, &native(root.path(), &args)?, &args);
+            assert_eq!(fs::read(&path)?, before);
+            assert_eq!(
+                String::from_utf8_lossy(&expected.stderr).contains("settings_read_invalid_schema"),
+                invalid
+            );
+            if args.get(1) == Some(&"--section") && args.len() == 4 {
+                let output: Value = serde_json::from_slice(&expected.stdout)?;
+                assert_eq!(
+                    output["activity"].as_array().map(Vec::len),
+                    Some(if invalid { 10 } else { 1 })
+                );
+            }
+        }
+    }
+    assert!(!root.path().join(".git").exists());
+    Ok(())
+}
+
+/// Flag-shaped rejected values retain their argument role and JSON recovery bytes.
+#[test]
+fn context_refusal_value_roles_match_current_oracle() -> TestResult {
+    let Some(published) = published_cli::published_cli_or_skip("refusal argument roles") else {
+        return Ok(());
+    };
+    let scratch = tempfile::tempdir()?;
+    let Some(driver) = orientation_driver(scratch.path(), &published)? else {
+        return Ok(());
+    };
+    let root = tempfile::tempdir()?;
+    assert!(
+        oracle(&driver, root.path(), &["init", "sample-", "--defaults"])?
+            .status
+            .success()
+    );
+    for flag in ["--activity-limit", "--limit", "--token-budget"] {
+        for value in [
+            "--path",
+            "--workspace",
+            "--pm-path",
+            "--timestamp",
+            "--path=bad",
+        ] {
+            for encoding in [vec![], vec!["--json"]] {
+                let mut args = vec!["context", flag, value];
+                args.extend(encoding);
+                let expected = oracle(&driver, root.path(), &args)?;
+                assert_eq!(expected.status.code(), Some(2));
+                compare(&expected, &native(root.path(), &args)?, &args);
+            }
+        }
+    }
+    Ok(())
+}

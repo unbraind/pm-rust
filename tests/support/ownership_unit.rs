@@ -538,12 +538,12 @@ fn external_runtime_schema_precedence_and_errors() -> Result<(), Box<dyn std::er
         root.join("workflows.json"),
         r#"{"workflow":{"open_status":"ready"},"type_workflows":[]}"#,
     )?;
-    let settings = runtime_settings(root)?;
+    let settings = runtime_settings(root)?.value;
     assert_eq!(settings["schema"]["workflow"]["open_status"], "ready");
     assert_eq!(settings["schema"]["statuses"][0]["id"], "ready");
     fs::write(root.join("workflows.json"), "{}")?;
     assert_eq!(
-        runtime_settings(root)?["schema"]["workflow"]["open_status"],
+        runtime_settings(root)?.value["schema"]["workflow"]["open_status"],
         "open"
     );
     for invalid in ["[]", "invalid"] {

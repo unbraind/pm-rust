@@ -31,6 +31,10 @@ fn update_output(result: &mut ListOutput, toon: bool) {
         }
         result.value["read_output"]["estimated_tokens"] = json!(measured);
     }
+    // Intent estimates can grow a digit and change admission during compaction.
+    if result["context_intent"]["command"] == "list" {
+        crate::list_intent::stabilize(result);
+    }
 }
 
 /// Stabilizes current wire receipts while preserving estimates for an omitted intent result.

@@ -25,7 +25,7 @@ pub(crate) struct Lifecycle {
 impl Lifecycle {
     /// Loads embedded statuses, then optional schema-file additions and overrides.
     pub(crate) fn load(root: &Path) -> Result<Self, PmRustError> {
-        let settings = crate::ownership::read_json(&root.join("settings.json"))?;
+        let settings = crate::settings::read(root)?.value;
         let mut schema = settings["schema"].clone();
         if !schema.is_object() {
             schema = json!({});

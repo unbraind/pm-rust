@@ -39,7 +39,7 @@ impl Workspace {
                 "--max-attempts must be an integer from 1 to 100",
             ));
         }
-        let settings = crate::ownership::runtime_settings(self.pm_root())?;
+        let settings = crate::ownership::runtime_settings(self.pm_root())?.value;
         let corpus = self.read_items()?;
         let candidates = candidates(self, &corpus, &settings, request, selection)?;
         // Published selection forwards the resolved display author as an asserted

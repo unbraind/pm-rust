@@ -935,3 +935,24 @@ fn growing_compaction_probes_preserve_custom_focus_classifications()
     }
     Ok(())
 }
+
+/// Final list intent stabilization is included in the budget admission decision.
+#[test]
+fn list_intent_stabilization_respects_wire_budget() -> Result<(), Box<dyn std::error::Error>> {
+    let source = json!({"items":(0..12).map(|i|json!({"id":format!("demo-{i:04}"),"title":"x".repeat(match i {0=>500,10=>59,_=>51}),"status":"open","type":"Task","priority":0,"parent":null,"assignee":null,"risk":null,"blocked_by":null})).collect::<Vec<_>>(),"count":12,"total":12,"applied_limit":100,"has_more":false,"truncated":false,"next_cursor":null,"completeness":{"status":"complete","unreadable_item_count":0,"unreadable_directory_count":0},"filters":{"limit":"100","runtime_filters":{},"fields":"id,title,status,type,priority,parent,assignee,risk,blocked_by"},"projection":{"mode":"fields","fields":crate::list_intent::FIELDS},"sorting":{"sort":"default","order":"asc","effective_keys":[["status_registry:nonterminal_before_terminal","asc"],["priority","asc"],["updated_at","desc"],["id","asc"]]},"now":"2026-10-02T10:00:00.000Z","omission_receipt":{"has_omissions":true,"omitted_field_group_count":1,"omitted_field_groups":[{"name":"full_item_fields","restore_with":"--full"}]}});
+    for (budget, measured, count) in [(1403, 1402, 11), (1401, 1340, 6)] {
+        let options = ListOptions {
+            intent: Some("triage".to_owned()),
+            output_limit: Some("11".to_owned()),
+            output_budget: Some(budget.to_string()),
+            ..Default::default()
+        };
+        let source = crate::list_intent::attach(source.clone(), &options, 3200);
+        let output = super::apply(source, &options)?;
+        assert_eq!(output["read_output"]["within_budget"], true);
+        assert_eq!(super::measure(&output, false), measured);
+        assert_eq!(output["count"], count);
+        assert!(super::measure(&output, false) <= budget);
+    }
+    Ok(())
+}
