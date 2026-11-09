@@ -23,6 +23,7 @@ export function assertNamedTests(result: TestOutcome, names: string[], reverted:
   assert.equal(result.status, reverted ? (node ? 1 : 101) : 0, `Unexpected test exit status\n${output}`);
   assert.ok(names.length > 0, 'A proof must select named tests');
   assert.doesNotMatch(output, /could not compile/);
+  assert.doesNotMatch(output, /testTimeoutFailure|cancelledByParent|test timed out after|cancelled by parent/i);
   for (const name of names) {
     const escaped = escapeTestName(name);
     const line = node

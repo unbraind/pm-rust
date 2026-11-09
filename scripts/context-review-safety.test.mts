@@ -1,7 +1,7 @@
 /** Adversarial boundary tests for every proof runner and real-copy receipt. */
 import assert from 'node:assert/strict';
 import { spawn, spawnSync } from 'node:child_process';
-import { existsSync, lstatSync, mkdirSync, mkdtempSync, readFileSync, rmSync, symlinkSync, writeFileSync } from 'node:fs';
+import { existsSync, lstatSync, mkdirSync, mkdtempSync, readdirSync, readFileSync, rmSync, symlinkSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { test } from 'node:test';
@@ -15,6 +15,11 @@ import { syncSpawnBridge } from './context-test-process-shim.mts';
 
 const packageRoot = fileURLToPath(new URL('..', import.meta.url));
 const runners = ['context-intents-revert.mts', 'context-packet-review-revert.mts', 'context-review-revert.mts', 'context-safety-revert.mts', 'native-adapter-revert.mts', 'native-adapter-capabilities-revert.mts', 'native-adapter-capabilities-review-revert.mts', 'native-adapter-changes-revert.mts', 'perf-revert-proof.mts'];
+
+/** Keep simulated PIDs and refused cleanup registries inside the disposable fixture. */
+function simulationEnvironment(root: string): NodeJS.ProcessEnv {
+  return { ...process.env, PM_PROOF_PROCESS_REGISTRY: root, TMPDIR: root, TEMP: root, TMP: root };
+}
 
 /** Build a public synthetic source copy with shared read-only oracle installations. */
 function fixture(root: string): string {
@@ -46,7 +51,7 @@ childProcess.spawn = () => { throw new Error('unsupported proof reached a baseli
 syncBuiltinESMExports();
 `);
     const result = spawnSync(process.execPath, ['--import', pathToFileURL(shim).href, join(packageRoot, 'scripts/context-review-revert.mts'), 'SIGTERM'], {
-      cwd: packageRoot, encoding: 'utf8', timeout: 30_000, env: { ...process.env, TEMP: root, TMP: root },
+      cwd: packageRoot, encoding: 'utf8', timeout: 30_000, env: simulationEnvironment(root),
     });
     assert.equal(result.status, 1);
     assert.match(result.stderr, /Selected signal proof requires a Unix host/);
@@ -87,7 +92,7 @@ Object.defineProperty(process, 'platform', {value:'win32'});
 childProcess.spawn = () => { throw new Error('unsupported baseline executed'); };
 syncBuiltinESMExports();`);
     for (const selected of ['symlink isolation', 'dependency junction', 'nested runner ownership']) {
-      const result = spawnSync(process.execPath, ['--import', pathToFileURL(shim).href, join(packageRoot, 'scripts/context-safety-revert.mts'), selected], { cwd: packageRoot, encoding: 'utf8', timeout: 30_000, env: { ...process.env, TEMP: root, TMP: root } });
+      const result = spawnSync(process.execPath, ['--import', pathToFileURL(shim).href, join(packageRoot, 'scripts/context-safety-revert.mts'), selected], { cwd: packageRoot, encoding: 'utf8', timeout: 30_000, env: simulationEnvironment(root) });
       assert.equal(result.status, 1);
       assert.match(result.stderr, /requires a Unix host/);
       assert.doesNotMatch(result.stderr, /unsupported baseline executed/);
@@ -163,7 +168,7 @@ syncBuiltinESMExports();
 const {ProofProcesses}=await import(${JSON.stringify(pathToFileURL(join(packageRoot,'scripts/context-proof-process.mts')).href)});
 const owned=new ProofProcesses();const result=await owned.run('cargo',[],{timeout:50});
 assert.ok(killed);assert.match(result.error.message,/timeout/);await owned.cleanup(scratch);assert.equal(existsSync(scratch),false);`);
-    const result=spawnSync(process.execPath,[script],{encoding:'utf8',timeout:10000,env:{...process.env,TEMP:root,TMP:root}});
+    const result=spawnSync(process.execPath,[script],{encoding:'utf8',timeout:10000,env:simulationEnvironment(root)});
     assert.equal(result.status,0,result.stderr);
   } finally {rmSync(root,{recursive:true,force:true});}
 });
@@ -181,7 +186,7 @@ syncBuiltinESMExports();
 const {ProofProcesses}=await import(${JSON.stringify(pathToFileURL(join(packageRoot,'scripts/context-proof-process.mts')).href)});
 const owned=new ProofProcesses();const scratch=${JSON.stringify(join(root,'scratch'))};mkdirSync(scratch);
 try {const result=await owned.run('cargo',${JSON.stringify(args)});assert.ifError(result.error);assert.equal(result.status,0);assert.equal(result.stdout,'named control');assert.equal(result.stderr,'original diagnostic');}finally {await owned.cleanup(scratch);}`);
-    const result=spawnSync(process.execPath,[script],{encoding:'utf8',timeout:10000,env:{...process.env,TEMP:root,TMP:root}});
+    const result=spawnSync(process.execPath,[script],{encoding:'utf8',timeout:10000,env:simulationEnvironment(root)});
     assert.equal(result.status,0,result.stderr);
   } finally {rmSync(root,{recursive:true,force:true});}
 });
@@ -288,7 +293,7 @@ assert.equal(input,'mutated','failed reap must not rewrite worker inputs');
 unavailable=false;await owned.settled();
 await verifyAsyncMutation(async()=>{},()=>{input='mutated'},()=>{input='fixed'},owned);
 assert.equal(input,'fixed');await owned.cleanup(${JSON.stringify(join(root,'scratch'))});`);
-    const result=spawnSync(process.execPath,[script],{encoding:'utf8',timeout:10000});
+    const result=spawnSync(process.execPath,[script],{encoding:'utf8',timeout:10000,env:simulationEnvironment(root)});
     assert.equal(result.status,0,result.stderr);
   } finally {rmSync(root,{recursive:true,force:true});}
 });
@@ -531,7 +536,7 @@ else await processes.cleanup(scratch);
 assert.equal(existsSync(scratch), ${fail});
 process.exitCode = 0;
 `);
-      const result = spawnSync(process.execPath, [script], { encoding: 'utf8', timeout: 10_000 });
+      const result = spawnSync(process.execPath, [script], { encoding: 'utf8', timeout: 10_000, env: simulationEnvironment(root) });
       assert.equal(result.status, 0, result.stderr);
       rmSync(join(root, 'scratch'), { force: true, recursive: true });
     }
@@ -545,6 +550,9 @@ test('signal errors require positive termination evidence before restoration', (
     for(const runner of [false,true]) for(const state of ['absent','zombie','live','unavailable']) {
       const script=join(root,'signal.mjs');
       writeFileSync(script, `import assert from 'node:assert/strict';import childProcess from 'node:child_process';import {EventEmitter} from 'node:events';import {PassThrough} from 'node:stream';import {syncBuiltinESMExports} from 'node:module';import {mkdirSync,writeFileSync} from 'node:fs';
+// Seed a Windows host so removing the Unix simulation fails on every CI host.
+Object.defineProperty(process,'platform',{value:'win32',configurable:true});
+Object.defineProperty(process,'platform',{value:'darwin'});
 let clock=0,killed=false,checks=0;Object.defineProperty(performance,'now',{value:()=>clock+=1100});
 process.kill=(_pid,signal)=>{if(signal==='SIGKILL'){killed=true;throw Object.assign(new Error('kill EPERM'),{code:'EPERM'})}return true;};
 childProcess.execFileSync=()=>{if(!killed)return '424242 S';checks++;if(checks===1&&${JSON.stringify(state)}==='unavailable')throw new Error('process table unavailable');if(checks===1&&${JSON.stringify(state)}==='live')return '424242 S';return ${JSON.stringify(state)}==='zombie'?'424242 Z':'';};
@@ -556,7 +564,7 @@ const run=()=>verifyAsyncMutation(async reverted=>{if(reverted)await owned.run('
 if(${state==='absent'||state==='zombie'}){await run();assert.equal(input,'fixed');await owned.cleanup(scratch);}
 else{await assert.rejects(run());assert.equal(input,'mutated');await assert.rejects(owned.cleanup(scratch),/scratch retained/);}
 assert.ok(killed);`);
-      const result=spawnSync(process.execPath,[script],{encoding:'utf8',timeout:10000,env:{...process.env,TMPDIR:root,TEMP:root,TMP:root}});
+      const result=spawnSync(process.execPath,[script],{encoding:'utf8',timeout:10000,env:simulationEnvironment(root)});
       assert.equal(result.status,0,`${runner} ${state}: ${result.stderr}`);
     }
   } finally {rmSync(root,{recursive:true,force:true});}
@@ -568,12 +576,44 @@ test('leader exit transfers escalation to the drain without a duplicate timer', 
   try {
     const script=join(root,'escalation.mjs');
     writeFileSync(script, `import assert from 'node:assert/strict';import childProcess from 'node:child_process';import {EventEmitter} from 'node:events';import {PassThrough} from 'node:stream';import {syncBuiltinESMExports} from 'node:module';
+// Seed a Windows host so removing the Unix simulation fails on every CI host.
+Object.defineProperty(process,'platform',{value:'win32',configurable:true});
+Object.defineProperty(process,'platform',{value:'darwin'});
 let clock=0,kills=0;Object.defineProperty(performance,'now',{value:()=>clock+=1100});const started=Date.now();
 process.kill=(_pid,signal)=>{if(signal==='SIGKILL'){kills++;while(Date.now()-started<1200){}if(kills>1)throw Object.assign(new Error('kill EPERM'),{code:'EPERM'});}return true;};
 childProcess.execFileSync=()=>kills?'':'424242 S';
 childProcess.spawn=()=>{const child=new EventEmitter();child.pid=424242;child.stdout=new PassThrough();child.stderr=new PassThrough();setTimeout(()=>{child.emit('exit',0,null);child.stdout.end();child.stderr.end();child.emit('close',0)},20);return child;};syncBuiltinESMExports();
 const {ProofProcesses}=await import(${JSON.stringify(pathToFileURL(join(packageRoot,'scripts/context-proof-process.mts')).href)});const owned=new ProofProcesses();await owned.run('cargo',[],{timeout:1});assert.equal(kills,1);await owned.cleanup(${JSON.stringify(join(root,'scratch'))});`);
-    const result=spawnSync(process.execPath,[script],{encoding:'utf8',timeout:10000});
+    const result=spawnSync(process.execPath,[script],{encoding:'utf8',timeout:10000,env:simulationEnvironment(root)});
     assert.equal(result.status,0,result.stderr);
+  } finally {rmSync(root,{recursive:true,force:true});}
+});
+
+/** Every UTF-8 split and interleaved pipe keeps the original diagnostics. */
+test('proof diagnostics preserve Unicode across independent stream chunk boundaries', () => {
+  const root=mkdtempSync(join(tmpdir(),'pm-utf8-streams-'));
+  try {
+    const script=join(root,'streams.mjs');
+    writeFileSync(script, `import assert from 'node:assert/strict';import childProcess from 'node:child_process';import {EventEmitter} from 'node:events';import {PassThrough} from 'node:stream';import {syncBuiltinESMExports} from 'node:module';
+const out='é € 中 𝄞 🦀 end';const err='🦀 中 € é diagnostic';let width=1;
+childProcess.spawn=()=>{const child=new EventEmitter();child.stdout=new PassThrough();child.stderr=new PassThrough();setImmediate(()=>{const a=Buffer.from(out),b=Buffer.from(err);for(let offset=0;offset<Math.max(a.length,b.length);offset+=width){child.stdout.write(a.subarray(offset,offset+width));child.stderr.write(b.subarray(offset,offset+width));}child.emit('exit',0,null);child.stdout.end();child.stderr.end();child.emit('close',0)});return child;};syncBuiltinESMExports();
+const {ProofProcesses}=await import(${JSON.stringify(pathToFileURL(join(packageRoot,'scripts/context-proof-process.mts')).href)});const owned=new ProofProcesses();
+try{for(width=1;width<=Buffer.byteLength(out);width++){const result=await owned.run('cargo',[]);assert.ifError(result.error);assert.equal(result.stdout,out);assert.equal(result.stderr,err);}}
+finally{await owned.cleanup(${JSON.stringify(join(root,'scratch'))});}`);
+    const result=spawnSync(process.execPath,[script],{encoding:'utf8',timeout:10000,env:simulationEnvironment(root)});
+    assert.equal(result.status,0,result.stderr);
+  } finally {rmSync(root,{recursive:true,force:true});}
+});
+
+/** Mocked PIDs must never be adopted as real workers by a parent proof owner. */
+test('simulated process registries never leak into the parent ownership scope', () => {
+  const root=mkdtempSync(join(tmpdir(),'pm-simulation-scope-'));
+  const registry=join(root,'parent');mkdirSync(registry);
+  try {
+    const result=spawnSync(process.execPath,['--test','--test-concurrency=1','--test-name-pattern=Windows proof interruption|signal errors require',fileURLToPath(import.meta.url)],{
+      encoding:'utf8',timeout:30000,env:{...process.env,PM_PROOF_PROCESS_REGISTRY:registry},
+    });
+    assert.equal(result.status,0,result.stderr+result.stdout);
+    assert.deepEqual(readdirSync(registry),[],'synthetic PID registrations belong to the fixture only');
   } finally {rmSync(root,{recursive:true,force:true});}
 });

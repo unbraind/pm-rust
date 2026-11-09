@@ -326,3 +326,69 @@ fn dependency_leaf_and_trim_boundaries() {
         assert!(leaf.get("truncated").is_none());
     }
 }
+
+/// Dependency measurements and delivered bytes share one contract across every return path.
+#[test]
+fn dependency_wire_measurement_matches_delivery() -> Result<(), Box<dyn std::error::Error>> {
+    let directory = tempfile::tempdir()?;
+    let root = directory.path().join(".agents/pm");
+    fs::create_dir_all(root.join("tasks"))?;
+    fs::write(root.join("settings.json"), r#"{"id_prefix":"sample-"}"#)?;
+    let dependencies: Vec<_> = (0..32)
+        .map(|index| json!({"id":format!("sample-{index:03}"),"kind":"related"}))
+        .collect();
+    for index in 0..=32 {
+        let id = if index == 32 {
+            "sample-root".to_owned()
+        } else {
+            format!("sample-{index:03}")
+        };
+        let mut row = json!({"id":id,"title":format!("{id} € 𝄞"),"type":"Task","status":"open","priority":1,"created_at":"2026-08-22T10:00:00.000Z","updated_at":"2026-08-22T10:00:00.000Z"});
+        if index == 32 {
+            row["dependencies"] = json!(dependencies);
+        }
+        fs::write(
+            root.join(format!("tasks/{id}.toon")),
+            toon_format::encode_default(&row)?,
+        )?;
+    }
+    let workspace = Workspace::discover(directory.path())?;
+    assert!(!directory.path().join(".git").exists());
+    for format in ["tree", "graph"] {
+        for summary in [false, true] {
+            for toon in [false, true] {
+                for budget in [400usize, 800, 1600, 4000] {
+                    let output = workspace.deps(
+                        "sample-root",
+                        &DepsOptions {
+                            format: Some(format.to_owned()),
+                            summary,
+                            toon,
+                            token_budget: Some(budget.to_string()),
+                            ..Default::default()
+                        },
+                    )?;
+                    assert!(output.current_contract, "{format} {summary} {toon}");
+                    let wire = if toon {
+                        crate::stringify_toon(&output)?
+                    } else {
+                        output.stringify_read_json()
+                    };
+                    let measured = wire.len().div_ceil(4);
+                    assert_eq!(
+                        tokens(&output.value, toon),
+                        measured,
+                        "{format} {summary} {toon}"
+                    );
+                    if !summary {
+                        assert!(measured <= budget, "{format} {toon} {budget}: {measured}");
+                        if output.get("truncation").is_some() {
+                            assert_eq!(output["truncation"]["estimated_tokens"], json!(measured));
+                        }
+                    }
+                }
+            }
+        }
+    }
+    Ok(())
+}

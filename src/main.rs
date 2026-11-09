@@ -1025,25 +1025,28 @@ where
     S: AsRef<std::ffi::OsStr>,
 {
     let mut values = args.into_iter();
+    let mut prefix = vec![std::ffi::OsString::from("pm-rust")];
     while let Some(raw) = values.next() {
-        let arg = raw.as_ref().to_string_lossy();
-        // Workspace is a top-level option. Rejected command option values must
-        // never redirect the diagnostic reader into another tracker.
-        if !arg.starts_with('-') || arg == "--" {
+        let raw = raw.as_ref();
+        let flags = ["--workspace", "--pm-path", "--path"];
+        if flags.iter().any(|flag| raw == std::ffi::OsStr::new(flag)) {
+            prefix.push(raw.to_owned());
+            if let Some(value) = values.next() {
+                prefix.push(value.as_ref().to_owned());
+            }
+        } else if flags.iter().any(|flag| {
+            raw.as_encoded_bytes()
+                .starts_with(format!("{flag}=").as_bytes())
+        }) {
+            prefix.push(raw.to_owned());
+        } else {
             break;
         }
-        for flag in ["--workspace", "--pm-path", "--path"] {
-            if let Some(value) = arg.strip_prefix(&format!("{flag}=")) {
-                return PathBuf::from(value);
-            }
-            if arg == *flag
-                && let Some(value) = values.next()
-            {
-                return PathBuf::from(value.as_ref());
-            }
-        }
     }
-    PathBuf::from(".")
+    // Parse the same native workspace contract, preserving operator path bytes
+    // in both separate and equals spellings. Command option values stay outside it.
+    prefix.push("context".into());
+    Cli::try_parse_from(prefix).map_or_else(|_| PathBuf::from("."), |cli| cli.workspace)
 }
 
 /// Parses the command line and maps success or failure to the process exit code.

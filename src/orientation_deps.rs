@@ -298,12 +298,18 @@ fn project(mut result: Value, summary: bool, aliases: &Value) -> Value {
     result
 }
 
-/// Measures the delivered output after hidden discovery metadata is suppressed.
-fn tokens(result: &Value, toon: bool) -> usize {
-    let mut output = ListOutput::from(result.clone());
+/// Selects the dependency command's serialization contract for measurement and delivery.
+fn dependency_output(result: Value) -> ListOutput {
+    let mut output = ListOutput::from(result);
     // Deps commands use the current context table contract; the measure must
     // match the encoding the write path selected by command.
     output.current_contract = true;
+    output
+}
+
+/// Measures the delivered output after hidden discovery metadata is suppressed.
+fn tokens(result: &Value, toon: bool) -> usize {
+    let output = dependency_output(result.clone());
     let bytes = if toon {
         crate::toon_output::render_output(&output).len()
     } else {
@@ -393,7 +399,7 @@ impl Workspace {
             for (name, value) in counts.as_object().into_iter().flatten() {
                 result[name] = value.clone();
             }
-            return Ok(project(result, true, &aliases).into());
+            return Ok(dependency_output(project(result, true, &aliases)));
         }
         let mut limits = Vec::new();
         for (raw, flag, default) in [
@@ -460,10 +466,10 @@ impl Workspace {
                 }
             }
             if cost <= budget.tokens {
-                return Ok(result.into());
+                return Ok(dependency_output(result));
             }
             if !trim(&mut tree) {
-                return Ok(result.into());
+                return Ok(dependency_output(result));
             }
             budget.reasons.insert("token_budget");
         }

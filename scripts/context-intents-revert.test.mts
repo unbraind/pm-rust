@@ -59,6 +59,8 @@ test('revert proof rejects unrelated failures skipped tests and invalid controls
           { ...valid, stdout: '' },
           { ...valid, status: null },
           { ...valid, stderr: 'could not compile' },
+          { ...valid, stderr: "failureType: 'testTimeoutFailure'" },
+          { ...valid, stderr: "failureType: 'cancelledByParent'" },
           { ...valid, error: new Error('spawn failed') },
         ]) assert.throws(() => assertNamedTests(invalid, [name], reverted, node));
       }

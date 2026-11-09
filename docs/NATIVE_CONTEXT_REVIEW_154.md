@@ -393,3 +393,20 @@ unreadable membership refuses restoration and retains scratch. Group and nested
 PID adversaries cover absent, zombie, live and unavailable states. A stalled
 loop adversary deterministically exposes duplicate escalation. All three
 independent reverts fail their named regression and all six controls pass.
+
+The macOS job on `9967ee3` passed all three `harness_contract` tests, including
+`harness_behavior` and its stubborn SIGINT/SIGTERM cases (9.75 seconds total).
+Its later dependency differential failure is the separate delivery-contract
+finding below. No signal timeout was changed.
+
+| Additional thread | Rule and fix | Regression |
+| --- | --- | --- |
+| PRRT_kwDOTwgMRs61KYdu | Tree, graph and summary returns preserve the same command-selected TOON contract used by measurement. | Real non-git dependency fixture checks final wire cost, budget and receipt across both formats/encodings and summary returns; retained exact oracle parity. |
+| PRRT_kwDOTwgMRs61KYdx | UTF-8 diagnostics use independent streaming decoders for stdout and stderr. | Every chunk width, including individual bytes, reconstructs interleaved Unicode streams exactly; independent decoder reverts fail. |
+| PRRT_kwDOTwgMRs61KYd0 | Operator workspace paths preserve OS bytes in separate and equals spellings; actual native parser resolves the leading workspace options. | All aliases and both spellings, malformed UTF-8 path bytes, and command-option scope boundaries. Display-only refusal arguments retain the documented lossy serialization contract. |
+| PRRT_kwDOTwgMRs61KnIW | Unix signal simulations are explicit on every host. | Fixtures seed Windows before selecting Darwin, so removing that simulation fails on Linux as well as Windows. |
+
+Simulated PID registrations are confined to the fixture. A parent-scope
+adversary verifies that refused mock cleanup cannot leave synthetic identities
+for a real proof owner to adopt. Named mutation admission also refuses timeout
+and parent-cancellation results; those are not behavioral revert evidence.

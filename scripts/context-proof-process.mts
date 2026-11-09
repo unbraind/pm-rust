@@ -5,6 +5,7 @@ import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { pathToFileURL } from 'node:url';
 import { syncBuiltinESMExports } from 'node:module';
+import { StringDecoder } from 'node:string_decoder';
 import { randomUUID } from 'node:crypto';
 import { windowsJob } from './context-windows-job.mts';
 import { setTimeout } from 'node:timers/promises';
@@ -217,6 +218,7 @@ export class ProofProcesses {
       this.registrations.set(pid, path);
       this.groups.add(pid);
     }
+    const stdoutDecoder = new StringDecoder('utf8'); const stderrDecoder = new StringDecoder('utf8');
     let stdout = ''; let stderr = ''; let bytes = 0; let error: Error | undefined;
     let drained: Promise<void> = Promise.resolve();
     /** Terminate the tree immediately, then escalate independently of inherited pipe closure. */
@@ -235,7 +237,7 @@ export class ProofProcesses {
     const receive = (chunk: Buffer, output: boolean): void => {
       bytes += chunk.length;
       if (bytes > maxBuffer) { error ??= new Error('Proof diagnostic byte ceiling'); stop(); }
-      else if (output) stdout += chunk.toString(); else stderr += chunk.toString();
+      else if (output) stdout += stdoutDecoder.write(chunk); else stderr += stderrDecoder.write(chunk);
     };
     child.stdout!.on('data', (chunk: Buffer) => receive(chunk, true));
     child.stderr!.on('data', (chunk: Buffer) => receive(chunk, false));
@@ -260,6 +262,7 @@ export class ProofProcesses {
           void drained.catch(failure => { error = failure; child.stdout!.destroy(); child.stderr!.destroy(); });
         });
         child.once('close', status => {
+          stdout += stdoutDecoder.end(); stderr += stderrDecoder.end();
           if (process.platform === 'win32') {
             if (stderr.includes(marker)) {
               stderr = stderr.replace(marker, '');
@@ -287,6 +290,7 @@ export class ProofProcesses {
   /** Remove scratch only after owned workers have stopped; always detach signal handlers. */
   async cleanup(scratch: string): Promise<void> {
     try {
+      if (!this.cleanupSafe) throw new Error('Cannot prove descendant termination; scratch retained');
       await this.drain();
       if (!this.cleanupSafe) throw new Error('Cannot prove descendant termination; scratch retained');
       rmSync(scratch, { recursive: true, force: true });
@@ -298,6 +302,7 @@ export class ProofProcesses {
 
   /** Confirm every owned worker stopped before a caller restores scratch inputs. */
   async settled(): Promise<void> {
+    if (!this.cleanupSafe) throw new Error('Cannot prove descendant termination; scratch inputs retained');
     await this.drain();
     if (!this.cleanupSafe) throw new Error('Cannot prove descendant termination; scratch inputs retained');
   }
