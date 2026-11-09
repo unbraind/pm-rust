@@ -1,6 +1,6 @@
 import { spawnSync } from 'node:child_process';
 import assert from 'node:assert/strict';
-import { cpSync, lstatSync, mkdirSync } from 'node:fs';
+import { cpSync, existsSync, lstatSync, mkdirSync } from 'node:fs';
 import { dirname, join } from 'node:path';
 
 /** Minimal subprocess outcome accepted by both synchronous and bounded async runners. */
@@ -53,16 +53,22 @@ export function checkedGit(root: string, args: string[], message: string): strin
   return result.stdout;
 }
 
+/** Treats dangling symlinks like absent entries, tolerating unrelated broken links. */
+export function absentLink(source: string): boolean {
+  const entry = lstatSync(source, { throwIfNoEntry: false });
+  return entry?.isSymbolicLink() === true && !existsSync(source);
+}
+
 /** Copy the live worktree, including untracked files and excluding unstaged deletions. */
 export function copyWorkingTree(source: string, scratch: string): void {
   const files = checkedGit(source, ['ls-files', '--cached', '--others', '--exclude-standard', '-z'], 'Cannot enumerate package source');
   for (const file of new Set(files.split('\0').filter(Boolean))) {
     if (file.split(/[\\/]/).includes('node_modules')) continue;
     const input = join(source, file);
-    if (!lstatSync(input, { throwIfNoEntry: false })) continue;
+    if (!lstatSync(input, { throwIfNoEntry: false }) || absentLink(input)) continue;
     const target = join(scratch, file);
     mkdirSync(dirname(target), { recursive: true });
-    cpSync(input, target, { dereference: true, recursive: true, filter: path => !path.split(/[\\/]/).includes('node_modules') });
+    cpSync(input, target, { dereference: true, recursive: true, filter: path => !path.split(/[\\/]/).includes('node_modules') && !absentLink(path) });
   }
 }
 

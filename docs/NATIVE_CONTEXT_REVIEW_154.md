@@ -357,3 +357,28 @@ The final shared-output and list SDK subsets pass 14 and 7 tests. The pinned pm
 runner also passes the safety command in a disposable tracker, with strict
 isolated health passing. Full package release coverage and native Windows
 execution remain required in CI; no whole-package aggregate pass is claimed.
+
+## Round six: ownership, proof admission and command contracts
+
+All twelve findings are accepted. The shared rules and adversaries are:
+
+| Threads | General rule and package-wide fix | Regression |
+| --- | --- | --- |
+| PRRT_kwDOTwgMRs61Cfjp | Every proof runner owns and drains workers before deleting scratch. All nine context, adapter and performance runners use the shared async owner. | Every runner under SIGINT and SIGTERM; stubborn descendants in the performance harness. |
+| PRRT_kwDOTwgMRs61GlW4 | Restoration requires positive worker-termination evidence. Shared async mutations and manual changes/performance restoration await `settled`; failed reap retains mutated inputs. | `failed worker reap retains mutated inputs until termination is confirmed` |
+| PRRT_kwDOTwgMRs61GlW_, PRRT_kwDOTwgMRs61GlXH | Detached children must be registered synchronously at spawn, before module startup. Owned Node children preload the spawn registry; cleanup preserves restoring runners through worker escalation. | Both delayed-constructor exit and SIGTERM tests; existing nested-owner tests retained. |
+| PRRT_kwDOTwgMRs61GlXF | Scratch copies materialize usable links and skip dangling targets. The policy covers git-enumerated and fixed-list snapshots. | Dangling tracked, untracked, directory and nested links through every copy callback. |
+| PRRT_kwDOTwgMRs61GaS4, PRRT_kwDOTwgMRs61GaS5 | Mutation definitions must target live, unique behavior. Updated all stale selectors, including neighboring renderer and intent-policy cases. | `context-proof-definitions.test.mts` admits every managed target before expensive compilation; real proofs still require named failures and passing controls. |
+| PRRT_kwDOTwgMRs61GlXM | Diagnostics survive parser refusals, without changing settings on reads. The context parser attaches the same warning used by SDK/CLI execution refusals. | `context_parser_refusals_preserve_settings_warnings`, invalid and valid settings in non-git trackers, text/JSON/TOON and path spellings. |
+| PRRT_kwDOTwgMRs61GlXS | Intent protection belongs to the envelope declaration only. Nested item fields compact under the shared list/search/collection policy. | `item_metadata_named_context_intent_compacts_under_budgets`, both encodings, omission/compaction/full-delivery budgets. |
+| PRRT_kwDOTwgMRs61GlXU | Serialization contracts come from the command, not document content. An out-of-band `ListOutput` flag selects current context/deps tables, including measurement and omission paths. | Legacy assurance-shaped envelopes with both spoofed marker fields retain legacy tables. |
+| PRRT_kwDOTwgMRs61GlXX | Null-column positions use JavaScript key order. The shared table union sorts canonical array indices before insertion-order keys. | Pinned SDK decoding checks values and `Object.keys`, including zero, maximum array index, overflow, negative, float and noncanonical keys. |
+| PRRT_kwDOTwgMRs61GlXZ | Whole-settings fallback discards lifecycle settings too. | Invalid/valid settings matrix asserts default/custom lifecycle classification and unchanged settings bytes. |
+
+The previous macOS ordinary Rust job failed the SIGTERM stubborn-descendant
+case after 1294.747 ms; the aggregate macOS job instead failed SIGINT after
+1341.503 ms. Both lacked the restoration receipt. These logs rule out the
+15-second test bound and a SIGTERM-only defect. Subprocess stderr and exit status
+are now checked before reading that receipt, so cleanup errors retain their
+cause. All signal cases and timeout bounds remain in place. Exact-head macOS
+verification is required before claiming that platform is certified.

@@ -1024,7 +1024,9 @@ where
     I: IntoIterator<Item = S>,
     S: AsRef<std::ffi::OsStr>,
 {
-    let mut values = args.into_iter().map(|arg| arg.as_ref().to_string_lossy().into_owned());
+    let mut values = args
+        .into_iter()
+        .map(|arg| arg.as_ref().to_string_lossy().into_owned());
     while let Some(arg) = values.next() {
         for flag in ["--workspace", "--pm-path", "--path"] {
             if let Some(value) = arg.strip_prefix(&format!("{flag}=")) {

@@ -21,7 +21,10 @@ pub fn stringify_toon(output: &ListOutput) -> Result<String, crate::PmRustError>
 pub(crate) fn render_output(output: &ListOutput) -> String {
     let value = complete_brief(&output.value);
     let compacted = compact(&value).unwrap_or_else(|| json!({}));
-    format!("{}\n", render_contract(&compacted, 0, output.current_contract))
+    format!(
+        "{}\n",
+        render_contract(&compacted, 0, output.current_contract)
+    )
 }
 
 /// Recognizes only the published identity projection, including its priority extension.

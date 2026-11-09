@@ -1,3 +1,4 @@
+import { absentLink } from './context-revert-helpers.mts';
 import { ProofProcesses, verifyAsyncMutation } from './context-proof-process.mts';
 import assert from 'node:assert/strict';
 import { cpSync, mkdtempSync, readFileSync, symlinkSync, writeFileSync } from 'node:fs';
@@ -13,7 +14,7 @@ const cli = join(scratch, 'src/main.rs');
 const strict = join(scratch, 'src/strict_json.rs');
 const processes = new ProofProcesses();
 try {
-for (const name of ['Cargo.toml', 'Cargo.lock', 'build.rs', 'src', 'tests', 'examples']) cpSync(join(root, name), join(scratch, name), { recursive: true, dereference: true, filter: path => !path.split(/[\\/]/).includes('node_modules') });
+for (const name of ['Cargo.toml', 'Cargo.lock', 'build.rs', 'src', 'tests', 'examples']) cpSync(join(root, name), join(scratch, name), { recursive: true, dereference: true, filter: path => !path.split(/[\\/]/).includes('node_modules') && !absentLink(path) });
 for (const oracle of ['oracle', 'orientation-oracle']) symlinkSync(join(root, 'tests', oracle, 'node_modules'), join(scratch, 'tests', oracle, 'node_modules'), 'junction');
 const originals = new Map([abi, cli, strict].map(path => [path, readFileSync(path, 'utf8')]));
 const strictBefore = '    let mut reader = serde_json::Deserializer::from_slice(bytes);\n    let StrictValue(value) = StrictValue::deserialize(&mut reader)?;\n    reader.end()?;\n    serde_json::from_value(value)';
@@ -50,7 +51,7 @@ const cases = [
         cwd: scratch, env: { ...process.env, CARGO_BUILD_JOBS: '2', RUST_TEST_THREADS: '2', CARGO_TARGET_DIR: join(scratch, 'target') }, maxBuffer: 4 * 1024 * 1024,
       });
       assertNamedTests(result, [proof.test], reverted);
-    }, () => writeFileSync(proof.path, original.replace(proof.before, proof.after)), () => writeFileSync(proof.path, original));
+    }, () => writeFileSync(proof.path, original.replace(proof.before, proof.after)), () => writeFileSync(proof.path, original), processes);
     console.log(JSON.stringify({ behavior: proof.name, test: proof.test, failed_as_required: true }));
   }
 } catch (error) {

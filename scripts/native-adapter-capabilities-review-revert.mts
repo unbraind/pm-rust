@@ -1,3 +1,4 @@
+import { absentLink } from './context-revert-helpers.mts';
 import { ProofProcesses, verifyAsyncMutation } from './context-proof-process.mts';
 /** Prove review regressions with independent behavior reverts in an isolated non-git copy. */
 import assert from 'node:assert/strict';
@@ -19,7 +20,7 @@ function replace(source: string, before: string, after: string): string {
 const processes = new ProofProcesses();
 try {
   for (const name of ['Cargo.toml', 'Cargo.lock', 'build.rs', 'src', 'tests', 'scripts', 'examples']) {
-    cpSync(join(root, name), join(scratch, name), { recursive: true, dereference: true, filter: path => !path.split(/[\\/]/).includes('node_modules') });
+    cpSync(join(root, name), join(scratch, name), { recursive: true, dereference: true, filter: path => !path.split(/[\\/]/).includes('node_modules') && !absentLink(path) });
   }
   // Only the already installed, pinned test oracle is shared; no build artifacts are shared.
   symlinkSync(join(root, 'tests/oracle/node_modules'), join(scratch, 'tests/oracle/node_modules'), 'dir');
@@ -109,7 +110,7 @@ try {
     }, () => {
       writeFileSync(library, original);
       writeFileSync(mainPath, originalMain);
-    });
+    }, processes);
     console.log(JSON.stringify({ behavior: proof.name, test: proof.test, passed: 0, failed: 1, compile_succeeded: true }));
   }
   writeFileSync(library, original);

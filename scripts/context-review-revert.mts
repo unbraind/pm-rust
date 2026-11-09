@@ -35,11 +35,11 @@ try {
     symlinkSync(resolve(source, 'tests', oracle, 'node_modules'), join(scratch, 'tests', oracle, 'node_modules'), 'junction');
   }
   const cases = [
-    { path: 'scripts/context-revert-helpers.mts', before: '    if (!lstatSync(input, { throwIfNoEntry: false })) continue;', after: '',
+    { path: 'scripts/context-revert-helpers.mts', before: '    if (!lstatSync(input, { throwIfNoEntry: false }) || absentLink(input)) continue;', after: '',
       target: ['node', '--test', '--test-concurrency=2', 'scripts/context-intents-revert.test.mts'], test: 'all worktree proof copies tolerate unstaged deletions' },
     { path: 'scripts/context-real-helpers.mts', before: " || entry.name.endsWith('.json')", after: '',
       target: ['node', '--test', '--test-concurrency=2', 'scripts/harness.test.mts'], test: 'authoritative snapshots exclude caches only at the tracker root' },
-    { path: 'scripts/context-proof-process.mts', before: '  private async drain(): Promise<void> {', after: '  private async drain(): Promise<void> { this.groups.clear(); return;',
+    { path: 'scripts/context-proof-process.mts', before: '  private async drainOwned(): Promise<void> {', after: '  private async drainOwned(): Promise<void> { this.groups.clear(); return;',
       target: ['node', '--test', '--test-concurrency=2', 'scripts/harness.test.mts'], test: 'revert proof restores both source files on SIGTERM (parent only)' },
     { path: 'scripts/context-proof-process.mts', before: 'process.kill(-pid, signal)', after: 'process.kill(pid, signal)',
       target: ['node', '--test', '--test-concurrency=2', 'scripts/harness.test.mts'], test: 'revert proof restores both source files on SIGTERM (parent only)' },
@@ -80,7 +80,7 @@ try {
       target: ['--test', 'orientation_differential'], test: 'context_unknown_intents_have_explicit_cli_boundaries' },
     { path: 'src/orientation_context.rs', before: '        let depth = trim_control(', after: '        let _ = std::fs::write(self.pm_root().join("settings.json"), settings.to_string());\n        let depth = trim_control(',
       target: ['--test', 'orientation_differential'], test: 'context_successful_reads_preserve_settings_bytes' },
-    { path: 'src/read_output.rs', before: '    if measured > budget {\n        let changed = compact_strings(&mut result.value);', after: '    if false && measured > budget {\n        let changed = compact_strings(&mut result.value);',
+    { path: 'src/read_output.rs', before: '    let changed = compact_strings(&mut target.value, preserve_intent);', after: '    let changed = false;',
       target: ['--lib'], test: 'orientation_context::tests::context_intent_sdk_budget_boundaries' },
     { path: 'src/read_output.rs', before: '        let measured = estimate(result, false) as u64;', after: '        let measured = 0;',
       target: ['--lib'], test: 'read_output::tests::stabilized_orientation_receipts_respect_final_ceilings' },
@@ -107,7 +107,7 @@ try {
     assert.equal(fixed.split(proof.before).length, 2, `stale or ambiguous mutation: ${proof.path}: ${proof.before}`);
     await verifyAsyncMutation(async reverted => check(proof.target, proof.test, reverted),
       () => writeFileSync(path, fixed.replace(proof.before, proof.after)),
-      () => writeFileSync(path, fixed));
+      () => writeFileSync(path, fixed), processes);
   }
   // Verify the actual history tests with only their baseline oracle available.
   assert.ok(executed > 0, 'review proof filter selected no mutations');

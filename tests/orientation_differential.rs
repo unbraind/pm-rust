@@ -2907,14 +2907,10 @@ fn context_parser_refusals_preserve_settings_warnings() -> TestResult {
             .status
             .success()
     );
-    fixture(
-        root.path(),
-        &[item("sample-activity", "Task", "open", 1)],
-    )?;
+    fixture(root.path(), &[item("sample-activity", "Task", "open", 1)])?;
     let path = root.path().join(".agents/pm/settings.json");
     let original: Value = serde_json::from_slice(&fs::read(&path)?)?;
-    let warning =
-        "[pm] warning: settings_read_invalid_schema — settings.json could not be loaded and pm fell back to defaults; run pm health for remediation.";
+    let warning = "[pm] warning: settings_read_invalid_schema — settings.json could not be loaded and pm fell back to defaults; run pm health for remediation.";
     for (context, warns) in [
         (json!({"activity_limit": 0}), true),
         (json!({"stale_threshold_days": "x"}), true),
@@ -2976,11 +2972,21 @@ fn context_parser_refusals_preserve_settings_warnings() -> TestResult {
         // Other commands keep their published contract: no context settings warning.
         let history = native(
             root.path(),
-            &["history", "sample-activity", "--output-cursor", " ", "--json"],
+            &[
+                "history",
+                "sample-activity",
+                "--output-cursor",
+                " ",
+                "--json",
+            ],
         )?;
         let payload: Value = serde_json::from_slice(&history.stderr)?;
         assert_eq!(payload["code"], "unsupported_native_option");
-        assert!(payload.get("warnings").is_none(), "{:?}", settings["context"]);
+        assert!(
+            payload.get("warnings").is_none(),
+            "{:?}",
+            settings["context"]
+        );
     }
     Ok(())
 }

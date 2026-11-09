@@ -90,11 +90,14 @@ syncBuiltinESMExports();
       writeFileSync(cargo, '#!/bin/sh\nexec "$PM_PROOF_NODE" "$PM_PROOF_CHILD" "$@"\n');
       chmodSync(cargo, 0o755);
       const child = spawn(process.execPath, ['--import', pathToFileURL(observer).href, script], {
-        cwd: root, detached: true, stdio: 'ignore',
+        cwd: root, detached: true, stdio: ['ignore', 'pipe', 'pipe'],
         env: { ...process.env, PATH: `${join(root, 'bin')}:${process.env.PATH ?? ''}`,
           PM_PROOF_NODE: process.execPath, PM_PROOF_CHILD: cargoProgram, PM_PROOF_ROOT: root,
           TMPDIR: logicalTemp, PM_PROOF_STUBBORN: delivery === 'stubborn descendant' ? '1' : '0' },
       });
+      child.stdout.resume();
+      let diagnostic = '';
+      child.stderr.on('data', chunk => { diagnostic += String(chunk); });
       const completed = new Promise<{ code: number | null; signal: NodeJS.Signals | null }>((resolve, reject) => {
         child.once('error', reject);
         child.once('exit', (code, signal) => resolve({ code, signal }));
@@ -124,6 +127,7 @@ syncBuiltinESMExports();
           cargoPid;
         process.kill(target, signal);
         const result = await completed;
+        assert.deepEqual(result, { code: signal === 'SIGINT' ? 130 : 143, signal: null }, diagnostic);
         for (const [name, bytes] of originals) assert.equal(readFileSync(join(root, `src/${name}.rs`), 'utf8'), bytes);
         assert.deepEqual(JSON.parse(readFileSync(join(root, 'restored.json'), 'utf8')), [true, true], 'both sandbox sources restore before exit');
         if (delivery === 'stubborn descendant') {

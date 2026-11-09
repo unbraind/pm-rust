@@ -40,7 +40,7 @@ try {
     if (!fixed.includes(mutation.before)) throw new Error(`Cannot locate mutation for ${mutation.name}`);
     await verifyAsyncMutation(async reverted => check(scratch, mutation.name, reverted),
       () => writeFileSync(path, fixed.replace(mutation.before, mutation.after)),
-      () => writeFileSync(path, fixed));
+      () => writeFileSync(path, fixed), processes);
   }
   const patch = join(scratch, 'tests/fixtures/orientation-packet-root-priority.patch');
   checkedGit(scratch, ['apply', '--reverse', '--check', patch], 'The retained packet behavior revert fixture no longer applies');

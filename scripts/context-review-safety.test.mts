@@ -228,6 +228,94 @@ finally { await owned.cleanup(${JSON.stringify(join(root, 'scratch'))}); }`);
   });
 }
 
+/** Cleanup must own detached descendants before their delayed constructors run. */
+for (const ending of ['exit', 'SIGTERM'] as const) {
+  test(`outer cleanup owns delayed nested constructors on ${ending}`, { skip: process.platform === 'win32', timeout: 20_000 }, async () => {
+    const root = mkdtempSync(join(tmpdir(), 'pm-delayed-owner-'));
+    const scratch = join(root, 'scratch'); mkdirSync(scratch);
+    const marker = join(root, 'ready');
+    const nested = join(root, 'nested.mjs');
+    const module = JSON.stringify(pathToFileURL(join(packageRoot, 'scripts/context-proof-process.mts')).href);
+    writeFileSync(nested, `import {existsSync,writeFileSync} from 'node:fs';import {setTimeout} from 'node:timers/promises';
+process.on('SIGTERM',()=>{ void setTimeout(1200).then(()=>{writeFileSync(${JSON.stringify(marker+'.stopped')},String(existsSync(${JSON.stringify(scratch)})));process.exit(0)}); });
+writeFileSync(${JSON.stringify(marker)},String(process.pid));
+await setTimeout(10000);
+const {ProofProcesses}=await import(${module});new ProofProcesses();writeFileSync(${JSON.stringify(marker+'.constructor')},'too late');`);
+    const parent = `import {spawn} from 'node:child_process';import {existsSync} from 'node:fs';import {setTimeout} from 'node:timers/promises';
+spawn(process.execPath,[${JSON.stringify(nested)}],{detached:true,stdio:'ignore'});
+while(!existsSync(${JSON.stringify(marker)})) await setTimeout(5);
+${ending === 'exit' ? 'process.exit(0)' : 'setInterval(()=>{},1000)'}`;
+    const manager = join(root, 'manager.mjs');
+    writeFileSync(manager, `import {ProofProcesses} from ${module};const owned=new ProofProcesses();
+try {await owned.run(process.execPath,['--input-type=module','-e',${JSON.stringify(parent)}]);}
+catch(error){if(!owned.wasInterrupted)throw error;}
+finally{await owned.cleanup(${JSON.stringify(scratch)});}`);
+    const child = spawn(process.execPath,[manager],{stdio:['ignore','ignore','pipe']});
+    let diagnostic='';child.stderr.on('data',chunk=>{diagnostic+=String(chunk)});
+    const finished = new Promise<number|null>(resolve=>child.once('exit',resolve));
+    try {
+      for(let i=0;!existsSync(marker)&&i<1000;i++) {if(child.exitCode!==null)break;await setTimeout(10);}
+      assert.ok(existsSync(marker),diagnostic);
+      if(ending!=='exit')child.kill(ending);
+      assert.equal(await finished,ending==='exit'?0:143,diagnostic);
+      assert.equal(readFileSync(marker+'.stopped','utf8'),'true','inputs remain through delayed runner termination');
+      assert.equal(existsSync(marker+'.constructor'),false,'cleanup precedes the constructor');
+      assert.equal(existsSync(scratch),false);
+    } finally {
+      if(child.exitCode===null)child.kill('SIGKILL');
+      if(existsSync(marker)){try{process.kill(-Number(readFileSync(marker,'utf8')),'SIGKILL')}catch{/* already stopped */}}
+      await finished;rmSync(root,{recursive:true,force:true});
+    }
+  });
+}
+
+/** A failed reap is a refusal to restore, even when the baseline already passed. */
+test('failed worker reap retains mutated inputs until termination is confirmed', () => {
+  const root=mkdtempSync(join(tmpdir(),'pm-failed-reap-'));
+  try {
+    const script=join(root,'reap.mjs');
+    writeFileSync(script, `import assert from 'node:assert/strict';import childProcess from 'node:child_process';import {EventEmitter} from 'node:events';import {PassThrough} from 'node:stream';import {syncBuiltinESMExports} from 'node:module';
+let unavailable=true;
+childProcess.execFileSync=()=>{if(unavailable)throw new Error('termination unavailable');return '';};
+process.kill=()=>true;
+childProcess.spawn=()=>{const child=new EventEmitter();child.pid=424242;child.stdout=new PassThrough();child.stderr=new PassThrough();setImmediate(()=>{child.emit('exit',0,null);child.stdout.end();child.stderr.end();child.emit('close',0)});return child;};
+syncBuiltinESMExports();
+const {ProofProcesses,verifyAsyncMutation}=await import(${JSON.stringify(pathToFileURL(join(packageRoot,'scripts/context-proof-process.mts')).href)});
+const owned=new ProofProcesses();let input='fixed';
+await assert.rejects(verifyAsyncMutation(async reverted=>{if(reverted)await owned.run('cargo',[])},()=>{input='mutated'},()=>{input='fixed'},owned),/termination unavailable/);
+assert.equal(input,'mutated','failed reap must not rewrite worker inputs');
+unavailable=false;await owned.settled();
+await verifyAsyncMutation(async()=>{},()=>{input='mutated'},()=>{input='fixed'},owned);
+assert.equal(input,'fixed');await owned.cleanup(${JSON.stringify(join(root,'scratch'))});`);
+    const result=spawnSync(process.execPath,[script],{encoding:'utf8',timeout:10000});
+    assert.equal(result.status,0,result.stderr);
+  } finally {rmSync(root,{recursive:true,force:true});}
+});
+
+/** All proof copy callbacks tolerate dangling inputs while materializing usable links. */
+test('proof copies skip dangling file and directory links across every runner', { skip: process.platform === 'win32' }, () => {
+  const root=mkdtempSync(join(tmpdir(),'pm-dangling-copy-'));
+  try {
+    const source=join(root,'source');mkdirSync(source);checkedGit(source,['init','--quiet'],'fixture init');
+    writeFileSync(join(source,'kept'),'fixed');
+    symlinkSync('absent',join(source,'broken'));
+    symlinkSync('absent-directory',join(source,'broken-directory'),'dir');
+    mkdirSync(join(source,'folder'));symlinkSync('absent',join(source,'folder/broken'));
+    checkedGit(source,['add','kept','broken'],'fixture add');
+    const copy=join(root,'copy');mkdirSync(copy);copyWorkingTree(source,copy);
+    assert.equal(readFileSync(join(copy,'kept'),'utf8'),'fixed');
+    for(const name of ['broken','broken-directory','folder/broken'])assert.equal(lstatSync(join(copy,name),{throwIfNoEntry:false}),undefined);
+    const shim=join(root,'copy.mjs');
+    writeFileSync(shim, `import assert from 'node:assert/strict';import fs from 'node:fs';import {syncBuiltinESMExports} from 'node:module';
+const original=fs.cpSync;
+fs.cpSync=(_source,_target,options)=>{const target=${JSON.stringify(join(root,'callback'))};fs.rmSync(target,{recursive:true,force:true});original(${JSON.stringify(source)},target,options);assert.equal(fs.readFileSync(target+'/kept','utf8'),'fixed');assert.equal(fs.lstatSync(target+'/broken',{throwIfNoEntry:false}),undefined);throw new Error('dangling copy verified');};syncBuiltinESMExports();`);
+    for(const runner of runners){
+      const result=spawnSync(process.execPath,['--import',pathToFileURL(shim).href,join(packageRoot,'scripts',runner)],{cwd:packageRoot,encoding:'utf8',timeout:30000});
+      assert.equal(result.status,1,runner);assert.match(result.stderr,/dangling copy verified/,runner);
+    }
+  } finally {rmSync(root,{recursive:true,force:true});}
+});
+
 test('Windows kernel jobs drain orphaned descendants before returning output', { skip: process.platform !== 'win32', timeout: 30_000 }, async () => {
   const root = mkdtempSync(join(tmpdir(), 'pm-windows-job-'));
   const owned = new ProofProcesses();

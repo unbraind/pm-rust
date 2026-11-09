@@ -21,6 +21,7 @@ async function prove(path: string, mutated: string, tests: { args: string[]; nam
     async reverted => { for (const test of tests) await run(scratch, test.args, test.names, reverted); },
     () => writeFileSync(path, mutated),
     () => writeFileSync(path, fixed),
+    processes,
   );
 }
 
@@ -46,7 +47,7 @@ try {
   await verifyAsyncMutation(async reverted => {
     const result = await processes.run(process.execPath, preflightCommand, { cwd: scratch, timeout: 30_000 });
     assertNamedTests(result, [preflightTest], reverted, true);
-  }, () => writeFileSync(preflightPath, preflight.replace(guard, '')), () => writeFileSync(preflightPath, preflight));
+  }, () => writeFileSync(preflightPath, preflight.replace(guard, '')), () => writeFileSync(preflightPath, preflight), processes);
   const target = join(scratch, 'src/orientation_context/intent.rs');
   const fixed = readFileSync(target, 'utf8');
   const start = fixed.indexOf('pub(super) fn prepare(');
@@ -71,9 +72,9 @@ try {
   await prove(tablePath, tables.replace(signature, `${signature}\n let _ = current; let current = false;`), [
     { args: ['--lib', 'current_context_tables_keep_ambiguous_cells_lossless'], names: ['toon_output::tests::current_context_tables_keep_ambiguous_cells_lossless'] },
   ]);
-  const current = 'value["output_default"] == "toon" || value["edge_basis"].is_string()';
+  const current = 'render_contract(&compacted, 0, output.current_contract)';
   if (!tables.includes(current)) throw new Error('Cannot locate current renderer selection');
-  await prove(tablePath, tables.replace(current, 'false'), [
+  await prove(tablePath, tables.replace(current, 'render_contract(&compacted, 0, false)'), [
     { args: ['--lib', 'current_context_tables_keep_ambiguous_cells_lossless'], names: ['toon_output::tests::current_context_tables_keep_ambiguous_cells_lossless'] },
   ]);
   const sectionsPath = join(scratch, 'src/orientation_context/sections.rs');
@@ -162,7 +163,7 @@ try {
   ]);
   await verifyAsyncMutation(async reverted => run(scratch, ['--test', 'orientation_differential', 'relationship_packets_match_oracle'], ['relationship_packets_match_oracle'], reverted),
     () => { checkedGit(scratch, ['apply', '--reverse', join(scratch, 'tests/fixtures/orientation-packet-root-priority.patch')], 'Cannot apply the stored packet behavior revert'); },
-    () => writeFileSync(join(scratch, packetPath), packets));
+    () => writeFileSync(join(scratch, packetPath), packets), processes);
 } catch (error) {
   if (!processes.wasInterrupted) throw error;
 } finally {

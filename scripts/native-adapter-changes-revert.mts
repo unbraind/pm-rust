@@ -1,3 +1,4 @@
+import { absentLink } from './context-revert-helpers.mts';
 /** Behavioral regressions run only in an owned disposable copy, never the reviewed checkout. */
 import assert from 'node:assert/strict';
 import { assertNamedTests } from './context-revert-helpers.mts';
@@ -38,9 +39,9 @@ async function revertedTest(test: string, childEnv: NodeJS.ProcessEnv) {
 }
 
 try {
-  for (const path of ['Cargo.toml','Cargo.lock','build.rs','src','examples']) cpSync(join(root,path),join(scratch,path),{recursive:true,dereference:true});
+  for (const path of ['Cargo.toml','Cargo.lock','build.rs','src','examples']) cpSync(join(root,path),join(scratch,path),{recursive:true,dereference:true,filter:path=>!absentLink(path)});
   mkdirSync(join(scratch,'tests'));
-  for (const path of ['support','fixtures']) cpSync(join(root,'tests',path),join(scratch,'tests',path),{recursive:true,dereference:true});
+  for (const path of ['support','fixtures']) cpSync(join(root,'tests',path),join(scratch,'tests',path),{recursive:true,dereference:true,filter:path=>!absentLink(path)});
   const original=readFileSync(source,'utf8');
   const childEnv: NodeJS.ProcessEnv = {};
   for (const name of ['PATH','HOME','CARGO_HOME','RUSTUP_HOME','LD_LIBRARY_PATH','SYSTEMROOT','WINDIR','TMPDIR','TEMP','TMP']) {
@@ -58,7 +59,7 @@ try {
     try {
       writeFileSync(source,original.replace(proof.before,proof.after));
       assertNamedTests(await revertedTest(proof.test,childEnv), [`changes::tests::${proof.test}`], true);
-    } finally { writeFileSync(source,original); }
+    } finally { await processes.settled(); writeFileSync(source,original); }
     assertNamedTests(await revertedTest(proof.test,childEnv), [`changes::tests::${proof.test}`], false);
     console.log(JSON.stringify({behavior:proof.name,test:proof.test,failed_as_required:true}));
   }

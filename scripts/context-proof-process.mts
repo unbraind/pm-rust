@@ -1,20 +1,38 @@
 /** Owned proof subprocesses: drain descendants before restoring or deleting scratch inputs. */
-import { execFileSync, spawn, type SpawnOptions } from 'node:child_process';
+import childProcess, { execFileSync, spawn, type SpawnOptions } from 'node:child_process';
 import { mkdtempSync, readdirSync, rmSync, writeFileSync, type Dirent } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
+import { syncBuiltinESMExports } from 'node:module';
 import { randomUUID } from 'node:crypto';
 import { windowsJob } from './context-windows-job.mts';
 import { setTimeout } from 'node:timers/promises';
 import type { TestOutcome } from './context-revert-helpers.mts';
 
+// Preload in owned Node children. Register detached children synchronously at
+// spawn, before their modules or ProofProcesses constructors can run.
+if (process.platform !== 'win32' && process.env.PM_PROOF_PROCESS_REGISTRY) {
+  const registry = process.env.PM_PROOF_PROCESS_REGISTRY;
+  const originalSpawn = childProcess.spawn;
+  childProcess.spawn = ((...args: Parameters<typeof spawn>) => {
+    const child = originalSpawn(...args);
+    const options = args[2];
+    if (options?.detached && child.pid !== undefined) {
+      writeFileSync(join(registry, `${child.pid}.pid`), String(child.pid));
+      if (args[0] === process.execPath) writeFileSync(join(registry, `${child.pid}.owner`), String(child.pid));
+    }
+    return child;
+  }) as typeof spawn;
+  syncBuiltinESMExports();
+}
+
 /** Completed output always owns both captured streams. */
 interface CapturedOutcome extends TestOutcome { stdout: string; stderr: string; }
 
 /** Async mutation controls always finish cleanup before the next control starts. */
-export async function verifyAsyncMutation(check: (reverted: boolean) => Promise<void>, mutate: () => void, restore: () => void): Promise<void> {
+export async function verifyAsyncMutation(check: (reverted: boolean) => Promise<void>, mutate: () => void, restore: () => void, owner?: Pick<ProofProcesses, 'settled'>): Promise<void> {
   await check(false);
-  try { mutate(); await check(true); } finally { restore(); }
+  try { mutate(); await check(true); } finally { await owner?.settled(); restore(); }
   await check(false);
 }
 
@@ -27,6 +45,7 @@ export class ProofProcesses {
   private interrupted: NodeJS.Signals | undefined;
   private handlers = new Map<NodeJS.Signals, () => void>();
   private cleanupSafe = true;
+  private draining: Promise<void> | undefined;
 
   /** Reports whether the runner must stop without certifying further controls. */
   get wasInterrupted(): boolean { return this.interrupted !== undefined; }
@@ -78,6 +97,12 @@ export class ProofProcesses {
   /** Signal an entire owned process tree; failed Windows tree termination retains inputs. */
   private stop(pid: number, signal: NodeJS.Signals): void {
     if (!this.groups.has(pid)) return;
+    // Restoring runners get their own grace period; worker escalation must not
+    // kill them while they are waiting for their descendants.
+    if (this.runners.has(pid)) {
+      if (signal !== 'SIGKILL') this.stopRunner(pid, signal);
+      return;
+    }
     if (process.platform === 'win32') {
       try {
         execFileSync('taskkill', ['/pid', String(pid), '/T', '/F'], { stdio: 'ignore' });
@@ -117,11 +142,19 @@ export class ProofProcesses {
 
   /** Reap executable group members, escalating stubborn workers while inputs still exist. */
   private async drain(): Promise<void> {
+    if (this.draining) return this.draining;
+    this.draining = this.drainOwned();
+    try { await this.draining; } finally { this.draining = undefined; }
+  }
+
+  /** Drain each generation without racing restoration against another reap. */
+  private async drainOwned(): Promise<void> {
     for (;;) {
       this.collectNested();
       if (this.groups.size === 0 && this.runners.size === 0) break;
       for (const pid of this.runners.keys()) this.stopRunner(pid, 'SIGTERM');
       for (const pid of this.groups) {
+        if (this.runners.has(pid)) continue;
         this.stop(pid, 'SIGTERM');
         if (process.platform !== 'win32') await this.reap(pid, true);
         this.forget(pid);
@@ -142,7 +175,11 @@ export class ProofProcesses {
     const marker = `proof-job-drained-${randomUUID()}`;
     const invocation = process.platform === 'win32' ? windowsJob(command, args, marker) : { command, args };
     const child = spawn(invocation.command, invocation.args, { ...spawnOptions,
-      env: { ...(spawnOptions.env ?? process.env), PM_PROOF_PROCESS_REGISTRY: this.registry },
+      env: { ...(spawnOptions.env ?? process.env), PM_PROOF_PROCESS_REGISTRY: this.registry,
+        ...(process.platform === 'win32' ? {} : {
+          NODE_OPTIONS: `${spawnOptions.env?.NODE_OPTIONS ?? process.env.NODE_OPTIONS ?? ''} --import=${JSON.stringify(import.meta.url)}`,
+        }),
+      },
       detached: process.platform !== 'win32', stdio: ['ignore', 'pipe', 'pipe'] });
     const pid = child.pid;
     if (pid !== undefined) {
@@ -217,5 +254,11 @@ export class ProofProcesses {
     } finally {
       for (const [signal, handler] of this.handlers) process.off(signal, handler);
     }
+  }
+
+  /** Confirm every owned worker stopped before a caller restores scratch inputs. */
+  async settled(): Promise<void> {
+    await this.drain();
+    if (!this.cleanupSafe) throw new Error('Cannot prove descendant termination; scratch inputs retained');
   }
 }

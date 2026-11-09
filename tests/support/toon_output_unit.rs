@@ -59,7 +59,8 @@ fn legacy_envelopes_with_current_marker_fields_keep_legacy_tables()
         })
         .collect();
     let mut legacy: crate::ListOutput =
-        json!({"edge_basis":"deduplicated_directed","output_default":"toon","declarations":rows}).into();
+        json!({"edge_basis":"deduplicated_directed","output_default":"toon","declarations":rows})
+            .into();
     legacy.current_contract = false;
     let rendered = super::stringify_toon(&legacy)?;
     assert!(rendered.contains("json_columns"), "{rendered}");
@@ -91,7 +92,10 @@ fn toon_rows_preserve_explicit_facts() -> Result<(), Box<dyn std::error::Error>>
     ]});
     assert_eq!(super::compact(&source), Some(expected.clone()));
     let rendered = super::stringify_toon(&source.into())?;
-    assert_eq!(rendered, format!("{}\n", super::render_contract(&expected, 0, false)));
+    assert_eq!(
+        rendered,
+        format!("{}\n", super::render_contract(&expected, 0, false))
+    );
     // Fixed wire captured independently from the pinned published formatter.
     assert_eq!(
         rendered,
@@ -334,11 +338,12 @@ fn current_compact_tables_round_trip_through_pinned_sdk() -> Result<(), Box<dyn 
         println!("skip: compact table decoder requires the current orientation oracle");
         return Ok(());
     }
-    for (variant, offset) in (0..8usize).map(|combined| (combined / 4, combined % 4)) {
+    for (variant, offset) in (0..12usize).map(|combined| (combined / 4, combined % 4)) {
         let source: Vec<_> = (0..60).map(|index| {
             let mut row = match variant {
                 // Integer-like keys sort like JavaScript Object.keys before the
                 // insertion-order string keys, so column positions stay aligned.
+                2 => json!({"tail":"x","4294967295":"ordinary","00":"ordinary","0":format!("a{index}"),"4294967294":"last index","4294967296":"overflow","-1":"negative","1.0":"float","empty":null,"3":null,"tags":["a","b"],"mixed":["semi;colon"]}),
                 1 => json!({"tail":"x","2":format!("a{index}"),"id":format!("row-{index:03}"),"empty":null,"10":"b","3":null,"tags":["a","b"],"mixed":["semi;colon"]}),
                 _ => json!({"id":format!("row-{index:03}"),"empty":null,"tags":["a","b"],"other_null":null,"mixed":["semi;colon"],"tail":null}),
             };

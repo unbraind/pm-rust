@@ -1,6 +1,6 @@
 import { ProofProcesses } from './context-proof-process.mts';
 import { createHash } from 'node:crypto';
-import { cpSync, mkdirSync, mkdtempSync, readFileSync, writeFileSync } from 'node:fs';
+import { cpSync, existsSync, lstatSync, mkdirSync, mkdtempSync, readFileSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { dirname, join } from 'node:path';
 import { fileURLToPath } from 'node:url';
@@ -10,7 +10,7 @@ const repo = mkdtempSync(join(tmpdir(), 'pm-perf-revert-'));
 const processes = new ProofProcesses();
 try {
 for (const name of ['Cargo.toml', 'Cargo.lock', 'build.rs', 'src', 'tests', 'examples']) {
-  cpSync(join(sourceRoot, name), join(repo, name), { recursive: true, dereference: true, filter: path => !path.split(/[\\/]/).includes('node_modules') });
+  cpSync(join(sourceRoot, name), join(repo, name), { recursive: true, dereference: true, filter: path => !path.split(/[\\/]/).includes('node_modules') && !(lstatSync(path).isSymbolicLink() && !existsSync(path)) });
 }
 const ownershipPath = join(repo, 'src/ownership.rs');
 const mutationPath = join(repo, 'src/mutation.rs');
@@ -68,6 +68,7 @@ try {
     writeFileSync(mutationPath, originalMutation.replace(fastPath, ''));
     for (const test of cases) await run(test, true);
   } finally {
+    await processes.settled();
     restore();
   }
   for (const test of cases) await run(test, false);
@@ -84,6 +85,7 @@ try {
   }, null, 2)}\n`);
 
 } finally {
+  await processes.settled();
   restore();
 }
 } catch (error) {
