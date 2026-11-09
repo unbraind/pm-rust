@@ -2991,5 +2991,95 @@ fn context_parser_refusals_preserve_settings_warnings() -> TestResult {
             settings["context"]
         );
     }
+    // A non-object context keeps the runtime hard-refusal boundary: the parser
+    // refusal carries no settings warning for a tracker the read pipeline would
+    // refuse with unsupported_native_context.
+    let mut settings = original.clone();
+    settings["context"] = json!(5);
+    fs::write(&path, serde_json::to_vec_pretty(&settings)?)?;
+    for encoding in [vec![], vec!["--json"]] {
+        let mut args = vec!["context", "--section", "activity", "--output-cursor", " "];
+        args.extend(&encoding);
+        let refused = native(root.path(), &args)?;
+        assert_eq!(refused.status.code(), Some(2), "{args:?}");
+        let text = String::from_utf8_lossy(&refused.stderr);
+        assert!(
+            !text.starts_with("[pm] warning:"),
+            "non-object context must not warn: {args:?}"
+        );
+        if encoding.is_empty() {
+            assert!(text.contains("does not support --output-cursor"), "{args:?}");
+        } else {
+            let payload: Value = serde_json::from_slice(&refused.stderr)?;
+            assert!(payload.get("warnings").is_none(), "{args:?}");
+        }
+    }
+    // The refusal loads settings from the argument-selected tracker: an invalid
+    // context warns through every workspace spelling, and a directory without a
+    // tracker refuses without a warning instead of crashing.
+    let mut settings = original.clone();
+    settings["context"] = json!({"activity_limit": 0});
+    fs::write(&path, serde_json::to_vec_pretty(&settings)?)?;
+    let root_text = root.path().to_string_lossy().into_owned();
+    for spelling in [
+        vec!["--workspace".to_owned(), root_text.clone()],
+        vec![format!("--path={root_text}")],
+        vec!["--pm-path".to_owned(), root_text.clone()],
+    ] {
+        let mut args: Vec<String> = spelling;
+        args.extend(
+            ["context", "--section", "activity", "--output-cursor", " "]
+                .map(str::to_owned),
+        );
+        let refused = native(root.path(), &args.iter().map(String::as_str).collect::<Vec<_>>())?;
+        assert_eq!(refused.status.code(), Some(2), "{args:?}");
+        let text = String::from_utf8_lossy(&refused.stderr);
+        assert!(
+            text.starts_with("[pm] warning: settings_read_invalid_schema"),
+            "argument-selected tracker must warn: {args:?}"
+        );
+    }
+    // A directory without a tracker refuses without a warning; a trailing
+    // value-less --workspace keeps the refusal and falls back to the start path.
+    let bare = tempfile::tempdir()?;
+    let mut workspace_args: Vec<String> = ["context", "--section", "activity"]
+        .map(str::to_owned)
+        .to_vec();
+    workspace_args.extend(["--output-cursor", " "].map(str::to_owned));
+    // A trailing value-less --workspace falls back to the start path: the bare
+    // directory has no tracker, so the refusal carries no settings warning.
+    let valueless = workspace_args_with_flag(workspace_args.clone());
+    let refused = native(
+        bare.path(),
+        &valueless.iter().map(String::as_str).collect::<Vec<_>>(),
+    )?;
+    assert_eq!(refused.status.code(), Some(2));
+    let text = String::from_utf8_lossy(&refused.stderr);
+    assert!(
+        !text.contains("[pm] warning: settings_read_invalid_schema"),
+        "missing tracker must not warn"
+    );
+    assert!(text.contains("does not support --output-cursor"));
+    // The same invocation from the bare directory with the tracker selected by
+    // the workspace argument still warns: the settings belong to the
+    // argument-selected tracker, never to the process working directory.
+    let mut selected = vec!["--workspace".to_owned(), root_text.clone()];
+    selected.extend(workspace_args[..workspace_args.len() - 1].iter().cloned());
+    let refused = native(
+        bare.path(),
+        &selected.iter().map(String::as_str).collect::<Vec<_>>(),
+    )?;
+    assert_eq!(refused.status.code(), Some(2), "{selected:?}");
+    let text = String::from_utf8_lossy(&refused.stderr);
+    assert!(
+        text.starts_with("[pm] warning: settings_read_invalid_schema"),
+        "argument-selected tracker must warn: {selected:?}"
+    );
     Ok(())
+}
+
+/// Appends one value-less --workspace flag to an argument list.
+fn workspace_args_with_flag(mut args: Vec<String>) -> Vec<String> {
+    args.push("--workspace".to_owned());
+    args
 }
