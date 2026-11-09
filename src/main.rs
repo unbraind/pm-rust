@@ -1014,6 +1014,32 @@ fn json_requested(args: &[String]) -> bool {
     )
 }
 
+/// Resolves the tracker start path from raw arguments, mirroring the native parser.
+///
+/// The parser-refusal path cannot read the parsed workspace option, so the
+/// same `--workspace`/`--pm-path`/`--path` spellings are scanned from the raw
+/// command line, defaulting to the current directory like the parser does.
+fn native_workspace_path<I, S>(args: I) -> PathBuf
+where
+    I: IntoIterator<Item = S>,
+    S: AsRef<std::ffi::OsStr>,
+{
+    let mut values = args.into_iter().map(|arg| arg.as_ref().to_string_lossy().into_owned());
+    while let Some(arg) = values.next() {
+        for flag in ["--workspace", "--pm-path", "--path"] {
+            if let Some(value) = arg.strip_prefix(&format!("{flag}=")) {
+                return PathBuf::from(value);
+            }
+            if arg == *flag
+                && let Some(value) = values.next()
+            {
+                return PathBuf::from(value);
+            }
+        }
+    }
+    PathBuf::from(".")
+}
+
 /// Parses the command line and maps success or failure to the process exit code.
 #[allow(clippy::too_many_lines)]
 fn main() -> ExitCode {
@@ -1076,18 +1102,28 @@ fn main() -> ExitCode {
                     "Native {} does not support {flag}; use the published pm CLI for this option.",
                     args[0]
                 );
-                let payload = orientation_error_json(
+                let mut payload = orientation_error_json(
                     &detail,
                     &serde_json::json!({"code":"unsupported_native_option","required":"Use the published pm CLI for options outside the documented native slice.","title":"Unsupported native option","flag":flag,"value":flag}),
                     &args,
                     2,
                 );
+                // The published CLI reports stored settings diagnostics before
+                // refusing; only context commands load context settings.
+                let settings_warning = (args[0] == "context")
+                    .then(|| native_workspace_path(std::env::args_os().skip(1)))
+                    .and_then(|path| Workspace::discover(&path).ok())
+                    .and_then(|workspace| workspace.context_settings_warning());
                 let mut stderr = std::io::stderr().lock();
-                let _ = if json_requested(&args) {
-                    write_json_to(&mut stderr, &payload)
+                if json_requested(&args) {
+                    attach_settings_warning(&mut payload, settings_warning);
+                    let _ = write_json_to(&mut stderr, &payload);
                 } else {
-                    write_cursor_refusal_to(&mut stderr, &payload)
-                };
+                    if let Some(warning) = settings_warning {
+                        let _ = write_settings_warning_to(&mut stderr, warning, false);
+                    }
+                    let _ = write_cursor_refusal_to(&mut stderr, &payload);
+                }
                 return ExitCode::from(2);
             }
             // Keep Clap's bytes and statuses while allowing normal process teardown.

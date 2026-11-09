@@ -1678,6 +1678,17 @@ fn context_stored_settings_fallback_precedes_overrides() -> Result<(), Box<dyn s
         workspace.pm_root().join("tasks/sample-activity.toon"),
         toon_format::encode_default(&item("sample-activity", "open"))?,
     )?;
+    // A custom lifecycle schema classifies "queued" as active and in progress;
+    // the settings fallback must discard it together with the invalid context.
+    fs::write(
+        workspace.pm_root().join("tasks/sample-queued.toon"),
+        toon_format::encode_default(&item("sample-queued", "queued"))?,
+    )?;
+    fs::create_dir_all(workspace.pm_root().join("schema"))?;
+    fs::write(
+        workspace.pm_root().join("schema/workflows.json"),
+        r#"{"workflow":{"in_progress_status":"queued","close_status":"done","open_status":"todo"}}"#,
+    )?;
     let history = (0..12).fold(String::new(), |mut output, i| {
         let _ = writeln!(output, "{}", json!({"ts":format!("2026-08-21T10:00:{i:02}.000Z"),"op":"update","author":"fixture","patch":[]}));
         output
@@ -1719,7 +1730,12 @@ fn context_stored_settings_fallback_precedes_overrides() -> Result<(), Box<dyn s
     ];
     for (contexts, fallback) in [(&invalid[..], true), (&valid[..], false)] {
         for context in contexts {
-            let settings = json!({"id_prefix":"sample-","item_format":"toon","context":context});
+            let settings = json!({
+                "id_prefix":"sample-",
+                "item_format":"toon",
+                "schema":{"statuses":[{"id":"queued","aliases":["waiting"],"roles":["active"]}],"workflow":{"in_progress_status":"queued","close_status":"done","open_status":"todo"}},
+                "context":context
+            });
             let before = settings.to_string();
             fs::write(workspace.pm_root().join("settings.json"), &before)?;
             for toon in [false, true] {
@@ -1749,6 +1765,14 @@ fn context_stored_settings_fallback_precedes_overrides() -> Result<(), Box<dyn s
                     assert_eq!(
                         result["activity"].as_array().map(Vec::len),
                         Some(expected),
+                        "{context}, {override_limit:?}"
+                    );
+                    // Only a fallback that discards every non-context setting
+                    // restores the default lifecycle: with the custom schema the
+                    // queued item is in progress, after fallback it is unknown.
+                    assert_eq!(
+                        result["summary"]["in_progress"],
+                        json!(if fallback { 0 } else { 1 }),
                         "{context}, {override_limit:?}"
                     );
                     assert_eq!(result.settings_warning().is_some(), fallback);

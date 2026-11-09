@@ -2889,3 +2889,98 @@ fn context_invalid_stored_activity_limits_match_current_oracle() -> TestResult {
     }
     Ok(())
 }
+
+/// Parser refusals retain the stored settings warning exactly like the published CLI.
+#[test]
+fn context_parser_refusals_preserve_settings_warnings() -> TestResult {
+    let Some(published) = published_cli::published_cli_or_skip("stored settings parser refusal")
+    else {
+        return Ok(());
+    };
+    let scratch = tempfile::tempdir()?;
+    let Some(driver) = orientation_driver(scratch.path(), &published)? else {
+        return Ok(());
+    };
+    let root = tempfile::tempdir()?;
+    assert!(
+        oracle(&driver, root.path(), &["init", "sample-", "--defaults"])?
+            .status
+            .success()
+    );
+    fixture(
+        root.path(),
+        &[item("sample-activity", "Task", "open", 1)],
+    )?;
+    let path = root.path().join(".agents/pm/settings.json");
+    let original: Value = serde_json::from_slice(&fs::read(&path)?)?;
+    let warning =
+        "[pm] warning: settings_read_invalid_schema — settings.json could not be loaded and pm fell back to defaults; run pm health for remediation.";
+    for (context, warns) in [
+        (json!({"activity_limit": 0}), true),
+        (json!({"stale_threshold_days": "x"}), true),
+        (json!({"activity_limit": 2}), false),
+        (json!({}), false),
+    ] {
+        let mut settings = original.clone();
+        settings["context"] = context;
+        let before = serde_json::to_vec_pretty(&settings)?;
+        fs::write(&path, &before)?;
+        for encoding in [vec![], vec!["--json"]] {
+            let mut args = vec!["context", "--section", "activity", "--output-cursor", " "];
+            args.extend(&encoding);
+            let expected = oracle(&driver, root.path(), &args)?;
+            let actual = native(root.path(), &args)?;
+            assert_eq!(actual.status.code(), Some(2), "{args:?}");
+            assert_eq!(fs::read(&path)?, before);
+            if encoding.is_empty() {
+                let native_stderr = String::from_utf8_lossy(&actual.stderr).into_owned();
+                let oracle_stderr = String::from_utf8_lossy(&expected.stderr).into_owned();
+                fn warning_line(text: &str) -> Option<&str> {
+                    text.lines()
+                        .find(|line| line.starts_with("[pm] warning: settings_read_invalid_schema"))
+                }
+                // The warning bytes are the published contract; the refusal body is native.
+                assert_eq!(
+                    warning_line(&native_stderr),
+                    warning_line(&oracle_stderr),
+                    "warning line parity: {args:?}"
+                );
+                assert!(
+                    native_stderr.contains("does not support --output-cursor"),
+                    "{args:?}"
+                );
+                if warns {
+                    assert_eq!(warning_line(&native_stderr), Some(warning), "{args:?}");
+                } else {
+                    assert_eq!(warning_line(&native_stderr), None, "{args:?}");
+                }
+            } else {
+                let refusal: Value = serde_json::from_slice(&actual.stderr)?;
+                assert_eq!(refusal["code"], "unsupported_native_option", "{args:?}");
+                if warns {
+                    assert_eq!(
+                        refusal["warnings"],
+                        json!(["settings_read_invalid_schema"]),
+                        "{args:?}"
+                    );
+                    assert_eq!(
+                        refusal["warning_details"][0]["message"],
+                        json!(warning),
+                        "{args:?}"
+                    );
+                } else {
+                    assert!(refusal.get("warnings").is_none(), "{args:?}");
+                }
+            }
+        }
+        // Other commands keep their published contract: no context settings warning.
+        let history = native(
+            root.path(),
+            &["history", "sample-activity", "--output-cursor", " ", "--json"],
+        )?;
+        let payload: Value = serde_json::from_slice(&history.stderr)?;
+        assert_eq!(payload["code"], "unsupported_native_option");
+        assert!(payload.get("warnings").is_none(), "{:?}", settings["context"]);
+    }
+    Ok(())
+}

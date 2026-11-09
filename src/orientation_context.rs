@@ -1144,6 +1144,26 @@ impl Workspace {
             })
     }
 
+    /// Reports the stored settings fallback warning for paths that refuse before execution.
+    ///
+    /// A parser refusal cannot run the settings-aware read pipeline, but the
+    /// published CLI still reports the settings warning before refusing, so the
+    /// same stored-context validation produces the warning here. A missing or
+    /// unreadable tracker produces no warning: the runtime path owns that error.
+    #[must_use]
+    pub fn context_settings_warning(&self) -> Option<&'static str> {
+        let mut settings = crate::ownership::runtime_settings(self.pm_root()).ok()?;
+        if settings
+            .get("context")
+            .is_some_and(|context| !context.is_object())
+        {
+            // The hard non-object refusal boundary matches the runtime path.
+            return None;
+        }
+        let fallback = sections::settings_fallback(&mut settings);
+        fallback.then_some(crate::json_output::SETTINGS_FALLBACK_WARNING)
+    }
+
     /// Evaluate one context request using the captured settings and warning policy.
     #[allow(clippy::too_many_lines)]
     fn context_with_settings(

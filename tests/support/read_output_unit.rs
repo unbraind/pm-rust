@@ -15,7 +15,7 @@ fn intent_declarations_are_immutable_during_wire_compaction()
                 .collect::<Vec<_>>();
             let declaration = json!({"command":"context","included_field_groups":groups,"future":{"groups":groups},"description":"m".repeat(500)});
             let mut source = json!({"context_intent":declaration,"activity":[{"title":"a"},{"title":"b"}],"read_output":{"compacted_row_paths":[]}});
-            super::compact_strings(&mut source);
+            super::compact_strings(&mut source, true);
             assert_eq!(source["context_intent"], declaration);
             let mut candidates = Vec::new();
             super::collections(&source, "", &mut candidates);
@@ -119,7 +119,7 @@ fn custom_focus_classification_survives_compaction() {
     let states = "I".repeat(300);
     let mut payload =
         json!({"summary":{"focus_row_states":{"low_level":states}},"title":"x".repeat(300)});
-    assert!(compact_strings(&mut payload));
+    assert!(compact_strings(&mut payload, true));
     assert_eq!(payload["summary"]["focus_row_states"]["low_level"], states);
 }
 
@@ -514,10 +514,10 @@ fn producer_rebasing_and_disclosure_keep_indices_and_snapshot() {
 #[test]
 fn estimates_and_string_compaction_handle_nested_unicode() {
     let mut value = json!({"rows":["😀".repeat(130),"x".repeat(240),null,3]});
-    assert!(compact_strings(&mut value));
+    assert!(compact_strings(&mut value, true));
     assert_eq!(value["rows"][0], format!("{}…", "😀".repeat(120)));
     assert_eq!(value["rows"][1], "x".repeat(240));
-    assert!(!compact_strings(&mut json!([true, null, "short"])));
+    assert!(!compact_strings(&mut json!([true, null, "short"]), true));
     let mut measured = crate::ListOutput::from(json!({"read_output":{"estimated_tokens":0}}));
     super::update(&mut measured, "read_output", true);
     assert_eq!(
@@ -670,7 +670,7 @@ fn assert_toon_budget_contract() -> Result<(), Box<dyn std::error::Error>> {
     let title = format!("{}😀{}", "x".repeat(239), "y".repeat(300));
     let mut cut: crate::ListOutput = envelope(1, 0).into();
     cut.value["items"][0]["title"] = json!(title);
-    compact_strings(&mut cut.value);
+    compact_strings(&mut cut.value, true);
     assert!(super::apply(cut, &options).is_ok());
     let mut original = envelope(200, 400);
     original["items"][0]["title"] = json!(format!("{}😀{}", "x".repeat(239), "y".repeat(300)));
@@ -786,3 +786,74 @@ fn shared_read_commands_bound_final_self_referential_receipts()
     }
     Ok(())
 }
+    /// Item metadata named context_intent compacts while the top-level declaration stays immutable.
+    #[test]
+    fn item_metadata_named_context_intent_compacts_under_budgets()
+    -> Result<(), Box<dyn std::error::Error>> {
+        let long = "m".repeat(3000);
+        for toon in [false, true] {
+            let source = json!({
+                "items": [{"id": "sample-a", "title": "a", "context_intent": long}],
+                "count": 1,
+                "total": 1,
+                "has_more": false,
+                "truncated": false,
+                "next_cursor": null
+            });
+            for (budget, delivered) in [
+                (150usize, false),
+                (300, true),
+                (500, true),
+                (700, true),
+                (5000, true),
+            ] {
+                let output = super::apply_command(
+                    source.clone().into(),
+                    &ListOptions {
+                        output_budget: Some(budget.to_string()),
+                        toon,
+                        ..Default::default()
+                    },
+                    "list",
+                )?;
+                let omitted = output.get("output_budget_exceeded").is_some();
+                assert_eq!(!omitted, delivered, "budget {budget}, toon {toon}");
+                if delivered && budget <= 700 {
+                    // The fitting item is delivered with the metadata compacted,
+                    // instead of the whole result being omitted.
+                    let cell = output["items"][0]["context_intent"]
+                        .as_str()
+                        .ok_or("missing metadata cell")?;
+                    assert_eq!(
+                        cell.encode_utf16().count(),
+                        241,
+                        "budget {budget}, toon {toon}"
+                    );
+                    assert!(cell.ends_with('…'), "budget {budget}, toon {toon}");
+                }
+                if delivered && budget == 400 {
+                    // A generous budget never compacts and never omits.
+                    assert_eq!(
+                        output["items"][0]["context_intent"].as_str(),
+                        Some(long.as_str())
+                    );
+                }
+            }
+            // The top-level declaration protection is unaffected: a large
+            // declaration string under the reserved key stays byte-identical.
+            let mut declaration = json!({"command":"context","description":"m".repeat(600)});
+            let mut envelope = json!({"context_intent": declaration.clone(), "items": [], "count": 0});
+            super::compact_strings(&mut envelope, true);
+            assert_eq!(envelope["context_intent"], declaration);
+            declaration["future"] = json!(null);
+            let mut unprotected = json!({"rows": [{"context_intent": declaration.clone()}]});
+            super::compact_strings(&mut unprotected, false);
+            assert!(
+                unprotected["rows"][0]["context_intent"]["description"]
+                    .as_str()
+                    .is_some_and(|text| text.ends_with('…')),
+                "nested identical metadata compacts without top-level protection"
+            );
+        }
+        Ok(())
+    }
