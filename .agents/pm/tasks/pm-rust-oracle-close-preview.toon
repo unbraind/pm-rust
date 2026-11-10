@@ -1,0 +1,16 @@
+id: pm-rust-oracle-close-preview
+title: Track published preview close-reason divergence after the oracle refresh
+description: The 2026.11.2 published preview accepts configured closure creates with active roles without an author-controlled reason. Native scalar admission deliberately refuses closure operations outside its documented slice. Keep the divergence explicit rather than weakening native closure admission.
+type: Task
+status: open
+priority: 3
+tags[3]: compatibility,oracle,preview
+created_at: "2026-11-08T03:27:29.859Z"
+updated_at: "2026-11-08T04:07:58.090Z"
+author: pi-agent
+acceptance_criteria: Compare published preview and actual create semantics on the same synthetic no-git tracker; Retain the native close_reason_required contract until an explicit closure capability is designed
+files[1]{path,scope}:
+  tests/oracle/admission-oracle.mts,project
+docs[1]{path,scope}:
+  README.md,project
+body: ""

@@ -1788,7 +1788,7 @@ fn admission_stdio_refusals() -> Result<(), Box<dyn std::error::Error>> {
         "admission_input"
     );
     let input = serde_json::to_vec(
-        &serde_json::json!({"author":"fixture-agent","mutations":[{"op":"create","id":"demo-new","options":{"title":"Fixture","type":"Task","status":"open","priority":2,"createMode":"progressive","parent":"none","assignee":"none","allowDuplicate":true}}]}),
+        &serde_json::json!({"author":"fixture-agent","mutations":[{"op":"create","id":"demo-new","options":{"title":"Fixture","type":"Task","status":"open","priority":2,"createMode":"progressive","unset":["parent","assignee"],"allowDuplicate":true}}]}),
     )?;
     let error = super::run_with_io(cli(true), &mut input.as_slice(), &mut Vec::new())
         .err()

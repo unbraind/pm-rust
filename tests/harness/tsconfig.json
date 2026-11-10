@@ -6,8 +6,14 @@
     "allowImportingTsExtensions": true,
     "module": "nodenext",
     "target": "es2023",
-    "types": ["node"],
+    "types": [
+      "node"
+    ],
     "skipLibCheck": true
   },
-  "include": ["../../scripts/crash-*.mts", "../../scripts/native-adapter-*.mts"]
+  "include": [
+    "../../scripts/crash-*.mts",
+    "../../scripts/native-adapter-*.mts",
+    "../oracle/admission-oracle.mts"
+  ]
 }

@@ -39,7 +39,7 @@ export PM_NODE_CLI := env_var_or_default("PM_NODE_CLI", justfile_directory() / "
 
 # Install the shared local and CI parity oracle without resolving new versions.
 oracle-install:
-    npm ci --prefix tests/oracle --ignore-scripts
+    npm ci --prefix tests/oracle --ignore-scripts --prefer-offline --maxsockets=2
 
 # Run the standalone typed crash-conformance CLI (Linux and strace required).
 [positional-arguments]
@@ -47,8 +47,8 @@ crash *args:
     node scripts/crash-cli.mts "$@"
 
 # Targeted TypeScript harness checks; Rust tests/build remain separate.
-crash-check:
-    npm ci --prefix tests/harness --ignore-scripts
+crash-check: oracle-install
+    npm ci --prefix tests/harness --ignore-scripts --prefer-offline --maxsockets=2
     tests/harness/node_modules/.bin/tsc -p tests/harness/tsconfig.json
     tests/harness/node_modules/.bin/eslint -c tests/harness/eslint.config.mjs scripts/crash-*.mts scripts/native-adapter-*.mts
     node --test --test-concurrency=1 scripts/crash-*.test.mts scripts/native-adapter-*.test.mts
