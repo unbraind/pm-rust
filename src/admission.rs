@@ -716,13 +716,6 @@ fn prepare_create(
             return Err(required(field));
         }
     }
-    let unset = options.unset.as_ref().ok_or_else(|| required("unset"))?;
-    if unset.len() != 2
-        || !unset.iter().any(|field| field == "parent")
-        || !unset.iter().any(|field| field == "assignee")
-    {
-        return Err(required("unset"));
-    }
     if options.allow_duplicate != Some(true) {
         return Err(required("allowDuplicate"));
     }
@@ -875,6 +868,19 @@ fn evaluate(
             diagnostic.required = Some(
                 "Repair the earlier refused intent on this target, then preview the complete batch again.",
             );
+        } else if matches!(intent.op, AdmissionKind::Create)
+            && intent.options.unset.as_ref().is_none_or(|unset| {
+                unset.len() != 2
+                    || !unset.iter().any(|field| field == "parent")
+                    || !unset.iter().any(|field| field == "assignee")
+            })
+        {
+            refused.insert(intent.id.clone());
+            diagnostic.state = "refused";
+            let (code, field, remedy) = required("unset");
+            diagnostic.code = code;
+            diagnostic.field = field;
+            diagnostic.required = Some(remedy);
         } else if matches!(intent.op, AdmissionKind::Create)
             && before.is_some_and(|item| {
                 item.metadata

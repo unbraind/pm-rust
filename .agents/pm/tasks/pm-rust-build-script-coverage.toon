@@ -1,0 +1,14 @@
+id: pm-rust-build-script-coverage
+title: Exercise platform build directives in the standard LLVM coverage gate
+description: "The documented all-target/all-feature LLVM command with cargo-llvm-cov 0.8.7 passes 734 tests and covers every src file at 100%, but includes unchanged build.rs and leaves its MSVC stack-directive branch uncovered. Initial global totals: lines 16889/16890, functions 1751/1751, regions 27337/27338, branches 3763/3764. Running the existing instrumented build script with synthetic GNU and MSVC target environments, asserting exact output, then regenerating the report produces 100% on all four totals without exclusions or threshold changes. Add portable platform-directive coverage to the standard aggregate gate. Synthetic directive checks do not establish actual Windows linking behavior."
+type: Task
+status: open
+priority: 2
+tags[3]: build,coverage,follow-up
+created_at: "2026-11-10T20:03:35.323Z"
+updated_at: "2026-11-10T20:03:38.583Z"
+author: codex-smallfix-1110
+files[2]{path,scope}:
+  build.rs,project
+  justfile,project
+body: ""

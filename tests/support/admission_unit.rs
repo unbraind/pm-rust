@@ -960,6 +960,52 @@ fn admission_candidate_encoding_and_adoption() -> TestResult {
     Ok(())
 }
 
+/// Existing and same-batch creates must satisfy explicit scope clearing before adoption.
+#[test]
+fn admission_existing_create_requires_unset() -> TestResult {
+    let (_directory, workspace) = fixture()?;
+    let before = stored(&workspace)?;
+    for id in ["demo-existing", "demo-new"] {
+        for unset in [
+            None,
+            Some(json!([])),
+            Some(json!(["parent"])),
+            Some(json!(["parent", "parent"])),
+            Some(json!(["assignee", "assignee"])),
+            Some(json!(["parent", "other"])),
+            Some(json!(["parent", "assignee", "other"])),
+        ] {
+            let mut intent = create(id);
+            intent["options"]
+                .as_object_mut()
+                .ok_or("options")?
+                .remove("unset");
+            if let Some(unset) = unset {
+                intent["options"]["unset"] = unset;
+            }
+            let request = batch(&json!([
+                intent,
+                {"op":"update","id":id,"options":{"title":"suppressed"}}
+            ]))?;
+            let preview = workspace.preview_item_mutations(&request)?;
+            assert!(!preview.ok, "invalid unset must refuse {id}");
+            assert_eq!(preview.diagnostics[0].code, "required_field");
+            assert_eq!(preview.diagnostics[0].field, Some("unset"));
+            assert_eq!(preview.diagnostics[1].state, "skipped");
+        }
+        let mut valid = create(id);
+        valid["options"]["unset"] = json!(["assignee", "parent"]);
+        let mut invalid = create(id);
+        invalid["options"]["unset"] = json!([]);
+        let preview = workspace.preview_item_mutations(&batch(&json!([valid, invalid]))?)?;
+        assert!(!preview.ok);
+        assert_eq!(preview.diagnostics[1].field, Some("unset"));
+    }
+    assert_eq!(workspace.get("demo-existing")?, before);
+    assert!(workspace.get("demo-new").is_err());
+    Ok(())
+}
+
 /// Malformed configuration and every optional-source outcome refuse conservatively.
 #[test]
 fn admission_contract_configuration_boundaries() -> TestResult {
