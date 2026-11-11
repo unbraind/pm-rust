@@ -447,40 +447,20 @@ pub(crate) fn read_page(
     }
     echo.insert("runtime_filters".to_owned(), json!({}));
     result["filters"] = Value::Object(echo);
-    let mut result = crate::ListOutput::from(result);
-    if let Some(budget) = intent_budget {
-        result = crate::list_intent::attach(result, &options, budget);
-    }
-    if options.after.is_some() {
-        let continuation_fingerprint = if legacy_cursor {
+    let continuation = options.after.as_ref().map(|_| {
+        if legacy_cursor {
             "opaque_cursor"
         } else {
-            &fingerprint
-        };
-        let mut map = result.as_object().cloned().unwrap_or_default();
-        for key in [
-            "applied_limit",
-            "completeness",
-            "context_intent",
-            "count",
-            "filters",
-            "has_more",
-            "now",
-            "omission_receipt",
-            "projection",
-            "sorting",
-            "total",
-            "truncated",
-        ] {
-            map.shift_remove(key);
+            fingerprint.as_str()
         }
-        map.insert(
-            "continuation_contract".to_owned(),
-            json!({"fingerprint":continuation_fingerprint,"metadata":"reference","restore_with":"omit --after"}),
-        );
-        result.value = Value::Object(map);
-    }
-    crate::read_output::apply(result, requested)
+    });
+    crate::list_intent::deliver(
+        result.into(),
+        &options,
+        requested,
+        intent_budget,
+        continuation,
+    )
 }
 
 /// Slices the stable selection and builds the published producer envelope.

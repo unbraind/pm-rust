@@ -173,10 +173,10 @@ fn ownership_session_faults_and_contention_preserve_durable_steps()
     let options = crate::OwnershipOptions::default();
     let session = pm_root.join("runtime/session.json");
     fs::create_dir(&session)?;
-    assert!(matches!(
-        workspace.claim_with_options(&mutation, &options),
-        Err(PmRustError::Io { .. })
-    ));
+    assert_eq!(
+        workspace.claim_with_options(&mutation, &options)?.warnings,
+        ["claim_semantic_attribution_unrecorded"]
+    );
     assert_eq!(
         workspace.get("sample-unit")?.metadata.extra["assignee"],
         "unit-agent"
@@ -3831,7 +3831,7 @@ fn ownership_provenance_and_legacy_metadata_are_preserved() -> Result<(), Box<dy
         provenance_role: None,
     };
     assert_eq!(
-        ownership_phrase(&history_path, "other")?,
+        ownership_phrase(&ownership_evidence(&history_path, "other")?, "other"),
         "assigned to other"
     );
     for (raw, expected) in [
@@ -3840,24 +3840,27 @@ fn ownership_provenance_and_legacy_metadata_are_preserved() -> Result<(), Box<dy
             "assigned to other",
         ),
         (
-            "{\"op\":\"update\",\"patch\":[{\"path\":\"/metadata/assignee\"}]}\n",
+            "{\"op\":\"update\",\"patch\":[{\"path\":\"/metadata/assignee\",\"value\":\"other\"}]}\n",
             "assigned to other",
         ),
         (
-            "{\"op\":\"claim\",\"patch\":[{\"path\":\"/metadata/assignee\"}]}\n",
+            "{\"op\":\"claim\",\"patch\":[{\"path\":\"/metadata/assignee\",\"value\":\"other\"}]}\n",
             "claimed by other",
         ),
     ] {
         fs::write(&history_path, raw)?;
-        assert_eq!(ownership_phrase(&history_path, "other")?, expected);
+        assert_eq!(
+            ownership_phrase(&ownership_evidence(&history_path, "other")?, "other"),
+            expected
+        );
     }
     fs::remove_file(&history_path)?;
     assert_eq!(
-        ownership_phrase(&history_path, "other")?,
+        ownership_phrase(&ownership_evidence(&history_path, "other")?, "other"),
         "assigned to other"
     );
     fs::create_dir(&history_path)?;
-    assert!(ownership_phrase(&history_path, "other").is_err());
+    assert!(ownership_evidence(&history_path, "other").is_err());
     fs::remove_dir(&history_path)?;
     // A legacy assignment lacks claim_principal. Reclaim adds only that field.
     document
@@ -4345,6 +4348,7 @@ fn ownership_refusals_and_interrupted_history_append_remain_recoverable()
     mutation.force = false;
     let bypass = crate::OwnershipOptions {
         release_bypass: true,
+        start: false,
         ..crate::OwnershipOptions::default()
     };
     assert_eq!(

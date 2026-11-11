@@ -44,14 +44,14 @@ fn toon_wire_shapes_preserve_values_and_disclose_sparse_cells()
     );
     for value in [
         Value::Null,
-        json!([{}]),
+        json!([]),
         json!([{}, 1]),
         json!([{"a":1},{"b":2},{"c":3}]),
     ] {
-        assert!(table(&value).is_none());
+        assert!(table(&value, false).is_none());
     }
     let rows = json!([{"id":"one","tags":["a"]},{"id":"two","parent":"root","tags":null}]);
-    let (encoded, encoding) = table(&rows).ok_or("missing sparse table")?;
+    let (encoded, encoding) = table(&rows, false).ok_or("missing sparse table")?;
     assert_eq!(
         encoded,
         json!([{"id":"one","tags":"[\"a\"]","parent":null},{"id":"two","tags":"null","parent":"root"}])
@@ -154,8 +154,13 @@ fn raw_overrides_refuse_toon_without_panicking() {
 /// Verifies scalar and nested read coercion without changing numeric strings.
 fn assert_read_number_domain() -> Result<(), Box<dyn std::error::Error>> {
     use super::{render, table};
+    assert_eq!(
+        table(&json!([{}]), false),
+        Some((json!([{}]), json!({"json_columns":[],"absent":[]})))
+    );
     let (rows, _) = table(
         &json!([{"nested":[9_007_199_254_740_993_u64]},{"nested":[9_007_199_254_740_992_u64]}]),
+        false,
     )
     .ok_or("missing numeric table")?;
     assert_eq!(rows[0]["nested"], "[9007199254740992]");
@@ -174,7 +179,7 @@ fn assert_read_number_domain() -> Result<(), Box<dyn std::error::Error>> {
 /// Brief projection keeps continuation and source evidence, rejecting ambiguous metadata.
 #[test]
 fn brief_envelopes_preserve_partial_and_unchecked_sources() {
-    let base = json!({"items":[{"id":"a"}],"count":1,"total":1,"has_more":false,"truncated":false,"next_cursor":null,"projection":{"mode":"brief","fields":["id","status","type","title"]},"sorting":{"sort":"default","order":"asc"},"completeness":{"status":"complete","unreadable_item_count":0,"unreadable_directory_count":0},"omission_receipt":{"has_omissions":true,"omitted_field_group_count":1,"omitted_field_groups":[{"name":"full_item_fields","restore_with":"--full"}]}});
+    let base = json!({"items":[{"id":"a"}],"count":1,"total":1,"has_more":false,"truncated":false,"next_cursor":null,"projection":{"mode":"brief","fields":["id"]},"sorting":{"sort":"default","order":"asc"},"completeness":{"status":"complete","unreadable_item_count":0,"unreadable_directory_count":0},"omission_receipt":{"has_omissions":true,"omitted_field_group_count":1,"omitted_field_groups":[{"name":"full_item_fields","restore_with":"--full"}]}});
     assert_eq!(
         super::complete_brief(&base),
         json!({"items":[{"id":"a"}],"count":1,"details":"--full"})
@@ -214,6 +219,7 @@ fn brief_envelopes_preserve_partial_and_unchecked_sources() {
         ("/truncated", json!(true)),
         ("/next_cursor", json!("unexpected")),
         ("/projection/fields", json!([])),
+        ("/projection/fields", json!(["id", "status"])),
         ("/completeness/unreadable_item_count", json!(1)),
         ("/completeness/unreadable_directory_count", json!(1)),
     ] {

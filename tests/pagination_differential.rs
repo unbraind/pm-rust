@@ -121,7 +121,8 @@ fn compare_outputs(
             std::env::var("PM_NODE_INTERPRETER").unwrap_or_else(|_| "node".to_owned()),
         )
         .arg(directory.join("driver.mjs"))
-        .args(["list", "--json"])
+        // Match the native-only workspace alias with its published bootstrap scope.
+        .args(["--pm-path", ".", "list", "--json"])
         .args(flags)
         .current_dir(directory)
         .env_remove("PM_PATH")
@@ -129,7 +130,9 @@ fn compare_outputs(
         assert_eq!(
             published.status.code(),
             native.status.code(),
-            "exit status {flags:?}"
+            "exit status {flags:?}: native {}, oracle {}",
+            String::from_utf8_lossy(&native.stderr),
+            String::from_utf8_lossy(&published.stderr)
         );
         assert_bytes(&native, &published, flags);
     }
@@ -500,7 +503,15 @@ fn bounded_receipts_match_bytes() -> TestResult {
         vec!["--for", "triage", "--token-budget", "10000", "--full"],
         vec![],
     ] {
-        compare(directory.path(), &flags, flags != ["--output-budget", "1"])?;
+        // The current oracle exits two for every receipt-only infeasible result.
+        let success = ![
+            vec!["--output-budget", "1"],
+            vec!["--for", "triage", "--token-budget", "256"],
+            vec!["--for", "triage"],
+            vec!["--for", "triage", "--brief"],
+        ]
+        .contains(&flags);
+        compare(directory.path(), &flags, success)?;
     }
     Ok(())
 }
@@ -747,9 +758,9 @@ fn triage_continuation_compaction_matches_the_published_cli() -> TestResult {
     Ok(())
 }
 
-/// A legacy final-page cursor without `after_index` must omit, not rebase from zero.
+/// An unbounded legacy final page retains its exact suffix without rebasing from zero.
 #[test]
-fn legacy_after_without_after_index_omits_final_triage_page() -> TestResult {
+fn legacy_after_without_after_index_retains_unbounded_final_triage_page() -> TestResult {
     use base64::{Engine, engine::general_purpose::URL_SAFE_NO_PAD};
     let directory = fixture(75, 400)?;
     let first = compare(
@@ -803,38 +814,44 @@ fn legacy_after_without_after_index_omits_final_triage_page() -> TestResult {
         String::from_utf8_lossy(&native.stderr)
     );
     let native_page: Value = serde_json::from_slice(&native.stdout)?;
-    // Reverting the after_index requirement emits compacted rows and a cursor
-    // whose after_index equals the retained count. The reference omits instead.
-    assert!(native_page.get("items").is_none());
-    assert!(native_page["next_cursor"].is_null());
-    assert_eq!(native_page["budget_exceeded"]["omitted_result"], true);
     assert_eq!(
-        native_page["budget_exceeded"]["reason"],
-        "effective_budget_infeasible"
+        native_page["items"]
+            .as_array()
+            .ok_or("missing final rows")?
+            .iter()
+            .map(|row| row["id"].clone())
+            .collect::<Vec<_>>(),
+        serde_json::json!([
+            "demo-0049",
+            "demo-0054",
+            "demo-0059",
+            "demo-0064",
+            "demo-0069",
+            "demo-0074"
+        ])
+        .as_array()
+        .ok_or("expected rows")?
+        .clone()
+    );
+    assert!(native_page["next_cursor"].is_null());
+    assert!(native_page.get("budget_exceeded").is_none());
+    assert_eq!(
+        native_page["continuation_contract"]["metadata"],
+        "reference"
     );
     if directory.path().join("driver.mjs").is_file() {
         let published = published_cli::oracle_command(
             std::env::var("PM_NODE_INTERPRETER").unwrap_or_else(|_| "node".to_owned()),
         )
         .arg(directory.path().join("driver.mjs"))
-        .args(["list", "--json"])
+        // Match the native-only workspace alias with its published bootstrap scope.
+        .args(["--pm-path", ".", "list", "--json"])
         .args(flags)
         .current_dir(directory.path())
         .env_remove("PM_PATH")
         .output()?;
         assert_eq!(published.status.code(), native.status.code());
-        let published_page: Value = serde_json::from_slice(&published.stdout)?;
-        assert_eq!(
-            published_page["budget_exceeded"],
-            native_page["budget_exceeded"]
-        );
-        assert!(published_page.get("items").is_none());
-        assert!(published_page["next_cursor"].is_null());
-        // Fingerprint spelling is tracked separately; this test pins omission.
-        assert_eq!(
-            published_page["continuation_contract"]["metadata"],
-            "reference"
-        );
+        assert_bytes(&native, &published, &flags);
     }
     Ok(())
 }
@@ -1245,7 +1262,12 @@ fn toon_budget_envelopes_and_snapshot_walks_match() -> TestResult {
         vec!["--full", "--limit", "3", "--output-budget", "2000"],
         vec!["--for", "triage", "--token-budget", "1000"],
     ] {
-        compare_toon(directory.path(), &flags, flags != ["--output-budget", "1"])?;
+        compare_toon(
+            directory.path(),
+            &flags,
+            flags != ["--output-budget", "1"]
+                && flags != ["--for", "triage", "--token-budget", "256"],
+        )?;
     }
     let verbose = fixture(270, 400)?;
     for flags in [

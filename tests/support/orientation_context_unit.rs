@@ -433,7 +433,7 @@ fn deep_sections_preserve_relationships_and_evidence() -> Result<(), Box<dyn std
         workspace.pm_root().join("history/sample-deleted.jsonl"),
         format!(
             "{}\n",
-            json!({"ts":NOW,"op":"create","author":"fixture","message":"Retained evidence"})
+            json!({"ts":"2026-08-21T00:00:00.000Z","op":"create","author":"fixture","message":"Retained evidence"})
         ),
     )?;
     let result = workspace.context_with_global(

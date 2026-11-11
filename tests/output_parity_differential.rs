@@ -66,6 +66,18 @@ fn compare(
     amount: Option<&str>,
     cursor: Option<&str>,
 ) -> Result<pm_rust::ListOutput, Box<dyn std::error::Error>> {
+    compare_cursor(directory, budget, intent, amount, cursor, "--output-cursor")
+}
+
+/// Uses the emitted continuation kind while retaining every stream and SDK comparison.
+fn compare_cursor(
+    directory: &Path,
+    budget: &str,
+    intent: bool,
+    amount: Option<&str>,
+    cursor: Option<&str>,
+    cursor_flag: &str,
+) -> Result<pm_rust::ListOutput, Box<dyn std::error::Error>> {
     let mut flags = vec![
         "list",
         "--json",
@@ -79,7 +91,7 @@ fn compare(
         flags.extend(["--for", "triage", "--token-budget", "120000"]);
     }
     if let Some(cursor) = cursor {
-        flags.extend(["--output-cursor", cursor]);
+        flags.extend([cursor_flag, cursor]);
     }
     let native = Command::new(env!("CARGO_BIN_EXE_pm-rust"))
         .args(&flags)
@@ -127,7 +139,12 @@ fn compare(
         &ListOptions {
             full: true,
             output_limit: Some(amount.unwrap_or("unbounded").to_owned()),
-            output_cursor: cursor.map(str::to_owned),
+            output_cursor: cursor
+                .filter(|_| cursor_flag == "--output-cursor")
+                .map(str::to_owned),
+            after: cursor
+                .filter(|_| cursor_flag == "--after")
+                .map(str::to_owned),
             output_budget: Some(budget.to_owned()),
             intent: intent.then(|| "triage".to_owned()),
             token_budget: intent.then(|| "120000".to_owned()),
@@ -148,6 +165,35 @@ fn compare(
         pm_rust::stringify_json(&sdk, false)
     );
     Ok(sdk)
+}
+
+/// Replays the emitted producer cursor after canonical intent budgeting.
+fn assert_intent_producer_continuation(directory: &Path) -> TestResult {
+    // A canonical cost bound also selects intent rows, so this emits a producer cursor.
+    let producer = compare(directory, "3000", true, None, None)?;
+    let producer_cursor = producer["next_cursor"]
+        .as_str()
+        .ok_or("missing producer continuation")?;
+    assert_eq!(
+        serde_json::from_slice::<Value>(&URL_SAFE_NO_PAD.decode(producer_cursor)?)?["after_index"],
+        0
+    );
+    let continued = compare_cursor(
+        directory,
+        "3000",
+        true,
+        None,
+        Some(producer_cursor),
+        "--after",
+    )?;
+    assert_eq!(
+        continued["items"]
+            .as_array()
+            .ok_or("missing continued rows")?
+            .len(),
+        1
+    );
+    Ok(())
 }
 
 /// Four astral characters start at every UTF-16 offset around the 240-unit cut.
@@ -209,22 +255,22 @@ fn generated_utf16_cut_offsets_match_locked_oracle() -> TestResult {
         if intent {
             assert_eq!(
                 result["context_intent"]["estimated_tokens"],
-                pm_rust::stringify_json(&result, false).len().div_ceil(4)
+                (wire.len() + 1).div_ceil(4)
             );
         }
     }
-    // Intent compaction precedes canonical amount/cost controls. Replay must
-    // rebase lossless pointers and hash the compacted strings, not the safe view.
-    let first = compare(directory.path(), "3000", true, None, None)?;
+    assert_intent_producer_continuation(directory.path())?;
+    // The independent canonical read budget supplies the output snapshot for cross-page cuts.
+    let first = compare(directory.path(), "3000", false, None, None)?;
     let cursor = first["next_cursor"]
         .as_str()
         .ok_or("missing output continuation")?;
-    let second = compare(directory.path(), "3000", true, None, Some(cursor))?;
+    let second = compare(directory.path(), "3000", false, None, Some(cursor))?;
     assert!(second["count"].as_u64().is_some_and(|count| count > 0));
     let mut last_cursor: Value = serde_json::from_slice(&URL_SAFE_NO_PAD.decode(cursor)?)?;
     last_cursor["o"] = serde_json::json!(239);
     let last_cursor = URL_SAFE_NO_PAD.encode(last_cursor.to_string());
-    let tail = compare(directory.path(), "120000", true, None, Some(&last_cursor))?;
+    let tail = compare(directory.path(), "5000", false, None, Some(&last_cursor))?;
     assert_eq!(tail["count"], 3);
     let tail_wire = pm_rust::stringify_json(&tail, true);
     for escape in ["\\ud83d…", "\\ud801…", "\\ud834…", "\\ud840…"] {

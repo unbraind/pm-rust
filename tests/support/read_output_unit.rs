@@ -426,10 +426,10 @@ fn estimates_and_string_compaction_handle_nested_unicode() {
     assert_eq!(value["rows"][1], "x".repeat(240));
     assert!(!compact_strings(&mut json!([true, null, "short"])));
     let mut measured = crate::ListOutput::from(json!({"read_output":{"estimated_tokens":0}}));
-    super::update(&mut measured, "read_output", true);
+    super::update_output(&mut measured, false);
     assert_eq!(
         measured["read_output"]["estimated_tokens"],
-        super::estimate(&measured, true)
+        super::measure(&measured, false)
     );
 }
 

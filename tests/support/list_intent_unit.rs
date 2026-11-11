@@ -80,14 +80,14 @@ fn both_receipts_stabilize_after_projection_changes() {
     let mut result = crate::ListOutput::from(
         json!({"items":[],"context_intent":{"estimated_tokens":0},"read_output":{"estimated_tokens":0}}),
     );
-    super::stabilize(&mut result);
+    super::stabilize(&mut result, false);
     assert_eq!(
         result["context_intent"]["estimated_tokens"],
-        crate::read_output::estimate(&result, false)
+        crate::read_output::measure(&result, false)
     );
     assert_eq!(
         result["read_output"]["estimated_tokens"],
-        crate::read_output::estimate(&result, true)
+        crate::read_output::measure(&result, false)
     );
 }
 

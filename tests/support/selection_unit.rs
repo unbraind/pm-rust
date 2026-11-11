@@ -341,6 +341,7 @@ fn selection_validation_and_storage_errors_preserve_items() -> Result<(), Box<dy
             &BTreeMap::new(),
         )),
         release_bypass: false,
+        start: false,
     };
     assert_eq!(
         workspace.claim_next(&request(), &explicit, &SelectionOptions::default())?["id"],

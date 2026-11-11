@@ -4,6 +4,8 @@ use std::io::{Read, Write};
 use std::path::PathBuf;
 use std::process::ExitCode;
 
+mod refusal;
+
 use clap::Parser;
 use pm_rust::cli::{Cli, CollectionArgs, Command, OwnershipArgs};
 #[cfg(test)]
@@ -477,7 +479,9 @@ fn run_with_io(
                     &now,
                 )?;
                 write_list_to(&mut std::io::stdout().lock(), &result, json)?;
-                if result.get("output_budget_exceeded").is_some() {
+                if result.get("output_budget_exceeded").is_some()
+                    || result.get("budget_exceeded").is_some()
+                {
                     return Err(Box::new(pm_rust::PmRustError::OutputBudgetExceeded));
                 }
             }
@@ -597,31 +601,7 @@ fn run_with_io(
             selection,
         } => {
             let workspace = discover()?;
-            if start && args.id.is_none() {
-                return Err(Box::new(pm_rust::PmRustError::CommandRefusal {
-                    detail: "Specify an item id or pass --next".to_owned(),
-                    exit_code: 2,
-                    context: serde_json::json!({}),
-                }));
-            }
-            if start && (next || if_available) {
-                return Err(Box::new(pm_rust::PmRustError::CommandRefusal {
-                    detail: "--start cannot be combined with --next or --if-available for an explicit item".to_owned(), exit_code: 2,
-                    context: serde_json::json!({"code":"invalid_argument_value","required":"Remove --next and --if-available when starting an explicit item.","next_steps":["Remove --next and --if-available, keep the explicit item ID and other supplied arguments, then retry."]}),
-                }));
-            }
-            if next == args.id.is_some() {
-                return Err(Box::new(pm_rust::PmRustError::CommandRefusal {
-                    detail: if next {
-                        "Specify either an item id or --next, not both"
-                    } else {
-                        "Specify an item id or pass --next"
-                    }
-                    .to_owned(),
-                    exit_code: 2,
-                    context: serde_json::json!({}),
-                }));
-            }
+            validate_claim_target(args.id.as_deref(), next, start, if_available)?;
             let (request, options) = ownership_request(&workspace, args, if_available)?;
             if next {
                 return write_json(&workspace.claim_next(
@@ -639,6 +619,7 @@ fn run_with_io(
                         include_gates: selection.include_gates,
                         include_containers: selection.include_containers,
                         max_attempts: selection.max_attempts,
+                        start,
                     },
                 )?);
             }
@@ -710,6 +691,7 @@ fn run_with_io(
                 },
             )?;
             let mut receipt = result.close_receipt.unwrap_or_default();
+            project_close_receipt_scope(&mut receipt, &raw_invocation());
             if fields.release_assignment {
                 let release = identity
                     .with(|| {
@@ -794,6 +776,37 @@ fn write_search_to(
         return Err(Box::new(pm_rust::PmRustError::OutputBudgetExceeded));
     }
     Ok(())
+}
+
+/// Projects successful closure guidance through the actual invocation scope.
+fn project_close_receipt_scope(receipt: &mut serde_json::Value, raw: &[String]) {
+    let scope = invocation_scope(raw);
+    if let Some(values) = receipt["follow_up"]["suggested_command_args"].as_array() {
+        let mut args = values
+            .iter()
+            .filter_map(serde_json::Value::as_str)
+            .map(str::to_owned)
+            .collect::<Vec<_>>();
+        if args.first().is_some_and(|arg| arg == "--pm-path") {
+            args.drain(..2);
+        }
+        args.splice(0..0, scope.clone());
+        receipt["follow_up"]["suggested_command"] = serde_json::json!(render_recovery(&args));
+        receipt["follow_up"]["suggested_command_args"] = serde_json::json!(args);
+    }
+    if receipt["completion"]["source"] == "close_time" {
+        let mut args = scope;
+        args.extend([
+            "update".to_owned(),
+            receipt["id"].as_str().unwrap_or_default().to_owned(),
+            "--completed-at".to_owned(),
+            "<ISO>".to_owned(),
+        ]);
+        receipt["completion"]["hint"] = serde_json::json!(format!(
+            "completed_at defaults to the close time. If work finished earlier, correct it with {}.",
+            render_recovery(&args)
+        ));
+    }
 }
 
 /// Writes published compact closure output in the selected wire format.
@@ -897,6 +910,7 @@ fn ownership_request(
         OwnershipOptions {
             identity: Some(identity),
             release_bypass: false,
+            start: false,
         },
     ))
 }
@@ -992,6 +1006,44 @@ fn native_arguments(mut args: Vec<std::ffi::OsString>) -> Vec<std::ffi::OsString
     args
 }
 
+/// Rejects ambiguous or missing claim targets before any mutation.
+fn validate_claim_target(
+    id: Option<&str>,
+    next: bool,
+    start: bool,
+    if_available: bool,
+) -> Result<(), pm_rust::PmRustError> {
+    let suffix = if start { " --start" } else { "" };
+    let refusal = if id.is_none() && !next {
+        Some((
+            if start {
+                "pm claim --start needs an item id, or --next to start the next available item"
+            } else {
+                "Specify an item id or pass --next"
+            },
+            serde_json::json!({"code":"missing_required_argument","required":"Pass an item id, or --next to select the next available item.","next_steps":[format!("Retry as pm claim <id>{suffix}, or pm claim --next{suffix}.")]}),
+        ))
+    } else if start && id.is_some() && (next || if_available) {
+        Some((
+            "--start cannot be combined with --next or --if-available for an explicit item",
+            serde_json::json!({"code":"invalid_argument_value","required":"Remove --next and --if-available when starting an explicit item.","next_steps":["Remove --next and --if-available, keep the explicit item ID and other supplied arguments, then retry."]}),
+        ))
+    } else {
+        id.filter(|_| next).map(|id| (
+            "Specify either an item id or --next, not both",
+            serde_json::json!({"code":"ambiguous_option_combination","required":"Pass either an item id or --next.","next_steps":[format!("Retry as pm claim {id}{suffix} to claim that item, or drop the id to select with --next.")]}),
+        ))
+    };
+    match refusal {
+        Some((detail, context)) => Err(pm_rust::PmRustError::CommandRefusal {
+            detail: detail.to_owned(),
+            exit_code: 2,
+            context,
+        }),
+        None => Ok(()),
+    }
+}
+
 /// Resolves explicit wire encoding before the legacy JSON switch for error output.
 fn json_requested(args: &[String]) -> bool {
     let explicit = args
@@ -1074,16 +1126,26 @@ fn main() -> ExitCode {
                     2,
                 );
                 let mut stderr = std::io::stderr().lock();
-                let _ = if json_requested(&args) {
-                    write_json_to(&mut stderr, &payload)
-                } else {
-                    write_cursor_refusal_to(&mut stderr, &payload)
-                };
+                let _ = write_command_refusal_to(
+                    &mut stderr,
+                    payload["detail"].as_str().unwrap_or_default(),
+                    &serde_json::json!({}),
+                    &args,
+                    &payload,
+                );
                 return ExitCode::from(2);
             }
             // Keep Clap's bytes and statuses while allowing normal process teardown.
             // Immediate exit bypasses profile finalization on Windows.
-            let _ = error.print();
+            let diagnostic = error.render().to_string();
+            let safe = refusal::diagnostic(&diagnostic, &raw_invocation());
+            if safe == diagnostic {
+                let _ = error.print();
+            } else if error.use_stderr() {
+                eprint!("{safe}");
+            } else {
+                print!("{safe}");
+            }
             return if error.use_stderr() {
                 ExitCode::from(2)
             } else {
@@ -1141,41 +1203,24 @@ fn main() -> ExitCode {
                 error.downcast_ref::<pm_rust::PmRustError>()
             {
                 let args = published_read_arguments(std::env::args_os().skip(1));
-                let mut payload = ownership_error_json(detail, context, &args);
-                if context["code"] == "lock_conflict" {
-                    preserve_lock_scope(
-                        &mut payload,
-                        &std::env::args_os()
-                            .skip(1)
-                            .map(|arg| arg.to_string_lossy().into_owned())
-                            .collect::<Vec<_>>(),
-                    );
-                }
+                let payload = ownership_error_json(detail, context, &args);
                 let mut stderr = std::io::stderr().lock();
-                let _ = if args.first().is_some_and(|s| s == "item") && !json_requested(&args) {
-                    write_cursor_refusal_to(&mut stderr, &payload)
-                } else {
-                    write_json_to(&mut stderr, &payload)
-                };
+                let _ = write_command_refusal_to(&mut stderr, detail, context, &args, &payload);
                 return ExitCode::from(4);
             }
             if let Some(pm_rust::PmRustError::LockConflict { .. }) =
                 error.downcast_ref::<pm_rust::PmRustError>()
             {
                 let args = published_read_arguments(std::env::args_os().skip(1));
-                let mut payload = ownership_error_json(
+                let payload = ownership_error_json(
                     &error.to_string(),
                     &serde_json::json!({"code":"lock_conflict"}),
                     &args,
                 );
-                preserve_lock_scope(
-                    &mut payload,
-                    &std::env::args_os()
-                        .skip(1)
-                        .map(|arg| arg.to_string_lossy().into_owned())
-                        .collect::<Vec<_>>(),
+                let _ = write_json_to(
+                    &mut std::io::stderr().lock(),
+                    &complete_refusal(&payload, &raw_invocation()),
                 );
-                let _ = write_json_to(&mut std::io::stderr().lock(), &payload);
                 return ExitCode::from(4);
             }
             if matches!(
@@ -1190,13 +1235,16 @@ fn main() -> ExitCode {
                 let args = published_read_arguments(std::env::args_os().skip(1));
                 let payload = cursor_error_json(code, detail, &args);
                 let mut stderr = std::io::stderr().lock();
-                let _ = if json_requested(&args) {
-                    write_json_to(&mut stderr, &payload)
-                } else {
-                    write_cursor_refusal_to(&mut stderr, &payload)
-                };
+                let _ = write_command_refusal_to(
+                    &mut stderr,
+                    payload["detail"].as_str().unwrap_or_default(),
+                    &serde_json::json!({}),
+                    &args,
+                    &payload,
+                );
             } else {
-                eprintln!("pm-rust: {error}");
+                let detail = refusal::diagnostic(&error.to_string(), &raw_invocation());
+                eprintln!("pm-rust: {detail}");
             }
             ExitCode::from(2)
         }
@@ -1223,6 +1271,28 @@ fn rejected_orientation_argument<'a>(
         .map_or("option", |arg| arg.split('=').next().unwrap_or_default())
 }
 
+/// Completes scope and credential projection once before any refusal rendering.
+fn complete_refusal(payload: &serde_json::Value, raw: &[String]) -> serde_json::Value {
+    let mut payload = payload.clone();
+    preserve_refusal_scope(&mut payload, raw);
+    refusal::redact(&mut payload, raw);
+    if payload["title"]
+        .as_str()
+        .is_some_and(|title| title.chars().count() > 120)
+    {
+        payload["title"] = serde_json::json!(format!(
+            "{}...",
+            payload["title"]
+                .as_str()
+                .unwrap_or_default()
+                .chars()
+                .take(117)
+                .collect::<String>()
+        ));
+    }
+    payload
+}
+
 /// Writes a command refusal using its requested encoding and published human fallback.
 fn write_command_refusal_to(
     writer: &mut dyn Write,
@@ -1231,20 +1301,15 @@ fn write_command_refusal_to(
     args: &[String],
     payload: &serde_json::Value,
 ) -> Result<(), Box<dyn std::error::Error>> {
+    let payload = complete_refusal(payload, &raw_invocation());
     if context["code"] == "unknown_error" && !json_requested(args) {
-        writeln!(writer, "{detail}")?;
+        writeln!(writer, "{}", payload["detail"].as_str().unwrap_or(detail))?;
         return Ok(());
     }
-    if args.first().is_some_and(|command| {
-        matches!(
-            command.as_str(),
-            "item" | "search" | "context" | "history" | "deps"
-        )
-    }) && !json_requested(args)
-    {
-        write_cursor_refusal_to(writer, payload)
+    if json_requested(args) {
+        write_json_to(writer, &payload)
     } else {
-        write_json_to(writer, payload)
+        write_cursor_refusal_to(writer, &payload)
     }
 }
 
@@ -1605,39 +1670,98 @@ fn collection_error_json(
     result
 }
 
-/// Maps an explicit native workspace into the published retry command's tracker scope.
-fn preserve_lock_scope(payload: &mut serde_json::Value, raw: &[String]) {
-    let workspace = raw.iter().enumerate().find_map(|(index, arg)| {
-        if matches!(arg.as_str(), "--workspace" | "--pm-path" | "--path") {
-            raw.get(index + 1).cloned()
-        } else {
-            ["--workspace=", "--pm-path=", "--path="]
-                .iter()
-                .find_map(|prefix| arg.strip_prefix(prefix).map(str::to_owned))
+/// Captures the real invocation lossily so malformed OS strings cannot panic in diagnostics.
+fn raw_invocation() -> Vec<String> {
+    std::env::args_os()
+        .skip(1)
+        .map(|arg| arg.to_string_lossy().into_owned())
+        .collect()
+}
+
+/// Resolves an explicit native workspace into canonical published bootstrap tokens.
+fn invocation_scope(raw: &[String]) -> Vec<String> {
+    raw.iter()
+        .enumerate()
+        .find_map(|(index, arg)| {
+            if matches!(arg.as_str(), "--workspace" | "--pm-path" | "--path") {
+                raw.get(index + 1).cloned()
+            } else {
+                ["--workspace=", "--pm-path=", "--path="]
+                    .iter()
+                    .find_map(|prefix| arg.strip_prefix(prefix).map(str::to_owned))
+            }
+        })
+        .map_or_else(Vec::new, |path| vec!["--pm-path".to_owned(), path])
+}
+
+/// Renders canonical recovery arguments with the shared published shell renderer.
+fn render_recovery(args: &[String]) -> String {
+    format!(
+        "pm {}",
+        args.iter()
+            .map(|arg| pm_rust::quote_command_arg(arg))
+            .collect::<Vec<_>>()
+            .join(" ")
+    )
+}
+
+/// Preserves explicit tracker scope for every recovery bundle, including close evidence.
+fn preserve_refusal_scope(payload: &mut serde_json::Value, raw: &[String]) {
+    let scope = invocation_scope(raw);
+    if scope.is_empty() {
+        return;
+    }
+    let Some(recovery) = payload["recovery"].as_object_mut() else {
+        return;
+    };
+    for (args_key, command_key) in [
+        ("normalized_args", "attempted_command"),
+        ("suggested_retry_args", "suggested_retry"),
+    ] {
+        let Some(values) = recovery.get(args_key).and_then(serde_json::Value::as_array) else {
+            continue;
+        };
+        let mut args = values
+            .iter()
+            .filter_map(serde_json::Value::as_str)
+            .map(str::to_owned)
+            .collect::<Vec<_>>();
+        if !args
+            .iter()
+            .any(|arg| arg == "--pm-path" || arg.starts_with("--pm-path="))
+        {
+            args.splice(0..0, scope.clone());
         }
-    });
-    if let Some(workspace) = workspace {
-        let mut args = vec!["--pm-path".to_owned(), workspace];
-        args.extend(
-            payload["recovery"]["normalized_args"]
-                .as_array()
-                .into_iter()
-                .flatten()
-                .filter_map(serde_json::Value::as_str)
-                .map(str::to_owned),
+        recovery.insert(
+            command_key.to_owned(),
+            serde_json::json!(render_recovery(&args)),
         );
-        let command = format!(
-            "pm {}",
-            args.iter()
-                .map(|arg| pm_rust::quote_command_arg(arg))
-                .collect::<Vec<_>>()
-                .join(" ")
-        );
-        payload["recovery"]["attempted_command"] = serde_json::json!(command);
-        payload["recovery"]["normalized_args"] = serde_json::json!(args);
-        payload["recovery"]["suggested_retry"] = serde_json::json!(command);
-        payload["recovery"]["suggested_retry_args"] = serde_json::json!(args);
-        payload["examples"] = serde_json::json!([command]);
+        recovery.insert(args_key.to_owned(), serde_json::json!(args));
+    }
+    if recovery
+        .get("normalized_args")
+        .is_some_and(serde_json::Value::is_array)
+    {
+        let mut fields = recovery
+            .get("provided_fields")
+            .and_then(serde_json::Value::as_array)
+            .cloned()
+            .unwrap_or_default();
+        if !fields.iter().any(|flag| flag == "--pm-path") {
+            fields.insert(0, serde_json::json!("--pm-path"));
+        }
+        recovery.insert("provided_fields".to_owned(), serde_json::json!(fields));
+    }
+    if payload["code"] == "lock_conflict" {
+        payload["examples"] = serde_json::json!([payload["recovery"]["suggested_retry"]]);
+    }
+    if payload["code"] == "close_validation_missing_fields"
+        && let Some(command) = payload["recovery"]["next_best_command"]
+            .as_str()
+            .and_then(|command| command.strip_prefix("pm "))
+    {
+        payload["recovery"]["next_best_command"] =
+            serde_json::json!(format!("{} {command}", render_recovery(&scope)));
     }
 }
 
@@ -1708,6 +1832,73 @@ fn ownership_error_json(
         detail,
         &recovery_args,
     );
+    apply_ownership_guidance(&mut payload, context);
+    for key in ["required", "examples", "next_steps", "title"] {
+        if let Some(value) = context.get(key) {
+            payload[key] = value.clone();
+        }
+    }
+    let include_why = context["code"].as_str().is_some_and(|code| {
+        !matches!(
+            code,
+            "unknown_command"
+                | "unknown_option"
+                | "missing_required_option"
+                | "missing_required_argument"
+                | "invalid_argument_value"
+                | "invalid_command_usage"
+                | "command_failed"
+        )
+    });
+    if include_why && let Some(why) = context.get("why") {
+        payload["why"] = why.clone();
+    }
+    apply_close_error_recovery(&mut payload, context, args);
+    let mut ordered = serde_json::Map::new();
+    for key in [
+        "code",
+        "required",
+        "recovery",
+        "next_steps",
+        "exit_code",
+        "type",
+        "title",
+        "detail",
+        "why",
+        "examples",
+        "refusal",
+    ] {
+        if key == "why" && !include_why {
+            continue;
+        }
+        if let Some(value) = payload.get(key) {
+            ordered.insert(key.to_owned(), value.clone());
+        }
+    }
+    payload = serde_json::Value::Object(ordered);
+    payload["exit_code"] = serde_json::json!(4);
+    payload["refusal"] = command_refusal_detail(
+        detail,
+        if args.first().is_some_and(|s| s == "item") {
+            &args[1..]
+        } else {
+            args
+        },
+        4,
+    );
+    for key in ["flag", "value", "claimed_by", "claimed_at", "claim_source"] {
+        if let Some(value) = context.get(key) {
+            payload[key] = value.clone();
+        }
+    }
+    if context.get("claimed_by").is_some() {
+        payload["item_id"] = context["item_id"].clone();
+    }
+    payload
+}
+
+/// Applies code-specific ownership and lock guidance at the common envelope boundary.
+fn apply_ownership_guidance(payload: &mut serde_json::Value, context: &serde_json::Value) {
     match context["code"].as_str() {
         Some("ownership_conflict") => {
             payload["title"] = serde_json::json!("Ownership conflict");
@@ -1745,59 +1936,9 @@ fn ownership_error_json(
         }
         _ => {}
     }
-    apply_close_error_recovery(&mut payload, context, args);
-    for key in ["required", "examples", "next_steps", "title"] {
-        if let Some(value) = context.get(key) {
-            payload[key] = value.clone();
-        }
-    }
-    let include_why = context["code"]
-        .as_str()
-        .is_some_and(|code| code != "invalid_argument_value");
-    if include_why && let Some(why) = context.get("why") {
-        payload["why"] = why.clone();
-    }
-    let mut ordered = serde_json::Map::new();
-    for key in [
-        "code",
-        "required",
-        "recovery",
-        "next_steps",
-        "exit_code",
-        "type",
-        "title",
-        "detail",
-        "why",
-        "examples",
-        "refusal",
-    ] {
-        if key == "why" && !include_why {
-            continue;
-        }
-        if let Some(value) = payload.get(key) {
-            ordered.insert(key.to_owned(), value.clone());
-        }
-    }
-    payload = serde_json::Value::Object(ordered);
-    payload["exit_code"] = serde_json::json!(4);
-    payload["refusal"] = command_refusal_detail(
-        detail,
-        if args.first().is_some_and(|s| s == "item") {
-            &args[1..]
-        } else {
-            args
-        },
-        4,
-    );
-    for key in ["flag", "value"] {
-        if let Some(value) = context.get(key) {
-            payload[key] = value.clone();
-        }
-    }
-    payload
 }
 
-/// Adds actionable close recovery fields and the published compact title limit.
+/// Adds actionable close evidence recovery at the shared refusal boundary.
 fn apply_close_error_recovery(
     payload: &mut serde_json::Value,
     context: &serde_json::Value,
@@ -1810,19 +1951,57 @@ fn apply_close_error_recovery(
             payload["recovery"][key] = value.clone();
         }
     }
-    if payload["title"]
-        .as_str()
-        .is_some_and(|title| title.chars().count() > 120)
-    {
-        payload["title"] = serde_json::json!(format!(
-            "{}...",
-            payload["title"]
-                .as_str()
-                .unwrap_or_default()
-                .chars()
-                .take(117)
-                .collect::<String>()
-        ));
+    if args.first().is_some_and(|command| command == "close") {
+        if let Some(values) = payload["recovery"]["suggested_retry_args"].as_array() {
+            let mut retry = values
+                .iter()
+                .filter_map(serde_json::Value::as_str)
+                .map(str::to_owned)
+                .collect::<Vec<_>>();
+            if retry.first().is_some_and(|arg| arg == "--pm-path") {
+                retry.drain(..2);
+            }
+            payload["recovery"]["suggested_retry"] = serde_json::json!(render_recovery(&retry));
+            payload["recovery"]["suggested_retry_args"] = serde_json::json!(retry);
+        }
+        if context["code"] == "close_validation_missing_fields" {
+            let missing = payload["recovery"]["missing"]
+                .as_array()
+                .into_iter()
+                .flatten()
+                .filter_map(serde_json::Value::as_str)
+                .map(str::to_owned)
+                .collect::<Vec<_>>();
+            let mut retry = args.to_vec();
+            for flag in &missing {
+                retry.extend([flag.clone(), "<value>".to_owned()]);
+            }
+            let target = context["recovery"]["suggested_retry_args"]
+                .as_array()
+                .and_then(|values| {
+                    values
+                        .windows(2)
+                        .find(|pair| pair[0] == "update")
+                        .and_then(|pair| pair[1].as_str())
+                })
+                .or_else(|| args.get(1).map(String::as_str))
+                .unwrap_or_default();
+            let mut update = vec!["update".to_owned(), target.to_owned()];
+            for flag in &missing {
+                update.extend([flag.clone(), "<value>".to_owned()]);
+            }
+            payload["recovery"] = serde_json::json!({"attempted_command":payload["recovery"]["attempted_command"],"normalized_args":payload["recovery"]["normalized_args"],"provided_fields":payload["recovery"]["provided_fields"],"missing":missing,"suggested_retry":render_recovery(&retry),"suggested_retry_args":retry,"next_best_command":render_recovery(&update)});
+            payload["title"] = serde_json::json!("Close is missing required evidence");
+            payload["required"] = serde_json::json!(format!(
+                "Supply {}: pm close accepts them and records them in the same write as the closure.",
+                missing.join(", ")
+            ));
+            payload["next_steps"] = serde_json::json!([
+                "Run recovery.suggested_retry when it is present: the same close with the missing flags added, so one write records the evidence and the closure.",
+                "Without it, record the evidence with recovery.next_best_command, then repeat the original close.",
+                "Use --validate-close warn only when governance permits an evidenced exception."
+            ]);
+        }
     }
 }
 
@@ -1935,10 +2114,27 @@ fn write_cursor_refusal_to(
                 .map(|step| format!("  - {}", step.as_str().unwrap_or_default())),
         );
     }
-    parts.push(format!(
-        "\nWhat happened:\n  {}",
-        payload["detail"].as_str().unwrap_or_default()
-    ));
+    if payload["detail"] != payload["title"] {
+        parts.push(format!(
+            "\nWhat happened:\n  {}",
+            payload["detail"].as_str().unwrap_or_default()
+        ));
+    }
+    if let Some(holder) = payload["claimed_by"].as_str() {
+        let holder = if holder.chars().count() > 120 {
+            format!("{}...", holder.chars().take(120).collect::<String>())
+        } else {
+            holder.to_owned()
+        };
+        let since = payload["claimed_at"]
+            .as_str()
+            .filter(|value| !value.is_empty())
+            .map_or_else(String::new, |value| format!(" since {value}"));
+        parts.push(format!(
+            "\nHeld by: {holder} ({}{since})",
+            payload["claim_source"].as_str().unwrap_or("unknown")
+        ));
+    }
     if let Some(why) = payload["why"].as_str() {
         parts.push(format!("\nWhy:\n  {why}"));
     } else if payload["recovery"]["token_budget"].is_object() {
@@ -1983,13 +2179,21 @@ fn write_cursor_refusal_to(
                 .join(", ")
         ));
     }
+    append_recovery_domains(&mut parts, &payload["recovery"]);
+    writer.write_all(format!("{}\n", parts.join("\n")).as_bytes())?;
+    writer.flush()?;
+    Ok(())
+}
+
+/// Bounds human legal-domain examples without changing complete structured evidence.
+fn append_recovery_domains(parts: &mut Vec<String>, recovery: &serde_json::Value) {
     for key in [
         "allowed_values",
         "candidate_commands",
         "candidate_commands_total",
         "option_scope",
     ] {
-        if let Some(value) = payload["recovery"].get(key) {
+        if let Some(value) = recovery.get(key) {
             let value = value.as_array().map_or_else(
                 || {
                     value
@@ -1999,17 +2203,24 @@ fn write_cursor_refusal_to(
                 |values| {
                     values
                         .iter()
+                        .take(if key == "allowed_values" {
+                            8
+                        } else {
+                            usize::MAX
+                        })
                         .filter_map(serde_json::Value::as_str)
                         .collect::<Vec<_>>()
                         .join(", ")
                 },
             );
             parts.push(format!("  {key}: {value}"));
+            if key == "allowed_values"
+                && let Some(values) = recovery[key].as_array().filter(|values| values.len() > 8)
+            {
+                parts.push(format!("  allowed_values_omitted: {} (complete domain via SDK error.context.recovery.allowed_values; JSON diagnostics may be budgeted)",values.len()-8));
+            }
         }
     }
-    writer.write_all(format!("{}\n", parts.join("\n")).as_bytes())?;
-    writer.flush()?;
-    Ok(())
 }
 
 /// Renders compact, verified packet recovery without inventing attempted-command fields.

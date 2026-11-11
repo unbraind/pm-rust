@@ -64,6 +64,7 @@ fn sdk_lifecycle_succeeds_with_explicit_and_default_identity()
             &BTreeMap::new(),
         )),
         release_bypass: false,
+        start: false,
     };
     assert_eq!(
         workspace.start_task(&request, &default)?["changed_field_count"],

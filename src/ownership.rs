@@ -309,9 +309,13 @@ pub struct OwnershipOptions {
     pub identity: Option<AuthorIdentity>,
     /// Approved package-level handoff that only clears ownership metadata.
     pub release_bypass: bool,
+    /// Move a selected claim into progress in the same atomic write.
+    pub start: bool,
 }
 
 /// Filters and atomic retry budget for native claim-next selection.
+// Independent selection/start flags mirror the public CLI and SDK option contract.
+#[allow(clippy::struct_excessive_bools)]
 #[derive(Clone, Debug, Default, PartialEq)]
 pub struct SelectionOptions {
     /// Exact type filter, case insensitive.
@@ -336,6 +340,8 @@ pub struct SelectionOptions {
     pub include_containers: bool,
     /// Attempt at most this many ranked candidates (default ten).
     pub max_attempts: Option<usize>,
+    /// Start the winning ranked claim atomically.
+    pub start: bool,
 }
 
 impl Workspace {
@@ -349,7 +355,7 @@ impl Workspace {
         options: &OwnershipOptions,
     ) -> Result<OwnershipResult, PmRustError> {
         let mut parents = BTreeMap::new();
-        let receipt = with_identity(self.pm_root(), options, || {
+        let mut receipt = with_identity(self.pm_root(), options, || {
             crate::mutation::ownership_item_with_options(
                 self.pm_root(),
                 request,
@@ -361,8 +367,12 @@ impl Workspace {
                 },
             )
         })?;
-        if receipt.skipped.is_none() {
-            record_semantics(self, request, options, true, &parents)?;
+        if receipt.skipped.is_none()
+            && record_semantics(self, request, options, true, &parents).is_err()
+        {
+            receipt
+                .warnings
+                .push("claim_semantic_attribution_unrecorded".to_owned());
         }
         Ok(receipt)
     }

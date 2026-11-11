@@ -987,6 +987,7 @@ fn sdk_release_bypass_matches_published_without_authorizing_pause()
     let options = pm_rust::OwnershipOptions {
         identity: None,
         release_bypass: true,
+        start: false,
     };
     let workspace = pm_rust::Workspace::discover(fixture.rust.path())?;
     assert!(workspace.pause_task(&request, &options).is_err());
@@ -1249,19 +1250,21 @@ fn stale_session_lock_refusal_matches_published_policy() -> Result<(), Box<dyn s
         )?;
         assert!(oracle.status.success());
         let refusal: serde_json::Value = serde_json::from_slice(&oracle.stdout)?;
-        assert_eq!(refusal["exit_code"], 4);
-        assert_eq!(
-            refusal["detail"],
-            "Item session-state lock is stale; rerun with --force when supported for this command"
-        );
-        let result = if action == "claim" {
-            workspace.claim_with_options(&request, &pm_rust::OwnershipOptions::default())
+        if action == "claim" {
+            assert_eq!(refusal, serde_json::json!({"ok":true}));
+            let receipt =
+                workspace.claim_with_options(&request, &pm_rust::OwnershipOptions::default())?;
+            assert_eq!(receipt.warnings, ["claim_semantic_attribution_unrecorded"]);
         } else {
-            workspace.release_with_options(&request, &pm_rust::OwnershipOptions::default())
-        };
-        assert!(
-            matches!(result, Err(pm_rust::PmRustError::CommandRefusal { detail, exit_code: 4, context }) if detail == refusal["detail"].as_str().unwrap_or_default() && context == refusal["context"])
-        );
+            assert_eq!(refusal["exit_code"], 4);
+            assert_eq!(
+                refusal["detail"],
+                "Item session-state lock is stale; rerun with --force when supported for this command"
+            );
+            assert!(
+                matches!(workspace.release_with_options(&request,&pm_rust::OwnershipOptions::default()),Err(pm_rust::PmRustError::CommandRefusal{detail,exit_code:4,context}) if detail == refusal["detail"].as_str().unwrap_or_default() && context == refusal["context"])
+            );
+        }
         for root in [fixture.node.path(), fixture.rust.path()] {
             assert_eq!(
                 fs::read(root.join(".agents/pm/locks/session-state.lock"))?,
@@ -1450,18 +1453,16 @@ fn ranking_comparison_rejects_exit_stderr_and_session_divergence()
     Ok(())
 }
 
-/// Semantic publication belongs to the claim step, before lifecycle recovery wrapping.
+/// Claim attribution failures remain warnings while composed starts finish durably.
 #[test]
-fn failed_start_semantic_recording_retains_oracle_claim_error()
+fn start_semantic_recording_warns_and_matches_published_state()
 -> Result<(), Box<dyn std::error::Error>> {
     let Some(fixture) = Fixture::new("none")? else {
         return Ok(());
     };
-    let lock = serde_json::to_vec(&serde_json::json!({
-        "id":"session-state", "pid":1, "owner":"session-state",
-        "created_at":"2000-01-01T00:00:00.000Z", "ttl_seconds":1800,
-        "token":"stale-session-fixture"
-    }))?;
+    let lock = serde_json::to_vec(
+        &serde_json::json!({"id":"session-state","pid":1,"owner":"session-state","created_at":"2000-01-01T00:00:00.000Z","ttl_seconds":1800,"token":"stale-session-fixture"}),
+    )?;
     for root in [fixture.node.path(), fixture.rust.path()] {
         fs::write(root.join(".agents/pm/locks/session-state.lock"), &lock)?;
     }
@@ -1472,7 +1473,7 @@ fn failed_start_semantic_recording_retains_oracle_claim_error()
     )?;
     assert!(oracle.status.success());
     assert_eq!(oracle.stderr, b"");
-    assert_eq!(oracle.stdout, b"{\"detail\":\"Item session-state lock is stale; rerun with --force when supported for this command\",\"exit_code\":4,\"context\":{}}\n");
+    assert_eq!(oracle.stdout, b"{\"ok\":true}\n");
     let workspace = pm_rust::Workspace::discover(fixture.rust.path())?;
     let request = pm_rust::OwnershipItem {
         id: "sample-own".to_owned(),
@@ -1483,40 +1484,32 @@ fn failed_start_semantic_recording_retains_oracle_claim_error()
         if_available: false,
         provenance_role: None,
     };
-    let cli = published_run(
-        &fixture.driver,
-        fixture.node.path(),
-        &[
-            "claim",
-            "sample-own",
-            "--start",
-            "--author",
-            "alpha",
-            "--json",
-        ],
-    )?;
-    assert_eq!(cli.status.code(), Some(4));
-    assert_eq!(cli.stdout, b"");
-    let envelope: serde_json::Value = serde_json::from_slice(&cli.stderr)?;
+    let result = workspace.start_task(&request, &pm_rust::OwnershipOptions::default())?;
+    assert_eq!(result["status"], "in_progress");
+    assert_eq!(result["changed_field_count"], 3);
     assert_eq!(
-        envelope["detail"],
-        "Item session-state lock is stale; rerun with --force when supported for this command"
+        result["claim"]["warnings"],
+        serde_json::json!(["claim_semantic_attribution_unrecorded"])
     );
-    assert_eq!(envelope["code"], "command_failed");
-    assert!(envelope.get("item_id").is_none());
-    assert!(!String::from_utf8(cli.stderr)?.contains("Inspect the persisted state"));
-    // Preserve the claim error instead of inventing lifecycle recovery context.
-    assert!(matches!(
-        workspace.start_task(&request, &pm_rust::OwnershipOptions::default()),
-        Err(pm_rust::PmRustError::CommandRefusal { detail, exit_code: 4, context }) if detail == envelope["detail"].as_str().unwrap_or_default() && context == serde_json::json!({})
-    ));
     fixture.compare_bytes()?;
+    fixture.step(&[
+        "claim",
+        "sample-own",
+        "--start",
+        "--author",
+        "alpha",
+        "--json",
+    ])?;
     let item = workspace.get("sample-own")?;
-    assert_eq!(item.metadata.status, "open");
+    assert_eq!(item.metadata.status, "in_progress");
     assert_eq!(item.metadata.extra["assignee"], "alpha");
     assert_eq!(item.metadata.extra["claim_principal"], "alpha");
-    let history = fs::read_to_string(workspace.pm_root().join("history/sample-own.jsonl"))?;
-    assert_eq!(history.lines().count(), 2);
+    assert_eq!(
+        fs::read_to_string(workspace.pm_root().join("history/sample-own.jsonl"))?
+            .lines()
+            .count(),
+        3
+    );
     for root in [fixture.node.path(), fixture.rust.path()] {
         assert_eq!(
             fs::read(root.join(".agents/pm/locks/session-state.lock"))?,
@@ -1759,5 +1752,104 @@ fn unpublished_lock_payload_refusals_match_oracle() -> Result<(), Box<dyn std::e
         fixture.step(&args)?;
     }
     fs::File::unlock(&lease)?;
+    Ok(())
+}
+
+/// All ownership refusals preserve explicit scope and redact URL credentials centrally.
+#[test]
+fn scoped_refusals_redact_credentials_without_changing_durable_bytes()
+-> Result<(), Box<dyn std::error::Error>> {
+    let Some(fixture) = Fixture::new("strict")? else {
+        return Ok(());
+    };
+    fixture.step(&["claim", "sample-own", "--author", "alpha", "--json"])?;
+    for message in [
+        "ordinary message",
+        "contact@example.invalid",
+        "https://example.invalid/public",
+        "https://fixture:test-password@example.invalid/path",
+        "https://fixture:quoted$pass`word@example.invalid/path",
+    ] {
+        for action in ["claim", "release"] {
+            let args = [
+                "--pm-path",
+                ".agents/pm",
+                action,
+                "sample-own",
+                "--author",
+                "beta",
+                "--message",
+                message,
+                "--json",
+            ];
+            fixture.step(&args)?;
+            fixture.step(&args[..args.len() - 1])?;
+            let output = native_command(fixture.rust.path(), &args).output()?;
+            assert_eq!(output.status.code(), Some(4));
+            let envelope: serde_json::Value = serde_json::from_slice(&output.stderr)?;
+            assert_eq!(envelope["recovery"]["normalized_args"][0], "--pm-path");
+            assert_eq!(envelope["recovery"]["normalized_args"][1], ".agents/pm");
+            assert!(String::from_utf8(output.stderr)?.contains("--json"));
+        }
+    }
+    fixture.step(&[
+        "--pm-path",
+        ".agents/pm",
+        "close",
+        "--author",
+        "alpha",
+        "sample-own",
+        "--reason",
+        "Done",
+        "--validate-close",
+        "strict",
+        "--json",
+    ])?;
+    fixture.step(&[
+        "claim",
+        "sample-own",
+        "--author",
+        "https://fixture:stored-password@example.invalid",
+        "--force",
+        "--json",
+    ])?;
+    fixture.step(&["claim", "sample-own", "--author", "beta", "--json"])?;
+    fixture.verify()?;
+    Ok(())
+}
+
+/// Refusal provenance distinguishes an explicit assignment from unmatched stored ownership.
+#[test]
+fn claim_refusal_uses_matching_latest_ownership_evidence() -> Result<(), Box<dyn std::error::Error>>
+{
+    let Some(fixture) = Fixture::new("none")? else {
+        return Ok(());
+    };
+    prepare(
+        &fixture,
+        &[
+            "update",
+            "sample-own",
+            "--assignee",
+            "alpha",
+            "--author",
+            "alpha",
+            "--json",
+        ],
+    )?;
+    fixture.step(&["claim", "sample-own", "--author", "beta", "--json"])?;
+    for root in [fixture.node.path(), fixture.rust.path()] {
+        let path = root.join(".agents/pm/tasks/sample-own.toon");
+        let bytes = fs::read_to_string(&path)?;
+        let updated = bytes
+            .replace("assignee: alpha", "assignee: gamma")
+            .replace("assignee: \"alpha\"", "assignee: \"gamma\"");
+        assert_ne!(
+            updated, bytes,
+            "the unmatched-owner fixture must change the stored assignee"
+        );
+        fs::write(path, updated)?;
+    }
+    fixture.step(&["claim", "sample-own", "--author", "beta", "--json"])?;
     Ok(())
 }

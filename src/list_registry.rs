@@ -170,12 +170,8 @@ fn token(value: &str) -> String {
 }
 
 /// Supplies the same missing-file fallback to captured previews and native reads.
-pub(crate) fn default_schema(name: &str) -> Value {
-    if name == "statuses" {
-        json!({"statuses": defaults()})
-    } else {
-        json!({"workflow":{"draft_status":"draft","open_status":"open","in_progress_status":"in_progress","blocked_status":"blocked","close_status":"closed","canceled_status":"canceled"}})
-    }
+pub(crate) fn default_schema(_name: &str) -> Value {
+    Value::Null
 }
 
 /// Loads optional runtime schema data without requiring the scaffold to exist.

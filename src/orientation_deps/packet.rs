@@ -479,8 +479,17 @@ impl<'a> Traversal<'a> {
                 }
             }
         }
+        let required: BTreeSet<_> = graph
+            .neighbors(root, query)
+            .into_iter()
+            .filter(|(id, edge)| matches!(role(edge, id), "prerequisite" | "ancestor"))
+            .map(|(id, _)| id)
+            .collect();
         discovered.sort_by(|a, b| {
-            a.1.cmp(&b.1)
+            required
+                .contains(b.0)
+                .cmp(&required.contains(a.0))
+                .then_with(|| a.1.cmp(&b.1))
                 .then_with(|| crate::collation::compare(a.0, b.0))
         });
         let direct = graph.neighbors(root, query);
@@ -489,7 +498,7 @@ impl<'a> Traversal<'a> {
             let name = role(edge, id);
             direct_counts[name] = json!(direct_counts[name].as_u64().unwrap_or_default() + 1);
         }
-        let contract = json!({"rootId":root,"direction":query.direction,"kinds":query.kinds,"maxDepth":query.depth});
+        let contract = json!({"rootId":root,"direction":query.direction,"kinds":query.kinds,"maxDepth":query.depth,"ordering":"required-root-evidence-first-v1"});
         let fingerprint = crate::history::sha256_digest(
             format!(
                 "relationship-context\0{}",
@@ -567,6 +576,7 @@ fn packet(
         ));
     }
     let mut nodes = Vec::new();
+    let mut reserved = 0;
     for (id, distance, via, initial_role) in discovered.iter().skip(start).take(query.nodes) {
         let reasons: BTreeSet<_> = direct
             .iter()
@@ -596,6 +606,18 @@ fn packet(
         if used + tokens > budget {
             break;
         }
+        let edge_cost: usize = direct
+            .iter()
+            .filter(|(next, _)| next == id)
+            .map(|(_, edge)| cost(edge))
+            .sum();
+        if used + reserved + tokens + edge_cost > budget {
+            if !nodes.is_empty() {
+                break;
+            }
+        } else {
+            reserved += edge_cost;
+        }
         nodes.push(node);
         used += tokens;
     }
@@ -615,7 +637,7 @@ fn packet(
         .flatten()
         .copied()
         .collect();
-    let candidates: Vec<_> = incident
+    let mut candidates: Vec<_> = incident
         .into_iter()
         .map(|index| &graph.edges[index])
         .filter(|edge| {
@@ -624,11 +646,17 @@ fn packet(
                 && query.matches(text(edge, "kind"))
         })
         .collect();
+    candidates.sort_by_key(|edge| {
+        std::cmp::Reverse(text(edge, "source") == root || text(edge, "target") == root)
+    });
     let mut edges = Vec::new();
-    for edge in candidates.iter().take(query.edges) {
+    for edge in &candidates {
+        if edges.len() >= query.edges {
+            break;
+        }
         let tokens = cost(edge);
         if used + tokens > budget {
-            break;
+            continue;
         }
         edges.push(*edge);
         used += tokens;
@@ -701,7 +729,15 @@ pub(super) fn read(
         evidence(&serde_json::to_value(workspace.get(id)?.metadata).unwrap_or_default())
     };
     let traversal = Traversal::new(&graph, id, &query);
-    match render_packet(&graph, id, &query, &traversal, &evidence, options) {
+    match render_packet(
+        &graph,
+        id,
+        &query,
+        &traversal,
+        &evidence,
+        options,
+        &mut RenderMeasurements::default(),
+    ) {
         Err(error) if budget_floor(&error) => Err(budget_refusal(
             workspace, id, &graph, &query, &traversal, &evidence, options,
         )),
@@ -725,6 +761,39 @@ fn budget_floor(error: &PmRustError) -> bool {
         if detail.starts_with("Relationship context tokenBudget cannot fit "))
 }
 
+/// Exact rendered lengths cached independently of the two scalar token counters.
+#[derive(Default)]
+struct RenderMeasurements {
+    /// Encoding and structural envelope identity map to bytes excluding the counters.
+    fixed_bytes: BTreeMap<(bool, String), usize>,
+}
+
+impl RenderMeasurements {
+    /// Stabilizes the wire count while rendering each distinct packet shape only once.
+    fn settle(&mut self, result: &mut Value, toon: bool) -> usize {
+        let token_width = result["context"]["meta"]["tokenBudget"].to_string().len();
+        let mut shape = result.clone();
+        shape["context"]["meta"]["tokenBudget"] = json!(0);
+        shape["context"]["meta"]["usedTokens"] = json!(0);
+        let key = (toon, crate::stringify_json(&shape, false));
+        let fixed = *self
+            .fixed_bytes
+            .entry(key)
+            .or_insert_with(|| super::rendered_bytes(&shape, toon) - 2);
+        let used_width = result["context"]["meta"]["usedTokens"].to_string().len();
+        let mut measured = (fixed + token_width + used_width).div_ceil(4);
+        loop {
+            let next = (fixed + token_width + measured.to_string().len()).div_ceil(4);
+            if next == measured {
+                break;
+            }
+            measured = next;
+        }
+        result["context"]["meta"]["usedTokens"] = json!(measured);
+        measured
+    }
+}
+
 /// Enforces the complete rendered ceiling without returning an earlier oversized packet.
 fn render_packet(
     graph: &Graph,
@@ -733,6 +802,7 @@ fn render_packet(
     traversal: &Traversal<'_>,
     evidence: &[String],
     options: &DepsOptions,
+    measurements: &mut RenderMeasurements,
 ) -> Result<ListOutput, PmRustError> {
     let mut budget = query.tokens;
     // Larger limits render the same rows; skip retries that cannot remove a reference.
@@ -783,17 +853,7 @@ fn render_packet(
             }
             return Ok(result.into());
         }
-        loop {
-            let measured = tokens(&result, options.toon);
-            if result["context"]["meta"]["usedTokens"] == measured {
-                break;
-            }
-            result["context"]["meta"]["usedTokens"] = json!(measured);
-        }
-        let measured = result["context"]["meta"]["usedTokens"]
-            .as_u64()
-            .and_then(|n| usize::try_from(n).ok())
-            .unwrap_or_default();
+        let measured = measurements.settle(&mut result, options.toon);
         if measured <= query.tokens {
             return Ok(result.into());
         }
@@ -942,12 +1002,21 @@ fn budget_refusal(
                     .sum::<usize>(),
             ),
     );
+    let mut measurements = RenderMeasurements::default();
     let bounds = budget_recovery::find(query.tokens, work, &mut |budget| {
         let mut candidate = query.clone();
         candidate.tokens = budget;
         probe_delivery(
-            render_packet(graph, id, &candidate, traversal, evidence, options)
-                .and_then(|result| disclose(result, options)),
+            render_packet(
+                graph,
+                id,
+                &candidate,
+                traversal,
+                evidence,
+                options,
+                &mut measurements,
+            )
+            .and_then(|result| disclose(result, options)),
         )
     });
     let inspection_args = vec![

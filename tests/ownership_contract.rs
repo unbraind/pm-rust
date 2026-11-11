@@ -60,10 +60,10 @@ fn session_publication_faults_preserve_completed_ownership() -> TestResult {
     let session = root.join("runtime/session.json");
     fs::create_dir(&session)?;
     let alpha = request("alpha");
-    assert!(matches!(
-        workspace.claim(&alpha),
-        Err(PmRustError::Io { .. })
-    ));
+    assert_eq!(
+        workspace.claim(&alpha)?.warnings,
+        ["claim_semantic_attribution_unrecorded"]
+    );
     assert_eq!(
         workspace.get("sample-one")?.metadata.extra["assignee"],
         "alpha"
@@ -85,8 +85,9 @@ fn session_publication_faults_preserve_completed_ownership() -> TestResult {
         &json!({"created_at":pm_rust::current_timestamp(), "owner":"fixture-holder"}),
     )?;
     fs::write(&lock, &held)?;
-    assert!(
-        matches!(workspace.claim(&alpha), Err(PmRustError::CommandRefusal { detail, exit_code:4, .. }) if detail.contains("session-state lock is stale (lock_info_invalid_shape)"))
+    assert_eq!(
+        workspace.claim(&alpha)?.warnings,
+        ["claim_semantic_attribution_unrecorded"]
     );
     assert_eq!(fs::read(&lock)?, held);
     assert_eq!(
@@ -191,6 +192,7 @@ fn optional_workflows_and_sdk_identity_controls_compose() -> TestResult {
             &BTreeMap::new(),
         )),
         release_bypass: false,
+        start: false,
     };
     assert_eq!(
         workspace.start_task(&alpha, &explicit)?["changed_field_count"],
@@ -242,6 +244,7 @@ fn sdk_selection_preserves_identity_and_refusal_boundaries() -> TestResult {
             &BTreeMap::new(),
         )),
         release_bypass: false,
+        start: false,
     };
     assert_eq!(
         workspace.claim_next(&alpha, &explicit, &selection)?["changed_field_count"],
@@ -297,6 +300,7 @@ fn sdk_selection_preserves_identity_and_refusal_boundaries() -> TestResult {
     let options = OwnershipOptions {
         identity: Some(identity),
         release_bypass: false,
+        start: false,
     };
     workspace.claim_with_options(&detected, &options)?;
     assert!(matches!(

@@ -45,6 +45,7 @@ impl Workspace {
         // Published selection forwards the resolved display author as an asserted
         // author to each atomic claim, even when discovery detected a session.
         let mut atomic_options = options.clone();
+        atomic_options.start = selection.start;
         if let Some(identity) = &mut atomic_options.identity {
             identity.principal.clone_from(&request.author);
             identity.source = "asserted";
@@ -92,7 +93,7 @@ impl Workspace {
                 "No actionable item remained available to claim"
             },
             if attempts == 0 { 3 } else { 4 },
-            json!({"code":"no_available_next_item","why":if attempts == 0 {"No ready items matched the specified filters or selection criteria."}else{"Every ranked candidate was claimed by another agent before this atomic selection completed."},"next_steps":[if attempts==0{"Verify the filters or run pm next to inspect all ready work."}else{"Run pm claim --next again to refresh the ranked candidate set."}]}),
+            json!({"code":"no_available_next_item","why":if attempts == 0 {"No ready items matched the specified filters or selection criteria."}else{"Every ranked candidate was claimed by another agent before this atomic selection completed."},"next_steps":[if attempts==0{"Verify the filters or run pm next to inspect all ready work."}else if options.start {"Run pm claim --next --start again, with the same filters, to refresh the ranked candidate set."} else {"Run pm claim --next again, with the same filters, to refresh the ranked candidate set."}]}),
         ))
     }
 }

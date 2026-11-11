@@ -95,6 +95,9 @@ pub struct OwnershipResult {
     pub status: String,
     /// Number of ownership fields reported changed.
     pub changed_field_count: usize,
+    /// Atomic claim-start lifecycle transition, when requested.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub start: Option<Value>,
     /// Published immutable closing summary, when present.
     #[serde(skip_serializing_if = "Option::is_none")]
     pub close_reason: Option<String>,
@@ -2767,10 +2770,7 @@ pub(crate) fn close_item(
             .map(|key| format!("{key} (--{})", key.replace('_', "-")))
             .collect();
         if mode == "strict" {
-            let mut recovery = close_recovery(display_root, &document).unwrap_or_default();
-            recovery
-                .as_object_mut()
-                .map(|map| map.shift_remove("suggested_retry_args"));
+            let recovery = close_recovery(display_root, &document).unwrap_or_default();
             return Err(close_refusal(
                 format!(
                     "Cannot close item {}: missing {}. Populate fields or use --validate-close warn.",
@@ -2851,8 +2851,10 @@ pub(crate) fn close_item(
         changed.push("duplicate_of");
         changed.extend(fallback);
     }
-    if document.metadata.extra.remove("assignee").is_some() {
-        changed.push("assignee");
+    for field in ["claim_principal", "assignee"] {
+        if document.metadata.extra.remove(field).is_some() {
+            changed.push(field);
+        }
     }
     let previous_blocker = ownership_text(&document, "blocked_by");
     let mut blockers = Vec::new();
@@ -2902,7 +2904,34 @@ pub(crate) fn close_item(
     if let Some(recovery) = recovery {
         receipt["follow_up"] = recovery;
     }
-    let mut result = commit_mutation(
+    let completion_source = if request.fields.completed_at.is_some() {
+        "asserted"
+    } else if before.metadata.extra.contains_key("completed_at") {
+        "existing"
+    } else {
+        "close_time"
+    };
+    let mut completion = serde_json::json!({"timestamp":document.metadata.extra["completed_at"],"source":completion_source});
+    if completion_source == "close_time" {
+        let args = [
+            "--pm-path",
+            display_root.to_str().unwrap_or_default(),
+            "update",
+            &request.id,
+            "--completed-at",
+            "<ISO>",
+        ];
+        let command = args
+            .iter()
+            .map(|arg| quote_command_arg(arg))
+            .collect::<Vec<_>>()
+            .join(" ");
+        completion["hint"] = serde_json::json!(format!(
+            "completed_at defaults to the close time. If work finished earlier, correct it with pm {command}."
+        ));
+    }
+    receipt["completion"] = completion.clone();
+    let mut result = commit_mutation_with_context(
         pm_root,
         "close",
         &before,
@@ -2913,6 +2942,9 @@ pub(crate) fn close_item(
         request.fields.message.as_deref(),
         &item_path,
         &history_path,
+        Some(
+            serde_json::json!({"completion":{"timestamp":completion["timestamp"],"source":completion["source"]}}),
+        ),
     )?;
     result.close_changed_fields = changed.into_iter().map(str::to_owned).collect();
     result.close_receipt = Some(receipt);
@@ -2932,29 +2964,44 @@ fn ownership_refusal(detail: String, context: Value) -> PmRustError {
     PmRustError::OwnershipRefusal { detail, context }
 }
 
-/// Describes assignment provenance from the last assignee patch in history.
-fn ownership_phrase(history_path: &Path, assignee: &str) -> Result<String, PmRustError> {
+/// Resolves the latest assignee patch without trusting stale or unrelated evidence.
+fn ownership_evidence(history_path: &Path, assignee: &str) -> Result<Value, PmRustError> {
     let raw = read_optional(history_path)?.unwrap_or_default();
     for line in raw.lines().rev() {
         let Ok(entry) = crate::strict_json::from_str::<Value>(line) else {
             continue;
         };
-        if let Some(Value::Array(patches)) = entry.get("patch") {
-            for patch in patches {
-                if patch["path"] == "/metadata/assignee" {
-                    return Ok(format!(
-                        "{} {assignee}",
-                        if entry["op"] == "claim" {
-                            "claimed by"
-                        } else {
-                            "assigned to"
-                        }
-                    ));
-                }
+        if let Some(patch) = entry["patch"].as_array().and_then(|patches| {
+            patches
+                .iter()
+                .find(|patch| patch["path"] == "/metadata/assignee")
+        }) {
+            if patch["value"]
+                .as_str()
+                .is_some_and(|value| value.trim() == assignee.trim())
+            {
+                return Ok(serde_json::json!({
+                    "claimed_by":assignee,
+                    "claimed_at":entry["ts"],
+                    "claim_source":if entry["op"].is_null() { "unknown" } else if entry["op"] == "claim" { "claim" } else { "assignment" }
+                }));
             }
+            break;
         }
     }
-    Ok(format!("assigned to {assignee}"))
+    Ok(serde_json::json!({"claimed_by":assignee,"claimed_at":null,"claim_source":"unknown"}))
+}
+
+/// Describes assignment provenance from the same evidence used by the refusal.
+fn ownership_phrase(evidence: &Value, assignee: &str) -> String {
+    format!(
+        "{} {assignee}",
+        if evidence["claim_source"] == "claim" {
+            "claimed by"
+        } else {
+            "assigned to"
+        }
+    )
 }
 
 /// Uses the published lock payload clock, including malformed-lock expiry.
@@ -3282,7 +3329,8 @@ pub(crate) fn ownership_item_with_options(
                 skipped = Some(true);
                 warnings.push(format!("claim_skipped_held_by:{assignee}"));
             } else if !request.force {
-                let phrase = ownership_phrase(&history_path, &assignee)?;
+                let evidence = ownership_evidence(&history_path, &assignee)?;
+                let phrase = ownership_phrase(&evidence, &assignee);
                 return Err(ownership_refusal(
                     format!(
                         "Item {} is already {phrase}. Use --force to take over, or --if-available to skip without failing.",
@@ -3290,6 +3338,10 @@ pub(crate) fn ownership_item_with_options(
                     ),
                     serde_json::json!({
                         "code":"already_claimed_by",
+                        "item_id":request.id,
+                        "claimed_by":evidence["claimed_by"],
+                        "claimed_at":evidence["claimed_at"],
+                        "claim_source":evidence["claim_source"],
                         "why":"Claim is an atomic test-and-set so parallel agents never proceed believing they own the same item.",
                         "next_steps":["Run pm next to pick a different unclaimed item.","Re-run with --if-available to treat a held item as a no-op skip.","Re-run with --force only when taking over the item is coordinated."]
                     }),
@@ -3352,6 +3404,28 @@ pub(crate) fn ownership_item_with_options(
             suggestions.push(format!("{} remains in_progress and unclaimed. If work is paused, run pm release {} --pause to move it to open.", request.id, request.id));
         }
     }
+    let start = if claim && options.start && skipped.is_none() {
+        if matches!(document.metadata.status.as_str(), "closed" | "canceled") {
+            return Err(ownership_refusal(
+                format!(
+                    "Cannot start terminal item {}; reopen it with pm item reopen before starting it",
+                    request.id
+                ),
+                serde_json::json!({"code":"terminal_state_conflict","item_id":request.id,"why":"Starting work moves an active item into progress; a terminal item must be reopened so its recurrence evidence is recorded.","next_steps":[format!("Run pm item reopen {} \"<reason>\", then pm claim {} --start.",request.id,request.id)]}),
+            ));
+        }
+        let value = crate::ownership::runtime_settings(pm_root)?;
+        let target = value["schema"]["workflow"]["in_progress_status"]
+            .as_str()
+            .unwrap_or("in_progress");
+        validate_lifecycle_transition(&value, &document, target)?;
+        let from = document.metadata.status.clone();
+        changed += usize::from(from != target);
+        target.clone_into(&mut document.metadata.status);
+        Some(serde_json::json!({"from_status":from,"to_status":target}))
+    } else {
+        None
+    };
     // Refused and skipped contenders never decode unrelated item payloads.
     // Recovery and the target's atomic ownership checks already hold this lock.
     if skipped.is_none() {
@@ -3398,6 +3472,7 @@ pub(crate) fn ownership_item_with_options(
         item: document,
         close_reason,
         changed_field_count: changed,
+        start,
         claimed_by,
         released_by,
         previous_assignee,
@@ -3705,13 +3780,43 @@ fn commit_mutation(
     item_path: &Path,
     history_path: &Path,
 ) -> Result<MutationResult, PmRustError> {
+    commit_mutation_with_context(
+        pm_root,
+        operation,
+        before_document,
+        document,
+        timestamp,
+        author,
+        provenance_role,
+        message,
+        item_path,
+        history_path,
+        None,
+    )
+}
+
+/// Publishes item and history bytes with resolved immutable event context.
+#[allow(clippy::too_many_arguments)]
+fn commit_mutation_with_context(
+    pm_root: &Path,
+    operation: &'static str,
+    before_document: &ItemDocument,
+    document: ItemDocument,
+    timestamp: &str,
+    author: &str,
+    provenance_role: Option<&str>,
+    message: Option<&str>,
+    item_path: &Path,
+    history_path: &Path,
+    context: Option<Value>,
+) -> Result<MutationResult, PmRustError> {
     canonical_item_bytes(&document).and_then(|item_bytes| {
         let before_ordered = OrderedDocument::from_document(before_document);
         let after_ordered = OrderedDocument::from_document(&document);
         let before_hash = history::document_hash(&before_ordered);
         let after_hash = history::document_hash(&after_ordered);
         let patch = history::history_patch(&before_ordered, &after_ordered);
-        let entry = history::history_entry(
+        let mut entry = history::history_entry(
             timestamp,
             author,
             if operation == "comment" {
@@ -3725,6 +3830,25 @@ fn commit_mutation(
             after_hash.clone(),
             message,
         );
+        if let Some(context) = context {
+            let mut merged = context;
+            for (key, value) in entry
+                .context
+                .take()
+                .as_ref()
+                .and_then(Value::as_object)
+                .into_iter()
+                .flatten()
+            {
+                merged[key] = value.clone();
+            }
+            entry.context = Some(merged);
+            entry.record_hash.clear();
+            let canonical = serde_json::to_value(&entry).unwrap_or_default();
+            let mut serialized = String::new();
+            history::stable_json(&canonical, &mut serialized);
+            entry.record_hash = history::sha256_digest(serialized.as_bytes());
+        }
         let history_bytes = history::history_line(&entry);
         let journal = MutationJournal {
             version: 1,

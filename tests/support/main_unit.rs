@@ -943,10 +943,13 @@ fn closure_toon_nested_arrays_and_io_errors() -> Result<(), Box<dyn std::error::
 #[test]
 fn closure_recovery_and_refusal_boundaries() {
     let detail = "Missing closure evidence. ".repeat(8);
-    let long = super::ownership_error_json(
-        &detail,
-        &serde_json::json!({"code":"close_validation_missing_fields"}),
-        &["close".to_owned(), "sample-close".to_owned()],
+    let long = super::complete_refusal(
+        &super::ownership_error_json(
+            &detail,
+            &serde_json::json!({"code":"close_reason_required"}),
+            &["close".to_owned(), "sample-close".to_owned()],
+        ),
+        &[],
     );
     assert_eq!(
         long["title"].as_str().unwrap_or_default().chars().count(),
@@ -1240,9 +1243,8 @@ fn lock_recovery_keeps_explicit_workspace_scope() {
         vec!["--path", "tracker directory"],
         vec!["--path=tracker directory"],
     ] {
-        let mut payload =
-            serde_json::json!({"recovery":{"normalized_args":["comment","sample-one","note"]}});
-        super::preserve_lock_scope(
+        let mut payload = serde_json::json!({"code":"lock_conflict","recovery":{"normalized_args":["comment","sample-one","note"],"suggested_retry_args":["comment","sample-one","note"]}});
+        super::preserve_refusal_scope(
             &mut payload,
             &raw.iter().map(|arg| (*arg).to_owned()).collect::<Vec<_>>(),
         );
@@ -1264,7 +1266,7 @@ fn lock_recovery_keeps_explicit_workspace_scope() {
         vec!["--path"],
     ] {
         let mut payload = serde_json::json!({});
-        super::preserve_lock_scope(
+        super::preserve_refusal_scope(
             &mut payload,
             &raw.iter().map(|arg| (*arg).to_owned()).collect::<Vec<_>>(),
         );

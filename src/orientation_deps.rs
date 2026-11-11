@@ -1,7 +1,7 @@
 //! Bounded dependency tree and graph reads.
 mod budget_recovery;
 mod packet;
-use crate::orientation::{complete_receipt, invalid, numeric};
+use crate::orientation::{invalid, numeric};
 use crate::{DepsOptions, ListOutput, PmRustError, Workspace};
 use serde_json::{Value, json};
 use std::collections::{BTreeMap, BTreeSet};
@@ -281,25 +281,32 @@ fn project(mut result: Value, summary: bool, aliases: &Value) -> Value {
     } else {
         "relationship_context"
     };
+    let mut declared = vec![json!({"name":group,"restore_with":"--full"})];
+    let mut omitted = if summary { declared.clone() } else { vec![] };
+    if result["context"]["meta"]["truncated"] == true {
+        let bounds = json!({"name":"relationship_context_bounds","restore_with":"--token-budget <n> --node-limit <n> --edge-limit <n> --max-depth <n>"});
+        declared.push(bounds.clone());
+        omitted.push(bounds);
+    }
     result["legacy_alias_counts"] = aliases.clone();
-    result["projection"] = json!({"mode":if summary{"summary"}else{"full"},"declared_field_groups":[{"name":group,"restore_with":"--full"}],"included_field_groups":if summary{vec![]}else{vec![group]}});
-    result["omission_receipt"] = if summary {
-        json!({"has_omissions":true,"omitted_field_group_count":1,"omitted_field_groups":[{"name":group,"restore_with":"--full"}]})
-    } else {
-        complete_receipt()
-    };
+    result["projection"] = json!({"mode":if summary{"summary"}else{"full"},"declared_field_groups":declared,"included_field_groups":if summary{vec![]}else{vec![group]}});
+    result["omission_receipt"] = json!({"has_omissions":!omitted.is_empty(),"omitted_field_group_count":omitted.len(),"omitted_field_groups":omitted});
     result
 }
 
 /// Measures the delivered output after hidden discovery metadata is suppressed.
 fn tokens(result: &Value, toon: bool) -> usize {
+    rendered_bytes(result, toon).div_ceil(4)
+}
+
+/// Measures wire bytes once for numeric receipt stabilization without changing rendering policy.
+fn rendered_bytes(result: &Value, toon: bool) -> usize {
     let output = ListOutput::from(result.clone());
-    let bytes = if toon {
+    if toon {
         crate::toon_output::render_output(&output).len()
     } else {
         output.stringify_read_json().len()
-    };
-    bytes.div_ceil(4)
+    }
 }
 
 /// Removes the deepest last dependency while retaining the parent's truncation marker.

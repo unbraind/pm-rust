@@ -748,8 +748,10 @@ fn scoped_alias_refusals_match_the_native_command() -> Result<(), Box<dyn std::e
                 let payload: serde_json::Value = serde_json::from_slice(&output.stderr)?;
                 assert_eq!(payload["code"], "unsupported_native_option");
                 assert_eq!(payload["flag"], "--bogus");
+                assert_eq!(payload["recovery"]["normalized_args"][0], "--pm-path");
+                assert_eq!(payload["recovery"]["normalized_args"][1], ".");
                 assert_eq!(
-                    payload["recovery"]["normalized_args"][0],
+                    payload["recovery"]["normalized_args"][2],
                     if command == ["context"] {
                         "context"
                     } else {
@@ -759,5 +761,21 @@ fn scoped_alias_refusals_match_the_native_command() -> Result<(), Box<dyn std::e
             }
         }
     }
+    Ok(())
+}
+
+/// Parser failures use the same credential projection as structured command refusals.
+#[test]
+fn parser_diagnostics_redact_credential_bearing_tokens() -> Result<(), Box<dyn std::error::Error>> {
+    let directory = workspace()?;
+    let output = pm_rust(
+        &directory,
+        &["https://fixture:test-password@example.invalid"],
+    )?;
+    assert_eq!(output.status.code(), Some(2));
+    let stderr = String::from_utf8(output.stderr)?;
+    assert!(!stderr.contains("test-password"));
+    assert!(!stderr.contains("fixture:"));
+    assert!(stderr.contains("[redacted]@example.invalid"));
     Ok(())
 }

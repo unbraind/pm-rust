@@ -200,7 +200,7 @@ fn packet_traversal_and_continuation() -> Result<(), Box<dyn std::error::Error>>
     let cursor = first["meta"]["nextCursor"].as_str().ok_or("cursor")?;
     let second = packet(&graph, "sample-root", &query, &[], Some(cursor), 10000)?;
     assert_ne!(first["nodes"][0]["id"], second["nodes"][0]["id"]);
-    let contract = json!({"rootId":"sample-root","direction":"both","kinds":[],"maxDepth":3});
+    let contract = json!({"rootId":"sample-root","direction":"both","kinds":[],"maxDepth":3,"ordering":"required-root-evidence-first-v1"});
     let fingerprint = crate::history::sha256_digest(
         format!(
             "relationship-context\0{}",
@@ -374,9 +374,15 @@ fn packet_rendered_budget_removes_missing_references() -> Result<(), Box<dyn std
         for budget in 1..=1200 {
             query.tokens = budget;
             options.token_budget = Some(budget.to_string());
-            if let Ok(result) =
-                render_packet(&graph, "sample-root", &query, &traversal, &[], &options)
-                && result["missing_references"] == json!([])
+            if let Ok(result) = render_packet(
+                &graph,
+                "sample-root",
+                &query,
+                &traversal,
+                &[],
+                &options,
+                &mut RenderMeasurements::default(),
+            ) && result["missing_references"] == json!([])
             {
                 assert!(
                     result["context"]["meta"]["usedTokens"]
@@ -679,4 +685,28 @@ fn packet_probe_classification_respects_refusal_boundaries() {
     }));
     assert!(probe_delivery(Ok(json!({"context":{"nodes":[]}}).into())) == Probe::Fits);
     assert!(probe_delivery(Ok(json!({"output_budget_exceeded":{"reason":"requested_budget_infeasible","omitted_result":true}}).into())) == Probe::OutputConstraints);
+}
+
+/// Cached packet measurements equal full rendering across scalar-width and encoding boundaries.
+#[test]
+fn cached_render_measurements_match_exact_wire_bytes() {
+    let mut cache = RenderMeasurements::default();
+    for toon in [false, true] {
+        for tokens in [1, 9, 10, 99, 100, 999, 1000, 10000] {
+            for title in ["", "Unicode café 🚀", "different shape"] {
+                let mut result = json!({"context":{"root":{"id":"sample-a","title":title},"nodes":[{"id":"sample-b","role":"related"}],"meta":{"tokenBudget":tokens,"usedTokens":1}},"projection":{"mode":"full"}});
+                let measured = cache.settle(&mut result, toon);
+                assert_eq!(measured, super::tokens(&result, toon));
+            }
+        }
+    }
+    // At this width boundary, both 999 and 1000 are fixed points. Preserve
+    // the published stabilization's initial counter instead of choosing a minimum.
+    for toon in [false, true] {
+        let mut result = json!({"context":{"root":{"id":"sample-a","title":""},"meta":{"tokenBudget":1,"usedTokens":1000}}});
+        let padding = 3997 - super::super::rendered_bytes(&result, toon);
+        result["context"]["root"]["title"] = json!("x".repeat(padding));
+        assert_eq!(cache.settle(&mut result, toon), 1000);
+        assert_eq!(super::tokens(&result, toon), 1000);
+    }
 }

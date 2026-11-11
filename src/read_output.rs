@@ -3,18 +3,8 @@
 use crate::{ListOptions, ListOutput, PmRustError, list::bound, pagination};
 use serde_json::{Value, json};
 
-/// Estimates output tokens using the published UTF-8 byte heuristic.
-pub(crate) fn estimate(value: &(impl serde::Serialize + ?Sized), pretty: bool) -> usize {
-    let bytes = if pretty {
-        crate::stringify_json(value, true).len() + 1
-    } else {
-        crate::stringify_json(value, false).len()
-    };
-    bytes.div_ceil(4)
-}
-
 /// Measures the exact selected list wire encoding, including its trailing newline.
-fn measure(result: &ListOutput, toon: bool) -> usize {
+pub(crate) fn measure(result: &ListOutput, toon: bool) -> usize {
     if toon {
         crate::toon_output::render_output(result).len().div_ceil(4)
     } else {
@@ -23,24 +13,13 @@ fn measure(result: &ListOutput, toon: bool) -> usize {
 }
 
 /// Stabilizes a receipt in the requested wire encoding.
-fn update_output(result: &mut ListOutput, toon: bool) {
+pub(crate) fn update_output(result: &mut ListOutput, toon: bool) {
     for _ in 0..8 {
         let measured = measure(result, toon);
         if result.value["read_output"]["estimated_tokens"] == measured {
             break;
         }
         result.value["read_output"]["estimated_tokens"] = json!(measured);
-    }
-}
-
-/// Stabilizes a self-referential receipt estimate after changing output content.
-pub(crate) fn update(result: &mut ListOutput, key: &str, pretty: bool) {
-    for _ in 0..8 {
-        let measured = estimate(result, pretty);
-        if result.value[key]["estimated_tokens"] == measured {
-            break;
-        }
-        result.value[key]["estimated_tokens"] = json!(measured);
     }
 }
 
@@ -330,6 +309,13 @@ pub(crate) fn apply_command(
         Some(if options.toon { 4000 } else { 6000 })
     };
     let default_budget = options.output_budget.is_none() && budget.is_some();
+    if result.get("budget_exceeded").is_some() || result.get("output_budget_exceeded").is_some() {
+        result.value["read_output"] = receipt_for(options, default_budget, command);
+        result.value["read_output"]["within_budget"] = json!(false);
+        result.value["read_output"]["result_omitted"] = json!(true);
+        update_output(&mut result, options.toon);
+        return Ok(result);
+    }
     let original_rows = result["items"].clone();
     let snapshot = result.row_fingerprint();
     let cursor = options
@@ -401,7 +387,7 @@ pub(crate) fn apply_command(
     }
     update_output(&mut result, options.toon);
     if result.get("context_intent").is_some() {
-        crate::list_intent::stabilize(&mut result);
+        crate::list_intent::stabilize(&mut result, options.toon);
     }
     Ok(result)
 }
