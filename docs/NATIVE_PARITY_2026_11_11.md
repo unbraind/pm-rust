@@ -1,5 +1,9 @@
 # Published oracle parity: 2026.11.11
 
+Round-two admission, crash-pin and review evidence is recorded in
+[ORACLE_REVIEW_2026_11_11.md](ORACLE_REVIEW_2026_11_11.md). The counts below
+are the initial implementation baseline; the follow-up includes every oracle-backed target.
+
 The locked oracle and native compatibility constant use the npm latest observed
 for this change, `@unbrained/pm-cli@2026.11.11`. This replaces the dependency-only
 update proposed in #164.

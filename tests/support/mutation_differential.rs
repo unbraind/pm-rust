@@ -75,6 +75,12 @@ try {
     if (process.argv[2] === "__release_bypass") {
       const result = await release(process.argv[3], { author: process.argv[4], ownershipReleaseBypass: true }, { path: process.cwd() });
       console.log(JSON.stringify(result));
+    } else if (process.argv[2] === "__atomic_claim_error") {
+      try {
+        const { runClaim } = await import(new URL("./sdk/lifecycle/claim.js", pathToFileURL(__ENTRY_JSON__)));
+        await runClaim(process.argv[3], process.argv[4] === "true", { path: process.cwd() }, { author: "alpha", start: true });
+        console.log(JSON.stringify({ok:true}));
+      } catch (error) { console.log(JSON.stringify({detail:error.message,exit_code:error.exitCode,context:error.context})); }
     } else if (process.argv[2] === "__ownership_error") {
       try {
         await (process.argv[3] === "claim" ? claim : process.argv[3] === "start" ? startTask : release)(process.argv[4], { author: "alpha" }, { path: process.cwd() });

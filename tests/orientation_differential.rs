@@ -2041,3 +2041,109 @@ fn padded_inverse_blockers_match_oracle() -> TestResult {
     }
     Ok(())
 }
+
+/// Scoped string-only history recovery matches the published bootstrap path and JSON mode.
+#[test]
+fn scoped_history_retry_matches_published_bytes() -> TestResult {
+    let Some(published) = published_cli::published_cli_or_skip("scoped history retry") else {
+        return Ok(());
+    };
+    let scratch = tempfile::tempdir()?;
+    let driver = orientation_driver(scratch.path(), &published)?;
+    let root = tempfile::tempdir()?;
+    assert!(
+        oracle(&driver, root.path(), &["init", "sample-", "--defaults"])?
+            .status
+            .success()
+    );
+    fixture(root.path(), &[item("sample-one", "Task", "open", 1)])?;
+    let args = [
+        "--pm-path",
+        ".agents/pm",
+        "history",
+        "sample-one",
+        "--strict-exit",
+        "--json",
+    ];
+    let expected = oracle(&driver, root.path(), &args)?;
+    let actual = native(root.path(), &args)?;
+    compare(&expected, &actual, &args);
+    let value: Value = serde_json::from_slice(&actual.stderr)?;
+    assert_eq!(
+        value["recovery"]["suggested_retry"],
+        "pm --pm-path .agents/pm history sample-one --strict-exit --json --verify"
+    );
+    Ok(())
+}
+
+/// Activity uses instants across fractional widths and excludes the exact window boundary.
+#[test]
+fn activity_mixed_fractional_precision_matches_published_bytes() -> TestResult {
+    let Some(published) = published_cli::published_cli_or_skip("mixed precision activity") else {
+        return Ok(());
+    };
+    let scratch = tempfile::tempdir()?;
+    let driver = orientation_driver(scratch.path(), &published)?;
+    let root = tempfile::tempdir()?;
+    let now = "2026-08-22T10:00:00.500Z";
+    fs::write(
+        &driver,
+        format!(
+            "process.env.FIXED_CLOCK = {now:?};\n{}",
+            fs::read_to_string(&driver)?
+        ),
+    )?;
+    assert!(
+        oracle(&driver, root.path(), &["init", "sample-", "--defaults"])?
+            .status
+            .success()
+    );
+    let rows = [
+        item("sample-early", "Task", "open", 1),
+        item("sample-later", "Task", "open", 1),
+        item("sample-exact", "Task", "open", 1),
+    ];
+    fixture(root.path(), &rows)?;
+    for (id, ts) in [
+        ("sample-early", "2026-08-22T10:00:00Z"),
+        ("sample-later", "2026-08-22T10:00:00.250Z"),
+        ("sample-exact", now),
+    ] {
+        fs::write(
+            root.path().join(format!(".agents/pm/history/{id}.jsonl")),
+            format!(
+                "{}\n",
+                json!({"ts":ts,"op":"update","author":"fixture-agent"})
+            ),
+        )?;
+    }
+    let args = [
+        "context",
+        "--depth",
+        "standard",
+        "--json",
+        "--no-extension-health",
+    ];
+    let expected = oracle(&driver, root.path(), &args)?;
+    let mut command = Command::new(env!("CARGO_BIN_EXE_pm-rust"));
+    mutation_differential::isolate_environment(&mut command);
+    let actual = command
+        .current_dir(root.path())
+        .args(args)
+        .args(["--timestamp", now])
+        .env("HOME", root.path().join("synthetic-home"))
+        .env("USERPROFILE", root.path().join("synthetic-home"))
+        .output()?;
+    compare(&expected, &actual, &args);
+    let value: Value = serde_json::from_slice(&actual.stdout)?;
+    assert_eq!(
+        value["activity"]
+            .as_array()
+            .ok_or("activity")?
+            .iter()
+            .map(|row| row["id"].clone())
+            .collect::<Vec<_>>(),
+        vec![json!("sample-early"), json!("sample-later")]
+    );
+    Ok(())
+}

@@ -169,9 +169,13 @@ fn token(value: &str) -> String {
         .join("_")
 }
 
-/// Supplies the same missing-file fallback to captured previews and native reads.
-pub(crate) fn default_schema(_name: &str) -> Value {
-    Value::Null
+/// Supplies the published preview scaffold defaults without changing observational reads.
+pub(crate) fn default_schema(name: &str) -> Value {
+    if name == "statuses" {
+        json!({"statuses":defaults()})
+    } else {
+        json!({"workflow":{"draft_status":"draft","open_status":"open","in_progress_status":"in_progress","blocked_status":"blocked","close_status":"closed","canceled_status":"canceled"}})
+    }
 }
 
 /// Loads optional runtime schema data without requiring the scaffold to exist.
@@ -180,7 +184,7 @@ fn optional_schema(root: &Path, schema: &Value, name: &str) -> Result<Value, PmR
     let path = root.join(schema["files"][name].as_str().unwrap_or(&fallback));
     match fs::read(&path) {
         Ok(bytes) => Ok(crate::strict_json::from_slice(&bytes).unwrap_or(Value::Null)),
-        Err(error) if error.kind() == std::io::ErrorKind::NotFound => Ok(default_schema(name)),
+        Err(error) if error.kind() == std::io::ErrorKind::NotFound => Ok(Value::Null),
         Err(source) => Err(PmRustError::Io { path, source }),
     }
 }

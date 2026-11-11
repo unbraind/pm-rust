@@ -1874,3 +1874,37 @@ fn capabilities_writer_refusals() -> Result<(), Box<dyn std::error::Error>> {
     }
     Ok(())
 }
+
+/// Scope comes only from bootstrap arguments, never positional or option-valued close text.
+#[test]
+fn positional_close_text_cannot_select_recovery_workspace() {
+    for raw in [
+        vec!["close", "sample-one", "--json", "--", "--pm-path=other"],
+        vec!["close", "sample-one", "--reason", "--pm-path=other"],
+        vec!["close", "sample-one", "--reason", "--pm-path", "other"],
+    ] {
+        assert!(
+            super::invocation_scope(&raw.iter().map(|arg| (*arg).to_owned()).collect::<Vec<_>>())
+                .is_empty()
+        );
+    }
+}
+
+/// String-only producers retain their contract shape while inheriting the selected scope.
+#[test]
+fn string_only_recovery_retains_scope_without_inventing_arguments() {
+    let mut payload = serde_json::json!({"code":"command_failed","recovery":{"suggested_retry":"pm history sample-one --strict-exit --json --verify"}});
+    super::preserve_refusal_scope(
+        &mut payload,
+        &[
+            "--pm-path".to_owned(),
+            "other".to_owned(),
+            "history".to_owned(),
+        ],
+    );
+    assert_eq!(
+        payload["recovery"]["suggested_retry"],
+        "pm --pm-path other history sample-one --strict-exit --json --verify"
+    );
+    assert!(payload["recovery"].get("suggested_retry_args").is_none());
+}

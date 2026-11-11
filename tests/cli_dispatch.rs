@@ -779,3 +779,91 @@ fn parser_diagnostics_redact_credential_bearing_tokens() -> Result<(), Box<dyn s
     assert!(stderr.contains("[redacted]@example.invalid"));
     Ok(())
 }
+
+/// Stored credential authorities are withheld in JSON and human foreign-claim refusals.
+#[test]
+fn persisted_holder_credentials_never_reach_refusal_streams()
+-> Result<(), Box<dyn std::error::Error>> {
+    for secret in ["stored password", "a b", "quoted\" pass"] {
+        let workspace = workspace()?;
+        seed_item(&workspace)?;
+        let holder = format!("https://fixture:{secret}@example.invalid");
+        let claimed = Command::new(env!("CARGO_BIN_EXE_pm-rust"))
+            .current_dir(workspace.path())
+            .args([
+                "claim",
+                "sample-cli",
+                "--author",
+                &holder,
+                "--force",
+                "--json",
+            ])
+            .output()?;
+        assert!(
+            claimed.status.success(),
+            "{}",
+            String::from_utf8_lossy(&claimed.stderr)
+        );
+        for format in [vec!["--json"], vec![]] {
+            let output = Command::new(env!("CARGO_BIN_EXE_pm-rust"))
+                .current_dir(workspace.path())
+                .args(["claim", "sample-cli", "--author", "beta"])
+                .args(&format)
+                .output()?;
+            assert_eq!(output.status.code(), Some(4));
+            let text = String::from_utf8_lossy(&output.stderr);
+            assert!(!text.contains(secret));
+            assert!(text.contains("https://[redacted]@example.invalid"));
+            if format.is_empty() {
+                assert!(text.contains("Held by: https://[redacted]@example.invalid"));
+            } else {
+                assert_eq!(
+                    serde_json::from_slice::<serde_json::Value>(&output.stderr)?["claimed_by"],
+                    "https://[redacted]@example.invalid"
+                );
+            }
+        }
+    }
+    Ok(())
+}
+
+/// Native positional reason text cannot redirect recovery away from the mutated workspace.
+#[test]
+fn positional_close_text_keeps_actual_recovery_scope() -> Result<(), Box<dyn std::error::Error>> {
+    let root = workspace()?;
+    seed_item(&root)?;
+    let output = Command::new(env!("CARGO_BIN_EXE_pm-rust"))
+        .current_dir(root.path())
+        .args([
+            "close",
+            "sample-cli",
+            "--author",
+            "cli-agent",
+            "--validate-close",
+            "off",
+            "--json",
+            "--",
+            "--pm-path=other",
+        ])
+        .output()?;
+    assert!(
+        output.status.success(),
+        "{}",
+        String::from_utf8_lossy(&output.stderr)
+    );
+    let value: serde_json::Value = serde_json::from_slice(&output.stdout)?;
+    let hint = value["completion"]["hint"]
+        .as_str()
+        .ok_or("completion hint")?;
+    assert!(hint.contains("pm update sample-cli --completed-at"));
+    assert!(!hint.contains("other"));
+    assert_eq!(
+        pm_rust::Workspace::discover(root.path())?
+            .get("sample-cli")?
+            .metadata
+            .status,
+        "closed"
+    );
+    assert!(!root.path().join("other").exists());
+    Ok(())
+}

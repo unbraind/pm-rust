@@ -776,10 +776,18 @@ impl RenderMeasurements {
         shape["context"]["meta"]["tokenBudget"] = json!(0);
         shape["context"]["meta"]["usedTokens"] = json!(0);
         let key = (toon, crate::stringify_json(&shape, false));
-        let fixed = *self
-            .fixed_bytes
-            .entry(key)
-            .or_insert_with(|| super::rendered_bytes(&shape, toon) - 2);
+        let fixed = if let Some(fixed) = self.fixed_bytes.get(&key) {
+            *fixed
+        } else {
+            let fixed = super::rendered_bytes(&shape, toon) - 2;
+            // Retaining only eight shapes bounds memory by the largest packet,
+            // including reference-prefix retries and canonical recovery probes.
+            if self.fixed_bytes.len() >= 8 {
+                self.fixed_bytes.clear();
+            }
+            self.fixed_bytes.insert(key, fixed);
+            fixed
+        };
         let used_width = result["context"]["meta"]["usedTokens"].to_string().len();
         let mut measured = (fixed + token_width + used_width).div_ceil(4);
         loop {

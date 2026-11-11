@@ -3317,8 +3317,13 @@ pub(crate) fn ownership_item_with_options(
     let mut suggestions = Vec::new();
     let mut skipped = None;
     let mut changed = 0;
+    let terminal = if claim && options.start {
+        crate::list_registry::Lifecycle::load(pm_root)?.terminal(&before.metadata.status)
+    } else {
+        matches!(before.metadata.status.as_str(), "closed" | "canceled")
+    };
     if claim {
-        if matches!(before.metadata.status.as_str(), "closed" | "canceled") && !request.force {
+        if terminal && !request.force {
             return Err(ownership_refusal(
                 format!("Cannot claim terminal item {} without --force", request.id),
                 serde_json::json!({}),
@@ -3405,7 +3410,7 @@ pub(crate) fn ownership_item_with_options(
         }
     }
     let start = if claim && options.start && skipped.is_none() {
-        if matches!(document.metadata.status.as_str(), "closed" | "canceled") {
+        if terminal {
             return Err(ownership_refusal(
                 format!(
                     "Cannot start terminal item {}; reopen it with pm item reopen before starting it",

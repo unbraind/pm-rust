@@ -843,6 +843,7 @@ fn failed_start_preserves_claim_and_published_recovery_receipt()
         "alpha",
         "--json",
     ])?;
+    fixture.step(&["claim", "sample-own", "--start", "--author", "alpha"])?;
     let history = fs::read_to_string(
         fixture
             .rust
@@ -1851,5 +1852,99 @@ fn claim_refusal_uses_matching_latest_ownership_evidence() -> Result<(), Box<dyn
         fs::write(path, updated)?;
     }
     fixture.step(&["claim", "sample-own", "--author", "beta", "--json"])?;
+    Ok(())
+}
+
+/// Registry-defined terminal states refuse atomic starts under the claim lock without writes.
+#[test]
+fn atomic_start_rejects_configured_terminal_status_like_oracle()
+-> Result<(), Box<dyn std::error::Error>> {
+    let Some(fixture) = Fixture::new("none")? else {
+        return Ok(());
+    };
+    for root in [fixture.node.path(), fixture.rust.path()] {
+        let path = root.join(".agents/pm/settings.json");
+        let mut settings: serde_json::Value = serde_json::from_slice(&fs::read(&path)?)?;
+        settings["schema"]["workflow"]["close_status"] = serde_json::json!("done");
+        settings["schema"]["statuses"]
+            .as_array_mut()
+            .ok_or("statuses")?
+            .push(serde_json::json!({"id":"done","roles":["terminal_done","default_close"]}));
+        fs::write(&path, serde_json::to_vec_pretty(&settings)?)?;
+        fs::write(
+            root.join(".agents/pm/schema/statuses.json"),
+            serde_json::to_vec(&serde_json::json!({"statuses":settings["schema"]["statuses"]}))?,
+        )?;
+        fs::write(
+            root.join(".agents/pm/schema/workflows.json"),
+            serde_json::to_vec(&serde_json::json!({"workflow":settings["schema"]["workflow"]}))?,
+        )?;
+    }
+    prepare(
+        &fixture,
+        &[
+            "close",
+            "sample-own",
+            "--reason",
+            "Completed",
+            "--author",
+            "alpha",
+            "--validate-close",
+            "off",
+            "--json",
+        ],
+    )?;
+    let workspace = pm_rust::Workspace::discover(fixture.rust.path())?;
+    assert_eq!(workspace.get("sample-own")?.metadata.status, "done");
+    for force in [false, true] {
+        let output = published_run(
+            &fixture.driver,
+            fixture.node.path(),
+            &[
+                "__atomic_claim_error",
+                "sample-own",
+                if force { "true" } else { "false" },
+            ],
+        )?;
+        assert!(output.status.success());
+        let expected: serde_json::Value = serde_json::from_slice(&output.stdout)?;
+        let request = pm_rust::OwnershipItem {
+            id: "sample-own".to_owned(),
+            author: "alpha".to_owned(),
+            timestamp: Some(CLOCK.to_owned()),
+            message: None,
+            force,
+            if_available: false,
+            provenance_role: None,
+        };
+        let error = workspace
+            .claim_with_options(
+                &request,
+                &pm_rust::OwnershipOptions {
+                    start: true,
+                    ..Default::default()
+                },
+            )
+            .err()
+            .ok_or("terminal start admitted")?;
+        let pm_rust::PmRustError::OwnershipRefusal {
+            detail,
+            mut context,
+        } = error
+        else {
+            return Err(format!("unexpected error: {error}").into());
+        };
+        if let Some(steps) = context
+            .as_object_mut()
+            .and_then(|fields| fields.shift_remove("next_steps"))
+        {
+            context["nextSteps"] = steps;
+        }
+        assert_eq!(detail, expected["detail"]);
+        assert_eq!(context, expected["context"]);
+        assert_eq!(expected["exit_code"], 4);
+        fixture.compare_bytes()?;
+    }
+    fixture.verify()?;
     Ok(())
 }

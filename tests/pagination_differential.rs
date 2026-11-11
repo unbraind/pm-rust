@@ -1261,6 +1261,7 @@ fn toon_budget_envelopes_and_snapshot_walks_match() -> TestResult {
         vec!["--output-limit", "3", "--output-budget", "unbounded"],
         vec!["--full", "--limit", "3", "--output-budget", "2000"],
         vec!["--for", "triage", "--token-budget", "1000"],
+        vec!["--for", "triage", "--token-budget", "256"],
     ] {
         compare_toon(
             directory.path(),

@@ -1,15 +1,15 @@
 id: pm-rust-oracle-1111
 title: Match current published claim and session-lock refusal envelopes
-description: Supersede the dependency-only update with native refusal parity against pm-cli 2026.11.11. Keep every differential assertion exact and run every differential target.
+description: "Supersede the dependency-only update with native refusal parity against pm-cli 2026.11.11. Preserve exact differential assertions; cover every oracle-backed contract target and crash harness, admission defaults, stored credential privacy, configured terminal starts, scoped recovery, activity precision and bounded packet measurements."
 type: Task
 status: in_progress
 priority: 1
-tags[3]: conformance,"gh:unbraind/pm-rust#164",oracle
+tags[4]: conformance,"gh:unbraind/pm-rust#164","gh:unbraind/pm-rust#165",oracle
 created_at: "2026-11-11T05:32:00.010Z"
-updated_at: "2026-11-11T08:12:49.161Z"
+updated_at: "2026-11-11T13:12:52.917Z"
 author: codex-rust164-1111
 parent: pm-rust-u4al
-comments[10]{created_at,author,text}:
+comments[17]{created_at,author,text}:
   "2026-11-11T05:32:04.866Z",codex-rust164-1111,"Confirmed current npm latest is 2026.11.11 and updated the locked published oracle. Baseline differential runs precede native changes. Centralize refusal recovery, scope and redaction; retain byte comparisons and all existing cases."
   "2026-11-11T05:50:02.157Z",codex-rust164-1111,"Baseline against 2026.11.11: 120 differential tests, 59 passed and 61 failed (claim target 20 passed and 7 failed). Additional drift includes compact TOON list/null columns, complete omission receipts, newest-first compact history with total/order echoes, actual-format intent estimates, exclusive activity windows, relationship root-evidence ordering, close completion provenance and close recovery retries. All existing byte and durable-state comparisons remain exact; stale claim-attribution expectations now assert the published warning and successful durable transition."
   "2026-11-11T06:11:46.818Z",codex-rust164-1111,"The expanded orientation pass reached 25 of 32 passing before the final shared fixes: matching-active test health, root-edge cost reservation and incident-root edge ordering. All 397 library unit tests pass; the focused CLI/bin/parity run then passed 44 binary tests, 18 CLI dispatch tests and 14 parity contracts. Corrected the final ownership fault expectation to require the published warning. Running all eight differential targets through linked pm tests, sequentially, with each cargo command capped at 1200 seconds and two test threads."
@@ -20,9 +20,20 @@ comments[10]{created_at,author,text}:
   "2026-11-11T07:35:07.439Z",codex-rust164-1111,"Focused positive checks now pass both output-parity tests and the unchanged relationship five-second deadline. The added cache unit test proves exact JSON/TOON byte counts across numeric-width boundaries; clippy and fmt pass. Refreshed four independent behavioral reverts all fail at assertions: credential projection, ownership envelope construction, TOON table encoding, and canonical intent-budget preparation. All scratch changes were restored. Running every differential target again, then the complete envelope gate, with unchanged timeouts and at most two configured test threads."
   "2026-11-11T07:55:56.404Z",codex-rust164-1111,"The cache counter boundary now has a fifth independent behavioral revert proof: resetting only its starting width chooses 999 instead of the published 1000 fixed point and fails the exact rendering unit assertion. All five scratch reverts were restored. Final search, orientation, output-parity and pagination targets have passed; the affected orientation target will be refreshed once more after the counter correction, and the envelope gate includes the strengthened unit test."
   "2026-11-11T08:12:47.696Z",codex-rust164-1111,"Final verification complete: every differential target passes, 122 passed and zero failed/ignored (including two new refusal regressions), versus the initial 59 passed and 61 failed across 120 tests. The final orientation refresh passes all 32 after the counter-width correction. Envelope gate: 505 passed, zero failed/ignored (398 lib, 44 binary, 18 dispatch, 11 ownership, 14 parity, 20 release-pipeline). Clippy and fmt pass; five independent behavioral reverts fail as expected and were restored. Exact commands and per-target counts are recorded in docs/NATIVE_PARITY_2026_11_11.md. Measured differential runtime is about 30 minutes, so the aggregate normal and coverage passes exceed the requested 45-minute local limit; CI must certify unchanged aggregate/coverage thresholds and other platforms. Potential published auditability regression: claim/start can succeed with an attribution warning while the same stale session lock still refuses release. No upstream issue was filed. Releasing the claim without closing the task."
-files[34]{path,scope}:
+  "2026-11-11T11:34:41.726Z",codex-rust164-1111,"Round 2: reproduce admission CI failures; enumerate every oracle-backed Rust and crash-harness target; address review findings with exact oracle evidence, bounded cache retention and regression corpora. Preserve all byte/state assertions and append-only history. Review threads remain for the orchestrator to answer."
+  "2026-11-11T12:08:33.482Z",codex-rust164-1111,"Admission baseline reproduced: nine passed and three failed. Restoring scalar structured refusal defaults and captured preview scaffold defaults gives twelve passed with unchanged admission assertions. Focused atomic custom-terminal, stored credential, scoped string-only retry, partial human failure, positional close-scope and mixed-precision activity regressions pass. The conservative oracle-backed inventory contains twenty-one Rust targets including indirect Node/SDK consumers and metadata guards; linked all missing commands and running every target sequentially with the required published CLI, twenty-minute caps and two threads."
+  "2026-11-11T12:20:31.832Z",codex-rust164-1111,"Independent credential review added a stored whitespace-only username control alongside stored whitespace passwords and escaped copies. Ordinary prose handles, emails outside URLs and URL path/query/fragment separators retain their receipts. Published 2026.11.11 still leaks stored whitespace passwords and over-redacts public path separators; native output is hardened for the explicitly requested privacy boundary. Published positional scope parsing after the separator, lexical mixed-precision activity ordering, and JSON omission of partial-success explanation are documented in the review evidence; no upstream issue was filed."
+  "2026-11-11T12:44:03.368Z",codex-rust164-1111,"Complete Rust gate results: all twenty-one oracle-backed targets pass, 216 target tests total including 125 differential tests, with zero failed or ignored. Admission is twelve passed versus the reproduced nine passed and three failed. The envelope gate passes 512 tests: 399 lib, 48 binary, 20 dispatch, 11 ownership, 14 parity and 20 release-pipeline. Clippy and fmt pass. Parity/release substring matching also reran the combined envelope commands; counts are unique target counts. Independent disposable-copy reverts and restored positives are running before final crash checks and a refreshed claim differential."
+  "2026-11-11T12:49:47.027Z",codex-rust164-1111,"Eleven independent disposable-copy behavioral reverts failed at assertions, never compilation: persisted credential enrollment, URL authority boundary, linear cache retention, configured terminal start, positional recovery scope, string-only scoped retry, partial-failure human why, activity instant comparison, scalar admission output, preview defaults and crash pin. Every same command passed again after restoration; finally blocks restored all scratch functions and the main worktree was never mutated. The TOON 256-token change adds an exact coverage case to unchanged production behavior, so no changed production function exists for that row to revert. Full pagination passes the new case. Detailed evidence is in the review receipt."
+  "2026-11-11T13:01:29.670Z",codex-rust164-1111,"Crash gate exposed an additional shared acknowledgement drift: 87 passed and three failed after the oracle pin was accepted. Published CLI comments now include a one-based index in returned comment entries; native durable item/history bytes already match exactly. Updated only the native CLI comment receipt builder to add those indexes, preserving the existing legacy wrapper and all crash equality assertions. Fresh claim differential passes all thirty tests. Refreshing envelope, lint and full crash gates after the receipt fix, and adding an independent receipt-function revert proof."
+  "2026-11-11T13:12:51.139Z",codex-rust164-1111,"Final round-two validation: all twenty-one oracle-backed Rust targets pass (216 unique tests, including 125 differential), all twelve unchanged admission tests pass, and the refreshed envelope gate passes 512. The receipt fix also passes all other contract refreshes. Complete crash gate: ninety passed, zero failed/skipped; TypeScript, ESLint, history-prefix and retained-evidence guards pass. Clippy and fmt pass. Twelve independent production-function or constant reverts fail at assertions and the same commands pass after restoration, including the added comment receipt producer proof. Exact commands, counts, thread map and oracle discrepancies are in docs/ORACLE_REVIEW_2026_11_11.md. Aggregate normal plus coverage runs exceed forty-five minutes; unchanged aggregate and platform certification remain with CI at https://github.com/unbraind/pm-rust/pull/165/checks. Release the claim for orchestrator verification without closing the task or Dependabot PR."
+files[41]{path,scope}:
   CHANGELOG.md,project
   README.md,project
+  scripts/crash-harness.mts,project
+  scripts/crash-harness.test.mts,project
+  scripts/crash-oracle-pin.test.mts,project
+  scripts/crash-oracle.test.mts,project
   src/lib.rs,project
   src/list_intent.rs,project
   src/list_registry.rs,project
@@ -40,13 +51,16 @@ files[34]{path,scope}:
   src/toon_output.rs,project
   tests/claim_release_differential.rs,project
   tests/cli_dispatch.rs,project
+  tests/harness_contract.rs,project
   tests/oracle/package-lock.json,project
   tests/oracle/package.json,project
+  tests/orientation_differential.rs,project
   tests/output_parity_differential.rs,project
   tests/ownership_contract.rs,project
   tests/pagination_differential.rs,project
   tests/support/list_intent_unit.rs,project
   tests/support/main_unit.rs,project
+  tests/support/mutation_differential.rs,project
   tests/support/mutation_unit.rs,project
   tests/support/orientation_context_unit.rs,project
   tests/support/orientation_packet_unit.rs,project
@@ -55,7 +69,7 @@ files[34]{path,scope}:
   tests/support/read_output_unit.rs,project
   tests/support/selection_unit.rs,project
   tests/support/toon_output_unit.rs,project
-tests[12]:
+tests[26]:
   - command: PM_RUST_REQUIRE_PUBLISHED_CLI=1 CARGO_BUILD_JOBS=2 timeout 1200 cargo +1.90.0 test --locked -j 2 --lib --bin pm-rust --test cli_dispatch --test ownership_contract --test parity_1021_contract --test release_pipeline_contract -- --test-threads=2
     scope: project
     timeout_seconds: 1200
@@ -150,6 +164,119 @@ tests[12]:
       created_at: "2026-11-11T06:47:10.545Z"
       source_kind: local_mutation
       source_ref: oracle-pm-cli-2026-11-11
-docs[1]{path,scope}:
+  - command: PM_RUST_REQUIRE_PUBLISHED_CLI=1 CARGO_BUILD_JOBS=2 timeout 1200 cargo +1.90.0 test --locked -j 2 --test admission_contract -- --test-threads=2
+    scope: project
+    timeout_seconds: 1200
+    provenance:
+      author: codex-rust164-1111
+      created_at: "2026-11-11T12:05:50.034Z"
+      source_kind: local_mutation
+      source_ref: oracle-pm-cli-2026-11-11
+  - command: PM_RUST_REQUIRE_PUBLISHED_CLI=1 CARGO_BUILD_JOBS=2 timeout 1200 cargo +1.90.0 test --locked -j 2 --test branch_merge_contract -- --test-threads=2
+    scope: project
+    timeout_seconds: 1200
+    provenance:
+      author: codex-rust164-1111
+      created_at: "2026-11-11T12:05:50.034Z"
+      source_kind: local_mutation
+      source_ref: oracle-pm-cli-2026-11-11
+  - command: PM_RUST_REQUIRE_PUBLISHED_CLI=1 CARGO_BUILD_JOBS=2 timeout 1200 cargo +1.90.0 test --locked -j 2 --test capability_contract -- --test-threads=2
+    scope: project
+    timeout_seconds: 1200
+    provenance:
+      author: codex-rust164-1111
+      created_at: "2026-11-11T12:05:50.034Z"
+      source_kind: local_mutation
+      source_ref: oracle-pm-cli-2026-11-11
+  - command: PM_RUST_REQUIRE_PUBLISHED_CLI=1 CARGO_BUILD_JOBS=2 timeout 1200 cargo +1.90.0 test --locked -j 2 --test changes_contract -- --test-threads=2
+    scope: project
+    timeout_seconds: 1200
+    provenance:
+      author: codex-rust164-1111
+      created_at: "2026-11-11T12:05:50.034Z"
+      source_kind: local_mutation
+      source_ref: oracle-pm-cli-2026-11-11
+  - command: PM_RUST_REQUIRE_PUBLISHED_CLI=1 CARGO_BUILD_JOBS=2 timeout 1200 cargo +1.90.0 test --locked -j 2 --test concurrency_contract -- --test-threads=2
+    scope: project
+    timeout_seconds: 1200
+    provenance:
+      author: codex-rust164-1111
+      created_at: "2026-11-11T12:05:50.034Z"
+      source_kind: local_mutation
+      source_ref: oracle-pm-cli-2026-11-11
+  - command: PM_RUST_REQUIRE_PUBLISHED_CLI=1 CARGO_BUILD_JOBS=2 timeout 1200 cargo +1.90.0 test --locked -j 2 --test create_contract -- --test-threads=2
+    scope: project
+    timeout_seconds: 1200
+    provenance:
+      author: codex-rust164-1111
+      created_at: "2026-11-11T12:05:50.034Z"
+      source_kind: local_mutation
+      source_ref: oracle-pm-cli-2026-11-11
+  - command: PM_RUST_REQUIRE_PUBLISHED_CLI=1 CARGO_BUILD_JOBS=2 timeout 1200 cargo +1.90.0 test --locked -j 2 --test harness_contract -- --test-threads=2
+    scope: project
+    timeout_seconds: 1200
+    provenance:
+      author: codex-rust164-1111
+      created_at: "2026-11-11T12:05:50.034Z"
+      source_kind: local_mutation
+      source_ref: oracle-pm-cli-2026-11-11
+  - command: PM_RUST_REQUIRE_PUBLISHED_CLI=1 CARGO_BUILD_JOBS=2 timeout 1200 cargo +1.90.0 test --locked -j 2 --test native_adapter_contract -- --test-threads=2
+    scope: project
+    timeout_seconds: 1200
+    provenance:
+      author: codex-rust164-1111
+      created_at: "2026-11-11T12:05:50.034Z"
+      source_kind: local_mutation
+      source_ref: oracle-pm-cli-2026-11-11
+  - command: PM_RUST_REQUIRE_PUBLISHED_CLI=1 CARGO_BUILD_JOBS=2 timeout 1200 cargo +1.90.0 test --locked -j 2 --test oracle_launcher -- --test-threads=2
+    scope: project
+    timeout_seconds: 1200
+    provenance:
+      author: codex-rust164-1111
+      created_at: "2026-11-11T12:05:50.034Z"
+      source_kind: local_mutation
+      source_ref: oracle-pm-cli-2026-11-11
+  - command: PM_RUST_REQUIRE_PUBLISHED_CLI=1 CARGO_BUILD_JOBS=2 timeout 1200 cargo +1.90.0 test --locked -j 2 --test parity_1021_contract -- --test-threads=2
+    scope: project
+    timeout_seconds: 1200
+    provenance:
+      author: codex-rust164-1111
+      created_at: "2026-11-11T12:05:50.034Z"
+      source_kind: local_mutation
+      source_ref: oracle-pm-cli-2026-11-11
+  - command: PM_RUST_REQUIRE_PUBLISHED_CLI=1 CARGO_BUILD_JOBS=2 timeout 1200 cargo +1.90.0 test --locked -j 2 --test query_cost_contract -- --test-threads=2
+    scope: project
+    timeout_seconds: 1200
+    provenance:
+      author: codex-rust164-1111
+      created_at: "2026-11-11T12:05:50.034Z"
+      source_kind: local_mutation
+      source_ref: oracle-pm-cli-2026-11-11
+  - command: PM_RUST_REQUIRE_PUBLISHED_CLI=1 CARGO_BUILD_JOBS=2 timeout 1200 cargo +1.90.0 test --locked -j 2 --test read_session_contract -- --test-threads=2
+    scope: project
+    timeout_seconds: 1200
+    provenance:
+      author: codex-rust164-1111
+      created_at: "2026-11-11T12:05:50.034Z"
+      source_kind: local_mutation
+      source_ref: oracle-pm-cli-2026-11-11
+  - command: PM_RUST_REQUIRE_PUBLISHED_CLI=1 CARGO_BUILD_JOBS=2 timeout 1200 cargo +1.90.0 test --locked -j 2 --test release_pipeline_contract -- --test-threads=2
+    scope: project
+    timeout_seconds: 1200
+    provenance:
+      author: codex-rust164-1111
+      created_at: "2026-11-11T12:05:50.034Z"
+      source_kind: local_mutation
+      source_ref: oracle-pm-cli-2026-11-11
+  - command: env -u NPM_MEDIA_SERVER -u NPM_TOKEN -u NODE_AUTH_TOKEN -u GH_TOKEN -u GITHUB_TOKEN NPM_CONFIG_USERCONFIG=/dev/null CARGO_BUILD_JOBS=2 timeout 1200 just crash-check
+    scope: project
+    timeout_seconds: 1200
+    provenance:
+      author: codex-rust164-1111
+      created_at: "2026-11-11T12:12:22.132Z"
+      source_kind: local_mutation
+      source_ref: oracle-pm-cli-2026-11-11
+docs[2]{path,scope}:
   docs/NATIVE_PARITY_2026_11_11.md,project
+  docs/ORACLE_REVIEW_2026_11_11.md,project
 body: ""

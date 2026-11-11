@@ -952,15 +952,25 @@ fn update_payload(
         .map_err(Into::into)
 }
 
-/// Appends one comment without an argv-derived role.
+/// Appends one comment and indexes its CLI receipt without changing durable metadata.
 fn comment_payload(
     workspace: &Workspace,
     identity: &AuthorIdentity,
     request: &CommentItem,
-) -> Result<MutationResult, Box<dyn std::error::Error>> {
-    identity
-        .with(|| workspace.comment(request))
-        .map_err(Into::into)
+) -> Result<serde_json::Value, Box<dyn std::error::Error>> {
+    let outcome = identity.with(|| workspace.comment(request))?;
+    let mut payload = serde_json::to_value(outcome)?;
+    if let Some(comments) = payload["item"]["comments"].as_array_mut() {
+        for (index, comment) in comments.iter_mut().enumerate() {
+            if let Some(fields) = comment.as_object_mut() {
+                let mut indexed = serde_json::Map::new();
+                indexed.insert("index".to_owned(), serde_json::json!(index + 1));
+                indexed.extend(std::mem::take(fields));
+                *fields = indexed;
+            }
+        }
+    }
+    Ok(payload)
 }
 
 /// Closes one item, stamping the argv-derived implementer role.
@@ -1301,12 +1311,24 @@ fn write_command_refusal_to(
     args: &[String],
     payload: &serde_json::Value,
 ) -> Result<(), Box<dyn std::error::Error>> {
-    let payload = complete_refusal(payload, &raw_invocation());
+    let structured = json_requested(args)
+        || args.first().is_some_and(|command| {
+            matches!(command.as_str(), "create" | "update" | "comment" | "close")
+        });
+    let mut source = payload.clone();
+    if !structured
+        && let Some(why) = context["why"]
+            .as_str()
+            .filter(|why| why.contains("No rollback was performed."))
+    {
+        source["why"] = serde_json::json!(why);
+    }
+    let payload = complete_refusal(&source, &raw_invocation());
     if context["code"] == "unknown_error" && !json_requested(args) {
         writeln!(writer, "{}", payload["detail"].as_str().unwrap_or(detail))?;
         return Ok(());
     }
-    if json_requested(args) {
+    if structured {
         write_json_to(writer, &payload)
     } else {
         write_cursor_refusal_to(writer, &payload)
@@ -1680,18 +1702,24 @@ fn raw_invocation() -> Vec<String> {
 
 /// Resolves an explicit native workspace into canonical published bootstrap tokens.
 fn invocation_scope(raw: &[String]) -> Vec<String> {
-    raw.iter()
-        .enumerate()
-        .find_map(|(index, arg)| {
-            if matches!(arg.as_str(), "--workspace" | "--pm-path" | "--path") {
-                raw.get(index + 1).cloned()
-            } else {
-                ["--workspace=", "--pm-path=", "--path="]
-                    .iter()
-                    .find_map(|prefix| arg.strip_prefix(prefix).map(str::to_owned))
-            }
-        })
-        .map_or_else(Vec::new, |path| vec!["--pm-path".to_owned(), path])
+    for (index, arg) in raw.iter().enumerate() {
+        // Native bootstrap options precede the command; later values are command data.
+        if arg == "--" || !arg.starts_with('-') {
+            break;
+        }
+        if matches!(arg.as_str(), "--workspace" | "--pm-path" | "--path") {
+            return raw
+                .get(index + 1)
+                .map_or_else(Vec::new, |path| vec!["--pm-path".to_owned(), path.clone()]);
+        }
+        if let Some(path) = ["--workspace=", "--pm-path=", "--path="]
+            .iter()
+            .find_map(|prefix| arg.strip_prefix(prefix))
+        {
+            return vec!["--pm-path".to_owned(), path.to_owned()];
+        }
+    }
+    Vec::new()
 }
 
 /// Renders canonical recovery arguments with the shared published shell renderer.
@@ -1719,6 +1747,16 @@ fn preserve_refusal_scope(payload: &mut serde_json::Value, raw: &[String]) {
         ("suggested_retry_args", "suggested_retry"),
     ] {
         let Some(values) = recovery.get(args_key).and_then(serde_json::Value::as_array) else {
+            if let Some(command) = recovery
+                .get(command_key)
+                .and_then(serde_json::Value::as_str)
+                .and_then(|command| command.strip_prefix("pm "))
+                && !command.starts_with("--pm-path ")
+                && !command.starts_with("--path ")
+            {
+                let scoped = format!("{} {command}", render_recovery(&scope));
+                recovery.insert(command_key.to_owned(), serde_json::json!(scoped));
+            }
             continue;
         };
         let mut args = values

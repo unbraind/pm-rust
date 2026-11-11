@@ -9,16 +9,28 @@ const REDACTED: &str = "[redacted]";
 /// Recovery advice is withheld until the caller restores its own credentials.
 const RESTORE: &str = "URL credentials in this invocation were replaced with [redacted]; restore them before replaying any command shown here.";
 
-/// Finds URL userinfo using the published permissive token grammar.
+/// Finds credential userinfo within an explicit URL authority.
 fn userinfo(token: &str) -> Option<(usize, usize)> {
-    let end = token.rfind('@')?;
-    let colon = token.find(':')?;
-    if colon > end {
+    let colon = token.find("://").or_else(|| token.find(":\\\\"))?;
+    let scheme = token[..colon]
+        .rsplit(|ch: char| !ch.is_ascii_alphanumeric() && !matches!(ch, '+' | '-' | '.'))
+        .next()?;
+    if !scheme.starts_with(|ch: char| ch.is_ascii_alphabetic()) {
         return None;
     }
-    let mut start = colon + 1;
-    while start < end && start < colon + 3 && matches!(token.as_bytes()[start], b'/' | b'\\') {
-        start += 1;
+    let start = colon + 3;
+    let authority_end = token[start..]
+        .find(['/', '?', '#'])
+        .map_or(token.len(), |end| start + end);
+    let end = start + token[start..authority_end].rfind('@')?;
+    let span = &token[start..end];
+    // A public URL followed by prose and an email is not URL authentication.
+    if span.chars().any(whitespace)
+        && !span.contains(':')
+        && colon != scheme.len()
+        && !token[..colon - scheme.len()].ends_with('=')
+    {
+        return None;
     }
     (start != end).then_some((start, end))
 }
@@ -96,7 +108,7 @@ struct Credentials {
 }
 
 impl Credentials {
-    /// Registers only credentials explicitly supplied to this invocation.
+    /// Registers credentials supplied by the invocation and persisted refusal provenance.
     fn new(args: &[String]) -> Self {
         let mut spellings = HashSet::new();
         let mut carried = false;
@@ -108,24 +120,30 @@ impl Credentials {
                     .split_once(':')
                     .filter(|(_, secret)| !secret.is_empty())
                     .map_or(span, |(_, secret)| secret);
-                let escaped: String = secret
-                    .chars()
-                    .flat_map(|ch| {
-                        if matches!(ch, '"' | '\\' | '$' | '`') {
-                            vec!['\\', ch]
-                        } else {
-                            vec![ch]
-                        }
-                    })
-                    .collect();
-                let json = pm_rust::stringify_json(&Value::String(secret.to_owned()), false);
-                for spelling in [
-                    secret.to_owned(),
-                    escaped,
-                    windows_spelling(secret),
-                    json[1..json.len() - 1].to_owned(),
-                ] {
-                    spellings.insert(lower(&spelling));
+                let mut secrets = vec![secret];
+                if span.chars().any(whitespace) {
+                    secrets.push(span);
+                }
+                for secret in secrets {
+                    let escaped: String = secret
+                        .chars()
+                        .flat_map(|ch| {
+                            if matches!(ch, '"' | '\\' | '$' | '`') {
+                                vec!['\\', ch]
+                            } else {
+                                vec![ch]
+                            }
+                        })
+                        .collect();
+                    let json = pm_rust::stringify_json(&Value::String(secret.to_owned()), false);
+                    for spelling in [
+                        secret.to_owned(),
+                        escaped,
+                        windows_spelling(secret),
+                        json[1..json.len() - 1].to_owned(),
+                    ] {
+                        spellings.insert(lower(&spelling));
+                    }
                 }
             }
         }
@@ -270,7 +288,13 @@ pub(super) fn diagnostic(text: &str, raw: &[String]) -> String {
 
 /// Redacts every refusal field once, before either JSON or human rendering.
 pub(super) fn redact(payload: &mut Value, raw: &[String]) {
-    let credentials = Credentials::new(raw);
+    let mut sources = raw.to_vec();
+    for key in ["claimed_by", "detail"] {
+        if let Some(value) = payload[key].as_str() {
+            sources.push(value.to_owned());
+        }
+    }
+    let credentials = Credentials::new(&sources);
     let original = payload.clone();
     credentials.value(payload, false, false, true);
     if credentials.carried || *payload != original {
@@ -344,6 +368,12 @@ mod tests {
             "plain",
             "user@example.invalid",
             "https://example.invalid/path",
+            "user@host in prose",
+            "Contact: user@example.invalid",
+            "https://host/path@ref",
+            "https://host?ref=user@example.invalid",
+            "https://host#user@example.invalid",
+            "Visit https://host and contact user@example.invalid",
             "urn:public-record",
             "https://@example.invalid",
         ] {
@@ -385,6 +415,54 @@ mod tests {
             &["https://fixture:test-password@example.invalid".to_owned()],
         );
         assert_eq!(payload, original);
+    }
+
+    /// Persisted credentials enroll the whole whitespace-bearing userinfo before any rendering.
+    #[test]
+    fn persisted_credentials_redact_every_refusal_copy() {
+        for secret in [
+            "stored password",
+            "a b",
+            "abc\tdef",
+            "abc\ndef",
+            "a\\b\" c$d`ef",
+        ] {
+            let holder = format!("https://fixture:{secret}@example.invalid");
+            let mut payload = json!({"claimed_by":holder,"title":format!("Owned by {holder}"),"detail":format!("Item is assigned to {holder}. Retry."),"examples":[holder],"details":{holder.clone():holder},"recovery":{"suggested_retry":"pm claim sample --force","suggested_retry_args":["claim","sample","--force"]}});
+            redact(
+                &mut payload,
+                &[
+                    "claim".to_owned(),
+                    "sample".to_owned(),
+                    "--author".to_owned(),
+                    "beta".to_owned(),
+                ],
+            );
+            assert_eq!(payload["claimed_by"], "https://[redacted]@example.invalid");
+            assert!(!pm_rust::stringify_json(&payload, false).contains(
+                &pm_rust::stringify_json(&json!(secret), false)
+                    [1..pm_rust::stringify_json(&json!(secret), false).len() - 1]
+            ));
+            assert_eq!(
+                payload["title"],
+                "Owned by https://[redacted]@example.invalid"
+            );
+            assert_eq!(
+                payload["detail"],
+                "Item is assigned to https://[redacted]@example.invalid. Retry."
+            );
+            assert!(payload["recovery"].get("suggested_retry").is_none());
+        }
+    }
+
+    /// Whitespace-only userinfo remains private when persisted without a password separator.
+    #[test]
+    fn persisted_whitespace_username_is_redacted() {
+        let holder = "https://stored user@example.invalid";
+        let mut payload = json!({"claimed_by":holder,"detail":format!("Assigned to {holder}")});
+        redact(&mut payload, &["claim".to_owned(), "sample".to_owned()]);
+        assert_eq!(payload["claimed_by"], "https://[redacted]@example.invalid");
+        assert!(!payload.to_string().contains("stored user"));
     }
 
     /// UTF-16 fragments and shell/JSON spellings are projected without shifting boundaries.

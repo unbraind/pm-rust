@@ -170,7 +170,9 @@ fn activity_entries(
         let name = name.to_string_lossy();
         if let Some(id) = name.strip_suffix(".jsonl") {
             for entry in records(workspace, id)? {
-                if text(&entry, "ts") >= now {
+                let stamp = crate::list::timestamp_key(text(&entry, "ts")).0;
+                let end = crate::list::timestamp_key(now).0;
+                if stamp.is_none() || stamp >= end {
                     continue;
                 }
                 let mut row = json!({"id":id,"op":entry["op"].as_str().unwrap_or("unknown"),"ts":text(&entry,"ts"),"author":entry["author"].as_str().unwrap_or("unknown")});

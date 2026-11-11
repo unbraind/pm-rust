@@ -710,3 +710,35 @@ fn cached_render_measurements_match_exact_wire_bytes() {
         assert_eq!(super::tokens(&result, toon), 1000);
     }
 }
+
+/// Reference-prefix retries retain linear packet bytes instead of a quadratic sum.
+#[test]
+fn measurement_cache_retention_is_linear() -> Result<(), Box<dyn std::error::Error>> {
+    let mut cache = RenderMeasurements::default();
+    let references: Vec<_> = (0..512)
+        .map(|index| json!({"id":format!("sample-{index}"),"description":"x".repeat(128)}))
+        .collect();
+    let mut packet = json!({"context":{"root":{"id":"sample-root"},"meta":{"tokenBudget":120_000,"usedTokens":1}},"missing_references":references});
+    let largest = crate::stringify_json(&packet, false).len();
+    loop {
+        cache.settle(&mut packet, false);
+        assert!(
+            cache
+                .fixed_bytes
+                .keys()
+                .map(|(_, key)| key.len())
+                .sum::<usize>()
+                <= 8 * largest
+        );
+        assert!(cache.fixed_bytes.len() <= 8);
+        if packet["missing_references"]
+            .as_array_mut()
+            .ok_or("missing references")?
+            .pop()
+            .is_none()
+        {
+            break;
+        }
+    }
+    Ok(())
+}
