@@ -141,3 +141,117 @@ the final counter-width correction.
 The final envelope gate passed **505 tests**: 398 library, 44 binary, 18 CLI
 dispatch, 11 ownership, 14 parity, and 20 release-pipeline contracts. Clippy, fmt,
 and five independent behavioral revert proofs passed their expected gates.
+
+## Round-three review boundaries
+
+Credential projection now scans every URL in each invocation argument and refusal
+field before splitting whitespace. Both password registration and projection use
+the same global span finder. Comma- and semicolon-separated URLs, a later URL
+with a whitespace-bearing password, copied password fragments and both output
+streams are covered. Surrounding text remains intact.
+
+There is an intentional divergence from the pinned oracle described in
+[pm-cli #1707](https://github.com/unbraind/pm-cli/issues/1707): a public URL such as
+`https://www.npmjs.com/package/@scope/x` remains unchanged, including when it
+precedes a credential URL. A URL carries userinfo when `@` precedes the first
+`/`, `?` or `#` after the scheme, or when `:` precedes the first `/`
+and `@` occurs later. The latter conservative case still redacts unencoded slash
+passwords such as `https://user:abc/def+gh==@host/x`. Username-only authorities
+and passwords containing colons are also projected. Historical tracker data
+continues to read; this changes emitted refusals rather than persisted identities.
+
+For delimited close commands, evidence recovery flags are inserted immediately
+after `close`, before the original target/options and `--` positional reason,
+matching the published ordering. Human close-evidence refusals now include the
+published `Run` template and recovery fields; JSON retains the published envelope.
+Both emitted retry arrays were executed with real evidence in a non-git tracker:
+they successfully closed the item with identical receipt, item and history bytes.
+
+The remaining review requests were checked against the actual 2026.11.11 oracle:
+
+- JSON partial-start refusals omit the completed-step `why`; human output keeps
+  it. The exact existing differential tests retain that distinction. Adding the
+  explanation to JSON is declined because it changes published bytes.
+- Numeric `output_budget=3000` accepts legacy `token_budget` values `abc`, `255`,
+  `256` and `1000`. The new exact JSON and TOON corpus preserves this measured
+  precedence. Rejecting either invalid legacy value in this combination is
+  declined because the oracle accepts it.
+- An invalid context clock returns `unknown_error`, exit one, with detail
+  `Invalid time value`. Native cutoff validation now emits those exact JSON and
+  human bytes before reading context state. The requested argument-error
+  classification is not used because the oracle reports a runtime error.
+  Equivalent RFC 3339 offsets remain accepted and produce the same exclusive
+  activity window as the oracle's UTC clock.
+
+The review read covered all six requested threads in full. GitHub returned
+fifteen threads, seven unresolved; the seventh unresolved thread is the outdated
+configured-terminal finding already accepted in round two. Review threads remain
+open for the orchestrator.
+
+### Round-three measured validation
+
+Every oracle-backed target uses the required published CLI, a 1,200-second cap
+and two test threads via the command template documented above. All twenty-one
+targets pass with zero failures or ignored tests:
+
+| Target | Passed |
+| --- | ---: |
+| `admission_contract` | 12 |
+| `branch_merge_contract` | 1 |
+| `capability_contract` | 6 |
+| `changes_contract` | 1 |
+| `claim_release_differential` | 30 |
+| `close_differential` | 7 |
+| `concurrency_contract` | 2 |
+| `conformance_differential` | 2 |
+| `create_contract` | 8 |
+| `harness_contract` | 3 |
+| `list_differential` | 8 |
+| `native_adapter_contract` | 13 |
+| `oracle_launcher` | 2 |
+| `orientation_differential` | 35 |
+| `output_parity_differential` | 2 |
+| `pagination_differential` | 27 |
+| `parity_1021_contract` | 14 |
+| `query_cost_contract` | 2 |
+| `read_session_contract` | 7 |
+| `release_pipeline_contract` | 20 |
+| `search_collections_differential` | 17 |
+
+Total: **219 passing oracle-backed target tests**, including **128 differential
+tests**. Round two had 125 passing differentials; the original oracle-update
+baseline was 59 passed and 61 failed across 120 tests. Existing exact stream and
+state comparisons remain unchanged.
+
+The envelope gate passes **514 tests**: 399 library, 49 binary (including six
+credential-projection tests), 21 CLI dispatch, 11 ownership, 14 parity and 20
+release-pipeline contracts. The complete `just crash-check` passes **90 tests**,
+with zero failures or skips, plus TypeScript, ESLint, history-prefix and evidence
+retention guards. Clippy and fmt pass. The aggregate normal/coverage release
+check remains beyond the established 45-minute local budget and belongs to CI.
+
+Six independent disposable-copy behavioral reverts all failed at assertions,
+never compilation, and the exact same commands passed after restoring each
+function. The main worktree was never mutated by these controls:
+
+| Reverted boundary | Regression | Restored result |
+| --- | --- | --- |
+| Global URL span scan | `multiple_url_credentials_are_redacted_globally` | Passed |
+| Registration of every password | `multiple_url_credentials_are_redacted_globally` | Passed |
+| Close recovery flag placement | `delimited_close_recovery_matches_published_bytes` | Passed |
+| Close human output mode | `delimited_close_recovery_matches_published_bytes` | Passed |
+| Close human envelope rendering | `delimited_close_recovery_matches_published_bytes` | Passed |
+| Context cutoff validation | `context_cutoff_validation_matches_published_clock_refusal` | Passed |
+
+The JSON partial-explanation and dual-budget requests retain measured oracle
+behavior, so they have no changed production functions to revert. Their exact
+oracle tests pass. No upstream issue was filed during this round.
+
+| Round-three thread | Result and regression |
+| --- | --- |
+| `PRRT_kwDOTwgMRs62L3gD` | Global registration and whitespace projection; `multiple_url_credentials_are_redacted_globally` |
+| `PRRT_kwDOTwgMRs62MPEO` | Every URL in both streams; `multiple_url_credentials_never_reach_refusal_streams` |
+| `PRRT_kwDOTwgMRs62FkY1` | Keep human explanation; decline JSON addition against `failed_start_preserves_claim_and_published_recovery_receipt` |
+| `PRRT_kwDOTwgMRs62MPD5` | Correct retry placement and human receipt; `delimited_close_recovery_matches_published_bytes` |
+| `PRRT_kwDOTwgMRs62MPDp` | Decline stricter legacy control; `dual_budget_validation_matches_published_precedence` |
+| `PRRT_kwDOTwgMRs62MPEC` | Refuse invalid cutoff, preserve offsets; `context_cutoff_validation_matches_published_clock_refusal` |

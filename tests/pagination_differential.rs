@@ -1856,3 +1856,22 @@ fn configured_no_active_role_blockers_match_oracle() -> TestResult {
     compare_toon(directory.path(), &flags, true)?;
     Ok(())
 }
+
+/// Numeric output budgets retain the oracle's precedence even over invalid legacy controls.
+#[test]
+fn dual_budget_validation_matches_published_precedence() -> TestResult {
+    let directory = fixture(3, 20)?;
+    for token in ["abc", "255", "256", "1000"] {
+        let args = [
+            "--for",
+            "triage",
+            "--token-budget",
+            token,
+            "--output-budget",
+            "3000",
+        ];
+        compare(directory.path(), &args, true)?;
+        compare_toon(directory.path(), &args, true)?;
+    }
+    Ok(())
+}

@@ -1106,7 +1106,7 @@ impl Workspace {
     /// Renders ranked focus, selected context sections and the oracle's omission receipt.
     ///
     /// # Errors
-    /// Returns numeric, unsupported-depth, item or history read errors.
+    /// Returns clock, numeric, unsupported-depth, item or history read errors.
     pub fn context(&self, options: &ContextOptions, now: &str) -> Result<ListOutput, PmRustError> {
         self.context_with_global(options, now, extension_health_global())
     }
@@ -1119,6 +1119,15 @@ impl Workspace {
         now: &str,
         global: Option<std::path::PathBuf>,
     ) -> Result<ListOutput, PmRustError> {
+        time::OffsetDateTime::parse(now, &time::format_description::well_known::Rfc3339).map_err(
+            |_| {
+                crate::collections::refusal(
+                    "Invalid time value",
+                    1,
+                    json!({"code":"unknown_error"}),
+                )
+            },
+        )?;
         let settings = crate::ownership::runtime_settings(self.pm_root())?;
         let depth = options
             .depth

@@ -867,3 +867,79 @@ fn positional_close_text_keeps_actual_recovery_scope() -> Result<(), Box<dyn std
     assert!(!root.path().join("other").exists());
     Ok(())
 }
+
+/// All URL credentials are projected in both refusal encodings, while public paths remain intact.
+#[test]
+fn multiple_url_credentials_never_reach_refusal_streams() -> Result<(), Box<dyn std::error::Error>>
+{
+    let root = workspace()?;
+    seed_item(&root)?;
+    expect_ok(&root, &["claim", "sample-cli", "--author", "cli-agent"])?;
+    for (input, expected) in [
+        (
+            "https://first:alpha-secret@one.invalid/p https://second:beta-secret@two.invalid/q",
+            "https://[redacted]@one.invalid/p https://[redacted]@two.invalid/q",
+        ),
+        (
+            "https://first:alpha-secret@one.invalid/p,https://second:beta-secret@two.invalid/q",
+            "https://[redacted]@one.invalid/p,https://[redacted]@two.invalid/q",
+        ),
+        (
+            "https://first:alpha-secret@one.invalid;https://second:beta-secret@two.invalid",
+            "https://[redacted]@one.invalid;https://[redacted]@two.invalid",
+        ),
+        (
+            "https://www.npmjs.com/package/@scope/x https://u:p@host",
+            "https://www.npmjs.com/package/@scope/x https://[redacted]@host",
+        ),
+        (
+            "See https://public.invalid/docs and https://fixture:abc def@example.invalid",
+            "See https://public.invalid/docs and https://[redacted]@example.invalid",
+        ),
+        (
+            "https://user:abc/def+gh==@host/x",
+            "https://[redacted]@host/x",
+        ),
+        (
+            "https://www.npmjs.com/package/@scope/x",
+            "https://www.npmjs.com/package/@scope/x",
+        ),
+    ] {
+        for format in [vec![], vec!["--json"]] {
+            let mut args = vec![
+                "claim",
+                "sample-cli",
+                "--author",
+                "beta",
+                "--message",
+                input,
+            ];
+            args.extend(&format);
+            let output = pm_rust(&root, &args)?;
+            assert_eq!(output.status.code(), Some(4));
+            assert!(output.stdout.is_empty());
+            let text = String::from_utf8(output.stderr)?;
+            for secret in ["alpha-secret", "beta-secret", "abc def", "abc/def"] {
+                assert!(!text.contains(secret), "{args:?}");
+            }
+            if format.is_empty() {
+                assert!(text.contains(expected));
+            } else {
+                let value: serde_json::Value = serde_json::from_str(&text)?;
+                let args = value["recovery"]["normalized_args"]
+                    .as_array()
+                    .ok_or("normalized args")?;
+                let message = args
+                    .iter()
+                    .position(|arg| arg == "--message")
+                    .ok_or("message flag")?;
+                assert_eq!(args[message + 1], expected);
+                if input == expected {
+                    assert!(!text.contains("restore them before replaying"));
+                    assert!(text.contains(input));
+                }
+            }
+        }
+    }
+    Ok(())
+}

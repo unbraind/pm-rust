@@ -1312,9 +1312,10 @@ fn write_command_refusal_to(
     payload: &serde_json::Value,
 ) -> Result<(), Box<dyn std::error::Error>> {
     let structured = json_requested(args)
-        || args.first().is_some_and(|command| {
-            matches!(command.as_str(), "create" | "update" | "comment" | "close")
-        });
+        || (context["code"] != "close_validation_missing_fields"
+            && args.first().is_some_and(|command| {
+                matches!(command.as_str(), "create" | "update" | "comment" | "close")
+            }));
     let mut source = payload.clone();
     if !structured
         && let Some(why) = context["why"]
@@ -2011,9 +2012,17 @@ fn apply_close_error_recovery(
                 .map(str::to_owned)
                 .collect::<Vec<_>>();
             let mut retry = args.to_vec();
-            for flag in &missing {
-                retry.extend([flag.clone(), "<value>".to_owned()]);
-            }
+            let insertion = if retry.iter().any(|arg| arg == "--") {
+                1
+            } else {
+                retry.len()
+            };
+            retry.splice(
+                insertion..insertion,
+                missing
+                    .iter()
+                    .flat_map(|flag| [flag.clone(), "<value>".to_owned()]),
+            );
             let target = context["recovery"]["suggested_retry_args"]
                 .as_array()
                 .and_then(|values| {
@@ -2139,8 +2148,11 @@ fn write_cursor_refusal_to(
     let attempted = payload["recovery"]["attempted_command"]
         .as_str()
         .map_or_else(|| format!("pm {attempted}"), str::to_owned);
+    let close_evidence = payload["code"] == "close_validation_missing_fields";
+    let run = payload["recovery"]["suggested_retry"].as_str().filter(|_| close_evidence)
+        .map_or_else(String::new, |retry| format!("\nRun: {retry}\nTemplate: replace every placeholder with real evidence before running."));
     let mut parts = vec![format!(
-        "Error: {}\n\nWhat is required:\n  {}",
+        "Error: {}{run}\n\nWhat is required:\n  {}",
         payload["title"].as_str().unwrap_or_default(),
         payload["required"].as_str().unwrap_or_default()
     )];
@@ -2173,21 +2185,8 @@ fn write_cursor_refusal_to(
             payload["claim_source"].as_str().unwrap_or("unknown")
         ));
     }
-    if let Some(why) = payload["why"].as_str() {
-        parts.push(format!("\nWhy:\n  {why}"));
-    } else if payload["recovery"]["token_budget"].is_object() {
-        parts.push("\nWhy:\n  Budget advice is verified against the current query. A minimum is reported only after every smaller positive budget is checked.".to_owned());
-    } else if payload["code"] == "command_failed" {
-        parts.push("\nWhy:\n  pm enforces explicit, deterministic contracts for data and command semantics.".to_owned());
-    } else if payload["code"] == "invalid_argument_value" {
-        parts.push("\nWhy:\n  Validation protects data consistency and deterministic behavior across commands.".to_owned());
-    } else if payload["code"] == "unknown_option" {
-        parts.push(
-            "\nWhy:\n  Option contracts are command-specific and intentionally validated."
-                .to_owned(),
-        );
-    }
-    if let Some(examples) = payload["examples"].as_array() {
+    append_refusal_why(&mut parts, payload);
+    if !close_evidence && let Some(examples) = payload["examples"].as_array() {
         parts.push("\nExamples:".to_owned());
         parts.extend(
             examples
@@ -2199,7 +2198,7 @@ fn write_cursor_refusal_to(
         append_budget_recovery(&mut parts, &payload["recovery"]);
     } else {
         parts.push("\nRecovery bundle:".to_owned());
-        if let Some(retry) = payload["recovery"]["suggested_retry"].as_str() {
+        if !close_evidence && let Some(retry) = payload["recovery"]["suggested_retry"].as_str() {
             parts.push(format!("  suggested_retry: {retry}"));
         }
         parts.push(format!("  attempted_command: {attempted}"));
@@ -2217,10 +2216,47 @@ fn write_cursor_refusal_to(
                 .join(", ")
         ));
     }
+    if close_evidence {
+        if let Some(missing) = payload["recovery"]["missing"].as_array() {
+            parts.push(format!(
+                "  missing: {}",
+                missing
+                    .iter()
+                    .filter_map(serde_json::Value::as_str)
+                    .collect::<Vec<_>>()
+                    .join(", ")
+            ));
+        }
+        if let Some(command) = payload["recovery"]["next_best_command"].as_str() {
+            parts.push(format!("  next_best_command: {command}"));
+        }
+    }
+
     append_recovery_domains(&mut parts, &payload["recovery"]);
     writer.write_all(format!("{}\n", parts.join("\n")).as_bytes())?;
     writer.flush()?;
     Ok(())
+}
+
+/// Appends published human explanations while keeping close-evidence guidance in its recovery hint.
+fn append_refusal_why(parts: &mut Vec<String>, payload: &serde_json::Value) {
+    if payload["code"] == "close_validation_missing_fields" {
+        return;
+    }
+    if let Some(why) = payload["why"].as_str() {
+        parts.push(format!("\nWhy:\n  {why}"));
+    } else if payload["recovery"]["token_budget"].is_object() {
+        parts.push("\nWhy:\n  Budget advice is verified against the current query. A minimum is reported only after every smaller positive budget is checked.".to_owned());
+    } else if payload["code"] == "command_failed" {
+        parts.push("\nWhy:\n  pm enforces explicit, deterministic contracts for data and command semantics.".to_owned());
+    } else if payload["code"] == "invalid_argument_value" {
+        parts.push("\nWhy:\n  Validation protects data consistency and deterministic behavior across commands.".to_owned());
+    } else if payload["code"] == "unknown_option" {
+        parts.push(
+            "\nWhy:\n  Option contracts are command-specific and intentionally validated."
+                .to_owned(),
+        );
+    }
 }
 
 /// Bounds human legal-domain examples without changing complete structured evidence.

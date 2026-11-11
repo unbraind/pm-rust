@@ -2147,3 +2147,88 @@ fn activity_mixed_fractional_precision_matches_published_bytes() -> TestResult {
     );
     Ok(())
 }
+
+/// Invalid clock cutoffs refuse like the oracle; equivalent RFC 3339 offsets keep real activity.
+#[test]
+fn context_cutoff_validation_matches_published_clock_refusal() -> TestResult {
+    let Some(published) = published_cli::published_cli_or_skip("context cutoff validation") else {
+        return Ok(());
+    };
+    let scratch = tempfile::tempdir()?;
+    let driver = orientation_driver(scratch.path(), &published)?;
+    let root = tempfile::tempdir()?;
+    assert!(
+        oracle(&driver, root.path(), &["init", "sample-", "--defaults"])?
+            .status
+            .success()
+    );
+    fixture(root.path(), &[item("sample-one", "Task", "open", 1)])?;
+    let history = root.path().join(".agents/pm/history/sample-one.jsonl");
+    fs::write(
+        &history,
+        format!(
+            "{}\n{}\n",
+            json!({"ts":"2026-08-22T09:59:59Z","op":"update","author":"fixture-agent"}),
+            json!({"ts":CLOCK,"op":"update","author":"fixture-agent"})
+        ),
+    )?;
+    let before = fs::read(&history)?;
+    let invalid_driver = scratch.path().join("invalid-clock.mjs");
+    fs::write(
+        &invalid_driver,
+        format!(
+            "import {{pathToFileURL}} from 'node:url'; const OriginalDate=Date; globalThis.Date=class extends OriginalDate {{constructor(...args){{args.length?super(...args):super(Number.NaN)}} static now(){{return Date.parse({clock});}}}}; process.argv=[process.argv[0],'pm',...process.argv.slice(2)]; await import(pathToFileURL({entry}));",
+            clock = serde_json::to_string(CLOCK)?,
+            entry = serde_json::to_string(&published.entry)?
+        ),
+    )?;
+    for json_output in [false, true] {
+        let mut args = vec!["context", "--depth", "standard"];
+        if json_output {
+            args.push("--json");
+        }
+        let expected = oracle(&invalid_driver, root.path(), &args)?;
+        assert_eq!(expected.status.code(), Some(1));
+        for cutoff in ["", "invalid", "2026-02-30T10:00:00Z", "2026-08-22"] {
+            let mut command = Command::new(env!("CARGO_BIN_EXE_pm-rust"));
+            mutation_differential::isolate_environment(&mut command);
+            let actual = command
+                .current_dir(root.path())
+                .args(&args)
+                .args(["--timestamp", cutoff])
+                .output()?;
+            compare(&expected, &actual, &args);
+            assert_eq!(fs::read(&history)?, before);
+        }
+    }
+    let args = [
+        "context",
+        "--depth",
+        "standard",
+        "--json",
+        "--no-extension-health",
+    ];
+    let expected = oracle(&driver, root.path(), &args)?;
+    assert!(expected.status.success());
+    let expected: Value = serde_json::from_slice(&expected.stdout)?;
+    let workspace = pm_rust::Workspace::discover(root.path())?;
+    for cutoff in [
+        CLOCK,
+        "2026-08-22T12:00:00+02:00",
+        "2026-08-22T05:00:00-05:00",
+    ] {
+        let actual = workspace.context(
+            &pm_rust::ContextOptions {
+                depth: Some("standard".to_owned()),
+                no_extension_health: true,
+                ..Default::default()
+            },
+            cutoff,
+        )?;
+        assert_eq!(actual["now"], cutoff);
+        assert_eq!(actual["activity"], expected["activity"]);
+        assert_eq!(actual["activity"].as_array().map(Vec::len), Some(1));
+        assert_eq!(fs::read(&history)?, before);
+    }
+    Ok(())
+}

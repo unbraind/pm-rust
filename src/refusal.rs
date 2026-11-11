@@ -9,38 +9,68 @@ const REDACTED: &str = "[redacted]";
 /// Recovery advice is withheld until the caller restores its own credentials.
 const RESTORE: &str = "URL credentials in this invocation were replaced with [redacted]; restore them before replaying any command shown here.";
 
-/// Finds credential userinfo within an explicit URL authority.
-fn userinfo(token: &str) -> Option<(usize, usize)> {
-    let colon = token.find("://").or_else(|| token.find(":\\\\"))?;
-    let scheme = token[..colon]
-        .rsplit(|ch: char| !ch.is_ascii_alphanumeric() && !matches!(ch, '+' | '-' | '.'))
-        .next()?;
-    if !scheme.starts_with(|ch: char| ch.is_ascii_alphabetic()) {
-        return None;
+/// Finds every explicit URL scheme without consuming neighboring URLs or their separators.
+fn url_schemes(text: &str) -> Vec<(usize, usize)> {
+    let mut schemes = Vec::new();
+    for (colon, _) in text.match_indices(':') {
+        if !text[colon..].starts_with("://") && !text[colon..].starts_with(":\\\\") {
+            continue;
+        }
+        let scheme = text[..colon]
+            .rsplit(|ch: char| !ch.is_ascii_alphanumeric() && !matches!(ch, '+' | '-' | '.'))
+            .next()
+            .unwrap_or_default();
+        if let Some(first) = scheme.find(|ch: char| ch.is_ascii_alphabetic()) {
+            schemes.push((colon - scheme.len() + first, colon + 3));
+        }
     }
-    let start = colon + 3;
-    let authority_end = token[start..]
-        .find(['/', '?', '#'])
-        .map_or(token.len(), |end| start + end);
-    let end = start + token[start..authority_end].rfind('@')?;
-    let span = &token[start..end];
-    // A public URL followed by prose and an email is not URL authentication.
-    if span.chars().any(whitespace)
-        && !span.contains(':')
-        && colon != scheme.len()
-        && !token[..colon - scheme.len()].ends_with('=')
-    {
-        return None;
-    }
-    (start != end).then_some((start, end))
+    schemes
 }
 
-/// Replaces a complete token's userinfo without parsing or normalizing its URL.
+/// Finds userinfo in every URL, allowing slash-bearing passwords under the GH-1707 rule.
+fn userinfos(text: &str) -> Vec<(usize, usize)> {
+    let schemes = url_schemes(text);
+    let mut spans = Vec::new();
+    for (index, &(scheme, start)) in schemes.iter().enumerate() {
+        let stop = schemes.get(index + 1).map_or(text.len(), |next| next.0);
+        let candidate = &text[start..stop];
+        let boundary = candidate.find(['/', '?', '#']).unwrap_or(candidate.len());
+        let authority = &candidate[..boundary];
+        let before_slash = &candidate[..candidate.find('/').unwrap_or(candidate.len())];
+        let end = authority.rfind('@').or_else(|| {
+            before_slash
+                .contains(':')
+                .then(|| candidate.rfind('@'))
+                .flatten()
+        });
+        let Some(end) = end.filter(|end| *end > 0) else {
+            continue;
+        };
+        let span = &candidate[..end];
+        // A public URL followed by prose and an email is not URL authentication.
+        if span.chars().any(whitespace)
+            && !span.contains(':')
+            && scheme != 0
+            && !text[..scheme].ends_with('=')
+        {
+            continue;
+        }
+        spans.push((start, start + end));
+    }
+    spans
+}
+
+/// Replaces every URL's userinfo while preserving public URLs and surrounding text.
 fn redact_token(token: &str) -> String {
-    userinfo(token).map_or_else(
-        || token.to_owned(),
-        |(start, end)| format!("{}{REDACTED}{}", &token[..start], &token[end..]),
-    )
+    let mut output = String::new();
+    let mut copied = 0;
+    for (start, end) in userinfos(token) {
+        output.push_str(&token[copied..start]);
+        output.push_str(REDACTED);
+        copied = end;
+    }
+    output.push_str(&token[copied..]);
+    output
 }
 
 /// Lowercases without shifting JavaScript UTF-16 offsets.
@@ -113,7 +143,7 @@ impl Credentials {
         let mut spellings = HashSet::new();
         let mut carried = false;
         for token in args {
-            if let Some((start, end)) = userinfo(token) {
+            for (start, end) in userinfos(token) {
                 carried = true;
                 let span = &token[start..end];
                 let secret = span
@@ -179,7 +209,7 @@ impl Credentials {
 
     /// Projects registered fragments before scanning whitespace-delimited URL tokens.
     fn text(&self, text: &str, token: bool) -> String {
-        let text = if token {
+        let text = if token || !userinfos(text).is_empty() {
             redact_token(text)
         } else {
             text.to_owned()
@@ -463,6 +493,75 @@ mod tests {
         redact(&mut payload, &["claim".to_owned(), "sample".to_owned()]);
         assert_eq!(payload["claimed_by"], "https://[redacted]@example.invalid");
         assert!(!payload.to_string().contains("stored user"));
+    }
+
+    /// Every authority in one field is private, including later whitespace and slash passwords.
+    #[test]
+    fn multiple_url_credentials_are_redacted_globally() {
+        for (input, expected) in [
+            (
+                "https://first:alpha-secret@one.invalid/p https://second:beta-secret@two.invalid/q",
+                "https://[redacted]@one.invalid/p https://[redacted]@two.invalid/q",
+            ),
+            (
+                "https://first:alpha-secret@one.invalid/p,https://second:beta-secret@two.invalid/q",
+                "https://[redacted]@one.invalid/p,https://[redacted]@two.invalid/q",
+            ),
+            (
+                "https://first:alpha-secret@one.invalid;https://second:beta-secret@two.invalid",
+                "https://[redacted]@one.invalid;https://[redacted]@two.invalid",
+            ),
+            (
+                "https://www.npmjs.com/package/@scope/x https://u:p@host",
+                "https://www.npmjs.com/package/@scope/x https://[redacted]@host",
+            ),
+            (
+                "See https://public.invalid/docs and https://fixture:abc def@example.invalid",
+                "See https://public.invalid/docs and https://[redacted]@example.invalid",
+            ),
+            (
+                "https://user:abc/def+gh==@host/x https://ghp_fixture@github.com/o/r",
+                "https://[redacted]@host/x https://[redacted]@github.com/o/r",
+            ),
+            ("https://user:pa:ss@host", "https://[redacted]@host"),
+            (
+                ".https://u:first-secret@one.invalid;.https://v:second-secret@two.invalid",
+                ".https://[redacted]@one.invalid;.https://[redacted]@two.invalid",
+            ),
+            ("https://user?hint:abc@host", "https://[redacted]@host"),
+        ] {
+            let raw = vec![
+                "claim".to_owned(),
+                "sample".to_owned(),
+                "--message".to_owned(),
+                input.to_owned(),
+            ];
+            let mut payload = json!({"title":input,"detail":input,"why":input,"required":input,"examples":[input],"next_steps":[input],"claimed_by":input,"details":{input:input},"recovery":{"normalized_args":raw,"attempted_command":super::super::render_recovery(&raw),"suggested_retry":"pm claim sample"}});
+            redact(&mut payload, &raw);
+            for key in ["title", "detail", "why", "required", "claimed_by"] {
+                assert_eq!(payload[key], expected, "{key}: {input}");
+            }
+            assert_eq!(payload["next_steps"][0], RESTORE);
+            assert_eq!(payload["next_steps"][1], expected);
+            assert_eq!(payload["examples"][0], expected);
+            assert_eq!(payload["recovery"]["normalized_args"][3], expected);
+            assert_eq!(payload["details"][expected], expected);
+            assert!(payload["recovery"].get("suggested_retry").is_none());
+            assert_eq!(redact_token(input), expected);
+        }
+        let raw = vec![
+            "https://u:first-secret@one.invalid,https://v:second-secret@two.invalid".to_owned(),
+        ];
+        let mut copies = json!({"title":"first-secret second-secret","detail":"SECOND-SECRET","details":{"echo":"second-secret"}});
+        redact(&mut copies, &raw);
+        assert_eq!(copies["title"], "[redacted] [redacted]");
+        assert_eq!(copies["detail"], "[redacted]");
+        assert_eq!(copies["details"]["echo"], "[redacted]");
+        let public = "https://www.npmjs.com/package/@scope/x";
+        let original = json!({"detail":public,"recovery":{"suggested_retry":public}});
+        let mut payload = original.clone();
+        redact(&mut payload, &[public.to_owned()]);
+        assert_eq!(payload, original);
     }
 
     /// UTF-16 fragments and shell/JSON spellings are projected without shifting boundaries.

@@ -125,12 +125,17 @@ fn compare_close(setup: &[Vec<&str>], fields: &[&str]) -> TestResult {
     )?;
     let mut command = Command::new(env!("CARGO_BIN_EXE_pm-rust"));
     mutation_differential::isolate_environment(&mut command);
+    let mut native_args = args.clone();
+    let delimiter = native_args
+        .iter()
+        .position(|arg| *arg == "--")
+        .unwrap_or(native_args.len());
+    native_args.splice(delimiter..delimiter, ["--timestamp", CLOCK]);
     let actual = command
         .current_dir(tracker.path())
         .env_remove("PM_PATH")
         .env("DO_NOT_TRACK", "1")
-        .args(&args)
-        .args(["--timestamp", CLOCK])
+        .args(&native_args)
         .output()?;
     assert_eq!(
         actual.status.code(),
@@ -490,5 +495,13 @@ fn close_assignment_release_boundaries_match_oracle() -> TestResult {
         ],
         &["Done", "--release-assignment", "--json"],
     )?;
+    Ok(())
+}
+
+/// Missing evidence is inserted before the delimiter while preserving the positional close reason.
+#[test]
+fn delimited_close_recovery_matches_published_bytes() -> TestResult {
+    compare_close(&[], &["--validate-close", "strict", "--json", "--", "Done"])?;
+    compare_close(&[], &["--validate-close", "strict", "--", "Done"])?;
     Ok(())
 }
