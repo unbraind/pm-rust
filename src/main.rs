@@ -1933,6 +1933,9 @@ fn ownership_error_json(
     if context.get("claimed_by").is_some() {
         payload["item_id"] = context["item_id"].clone();
     }
+    if let Some(details) = context.get("details") {
+        payload["details"] = details.clone();
+    }
     payload
 }
 
@@ -2194,6 +2197,7 @@ fn write_cursor_refusal_to(
                 .map(|example| format!("  - {}", example.as_str().unwrap_or_default())),
         );
     }
+    append_refusal_details(&mut parts, payload);
     if payload["recovery"]["token_budget"].is_object() {
         append_budget_recovery(&mut parts, &payload["recovery"]);
     } else {
@@ -2236,6 +2240,18 @@ fn write_cursor_refusal_to(
     writer.write_all(format!("{}\n", parts.join("\n")).as_bytes())?;
     writer.flush()?;
     Ok(())
+}
+
+/// Appends structured refusal details in the published human indentation.
+fn append_refusal_details(parts: &mut Vec<String>, payload: &serde_json::Value) {
+    if let Some(details) = payload.get("details") {
+        parts.push("\nDetails:".to_owned());
+        parts.extend(
+            pm_rust::stringify_json(details, true)
+                .lines()
+                .map(|line| format!("  {line}")),
+        );
+    }
 }
 
 /// Appends published human explanations while keeping close-evidence guidance in its recovery hint.

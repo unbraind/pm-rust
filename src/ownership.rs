@@ -422,14 +422,18 @@ impl Workspace {
                 context: json!({"code":"invalid_argument_value","required":"Remove --next and --if-available when starting an explicit item.","next_steps":["Remove --next and --if-available, keep the explicit item ID and other supplied arguments, then retry."]}),
             });
         }
-        let claim = self.claim_with_options(request, options)?;
-        let update = with_identity(self.pm_root(), options, || {
-            crate::mutation::lifecycle_status(self.pm_root(), request, options, true)
+        crate::lifecycle_admission::with_explicit_start(|| {
+            let mut claim_options = options.clone();
+            claim_options.start = false;
+            let claim = self.claim_with_options(request, &claim_options)?;
+            let update = with_identity(self.pm_root(), options, || {
+                crate::mutation::lifecycle_status(self.pm_root(), request, options, true)
+            })
+            .map_err(|error| partial_failure(error, &request.id, "claim"))?;
+            Ok(
+                json!({"id":claim.id,"action":"start_task","claim":claim,"update":update,"status":update["status"],"changed_field_count":u64::try_from(claim.changed_field_count).unwrap_or_default() + update["changed_field_count"].as_u64().unwrap_or_default()}),
+            )
         })
-        .map_err(|error| partial_failure(error, &request.id, "claim"))?;
-        Ok(
-            json!({"id":claim.id,"action":"start_task","claim":claim,"update":update,"status":update["status"],"changed_field_count":u64::try_from(claim.changed_field_count).unwrap_or_default() + update["changed_field_count"].as_u64().unwrap_or_default()}),
-        )
     }
 
     /// Opens the item first, then releases it; a failed release preserves the update.

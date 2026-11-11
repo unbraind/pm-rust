@@ -64,6 +64,7 @@ impl Workspace {
         max_attempts: usize,
     ) -> Result<Value, PmRustError> {
         let mut attempts = 0;
+        let mut start_refused = Vec::new();
         for candidate in candidates.iter().take(max_attempts) {
             attempts += 1;
             let mut candidate_request = request.clone();
@@ -73,18 +74,48 @@ impl Workspace {
                     let mut value = serde_json::to_value(receipt).unwrap_or_default();
                     value["available"] = json!(true);
                     value["attempts"] = json!(attempts);
+                    if !start_refused.is_empty() {
+                        value["start_refused"] = json!(start_refused);
+                    }
                     return Ok(value);
                 }
                 Ok(_) => {}
+                Err(PmRustError::OwnershipRefusal { context, .. })
+                    if context["code"] == "start_blocked_by_open_dependency" =>
+                {
+                    start_refused.push(candidate.metadata.id.clone());
+                }
                 Err(PmRustError::OwnershipRefusal { context, .. })
                     if context["code"] == "already_claimed_by" => {}
                 Err(error) => return Err(error),
             }
         }
         if request.if_available {
-            return Ok(
-                json!({"available":false,"item":null,"claimed_by":request.author,"previous_assignee":null,"forced":request.force,"skipped":true,"recommendation":null,"attempts":attempts,"warnings":["no_available_next_item"]}),
-            );
+            let mut receipt = json!({"available":false,"item":null,"claimed_by":request.author,"previous_assignee":null,"forced":request.force,"skipped":true,"recommendation":null,"attempts":attempts,"warnings":["no_available_next_item"]});
+            if !start_refused.is_empty() {
+                receipt["start_refused"] = json!(start_refused);
+            }
+            return Ok(receipt);
+        }
+        let why = if attempts == 0 {
+            "No ready items matched the specified filters or selection criteria.".to_owned()
+        } else if start_refused.is_empty() {
+            "Every ranked candidate was claimed by another agent before this atomic selection completed.".to_owned()
+        } else {
+            format!(
+                "{} of {attempts} attempted candidates refused their start because a declared blocker is open ({}), and nothing was written to them; {}.",
+                start_refused.len(),
+                start_refused.join(", "),
+                if start_refused.len() == attempts {
+                    "no other candidate was attempted"
+                } else {
+                    "every other attempted candidate was claimed by another agent"
+                }
+            )
+        };
+        let mut context = json!({"code":"no_available_next_item","why":why,"next_steps":[if attempts==0{"Verify the filters or run pm next to inspect all ready work."}else if options.start {"Run pm claim --next --start again, with the same filters, to refresh the ranked candidate set."} else {"Run pm claim --next again, with the same filters, to refresh the ranked candidate set."}]});
+        if !start_refused.is_empty() {
+            context["details"] = json!({"start_refused":start_refused});
         }
         Err(refusal(
             if attempts == 0 {
@@ -93,7 +124,7 @@ impl Workspace {
                 "No actionable item remained available to claim"
             },
             if attempts == 0 { 3 } else { 4 },
-            json!({"code":"no_available_next_item","why":if attempts == 0 {"No ready items matched the specified filters or selection criteria."}else{"Every ranked candidate was claimed by another agent before this atomic selection completed."},"next_steps":[if attempts==0{"Verify the filters or run pm next to inspect all ready work."}else if options.start {"Run pm claim --next --start again, with the same filters, to refresh the ranked candidate set."} else {"Run pm claim --next again, with the same filters, to refresh the ranked candidate set."}]}),
+            context,
         ))
     }
 }

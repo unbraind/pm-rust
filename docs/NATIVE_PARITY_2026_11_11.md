@@ -255,3 +255,135 @@ oracle tests pass. No upstream issue was filed during this round.
 | `PRRT_kwDOTwgMRs62MPD5` | Correct retry placement and human receipt; `delimited_close_recovery_matches_published_bytes` |
 | `PRRT_kwDOTwgMRs62MPDp` | Decline stricter legacy control; `dual_budget_validation_matches_published_precedence` |
 | `PRRT_kwDOTwgMRs62MPEC` | Refuse invalid cutoff, preserve offsets; `context_cutoff_validation_matches_published_clock_refusal` |
+
+## Round-four lifecycle admission
+
+`lifecycle_admission::admit_lifecycle_transition` is the common admission and
+status-resolution function for atomic claim/start, explicit start's claim
+preflight and status update, and pause's status update. Callers invoke it while
+holding the real item mutation lock and before committing item, history or
+session changes. It resolves the configured registry, normalizes both stored
+and requested statuses, checks terminal/transition policy at the published
+commit boundary, and admits declared blockers under strict (the default), warn,
+off or explicit-force policy. Explicit start deduplicates preflight warnings
+when its second step rechecks the same dependency policy.
+
+Progress resolution uses the registered configured progress status when it is
+distinct from open, then registered `in_progress` (including aliases), then the
+configured open status. Removed progress selectors and coincident open/progress
+selectors follow the same function in both execution paths. Atomic starts retain
+the terminal refusal; forced explicit starts retain the published update
+semantics. Workflow refusal in explicit start's second step still preserves its
+successful claim and partial-step recovery, matching the existing oracle test.
+
+Ranking never authorizes a later write. A non-git SDK differential captures a
+ready candidate, reopens its blocker through a real published mutation, then
+compares the actual native and published ranked claim writers. Both refuse
+without changing the candidate, history or session. Claim-next records refused
+candidate IDs and returns the published exhausted-selection details.
+
+The added differential cases are:
+
+- `explicit_start_blocker_refusal_matches_oracle_without_writes`: JSON and human
+  bytes, exit status, canonical files/history/session and direct atomic SDK
+  refusal context.
+- `ranked_start_blocker_refusal_matches_oracle_without_writes`: actual CLI
+  selection refusal and independent direct atomic SDK admission.
+- `explicit_start_progress_fallback_matches_published_bytes` and
+  `ranked_start_progress_fallback_matches_published_bytes`: both starts persist
+  the registered progress fallback, with exact receipt/history bytes.
+- `start_blocker_enforcement_modes_match_published_bytes`: warning, off and
+  forced strict policies with matching durable bytes and warning ordering.
+- `start_declared_blocker_variants_match_published_bytes`: closed prerequisites,
+  missing targets, external provenance and relationship aliases.
+- `configured_progress_resolution_matches_published_registry`: removed and
+  aliased workflow selectors for explicit and atomic ranked starts.
+- `pause_progress_fallback_admission_matches_published_no_write`: pause and
+  release/pause refuse before writing when open is also the effective progress
+  fallback and an unresolved dependency exists.
+
+The additional library differential is
+`ranked_start_rechecks_reopened_blocker_against_oracle`. The SDK test driver is
+shared by the integration and library tests; it loads the installed published
+SDK through the existing launcher rather than copying its admission logic.
+
+The composition audit covered all native call sites of `start_task`,
+`pause_task`, `claim_with_options`, `lifecycle_status`, release and composed close.
+Claim/start aliases share the explicit path; ranked starts share the atomic
+writer. Pause/release-pause had the additional fallback admission bypass fixed
+above. Close-plus-release already calls both guarded operations and retains
+partial-step diagnostics. There is no native start-plus-close composition.
+
+One source-audited difference remains: published
+`sdk/lifecycle/task-composition.js::releaseRefusedStartClaim` conditionally
+releases a newly acquired claim when a blocker appears between explicit start's
+two commits. Native retains that successful claim and partial-step diagnostic.
+This is tracked in `pm-rust-start-claim-compensation`. The race was not
+independently reproduced in this round; automatic
+compensation requires an ownership/history proof and is not added here. Ordinary
+strict blocker refusals, including stale ranked candidates, are independently
+verified without writes.
+
+A newly arrived cursor-compaction review thread is tracked separately in
+`pm-rust-long-intent-cursor`; no cursor fix is claimed by this lifecycle change.
+Round four read all 16 review threads and their 16 comments without pagination.
+
+The mutation acceptance target initially passed 27 and failed two frozen close
+history comparisons inherited from the older oracle. Replaying the unchanged
+five-operation recipe through the pinned published CLI independently confirmed
+all four preceding history records byte for byte. The close record adds the
+published `context.completion` timestamp/source and its corresponding record
+hash. Only that measured expected literal and its provenance comment changed;
+all equality assertions remain intact. This is the same completion context
+already checked by the passing live conformance and close differentials.
+
+The round-four full-target refresh passes **603 tests**, with zero failed or
+ignored tests. It preserves each 1,200-second cap and two-thread bound:
+
+| Target | Passed |
+| --- | ---: |
+| `claim_release_differential` | 38 |
+| `mutation_contract` | 29 |
+| `conformance_differential` | 2 |
+| `close_differential` | 7 |
+| `admission_contract` | 12 |
+| Library (including stale-ranked oracle admission) | 400 |
+| Binary refusal envelopes | 49 |
+| `cli_dispatch` | 21 |
+| `ownership_contract` | 11 |
+| `parity_1021_contract` | 14 |
+| `release_pipeline_contract` | 20 |
+
+These commands use the same required-oracle, locked Cargo command and time/worker
+limits documented above, with `--test mutation_contract` added to the linked
+commands. The combined envelope command contributes 515 of the 603 tests.
+Clippy and fmt pass. The accepted round-three all-target and crash receipts
+remain earlier evidence; this refresh targets the lifecycle/mutation surface
+requested for round four. The aggregate normal-plus-coverage release gate still
+exceeds the established 45-minute local budget, so coverage and platform
+certification remain with CI at unchanged thresholds.
+
+Six disposable function reverts retain the current oracle and every assertion.
+Each reverted run fails behaviorally (exit 101, no compilation failure), and the
+exact same command passes after the fixed function is restored in `finally`:
+
+| Test | Reverted production function | Negative / restored |
+| --- | --- | --- |
+| `explicit_start_blocker_refusal_matches_oracle_without_writes` | `ownership_item_with_options` | Failed / passed |
+| `ranked_start_blocker_refusal_matches_oracle_without_writes` | `ownership_item_with_options` | Failed / passed |
+| `ranked_start_rechecks_reopened_blocker_against_oracle` | `ownership_item_with_options` | Failed / passed |
+| `explicit_start_progress_fallback_matches_published_bytes` | `lifecycle_status` | Failed / passed |
+| `ranked_start_progress_fallback_matches_published_bytes` | `ownership_item_with_options` | Failed / passed |
+| `pause_progress_fallback_admission_matches_published_no_write` | `lifecycle_status` | Failed / passed |
+
+The integration filters run on `--test claim_release_differential`; the stale
+ranking filter runs on `--lib`. Each uses the documented required-oracle Cargo
+command with the exact test name before `-- --test-threads=2`. Only the named
+function is restored from the accepted round-three source for each negative
+control. The package worktree is never modified by these reverts.
+
+Final tracker reads cover all 23 open items without pagination. The initial
+orientation returned 10 focus items and the required search returned 10 of 58
+keyword matches; the existing exact oracle item was reused. Both newly discovered
+follow-ups remain open and unclaimed. The oracle item stays in progress with its
+claim released for orchestrator verification.

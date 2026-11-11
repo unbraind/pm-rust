@@ -4,7 +4,9 @@
 //! recipe. Their event classification and record-integrity envelopes were
 //! sealed using the published PM CLI 2026.9.4 implementation. The independent
 //! live differential suite compares complete persisted bytes against the
-//! current PM CLI 2026.10.2 compatibility target.
+//! current pinned compatibility target. The close-completion context and its
+//! record hash were refreshed by replaying the unchanged recipe through
+//! published PM CLI 2026.11.11; every other history line remains identical.
 
 use std::fs;
 use std::path::Path;
@@ -102,7 +104,7 @@ const CLOSE_ITEM_BYTES: &str = concat!(
 
 /// Canonical history line recorded after the recorded close step.
 const CLOSE_HISTORY_LINE: &str = concat!(
-    r#"{"hash_algorithm":"sha256","ts":"2026-08-22T10:00:00.000Z","author":"fixture-agent","author_source":"asserted","agent_provenance":{"role":{"value":"implementer","source":"argv"}},"op":"close","patch":[{"op":"replace","path":"/metadata/status","value":"closed"},{"op":"add","path":"/metadata/closed_at","value":"2026-08-22T10:00:00.000Z"},{"op":"add","path":"/metadata/completed_at","value":"2026-08-22T10:00:00.000Z"},{"op":"add","path":"/metadata/close_reason","value":"conformance complete"}],"before_hash":"e7f7fb53e6330e7ffacbf15a870ad604a2e8d5236e67ac6c9e373b8ea4d6a0d0","after_hash":"2319c2cdf7e8164348a3235c87426c55dbf49aaeb286cc4893494b2b3b6eb6a8","item_hash_version":3,"event_class":"substantive","record_hash_version":1,"record_hash":"b10806aea6a15026dec47f82166ab47a3ded613dfec959207e73e0146504fa69"}"#,
+    r#"{"hash_algorithm":"sha256","ts":"2026-08-22T10:00:00.000Z","author":"fixture-agent","author_source":"asserted","agent_provenance":{"role":{"value":"implementer","source":"argv"}},"op":"close","patch":[{"op":"replace","path":"/metadata/status","value":"closed"},{"op":"add","path":"/metadata/closed_at","value":"2026-08-22T10:00:00.000Z"},{"op":"add","path":"/metadata/completed_at","value":"2026-08-22T10:00:00.000Z"},{"op":"add","path":"/metadata/close_reason","value":"conformance complete"}],"before_hash":"e7f7fb53e6330e7ffacbf15a870ad604a2e8d5236e67ac6c9e373b8ea4d6a0d0","after_hash":"2319c2cdf7e8164348a3235c87426c55dbf49aaeb286cc4893494b2b3b6eb6a8","item_hash_version":3,"context":{"completion":{"timestamp":"2026-08-22T10:00:00.000Z","source":"close_time"}},"event_class":"substantive","record_hash_version":1,"record_hash":"8706f5ff2db0a4dcce3c5c7ab9825b1a552e0e827ee1978a4021022685716f3b"}"#,
     "\n",
 );
 

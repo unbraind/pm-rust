@@ -684,3 +684,153 @@ fn contended_claim_next_does_not_rescan_rejected_candidates()
     );
     Ok(())
 }
+
+#[allow(dead_code)]
+#[path = "published_cli.rs"]
+mod published_cli;
+#[allow(dead_code)]
+#[path = "oracle_driver.rs"]
+mod start_driver;
+use published_cli::PublishedCli;
+
+/// A blocker reopening after ranking is refused under the actual atomic claim lock.
+#[test]
+fn ranked_start_rechecks_reopened_blocker_against_oracle() -> Result<(), Box<dyn std::error::Error>>
+{
+    let Some(published) = published_cli::published_cli_or_skip("ranked start stale blocker") else {
+        return Ok(());
+    };
+    let scratch = tempfile::tempdir()?;
+    // The shared driver expects the same launcher type in its own parent module.
+    let driver_root = scratch.path().join("driver");
+    fs::create_dir(&driver_root)?;
+    let driver = start_driver::write_driver(&driver_root, &published)?;
+    let root = tempfile::tempdir()?;
+    let run = |args: &[&str]| -> Result<std::process::Output, Box<dyn std::error::Error>> {
+        let mut command = published_cli::oracle_command(
+            std::env::var("PM_NODE_INTERPRETER").unwrap_or_else(|_| "node".to_owned()),
+        );
+        crate::test_process_environment::isolate_environment(&mut command);
+        command
+            .current_dir(root.path())
+            .env("FIXED_CLOCK", CLOCK)
+            .env("DO_NOT_TRACK", "1")
+            .arg(&driver)
+            .args(args);
+        Ok(command.output()?)
+    };
+    prepare_ranked_start_tracker(&run)?;
+    let workspace = Workspace::discover(root.path())?;
+    let ranked = workspace.get("sample-own")?;
+    let output = run(&[
+        "update",
+        "sample-gate",
+        "--status",
+        "open",
+        "--author",
+        "alpha",
+    ])?;
+    assert!(
+        output.status.success(),
+        "{}",
+        String::from_utf8_lossy(&output.stderr)
+    );
+    let item = fs::read(workspace.pm_root().join("tasks/sample-own.toon"))?;
+    let history = fs::read(workspace.pm_root().join("history/sample-own.jsonl"))?;
+    let expected = run(&["__ranked_claim_error", "sample-own"])?;
+    assert!(expected.status.success());
+    let expected: Value = serde_json::from_slice(&expected.stdout)?;
+    let caller = request();
+    let options = OwnershipOptions {
+        start: true,
+        ..Default::default()
+    };
+    let error = workspace
+        .claim_ranked(&caller, &options, &[ranked], 1)
+        .err()
+        .ok_or("stale ranked start admitted")?;
+    let PmRustError::CommandRefusal {
+        detail,
+        exit_code,
+        mut context,
+    } = error
+    else {
+        return Err(format!("unexpected error {error}").into());
+    };
+    if let Some(steps) = context
+        .as_object_mut()
+        .and_then(|value| value.shift_remove("next_steps"))
+    {
+        context["nextSteps"] = steps;
+    }
+    assert_eq!(detail, expected["detail"]);
+    assert_eq!(json!(exit_code), expected["exit_code"]);
+    assert_eq!(context, expected["context"]);
+    assert_eq!(
+        fs::read(workspace.pm_root().join("tasks/sample-own.toon"))?,
+        item
+    );
+    assert_eq!(
+        fs::read(workspace.pm_root().join("history/sample-own.jsonl"))?,
+        history
+    );
+    assert!(!workspace.pm_root().join("runtime/session.json").exists());
+    assert!(!root.path().join(".git").exists());
+    Ok(())
+}
+
+/// Creates genuine published records before the captured ranking is made stale.
+fn prepare_ranked_start_tracker(
+    mut run: impl FnMut(&[&str]) -> Result<std::process::Output, Box<dyn std::error::Error>>,
+) -> Result<(), Box<dyn std::error::Error>> {
+    for args in [
+        vec!["init", "sample-", "--defaults"],
+        vec![
+            "create",
+            "--id",
+            "sample-own",
+            "--title",
+            "Ready",
+            "--type",
+            "Task",
+            "--author",
+            "alpha",
+        ],
+        vec![
+            "create",
+            "--id",
+            "sample-gate",
+            "--title",
+            "Gate",
+            "--type",
+            "Task",
+            "--author",
+            "alpha",
+        ],
+        vec![
+            "close",
+            "sample-gate",
+            "Done",
+            "--validate-close",
+            "off",
+            "--author",
+            "alpha",
+        ],
+        vec![
+            "update",
+            "sample-own",
+            "--blocked-by",
+            "sample-gate",
+            "--author",
+            "alpha",
+        ],
+    ] {
+        let output = run(&args)?;
+        assert!(
+            output.status.success(),
+            "{}",
+            String::from_utf8_lossy(&output.stderr)
+        );
+    }
+    Ok(())
+}

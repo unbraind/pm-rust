@@ -3317,11 +3317,8 @@ pub(crate) fn ownership_item_with_options(
     let mut suggestions = Vec::new();
     let mut skipped = None;
     let mut changed = 0;
-    let terminal = if claim && options.start {
-        crate::list_registry::Lifecycle::load(pm_root)?.terminal(&before.metadata.status)
-    } else {
-        matches!(before.metadata.status.as_str(), "closed" | "canceled")
-    };
+    let terminal =
+        claim && crate::list_registry::Lifecycle::load(pm_root)?.terminal(&before.metadata.status);
     if claim {
         if terminal && !request.force {
             return Err(ownership_refusal(
@@ -3409,25 +3406,27 @@ pub(crate) fn ownership_item_with_options(
             suggestions.push(format!("{} remains in_progress and unclaimed. If work is paused, run pm release {} --pause to move it to open.", request.id, request.id));
         }
     }
-    let start = if claim && options.start && skipped.is_none() {
-        if terminal {
-            return Err(ownership_refusal(
-                format!(
-                    "Cannot start terminal item {}; reopen it with pm item reopen before starting it",
-                    request.id
-                ),
-                serde_json::json!({"code":"terminal_state_conflict","item_id":request.id,"why":"Starting work moves an active item into progress; a terminal item must be reopened so its recurrence evidence is recorded.","next_steps":[format!("Run pm item reopen {} \"<reason>\", then pm claim {} --start.",request.id,request.id)]}),
-            ));
+    let start = if claim
+        && skipped.is_none()
+        && (options.start || crate::lifecycle_admission::explicit_claim())
+    {
+        let phase = if options.start {
+            crate::lifecycle_admission::Phase::AtomicStart
+        } else {
+            crate::lifecycle_admission::Phase::Claim
+        };
+        let admission = crate::lifecycle_admission::admit_lifecycle_transition(
+            pm_root, request, &document, phase,
+        )?;
+        warnings.extend(admission.warnings);
+        if options.start {
+            let from = document.metadata.status.clone();
+            changed += usize::from(from != admission.status);
+            document.metadata.status = admission.status;
+            Some(serde_json::json!({"from_status":from,"to_status":document.metadata.status}))
+        } else {
+            None
         }
-        let value = crate::ownership::runtime_settings(pm_root)?;
-        let target = value["schema"]["workflow"]["in_progress_status"]
-            .as_str()
-            .unwrap_or("in_progress");
-        validate_lifecycle_transition(&value, &document, target)?;
-        let from = document.metadata.status.clone();
-        changed += usize::from(from != target);
-        target.clone_into(&mut document.metadata.status);
-        Some(serde_json::json!({"from_status":from,"to_status":target}))
     } else {
         None
     };
@@ -3489,33 +3488,40 @@ pub(crate) fn ownership_item_with_options(
 }
 
 /// Validates a status transition while retaining unconstrained and no-op workflows.
-fn validate_lifecycle_transition(
+pub(crate) fn validate_lifecycle_transition(
     value: &Value,
     before: &ItemDocument,
     status: &str,
-) -> Result<(), PmRustError> {
-    if value["governance"]["workflow_enforcement"] != "strict" {
-        return Ok(());
+) -> Result<Vec<String>, PmRustError> {
+    if value["governance"]["workflow_enforcement"]
+        .as_str()
+        .is_none_or(|mode| mode == "off")
+    {
+        return Ok(vec![]);
     }
     let Some(rules) = value["schema"]["type_workflows"].as_array() else {
-        return Ok(());
+        return Ok(vec![]);
     };
     let Some(rule) = rules.iter().find(|rule| {
         rule["type"]
             .as_str()
             .is_some_and(|name| name.eq_ignore_ascii_case(&before.metadata.item_type))
     }) else {
-        return Ok(());
+        return Ok(vec![]);
     };
     let Some(transitions) = rule["allowed_transitions"].as_array() else {
-        return Ok(());
+        return Ok(vec![]);
     };
-    if before.metadata.status == status
-        || transitions
-            .iter()
-            .any(|pair| pair[0] == before.metadata.status && pair[1] == status)
+    let registry = crate::list_registry::Lifecycle::from_values(value, &Value::Null, &Value::Null);
+    let from = registry.canonical(&before.metadata.status);
+    let target = registry.canonical(status);
+    if from == target
+        || transitions.iter().any(|pair| {
+            registry.canonical(pair[0].as_str().unwrap_or_default()) == from
+                && registry.canonical(pair[1].as_str().unwrap_or_default()) == target
+        })
     {
-        return Ok(());
+        return Ok(vec![]);
     }
     let allowed = if transitions.is_empty() {
         "(no transitions allowed)".to_owned()
@@ -3532,14 +3538,19 @@ fn validate_lifecycle_transition(
             .collect::<Vec<_>>()
             .join(", ")
     };
-    Err(PmRustError::CommandRefusal {
-        detail: format!(
-            "Disallowed transition for type \"{}\": {} -> {status}. Allowed transitions: {allowed}.",
-            before.metadata.item_type, before.metadata.status
-        ),
-        exit_code: 2,
-        context: serde_json::json!({}),
-    })
+    let detail = format!(
+        "Disallowed transition for type \"{}\": {} -> {status}. Allowed transitions: {allowed}.",
+        before.metadata.item_type, from
+    );
+    if value["governance"]["workflow_enforcement"] == "strict" {
+        Err(PmRustError::CommandRefusal {
+            detail,
+            exit_code: 2,
+            context: serde_json::json!({}),
+        })
+    } else {
+        Ok(vec![format!("workflow_transition_not_allowed: {detail}")])
+    }
 }
 
 /// Applies the second start step or the first pause step under an independent lock.
@@ -3616,19 +3627,17 @@ pub(crate) fn lifecycle_status(
     } else {
         None
     };
-    let value = crate::ownership::runtime_settings(pm_root)?;
-    let key = if start {
-        "in_progress_status"
+    let phase = if start {
+        crate::lifecycle_admission::Phase::Start
     } else {
-        "open_status"
+        crate::lifecycle_admission::Phase::Pause
     };
-    let status = value["schema"]["workflow"][key]
-        .as_str()
-        .unwrap_or(if start { "in_progress" } else { "open" });
+    let admission =
+        crate::lifecycle_admission::admit_lifecycle_transition(pm_root, request, &before, phase)?;
+    let status = admission.status.as_str();
     let mut document = before.clone();
     let mut changed = usize::from(document.metadata.status != status);
-    validate_lifecycle_transition(&value, &before, status)?;
-    if matches!(before.metadata.status.as_str(), "closed" | "canceled") {
+    if admission.from_terminal {
         for key in [
             "closed_at",
             "completed_at",
@@ -3666,8 +3675,12 @@ pub(crate) fn lifecycle_status(
     if let Some(reason) = item.metadata.extra.get("close_reason") {
         receipt["close_reason"] = reason.clone();
     }
+    let mut warnings = admission.warnings;
     if let Some(warning) = ownership_warning {
-        receipt["warnings"] = serde_json::json!([warning]);
+        warnings.push(warning);
+    }
+    if !warnings.is_empty() {
+        receipt["warnings"] = serde_json::json!(warnings);
     }
     Ok(receipt)
 }

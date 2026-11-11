@@ -1948,3 +1948,444 @@ fn atomic_start_rejects_configured_terminal_status_like_oracle()
     fixture.verify()?;
     Ok(())
 }
+
+/// Creates a real open prerequisite and a tagged target, preserving published history.
+fn blocked_start_fixture(mode: &str) -> Result<Option<Fixture>, Box<dyn std::error::Error>> {
+    let Some(fixture) = Fixture::new("strict")? else {
+        return Ok(None);
+    };
+    prepare(
+        &fixture,
+        &[
+            "create",
+            "--id",
+            "sample-gate",
+            "--title",
+            "Gate",
+            "--type",
+            "Task",
+            "--author",
+            "alpha",
+            "--json",
+        ],
+    )?;
+    prepare(
+        &fixture,
+        &[
+            "update",
+            "sample-own",
+            "--blocked-by",
+            "sample-gate",
+            "--tags",
+            "start-target",
+            "--author",
+            "alpha",
+            "--json",
+        ],
+    )?;
+    for root in [fixture.node.path(), fixture.rust.path()] {
+        let path = root.join(".agents/pm/settings.json");
+        let mut value: serde_json::Value = serde_json::from_slice(&fs::read(&path)?)?;
+        value["governance"]["start_blocker_enforcement"] = serde_json::json!(mode);
+        fs::write(path, serde_json::to_vec_pretty(&value)?)?;
+    }
+    Ok(Some(fixture))
+}
+/// Captures canonical files and session state independently of derived read caches and locks.
+fn start_snapshot(
+    root: &Path,
+) -> Result<std::collections::BTreeMap<PathBuf, Vec<u8>>, Box<dyn std::error::Error>> {
+    fn visit(
+        root: &Path,
+        path: &Path,
+        out: &mut std::collections::BTreeMap<PathBuf, Vec<u8>>,
+    ) -> Result<(), Box<dyn std::error::Error>> {
+        for entry in fs::read_dir(path)? {
+            let entry = entry?;
+            let path = entry.path();
+            let relative = path.strip_prefix(root)?;
+            if path.is_dir() {
+                if relative.components().count() == 1
+                    && [
+                        "runtime",
+                        "cache",
+                        "locks",
+                        "search",
+                        "checkpoints",
+                        "transactions",
+                    ]
+                    .contains(&entry.file_name().to_string_lossy().as_ref())
+                {
+                    continue;
+                }
+                visit(root, &path, out)?;
+            } else {
+                out.insert(relative.to_owned(), fs::read(path)?);
+            }
+        }
+        Ok(())
+    }
+    let root = root.join(".agents/pm");
+    let mut out = std::collections::BTreeMap::new();
+    visit(&root, &root, &mut out)?;
+    let session = root.join("runtime/session.json");
+    if session.is_file() {
+        out.insert(PathBuf::from("runtime/session.json"), fs::read(session)?);
+    }
+    Ok(out)
+}
+/// Exercises the actual atomic SDK transaction, including its no-write refusal boundary.
+fn assert_atomic_blocker_refusal(fixture: &Fixture) -> Result<(), Box<dyn std::error::Error>> {
+    let before = start_snapshot(fixture.node.path())?;
+    let output = published_run(
+        &fixture.driver,
+        fixture.node.path(),
+        &["__atomic_claim_error", "sample-own", "false"],
+    )?;
+    assert!(output.status.success());
+    let expected: serde_json::Value = serde_json::from_slice(&output.stdout)?;
+    assert_eq!(expected["exit_code"], 4);
+    let workspace = pm_rust::Workspace::discover(fixture.rust.path())?;
+    let request = pm_rust::OwnershipItem {
+        id: "sample-own".to_owned(),
+        author: "alpha".to_owned(),
+        timestamp: Some(CLOCK.to_owned()),
+        message: None,
+        force: false,
+        if_available: false,
+        provenance_role: None,
+    };
+    let error = workspace
+        .claim_with_options(
+            &request,
+            &pm_rust::OwnershipOptions {
+                start: true,
+                ..Default::default()
+            },
+        )
+        .err()
+        .ok_or("blocked atomic start admitted")?;
+    let pm_rust::PmRustError::OwnershipRefusal {
+        detail,
+        mut context,
+    } = error
+    else {
+        return Err(format!("unexpected refusal: {error}").into());
+    };
+    if let Some(steps) = context
+        .as_object_mut()
+        .and_then(|fields| fields.shift_remove("next_steps"))
+    {
+        context["nextSteps"] = steps;
+    }
+    assert_eq!(detail, expected["detail"]);
+    assert_eq!(context, expected["context"]);
+    assert_eq!(start_snapshot(fixture.node.path())?, before);
+    assert_eq!(start_snapshot(fixture.rust.path())?, before);
+    fixture.compare_bytes()?;
+    Ok(())
+}
+/// Explicit claim/start judges the blocker before publishing ownership or semantic attribution.
+#[test]
+fn explicit_start_blocker_refusal_matches_oracle_without_writes()
+-> Result<(), Box<dyn std::error::Error>> {
+    let Some(fixture) = blocked_start_fixture("strict")? else {
+        return Ok(());
+    };
+    let before = start_snapshot(fixture.node.path())?;
+    fixture.step(&[
+        "claim",
+        "sample-own",
+        "--start",
+        "--author",
+        "alpha",
+        "--json",
+    ])?;
+    assert_eq!(start_snapshot(fixture.node.path())?, before);
+    assert_eq!(start_snapshot(fixture.rust.path())?, before);
+    fixture.step(&["claim", "sample-own", "--start", "--author", "alpha"])?;
+    assert_eq!(start_snapshot(fixture.rust.path())?, before);
+    assert_atomic_blocker_refusal(&fixture)?;
+    Ok(())
+}
+/// Ranked starts exclude current blockers, and their atomic writer refuses a stale ready candidate.
+#[test]
+fn ranked_start_blocker_refusal_matches_oracle_without_writes()
+-> Result<(), Box<dyn std::error::Error>> {
+    let Some(fixture) = blocked_start_fixture("strict")? else {
+        return Ok(());
+    };
+    let before = start_snapshot(fixture.node.path())?;
+    fixture.step(&[
+        "claim",
+        "--next",
+        "--start",
+        "--tag",
+        "start-target",
+        "--author",
+        "alpha",
+        "--json",
+    ])?;
+    assert_eq!(start_snapshot(fixture.node.path())?, before);
+    assert_eq!(start_snapshot(fixture.rust.path())?, before);
+    assert_atomic_blocker_refusal(&fixture)?;
+    Ok(())
+}
+/// Configures coincident workflow statuses through both supported schema layers.
+fn progress_fallback_fixture() -> Result<Option<Fixture>, Box<dyn std::error::Error>> {
+    let Some(fixture) = Fixture::new("strict")? else {
+        return Ok(None);
+    };
+    for root in [fixture.node.path(), fixture.rust.path()] {
+        let path = root.join(".agents/pm/settings.json");
+        let mut value: serde_json::Value = serde_json::from_slice(&fs::read(&path)?)?;
+        value["schema"]["workflow"]["open_status"] = serde_json::json!("open");
+        value["schema"]["workflow"]["in_progress_status"] = serde_json::json!("open");
+        fs::write(&path, serde_json::to_vec_pretty(&value)?)?;
+        fs::write(
+            root.join(".agents/pm/schema/workflows.json"),
+            serde_json::to_vec(&serde_json::json!({"workflow":value["schema"]["workflow"]}))?,
+        )?;
+    }
+    Ok(Some(fixture))
+}
+/// Explicit compositions use the registered progress fallback rather than an open no-op.
+#[test]
+fn explicit_start_progress_fallback_matches_published_bytes()
+-> Result<(), Box<dyn std::error::Error>> {
+    let Some(fixture) = progress_fallback_fixture()? else {
+        return Ok(());
+    };
+    fixture.step(&[
+        "claim",
+        "sample-own",
+        "--start",
+        "--author",
+        "alpha",
+        "--json",
+    ])?;
+    assert_eq!(
+        pm_rust::Workspace::discover(fixture.rust.path())?
+            .get("sample-own")?
+            .metadata
+            .status,
+        "in_progress"
+    );
+    fixture.verify()?;
+    Ok(())
+}
+/// The selected atomic transition resolves the identical fallback in its single claim write.
+#[test]
+fn ranked_start_progress_fallback_matches_published_bytes() -> Result<(), Box<dyn std::error::Error>>
+{
+    let Some(fixture) = progress_fallback_fixture()? else {
+        return Ok(());
+    };
+    fixture.step(&["claim", "--next", "--start", "--author", "alpha", "--json"])?;
+    assert_eq!(
+        pm_rust::Workspace::discover(fixture.rust.path())?
+            .get("sample-own")?
+            .metadata
+            .status,
+        "in_progress"
+    );
+    fixture.verify()?;
+    Ok(())
+}
+/// Explicit and atomic starts share strict-force, warning and off policy without duplicate warnings.
+#[test]
+fn start_blocker_enforcement_modes_match_published_bytes() -> Result<(), Box<dyn std::error::Error>>
+{
+    for (mode, force) in [("warn", false), ("off", false), ("strict", true)] {
+        let Some(fixture) = blocked_start_fixture(mode)? else {
+            return Ok(());
+        };
+        let mut args = vec![
+            "claim",
+            "sample-own",
+            "--start",
+            "--author",
+            "alpha",
+            "--json",
+        ];
+        if force {
+            args.push("--force");
+        }
+        fixture.step(&args)?;
+        fixture.verify()?;
+    }
+    Ok(())
+}
+
+/// The pause composition also runs start admission when its open target is the progress fallback.
+#[test]
+fn pause_progress_fallback_admission_matches_published_no_write()
+-> Result<(), Box<dyn std::error::Error>> {
+    let Some(fixture) = blocked_start_fixture("strict")? else {
+        return Ok(());
+    };
+    prepare(
+        &fixture,
+        &[
+            "update",
+            "sample-own",
+            "--status",
+            "blocked",
+            "--author",
+            "alpha",
+            "--json",
+        ],
+    )?;
+    for root in [fixture.node.path(), fixture.rust.path()] {
+        let path = root.join(".agents/pm/settings.json");
+        let mut value: serde_json::Value = serde_json::from_slice(&fs::read(&path)?)?;
+        value["schema"]["workflow"]["in_progress_status"] = serde_json::json!("open");
+        value["schema"]["statuses"]
+            .as_array_mut()
+            .ok_or("statuses")?
+            .retain(|row| row["id"] != "in_progress");
+        fs::write(&path, serde_json::to_vec_pretty(&value)?)?;
+        fs::write(
+            root.join(".agents/pm/schema/statuses.json"),
+            serde_json::to_vec(&serde_json::json!({"statuses":value["schema"]["statuses"]}))?,
+        )?;
+        fs::write(
+            root.join(".agents/pm/schema/workflows.json"),
+            serde_json::to_vec(&serde_json::json!({"workflow":value["schema"]["workflow"]}))?,
+        )?;
+    }
+    let before = start_snapshot(fixture.node.path())?;
+    fixture.step(&[
+        "release",
+        "sample-own",
+        "--pause",
+        "--author",
+        "alpha",
+        "--json",
+    ])?;
+    fixture.step(&["pause-task", "sample-own", "--author", "alpha", "--json"])?;
+    assert_eq!(start_snapshot(fixture.node.path())?, before);
+    assert_eq!(start_snapshot(fixture.rust.path())?, before);
+    Ok(())
+}
+/// Blocker aliases, closed prerequisites and absent/external targets share one admission policy.
+#[test]
+fn start_declared_blocker_variants_match_published_bytes() -> Result<(), Box<dyn std::error::Error>>
+{
+    for variant in ["closed", "missing", "external", "alias"] {
+        let Some(fixture) = blocked_start_fixture("strict")? else {
+            return Ok(());
+        };
+        match variant {
+            "closed" => prepare(
+                &fixture,
+                &[
+                    "close",
+                    "sample-gate",
+                    "Done",
+                    "--validate-close",
+                    "off",
+                    "--author",
+                    "alpha",
+                    "--json",
+                ],
+            )?,
+            "missing" => prepare(
+                &fixture,
+                &[
+                    "update",
+                    "sample-own",
+                    "--blocked-by",
+                    "sample-missing",
+                    "--author",
+                    "alpha",
+                    "--json",
+                ],
+            )?,
+            "external" => prepare(
+                &fixture,
+                &[
+                    "update",
+                    "sample-own",
+                    "--unset",
+                    "blocked_by",
+                    "--dep",
+                    "id=github:fixture/issue,kind=blocked_by,source_kind=external",
+                    "--author",
+                    "alpha",
+                    "--json",
+                ],
+            )?,
+            _ => prepare(
+                &fixture,
+                &[
+                    "update",
+                    "sample-own",
+                    "--dep",
+                    "id=sample-gate,kind=depends_on",
+                    "--author",
+                    "alpha",
+                    "--json",
+                ],
+            )?,
+        }
+        fixture.step(&[
+            "claim",
+            "sample-own",
+            "--start",
+            "--author",
+            "alpha",
+            "--json",
+        ])?;
+        fixture.compare_bytes()?;
+    }
+    Ok(())
+}
+/// Removed and aliased workflow progress selectors use the same registered fallback for both paths.
+#[test]
+fn configured_progress_resolution_matches_published_registry()
+-> Result<(), Box<dyn std::error::Error>> {
+    for selector in ["missing-progress", "OPEN-ALIAS"] {
+        for ranked in [false, true] {
+            let Some(fixture) = progress_fallback_fixture()? else {
+                return Ok(());
+            };
+            for root in [fixture.node.path(), fixture.rust.path()] {
+                let path = root.join(".agents/pm/settings.json");
+                let mut value: serde_json::Value = serde_json::from_slice(&fs::read(&path)?)?;
+                value["schema"]["workflow"]["in_progress_status"] = serde_json::json!(selector);
+                for status in value["schema"]["statuses"]
+                    .as_array_mut()
+                    .ok_or("statuses")?
+                {
+                    if status["id"] == "open" {
+                        status["aliases"] = serde_json::json!(["open_alias"]);
+                    }
+                }
+                fs::write(&path, serde_json::to_vec_pretty(&value)?)?;
+                fs::write(
+                    root.join(".agents/pm/schema/statuses.json"),
+                    serde_json::to_vec(
+                        &serde_json::json!({"statuses":value["schema"]["statuses"]}),
+                    )?,
+                )?;
+                fs::write(
+                    root.join(".agents/pm/schema/workflows.json"),
+                    serde_json::to_vec(
+                        &serde_json::json!({"workflow":value["schema"]["workflow"]}),
+                    )?,
+                )?;
+            }
+            let target = if ranked { "--next" } else { "sample-own" };
+            fixture.step(&["claim", target, "--start", "--author", "alpha", "--json"])?;
+            assert_eq!(
+                pm_rust::Workspace::discover(fixture.rust.path())?
+                    .get("sample-own")?
+                    .metadata
+                    .status,
+                "in_progress"
+            );
+        }
+    }
+    Ok(())
+}

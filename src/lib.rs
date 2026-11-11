@@ -20,6 +20,7 @@ mod history;
 mod identity_probes;
 mod item;
 mod json_output;
+mod lifecycle_admission;
 mod list;
 mod list_intent;
 mod list_registry;
@@ -69,3 +70,7 @@ pub use read_session::{
 };
 
 pub use query_cost::{QueryCost, QueryCostRefusal, QueryCostRequest, QueryProjection, WorkBound};
+
+#[cfg(test)]
+#[path = "../tests/support/process_environment.rs"]
+mod test_process_environment;

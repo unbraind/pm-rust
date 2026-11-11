@@ -1,0 +1,16 @@
+id: pm-rust-start-claim-compensation
+title: Verify ownership-safe explicit-start compensation after a late blocker
+description: "Round-four source audit found published sdk/lifecycle/task-composition.js::releaseRefusedStartClaim releases a newly acquired claim when a blocker opens between explicit start commits. Native currently preserves the claim and partial-step recovery. Independently reproduce this race in a non-git tracker and compare oracle context/history before changing behavior. Any compensation must prove the original claim receipt and complete history head are unchanged, leave intervening writers untouched, and retain all audit events. Ordinary strict admission and atomic stale-ranked admission are covered by pm-rust-oracle-1111."
+type: Task
+status: open
+priority: 2
+tags[3]: conformance,follow-up,"gh:unbraind/pm-rust#165"
+created_at: "2026-11-11T18:00:58.028Z"
+updated_at: "2026-11-11T18:00:58.947Z"
+author: codex-rust164-1111
+parent: pm-rust-oracle-1111
+files[3]{path,scope}:
+  src/lifecycle_admission.rs,project
+  src/ownership.rs,project
+  tests/claim_release_differential.rs,project
+body: ""

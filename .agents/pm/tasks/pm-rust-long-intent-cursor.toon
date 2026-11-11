@@ -1,0 +1,16 @@
+id: pm-rust-long-intent-cursor
+title: Verify long producer cursors survive bounded intent compaction
+description: "Review thread PRRT_kwDOTwgMRs62QgiY on PR #165 reports that intent compaction may shorten a producer next_cursor beyond 240 UTF-16 units and make --after unusable. Separate from round-four atomic lifecycle admission: reproduce against the pinned oracle in a non-git fixture, preserve cursor validity through the delivery path, and add a behavioral revert test without weakening budget assertions."
+type: Task
+status: open
+priority: 2
+tags[3]: conformance,follow-up,"gh:unbraind/pm-rust#165"
+created_at: "2026-11-11T17:58:30.355Z"
+updated_at: "2026-11-11T17:58:31.562Z"
+author: codex-rust164-1111
+parent: pm-rust-oracle-1111
+files[3]{path,scope}:
+  src/list_intent.rs,project
+  src/read_output.rs,project
+  tests/pagination_differential.rs,project
+body: ""

@@ -95,6 +95,24 @@ impl Lifecycle {
         self.aliases.get(&normalized).cloned().unwrap_or(normalized)
     }
 
+    /// Resolves the published progress fallback when workflow statuses coincide or are removed.
+    pub(crate) fn start_status(&self) -> String {
+        let open = self.canonical(&self.open);
+        let progress = self.canonical(&self.progress);
+        if progress != open && self.known(&progress) {
+            progress
+        } else if self.known("in_progress") {
+            self.canonical("in_progress")
+        } else {
+            self.canonical(&self.open)
+        }
+    }
+
+    /// Returns the canonical configured open status for pause transitions.
+    pub(crate) fn open_status(&self) -> String {
+        self.canonical(&self.open)
+    }
+
     /// Tests the configured close identity even when its roles are customized.
     pub(crate) fn closes(&self, status: &str) -> bool {
         self.canonical(status) == self.canonical(&self.close)
