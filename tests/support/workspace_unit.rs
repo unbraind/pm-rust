@@ -600,10 +600,23 @@ fn round5_parent_index_io_modes() -> Result<(), Box<dyn std::error::Error>> {
     {
         let _restore = Restore(path.clone(), permissions);
         std::fs::set_permissions(&path, std::fs::Permissions::from_mode(0o000))?;
-        for admitted in [false, true] {
-            assert!(
-                matches!(workspace.read_parent_index(admitted),Err(PmRustError::Io{source,..}) if source.kind()==io::ErrorKind::PermissionDenied)
-            );
+        match std::fs::read(&path) {
+            Err(error) if error.kind() == io::ErrorKind::PermissionDenied => {
+                for admitted in [false, true] {
+                    assert!(
+                        matches!(workspace.read_parent_index(admitted),Err(PmRustError::Io{source,..}) if source.kind()==io::ErrorKind::PermissionDenied)
+                    );
+                }
+            }
+            Ok(bytes) => {
+                // DAC capabilities can bypass mode bits; retain both encoding assertions.
+                assert_eq!(bytes, [0xff]);
+                assert!(
+                    matches!(workspace.read_parent_index(false),Err(PmRustError::Io{source,..}) if source.kind()==io::ErrorKind::InvalidData)
+                );
+                assert!(workspace.read_parent_index(true)?.is_empty());
+            }
+            Err(error) => return Err(error.into()),
         }
     }
     assert_eq!(
@@ -611,5 +624,39 @@ fn round5_parent_index_io_modes() -> Result<(), Box<dyn std::error::Error>> {
         original_mode
     );
     assert_eq!(std::fs::read(&path)?, [0xff]);
+    Ok(())
+}
+
+/// Every platform exercises both admission modes before unrelated document enumeration.
+#[test]
+fn round7_parent_index_encoding_modes() -> Result<(), Box<dyn std::error::Error>> {
+    let directory = tempfile::tempdir()?;
+    let root = directory.path().join(".agents/pm");
+    std::fs::create_dir_all(root.join("tasks"))?;
+    std::fs::write(root.join("settings.json"), "{}")?;
+    let path = root.join("tasks/bad.toon");
+    std::fs::write(&path, [0xff])?;
+    let workspace = super::Workspace::discover(directory.path())?;
+    assert!(
+        matches!(workspace.read_parent_index(false),Err(PmRustError::Io{source,..})if source.kind()==io::ErrorKind::InvalidData)
+    );
+    assert!(workspace.read_parent_index(true)?.is_empty());
+    #[cfg(windows)]
+    {
+        use std::os::windows::fs::OpenOptionsExt as _;
+        let held = std::fs::OpenOptions::new()
+            .read(true)
+            .share_mode(0)
+            .open(&path)?;
+        let denied = std::fs::read(&path).expect_err("exclusive handle must prevent a second read");
+        assert_eq!(denied.raw_os_error(), Some(32)); // ERROR_SHARING_VIOLATION
+        for admitted in [false, true] {
+            assert!(
+                matches!(workspace.read_parent_index(admitted),Err(PmRustError::Io{source,..})if source.raw_os_error()==denied.raw_os_error() && source.kind()==denied.kind())
+            );
+        }
+        drop(held);
+    }
+    assert_eq!(std::fs::read(path)?, [0xff]);
     Ok(())
 }

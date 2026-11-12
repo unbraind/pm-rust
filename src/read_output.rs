@@ -30,6 +30,11 @@ pub(crate) fn update_output(result: &mut ListOutput, toon: bool) {
 /// (published 2026.10.17+ contract, GH-1478). Already-malformed values keep the
 /// lossless overrides that [`crate::ListOutput`] serialization retains.
 pub(crate) fn compact_strings(value: &mut Value) -> bool {
+    compact_strings_at(value, true)
+}
+
+/// Protects only the root cursor envelope while compacting identically named item metadata.
+fn compact_strings_at(value: &mut Value, envelope: bool) -> bool {
     match value {
         Value::String(text) if text.encode_utf16().count() > 240 => {
             let units = text.encode_utf16().take(240).collect::<Vec<_>>();
@@ -41,14 +46,13 @@ pub(crate) fn compact_strings(value: &mut Value) -> bool {
             *text = format!("{}…", String::from_utf16_lossy(&units[..end]));
             true
         }
-        Value::Array(rows) => rows
-            .iter_mut()
-            .fold(false, |changed, row| compact_strings(row) | changed),
+        Value::Array(rows) => rows.iter_mut().fold(false, |changed, row| {
+            compact_strings_at(row, false) | changed
+        }),
         Value::Object(map) => map.iter_mut().fold(false, |changed, (key, row)| {
-            (!matches!(
-                key.as_str(),
-                "focus_row_states" | "next_cursor" | "output_cursor"
-            ) && compact_strings(row))
+            (!(key == "focus_row_states"
+                || (envelope && matches!(key.as_str(), "next_cursor" | "output_cursor")))
+                && compact_strings_at(row, false))
                 | changed
         }),
         _ => false,

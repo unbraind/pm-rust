@@ -2208,3 +2208,30 @@ fn round5_delimited_recovery_and_human_fallback() -> Result<(), Box<dyn std::err
     }
     Ok(())
 }
+
+/// A public port/path URL cannot absorb the next URL's credential span.
+#[test]
+fn round7_public_url_port_boundaries() {
+    for separator in [" ", ",", ";"] {
+        let source = format!(
+            "https://public.invalid:443/p{separator}https://u:secret-password@private.invalid"
+        );
+        let expected =
+            format!("https://public.invalid:443/p{separator}https://[redacted]@private.invalid");
+        let mut payload = serde_json::json!({"detail":source});
+        super::refusal::redact(&mut payload, &[]);
+        assert_eq!(payload["detail"], expected);
+    }
+    for source in [
+        "https://public.invalid:443/p",
+        "https://www.npmjs.com/package/@scope/x",
+    ] {
+        let mut payload = serde_json::json!({"detail":source});
+        super::refusal::redact(&mut payload, &[]);
+        assert_eq!(payload["detail"], source);
+    }
+    let mut nested =
+        serde_json::json!({"detail":"https://u:long-lived-secret://tail@private.invalid"});
+    super::refusal::redact(&mut nested, &[]);
+    assert_eq!(nested["detail"], "https://[redacted]@private.invalid");
+}

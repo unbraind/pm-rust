@@ -270,14 +270,11 @@ fn round5_read_and_mutation_delivery_failures_retain_commits()
         vec!["docs", "sample-delivery", "--json"],
         vec!["context", "--json", "--no-extension-health"],
     ] {
-        let mut child = Command::new(env!("CARGO_BIN_EXE_pm-rust"))
+        let output = Command::new(env!("CARGO_BIN_EXE_pm-rust"))
             .current_dir(workspace.path())
             .args(&args)
-            .stdout(Stdio::piped())
-            .stderr(Stdio::piped())
-            .spawn()?;
-        drop(child.stdout.take());
-        let output = child.wait_with_output()?;
+            .stdout(Stdio::from(closed_stdout()?))
+            .output()?;
         assert!(!output.status.success(), "{args:?}");
         assert!(!output.stderr.is_empty(), "{args:?}");
     }
@@ -351,14 +348,11 @@ fn history_strict_success_and_closed_pipe() -> Result<(), Box<dyn std::error::Er
     assert_eq!(verified["verification"]["ok"], false);
     // Confirm the edited stream loads before isolating the closed-pipe failure.
     expect_ok(&workspace, &["history", "sample-cli", "--full", "--json"])?;
-    let mut child = Command::new(env!("CARGO_BIN_EXE_pm-rust"))
+    let output = Command::new(env!("CARGO_BIN_EXE_pm-rust"))
         .current_dir(workspace.path())
         .args(["--workspace=.", "history", "sample-cli", "--full", "--json"])
-        .stdout(Stdio::piped())
-        .stderr(Stdio::piped())
-        .spawn()?;
-    drop(child.stdout.take());
-    let output = child.wait_with_output()?;
+        .stdout(Stdio::from(closed_stdout()?))
+        .output()?;
     assert_eq!(output.status.code(), Some(2));
     assert!(!output.stderr.is_empty());
     assert_eq!(fs::read(path)?, before);
@@ -1184,5 +1178,28 @@ fn round5_list_budget_omissions_keep_their_exit_contract() -> Result<(), Box<dyn
         assert_eq!(receipt[key]["omitted_result"], true);
         assert_eq!(fs::read(&path)?, before);
     }
+    Ok(())
+}
+
+/// Creates a pipe with no readers before the child process exists.
+fn closed_stdout() -> std::io::Result<std::io::PipeWriter> {
+    let (reader, writer) = std::io::pipe()?;
+    drop(reader);
+    Ok(writer)
+}
+
+/// The delivery-failure invariant exists before scheduling any child.
+#[test]
+fn round7_closed_pipe_precedes_child_creation() -> Result<(), Box<dyn std::error::Error>> {
+    use std::io::Write as _;
+    let mut writer = closed_stdout()?;
+    assert_eq!(
+        writer
+            .write_all(b"receipt")
+            .err()
+            .ok_or("pipe remained readable")?
+            .kind(),
+        std::io::ErrorKind::BrokenPipe
+    );
     Ok(())
 }

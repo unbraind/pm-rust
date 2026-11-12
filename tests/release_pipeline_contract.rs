@@ -1193,18 +1193,50 @@ fn npm_and_bun_share_the_full_native_aggregate() -> Result<(), BoxError> {
     Ok(())
 }
 
+/// Locates Cargo's active profile by its deps/build artifact directories, including custom profiles.
+fn cargo_profile_directory(
+    executable: &std::path::Path,
+) -> Result<&std::path::Path, Box<dyn std::error::Error>> {
+    executable
+        .ancestors()
+        .find_map(|path| {
+            let name = path.file_name()?.to_str()?;
+            if name == "deps" || name == "build" {
+                path.parent()
+            } else {
+                None
+            }
+        })
+        .ok_or_else(|| "Cargo profile directory".into())
+}
+
+/// Custom and cross-target profile names obey both stable and nightly artifact layouts.
+#[test]
+fn round7_custom_cargo_profile_paths() -> Result<(), Box<dyn std::error::Error>> {
+    for executable in [
+        "target/custom-check/deps/test-binary",
+        "target/custom-check/build/pm-rust/hash/out/test-binary",
+        "target/triple/custom-check/deps/test-binary",
+    ] {
+        let path = std::path::Path::new(executable);
+        let expected = if executable.contains("triple") {
+            "target/triple/custom-check"
+        } else {
+            "target/custom-check"
+        };
+        assert_eq!(
+            cargo_profile_directory(path)?,
+            std::path::Path::new(expected)
+        );
+    }
+    assert!(cargo_profile_directory(std::path::Path::new("some/test-binary")).is_err());
+    Ok(())
+}
+
 /// Finds this crate's build script across the stable and nightly Cargo artifact layouts.
 fn own_build_scripts() -> Result<Vec<std::path::PathBuf>, Box<dyn std::error::Error>> {
     let executable = std::env::current_exe()?;
-    let profile = executable
-        .ancestors()
-        .find(|path| {
-            matches!(
-                path.file_name().and_then(std::ffi::OsStr::to_str),
-                Some("debug" | "release")
-            )
-        })
-        .ok_or("Cargo profile directory")?;
+    let profile = cargo_profile_directory(&executable)?;
     let mut folders = vec![];
     for entry in std::fs::read_dir(profile.join("build"))? {
         let entry = entry?;

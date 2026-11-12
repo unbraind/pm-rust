@@ -414,3 +414,12 @@ gap. Native retains its canonical filesystem diagnostic. Only the compared
 `context.item_path` uses shared filesystem canonicalisation; all other context
 fields and complete CLI byte assertions remain exact. Bootstrap-scope coverage
 now supplies its own inputs instead of relying on test-runner arguments.
+
+## Round-seven review boundaries
+
+[Round-seven evidence](ORACLE_REVIEW_ROUND7_2026_11_12.md) records optional-oracle
+cursor coverage, captured lifecycle registries, indexed comment receipts,
+envelope-scoped cursor compaction, URL boundaries, deterministic closed pipes,
+custom Cargo profiles and Windows coverage fixtures. It also preserves the
+published mixed-blocker warning and roleless close-status policy, and records the
+same-head macOS latency retry at unchanged thresholds.

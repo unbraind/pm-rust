@@ -6,10 +6,10 @@ status: in_progress
 priority: 1
 tags[4]: conformance,"gh:unbraind/pm-rust#164","gh:unbraind/pm-rust#165",oracle
 created_at: "2026-11-11T05:32:00.010Z"
-updated_at: "2026-11-12T08:50:28.855Z"
+updated_at: "2026-11-12T14:25:46.307Z"
 author: codex-rust164-1111
 parent: pm-rust-u4al
-comments[45]{created_at,author,text}:
+comments[51]{created_at,author,text}:
   "2026-11-11T05:32:04.866Z",codex-rust164-1111,"Confirmed current npm latest is 2026.11.11 and updated the locked published oracle. Baseline differential runs precede native changes. Centralize refusal recovery, scope and redaction; retain byte comparisons and all existing cases."
   "2026-11-11T05:50:02.157Z",codex-rust164-1111,"Baseline against 2026.11.11: 120 differential tests, 59 passed and 61 failed (claim target 20 passed and 7 failed). Additional drift includes compact TOON list/null columns, complete omission receipts, newest-first compact history with total/order echoes, actual-format intent estimates, exclusive activity windows, relationship root-evidence ordering, close completion provenance and close recovery retries. All existing byte and durable-state comparisons remain exact; stale claim-attribution expectations now assert the published warning and successful durable transition."
   "2026-11-11T06:11:46.818Z",codex-rust164-1111,"The expanded orientation pass reached 25 of 32 passing before the final shared fixes: matching-active test health, root-edge cost reservation and incident-root edge ordering. All 397 library unit tests pass; the focused CLI/bin/parity run then passed 44 binary tests, 18 CLI dispatch tests and 14 parity contracts. Corrected the final ownership fault expectation to require the published warning. Running all eight differential targets through linked pm tests, sequentially, with each cargo command capped at 1200 seconds and two test threads."
@@ -55,6 +55,12 @@ comments[45]{created_at,author,text}:
   "2026-11-12T08:46:36.469Z",codex-agent,"Round-six results: affected claim/release target 42/42, binary unit target 59/59, CLI dispatch 25/25: 126 tests, zero failed or ignored. Fresh coverage profiles with CARGO_INCREMENTAL=0 and RUST_TEST_THREADS=2, and no harness argv, cover invocation_scope at 6/6 branch outcomes and 31/31 regions. Check, clippy (deny warnings), fmt and private-item docs pass. Negative controls in disposable copies: restoring identity-only path comparison makes the new alias regression fail at an assertion; prematurely stopping at --native makes the new scope regression fail. Both pass after restoration. Literal reversal of the coverage-only fix (remove only the new scope test) gives 58 passing tests but fails the affected coverage gate at 5/6 outcomes and 30/31 regions; restoring it gives 59 passed, 6/6 and 31/31. No compilation failure counted. Native canonical diagnostic behavior is unchanged; only context.item_path is canonicalized by one shared filesystem helper in the SDK comparison. Other context fields, complete CLI byte comparisons and no-write evidence remain exact. Full aggregate and Windows execution remain for CI at unchanged thresholds. All commands capped at 1200 seconds with at most two workers. Evidence: docs/ORACLE_CI_ROUND6_2026_11_12.md."
   "2026-11-12T08:46:37.247Z",codex-agent,"Round-six CI source receipts: Windows failure https://github.com/unbraind/pm-rust/actions/runs/43164348134/job/131002709778 and aggregate branch-total failure https://github.com/unbraind/pm-rust/actions/runs/43164348134/job/131002709747. The aggregate reports only branches below the gate: 4253/4254 (99.97649271274095); lines/functions/regions are 100. Full release and Windows certification for the new head remain pending at https://github.com/unbraind/pm-rust/pull/165/checks. No threshold, exclusion, workflow, dependency or production source changed. No new review work was undertaken."
   "2026-11-12T08:50:27.784Z",codex-agent,"Round-six corrections and local receipts pushed as c3dc17a8836ab3646c9b1057ea7bc405030dab32. Fresh CI is queued at https://github.com/unbraind/pm-rust/actions/runs/43185967308 and CodeQL at https://github.com/unbraind/pm-rust/actions/runs/43185967284; neither is certified passed. Full Windows and aggregate coverage certification remain pending. Subsequent tracker-only handoff heads are followed at https://github.com/unbraind/pm-rust/pull/165/checks. The test and coverage evidence applies to the unchanged test/source tree; the handoff commit changes tracker receipts only."
+  "2026-11-12T13:03:59.870Z",codex-agent,"Round seven: rechecked clean worktree and remote head 5da6c06; origin/main remains contained, so no merge is needed. Enumerated 34 thread records; read all 11 requested threads and all 13 comments, including their AI-agent prompts. This final round covers the two failing CI jobs, all named review classes, and evidence-backed dispositions. The initial gh run view --log-failed returned empty output, so reading the exact job logs through the jobs API. Any incomplete correction will be reported with its reason for orchestrator follow-up in #167; no new upstream issue or thread reply will be filed."
+  "2026-11-12T13:45:19.936Z",codex-agent,"Same-head macOS latency retry passed unchanged: get/list/context p95 9.381/64.781/102.864 ms; main passed at 8.439/46.285/78.771 ms. Windows aggregate failed coverage, not the missing-oracle test: lines 18660/18661, functions 1907/1907, regions 30383/30384, branches 4215/4218. Added real Windows junction and exclusive-handle coverage plus cross-platform encoding reads. Mixed blocker oracle emits only the encoding warning. Roleless configured close targets are allowed by the published atomic SDK; retain that policy and report it for orchestrator follow-up. Comment row indexing also exposes a pre-existing response-wrapper mismatch; the new regression compares complete indexed rows and exact stored bytes."
+  "2026-11-12T14:20:16.681Z",codex-agent,"Round-seven complete test targets passed: library 432, binary 60, cli_dispatch 26, release_pipeline_contract 22, mutation_contract 29, admission_contract 12; differential targets claim_release 46, pagination 32, list 8, orientation 35, close 8, conformance 2, output_parity 2, search_collections 17. Total 731 tests, including all 150 differential cases. Commands are linked with twenty-minute limits and two threads. Final lint/typecheck, optional-oracle and policy probes, isolated reverts, identity, health and changelog checks are next."
+  "2026-11-12T14:22:25.998Z",codex-agent,"Policy probes confirmed both legacy workflow.close_status and schema.workflow.close_status: with an explicitly active role and no terminal role, the published atomic SDK and native both persist in_progress. Stale ranked starts refuse terminal-role targets without writes and permit active-role targets. The outdated thread remains a policy conflict for the orchestrator follow-up rather than a native-only divergence. Exact strict health passed with isolated home and global Git config disabled; ordinary host health refuses only extension_host_pm_cli_version_skew (pinned oracle 2026.11.11 versus global pm-github expectation 2026.11.12). No global state or pin changed. Four focused probes, the optional-oracle run, and seven identity tests passed."
+  "2026-11-12T14:25:41.432Z",codex-agent,"Revert proof complete in a disposable copy: all 12 negative cases failed with executed test failures (exit 101), then the same 12 commands passed after restoration (24 verified runs; no compile failures). Literal function reverts: compact_strings -> round7_cursor_metadata_compacts_below_the_envelope; userinfos -> round7_public_url_port_boundaries; indexed_comment_receipt -> round7_stored_comment_index_matches_published; ownership_item_with_options plus admit_lifecycle_transition together -> round7_terminal_source_contract; own_build_scripts -> build_script_stack_contract under actual custom Cargo profile. Removing the optional-oracle guard also fails round7_native_long_cursor_without_oracle. Six separately labeled sensitivity checks cover empty suffix, open reader, profile-name matching, valid-cursor refusal, wrong encoding-error bypass, and symlink traversal. Every case passes restored. Detailed commands and scope are in docs/ORACLE_REVIEW_ROUND7_2026_11_12.md. Windows-specific execution remains CI certification."
+  "2026-11-12T14:25:43.676Z",codex-agent,"Final local gates: 731 selected Rust tests plus 7 identity tests passed; four focused environment/policy reruns passed; clippy all targets/features with denied warnings, cargo check all targets/features, and fmt check passed. Same-head macOS latency retry passed unchanged thresholds. Strict tracker health passes in an isolated home; ordinary host refuses global extension version skew only. No full release aggregate was rerun: CI certifies platform coverage and final-head performance. Remaining follow-up reasons: published mixed blockers retain only the encoding warning; published atomic starts permit roleless configured close targets in both settings locations; native comment response wrapper still differs from published projection beyond the corrected row indexes. No issues filed, no threads answered/resolved, no merge or release."
 files[58]:
   - path: CHANGELOG.md
     scope: project
@@ -203,7 +209,7 @@ files[58]:
   - path: tests/support/workspace_unit.rs
     scope: project
     note: "Round-five review implementation, behavioral coverage and review evidence"
-tests[59]:
+tests[78]:
   - command: PM_RUST_REQUIRE_PUBLISHED_CLI=1 CARGO_BUILD_JOBS=2 timeout 1200 cargo +1.90.0 test --locked -j 2 --lib --bin pm-rust --test cli_dispatch --test ownership_contract --test parity_1021_contract --test release_pipeline_contract -- --test-threads=2
     scope: project
     timeout_seconds: 1200
@@ -671,7 +677,158 @@ tests[59]:
       created_at: "2026-11-12T08:42:56.732Z"
       source_kind: local_mutation
       source_ref: oracle-pm-cli-2026-11-11
-docs[4]:
+  - command: timeout 1200 cargo test --locked -j2 --test cli_dispatch round7_closed_pipe_precedes_child_creation -- --test-threads=2
+    scope: project
+    provenance:
+      author: codex-agent
+      created_at: "2026-11-12T13:45:31.014Z"
+      source_kind: local_mutation
+      source_ref: oracle-pm-cli-2026-11-11
+  - command: PM_RUST_REQUIRE_PUBLISHED_CLI=1 RUST_TEST_THREADS=2 timeout 1200 cargo test --locked -j2 --lib --bin pm-rust
+    scope: project
+    timeout_seconds: 1200
+    provenance:
+      author: codex-agent
+      created_at: "2026-11-12T13:57:31.135Z"
+      source_kind: local_mutation
+      source_ref: oracle-pm-cli-2026-11-11
+  - command: PM_RUST_REQUIRE_PUBLISHED_CLI=1 RUST_TEST_THREADS=2 timeout 1200 cargo test --locked -j2 --test cli_dispatch
+    scope: project
+    timeout_seconds: 1200
+    provenance:
+      author: codex-agent
+      created_at: "2026-11-12T13:57:31.135Z"
+      source_kind: local_mutation
+      source_ref: oracle-pm-cli-2026-11-11
+  - command: PM_RUST_REQUIRE_PUBLISHED_CLI=1 RUST_TEST_THREADS=2 timeout 1200 cargo test --locked -j2 --test release_pipeline_contract
+    scope: project
+    timeout_seconds: 1200
+    provenance:
+      author: codex-agent
+      created_at: "2026-11-12T13:57:31.135Z"
+      source_kind: local_mutation
+      source_ref: oracle-pm-cli-2026-11-11
+  - command: PM_RUST_REQUIRE_PUBLISHED_CLI=1 RUST_TEST_THREADS=2 timeout 1200 cargo test --locked -j2 --test claim_release_differential
+    scope: project
+    timeout_seconds: 1200
+    provenance:
+      author: codex-agent
+      created_at: "2026-11-12T13:57:31.135Z"
+      source_kind: local_mutation
+      source_ref: oracle-pm-cli-2026-11-11
+  - command: PM_RUST_REQUIRE_PUBLISHED_CLI=1 RUST_TEST_THREADS=2 timeout 1200 cargo test --locked -j2 --test pagination_differential
+    scope: project
+    timeout_seconds: 1200
+    provenance:
+      author: codex-agent
+      created_at: "2026-11-12T13:57:31.135Z"
+      source_kind: local_mutation
+      source_ref: oracle-pm-cli-2026-11-11
+  - command: PM_RUST_REQUIRE_PUBLISHED_CLI=1 RUST_TEST_THREADS=2 timeout 1200 cargo test --locked -j2 --test mutation_contract
+    scope: project
+    timeout_seconds: 1200
+    provenance:
+      author: codex-agent
+      created_at: "2026-11-12T13:57:31.135Z"
+      source_kind: local_mutation
+      source_ref: oracle-pm-cli-2026-11-11
+  - command: PM_RUST_REQUIRE_PUBLISHED_CLI=1 RUST_TEST_THREADS=2 timeout 1200 cargo test --locked -j2 --test admission_contract
+    scope: project
+    timeout_seconds: 1200
+    provenance:
+      author: codex-agent
+      created_at: "2026-11-12T13:57:31.135Z"
+      source_kind: local_mutation
+      source_ref: oracle-pm-cli-2026-11-11
+  - command: PM_RUST_REQUIRE_PUBLISHED_CLI=1 RUST_TEST_THREADS=2 timeout 1200 cargo test --locked -j2 --test list_differential
+    scope: project
+    timeout_seconds: 1200
+    provenance:
+      author: codex-agent
+      created_at: "2026-11-12T13:57:31.135Z"
+      source_kind: local_mutation
+      source_ref: oracle-pm-cli-2026-11-11
+  - command: PM_RUST_REQUIRE_PUBLISHED_CLI=1 RUST_TEST_THREADS=2 timeout 1200 cargo test --locked -j2 --test orientation_differential
+    scope: project
+    timeout_seconds: 1200
+    provenance:
+      author: codex-agent
+      created_at: "2026-11-12T13:57:31.135Z"
+      source_kind: local_mutation
+      source_ref: oracle-pm-cli-2026-11-11
+  - command: PM_RUST_REQUIRE_PUBLISHED_CLI=1 RUST_TEST_THREADS=2 timeout 1200 cargo test --locked -j2 --test close_differential
+    scope: project
+    timeout_seconds: 1200
+    provenance:
+      author: codex-agent
+      created_at: "2026-11-12T13:57:31.135Z"
+      source_kind: local_mutation
+      source_ref: oracle-pm-cli-2026-11-11
+  - command: PM_RUST_REQUIRE_PUBLISHED_CLI=1 RUST_TEST_THREADS=2 timeout 1200 cargo test --locked -j2 --test conformance_differential
+    scope: project
+    timeout_seconds: 1200
+    provenance:
+      author: codex-agent
+      created_at: "2026-11-12T13:57:31.135Z"
+      source_kind: local_mutation
+      source_ref: oracle-pm-cli-2026-11-11
+  - command: PM_RUST_REQUIRE_PUBLISHED_CLI=1 RUST_TEST_THREADS=2 timeout 1200 cargo test --locked -j2 --test output_parity_differential
+    scope: project
+    timeout_seconds: 1200
+    provenance:
+      author: codex-agent
+      created_at: "2026-11-12T13:57:31.135Z"
+      source_kind: local_mutation
+      source_ref: oracle-pm-cli-2026-11-11
+  - command: PM_RUST_REQUIRE_PUBLISHED_CLI=1 RUST_TEST_THREADS=2 timeout 1200 cargo test --locked -j2 --test search_collections_differential
+    scope: project
+    timeout_seconds: 1200
+    provenance:
+      author: codex-agent
+      created_at: "2026-11-12T13:57:31.135Z"
+      source_kind: local_mutation
+      source_ref: oracle-pm-cli-2026-11-11
+  - command: PM_RUST_REQUIRE_PUBLISHED_CLI=1 RUST_TEST_THREADS=2 timeout 1200 cargo clippy --locked -j2 --all-targets --all-features -- -D warnings
+    scope: project
+    timeout_seconds: 1200
+    provenance:
+      author: codex-agent
+      created_at: "2026-11-12T13:57:31.135Z"
+      source_kind: local_mutation
+      source_ref: oracle-pm-cli-2026-11-11
+  - command: PM_RUST_REQUIRE_PUBLISHED_CLI=1 RUST_TEST_THREADS=2 timeout 1200 cargo check --locked -j2 --all-targets --all-features
+    scope: project
+    timeout_seconds: 1200
+    provenance:
+      author: codex-agent
+      created_at: "2026-11-12T13:57:31.135Z"
+      source_kind: local_mutation
+      source_ref: oracle-pm-cli-2026-11-11
+  - command: PM_RUST_REQUIRE_PUBLISHED_CLI=1 RUST_TEST_THREADS=2 timeout 1200 cargo fmt --all -- --check
+    scope: project
+    timeout_seconds: 1200
+    provenance:
+      author: codex-agent
+      created_at: "2026-11-12T13:57:31.135Z"
+      source_kind: local_mutation
+      source_ref: oracle-pm-cli-2026-11-11
+  - command: PM_RUST_REQUIRE_PUBLISHED_CLI=1 RUST_TEST_THREADS=2 timeout 1200 cargo test --locked -j2 --test identity_audit
+    scope: project
+    timeout_seconds: 1200
+    provenance:
+      author: codex-agent
+      created_at: "2026-11-12T13:57:31.135Z"
+      source_kind: local_mutation
+      source_ref: oracle-pm-cli-2026-11-11
+  - command: PM_RUST_REQUIRE_PUBLISHED_CLI=1 RUST_TEST_THREADS=2 timeout 1200 just changelog-check
+    scope: project
+    timeout_seconds: 1200
+    provenance:
+      author: codex-agent
+      created_at: "2026-11-12T13:57:31.135Z"
+      source_kind: local_mutation
+      source_ref: oracle-pm-cli-2026-11-11
+docs[5]:
   - path: docs/NATIVE_PARITY_2026_11_11.md
     scope: project
   - path: docs/ORACLE_CI_ROUND6_2026_11_12.md
@@ -681,4 +838,6 @@ docs[4]:
   - path: docs/ORACLE_REVIEW_ROUND5_2026_11_12.md
     scope: project
     note: Complete round-five thread and validation receipt
+  - path: docs/ORACLE_REVIEW_ROUND7_2026_11_12.md
+    scope: project
 body: ""

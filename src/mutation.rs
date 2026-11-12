@@ -3317,8 +3317,14 @@ pub(crate) fn ownership_item_with_options(
     let mut suggestions = Vec::new();
     let mut skipped = None;
     let mut changed = 0;
-    let terminal =
-        claim && crate::list_registry::Lifecycle::load(pm_root)?.terminal(&before.metadata.status);
+    let registry = if claim {
+        Some(crate::list_registry::Lifecycle::load(pm_root)?)
+    } else {
+        None
+    };
+    let terminal = registry
+        .as_ref()
+        .is_some_and(|registry| registry.terminal(&before.metadata.status));
     if claim {
         if terminal && !request.force {
             return Err(ownership_refusal(
@@ -3406,17 +3412,16 @@ pub(crate) fn ownership_item_with_options(
             suggestions.push(format!("{} remains in_progress and unclaimed. If work is paused, run pm release {} --pause to move it to open.", request.id, request.id));
         }
     }
-    let start = if claim
-        && skipped.is_none()
-        && (options.start || crate::lifecycle_admission::explicit_claim())
-    {
+    let start = if let Some(registry) = registry.as_ref().filter(|_| {
+        skipped.is_none() && (options.start || crate::lifecycle_admission::explicit_claim())
+    }) {
         let phase = if options.start {
             crate::lifecycle_admission::Phase::AtomicStart
         } else {
             crate::lifecycle_admission::Phase::Claim
         };
-        let admission = crate::lifecycle_admission::admit_lifecycle_transition(
-            pm_root, request, &document, phase,
+        let admission = crate::lifecycle_admission::admit_with_registry(
+            pm_root, request, &document, phase, registry,
         )?;
         warnings.extend(admission.warnings);
         if options.start {

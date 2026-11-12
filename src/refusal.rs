@@ -38,6 +38,7 @@ fn userinfos(text: &str) -> Vec<(usize, usize)> {
         let mut stop = schemes.get(index + 1).map_or(text.len(), |next| next.0);
         let prefix = &text[start..stop];
         if !prefix.contains('@')
+            && !prefix.ends_with(|ch: char| whitespace(ch) || matches!(ch, ',' | ';'))
             && prefix[..prefix.find('/').unwrap_or(prefix.len())].contains(':')
             && let Some(at) = text[start..].find('@')
         {

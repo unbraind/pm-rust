@@ -2358,6 +2358,7 @@ fn indexed_comment_receipt(
         .enumerate()
     {
         if let Some(fields) = comment.as_object_mut() {
+            fields.shift_remove("index");
             let mut indexed = serde_json::Map::new();
             indexed.insert("index".to_owned(), serde_json::json!(index + 1));
             indexed.extend(std::mem::take(fields));

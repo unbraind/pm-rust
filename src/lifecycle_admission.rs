@@ -54,8 +54,19 @@ pub(crate) fn admit_lifecycle_transition(
     before: &ItemDocument,
     phase: Phase,
 ) -> Result<Admission, PmRustError> {
+    let registry = Lifecycle::load(root)?;
+    admit_with_registry(root, request, before, phase, &registry)
+}
+
+/// Reuses the locked claim's captured registry for atomic status and blocker admission.
+pub(crate) fn admit_with_registry(
+    root: &Path,
+    request: &OwnershipItem,
+    before: &ItemDocument,
+    phase: Phase,
+    registry: &Lifecycle,
+) -> Result<Admission, PmRustError> {
     let settings = crate::ownership::runtime_settings(root)?;
-    let registry = Lifecycle::from_values(&settings, &Value::Null, &Value::Null);
     let progress = registry.start_status();
     let status = if phase == Phase::Pause {
         registry.open_status()
@@ -80,7 +91,7 @@ pub(crate) fn admit_lifecycle_transition(
     if registry.canonical(&before.metadata.status) != registry.canonical(&status)
         && status == progress
     {
-        let mut blockers = admit_blockers(root, &settings, &registry, before, request.force)?;
+        let mut blockers = admit_blockers(root, &settings, registry, before, request.force)?;
         EXPLICIT.with(|state| {
             if let Some(recorded) = state.borrow_mut().as_mut() {
                 if phase == Phase::Claim {

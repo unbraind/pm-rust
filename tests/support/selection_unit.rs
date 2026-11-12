@@ -902,3 +902,57 @@ fn round5_status_registry_normalizes_aliases_for_ranked_reads() {
     let unknown = item("sample-unknown");
     assert!(!has_role(&unknown, &index.lifecycle, "active"));
 }
+
+/// A captured ranked item is rechecked against the same default-file terminal policy under its lock.
+#[test]
+fn round7_stale_ranked_status_uses_terminal_policy() -> Result<(), Box<dyn std::error::Error>> {
+    for terminal in [true, false] {
+        let (_directory, workspace) = tracker()?;
+        seed(&workspace)?;
+        let ranked = workspace.get("sample-own")?;
+        fs::create_dir_all(workspace.pm_root().join("schema"))?;
+        fs::write(
+            workspace.pm_root().join("settings.json"),
+            json!({"workflow":{"close_status":"done"},"schema":{"workflow":{"close_status":"done"}}}).to_string(),
+        )?;
+        let roles = if terminal {
+            json!(["terminal_done"])
+        } else {
+            json!(["active"])
+        };
+        fs::write(
+            workspace.pm_root().join("schema/statuses.json"),
+            json!({"statuses":[{"id":"done","roles":roles}]}).to_string(),
+        )?;
+        let path = workspace.pm_root().join("tasks/sample-own.toon");
+        fs::write(
+            &path,
+            fs::read_to_string(&path)?.replace("status: open", "status: done"),
+        )?;
+        let item_before = fs::read(&path)?;
+        let history_path = workspace.pm_root().join("history/sample-own.jsonl");
+        let history_before = fs::read(&history_path)?;
+        let mut caller = request();
+        caller.force = true;
+        let actual = workspace.claim_ranked(
+            &caller,
+            &OwnershipOptions {
+                start: true,
+                ..Default::default()
+            },
+            &[ranked],
+            1,
+        );
+        if terminal {
+            assert!(
+                matches!(actual,Err(PmRustError::OwnershipRefusal{context,..})if context["code"]=="terminal_state_conflict")
+            );
+            assert_eq!(fs::read(&path)?, item_before);
+            assert_eq!(fs::read(&history_path)?, history_before);
+        } else {
+            assert_eq!(actual?["status"], "in_progress");
+            assert_eq!(workspace.get("sample-own")?.metadata.status, "in_progress");
+        }
+    }
+    Ok(())
+}

@@ -466,3 +466,28 @@ fn round5_closed_and_force_open_blockers_use_shared_policy()
     assert!(blocker(&root, "sample-missing", &json!({"id_prefix":"sample-"}))?.is_none());
     Ok(())
 }
+
+/// Windows junctions are traversal boundaries, just like Unix symbolic links.
+#[cfg(windows)]
+#[test]
+fn round7_windows_junction_is_not_a_blocker_source() -> Result<(), Box<dyn std::error::Error>> {
+    let (_temp, root, _before) = disk()?;
+    let external = tempfile::tempdir()?;
+    fs::write(
+        external.path().join("sample-gate.toon"),
+        "unrelated external document",
+    )?;
+    let junction = root.join("tasks/ignored");
+    let output = std::process::Command::new("cmd")
+        .args(["/C", "mklink", "/J"])
+        .arg(&junction)
+        .arg(external.path())
+        .output()?;
+    assert!(output.status.success(), "junction creation failed");
+    assert!(junction.is_symlink());
+    let mut paths = vec![];
+    blocker_paths(&root, true, "sample-gate", &mut paths)?;
+    assert_eq!(paths, vec![root.join("tasks/sample-gate.toon")]);
+    fs::remove_dir(junction)?;
+    Ok(())
+}
