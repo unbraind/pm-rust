@@ -401,3 +401,6 @@ fn round5_second_projection_rechecks_a_valid_snapshot() -> Result<(), Box<dyn st
     );
     Ok(())
 }
+
+#[path = "list_intent_delivery_differential.rs"]
+mod delivery_differential;

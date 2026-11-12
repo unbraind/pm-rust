@@ -648,7 +648,9 @@ fn round7_parent_index_encoding_modes() -> Result<(), Box<dyn std::error::Error>
             .read(true)
             .share_mode(0)
             .open(&path)?;
-        let denied = std::fs::read(&path).expect_err("exclusive handle must prevent a second read");
+        let denied = std::fs::read(&path)
+            .err()
+            .ok_or("exclusive handle must prevent a second read")?;
         assert_eq!(denied.raw_os_error(), Some(32)); // ERROR_SHARING_VIOLATION
         for admitted in [false, true] {
             assert!(

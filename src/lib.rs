@@ -74,3 +74,8 @@ pub use query_cost::{QueryCost, QueryCostRefusal, QueryCostRequest, QueryProject
 #[cfg(test)]
 #[path = "../tests/support/process_environment.rs"]
 mod test_process_environment;
+
+#[cfg(test)]
+#[allow(dead_code)]
+#[path = "../tests/support/published_cli.rs"]
+mod published_cli;

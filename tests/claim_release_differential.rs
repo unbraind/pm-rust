@@ -2866,7 +2866,7 @@ fn round7_terminal_source_contract() -> Result<(), Box<dyn std::error::Error>> {
 #[test]
 fn round7_roleless_close_status_matches_published_policy() -> Result<(), Box<dyn std::error::Error>>
 {
-    for legacy in [false, true] {
+    for (legacy, force) in [(false, false), (false, true), (true, false), (true, true)] {
         let Some(fixture) = Fixture::new("none")? else {
             return Ok(());
         };
@@ -2904,7 +2904,11 @@ fn round7_roleless_close_status_matches_published_policy() -> Result<(), Box<dyn
         let expected = published_run(
             &fixture.driver,
             fixture.node.path(),
-            &["__atomic_claim_error", "sample-own", "true"],
+            &[
+                "__atomic_claim_error",
+                "sample-own",
+                if force { "true" } else { "false" },
+            ],
         )?;
         assert_eq!(
             serde_json::from_slice::<serde_json::Value>(&expected.stdout)?,
@@ -2922,7 +2926,7 @@ fn round7_roleless_close_status_matches_published_policy() -> Result<(), Box<dyn
             author: "alpha".to_owned(),
             timestamp: Some(CLOCK.to_owned()),
             message: None,
-            force: true,
+            force,
             if_available: false,
             provenance_role: None,
         };
@@ -2934,6 +2938,7 @@ fn round7_roleless_close_status_matches_published_policy() -> Result<(), Box<dyn
             },
         )?;
         assert_eq!(started.status, "in_progress");
+        fixture.compare_bytes()?;
         assert_eq!(
             pm_rust::Workspace::discover(fixture.rust.path())?
                 .get("sample-own")?

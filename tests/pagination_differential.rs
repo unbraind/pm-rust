@@ -1941,6 +1941,46 @@ fn round5_intent_feasibility_matches_final_measurement() -> TestResult {
     Ok(())
 }
 
+/// The oracle retains the pre-clipping intent verdict while stabilizing the delivered estimate.
+#[test]
+fn round9_clipped_intent_verdict_matches_published() -> TestResult {
+    for width in [20, 20_000] {
+        let directory = fixture(2, 20)?;
+        let path = directory.path().join(".agents/pm/tasks/demo-0001.toon");
+        fs::write(
+            &path,
+            fs::read_to_string(&path)?.replace(&"x".repeat(20), &"x".repeat(width)),
+        )?;
+        let flags = [
+            "--full",
+            "--for",
+            "triage",
+            "--output-budget",
+            "unbounded",
+            "--output-limit",
+            "1",
+        ];
+        for toon in [false, true] {
+            let page = if toon {
+                compare_toon(directory.path(), &flags, true)?
+            } else {
+                compare(directory.path(), &flags, true)?
+            };
+            assert_eq!(page["items"].as_array().ok_or("items")?.len(), 1);
+            assert!(
+                page["context_intent"]["estimated_tokens"]
+                    .as_u64()
+                    .ok_or("estimate")?
+                    < 3200
+            );
+            assert_eq!(page["context_intent"]["within_budget"], width == 20);
+            assert_eq!(page["context_intent"]["declaration_feasible"], width == 20);
+            assert_eq!(page["read_output"]["within_budget"], true);
+        }
+    }
+    Ok(())
+}
+
 /// Reads complete returned IDs without accepting null or non-array pages.
 fn returned_ids(value: &Value) -> Result<Vec<String>, Box<dyn std::error::Error>> {
     value["items"]

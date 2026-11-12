@@ -145,6 +145,11 @@ fn whitespace(ch: char) -> bool {
     )
 }
 
+/// Treats UTF-16 letters, digits and surrogate units as word data for complete short matches.
+fn word_unit(unit: u16) -> bool {
+    char::from_u32(u32::from(unit)).is_none_or(|ch| ch.is_alphanumeric() || ch == '_')
+}
+
 /// Quotes a fragment with Windows backslash rules on every host.
 fn windows_spelling(span: &str) -> String {
     let mut output = String::new();
@@ -168,7 +173,7 @@ struct Credentials {
     carried: bool,
     /// Fixed-width UTF-16 windows from original and escaped passwords.
     fragments: HashSet<Vec<u16>>,
-    /// Short whitespace-bearing spellings that cannot form a full window.
+    /// Complete nonempty spellings that cannot form a full window.
     short: Vec<Vec<u16>>,
     /// Window width and sampling stride share the published registration bound.
     width: usize,
@@ -224,11 +229,8 @@ impl Credentials {
         let mut short = Vec::new();
         for spelling in spellings {
             if spelling.len() < width {
-                if spelling.len() >= 6
-                    || String::from_utf16_lossy(&spelling).chars().any(whitespace)
-                {
-                    short.push(spelling);
-                }
+                // Userinfo spans are nonempty; an empty password falls back to its span.
+                short.push(spelling);
             } else {
                 for index in (0..=spelling.len() - width).step_by(stride) {
                     fragments.insert(spelling[index..index + width].to_vec());
@@ -260,8 +262,18 @@ impl Credentials {
             }
         }
         for spelling in &self.short {
+            let complete_only =
+                spelling.len() < 6 && !String::from_utf16_lossy(spelling).chars().any(whitespace);
             for (index, window) in folded.windows(spelling.len()).enumerate() {
-                if window == spelling {
+                // Short complete matches must not consume public words such as
+                // "https" or "package" when a registered password is just "p".
+                let end = index + spelling.len();
+                let complete =
+                    (index == 0 || !word_unit(spelling[0]) || !word_unit(folded[index - 1]))
+                        && (end == folded.len()
+                            || !word_unit(spelling[spelling.len() - 1])
+                            || !word_unit(folded[end]));
+                if window == spelling && (!complete_only || complete) {
                     covered[index..index + spelling.len()].fill(true);
                 }
             }
@@ -447,6 +459,55 @@ pub(super) fn redact(payload: &mut Value, raw: &[String]) {
 mod tests {
     use super::*;
     use serde_json::json;
+
+    /// Complete registered short passwords are private; unrelated short arguments remain public.
+    #[test]
+    fn round9_short_registered_passwords() {
+        for password in [
+            "q", "p", "abc", "abc12", "é🐱", "!a!", "a b", "a\"b", "a\\b",
+        ] {
+            for persisted in [false, true] {
+                let input = format!("https://u:{password}@host.invalid copied {password}");
+                let args = vec![
+                    "claim".to_owned(),
+                    "sample-own".to_owned(),
+                    "--message".to_owned(),
+                    input.clone(),
+                    "safe".to_owned(),
+                ];
+                let mut value = json!({"detail":input,"recovery":{"normalized_args":args,"attempted_command":"placeholder"}});
+                redact(&mut value, if persisted { &[] } else { &args });
+                let expected = "https://[redacted]@host.invalid copied [redacted]";
+                assert_eq!(value["detail"], expected);
+                assert_eq!(value["recovery"]["normalized_args"][3], expected);
+                assert_eq!(value["recovery"]["normalized_args"][4], "safe");
+                assert_eq!(
+                    value["recovery"]["attempted_command"],
+                    super::super::render_recovery(&[
+                        "claim".to_owned(),
+                        "sample-own".to_owned(),
+                        "--message".to_owned(),
+                        expected.to_owned(),
+                        "safe".to_owned()
+                    ])
+                );
+                assert_eq!(
+                    diagnostic(&format!("copied {password}; safe"), &args),
+                    "copied [redacted]; safe"
+                );
+            }
+        }
+        let mut public = json!({"detail":"abc","recovery":{"normalized_args":["abc"],"attempted_command":"pm abc"}});
+        let original = public.clone();
+        redact(&mut public, &["abc".to_owned()]);
+        assert_eq!(public, original);
+        let mut identifiers = json!({"detail":"abc _abc abc_ αabc abcα abcde"});
+        redact(&mut identifiers, &["https://u:abc@host.invalid".to_owned()]);
+        assert_eq!(
+            identifiers["detail"],
+            "[redacted] _abc abc_ αabc abcα abcde"
+        );
+    }
 
     /// Non-secret URL, email and plain tokens retain exact receipts and safe retry advice.
     #[test]

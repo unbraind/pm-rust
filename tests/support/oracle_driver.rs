@@ -82,7 +82,7 @@ try {
     } else if (process.argv[2] === "__ranked_claim_error") {
       try {
         const { claimNextFromRecommendations } = await import(new URL("./sdk/lifecycle/claim.js", pathToFileURL(__ENTRY_JSON__)));
-        await claimNextFromRecommendations([{id:process.argv[3],reasons:["captured ready candidate"]}], false, {path:process.cwd()}, {author:"alpha",start:true});
+        await claimNextFromRecommendations([{id:process.argv[3],reasons:["captured ready candidate"]}], process.argv[4] === "true", {path:process.cwd()}, {author:"alpha",start:true});
         console.log(JSON.stringify({ok:true}));
       } catch (error) { console.log(JSON.stringify({detail:error.message,exit_code:error.exitCode,context:error.context})); }
     } else if (process.argv[2] === "__ownership_error") {
