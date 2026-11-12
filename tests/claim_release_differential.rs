@@ -2490,6 +2490,68 @@ fn round5_additive_status_admission_matches_published_bytes()
     Ok(())
 }
 
+/// Compares physical item identities while retaining every other refusal context field.
+/// The SDK preserves caller spelling; native discovery resolves Windows short names and links.
+fn canonical_item_path_context(
+    context: &serde_json::Value,
+) -> Result<serde_json::Value, Box<dyn std::error::Error>> {
+    let path = context["item_path"]
+        .as_str()
+        .ok_or("refusal item_path must be a string")?;
+    let mut canonical = context.clone();
+    canonical["item_path"] = serde_json::json!(fs::canonicalize(path)?);
+    Ok(canonical)
+}
+
+/// Filesystem aliases compare equally without changing other fields or accepting unresolved paths.
+#[test]
+fn round6_item_path_comparison_preserves_other_refusal_fields()
+-> Result<(), Box<dyn std::error::Error>> {
+    let directory = tempfile::tempdir()?;
+    fs::create_dir(directory.path().join("nested"))?;
+    let item = directory.path().join("item.toon");
+    fs::write(&item, [0xff, 0xfe, 0x61])?;
+    let alias = directory.path().join("nested/../item.toon");
+    let original = serde_json::json!({"code":"item_document_encoding_invalid","item_id":"sample-gate","item_path":alias,"byte_length":3,"empty":false,"detail":alias});
+    let mut expected = original.clone();
+    expected["item_path"] = serde_json::json!(fs::canonicalize(&item)?);
+    assert_eq!(canonical_item_path_context(&original)?, expected);
+    assert_eq!(canonical_item_path_context(&expected)?, expected);
+    assert_eq!(expected["detail"], original["detail"]);
+    let other = directory.path().join("other.toon");
+    fs::write(&other, [0xff, 0xfe, 0x61])?;
+    let mut different_item = expected.clone();
+    different_item["item_path"] = serde_json::json!(other);
+    assert_ne!(
+        canonical_item_path_context(&original)?,
+        canonical_item_path_context(&different_item)?
+    );
+    for (key, value) in [
+        ("code", serde_json::json!("different_code")),
+        ("item_id", serde_json::json!("different-item")),
+        ("byte_length", serde_json::json!(4)),
+        ("empty", serde_json::json!(true)),
+        ("detail", serde_json::json!("different detail")),
+    ] {
+        let mut changed = expected.clone();
+        changed[key] = value;
+        assert_ne!(
+            canonical_item_path_context(&original)?,
+            canonical_item_path_context(&changed)?,
+            "{key} must remain exact"
+        );
+    }
+    for invalid in [
+        serde_json::json!({}),
+        serde_json::json!({"item_path":false}),
+        serde_json::json!({"item_path":directory.path().join("missing.toon")}),
+    ] {
+        assert!(canonical_item_path_context(&invalid).is_err());
+    }
+    assert_eq!(fs::read(item)?, [0xff, 0xfe, 0x61]);
+    Ok(())
+}
+
 /// Unverifiable UTF-8 uses strict refusal or the exact warning/force bypass without decoding bytes.
 #[test]
 fn round5_invalid_utf8_blocker_policy_matches_published_bytes()
@@ -2541,7 +2603,10 @@ fn round5_invalid_utf8_blocker_policy_matches_published_bytes()
             };
             assert_eq!(expected["exit_code"], exit_code);
             assert_eq!(expected["detail"], detail);
-            assert_eq!(expected["context"], context);
+            assert_eq!(
+                canonical_item_path_context(&expected["context"])?,
+                canonical_item_path_context(&context)?
+            );
             assert_eq!(start_snapshot(fixture.node.path())?, before);
             let args = [
                 "claim",

@@ -405,3 +405,12 @@ copied password visible. Native registers every credential-bearing producer
 string and key before projection, so both copies are redacted. This intentional
 privacy divergence follows the same userinfo rule as the URL-scanning correction.
 No upstream issue was filed.
+
+## Round-six CI boundaries
+
+[Round-six CI evidence](ORACLE_CI_ROUND6_2026_11_12.md) records the Windows
+SDK/native item-path spelling comparison and the argument-dependent unit coverage
+gap. Native retains its canonical filesystem diagnostic. Only the compared
+`context.item_path` uses shared filesystem canonicalisation; all other context
+fields and complete CLI byte assertions remain exact. Bootstrap-scope coverage
+now supplies its own inputs instead of relying on test-runner arguments.

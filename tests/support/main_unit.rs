@@ -6,6 +6,29 @@ use pm_rust::{ItemDocument, ItemFilter, ItemMetadata, ListResult};
 
 use super::{Cli, Command, run, write_json_to};
 
+/// Bootstrap scope is explicit input, independent of incidental test-runner arguments.
+#[test]
+fn round6_bootstrap_scope_is_independent_of_harness_arguments() {
+    for (raw, expected) in [
+        (vec![], vec![]),
+        (vec!["--native"], vec![]),
+        (vec!["--native", "--", "--workspace=literal"], vec![]),
+        (vec!["--native", "close", "--workspace=literal"], vec![]),
+        (vec!["--native", "--workspace"], vec![]),
+        (
+            vec!["--native", "--workspace", "tracker with spaces", "claim"],
+            vec!["--pm-path", "tracker with spaces"],
+        ),
+        (
+            vec!["--native", "--workspace=tracker", "claim"],
+            vec!["--pm-path", "tracker"],
+        ),
+    ] {
+        let raw = raw.into_iter().map(str::to_owned).collect::<Vec<_>>();
+        assert_eq!(super::invocation_scope(&raw), expected, "{raw:?}");
+    }
+}
+
 /// Orientation dispatch preserves budget exits and opt-in strict history verification.
 #[test]
 fn orientation_dispatch_boundaries() -> Result<(), Box<dyn std::error::Error>> {
