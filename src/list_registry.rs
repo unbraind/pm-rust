@@ -18,6 +18,8 @@ pub(crate) struct Lifecycle {
     close: String,
     /// Configured fallback active status when no definition carries an active role.
     open: String,
+    /// Type transition rules captured through the same workflow-file discovery as statuses.
+    pub(crate) type_workflows: Value,
     /// Hierarchy definitions captured by the same settings read as lifecycle roles.
     pub(crate) hierarchy: Hierarchy,
 }
@@ -64,12 +66,17 @@ impl Lifecycle {
                 }
             }
         }
+        let type_workflows = workflow
+            .get("type_workflows")
+            .unwrap_or(&schema["type_workflows"])
+            .clone();
         let workflow = workflow.get("workflow").unwrap_or(workflow);
         let progress = workflow["in_progress_status"]
             .as_str()
             .or_else(|| schema["workflow"]["in_progress_status"].as_str())
             .unwrap_or("in_progress");
         Self {
+            type_workflows,
             hierarchy: Hierarchy::new(&settings["schema"]["relationship_kinds"]),
             definitions,
             aliases,

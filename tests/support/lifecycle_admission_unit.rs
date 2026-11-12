@@ -491,3 +491,43 @@ fn round7_windows_junction_is_not_a_blocker_source() -> Result<(), Box<dyn std::
     fs::remove_dir(junction)?;
     Ok(())
 }
+
+/// Default-file aliases and workflow rules share the captured admission registry.
+#[test]
+fn round8_default_alias_and_workflow_rules() -> Result<(), Box<dyn std::error::Error>> {
+    for external_rules in [false, true] {
+        for allowed in [false, true] {
+            let (_temp, root, before) = disk()?;
+            fs::create_dir_all(root.join("schema"))?;
+            let rules = json!([{"type":"Task","allowed_transitions":if allowed {json!([["open","in_progress"]])} else {json!([["draft","in_progress"]])}}]);
+            let mut settings = json!({"governance":{"workflow_enforcement":"strict"},"schema":{"statuses":[{"id":"open","roles":["active"]}]}});
+            if !external_rules {
+                settings["schema"]["type_workflows"] = rules.clone();
+            }
+            fs::write(root.join("settings.json"), settings.to_string())?;
+            fs::write(
+                root.join("schema/statuses.json"),
+                json!({"statuses":[{"id":"doing","roles":["active"],"aliases":["in_progress"]}]})
+                    .to_string(),
+            )?;
+            if external_rules {
+                fs::write(
+                    root.join("schema/workflows.json"),
+                    json!({"type_workflows":rules}).to_string(),
+                )?;
+            }
+            for phase in [Phase::AtomicStart, Phase::Start] {
+                let result = admission(&root, &before, false, phase);
+                if allowed {
+                    assert_eq!(result?.status, "doing");
+                } else {
+                    assert!(matches!(
+                        result,
+                        Err(PmRustError::CommandRefusal { exit_code: 2, .. })
+                    ));
+                }
+            }
+        }
+    }
+    Ok(())
+}

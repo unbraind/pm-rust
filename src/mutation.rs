@@ -3495,6 +3495,7 @@ pub(crate) fn ownership_item_with_options(
 /// Validates a status transition while retaining unconstrained and no-op workflows.
 pub(crate) fn validate_lifecycle_transition(
     value: &Value,
+    registry: &crate::list_registry::Lifecycle,
     before: &ItemDocument,
     status: &str,
 ) -> Result<Vec<String>, PmRustError> {
@@ -3504,7 +3505,7 @@ pub(crate) fn validate_lifecycle_transition(
     {
         return Ok(vec![]);
     }
-    let Some(rules) = value["schema"]["type_workflows"].as_array() else {
+    let Some(rules) = registry.type_workflows.as_array() else {
         return Ok(vec![]);
     };
     let Some(rule) = rules.iter().find(|rule| {
@@ -3517,7 +3518,6 @@ pub(crate) fn validate_lifecycle_transition(
     let Some(transitions) = rule["allowed_transitions"].as_array() else {
         return Ok(vec![]);
     };
-    let registry = crate::list_registry::Lifecycle::from_values(value, &Value::Null, &Value::Null);
     let from = registry.canonical(&before.metadata.status);
     let target = registry.canonical(status);
     if from == target

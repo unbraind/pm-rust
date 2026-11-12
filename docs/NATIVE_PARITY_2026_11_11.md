@@ -423,3 +423,66 @@ envelope-scoped cursor compaction, URL boundaries, deterministic closed pipes,
 custom Cargo profiles and Windows coverage fixtures. It also preserves the
 published mixed-blocker warning and roleless close-status policy, and records the
 same-head macOS latency retry at unchanged thresholds.
+
+## Round-eight credential and workflow boundaries
+
+The two additional review threads were read in full, including their AI prompts:
+`PRRT_kwDOTwgMRs62qqvn` and `PRRT_kwDOTwgMRs62qqvt`. Current main was already
+contained in the branch. The oracle remains deliberately pinned to 2026.11.11;
+the current npm latest observed during this round was 2026.11.12.
+
+Credential discovery no longer treats comma, semicolon or whitespace alone as
+proof that unresolved outer userinfo ended. A completed public port or IPv6
+authority still separates neighboring URLs, preserving the prior boundary fix.
+The same scanner registers invocation and persisted producer credentials before
+projecting fields, producer keys, recovery arguments, copied passwords and
+fallback diagnostics. The regression corpus covers all three reported
+separators, additional whitespace forms, slash-bearing passwords, ordinary
+public URLs, scoped-package paths, IPv6 and independent credential URLs.
+
+Invocation refusals match the published complete human and JSON streams for
+all three reported separators. Persisted comma/semicolon holders also match
+published JSON bytes. A persisted holder containing a space exposes a measured
+oracle gap: without invocation enrollment, published 2026.11.11 leaves the outer
+password prefix in `claimed_by`, `title` and `detail`. Native intentionally
+redacts the entire userinfo. That case freezes the three published leaking
+fields and substitutes three independently fixed safe expectations before
+comparing the complete native JSON bytes; other fields remain byte-exact. No
+existing differential comparator or assertion was changed. The gap is recorded
+on the existing follow-up issue #167; no upstream issue is filed.
+
+Workflow admission now receives the captured lifecycle registry for canonical
+status resolution and transition rules. The registry loads rules through the
+same default/configured workflow-file discovery used for its status selection,
+with embedded rules as the fallback when the external rule field is absent.
+`validate_lifecycle_transition` no longer rebuilds a registry from
+`runtime_settings`. Default-file `doing`/`in_progress` aliases succeed with both
+embedded and default-file strict rules. Explicit starts finish with the expected
+three history entries; atomic starts write the same item and history bytes as
+the oracle. Their disallowed twins compare error detail, exit code and context,
+and leave both item and history unchanged. Published explicit late workflow
+failure semantics remain as covered by the existing differential tests.
+
+Both original failures were observed as executed regression failures before the
+source edits. Focused fixed tests pass; full gate and isolated function-revert
+results are recorded on `pm-rust-oracle-1111`.
+
+Round-eight validation passed 433 library, 63 binary, 50 claim/release
+differential, 8 close differential, 26 CLI dispatch and 7 identity tests (587
+total), plus clippy and formatting. The stronger default-file-only status
+fixture passed its focused unit and all four new differential tests again.
+The linked PM run passed the three new refusal tests without recording any
+run artifacts in the package tracker.
+
+All six isolated negative checks failed by executed tests (exit 101), then
+passed after restoration: 12 verified runs. Reverting only `userinfos` breaks
+the new refusal unit, invocation differential and stored-holder differential.
+Restoring the old `validate_lifecycle_transition` body breaks both the alias
+unit and atomic oracle test; its new parameter signature was retained solely
+to keep the behavioral revert compiling. A separately labeled capture
+sensitivity check removes external workflow rules and catches the disallowed
+transition bypass. No compile error was counted as a proof, and the reviewed
+worktree was not mutated for these experiments. Windows and full aggregate
+coverage remain CI certification.
+
+Round-eight changelog generation and check also passed after releasing the claim.

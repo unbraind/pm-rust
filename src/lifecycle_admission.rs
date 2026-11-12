@@ -86,7 +86,7 @@ pub(crate) fn admit_with_registry(
     let mut warnings = if phase == Phase::Claim {
         vec![]
     } else {
-        crate::mutation::validate_lifecycle_transition(&settings, before, &status)?
+        crate::mutation::validate_lifecycle_transition(&settings, registry, before, &status)?
     };
     if registry.canonical(&before.metadata.status) != registry.canonical(&status)
         && status == progress

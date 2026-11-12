@@ -27,6 +27,27 @@ fn url_schemes(text: &str) -> Vec<(usize, usize)> {
     schemes
 }
 
+/// Recognizes a completed public port or IPv6 authority before a neighboring URL.
+fn public_authority(prefix: &str) -> bool {
+    let authority = prefix
+        .split(['/', '\\', '?', '#'])
+        .next()
+        .unwrap_or_default()
+        .trim_end_matches(|ch: char| whitespace(ch) || matches!(ch, ',' | ';'));
+    if let Some(address) = authority
+        .strip_prefix('[')
+        .and_then(|value| value.strip_suffix(']'))
+    {
+        return address.parse::<std::net::Ipv6Addr>().is_ok();
+    }
+    authority.rsplit_once(':').is_some_and(|(host, port)| {
+        !host.is_empty()
+            && !port.is_empty()
+            && port.bytes().all(|ch| ch.is_ascii_digit())
+            && port.parse::<u16>().is_ok()
+    })
+}
+
 /// Finds userinfo in every URL, allowing slash-bearing passwords under the GH-1707 rule.
 fn userinfos(text: &str) -> Vec<(usize, usize)> {
     let schemes = url_schemes(text);
@@ -38,7 +59,8 @@ fn userinfos(text: &str) -> Vec<(usize, usize)> {
         let mut stop = schemes.get(index + 1).map_or(text.len(), |next| next.0);
         let prefix = &text[start..stop];
         if !prefix.contains('@')
-            && !prefix.ends_with(|ch: char| whitespace(ch) || matches!(ch, ',' | ';'))
+            && (!prefix.ends_with(|ch: char| whitespace(ch) || matches!(ch, ',' | ';'))
+                || !public_authority(prefix))
             && prefix[..prefix.find('/').unwrap_or(prefix.len())].contains(':')
             && let Some(at) = text[start..].find('@')
         {
@@ -446,6 +468,76 @@ mod tests {
             let original = payload.clone();
             redact(&mut payload, &[token.to_owned()]);
             assert_eq!(payload, original);
+        }
+    }
+
+    /// Separators before nested password schemes never expose the unresolved outer userinfo.
+    #[test]
+    fn round8_separated_nested_password_schemes() {
+        for separator in [",", ";", " ", "\t", "\n", "\u{a0}"] {
+            for prefix in ["secret", "secret/part"] {
+                let password = format!("{prefix}{separator}value://tail");
+                let input = format!("https://user:{password}@host.invalid");
+                let mut value = json!({"title":input,"detail":input,"details":{input.clone():password},"examples":[input],"recovery":{"normalized_args":["--message",input],"suggested_retry":"unsafe"}});
+                redact(&mut value, std::slice::from_ref(&input));
+                let expected = "https://[redacted]@host.invalid";
+                assert_eq!(value["title"], expected);
+                assert_eq!(value["detail"], expected);
+                assert_eq!(value["examples"][0], expected);
+                assert_eq!(value["recovery"]["normalized_args"][1], expected);
+                assert_eq!(value["details"][expected], REDACTED);
+                assert!(value["recovery"].get("suggested_retry").is_none());
+                assert_eq!(diagnostic(&input, std::slice::from_ref(&input)), expected);
+                assert!(!pm_rust::stringify_json(&value, false).contains("secret"));
+            }
+        }
+    }
+
+    /// Separate public authorities, ports and scoped paths stay intact in every refusal copy.
+    #[test]
+    fn round8_separate_public_urls_remain_intact() {
+        for separator in [",", ";", " "] {
+            for first in [
+                "https://public.invalid:443/p",
+                "https://public.invalid:443",
+                "https://[::1]/p",
+                "https://[::1]:443/p",
+            ] {
+                for second in [
+                    "https://second.invalid/path",
+                    "https://www.npmjs.com/package/@scope/x",
+                ] {
+                    let input = format!("{first}{separator}{second}");
+                    let mut value = json!({"detail":input,"recovery":{"normalized_args":[input]}});
+                    let expected = value.clone();
+                    redact(&mut value, std::slice::from_ref(&input));
+                    assert_eq!(value, expected);
+                }
+                let input =
+                    format!("{first}{separator}https://other:another-secret@second.invalid/p");
+                let expected = format!("{first}{separator}https://[redacted]@second.invalid/p");
+                let mut value = json!({"detail":input,"recovery":{"normalized_args":[input]}});
+                redact(&mut value, std::slice::from_ref(&input));
+                assert_eq!(value["detail"], expected);
+                assert_eq!(value["recovery"]["normalized_args"][0], expected);
+            }
+        }
+    }
+
+    /// Unresolved non-port authorities remain private across every public-boundary decision.
+    #[test]
+    fn round8_unresolved_authority_corpus() {
+        for userinfo in [
+            ":secret",
+            "user:",
+            "user:65536",
+            "user?hint:secret",
+            "[user:secret]",
+        ] {
+            let input = format!("https://{userinfo},value://tail@host.invalid");
+            let mut value = json!({"detail":input});
+            redact(&mut value, &[]);
+            assert_eq!(value["detail"], "https://[redacted]@host.invalid");
         }
     }
 

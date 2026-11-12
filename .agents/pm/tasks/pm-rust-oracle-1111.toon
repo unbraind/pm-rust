@@ -6,10 +6,10 @@ status: in_progress
 priority: 1
 tags[4]: conformance,"gh:unbraind/pm-rust#164","gh:unbraind/pm-rust#165",oracle
 created_at: "2026-11-11T05:32:00.010Z"
-updated_at: "2026-11-12T14:28:15.761Z"
+updated_at: "2026-11-12T16:53:33.143Z"
 author: codex-rust164-1111
 parent: pm-rust-u4al
-comments[52]{created_at,author,text}:
+comments[56]{created_at,author,text}:
   "2026-11-11T05:32:04.866Z",codex-rust164-1111,"Confirmed current npm latest is 2026.11.11 and updated the locked published oracle. Baseline differential runs precede native changes. Centralize refusal recovery, scope and redaction; retain byte comparisons and all existing cases."
   "2026-11-11T05:50:02.157Z",codex-rust164-1111,"Baseline against 2026.11.11: 120 differential tests, 59 passed and 61 failed (claim target 20 passed and 7 failed). Additional drift includes compact TOON list/null columns, complete omission receipts, newest-first compact history with total/order echoes, actual-format intent estimates, exclusive activity windows, relationship root-evidence ordering, close completion provenance and close recovery retries. All existing byte and durable-state comparisons remain exact; stale claim-attribution expectations now assert the published warning and successful durable transition."
   "2026-11-11T06:11:46.818Z",codex-rust164-1111,"The expanded orientation pass reached 25 of 32 passing before the final shared fixes: matching-active test health, root-edge cost reservation and incident-root edge ordering. All 397 library unit tests pass; the focused CLI/bin/parity run then passed 44 binary tests, 18 CLI dispatch tests and 14 parity contracts. Corrected the final ownership fault expectation to require the published warning. Running all eight differential targets through linked pm tests, sequentially, with each cargo command capped at 1200 seconds and two test threads."
@@ -62,6 +62,10 @@ comments[52]{created_at,author,text}:
   "2026-11-12T14:25:41.432Z",codex-agent,"Revert proof complete in a disposable copy: all 12 negative cases failed with executed test failures (exit 101), then the same 12 commands passed after restoration (24 verified runs; no compile failures). Literal function reverts: compact_strings -> round7_cursor_metadata_compacts_below_the_envelope; userinfos -> round7_public_url_port_boundaries; indexed_comment_receipt -> round7_stored_comment_index_matches_published; ownership_item_with_options plus admit_lifecycle_transition together -> round7_terminal_source_contract; own_build_scripts -> build_script_stack_contract under actual custom Cargo profile. Removing the optional-oracle guard also fails round7_native_long_cursor_without_oracle. Six separately labeled sensitivity checks cover empty suffix, open reader, profile-name matching, valid-cursor refusal, wrong encoding-error bypass, and symlink traversal. Every case passes restored. Detailed commands and scope are in docs/ORACLE_REVIEW_ROUND7_2026_11_12.md. Windows-specific execution remains CI certification."
   "2026-11-12T14:25:43.676Z",codex-agent,"Final local gates: 731 selected Rust tests plus 7 identity tests passed; four focused environment/policy reruns passed; clippy all targets/features with denied warnings, cargo check all targets/features, and fmt check passed. Same-head macOS latency retry passed unchanged thresholds. Strict tracker health passes in an isolated home; ordinary host refuses global extension version skew only. No full release aggregate was rerun: CI certifies platform coverage and final-head performance. Remaining follow-up reasons: published mixed blockers retain only the encoding warning; published atomic starts permit roleless configured close targets in both settings locations; native comment response wrapper still differs from published projection beyond the corrected row indexes. No issues filed, no threads answered/resolved, no merge or release."
   "2026-11-12T14:28:14.050Z",codex-agent,"Code and regression evidence pushed in 0d43438f04b97aa6a65b49d3c4ff5638e2027c8c. Fresh CI run https://github.com/unbraind/pm-rust/actions/runs/43237331805 and CodeQL https://github.com/unbraind/pm-rust/actions/runs/43237331658 are queued. This tracker-only handoff commit starts another fresh exact-head run; current checks remain available at https://github.com/unbraind/pm-rust/pull/165/checks. Complete aggregate coverage and platform performance remain pending certification. The twelve revert pairs and all local gates are recorded; both items remain open and in progress. PR body updated with round-seven results and evidence-backed follow-up reasons. No threads were answered or resolved."
+  "2026-11-12T16:19:20.733Z",codex-agent,"Round eight scope is limited to the two new Greptile threads. Read both complete comments and AI prompts; complete review response has 36 threads with no omitted pages. Branch is clean at 488dbe0 and already contains current main. Reproduce separator-plus-nested-scheme credential leakage and default-file status alias/workflow admission, repair their shared paths, compare the pinned oracle, and prove both fixes fail on function revert. Keep prior public-URL boundaries, add must-allow twins, run bounded refusal/admission units plus claim/release and close differentials, lint, formatting and changelog. No thread replies or resolutions."
+  "2026-11-12T16:33:03.993Z",codex-agent,"Both round-eight regressions reproduced before source edits (test failures, not compile failures): userinfo retained a visible user:secret prefix; allowed strict alias transition open to doing refused. Fixed the shared scanner to distinguish completed public port/IPv6 authorities from unresolved password schemes, preserving prior URL boundaries. Workflow validation now receives the captured registry and its type rules loaded through default or configured workflow-file discovery. Focused oracle comparisons pass for all comma/semicolon/space invocation cases and both embedded/default-file workflow rules. Atomic disallowed twins compare exact error detail, exit and context with no item/history writes. Persisted whitespace-bearing holders expose a published 2026.11.11 leak in claimed_by, title and detail without invocation enrollment; native fully redacts. This measured oracle gap will be recorded on issue #167 after the fix is pushed."
+  "2026-11-12T16:51:18.990Z",codex-agent,"Round-eight gates passed: library 433, binary 63, claim_release_differential 50, close_differential 8, cli_dispatch 26, identity_audit 7 (587 tests), plus clippy all targets/features with denied warnings and fmt check. Stronger fixtures now define both doing and its alias only in the default statuses file; their focused unit and all four round-eight oracle cases passed again. The linked pm test run passed all three new refusal units with result tracking disabled, so no run artifacts were added to the package tracker. Both must-allow and must-refuse workflow twins match the oracle, including exact item/history bytes. Isolated function reverts are running next; current main is still contained in the branch."
+  "2026-11-12T16:53:32.134Z",codex-agent,"Round-eight isolated proof complete: six negative cases failed with executed test failures (exit 101), and the same six commands passed after restoration (12 verified runs). Reverting userinfos alone fails round8_separated_nested_password_schemes, round8_nested_password_invocation_matches_published and round8_stored_nested_password_projection. Restoring the old validate_lifecycle_transition body (new signature retained so it compiles) fails round8_default_alias_and_workflow_rules and round8_atomic_alias_workflow_matches_published. A separate type_workflows capture sensitivity removes external file rules and catches the disallowed-transition bypass. No compile failure counts as proof; reviewed source/tests match the fully restored disposable copy. All gate commands passed within twenty minutes at two threads. The stronger default-file-only fixture and PM-linked three-test refusal run passed. Oracle whitespace-holder leakage is documented in docs/NATIVE_PARITY_2026_11_11.md and will be linked on existing issue #167 after push. No review replies or resolutions, no upstream issue, no close."
 files[58]:
   - path: CHANGELOG.md
     scope: project
@@ -210,7 +214,7 @@ files[58]:
   - path: tests/support/workspace_unit.rs
     scope: project
     note: "Round-five review implementation, behavioral coverage and review evidence"
-tests[78]:
+tests[79]:
   - command: PM_RUST_REQUIRE_PUBLISHED_CLI=1 CARGO_BUILD_JOBS=2 timeout 1200 cargo +1.90.0 test --locked -j 2 --lib --bin pm-rust --test cli_dispatch --test ownership_contract --test parity_1021_contract --test release_pipeline_contract -- --test-threads=2
     scope: project
     timeout_seconds: 1200
@@ -827,6 +831,14 @@ tests[78]:
     provenance:
       author: codex-agent
       created_at: "2026-11-12T13:57:31.135Z"
+      source_kind: local_mutation
+      source_ref: oracle-pm-cli-2026-11-11
+  - command: RUST_TEST_THREADS=2 timeout 1200 cargo test --locked -j2 --bin pm-rust round8_
+    scope: project
+    timeout_seconds: 1200
+    provenance:
+      author: codex-agent
+      created_at: "2026-11-12T16:40:34.169Z"
       source_kind: local_mutation
       source_ref: oracle-pm-cli-2026-11-11
 docs[5]:

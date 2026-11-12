@@ -2944,3 +2944,228 @@ fn round7_roleless_close_status_matches_published_policy() -> Result<(), Box<dyn
     }
     Ok(())
 }
+
+/// Default-file status aliases and workflow rules are configured in real non-git trackers.
+fn round8_workflow_fixture(
+    external_rules: bool,
+    allowed: bool,
+) -> Result<Option<Fixture>, Box<dyn std::error::Error>> {
+    let Some(fixture) = Fixture::new("strict")? else {
+        return Ok(None);
+    };
+    for root in [fixture.node.path(), fixture.rust.path()] {
+        let path = root.join(".agents/pm/settings.json");
+        let mut settings: serde_json::Value = serde_json::from_slice(&fs::read(&path)?)?;
+        let files = settings["schema"]["files"]
+            .as_object_mut()
+            .ok_or("schema files")?;
+        files.shift_remove("statuses");
+        files.shift_remove("workflows");
+        settings["governance"]["workflow_enforcement"] = serde_json::json!("strict");
+        settings["schema"]["statuses"] = serde_json::json!([{"id":"open","roles":["active"]}]);
+        let rules = serde_json::json!([{"type":"Task","allowed_transitions":if allowed {serde_json::json!([["open","in_progress"]])} else {serde_json::json!([["draft","in_progress"]])}}]);
+        settings["schema"]["type_workflows"] = if external_rules {
+            serde_json::json!([])
+        } else {
+            rules.clone()
+        };
+        fs::write(path, serde_json::to_vec_pretty(&settings)?)?;
+        fs::write(
+            root.join(".agents/pm/schema/statuses.json"),
+            serde_json::to_vec(
+                &serde_json::json!({"statuses":[{"id":"doing","roles":["active"],"aliases":["in_progress"]}]}),
+            )?,
+        )?;
+        let workflows = root.join(".agents/pm/schema/workflows.json");
+        if external_rules {
+            fs::write(
+                workflows,
+                serde_json::to_vec(&serde_json::json!({"type_workflows":rules}))?,
+            )?;
+        } else {
+            fs::remove_file(workflows)?;
+        }
+    }
+    Ok(Some(fixture))
+}
+
+/// Allowed explicit starts finish both commits using default-file aliases and workflow rules.
+#[test]
+fn round8_explicit_alias_start_matches_published() -> Result<(), Box<dyn std::error::Error>> {
+    for external in [false, true] {
+        let Some(fixture) = round8_workflow_fixture(external, true)? else {
+            return Ok(());
+        };
+        fixture.step(&[
+            "claim",
+            "sample-own",
+            "--start",
+            "--author",
+            "alpha",
+            "--json",
+        ])?;
+        let item = pm_rust::Workspace::discover(fixture.rust.path())?.get("sample-own")?;
+        assert_eq!(item.metadata.status, "doing");
+        let history = fs::read_to_string(
+            fixture
+                .rust
+                .path()
+                .join(".agents/pm/history/sample-own.jsonl"),
+        )?;
+        assert_eq!(history.lines().count(), 3);
+        fixture.verify()?;
+    }
+    Ok(())
+}
+
+/// Refusal streams preserve complete nested passwords and their legitimate public-URL twin.
+#[test]
+fn round8_nested_password_invocation_matches_published() -> Result<(), Box<dyn std::error::Error>> {
+    let Some(fixture) = Fixture::new("none")? else {
+        return Ok(());
+    };
+    prepare(
+        &fixture,
+        &["claim", "sample-own", "--author", "alpha", "--json"],
+    )?;
+    for message in [
+        "https://user:secret,value://tail@host.invalid",
+        "https://user:secret;value://tail@host.invalid",
+        "https://user:secret value://tail@host.invalid",
+        "https://public.invalid:443/p https://second.invalid/path",
+    ] {
+        for json in [false, true] {
+            let mut args = vec![
+                "claim",
+                "sample-own",
+                "--author",
+                "beta",
+                "--message",
+                message,
+            ];
+            if json {
+                args.push("--json");
+            }
+            fixture.step(&args)?;
+        }
+    }
+    Ok(())
+}
+
+/// Measures persisted-holder projection without invocation credentials enrolling its password.
+#[test]
+fn round8_stored_nested_password_projection() -> Result<(), Box<dyn std::error::Error>> {
+    for separator in [",", ";", " "] {
+        let Some(fixture) = Fixture::new("none")? else {
+            return Ok(());
+        };
+        let holder = format!("https://user:secret{separator}value://tail@host.invalid");
+        for root in [fixture.node.path(), fixture.rust.path()] {
+            let path = root.join(".agents/pm/tasks/sample-own.toon");
+            let mut item: serde_json::Value =
+                toon_format::decode_default(&fs::read_to_string(&path)?)?;
+            item["assignee"] = serde_json::json!(holder);
+            fs::write(path, toon_format::encode_default(&item)?)?;
+        }
+        let args = ["claim", "sample-own", "--author", "beta", "--json"];
+        let oracle = published_run(&fixture.driver, fixture.node.path(), &args)?;
+        let actual = native_command(fixture.rust.path(), &args).output()?;
+        assert_eq!(actual.status.code(), Some(4));
+        assert_eq!(actual.status.code(), oracle.status.code());
+        assert!(!String::from_utf8_lossy(&actual.stderr).contains("secret"));
+        assert_eq!(actual.stdout, oracle.stdout);
+        if separator == " " {
+            // Published 2026.11.11 misses stored outer userinfo without invocation enrollment.
+            let mut expected: serde_json::Value = serde_json::from_slice(&oracle.stderr)?;
+            assert_eq!(
+                expected["claimed_by"],
+                "https://user:secret value://[redacted]@host.invalid"
+            );
+            assert_eq!(
+                expected["detail"],
+                "Item sample-own is already assigned to https://user:secret value://[redacted]@host.invalid. Use --force to take over, or --if-available to skip without failing."
+            );
+            assert_eq!(
+                expected["title"],
+                "Item sample-own is already assigned to https://user:secret value://[redacted]@host.invalid. Use --force to take over,..."
+            );
+            expected["claimed_by"] = serde_json::json!("https://[redacted]@host.invalid");
+            expected["detail"] = serde_json::json!(
+                "Item sample-own is already assigned to https://[redacted]@host.invalid. Use --force to take over, or --if-available to skip without failing."
+            );
+            expected["title"] = serde_json::json!(
+                "Item sample-own is already assigned to https://[redacted]@host.invalid. Use --force to take over, or --if-available t..."
+            );
+            assert_eq!(
+                String::from_utf8(actual.stderr)?,
+                format!("{}\n", pm_rust::stringify_json(&expected, true))
+            );
+        } else {
+            assert_eq!(actual.stderr, oracle.stderr);
+        }
+        let native_text = native_command(
+            fixture.rust.path(),
+            &["claim", "sample-own", "--author", "beta"],
+        )
+        .output()?;
+        assert_eq!(native_text.status.code(), Some(4));
+        assert!(!String::from_utf8_lossy(&native_text.stderr).contains("secret"));
+        fixture.compare_bytes()?;
+    }
+    Ok(())
+}
+
+/// Atomic workflow admission compares the oracle and refuses before either item or history writes.
+#[test]
+fn round8_atomic_alias_workflow_matches_published() -> Result<(), Box<dyn std::error::Error>> {
+    for external in [false, true] {
+        for allowed in [false, true] {
+            let Some(fixture) = round8_workflow_fixture(external, allowed)? else {
+                return Ok(());
+            };
+            let before = start_snapshot(fixture.node.path())?;
+            let oracle = published_run(
+                &fixture.driver,
+                fixture.node.path(),
+                &["__atomic_claim_error", "sample-own", "false"],
+            )?;
+            let expected: serde_json::Value = serde_json::from_slice(&oracle.stdout)?;
+            let request = pm_rust::OwnershipItem {
+                id: "sample-own".to_owned(),
+                author: "alpha".to_owned(),
+                timestamp: Some(CLOCK.to_owned()),
+                message: None,
+                force: false,
+                if_available: false,
+                provenance_role: None,
+            };
+            let actual = pm_rust::Workspace::discover(fixture.rust.path())?.claim_with_options(
+                &request,
+                &pm_rust::OwnershipOptions {
+                    start: true,
+                    ..Default::default()
+                },
+            );
+            if allowed {
+                assert_eq!(expected, serde_json::json!({"ok":true}));
+                assert_eq!(actual?.status, "doing");
+                fixture.compare_bytes()?;
+            } else {
+                let Err(pm_rust::PmRustError::CommandRefusal {
+                    detail,
+                    exit_code,
+                    context,
+                }) = actual
+                else {
+                    return Err("workflow refusal required".into());
+                };
+                assert_eq!(expected["detail"], detail);
+                assert_eq!(expected["exit_code"], exit_code);
+                assert_eq!(expected["context"], context);
+                assert_eq!(start_snapshot(fixture.node.path())?, before);
+                assert_eq!(start_snapshot(fixture.rust.path())?, before);
+            }
+        }
+    }
+    Ok(())
+}
