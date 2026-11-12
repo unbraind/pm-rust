@@ -159,7 +159,7 @@ impl Lifecycle {
 }
 
 /// Returns the canonical built-in roles when no statuses are configured.
-fn defaults() -> Vec<Value> {
+pub(crate) fn defaults() -> Vec<Value> {
     [
         ("draft", vec!["draft"]),
         ("open", vec!["active", "default_open"]),
@@ -177,7 +177,7 @@ fn defaults() -> Vec<Value> {
 }
 
 /// Normalizes case, whitespace and hyphen runs as the published status registry does.
-fn token(value: &str) -> String {
+pub(crate) fn token(value: &str) -> String {
     value
         .trim()
         .to_lowercase()

@@ -1192,3 +1192,64 @@ fn npm_and_bun_share_the_full_native_aggregate() -> Result<(), BoxError> {
     );
     Ok(())
 }
+
+/// Finds this crate's build script across the stable and nightly Cargo artifact layouts.
+fn own_build_scripts() -> Result<Vec<std::path::PathBuf>, Box<dyn std::error::Error>> {
+    let executable = std::env::current_exe()?;
+    let profile = executable
+        .ancestors()
+        .find(|path| {
+            matches!(
+                path.file_name().and_then(std::ffi::OsStr::to_str),
+                Some("debug" | "release")
+            )
+        })
+        .ok_or("Cargo profile directory")?;
+    let mut folders = vec![];
+    for entry in std::fs::read_dir(profile.join("build"))? {
+        let entry = entry?;
+        let name = entry.file_name();
+        if name == "pm-rust" {
+            for hash in std::fs::read_dir(entry.path())? {
+                folders.push(hash?.path().join("out"));
+            }
+        } else if name.to_string_lossy().starts_with("pm-rust-") {
+            folders.push(entry.path());
+        }
+    }
+    let suffix = std::env::consts::EXE_SUFFIX;
+    Ok(folders
+        .into_iter()
+        .flat_map(|folder| {
+            [
+                folder.join(format!("build-script-build{suffix}")),
+                folder.join(format!("build_script_build{suffix}")),
+            ]
+        })
+        .filter(|path| path.is_file())
+        .collect())
+}
+
+/// The actual build script reserves the MSVC stack and emits no linker option for other targets.
+#[test]
+fn build_script_stack_contract() -> Result<(), Box<dyn std::error::Error>> {
+    let scripts = own_build_scripts()?;
+    assert!(
+        !scripts.is_empty(),
+        "this crate's compiled build script must exist"
+    );
+    for script in scripts {
+        for (target, expected) in [
+            ("gnu", ""),
+            ("msvc", "cargo:rustc-link-arg-bin=pm-rust=/STACK:8388608\n"),
+        ] {
+            let output = std::process::Command::new(&script)
+                .env("CARGO_CFG_TARGET_ENV", target)
+                .output()?;
+            assert!(output.status.success());
+            assert!(output.stderr.is_empty());
+            assert_eq!(String::from_utf8(output.stdout)?, expected);
+        }
+    }
+    Ok(())
+}

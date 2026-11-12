@@ -21,7 +21,7 @@ fn parent_index_matches_full_corpus_refusals() -> Result<(), Box<dyn std::error:
     std::fs::write(tasks.join("sample-one.toon"), item)?;
     let workspace = super::Workspace::discover(directory.path())?;
     assert_eq!(
-        workspace.read_parent_index()?["sample-one"].as_deref(),
+        workspace.read_parent_index(false)?["sample-one"].as_deref(),
         Some("sample-parent")
     );
     std::fs::write(tasks.join("sample-two.toon"), item)?;
@@ -30,7 +30,7 @@ fn parent_index_matches_full_corpus_refusals() -> Result<(), Box<dyn std::error:
         .err()
         .ok_or("full reader accepted duplicate ID")?;
     let projected = workspace
-        .read_parent_index()
+        .read_parent_index(false)
         .err()
         .ok_or("parent reader accepted duplicate ID")?;
     assert_eq!(full.to_string(), projected.to_string());
@@ -38,13 +38,13 @@ fn parent_index_matches_full_corpus_refusals() -> Result<(), Box<dyn std::error:
     assert_eq!(
         workspace.read_items().err().map(|error| error.to_string()),
         workspace
-            .read_parent_index()
+            .read_parent_index(false)
             .err()
             .map(|error| error.to_string())
     );
     std::fs::remove_dir_all(&tracker)?;
     assert!(matches!(
-        workspace.read_parent_index(),
+        workspace.read_parent_index(false),
         Err(PmRustError::Io { .. })
     ));
     Ok(())
@@ -545,5 +545,71 @@ fn streamed_queries_refuse_unlistable_nested_directory() -> Result<(), Box<dyn s
     for result in results {
         assert!(matches!(result, Err(PmRustError::Io { path, .. }) if path == locked));
     }
+    Ok(())
+}
+
+/// Only admitted starts omit corrupt/ambiguous lineage; ordinary ownership stays strict.
+#[test]
+fn round5_parent_index_scopes_unverifiable_admission() -> Result<(), Box<dyn std::error::Error>> {
+    let directory = tempfile::tempdir()?;
+    let root = directory.path().join(".agents/pm");
+    let tasks = root.join("tasks");
+    std::fs::create_dir_all(&tasks)?;
+    std::fs::write(root.join("settings.json"), "{}")?;
+    let document = "id: sample-own\ntitle: Work\ntype: Task\nstatus: open\npriority: 1\ncreated_at: date\nupdated_at: date\nbody: original\n";
+    std::fs::write(tasks.join("sample-own.toon"), document)?;
+    let gate = document.replace("sample-own", "sample-gate");
+    for name in ["gate-one", "gate-two", "gate-three"] {
+        std::fs::write(tasks.join(format!("{name}.toon")), &gate)?;
+    }
+    std::fs::write(tasks.join("bad-toon.toon"), "invalid")?;
+    std::fs::write(tasks.join("bad-utf8.toon"), [0xff])?;
+    let workspace = super::Workspace::discover(directory.path())?;
+    assert!(workspace.read_parent_index(false).is_err());
+    let admitted = workspace.read_parent_index(true)?;
+    assert_eq!(admitted.len(), 1);
+    assert!(admitted.contains_key("sample-own"));
+    assert!(!admitted.contains_key("sample-gate"));
+    assert_eq!(std::fs::read(tasks.join("bad-utf8.toon"))?, [0xff]);
+    Ok(())
+}
+
+/// Invalid UTF-8 remains fatal to ordinary ownership and permission failures to every mode.
+#[cfg(unix)]
+#[test]
+fn round5_parent_index_io_modes() -> Result<(), Box<dyn std::error::Error>> {
+    use std::os::unix::fs::PermissionsExt as _;
+    struct Restore(std::path::PathBuf, std::fs::Permissions);
+    impl Drop for Restore {
+        fn drop(&mut self) {
+            let _ = std::fs::set_permissions(&self.0, self.1.clone());
+        }
+    }
+    let directory = tempfile::tempdir()?;
+    let root = directory.path().join(".agents/pm");
+    std::fs::create_dir_all(root.join("tasks"))?;
+    std::fs::write(root.join("settings.json"), "{}")?;
+    let path = root.join("tasks/bad.toon");
+    std::fs::write(&path, [0xff])?;
+    let workspace = super::Workspace::discover(directory.path())?;
+    assert!(
+        matches!(workspace.read_parent_index(false),Err(PmRustError::Io{source,..}) if source.kind()==io::ErrorKind::InvalidData)
+    );
+    let permissions = std::fs::metadata(&path)?.permissions();
+    let original_mode = permissions.mode();
+    {
+        let _restore = Restore(path.clone(), permissions);
+        std::fs::set_permissions(&path, std::fs::Permissions::from_mode(0o000))?;
+        for admitted in [false, true] {
+            assert!(
+                matches!(workspace.read_parent_index(admitted),Err(PmRustError::Io{source,..}) if source.kind()==io::ErrorKind::PermissionDenied)
+            );
+        }
+    }
+    assert_eq!(
+        std::fs::metadata(&path)?.permissions().mode(),
+        original_mode
+    );
+    assert_eq!(std::fs::read(&path)?, [0xff]);
     Ok(())
 }

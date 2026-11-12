@@ -125,7 +125,7 @@ fn semantic_worksets_preserve_focus_and_bound_lineage() -> Result<(), Box<dyn st
         provenance_role: None,
     };
     let options = OwnershipOptions::default();
-    let parents = workspace.read_parent_index()?;
+    let parents = workspace.read_parent_index(false)?;
     record_semantics(&workspace, &request, &options, true, &parents)?;
     let session = root.join("runtime/session.json");
     let mut state: Value = serde_json::from_slice(&fs::read(&session)?)?;
@@ -541,7 +541,15 @@ fn external_runtime_schema_precedence_and_errors() -> Result<(), Box<dyn std::er
     )?;
     let settings = runtime_settings(root)?;
     assert_eq!(settings["schema"]["workflow"]["open_status"], "ready");
-    assert_eq!(settings["schema"]["statuses"][0]["id"], "ready");
+    assert_eq!(settings["schema"]["statuses"][0]["id"], "draft");
+    assert_eq!(
+        settings["schema"]["statuses"]
+            .as_array()
+            .ok_or("statuses")?
+            .last()
+            .ok_or("ready")?["id"],
+        "ready"
+    );
     fs::write(root.join("workflows.json"), "{}")?;
     assert_eq!(
         runtime_settings(root)?["schema"]["workflow"]["open_status"],
@@ -604,10 +612,10 @@ fn ownership_lineage_scans_corpus_once() -> Result<(), Box<dyn std::error::Error
     let mut absent = request.clone();
     absent.id = "sample-absent".to_owned();
     assert!(matches!(
-        ownership_parents(&workspace, &absent),
+        ownership_parents(&workspace, &absent, false),
         Err(PmRustError::ItemNotFound { id }) if id == absent.id
     ));
-    assert_eq!(ownership_parents(&workspace, &request)?.len(), 52);
+    assert_eq!(ownership_parents(&workspace, &request, false)?.len(), 52);
     assert!(!root.join("runtime/session.json").exists());
     let before = READ_ITEMS_SCANS.get();
     workspace.claim_with_options(&request, &OwnershipOptions::default())?;
@@ -681,7 +689,7 @@ updated_at: "2026-08-22T10:00:00.000Z"
         )?;
     }
     let workspace = Workspace::discover(&root)?;
-    let parents = workspace.read_parent_index()?;
+    let parents = workspace.read_parent_index(false)?;
     record_semantics(
         &workspace,
         &OwnershipItem {

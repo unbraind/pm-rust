@@ -5601,3 +5601,73 @@ fn admission_recovery_identity_revalidates_planned_and_current_images()
     assert!(!path.exists());
     Ok(())
 }
+
+/// Older assignee patches without an operation retain unknown provenance instead of inventing a claim.
+#[test]
+fn round5_legacy_assignment_evidence_without_operation() -> Result<(), Box<dyn std::error::Error>> {
+    let (_temp, root) = root("{}")?;
+    let path = root.join("history/legacy.jsonl");
+    fs::create_dir_all(path.parent().ok_or("history directory")?)?;
+    fs::write(
+        &path,
+        format!(
+            "{}\ninvalid\n",
+            serde_json::json!({"ts":TS,"patch":[{"path":"/metadata/assignee","value":"alpha"}]})
+        ),
+    )?;
+    assert_eq!(
+        ownership_evidence(&path, "alpha")?,
+        serde_json::json!({"claimed_by":"alpha","claimed_at":TS,"claim_source":"unknown"})
+    );
+    assert_eq!(
+        ownership_evidence(&path, "beta")?,
+        serde_json::json!({"claimed_by":"beta","claimed_at":null,"claim_source":"unknown"})
+    );
+    fs::write(&path, "{}\ninvalid\n")?;
+    assert_eq!(
+        ownership_evidence(&path, "alpha")?["claim_source"],
+        "unknown"
+    );
+    fs::remove_file(&path)?;
+    assert_eq!(
+        ownership_evidence(&path, "alpha")?["claimed_at"],
+        serde_json::Value::Null
+    );
+    fs::create_dir(&path)?;
+    assert!(matches!(
+        ownership_evidence(&path, "alpha"),
+        Err(PmRustError::Io { .. })
+    ));
+    Ok(())
+}
+
+/// Claim admission refuses an unreadable runtime registry, while release retains its allowed bypass.
+#[test]
+fn round5_claim_registry_read_failure_keeps_release_available()
+-> Result<(), Box<dyn std::error::Error>> {
+    let (_temp, root) = root(&settings("sample-", "toon", 1800))?;
+    create_item(&root, request())?;
+    let owner = OwnershipItem {
+        id: "sample-unit".to_owned(),
+        author: "unit-agent".to_owned(),
+        timestamp: Some(TS.to_owned()),
+        message: None,
+        force: false,
+        if_available: false,
+        provenance_role: None,
+    };
+    ownership_item(&root, &owner, true)?;
+    let item = root.join("tasks/sample-unit.toon");
+    let history = root.join("history/sample-unit.jsonl");
+    let before = (fs::read(&item)?, fs::read(&history)?);
+    fs::create_dir_all(root.join("schema/statuses.json"))?;
+    assert!(matches!(
+        ownership_item(&root, &owner, true),
+        Err(PmRustError::Io { .. })
+    ));
+    assert_eq!((fs::read(&item)?, fs::read(&history)?), before);
+    assert_eq!(ownership_item(&root, &owner, false)?.changed_field_count, 2);
+    fs::remove_dir(root.join("schema/statuses.json"))?;
+    assert_eq!(ownership_item(&root, &owner, true)?.changed_field_count, 2);
+    Ok(())
+}

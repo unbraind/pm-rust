@@ -594,3 +594,26 @@ fn assert_toon_budget_contract() -> Result<(), Box<dyn std::error::Error>> {
     ));
     Ok(())
 }
+
+/// Oversized omitted results still validate cursor syntax and preserve valid omission receipts.
+#[test]
+fn round5_omission_cursor_policy() -> Result<(), Box<dyn std::error::Error>> {
+    for marker in ["budget_exceeded", "output_budget_exceeded"] {
+        let mut source =
+            crate::ListOutput::from(json!({"items":[],marker:{"omitted_result":true}}));
+        let options = ListOptions {
+            output_cursor: Some("invalid".to_owned()),
+            ..Default::default()
+        };
+        assert!(super::apply(source.clone(), &options).is_err());
+        let valid = crate::pagination::encode(
+            &json!({"v":1,"command":"list","o":0,"s":source.row_fingerprint()}),
+        );
+        // The no-cursor must-allow outcome preserves both original omission markers.
+        let result = super::apply(source.clone(), &ListOptions::default())?;
+        assert_eq!(result["read_output"]["result_omitted"], true);
+        source.value["next_cursor"] = json!(valid);
+        assert!(source[marker].is_object());
+    }
+    Ok(())
+}

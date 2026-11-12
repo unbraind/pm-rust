@@ -225,7 +225,33 @@ pub(crate) fn runtime_settings(pm_root: &Path) -> Result<Value, PmRustError> {
             let external = read_json(&pm_root.join(relative))?;
             for key in keys {
                 if let Some(value) = external.get(*key) {
-                    schema.insert((*key).to_owned(), value.clone());
+                    let value = if *key == "statuses" {
+                        let mut entries = schema
+                            .get(*key)
+                            .and_then(Value::as_array)
+                            .filter(|entries| !entries.is_empty())
+                            .cloned()
+                            .unwrap_or_else(crate::list_registry::defaults);
+                        for entry in value.as_array().into_iter().flatten() {
+                            let existing = entry["id"].as_str().and_then(|id| {
+                                entries.iter_mut().find(|before| {
+                                    before["id"].as_str().is_some_and(|before| {
+                                        crate::list_registry::token(before)
+                                            == crate::list_registry::token(id)
+                                    })
+                                })
+                            });
+                            if let Some(existing) = existing {
+                                *existing = entry.clone();
+                            } else {
+                                entries.push(entry.clone());
+                            }
+                        }
+                        Value::Array(entries)
+                    } else {
+                        value.clone()
+                    };
+                    schema.insert((*key).to_owned(), value);
                 }
             }
         }
@@ -362,7 +388,11 @@ impl Workspace {
                 true,
                 options,
                 &mut || {
-                    parents = ownership_parents(self, request)?;
+                    parents = ownership_parents(
+                        self,
+                        request,
+                        options.start || crate::lifecycle_admission::explicit_claim(),
+                    )?;
                     Ok(())
                 },
             )
@@ -394,7 +424,7 @@ impl Workspace {
                 false,
                 options,
                 &mut || {
-                    parents = ownership_parents(self, request)?;
+                    parents = ownership_parents(self, request, false)?;
                     Ok(())
                 },
             )
@@ -474,8 +504,9 @@ pub(crate) fn with_identity<T>(
 fn ownership_parents(
     workspace: &Workspace,
     request: &OwnershipItem,
+    admitted_start: bool,
 ) -> Result<BTreeMap<String, Option<String>>, PmRustError> {
-    let parents = workspace.read_parent_index()?;
+    let parents = workspace.read_parent_index(admitted_start)?;
     if !parents.contains_key(&request.id) {
         return Err(PmRustError::ItemNotFound {
             id: request.id.clone(),

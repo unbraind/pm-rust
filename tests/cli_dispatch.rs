@@ -223,12 +223,104 @@ fn seed_item(workspace: &TempDir) -> Result<(), Box<dyn std::error::Error>> {
     )
 }
 
+/// Delivery failures retain successful mutations and report failures from read projections.
+#[test]
+fn round5_read_and_mutation_delivery_failures_retain_commits()
+-> Result<(), Box<dyn std::error::Error>> {
+    use std::process::Stdio;
+    let workspace = workspace()?;
+    for args in [
+        vec![
+            "create",
+            "--id",
+            "sample-delivery",
+            "--title",
+            "Delivery",
+            "--type",
+            "Task",
+            "--author",
+            "cli-agent",
+        ],
+        vec![
+            "update",
+            "sample-delivery",
+            "--title",
+            "Retained",
+            "--author",
+            "cli-agent",
+        ],
+        vec![
+            "comment",
+            "sample-delivery",
+            "Retained comment",
+            "--author",
+            "cli-agent",
+        ],
+        vec![
+            "close",
+            "sample-delivery",
+            "Retained close",
+            "--validate-close",
+            "off",
+            "--author",
+            "cli-agent",
+            "--json",
+        ],
+        vec!["files", "sample-delivery", "--json"],
+        vec!["docs", "sample-delivery", "--json"],
+        vec!["context", "--json", "--no-extension-health"],
+    ] {
+        let mut child = Command::new(env!("CARGO_BIN_EXE_pm-rust"))
+            .current_dir(workspace.path())
+            .args(&args)
+            .stdout(Stdio::piped())
+            .stderr(Stdio::piped())
+            .spawn()?;
+        drop(child.stdout.take());
+        let output = child.wait_with_output()?;
+        assert!(!output.status.success(), "{args:?}");
+        assert!(!output.stderr.is_empty(), "{args:?}");
+    }
+    let item = pm_rust(&workspace, &["get", "sample-delivery"])?;
+    let item: serde_json::Value = serde_json::from_slice(&item.stdout)?;
+    assert_eq!(item["title"], "Retained");
+    assert_eq!(item["status"], "closed");
+    assert!(
+        item["comments"]
+            .as_array()
+            .ok_or("comments")?
+            .iter()
+            .any(|row| row["text"] == "Retained comment")
+    );
+    for args in [
+        vec!["list", "--timestamp", "invalid"],
+        vec!["assurance", "show", "measurement", "missing", "--json"],
+    ] {
+        let output = pm_rust(&workspace, &args)?;
+        assert!(!output.status.success(), "{args:?}");
+        assert!(output.stdout.is_empty());
+    }
+    Ok(())
+}
+
 /// Verified history succeeds strictly and propagates a reader closing its output pipe.
 #[test]
 fn history_strict_success_and_closed_pipe() -> Result<(), Box<dyn std::error::Error>> {
     use std::process::Stdio;
     let workspace = workspace()?;
     seed_item(&workspace)?;
+    for (flags, message) in [
+        (
+            vec!["history", "sample-cli", "--full", "--compact"],
+            "mutually exclusive",
+        ),
+        (
+            vec!["history", "sample-cli", "--strict-exit"],
+            "requires --verify",
+        ),
+    ] {
+        expect_err(&workspace, &flags, message)?;
+    }
     expect_ok(
         &workspace,
         &[
@@ -244,6 +336,19 @@ fn history_strict_success_and_closed_pipe() -> Result<(), Box<dyn std::error::Er
     entry["author"] = serde_json::json!("fixture".repeat(100_000));
     fs::write(&path, format!("{}\n", serde_json::to_string(&entry)?))?;
     let before = fs::read(&path)?;
+    let refused = pm_rust(
+        &workspace,
+        &[
+            "history",
+            "sample-cli",
+            "--verify",
+            "--strict-exit",
+            "--json",
+        ],
+    )?;
+    assert!(!refused.status.success());
+    let verified: serde_json::Value = serde_json::from_slice(&refused.stdout)?;
+    assert_eq!(verified["verification"]["ok"], false);
     // Confirm the edited stream loads before isolating the closed-pipe failure.
     expect_ok(&workspace, &["history", "sample-cli", "--full", "--json"])?;
     let mut child = Command::new(env!("CARGO_BIN_EXE_pm-rust"))
@@ -271,6 +376,36 @@ fn list_and_get_dispatch_over_real_processes() -> Result<(), Box<dyn std::error:
         "empty list projection missing"
     );
     seed_item(&workspace)?;
+    for format in ["json", "toon"] {
+        let output = pm_rust(
+            &workspace,
+            &["deps", "sample-cli", "--output-format", format],
+        )?;
+        assert!(output.status.success());
+        let value: serde_json::Value = if format == "json" {
+            serde_json::from_slice(&output.stdout)?
+        } else {
+            toon_format::decode_default(std::str::from_utf8(&output.stdout)?)?
+        };
+        assert!(value.is_object());
+    }
+    let changes = pm_rust(&workspace, &["changes"])?;
+    assert!(changes.status.success());
+    let page: serde_json::Value =
+        toon_format::decode_default(std::str::from_utf8(&changes.stdout)?)?;
+    assert!(page["events"].is_array());
+    let cancelled = workspace.path().join("cancelled");
+    fs::write(&cancelled, b"cancel")?;
+    let output = pm_rust(
+        &workspace,
+        &[
+            "changes",
+            "--cancel-file",
+            cancelled.to_str().ok_or("UTF8")?,
+        ],
+    )?;
+    assert!(!output.status.success());
+    assert!(output.stdout.is_empty());
     let output = pm_rust(&workspace, &["list", "--status", "open", "--type", "task"])?;
     assert!(String::from_utf8_lossy(&output.stdout).contains("sample-cli"));
     let output = pm_rust(&workspace, &["get", "sample-cli"])?;
@@ -901,6 +1036,10 @@ fn multiple_url_credentials_never_reach_refusal_streams() -> Result<(), Box<dyn 
             "https://[redacted]@host/x",
         ),
         (
+            "https://user:long-lived-secret://tail@host.invalid",
+            "https://[redacted]@host.invalid",
+        ),
+        (
             "https://www.npmjs.com/package/@scope/x",
             "https://www.npmjs.com/package/@scope/x",
         ),
@@ -919,7 +1058,13 @@ fn multiple_url_credentials_never_reach_refusal_streams() -> Result<(), Box<dyn 
             assert_eq!(output.status.code(), Some(4));
             assert!(output.stdout.is_empty());
             let text = String::from_utf8(output.stderr)?;
-            for secret in ["alpha-secret", "beta-secret", "abc def", "abc/def"] {
+            for secret in [
+                "alpha-secret",
+                "beta-secret",
+                "abc def",
+                "abc/def",
+                "long-lived-secret",
+            ] {
                 assert!(!text.contains(secret), "{args:?}");
             }
             if format.is_empty() {
@@ -940,6 +1085,104 @@ fn multiple_url_credentials_never_reach_refusal_streams() -> Result<(), Box<dyn 
                 }
             }
         }
+    }
+    Ok(())
+}
+
+/// A stored blocker title enrolls its credentials before either refusal stream is rendered.
+#[test]
+fn round5_stored_blocker_credentials_never_reach_refusal_streams()
+-> Result<(), Box<dyn std::error::Error>> {
+    let workspace = workspace()?;
+    seed_item(&workspace)?;
+    let root = workspace.path().join(".agents/pm");
+    let mut own = pm_rust::Workspace::discover(workspace.path())?.get("sample-cli")?;
+    let mut gate = own.clone();
+    gate.metadata.id = "sample-gate".to_owned();
+    gate.metadata.title =
+        "https://user:long-lived-secret://tail@host.invalid copied long-lived-secret://tail"
+            .to_owned();
+    own.metadata
+        .extra
+        .insert("blocked_by".to_owned(), serde_json::json!("sample-gate"));
+    let paths = [
+        root.join("tasks/sample-cli.toon"),
+        root.join("tasks/sample-gate.toon"),
+    ];
+    for (path, item) in paths.iter().zip([&own, &gate]) {
+        fs::write(path, toon_format::encode_default(item)?)?;
+    }
+    let before = paths.iter().map(fs::read).collect::<Result<Vec<_>, _>>()?;
+    for format in [vec!["--json"], vec![]] {
+        let mut args = vec!["claim", "sample-cli", "--start", "--author", "beta"];
+        args.extend(format);
+        let output = pm_rust(&workspace, &args)?;
+        assert_eq!(output.status.code(), Some(4));
+        assert!(output.stdout.is_empty());
+        let text = String::from_utf8(output.stderr)?;
+        assert!(!text.contains("long-lived-secret"));
+        assert!(text.contains("https://[redacted]@host.invalid copied [redacted]"));
+        for (path, bytes) in paths.iter().zip(&before) {
+            assert_eq!(&fs::read(path)?, bytes);
+        }
+    }
+    Ok(())
+}
+
+/// Parser diagnostics project credentials on both help stdout and refusal stderr.
+#[test]
+fn round5_parser_credential_projection_covers_both_streams()
+-> Result<(), Box<dyn std::error::Error>> {
+    let workspace = workspace()?;
+    let help = pm_rust(
+        &workspace,
+        &[
+            "claim",
+            "--help",
+            "--author",
+            "https://u:author@host.invalid",
+        ],
+    )?;
+    assert!(help.status.success());
+    assert!(help.stderr.is_empty());
+    assert!(String::from_utf8(help.stdout)?.contains("[redacted]"));
+    let refusal = pm_rust(&workspace, &["https://u:long-secret@host.invalid"])?;
+    assert_eq!(refusal.status.code(), Some(2));
+    assert!(refusal.stdout.is_empty());
+    let text = String::from_utf8(refusal.stderr)?;
+    assert!(text.contains("[redacted]"));
+    assert!(!text.contains("long-secret"));
+    Ok(())
+}
+
+/// Both legacy intent and canonical cost omissions keep their machine receipt and exit two.
+#[test]
+fn round5_list_budget_omissions_keep_their_exit_contract() -> Result<(), Box<dyn std::error::Error>>
+{
+    let workspace = workspace()?;
+    seed_item(&workspace)?;
+    let native = pm_rust::Workspace::discover(workspace.path())?;
+    let mut item = native.get("sample-cli")?;
+    item.metadata.title = "x".repeat(20_000);
+    let path = workspace.path().join(".agents/pm/tasks/sample-cli.toon");
+    fs::write(&path, toon_format::encode_default(&item)?)?;
+    let before = fs::read(&path)?;
+    for (args, key) in [
+        (
+            vec!["list", "--json", "--output-budget", "1"],
+            "output_budget_exceeded",
+        ),
+        (
+            vec!["list", "--json", "--for", "triage", "--token-budget", "256"],
+            "budget_exceeded",
+        ),
+    ] {
+        let output = pm_rust(&workspace, &args)?;
+        assert_eq!(output.status.code(), Some(2));
+        assert!(output.stderr.is_empty());
+        let receipt: serde_json::Value = serde_json::from_slice(&output.stdout)?;
+        assert_eq!(receipt[key]["omitted_result"], true);
+        assert_eq!(fs::read(&path)?, before);
     }
     Ok(())
 }

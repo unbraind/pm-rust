@@ -247,6 +247,15 @@ pub(crate) fn stabilize(result: &mut ListOutput, toon: bool) {
             result["read_output"]["estimated_tokens"].clone(),
         );
         update_intent(result, toon);
+        // Compaction may lower the delivered estimate, but it cannot make an
+        // already-infeasible full declaration feasible again.
+        result.value["context_intent"]["declaration_feasible"] = json!(
+            result["context_intent"]["declaration_feasible"] != false
+                && result["context_intent"]["estimated_tokens"]
+                    .as_u64()
+                    .unwrap_or_default()
+                    <= 3200
+        );
         read_output::update_output(result, toon);
         if before
             == (
@@ -347,11 +356,11 @@ fn settled(
         return None;
     }
     let estimated = if delivered {
-        usize::try_from(receipt["estimated_tokens"].as_u64()?).ok()?
+        usize::try_from(receipt["estimated_tokens"].as_u64()?).unwrap_or(usize::MAX)
     } else {
         read_output::measure(result, requested.toon)
     };
-    (estimated > usize::try_from(receipt["token_budget"].as_u64()?).ok()?)
+    (estimated > usize::try_from(receipt["token_budget"].as_u64()?).unwrap_or(usize::MAX))
         .then(|| (receipt.clone(), estimated))
 }
 

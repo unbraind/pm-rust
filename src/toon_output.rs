@@ -384,8 +384,9 @@ fn table(value: &Value, compact: bool) -> Option<(Value, Value)> {
                 if lists.contains(key) {
                     json!(
                         value
-                            .as_array()?
-                            .iter()
+                            .as_array()
+                            .into_iter()
+                            .flatten()
                             .filter_map(Value::as_str)
                             .collect::<Vec<_>>()
                             .join(";")

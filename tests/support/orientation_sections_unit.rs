@@ -368,3 +368,25 @@ fn configured_sections_preserve_activity_errors_and_stale_order()
     );
     Ok(())
 }
+
+/// Invalid historical stamps are omitted while valid fractional timestamps remain visible.
+#[test]
+fn round5_activity_mixed_validity_history() -> Result<(), Box<dyn std::error::Error>> {
+    let (_temp, workspace, _registry) = workspace()?;
+    let path = workspace.pm_root().join("history");
+    fs::create_dir_all(&path)?;
+    fs::write(
+        path.join("sample-activity.jsonl"),
+        [
+            json!({"ts":"invalid","op":"comment_add","author":"fixture","patch":[]}).to_string(),
+            json!({"ts":"2026-08-22T09:59:59Z","op":"comment_add","author":"fixture","patch":[]})
+                .to_string(),
+            json!({"ts":NOW,"op":"update","author":"fixture","patch":[]}).to_string(),
+        ]
+        .join("\n"),
+    )?;
+    let rows = activity(&workspace, 10, NOW)?;
+    assert_eq!(rows.as_array().ok_or("activity")?.len(), 1);
+    assert_eq!(rows[0]["ts"], "2026-08-22T09:59:59Z");
+    Ok(())
+}

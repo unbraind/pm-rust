@@ -45,7 +45,11 @@ pub(crate) fn compact_strings(value: &mut Value) -> bool {
             .iter_mut()
             .fold(false, |changed, row| compact_strings(row) | changed),
         Value::Object(map) => map.iter_mut().fold(false, |changed, (key, row)| {
-            (key != "focus_row_states" && compact_strings(row)) | changed
+            (!matches!(
+                key.as_str(),
+                "focus_row_states" | "next_cursor" | "output_cursor"
+            ) && compact_strings(row))
+                | changed
         }),
         _ => false,
     }
@@ -309,13 +313,6 @@ pub(crate) fn apply_command(
         Some(if options.toon { 4000 } else { 6000 })
     };
     let default_budget = options.output_budget.is_none() && budget.is_some();
-    if result.get("budget_exceeded").is_some() || result.get("output_budget_exceeded").is_some() {
-        result.value["read_output"] = receipt_for(options, default_budget, command);
-        result.value["read_output"]["within_budget"] = json!(false);
-        result.value["read_output"]["result_omitted"] = json!(true);
-        update_output(&mut result, options.toon);
-        return Ok(result);
-    }
     let original_rows = result["items"].clone();
     let snapshot = result.row_fingerprint();
     let cursor = options
@@ -323,6 +320,13 @@ pub(crate) fn apply_command(
         .as_deref()
         .map(|raw| pagination::output_command(raw, &original_rows, &snapshot, command))
         .transpose()?;
+    if result.get("budget_exceeded").is_some() || result.get("output_budget_exceeded").is_some() {
+        result.value["read_output"] = receipt_for(options, default_budget, command);
+        result.value["read_output"]["within_budget"] = json!(false);
+        result.value["read_output"]["result_omitted"] = json!(true);
+        update_output(&mut result, options.toon);
+        return Ok(result);
+    }
     let amount_binds = amount.is_some_and(|limit| {
         original_rows
             .as_array()

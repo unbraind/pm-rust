@@ -125,8 +125,8 @@ impl Fixture {
             for name in expected {
                 let artifact = format!("{relative}/{name}");
                 assert_eq!(
-                    fs::read_to_string(self.rust.path().join(&artifact))?,
-                    fs::read_to_string(self.node.path().join(&artifact))?,
+                    fs::read(self.rust.path().join(&artifact))?,
+                    fs::read(self.node.path().join(&artifact))?,
                     "{artifact}"
                 );
             }
@@ -2268,6 +2268,26 @@ fn pause_progress_fallback_admission_matches_published_no_write()
     assert_eq!(start_snapshot(fixture.rust.path())?, before);
     Ok(())
 }
+/// Restores a supported historical alias without a scalar or canonical edge masking it.
+fn historical_alias_only(fixture: &Fixture) -> Result<(), Box<dyn std::error::Error>> {
+    // Current writes canonicalize aliases; change only the persisted relationship kind.
+    let mut item = pm_rust::Workspace::discover(fixture.node.path())?.get("sample-own")?;
+    item.metadata.extra["dependencies"][0]["kind"] = serde_json::json!("depends_on");
+    for root in [fixture.node.path(), fixture.rust.path()] {
+        fs::write(
+            root.join(".agents/pm/tasks/sample-own.toon"),
+            toon_format::encode_default(&item)?,
+        )?;
+        let stored = pm_rust::Workspace::discover(root)?.get("sample-own")?;
+        assert!(stored.metadata.extra.get("blocked_by").is_none());
+        assert_eq!(
+            stored.metadata.extra["dependencies"],
+            serde_json::json!([{"id":"sample-gate","kind":"depends_on","created_at":CLOCK,"author":"alpha","source_kind":"cli:update:dep","author_source":"detected"}])
+        );
+    }
+    Ok(())
+}
+
 /// Blocker aliases, closed prerequisites and absent/external targets share one admission policy.
 #[test]
 fn start_declared_blocker_variants_match_published_bytes() -> Result<(), Box<dyn std::error::Error>>
@@ -2316,19 +2336,39 @@ fn start_declared_blocker_variants_match_published_bytes() -> Result<(), Box<dyn
                     "--json",
                 ],
             )?,
-            _ => prepare(
-                &fixture,
-                &[
-                    "update",
-                    "sample-own",
-                    "--dep",
-                    "id=sample-gate,kind=depends_on",
-                    "--author",
-                    "alpha",
-                    "--json",
-                ],
-            )?,
+            _ => {
+                prepare(
+                    &fixture,
+                    &[
+                        "update",
+                        "sample-own",
+                        "--unset",
+                        "blocked_by",
+                        "--dep-remove",
+                        "id=sample-gate,kind=blocked_by",
+                        "--author",
+                        "alpha",
+                        "--json",
+                    ],
+                )?;
+                prepare(
+                    &fixture,
+                    &[
+                        "update",
+                        "sample-own",
+                        "--dep",
+                        "id=sample-gate,kind=depends_on",
+                        "--author",
+                        "alpha",
+                        "--json",
+                    ],
+                )?;
+            }
         }
+        if variant == "alias" {
+            historical_alias_only(&fixture)?;
+        }
+        let unchanged = start_snapshot(fixture.node.path())?;
         fixture.step(&[
             "claim",
             "sample-own",
@@ -2337,6 +2377,10 @@ fn start_declared_blocker_variants_match_published_bytes() -> Result<(), Box<dyn
             "alpha",
             "--json",
         ])?;
+        if variant == "alias" {
+            assert_eq!(start_snapshot(fixture.node.path())?, unchanged);
+            assert_eq!(start_snapshot(fixture.rust.path())?, unchanged);
+        }
         fixture.compare_bytes()?;
     }
     Ok(())
@@ -2387,5 +2431,201 @@ fn configured_progress_resolution_matches_published_registry()
             );
         }
     }
+    Ok(())
+}
+
+/// Additive status files retain built-in progress and closed-blocker semantics.
+#[test]
+fn round5_additive_status_admission_matches_published_bytes()
+-> Result<(), Box<dyn std::error::Error>> {
+    let Some(fixture) = blocked_start_fixture("strict")? else {
+        return Ok(());
+    };
+    for root in [fixture.node.path(), fixture.rust.path()] {
+        fs::write(
+            root.join(".agents/pm/schema/statuses.json"),
+            r#"{"statuses":[{"id":"done","label":"Done","roles":["terminal","terminal_done"]}]}"#,
+        )?;
+    }
+    let before = start_snapshot(fixture.node.path())?;
+    fixture.step(&[
+        "claim",
+        "sample-own",
+        "--start",
+        "--author",
+        "alpha",
+        "--json",
+    ])?;
+    assert_eq!(start_snapshot(fixture.node.path())?, before);
+    assert_eq!(start_snapshot(fixture.rust.path())?, before);
+    assert_atomic_blocker_refusal(&fixture)?;
+    prepare(
+        &fixture,
+        &[
+            "close",
+            "sample-gate",
+            "Done",
+            "--validate-close",
+            "off",
+            "--author",
+            "alpha",
+            "--json",
+        ],
+    )?;
+    fixture.step(&[
+        "claim",
+        "sample-own",
+        "--start",
+        "--author",
+        "alpha",
+        "--json",
+    ])?;
+    assert_eq!(
+        pm_rust::Workspace::discover(fixture.rust.path())?
+            .get("sample-own")?
+            .metadata
+            .status,
+        "in_progress"
+    );
+    Ok(())
+}
+
+/// Unverifiable UTF-8 uses strict refusal or the exact warning/force bypass without decoding bytes.
+#[test]
+fn round5_invalid_utf8_blocker_policy_matches_published_bytes()
+-> Result<(), Box<dyn std::error::Error>> {
+    for (mode, force) in [
+        ("strict", false),
+        ("warn", false),
+        ("strict", true),
+        ("off", false),
+    ] {
+        let Some(fixture) = blocked_start_fixture(mode)? else {
+            return Ok(());
+        };
+        for root in [fixture.node.path(), fixture.rust.path()] {
+            fs::write(
+                root.join(".agents/pm/tasks/sample-gate.toon"),
+                [0xff, 0xfe, 0x61],
+            )?;
+        }
+        if mode == "strict" && !force {
+            let before = start_snapshot(fixture.node.path())?;
+            let output = published_run(
+                &fixture.driver,
+                fixture.node.path(),
+                &["__ownership_error", "start", "sample-own"],
+            )?;
+            let expected: serde_json::Value = serde_json::from_slice(&output.stdout)?;
+            let workspace = pm_rust::Workspace::discover(fixture.node.path())?;
+            let request = pm_rust::OwnershipItem {
+                id: "sample-own".to_owned(),
+                author: "alpha".to_owned(),
+                timestamp: Some(CLOCK.to_owned()),
+                message: None,
+                force: false,
+                if_available: false,
+                provenance_role: None,
+            };
+            let error = workspace
+                .start_task(&request, &pm_rust::OwnershipOptions::default())
+                .err()
+                .ok_or("invalid blocker admitted")?;
+            let pm_rust::PmRustError::CommandRefusal {
+                detail,
+                exit_code,
+                context,
+            } = error
+            else {
+                return Err(format!("unexpected error {error}").into());
+            };
+            assert_eq!(expected["exit_code"], exit_code);
+            assert_eq!(expected["detail"], detail);
+            assert_eq!(expected["context"], context);
+            assert_eq!(start_snapshot(fixture.node.path())?, before);
+            let args = [
+                "claim",
+                "sample-own",
+                "--start",
+                "--author",
+                "alpha",
+                "--json",
+            ];
+            let oracle = published_run(&fixture.driver, fixture.node.path(), &args)?;
+            let native = native_command(fixture.node.path(), &args).output()?;
+            assert_eq!(native.status.code(), oracle.status.code());
+            assert_eq!(native.stdout, oracle.stdout);
+            assert_eq!(native.stderr, oracle.stderr);
+            assert_eq!(start_snapshot(fixture.node.path())?, before);
+        } else {
+            let mut args = vec![
+                "claim",
+                "sample-own",
+                "--start",
+                "--author",
+                "alpha",
+                "--json",
+            ];
+            if force {
+                args.push("--force");
+            }
+            fixture.step(&args)?;
+            let item = pm_rust::Workspace::discover(fixture.rust.path())?.get("sample-own")?;
+            assert_eq!(item.metadata.status, "in_progress");
+            assert_eq!(
+                fs::read(
+                    fixture
+                        .rust
+                        .path()
+                        .join(".agents/pm/tasks/sample-gate.toon")
+                )?,
+                [0xff, 0xfe, 0x61]
+            );
+        }
+    }
+    Ok(())
+}
+
+/// A prefix change does not orphan an older complete blocker ID; shorthand still resolves.
+#[test]
+fn round5_complete_blocker_identity_matches_published_bytes()
+-> Result<(), Box<dyn std::error::Error>> {
+    let Some(fixture) = blocked_start_fixture("strict")? else {
+        return Ok(());
+    };
+    for root in [fixture.node.path(), fixture.rust.path()] {
+        let path = root.join(".agents/pm/settings.json");
+        let mut settings: serde_json::Value = serde_json::from_slice(&fs::read(&path)?)?;
+        settings["id_prefix"] = serde_json::json!("new-");
+        fs::write(path, serde_json::to_vec_pretty(&settings)?)?;
+    }
+    prepare(
+        &fixture,
+        &[
+            "close",
+            "sample-gate",
+            "Done",
+            "--validate-close",
+            "off",
+            "--author",
+            "alpha",
+            "--json",
+        ],
+    )?;
+    fixture.step(&[
+        "claim",
+        "sample-own",
+        "--start",
+        "--author",
+        "alpha",
+        "--json",
+    ])?;
+    assert_eq!(
+        pm_rust::Workspace::discover(fixture.rust.path())?
+            .get("sample-own")?
+            .metadata
+            .status,
+        "in_progress"
+    );
     Ok(())
 }

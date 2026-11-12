@@ -505,3 +505,18 @@ fn delimited_close_recovery_matches_published_bytes() -> TestResult {
     compare_close(&[], &["--validate-close", "strict", "--", "Done"])?;
     Ok(())
 }
+
+/// Composed close clears an existing claim and accounts for both ownership fields exactly.
+#[test]
+fn round5_claimed_close_release_matches_published_bytes() -> TestResult {
+    compare_close(
+        &[vec!["claim", "sample-close", "--author", "alpha", "--json"]],
+        &[
+            "Done",
+            "--validate-close",
+            "off",
+            "--release-assignment",
+            "--json",
+        ],
+    )
+}

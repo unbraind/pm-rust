@@ -247,7 +247,7 @@ impl Workspace {
                 fields.sort_by(|a,b| crate::collation::compare(a,b)); fields.dedup();
                 json!({"index":index+1,"ts":entry["ts"],"op":entry["op"],"author":entry["author"],"patch_ops":patch.len(),"changed_fields":fields})
             }).collect();
-            result = json!({"id":resolved,"compact_history":compact,"compact":true,"projection":{"mode":"compact","row_key":"compact_history"},"omission_receipt":{"has_omissions":true,"omitted_field_group_count":1,"omitted_field_groups":[{"name":"raw_history","restore_with":"--full"}]},"count":entries.len()-start,"total":entries.len(),"order":if options.full {"oldest_first"}else{"newest_first"},"limit":limit});
+            result = json!({"id":resolved,"compact_history":compact,"compact":true,"projection":{"mode":"compact","row_key":"compact_history"},"omission_receipt":{"has_omissions":true,"omitted_field_group_count":1,"omitted_field_groups":[{"name":"raw_history","restore_with":"--full"}]},"count":entries.len()-start,"total":entries.len(),"order":"newest_first","limit":limit});
         }
         if entries
             .first()

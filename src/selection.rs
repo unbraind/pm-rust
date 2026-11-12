@@ -157,19 +157,21 @@ fn text<'a>(item: &'a ItemDocument, key: &str) -> &'a str {
 }
 
 /// Resolves runtime lifecycle roles from the tracker schema.
+#[cfg(test)]
 fn role(item: &ItemDocument, settings: &Value, wanted: &str) -> bool {
-    if let Some(statuses) = settings["schema"]["statuses"].as_array() {
-        return statuses.iter().any(|status| {
-            status["id"] == item.metadata.status
-                && status["roles"]
-                    .as_array()
-                    .is_some_and(|roles| roles.iter().any(|role| role == wanted))
-        });
-    }
-    match wanted {
-        "active" => matches!(item.metadata.status.as_str(), "open" | "in_progress"),
-        "terminal" => matches!(item.metadata.status.as_str(), "closed" | "canceled"),
-        _ => false,
+    has_role(
+        item,
+        &crate::list_registry::Lifecycle::from_values(settings, &Value::Null, &Value::Null),
+        wanted,
+    )
+}
+
+/// Classifies every candidate using the single registry captured for its corpus read.
+fn has_role(item: &ItemDocument, registry: &crate::list_registry::Lifecycle, wanted: &str) -> bool {
+    if wanted == "terminal" {
+        registry.terminal(&item.metadata.status)
+    } else {
+        registry.role(&item.metadata.status, wanted)
     }
 }
 
@@ -191,6 +193,8 @@ struct CorpusIndex<'a> {
     exact_parents: BTreeSet<&'a str>,
     /// At most two distinct nonterminal witnesses per descendant graph suffice.
     nonterminal_witnesses: BTreeMap<String, BTreeSet<String>>,
+    /// Shared normalized registry, including external overrides and aliases.
+    lifecycle: crate::list_registry::Lifecycle,
 }
 
 impl<'a> CorpusIndex<'a> {
@@ -202,6 +206,11 @@ impl<'a> CorpusIndex<'a> {
             inverse_blocks: BTreeMap::new(),
             exact_parents: BTreeSet::new(),
             nonterminal_witnesses: BTreeMap::new(),
+            lifecycle: crate::list_registry::Lifecycle::from_values(
+                settings,
+                &Value::Null,
+                &Value::Null,
+            ),
         };
         let mut nodes = BTreeSet::new();
         let mut parents: BTreeMap<String, Vec<String>> = BTreeMap::new();
@@ -247,7 +256,11 @@ impl<'a> CorpusIndex<'a> {
             if index
                 .by_id
                 .get(&id.to_ascii_lowercase())
-                .is_some_and(|items| items.iter().any(|item| !role(item, settings, "terminal")))
+                .is_some_and(|items| {
+                    items
+                        .iter()
+                        .any(|item| !has_role(item, &index.lifecycle, "terminal"))
+                })
                 && let Some(ancestors) = parents.get(&id)
             {
                 pending.extend(ancestors.iter().map(|parent| (parent.clone(), id.clone())));
@@ -272,10 +285,14 @@ impl<'a> CorpusIndex<'a> {
     }
 
     /// Resolves terminal prerequisites without revisiting the corpus.
-    fn is_terminal(&self, id: &str, settings: &Value) -> bool {
+    fn is_terminal(&self, id: &str) -> bool {
         self.by_id
             .get(&id.to_ascii_lowercase())
-            .is_some_and(|items| items.iter().any(|item| role(item, settings, "terminal")))
+            .is_some_and(|items| {
+                items
+                    .iter()
+                    .any(|item| has_role(item, &self.lifecycle, "terminal"))
+            })
     }
 
     /// Tests for any nonterminal item reached through at least one parent edge.
@@ -488,7 +505,7 @@ fn candidates(
     };
     let mut ready = Vec::new();
     for item in corpus_items(corpus) {
-        if !role(item, settings, "active")
+        if !has_role(item, &index.lifecycle, "active")
             || !matches(item, selection)
             || family
                 .as_ref()
@@ -502,7 +519,7 @@ fn candidates(
         }
         if blockers(item, &index)
             .iter()
-            .any(|id| !index.is_terminal(id, settings))
+            .any(|id| !index.is_terminal(id))
         {
             continue;
         }

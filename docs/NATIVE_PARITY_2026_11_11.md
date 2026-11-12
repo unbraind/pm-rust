@@ -387,3 +387,21 @@ orientation returned 10 focus items and the required search returned 10 of 58
 keyword matches; the existing exact oracle item was reused. Both newly discovered
 follow-ups remain open and unclaimed. The oracle item stays in progress with its
 claim released for orchestrator verification.
+
+## Round-five review boundaries
+
+[Round-five review evidence](ORACLE_REVIEW_ROUND5_2026_11_12.md) records additive
+lifecycle schemas, encoding-warning admission, complete blocker IDs, alias-only
+fixtures, final receipt measurements and credential registration from stored
+producer fields. Native also preserves long producer and output cursors during
+intent string compaction. The pinned oracle clips the long producer cursor and
+returns an unusable continuation; native intentionally keeps it executable. This
+divergence is checked independently without weakening existing byte comparators.
+
+The stored-producer privacy corpus also exposes a published omission: a blocker
+title containing a nested-scheme credential URL and a copied password returns
+`start_blocked_by_open_dependency` (exit four), redacts the URL, but leaves the
+copied password visible. Native registers every credential-bearing producer
+string and key before projection, so both copies are redacted. This intentional
+privacy divergence follows the same userinfo rule as the URL-scanning correction.
+No upstream issue was filed.

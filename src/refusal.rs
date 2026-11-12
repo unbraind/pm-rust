@@ -32,7 +32,21 @@ fn userinfos(text: &str) -> Vec<(usize, usize)> {
     let schemes = url_schemes(text);
     let mut spans = Vec::new();
     for (index, &(scheme, start)) in schemes.iter().enumerate() {
-        let stop = schemes.get(index + 1).map_or(text.len(), |next| next.0);
+        if spans.last().is_some_and(|&(_, end)| scheme < end) {
+            continue;
+        }
+        let mut stop = schemes.get(index + 1).map_or(text.len(), |next| next.0);
+        let prefix = &text[start..stop];
+        if !prefix.contains('@')
+            && prefix[..prefix.find('/').unwrap_or(prefix.len())].contains(':')
+            && let Some(at) = text[start..].find('@')
+        {
+            // A scheme inside an unresolved password is credential data, not a new URL.
+            stop = schemes[index + 1..]
+                .iter()
+                .find(|next| next.0 > start + at)
+                .map_or(text.len(), |next| next.0);
+        }
         let candidate = &text[start..stop];
         let boundary = candidate.find(['/', '?', '#']).unwrap_or(candidate.len());
         let authority = &candidate[..boundary];
@@ -316,18 +330,40 @@ pub(super) fn diagnostic(text: &str, raw: &[String]) -> String {
     Credentials::new(raw).text(text, false)
 }
 
+/// Registers credential-bearing producer strings before any copied fragment is projected.
+fn collect_credential_sources(value: &Value, sources: &mut Vec<String>) {
+    match value {
+        Value::String(text) => {
+            if !userinfos(text).is_empty() {
+                sources.push(text.clone());
+            }
+        }
+        Value::Array(values) => {
+            for value in values {
+                collect_credential_sources(value, sources);
+            }
+        }
+        Value::Object(fields) => {
+            for (key, value) in fields {
+                if !userinfos(key).is_empty() {
+                    sources.push(key.clone());
+                }
+                collect_credential_sources(value, sources);
+            }
+        }
+        _ => {}
+    }
+}
+
 /// Redacts every refusal field once, before either JSON or human rendering.
 pub(super) fn redact(payload: &mut Value, raw: &[String]) {
     let mut sources = raw.to_vec();
-    for key in ["claimed_by", "detail"] {
-        if let Some(value) = payload[key].as_str() {
-            sources.push(value.to_owned());
-        }
-    }
+    collect_credential_sources(payload, &mut sources);
     let credentials = Credentials::new(&sources);
     let original = payload.clone();
     credentials.value(payload, false, false, true);
-    if credentials.carried || *payload != original {
+    // Every credential-bearing producer was registered before projection.
+    if credentials.carried {
         if payload["recovery"].get("attempted_command").is_some()
             && let Some(values) = payload["recovery"]["normalized_args"].as_array()
         {
@@ -366,22 +402,20 @@ pub(super) fn redact(payload: &mut Value, raw: &[String]) {
         );
         payload["next_steps"] = Value::Array(steps);
         if original.get("next_steps").is_none() {
-            let steps = payload
-                .as_object_mut()
-                .and_then(|map| map.shift_remove("next_steps"));
-            if let (Some(steps), Some(map)) = (steps, payload.as_object_mut()) {
-                let mut ordered = serde_json::Map::new();
-                for (key, value) in std::mem::take(map) {
-                    if key == "exit_code" {
-                        ordered.insert("next_steps".to_owned(), steps.clone());
-                    }
-                    ordered.insert(key, value);
+            // The assignment above guarantees the object and steps array.
+            let steps = payload["next_steps"].clone();
+            let mut ordered = serde_json::Map::new();
+            for (key, value) in payload.as_object().into_iter().flatten() {
+                if key == "next_steps" {
+                    continue;
                 }
-                if !ordered.contains_key("next_steps") {
-                    ordered.insert("next_steps".to_owned(), steps);
+                if key == "exit_code" {
+                    ordered.insert("next_steps".to_owned(), steps.clone());
                 }
-                *map = ordered;
+                ordered.insert(key.clone(), value.clone());
             }
+            ordered.entry("next_steps".to_owned()).or_insert(steps);
+            *payload = Value::Object(ordered);
         }
     }
 }
@@ -434,7 +468,7 @@ mod tests {
         );
         assert_eq!(
             payload["details"]["https://[redacted]@example.invalid (2)"],
-            "another-public-value"
+            REDACTED
         );
         assert!(payload["recovery"].get("suggested_retry").is_none());
         assert!(payload["recovery"].get("suggested_retry_args").is_none());
@@ -523,6 +557,14 @@ mod tests {
                 "https://user:abc/def+gh==@host/x https://ghp_fixture@github.com/o/r",
                 "https://[redacted]@host/x https://[redacted]@github.com/o/r",
             ),
+            (
+                "https://user:long-lived-secret://tail@host.invalid",
+                "https://[redacted]@host.invalid",
+            ),
+            (
+                "https://user:part://middle://tail@host.invalid;https://other:safe-secret@two.invalid",
+                "https://[redacted]@host.invalid;https://[redacted]@two.invalid",
+            ),
             ("https://user:pa:ss@host", "https://[redacted]@host"),
             (
                 ".https://u:first-secret@one.invalid;.https://v:second-secret@two.invalid",
@@ -557,11 +599,104 @@ mod tests {
         assert_eq!(copies["title"], "[redacted] [redacted]");
         assert_eq!(copies["detail"], "[redacted]");
         assert_eq!(copies["details"]["echo"], "[redacted]");
+        let mut copies =
+            json!({"title":"long-lived-secret://tail", "detail":"LONG-LIVED-SECRET://TAIL"});
+        redact(
+            &mut copies,
+            &["https://user:long-lived-secret://tail@host.invalid".to_owned()],
+        );
+        assert_eq!(copies["title"], "[redacted]");
+        assert_eq!(copies["detail"], "[redacted]");
         let public = "https://www.npmjs.com/package/@scope/x";
         let original = json!({"detail":public,"recovery":{"suggested_retry":public}});
         let mut payload = original.clone();
         redact(&mut payload, &[public.to_owned()]);
         assert_eq!(payload, original);
+    }
+
+    /// Replay examples are rebuilt from projected arguments, without retaining copied credentials.
+    #[test]
+    fn round5_refusal_rebuild_and_field_order_corpus() {
+        let raw = vec![
+            "claim".to_owned(),
+            "https://u:long-secret@host.invalid".to_owned(),
+        ];
+        let command = super::super::render_recovery(&raw);
+        for exit in [false, true] {
+            let mut payload = json!({"title":"Refused","examples":[command,"independent"],"recovery":{"normalized_args":raw,"attempted_command":command,"suggested_retry":"retry","suggested_retry_args":["retry"]}});
+            if exit {
+                payload["exit_code"] = json!(4);
+            }
+            redact(&mut payload, &raw);
+            assert_eq!(
+                payload["examples"][0],
+                payload["recovery"]["attempted_command"]
+            );
+            assert_eq!(payload["examples"][1], "independent");
+            assert_eq!(payload["next_steps"][0], RESTORE);
+            assert!(!payload.to_string().contains("long-secret"));
+        }
+        let mut payload = json!({"next_steps":[RESTORE,"Keep this"],"recovery":null});
+        redact(&mut payload, &raw);
+        assert_eq!(payload["next_steps"], json!([RESTORE, "Keep this"]));
+        assert!(url_schemes("123://host").is_empty());
+        let mut payload = json!({"detail":"https://u:long-secret@host.invalid","recovery":{"attempted_command":"echo"}});
+        redact(&mut payload, &[]);
+        assert!(!payload.to_string().contains("long-secret"));
+    }
+
+    /// Escaped separators, short fragments beside large passwords and nested metadata stay safe.
+    #[test]
+    fn round5_credential_boundary_corpus() {
+        for public in [
+            "https://host.invalid:443/path",
+            "See https://host.invalid and user@example.invalid",
+            "https://@host.invalid",
+        ] {
+            assert_eq!(diagnostic(public, &[]), public);
+        }
+        assert_eq!(
+            redact_token("arg=https://stored user@host.invalid"),
+            "arg=https://[redacted]@host.invalid"
+        );
+        assert_eq!(
+            redact_token("https:\\\\u:secret@host.invalid"),
+            "https:\\\\[redacted]@host.invalid"
+        );
+        let credentials = Credentials::new(&[
+            format!("https://u:{}@host.invalid", "large".repeat(100_000)),
+            "https://v:small6@other.invalid".to_owned(),
+        ]);
+        assert_eq!(credentials.text("small6", false), REDACTED);
+        assert_eq!(credentials.text("ordinary", false), "ordinary");
+        let mut payload = json!({"code":4,"details":{"normalizedInvocationArgs":[{"echo":"https://u:long-secret@host.invalid"}]}});
+        redact(&mut payload, &[]);
+        assert_eq!(payload["code"], 4);
+        assert_eq!(
+            payload["details"]["normalizedInvocationArgs"][0]["echo"],
+            "https://[redacted]@host.invalid"
+        );
+        let raw = vec!["https://u:long-secret@host.invalid".to_owned()];
+        let mut payload = json!({"recovery":{"normalized_args":raw,"attempted_command":"retry"}});
+        redact(&mut payload, &raw);
+        assert_eq!(payload["examples"], Value::Null);
+        assert!(!payload.to_string().contains("long-secret"));
+    }
+
+    /// Persisted blocker titles register copied secrets even when the invocation has no credentials.
+    #[test]
+    fn round5_stored_blocker_title_registers_copied_credentials() {
+        let title =
+            "https://user:long-lived-secret://tail@host.invalid copied long-lived-secret://tail";
+        let mut payload = json!({"code":"start_blocked_by_open_dependency","detail":"The blocker is open","details":{"open_blockers":[{"id":"gate","title":title}]},"next_steps":["Inspect long-lived-secret://tail"],"recovery":{"suggested_retry":"pm next"}});
+        redact(&mut payload, &["claim".to_owned(), "sample".to_owned()]);
+        assert_eq!(
+            payload["details"]["open_blockers"][0]["title"],
+            "https://[redacted]@host.invalid copied [redacted]"
+        );
+        assert!(!payload.to_string().contains("long-lived-secret"));
+        assert_eq!(payload["next_steps"][1], "Inspect [redacted]");
+        assert!(payload["recovery"].get("suggested_retry").is_none());
     }
 
     /// UTF-16 fragments and shell/JSON spellings are projected without shifting boundaries.

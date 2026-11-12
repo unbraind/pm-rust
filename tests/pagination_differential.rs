@@ -1875,3 +1875,125 @@ fn dual_budget_validation_matches_published_precedence() -> TestResult {
     }
     Ok(())
 }
+
+/// Invalid output cursors take precedence over an infeasible intent omission.
+#[test]
+fn round5_omitted_intent_validates_output_cursor() -> TestResult {
+    let directory = fixture(8, 400)?;
+    let result = compare(
+        directory.path(),
+        &[
+            "--for",
+            "triage",
+            "--output-budget",
+            "1",
+            "--output-cursor",
+            "invalid",
+        ],
+        false,
+    )?;
+    assert_eq!(result["code"], "read_output_cursor_invalid");
+    Ok(())
+}
+
+/// Intent declaration feasibility uses the final receipt-stabilized measurement.
+#[test]
+fn round5_intent_feasibility_matches_final_measurement() -> TestResult {
+    let directory = fixture(24, 232)?;
+    for toon in [false, true] {
+        let page = if toon {
+            compare_toon(
+                directory.path(),
+                &["--for", "triage", "--output-budget", "4000"],
+                true,
+            )?
+        } else {
+            compare(
+                directory.path(),
+                &["--for", "triage", "--output-budget", "4000"],
+                true,
+            )?
+        };
+        let tokens = page["context_intent"]["estimated_tokens"]
+            .as_u64()
+            .ok_or("tokens")?;
+        if !toon {
+            assert!(tokens > 3200 && tokens <= 4000);
+        }
+        assert_eq!(
+            page["context_intent"]["declaration_feasible"],
+            tokens <= 3200
+        );
+    }
+    Ok(())
+}
+
+/// Recursive intent compaction keeps a long producer cursor executable on the next page.
+#[test]
+fn round5_long_intent_cursor_remains_executable() -> TestResult {
+    let directory = fixture(8, 2000)?;
+    for index in 0..8 {
+        let old = format!("demo-{index:04}");
+        let id = format!("{old}{}", "a".repeat(170));
+        let path = directory
+            .path()
+            .join(format!(".agents/pm/tasks/{old}.toon"));
+        let text =
+            fs::read_to_string(&path)?.replace(&format!("id: {old}\n"), &format!("id: {id}\n"));
+        fs::remove_file(&path)?;
+        fs::write(path.with_file_name(format!("{id}.toon")), text)?;
+    }
+    let flags = ["--for", "triage", "--output-budget", "2000", "--limit", "4"];
+    // Native continuation usability intentionally repairs the measured published bug.
+    // Every existing byte-exact comparator remains unchanged.
+    let native = |args: &[&str]| -> Result<Value, Box<dyn std::error::Error>> {
+        let output = Command::new(env!("CARGO_BIN_EXE_pm-rust"))
+            .args(["--workspace", ".", "list", "--json", "--timestamp", CLOCK])
+            .args(args)
+            .current_dir(directory.path())
+            .env_remove("PM_PATH")
+            .output()?;
+        assert!(
+            output.status.success(),
+            "{}",
+            String::from_utf8_lossy(&output.stderr)
+        );
+        Ok(serde_json::from_slice(&output.stdout)?)
+    };
+    let page = native(&flags)?;
+    let cursor = page["next_cursor"].as_str().ok_or("producer cursor")?;
+    assert!(cursor.len() > 240);
+    let mut resumed = flags.to_vec();
+    resumed.extend(["--after", cursor]);
+    let next = native(&resumed)?;
+    assert_ne!(page["items"][0]["id"], next["items"][0]["id"]);
+    let published = published_cli::oracle_command(
+        std::env::var("PM_NODE_INTERPRETER").unwrap_or_else(|_| "node".to_owned()),
+    )
+    .arg(directory.path().join("driver.mjs"))
+    .args(["--pm-path", ".", "list", "--json"])
+    .args(flags)
+    .current_dir(directory.path())
+    .env_remove("PM_PATH")
+    .output()?;
+    assert!(published.status.success());
+    let published: Value = serde_json::from_slice(&published.stdout)?;
+    let broken = published["next_cursor"]
+        .as_str()
+        .ok_or("published cursor")?;
+    assert!(broken.ends_with('…'), "published cursor was not compacted");
+    assert!(
+        pm_rust::Workspace::discover(directory.path())?
+            .list_page(
+                &ItemFilter::default(),
+                &ListOptions {
+                    intent: Some("triage".to_owned()),
+                    after: Some(broken.to_owned()),
+                    ..Default::default()
+                },
+                CLOCK,
+            )
+            .is_err()
+    );
+    Ok(())
+}

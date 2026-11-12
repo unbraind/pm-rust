@@ -173,6 +173,8 @@ fn blocker_paths(
     id: &str,
     found: &mut Vec<PathBuf>,
 ) -> Result<(), PmRustError> {
+    // Keep test scheduling outside this shared filesystem control flow.
+    before_path_read(root);
     for entry in crate::workspace::read_directory(root)? {
         let path = entry.path();
         if path.is_symlink() {
@@ -198,13 +200,13 @@ fn blocker(root: &Path, id: &str, settings: &Value) -> Result<Option<ItemDocumen
     }
     let id = id.trim_start_matches('#');
     let prefix = settings["id_prefix"].as_str().unwrap_or("pm-");
-    let canonical = if id.starts_with(prefix) {
-        id.to_owned()
-    } else {
-        format!("{prefix}{id}")
-    };
+    let mut canonical = id.to_owned();
     let mut paths = Vec::new();
     blocker_paths(root, true, &canonical, &mut paths)?;
+    if paths.is_empty() && !id.starts_with(prefix) {
+        canonical = format!("{prefix}{id}");
+        blocker_paths(root, true, &canonical, &mut paths)?;
+    }
     let Some(path) = paths.first() else {
         return Ok(None);
     };
@@ -215,13 +217,23 @@ fn blocker(root: &Path, id: &str, settings: &Value) -> Result<Option<ItemDocumen
             second: paths[1].clone(),
         });
     }
-    let raw = fs::read_to_string(path).map_err(|source| PmRustError::Io {
-        path: path.clone(),
+    read_blocker(path, &canonical).map(Some)
+}
+
+/// Reads a resolved blocker at the final I/O boundary, retaining typed encoding diagnostics.
+fn read_blocker(path: &Path, canonical: &str) -> Result<ItemDocument, PmRustError> {
+    let bytes = fs::read(path).map_err(|source| PmRustError::Io {
+        path: path.to_path_buf(),
         source,
     })?;
-    let item = crate::item::decode_item(path, &raw)?;
+    let raw = std::str::from_utf8(&bytes).map_err(|_| PmRustError::CommandRefusal {
+        detail: "Item contains invalid UTF-8; preserve a binary backup before recovering it.".to_owned(),
+        exit_code: 4,
+        context: json!({"code":"item_document_encoding_invalid","item_id":canonical,"item_path":path,"byte_length":bytes.len(),"empty":false}),
+    })?;
+    let item = crate::item::decode_item(path, raw)?;
     crate::item::validate_file_identity(path, &item)?;
-    Ok(Some(item))
+    Ok(item)
 }
 /// Builds executable unblock advice only when the scalar/edge removal is unambiguous.
 fn unblock(before: &ItemDocument, first: &str, settings: &Value) -> String {
@@ -249,8 +261,9 @@ fn unblock(before: &ItemDocument, first: &str, settings: &Value) -> String {
         .unwrap_or_default();
     let inspect = || {
         format!(
-            "pm get {} --fields blocked_by,dependencies",
-            before.metadata.id
+            "pm get {} --fields {}",
+            before.metadata.id,
+            crate::quote_command_arg("blocked_by,dependencies")
         )
     };
     if deps.iter().any(|dep| {
@@ -319,12 +332,13 @@ fn admit_blockers(
         } else {
             match blocker(root, &id, settings) {
                 Ok(item) => item,
-                Err(
-                    PmRustError::InvalidItemDocument { .. } | PmRustError::DuplicateItemId { .. },
-                ) if enforcement == "warn" || force => {
+                Err(error)
+                    if (enforcement == "warn" || force) && unverifiable_code(&error).is_some() =>
+                {
                     return Ok(vec![format!(
-                        "start_blocker_unverifiable:{}:item_document_invalid",
-                        before.metadata.id
+                        "start_blocker_unverifiable:{}:{}",
+                        before.metadata.id,
+                        unverifiable_code(&error).unwrap_or_default()
                     )]);
                 }
                 Err(error) => return Err(error),
@@ -386,3 +400,42 @@ fn admit_blockers(
         context: json!({"code":"start_blocked_by_open_dependency","item_id":id,"required":format!("Finish or close the open blocker{} first, remove the blocked_by edge if it no longer applies, or start anyway with --force.",if open.len()==1{""}else{"s"}),"why":"Starting work that a declared blocker still gates would leave an in-progress item that validate reports as non_blocked_status_has_blocked_by. governance.start_blocker_enforcement (strict by default) governs this check.","next_steps":steps,"details":{"enforcement":enforcement,"open_blockers":open}}),
     })
 }
+
+/// Keeps warning/force policy limited to the published unverifiable-document failures.
+fn unverifiable_code(error: &PmRustError) -> Option<&str> {
+    match error {
+        PmRustError::InvalidItemDocument { reason, .. } => {
+            Some(if reason == "stored id does not match the item filename" {
+                "item_identity_conflict"
+            } else {
+                "item_document_invalid"
+            })
+        }
+        PmRustError::DuplicateItemId { .. } => Some("item_identity_ambiguous"),
+        PmRustError::CommandRefusal { context, .. } => context["code"].as_str().filter(|code| {
+            matches!(
+                *code,
+                "item_document_encoding_invalid"
+                    | "item_format_version_unsupported"
+                    | "item_identity_conflict"
+                    | "item_identity_ambiguous"
+                    | "item_document_invalid"
+            )
+        }),
+        _ => None,
+    }
+}
+
+#[cfg(test)]
+#[path = "../tests/support/lifecycle_admission_unit.rs"]
+mod tests;
+
+/// Runs the filesystem scheduler in tests without changing traversal control flow.
+#[cfg(test)]
+fn before_path_read(root: &Path) {
+    tests::before_path_read(root);
+}
+
+/// The production traversal uses the same call boundary without a scheduler.
+#[cfg(not(test))]
+fn before_path_read(_root: &Path) {}

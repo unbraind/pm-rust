@@ -2,15 +2,22 @@ id: pm-rust-long-intent-cursor
 title: Verify long producer cursors survive bounded intent compaction
 description: "Review thread PRRT_kwDOTwgMRs62QgiY on PR #165 reports that intent compaction may shorten a producer next_cursor beyond 240 UTF-16 units and make --after unusable. Separate from round-four atomic lifecycle admission: reproduce against the pinned oracle in a non-git fixture, preserve cursor validity through the delivery path, and add a behavioral revert test without weakening budget assertions."
 type: Task
-status: open
+status: in_progress
 priority: 2
 tags[3]: conformance,follow-up,"gh:unbraind/pm-rust#165"
 created_at: "2026-11-11T17:58:30.355Z"
-updated_at: "2026-11-11T17:58:31.562Z"
+updated_at: "2026-11-12T05:42:01.906Z"
 author: codex-rust164-1111
 parent: pm-rust-oracle-1111
-files[3]{path,scope}:
+comments[3]{created_at,author,text}:
+  "2026-11-12T01:29:34.962Z",codex-agent,"Round 5 independently reproduced the long producer-cursor defect in the pinned published CLI. A bounded triage page truncates its base64 cursor with an ellipsis. Native recursive compaction now preserves producer/output cursor fields, with a real long-ID fixture proving the emitted native cursor resumes to a different page. This is an intentional continuation-safety divergence under the final-round instruction to repair every valid review finding; no existing differential assertion is changed. Keep the item in progress for orchestrator verification, never close it here."
+  "2026-11-12T03:45:22.042Z",codex-agent,The full pagination target passes 30/30 with the required pinned oracle. Native long-ID continuation is executed successfully; the separate oracle observation retains the clipped cursor defect as evidence. The preservation rule protects both producer and output-snapshot cursors without weakening existing byte comparisons. Final-source reruns and the dedicated behavioral negative control are retained on the main oracle item.
+  "2026-11-12T05:41:58.013Z",codex-agent,"Round-five final result: full pagination differential passes 30/30. round5_long_intent_cursor_remains_executable independently replays the native continuation with long persisted IDs; the pinned oracle emits a clipped unusable cursor. Reverting compact_strings cursor protection fails at an assertion and restoration passes. Output-snapshot cursors are also protected, validation precedes omission, and the frozen final TOON boundary omits at 3236 tokens and delivers at 3237. Recorded with the code and full evidence in docs/ORACLE_REVIEW_ROUND5_2026_11_12.md. Item remains in progress; releasing only this agent claim."
+files[4]{path,scope}:
+  docs/NATIVE_PARITY_2026_11_11.md,project
   src/list_intent.rs,project
   src/read_output.rs,project
   tests/pagination_differential.rs,project
+tests[1]{command,scope,timeout_seconds,provenance{author,created_at,source_kind,source_ref}}:
+  PM_RUST_REQUIRE_PUBLISHED_CLI=1 CARGO_BUILD_JOBS=2 timeout 1200 cargo +1.90.0 test --locked -j 2 --test pagination_differential round5_long_intent_cursor -- --test-threads=2,project,1200,codex-agent,"2026-11-12T02:58:21.988Z",local_mutation,oracle-pm-cli-2026-11-11
 body: ""

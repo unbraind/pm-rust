@@ -1454,3 +1454,38 @@ fn legacy_blocker_aliases_keep_the_resolved_target() -> Result<(), Box<dyn std::
     }
     Ok(())
 }
+
+/// A valid large recurrence interval stops at the calendar domain without losing the first event.
+#[test]
+fn round5_recurrence_calendar_domain_boundary() {
+    let start = "2026-08-22T10:00:00.000Z";
+    let event =
+        serde_json::json!({"start_at":start,"recurrence":{"freq":"weekly","interval":1_000_000}});
+    assert_eq!(super::event_dates(&event, start), vec![start.to_owned()]);
+    let event =
+        serde_json::json!({"start_at":start,"recurrence":{"freq":"weekly","interval":1,"count":2}});
+    assert_eq!(
+        super::event_dates(&event, start),
+        vec![start.to_owned(), "2026-08-29T10:00:00.000Z".to_owned()]
+    );
+}
+
+/// Cutoff validation precedes storage reads and preserves the published runtime refusal.
+#[test]
+fn round5_invalid_cutoff_precedes_context_storage() -> Result<(), Box<dyn std::error::Error>> {
+    let (_temp, workspace, _) = workspace()?;
+    let path = workspace.pm_root().join("settings.json");
+    let before = fs::read(&path)?;
+    fs::remove_file(&path)?;
+    let options = ContextOptions {
+        no_extension_health: true,
+        ..Default::default()
+    };
+    assert!(
+        matches!(workspace.context_with_global(&options,"invalid",None),Err(PmRustError::CommandRefusal{detail,exit_code:1,context}) if detail=="Invalid time value" && context["code"]=="unknown_error")
+    );
+    fs::write(&path, &before)?;
+    assert!(workspace.context_with_global(&options, NOW, None).is_ok());
+    assert_eq!(fs::read(path)?, before);
+    Ok(())
+}

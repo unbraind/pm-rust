@@ -708,12 +708,12 @@ fn run_with_io(
                     .map_err(|error| {
                         pm_rust::completed_step_failure(error, &result.item.metadata.id, "close")
                     })?;
-                let mut changed: std::collections::BTreeSet<String> =
-                    result.close_changed_fields.into_iter().collect();
-                if release.changed_field_count > 0 {
-                    changed.extend(["assignee", "claim_principal"].map(str::to_owned));
-                }
-                receipt = serde_json::json!({"id":result.item.metadata.id,"action":"close_task","close":receipt,"release":release,"status":result.item.metadata.status,"changed_field_count":changed.len()});
+                // Another writer can claim between the separate close and release steps.
+                let changed_count = close_release_changed_field_count(
+                    &result.close_changed_fields,
+                    release.changed_field_count,
+                );
+                receipt = serde_json::json!({"id":result.item.metadata.id,"action":"close_task","close":receipt,"release":release,"status":result.item.metadata.status,"changed_field_count":changed_count});
             }
             write_close_receipt(&receipt, fields.json)?;
         }
@@ -959,18 +959,7 @@ fn comment_payload(
     request: &CommentItem,
 ) -> Result<serde_json::Value, Box<dyn std::error::Error>> {
     let outcome = identity.with(|| workspace.comment(request))?;
-    let mut payload = serde_json::to_value(outcome)?;
-    if let Some(comments) = payload["item"]["comments"].as_array_mut() {
-        for (index, comment) in comments.iter_mut().enumerate() {
-            if let Some(fields) = comment.as_object_mut() {
-                let mut indexed = serde_json::Map::new();
-                indexed.insert("index".to_owned(), serde_json::json!(index + 1));
-                indexed.extend(std::mem::take(fields));
-                *fields = indexed;
-            }
-        }
-    }
-    Ok(payload)
+    indexed_comment_receipt(serde_json::to_value(&outcome)).map_err(Into::into)
 }
 
 /// Closes one item, stamping the argv-derived implementer role.
@@ -2345,4 +2334,35 @@ fn append_budget_recovery(parts: &mut Vec<String>, recovery: &serde_json::Value)
             candidate["reason"].as_str().unwrap_or_default()
         ));
     }
+}
+
+/// Counts distinct fields across close and its separately locked release, including intervening claims.
+fn close_release_changed_field_count(close_fields: &[String], release_changed: usize) -> usize {
+    let mut fields: std::collections::BTreeSet<&str> =
+        close_fields.iter().map(String::as_str).collect();
+    if release_changed > 0 {
+        fields.extend(["assignee", "claim_principal"]);
+    }
+    fields.len()
+}
+
+/// Indexes a serialized comment receipt while retaining errors and older non-object rows.
+fn indexed_comment_receipt(
+    outcome: Result<serde_json::Value, serde_json::Error>,
+) -> Result<serde_json::Value, serde_json::Error> {
+    let mut payload = outcome?;
+    for (index, comment) in payload["item"]["comments"]
+        .as_array_mut()
+        .into_iter()
+        .flatten()
+        .enumerate()
+    {
+        if let Some(fields) = comment.as_object_mut() {
+            let mut indexed = serde_json::Map::new();
+            indexed.insert("index".to_owned(), serde_json::json!(index + 1));
+            indexed.extend(std::mem::take(fields));
+            *fields = indexed;
+        }
+    }
+    Ok(payload)
 }

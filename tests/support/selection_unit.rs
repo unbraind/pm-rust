@@ -564,9 +564,9 @@ fn readiness_index_preserves_case_cycles_and_existential_roles() {
     assert!(index.has_active_descendants("sample-a"));
     assert!(index.has_active_descendants("sample-b"));
     assert!(index.has_active_descendants("sample-self"));
-    assert!(index.is_terminal("sample-a", &json!({})));
-    assert!(!index.is_terminal("sample-self", &json!({})));
-    assert!(!index.is_terminal("sample-absent", &json!({})));
+    assert!(index.is_terminal("sample-a"));
+    assert!(!index.is_terminal("sample-self"));
+    assert!(!index.is_terminal("sample-absent"));
     assert!(blockers(&corpus[0], &index).is_empty());
     assert!(index.exact_parents.contains("SAMPLE-B"));
     assert!(!index.exact_parents.contains("sample-b"));
@@ -833,4 +833,72 @@ fn prepare_ranked_start_tracker(
         );
     }
     Ok(())
+}
+
+/// Real stale candidates can be skipped, exhausted or followed by a successful atomic start.
+#[test]
+fn round5_ranked_start_mixed_outcomes() -> Result<(), Box<dyn std::error::Error>> {
+    let (_directory, workspace) = tracker()?;
+    seed(&workspace)?;
+    let root = workspace.pm_root();
+    for id in ["sample-gate", "sample-blocked", "sample-ready"] {
+        let mut document = item(id);
+        if id == "sample-blocked" {
+            document
+                .metadata
+                .extra
+                .insert("blocked_by".to_owned(), json!("sample-gate"));
+        }
+        fs::write(
+            root.join(format!("tasks/{id}.toon")),
+            toon_format::encode_default(&document)?,
+        )?;
+    }
+    let blocked = workspace.get("sample-blocked")?;
+    let ready = workspace.get("sample-ready")?;
+    let foreign = workspace.get("sample-own")?;
+    let mut owner = request();
+    owner.author = "other".to_owned();
+    workspace.claim_with_options(&owner, &OwnershipOptions::default())?;
+    let options = OwnershipOptions {
+        start: true,
+        ..Default::default()
+    };
+    let error = workspace
+        .claim_ranked(&request(), &options, &[blocked.clone(), foreign], 2)
+        .err()
+        .ok_or("mixed exhaustion admitted")?;
+    assert!(
+        matches!(error,PmRustError::CommandRefusal{exit_code:4,context,..} if context["why"].as_str().is_some_and(|text|text.contains("every other attempted candidate")))
+    );
+    let mut caller = request();
+    caller.if_available = true;
+    let receipt = workspace.claim_ranked(&caller, &options, std::slice::from_ref(&blocked), 1)?;
+    assert_eq!(receipt["available"], false);
+    assert_eq!(receipt["start_refused"], json!(["sample-blocked"]));
+    let receipt = workspace.claim_ranked(&request(), &options, &[blocked, ready], 2)?;
+    assert_eq!(receipt["available"], true);
+    assert_eq!(receipt["start_refused"], json!(["sample-blocked"]));
+    assert_eq!(
+        workspace.get("sample-ready")?.metadata.status,
+        "in_progress"
+    );
+    Ok(())
+}
+
+/// Ranked reads share status aliases and terminal roles with the locked admission registry.
+#[test]
+fn round5_status_registry_normalizes_aliases_for_ranked_reads() {
+    let settings = json!({"schema":{"statuses":[{"id":"ready","roles":["active"],"aliases":["Ready Alias"]},{"id":"done","roles":["terminal_done"],"aliases":["Finished"]}]}});
+    let mut complete = item("sample-done");
+    complete.metadata.status = " FINISHED ".to_owned();
+    let mut ready = item("sample-ready");
+    ready.metadata.status = "ready-alias".to_owned();
+    let corpus = [complete, ready];
+    let index = CorpusIndex::new(&corpus, &settings);
+    assert!(index.is_terminal("sample-done"));
+    assert!(!index.is_terminal("sample-ready"));
+    assert!(has_role(&corpus[1], &index.lifecycle, "active"));
+    let unknown = item("sample-unknown");
+    assert!(!has_role(&unknown, &index.lifecycle, "active"));
 }
