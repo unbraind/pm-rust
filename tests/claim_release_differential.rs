@@ -3174,3 +3174,83 @@ fn round8_atomic_alias_workflow_matches_published() -> Result<(), Box<dyn std::e
     }
     Ok(())
 }
+
+/// Missing workflow sidecars retain inline progress settings, matching the published CLI.
+#[test]
+fn round10_missing_workflow_start_matches_oracle() -> Result<(), Box<dyn std::error::Error>> {
+    for (present, configured) in [(false, false), (false, true), (true, true)] {
+        let Some(fixture) = Fixture::new("none")? else {
+            return Ok(());
+        };
+        for root in [fixture.node.path(), fixture.rust.path()] {
+            let pm = root.join(".agents/pm");
+            let path = pm.join("settings.json");
+            let mut settings: serde_json::Value = serde_json::from_slice(&fs::read(&path)?)?;
+            settings["schema"]["workflow"]["in_progress_status"] = serde_json::json!("working");
+            settings["schema"]["statuses"]
+                .as_array_mut()
+                .ok_or("statuses")?
+                .push(serde_json::json!({"id":"working","roles":["active"]}));
+            if !configured {
+                settings["schema"]["files"]
+                    .as_object_mut()
+                    .ok_or("files")?
+                    .shift_remove("workflows");
+            }
+            fs::write(path, serde_json::to_vec(&settings)?)?;
+            fs::write(
+                pm.join("schema/statuses.json"),
+                serde_json::to_vec(
+                    &serde_json::json!({"statuses":settings["schema"]["statuses"]}),
+                )?,
+            )?;
+            if present {
+                fs::write(
+                    pm.join("schema/workflows.json"),
+                    serde_json::to_vec(
+                        &serde_json::json!({"workflow":settings["schema"]["workflow"]}),
+                    )?,
+                )?;
+            } else {
+                fs::remove_file(pm.join("schema/workflows.json"))?;
+            }
+        }
+        let args = [
+            "claim",
+            "sample-own",
+            "--start",
+            "--author",
+            "alpha",
+            "--json",
+        ];
+        let expected = published_run(&fixture.driver, fixture.node.path(), &args)?;
+        assert!(
+            expected.status.success(),
+            "{}",
+            String::from_utf8_lossy(&expected.stderr)
+        );
+        let oracle_status = pm_rust::Workspace::discover(fixture.node.path())?
+            .get("sample-own")?
+            .metadata
+            .status;
+        assert_eq!(oracle_status, "working");
+        let actual = native_command(fixture.rust.path(), &args).output()?;
+        assert_eq!(
+            actual.status.code(),
+            expected.status.code(),
+            "native: {}; oracle chose {oracle_status}",
+            String::from_utf8_lossy(&actual.stderr)
+        );
+        assert_eq!(actual.stdout, expected.stdout);
+        assert_eq!(actual.stderr, expected.stderr);
+        fixture.compare_bytes()?;
+        assert_eq!(
+            pm_rust::Workspace::discover(fixture.rust.path())?
+                .get("sample-own")?
+                .metadata
+                .status,
+            "working"
+        );
+    }
+    Ok(())
+}

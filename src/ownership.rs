@@ -222,7 +222,14 @@ pub(crate) fn runtime_settings(pm_root: &Path) -> Result<Value, PmRustError> {
         ("workflows", &["workflow", "type_workflows"][..]),
     ] {
         if let Some(relative) = schema.get("files").and_then(|files| files[name].as_str()) {
-            let external = read_json(&pm_root.join(relative))?;
+            let external = match read_json(&pm_root.join(relative)) {
+                Err(PmRustError::Io { source, .. })
+                    if name == "workflows" && source.kind() == std::io::ErrorKind::NotFound =>
+                {
+                    continue;
+                }
+                result => result?,
+            };
             for key in keys {
                 if let Some(value) = external.get(*key) {
                     let value = if *key == "statuses" {

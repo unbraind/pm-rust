@@ -1599,6 +1599,11 @@ where
         .into_iter()
         .map(|arg| arg.as_ref().to_string_lossy().into_owned());
     while let Some(arg) = args.next() {
+        if arg == "--" {
+            arguments.push(arg);
+            arguments.extend(args);
+            break;
+        }
         if matches!(
             arg.as_str(),
             "--timestamp" | "--workspace" | "--pm-path" | "--path"
@@ -1615,7 +1620,7 @@ where
         arguments.remove(0);
     }
     if arguments.first().is_some_and(|command| command == "close") {
-        for arg in &mut arguments {
+        for arg in arguments.iter_mut().take_while(|arg| arg.as_str() != "--") {
             let alias = match arg.as_str() {
                 "--expected" => Some("--expected-result"),
                 "--actual" => Some("--actual-result"),
@@ -1723,11 +1728,35 @@ fn render_recovery(args: &[String]) -> String {
     )
 }
 
+/// Adds invocation scope to executable advice while respecting an explicit producer scope.
+fn scope_recovery_command(command: &str, scope: &[String]) -> Option<String> {
+    let command = command.strip_prefix("pm ")?;
+    if ["--pm-path", "--path", "--workspace"].iter().any(|flag| {
+        command.starts_with(&format!("{flag} ")) || command.starts_with(&format!("{flag}="))
+    }) {
+        return None;
+    }
+    Some(format!("{} {command}", render_recovery(scope)))
+}
+
 /// Preserves explicit tracker scope for every recovery bundle, including close evidence.
 fn preserve_refusal_scope(payload: &mut serde_json::Value, raw: &[String]) {
     let scope = invocation_scope(raw);
     if scope.is_empty() {
         return;
+    }
+    if let Some(steps) = payload
+        .get_mut("next_steps")
+        .and_then(serde_json::Value::as_array_mut)
+    {
+        for step in steps {
+            if let Some(scoped) = step
+                .as_str()
+                .and_then(|text| scope_recovery_command(text, &scope))
+            {
+                *step = serde_json::json!(scoped);
+            }
+        }
     }
     let Some(recovery) = payload["recovery"].as_object_mut() else {
         return;
@@ -1737,14 +1766,11 @@ fn preserve_refusal_scope(payload: &mut serde_json::Value, raw: &[String]) {
         ("suggested_retry_args", "suggested_retry"),
     ] {
         let Some(values) = recovery.get(args_key).and_then(serde_json::Value::as_array) else {
-            if let Some(command) = recovery
+            if let Some(scoped) = recovery
                 .get(command_key)
                 .and_then(serde_json::Value::as_str)
-                .and_then(|command| command.strip_prefix("pm "))
-                && !command.starts_with("--pm-path ")
-                && !command.starts_with("--path ")
+                .and_then(|text| scope_recovery_command(text, &scope))
             {
-                let scoped = format!("{} {command}", render_recovery(&scope));
                 recovery.insert(command_key.to_owned(), serde_json::json!(scoped));
             }
             continue;
@@ -1784,12 +1810,11 @@ fn preserve_refusal_scope(payload: &mut serde_json::Value, raw: &[String]) {
         payload["examples"] = serde_json::json!([payload["recovery"]["suggested_retry"]]);
     }
     if payload["code"] == "close_validation_missing_fields"
-        && let Some(command) = payload["recovery"]["next_best_command"]
+        && let Some(scoped) = payload["recovery"]["next_best_command"]
             .as_str()
-            .and_then(|command| command.strip_prefix("pm "))
+            .and_then(|command| scope_recovery_command(command, &scope))
     {
-        payload["recovery"]["next_best_command"] =
-            serde_json::json!(format!("{} {command}", render_recovery(&scope)));
+        payload["recovery"]["next_best_command"] = serde_json::json!(scoped);
     }
 }
 
@@ -1797,8 +1822,9 @@ fn preserve_refusal_scope(payload: &mut serde_json::Value, raw: &[String]) {
 fn cursor_error_json(code: &str, detail: &str, args: &[String]) -> serde_json::Value {
     let mut provided = Vec::new();
     for arg in args {
-        if arg.starts_with("--") && !provided.contains(arg) {
-            provided.push(arg.clone());
+        let flag = arg.split('=').next().unwrap_or_default().to_owned();
+        if flag.starts_with("--") && !provided.contains(&flag) {
+            provided.push(flag);
         }
     }
     let recovery_args = orientation_arguments(args);
@@ -1969,6 +1995,19 @@ fn apply_ownership_guidance(payload: &mut serde_json::Value, context: &serde_jso
     }
 }
 
+/// Mirrors the published withdrawal when delimited command data resembles a missing evidence flag.
+fn close_retry_unambiguous(args: &[String], missing: &[String]) -> bool {
+    !args.iter().any(|arg| arg == "--")
+        || args.iter().skip(1).all(|arg| {
+            let flag = match arg.split('=').next().unwrap_or_default() {
+                "--expected" | "--expected_result" => "--expected-result",
+                "--actual" | "--actual_result" => "--actual-result",
+                flag => flag,
+            };
+            !missing.iter().any(|missing| missing == flag)
+        })
+}
+
 /// Adds actionable close evidence recovery at the shared refusal boundary.
 fn apply_close_error_recovery(
     payload: &mut serde_json::Value,
@@ -2029,7 +2068,13 @@ fn apply_close_error_recovery(
             for flag in &missing {
                 update.extend([flag.clone(), "<value>".to_owned()]);
             }
-            payload["recovery"] = serde_json::json!({"attempted_command":payload["recovery"]["attempted_command"],"normalized_args":payload["recovery"]["normalized_args"],"provided_fields":payload["recovery"]["provided_fields"],"missing":missing,"suggested_retry":render_recovery(&retry),"suggested_retry_args":retry,"next_best_command":render_recovery(&update)});
+            let mut recovery = serde_json::json!({"attempted_command":payload["recovery"]["attempted_command"],"normalized_args":payload["recovery"]["normalized_args"],"provided_fields":payload["recovery"]["provided_fields"],"missing":missing});
+            if close_retry_unambiguous(args, &missing) {
+                recovery["suggested_retry"] = serde_json::json!(render_recovery(&retry));
+                recovery["suggested_retry_args"] = serde_json::json!(retry);
+            }
+            recovery["next_best_command"] = serde_json::json!(render_recovery(&update));
+            payload["recovery"] = recovery;
             payload["title"] = serde_json::json!("Close is missing required evidence");
             payload["required"] = serde_json::json!(format!(
                 "Supply {}: pm close accepts them and records them in the same write as the closure.",

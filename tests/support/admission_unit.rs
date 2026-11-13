@@ -1675,3 +1675,60 @@ fn admission_parent_component_swap_is_refused() -> TestResult {
     );
     Ok(())
 }
+
+/// Missing sidecars retain inline workflow settings in both preview and live registries.
+#[test]
+fn round10_inline_workflow_registry_matches_live() -> TestResult {
+    for (inline, present, configured) in [
+        (false, false, false),
+        (true, false, false),
+        (true, false, true),
+        (true, true, true),
+    ] {
+        let (_directory, workspace) = fixture()?;
+        let root = workspace.pm_root();
+        let mut settings: Value = serde_json::from_slice(&fs::read(root.join("settings.json"))?)?;
+        settings["schema"]["workflow"]["in_progress_status"] = json!("working");
+        settings["schema"]["statuses"]
+            .as_array_mut()
+            .ok_or("statuses")?
+            .push(json!({"id":"working","roles":["active"]}));
+        if !inline {
+            settings["schema"]
+                .as_object_mut()
+                .ok_or("schema")?
+                .shift_remove("workflow");
+        }
+        if configured {
+            settings["schema"]["files"]["workflows"] = json!("schema/workflows.json");
+        }
+        fs::write(root.join("settings.json"), serde_json::to_vec(&settings)?)?;
+        fs::create_dir_all(root.join("schema"))?;
+        fs::write(
+            root.join("schema/statuses.json"),
+            serde_json::to_vec(&json!({"statuses":settings["schema"]["statuses"]}))?,
+        )?;
+        if present {
+            fs::write(
+                root.join("schema/workflows.json"),
+                r#"{"workflow":{"in_progress_status":"in_progress"}}"#,
+            )?;
+        }
+        let (source, _) = Source::load(root)?;
+        let preview = source.lifecycle.as_ref().ok_or("lifecycle")?.start_status();
+        assert_eq!(
+            preview,
+            if present || !inline {
+                "in_progress"
+            } else {
+                "working"
+            }
+        );
+        assert_eq!(
+            preview,
+            crate::list_registry::Lifecycle::load(root)?.start_status()
+        );
+        assert!(crate::ownership::runtime_settings(root).is_ok());
+    }
+    Ok(())
+}

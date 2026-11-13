@@ -563,6 +563,11 @@ fn external_runtime_schema_precedence_and_errors() -> Result<(), Box<dyn std::er
         ));
     }
     fs::remove_file(root.join("workflows.json"))?;
+    assert_eq!(
+        runtime_settings(root)?["schema"]["workflow"]["open_status"],
+        "open"
+    );
+    fs::create_dir(root.join("workflows.json"))?;
     assert!(matches!(
         runtime_settings(root),
         Err(PmRustError::Io { .. })

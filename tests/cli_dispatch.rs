@@ -9,6 +9,10 @@ use std::process::Command;
 
 use tempfile::TempDir;
 
+#[allow(dead_code)]
+#[path = "support/published_cli.rs"]
+mod published_cli;
+
 /// Builds a tracker fixture and returns its workspace directory.
 fn workspace() -> Result<TempDir, Box<dyn std::error::Error>> {
     let directory = tempfile::tempdir()?;
@@ -1200,6 +1204,171 @@ fn round7_closed_pipe_precedes_child_creation() -> Result<(), Box<dyn std::error
             .ok_or("pipe remained readable")?
             .kind(),
         std::io::ErrorKind::BrokenPipe
+    );
+    Ok(())
+}
+
+/// Stored titles and positional comments/reasons share decorated-userinfo privacy on both streams.
+#[test]
+fn round10_decorated_credentials_never_reach_refusal_streams()
+-> Result<(), Box<dyn std::error::Error>> {
+    let workspace = workspace()?;
+    seed_item(&workspace)?;
+    let root = workspace.path().join(".agents/pm");
+    let own_path = root.join("tasks/sample-cli.toon");
+    let mut own = pm_rust::Workspace::discover(workspace.path())?.get("sample-cli")?;
+    let mut gate = own.clone();
+    gate.metadata.id = "sample-gate".to_owned();
+    own.metadata
+        .extra
+        .insert("blocked_by".to_owned(), serde_json::json!("sample-gate"));
+    own.metadata
+        .extra
+        .insert("assignee".to_owned(), serde_json::json!("alpha"));
+    fs::write(&own_path, toon_format::encode_default(&own)?)?;
+    // Governance refuses comment/close before persisting their decorated input.
+    let settings = root.join("settings.json");
+    let mut value: serde_json::Value = serde_json::from_slice(&fs::read(&settings)?)?;
+    value["governance"] = serde_json::json!({"preset":"custom","ownership_enforcement":"strict"});
+    fs::write(settings, serde_json::to_vec(&value)?)?;
+    for (source, expected) in [
+        (
+            "Gate: https://stored user@host.invalid",
+            "Gate: https://[redacted]@host.invalid",
+        ),
+        (
+            "Gate: https://host.invalid and user@example.invalid",
+            "Gate: https://host.invalid and user@example.invalid",
+        ),
+    ] {
+        gate.metadata.title = source.to_owned();
+        fs::write(
+            root.join("tasks/sample-gate.toon"),
+            toon_format::encode_default(&gate)?,
+        )?;
+        for json in [false, true] {
+            let mut formats = vec![];
+            if json {
+                formats.push("--json");
+            }
+            for mut args in [
+                vec!["claim", "sample-cli", "--start", "--author", "alpha"],
+                vec!["comment", "sample-cli", source, "--author", "beta"],
+                vec!["close", "sample-cli", source, "--author", "beta"],
+            ] {
+                if json && args[0] == "comment" {
+                    continue;
+                }
+                args.extend(&formats);
+                let before = fs::read(&own_path)?;
+                let output = pm_rust(&workspace, &args)?;
+                assert!(!output.status.success(), "{args:?}");
+                assert!(output.stdout.is_empty());
+                let text = String::from_utf8(output.stderr)?;
+                assert!(text.contains(expected), "{args:?}: {text}");
+                if source.contains("stored user") {
+                    assert!(!text.contains("stored user"));
+                }
+                assert_eq!(fs::read(&own_path)?, before);
+            }
+        }
+    }
+    Ok(())
+}
+
+/// An executable blocker-removal step targets the selected tracker even when IDs overlap.
+#[test]
+fn round10_scoped_next_step_cannot_mutate_default_tracker() -> Result<(), Box<dyn std::error::Error>>
+{
+    let default = workspace()?;
+    let selected = workspace()?;
+    for tracker in [&default, &selected] {
+        seed_item(tracker)?;
+        let store = pm_rust::Workspace::discover(tracker.path())?;
+        let mut own = store.get("sample-cli")?;
+        let mut gate = own.clone();
+        gate.metadata.id = "sample-gate".to_owned();
+        own.metadata
+            .extra
+            .insert("blocked_by".to_owned(), serde_json::json!("sample-gate"));
+        for item in [&own, &gate] {
+            fs::write(
+                store
+                    .pm_root()
+                    .join(format!("tasks/{}.toon", item.metadata.id)),
+                toon_format::encode_default(item)?,
+            )?;
+        }
+    }
+    let target = selected.path().join(".agents/pm");
+    let output = Command::new(env!("CARGO_BIN_EXE_pm-rust"))
+        .current_dir(default.path())
+        .arg("--pm-path")
+        .arg(&target)
+        .args([
+            "claim",
+            "sample-cli",
+            "--start",
+            "--author",
+            "beta",
+            "--json",
+        ])
+        .output()?;
+    assert_eq!(output.status.code(), Some(4));
+    let refusal: serde_json::Value = serde_json::from_slice(&output.stderr)?;
+    let expected = format!(
+        "pm --pm-path {} update sample-cli --unset blocked_by",
+        pm_rust::quote_command_arg(&target.to_string_lossy())
+    );
+    assert!(
+        refusal["next_steps"]
+            .as_array()
+            .ok_or("steps")?
+            .iter()
+            .any(|s| s == &expected)
+    );
+    let default_item = default.path().join(".agents/pm/tasks/sample-cli.toon");
+    let default_history = default.path().join(".agents/pm/history/sample-cli.jsonl");
+    let before = (fs::read(&default_item)?, fs::read(&default_history)?);
+    let Some(published) = published_cli::published_cli_or_skip("scoped executable next step")
+    else {
+        return Ok(());
+    };
+    let mut command = published_cli::oracle_command(
+        std::env::var("PM_NODE_INTERPRETER").unwrap_or_else(|_| "node".to_owned()),
+    );
+    let output = command
+        .env("DO_NOT_TRACK", "1")
+        .arg(published.entry)
+        .current_dir(default.path())
+        .arg("--pm-path")
+        .arg(&target)
+        .args([
+            "update",
+            "sample-cli",
+            "--unset",
+            "blocked_by",
+            "--author",
+            "beta",
+            "--json",
+        ])
+        .output()?;
+    assert!(
+        output.status.success(),
+        "{}",
+        String::from_utf8_lossy(&output.stderr)
+    );
+    assert_eq!(
+        (fs::read(default_item)?, fs::read(default_history)?),
+        before
+    );
+    assert!(
+        pm_rust::Workspace::discover(selected.path())?
+            .get("sample-cli")?
+            .metadata
+            .extra
+            .get("blocked_by")
+            .is_none()
     );
     Ok(())
 }

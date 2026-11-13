@@ -2235,3 +2235,129 @@ fn round7_public_url_port_boundaries() {
     super::refusal::redact(&mut nested, &[]);
     assert_eq!(nested["detail"], "https://[redacted]@private.invalid");
 }
+
+/// Executable next steps inherit tracker scope even when no recovery bundle exists.
+#[test]
+fn round10_executable_steps_keep_tracker_scope() {
+    let raw = [
+        "--pm-path",
+        "other tracker",
+        "claim",
+        "sample-own",
+        "--start",
+    ]
+    .map(str::to_owned);
+    for recovery in [
+        serde_json::Value::Null,
+        serde_json::json!({"normalized_args":["claim","sample-own"]}),
+    ] {
+        let mut payload = serde_json::json!({"next_steps":["pm update sample-own --unset blocked_by","Read the blocker first.","pm --pm-path chosen get sample-own","external get sample-own"],"recovery":recovery});
+        super::preserve_refusal_scope(&mut payload, &raw);
+        assert_eq!(
+            payload["next_steps"],
+            serde_json::json!([
+                "pm --pm-path \"other tracker\" update sample-own --unset blocked_by",
+                "Read the blocker first.",
+                "pm --pm-path chosen get sample-own",
+                "external get sample-own"
+            ])
+        );
+    }
+    let mut payload = serde_json::json!({"next_steps":["pm update sample-own --unset blocked_by"]});
+    let original = payload.clone();
+    super::preserve_refusal_scope(&mut payload, &["claim".to_owned()]);
+    assert_eq!(payload, original);
+    let mut payload = serde_json::json!({"recovery":{"normalized_args":["claim","sample-own"]}});
+    super::preserve_refusal_scope(&mut payload, &raw);
+    assert!(payload.get("next_steps").is_none());
+    let mut payload = serde_json::json!({"next_steps":"Read the blocker","recovery":null});
+    super::preserve_refusal_scope(&mut payload, &raw);
+    assert_eq!(payload["next_steps"], "Read the blocker");
+}
+
+/// Positional close reasons remain lossless after the delimiter in same-command retries.
+#[test]
+fn round10_close_retry_preserves_delimited_reason() -> Result<(), Box<dyn std::error::Error>> {
+    for reason in [
+        "--timestamp=done",
+        "--workspace=literal",
+        "--expected",
+        "ordinary reason",
+    ] {
+        let raw = [
+            "close",
+            "sample-one",
+            "--validate-close",
+            "strict",
+            "--json",
+            "--",
+            reason,
+        ];
+        let args = super::published_read_arguments(raw);
+        assert_eq!(args.last().map(String::as_str), Some(reason));
+        let context = serde_json::json!({"code":"close_validation_missing_fields","recovery":{"missing":["--actual-result","--expected-result"]}});
+        let payload = super::ownership_error_json("Missing evidence", &context, &args);
+        if reason == "--expected" {
+            // The pinned CLI withdraws a retry when positional data spells a missing evidence flag.
+            assert!(payload["recovery"]["suggested_retry_args"].is_null());
+            assert_eq!(
+                payload["recovery"]["normalized_args"],
+                serde_json::json!(args)
+            );
+            continue;
+        }
+        let retry = payload["recovery"]["suggested_retry_args"]
+            .as_array()
+            .ok_or("retry")?;
+        let delimiter = retry
+            .iter()
+            .position(|arg| arg == "--")
+            .ok_or("delimiter")?;
+        assert_eq!(&retry[delimiter + 1..], &[serde_json::json!(reason)]);
+        assert!(
+            retry[..delimiter]
+                .iter()
+                .any(|arg| arg == "--actual-result")
+        );
+    }
+    Ok(())
+}
+
+/// Pre-scoped advice and delimiter ambiguity preserve every supported spelling.
+#[test]
+fn round10_recovery_scope_and_alias_controls() {
+    let raw = ["--pm-path", "selected", "claim"].map(str::to_owned);
+    for flag in ["--pm-path", "--path", "--workspace"] {
+        for separator in [" ", "="] {
+            let command = format!("pm {flag}{separator}chosen get sample-own");
+            let mut value = serde_json::json!({"next_steps":[command,7],"recovery":{"suggested_retry":command}});
+            super::preserve_refusal_scope(&mut value, &raw);
+            assert_eq!(value["next_steps"][0], command);
+            assert_eq!(value["next_steps"][1], 7);
+            assert_eq!(value["recovery"]["suggested_retry"], command);
+        }
+    }
+    let missing = ["--expected-result", "--actual-result", "--resolution"].map(str::to_owned);
+    for flag in [
+        "--expected",
+        "--expected_result",
+        "--expected-result",
+        "--actual",
+        "--actual_result",
+        "--actual-result",
+        "--resolution",
+    ] {
+        assert!(!super::close_retry_unambiguous(
+            &["close", "id", "--", flag].map(str::to_owned),
+            &missing
+        ));
+        assert!(super::close_retry_unambiguous(
+            &["close", "id", flag].map(str::to_owned),
+            &missing
+        ));
+    }
+    assert!(super::close_retry_unambiguous(
+        &["close", "id", "--", "ordinary reason"].map(str::to_owned),
+        &missing
+    ));
+}

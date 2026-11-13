@@ -2232,3 +2232,95 @@ fn context_cutoff_validation_matches_published_clock_refusal() -> TestResult {
     }
     Ok(())
 }
+
+/// Pins the published missing-reference receipt gap until its coupled budget contract changes.
+#[test]
+fn round10_shortened_reference_receipt_matches_published_gap() -> TestResult {
+    let published = published_cli::published_cli_or_skip("missing-reference receipt parity");
+    let scratch = tempfile::tempdir()?;
+    let driver = published
+        .as_ref()
+        .map(|cli| orientation_driver(scratch.path(), cli))
+        .transpose()?;
+    let root = tempfile::tempdir()?;
+    fs::create_dir_all(root.path().join(".agents/pm"))?;
+    fs::write(
+        root.path().join(".agents/pm/settings.json"),
+        include_bytes!("fixtures/list-settings.json"),
+    )?;
+    let mut start = item("sample-root", "Task", "open", 1);
+    start["parent"] = json!("sample-parent");
+    start["dependencies"] = json!([
+        {"id":"sample-missing","kind":"related_to","created_at":CLOCK},
+        {"id":"sample-other","kind":"blocked_by","created_at":CLOCK}
+    ]);
+    fixture(root.path(), &[start])?;
+    let mut observed = false;
+    for budget in (250..=1500).step_by(25) {
+        let budget = budget.to_string();
+        let args = [
+            "deps",
+            "sample-root",
+            "--format",
+            "context",
+            "--edge-limit",
+            "40",
+            "--token-budget",
+            &budget,
+            "--json",
+        ];
+        let actual = native(root.path(), &args)?;
+        if let Some(driver) = &driver {
+            compare(&oracle(driver, root.path(), &args)?, &actual, &args);
+        }
+        if actual.status.success() {
+            let packet: Value = serde_json::from_slice(&actual.stdout)?;
+            let returned = packet["missing_references"]
+                .as_array()
+                .ok_or("references")?
+                .len() as u64;
+            if packet["missing_reference_count"].as_u64().ok_or("count")? > returned
+                && packet["context"]["meta"]["truncated"] == false
+            {
+                assert_eq!(packet["omission_receipt"]["has_omissions"], false);
+                observed = true;
+                break;
+            }
+        }
+    }
+    assert!(
+        observed,
+        "must exercise shortened references with an untruncated packet"
+    );
+    for summary in [false, true] {
+        let mut args = vec![
+            "deps",
+            "sample-root",
+            "--format",
+            "context",
+            "--token-budget",
+            "5000",
+            "--json",
+        ];
+        if summary {
+            args.push("--summary");
+        }
+        let actual = native(root.path(), &args)?;
+        assert!(actual.status.success());
+        if let Some(driver) = &driver {
+            compare(&oracle(driver, root.path(), &args)?, &actual, &args);
+        }
+        let packet: Value = serde_json::from_slice(&actual.stdout)?;
+        if summary {
+            assert!(packet.get("missing_references").is_none());
+        } else {
+            assert_eq!(
+                packet["missing_reference_count"].as_u64(),
+                packet["missing_references"]
+                    .as_array()
+                    .map(|r| r.len() as u64)
+            );
+        }
+    }
+    Ok(())
+}

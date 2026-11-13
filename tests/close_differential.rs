@@ -520,3 +520,19 @@ fn round5_claimed_close_release_matches_published_bytes() -> TestResult {
         ],
     )
 }
+
+/// Option-shaped positional reasons survive unchanged in the published same-close retry.
+#[test]
+fn round10_delimited_option_reasons_match_oracle() -> TestResult {
+    for reason in ["--timestamp=done", "--expected"] {
+        for json in [false, true] {
+            let mut fields = vec!["--validate-close", "strict"];
+            if json {
+                fields.push("--json");
+            }
+            fields.extend(["--", reason]);
+            compare_close(&[], &fields)?;
+        }
+    }
+    Ok(())
+}

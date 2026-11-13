@@ -84,11 +84,11 @@ fn userinfos(text: &str) -> Vec<(usize, usize)> {
             continue;
         };
         let span = &candidate[..end];
-        // A public URL followed by prose and an email is not URL authentication.
-        if span.chars().any(whitespace)
-            && !span.contains(':')
-            && scheme != 0
-            && !text[..scheme].ends_with('=')
+        // Explicit connective prose separates a public URL from a following email.
+        // This boundary depends on URL content, never its position in a producer field.
+        if !span.contains(':')
+            && let Some((_, prose)) = span.split_once(whitespace)
+            && prose.trim_start_matches(whitespace).starts_with("and ")
         {
             continue;
         }
@@ -459,6 +459,56 @@ pub(super) fn redact(payload: &mut Value, raw: &[String]) {
 mod tests {
     use super::*;
     use serde_json::json;
+
+    /// Bare and decorated URLs share one credential corpus across persisted fields and recovery.
+    #[test]
+    fn round10_decorated_userinfo_corpus() {
+        for userinfo in [
+            "stored user",
+            "stored\tuser",
+            "stored user name",
+            "stored.name user",
+            "stored.name user name",
+            "stored",
+            "user:stored password",
+            "user:secret",
+            "user:secret,value://tail",
+        ] {
+            for prefix in ["", "Gate: ", "Comment: ", "Close reason: "] {
+                let source = format!("{prefix}https://{userinfo}@host.invalid");
+                let expected = format!("{prefix}https://[redacted]@host.invalid");
+                let mut payload = json!({"details":{"title":source,"comments":[{"text":source}],"close_reason":source},"detail":source,"recovery":{"normalized_args":["comment","sample-own",source],"attempted_command":"placeholder"}});
+                redact(&mut payload, &[]);
+                assert_eq!(payload["details"]["title"], expected);
+                assert_eq!(payload["details"]["comments"][0]["text"], expected);
+                assert_eq!(payload["details"]["close_reason"], expected);
+                assert_eq!(payload["detail"], expected);
+                assert_eq!(payload["recovery"]["normalized_args"][2], expected);
+                assert!(
+                    !payload["recovery"]["attempted_command"]
+                        .as_str()
+                        .unwrap_or_default()
+                        .contains(userinfo)
+                );
+            }
+        }
+        for prefix in ["", "Gate: ", "Comment: ", "Close reason: "] {
+            for public in [
+                "https://host.invalid and user@example.invalid",
+                "https://host and contact user@example.invalid",
+                "https://host.invalid/path and user@example.invalid",
+                "https://www.npmjs.com/package/@scope/x",
+                "user@example.invalid",
+            ] {
+                let source = format!("{prefix}{public}");
+                let mut payload = json!({"details":{"text":source},"recovery":{"normalized_args":["comment","sample-own",source],"attempted_command":"placeholder"}});
+                // Producer fields, not invocation arguments, must distinguish public prose.
+                redact(&mut payload, &[]);
+                assert_eq!(payload["details"]["text"], source);
+                assert_eq!(payload["recovery"]["normalized_args"][2], source);
+            }
+        }
+    }
 
     /// Complete registered short passwords are private; unrelated short arguments remain public.
     #[test]

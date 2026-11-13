@@ -565,7 +565,14 @@ impl Source {
         .iter()
         .any(|v| declares_contract(v));
         let mut statuses = crate::list_registry::default_schema("statuses");
+        // Start resolution retains inline settings when the sidecar is missing.
+        // Published bulk previews keep scaffold closure defaults in this case.
         let mut workflows = crate::list_registry::default_schema("workflows");
+        for key in ["open_status", "in_progress_status"] {
+            if let Some(inline) = settings["schema"]["workflow"].get(key) {
+                workflows["workflow"][key] = inline.clone();
+            }
+        }
         for (name, key) in [
             ("types", "definitions"),
             ("fields", "fields"),

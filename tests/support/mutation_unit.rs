@@ -123,9 +123,10 @@ fn lifecycle_storage_faults_preserve_recovery_evidence() -> Result<(), Box<dyn s
     mutation.id = "sample-absent".to_owned();
     assert!(lifecycle_status(&pm_root, &mutation, &options, true).is_err());
     mutation.id = "sample-unit".to_owned();
+    fs::create_dir(pm_root.join("workflow-directory"))?;
     fs::write(
         &settings_path,
-        r#"{"schema":{"files":{"workflows":"missing.json"}}}"#,
+        r#"{"schema":{"files":{"workflows":"workflow-directory"}}}"#,
     )?;
     assert!(matches!(
         lifecycle_status(&pm_root, &mutation, &options, true),
