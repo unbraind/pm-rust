@@ -68,6 +68,11 @@ fn compare_artifacts(expected: &Path, actual: &Path) -> TestResult {
 
 /// Closes identical before-images at the same root so recovery paths compare exactly.
 fn compare_close(setup: &[Vec<&str>], fields: &[&str]) -> TestResult {
+    compare_close_bootstrap(setup, fields, false)
+}
+
+/// Exercises bootstrap scope at the same tracker path in both real CLIs.
+fn compare_close_bootstrap(setup: &[Vec<&str>], fields: &[&str], scoped: bool) -> TestResult {
     let Some(published) = published_cli::published_cli_or_skip("Close differential") else {
         return Ok(());
     };
@@ -110,7 +115,17 @@ fn compare_close(setup: &[Vec<&str>], fields: &[&str]) -> TestResult {
         &tracker.path().join(".agents"),
         &snapshot.path().join(".agents"),
     )?;
-    let mut args = vec!["close", "sample-close", "--author", "alpha"];
+    let scope = tracker
+        .path()
+        .join(".agents/pm")
+        .to_string_lossy()
+        .into_owned();
+    let mut args = if scoped {
+        vec!["--pm-path", scope.as_str()]
+    } else {
+        vec![]
+    };
+    args.extend(["close", "sample-close", "--author", "alpha"]);
     args.extend(fields);
     let expected = oracle(&driver, tracker.path(), &args)?;
     let artifacts = tempfile::tempdir()?;
@@ -535,4 +550,20 @@ fn round10_delimited_option_reasons_match_oracle() -> TestResult {
         }
     }
     Ok(())
+}
+
+/// Delimited scope-shaped reasons preserve the real scope in exact published refusal bytes.
+#[test]
+fn round11_scoped_close_reason_matches_oracle() -> TestResult {
+    compare_close_bootstrap(
+        &[],
+        &[
+            "--validate-close",
+            "strict",
+            "--json",
+            "--",
+            "--pm-path=literal",
+        ],
+        true,
+    )
 }

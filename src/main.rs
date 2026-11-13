@@ -4,7 +4,9 @@ use std::io::{Read, Write};
 use std::path::PathBuf;
 use std::process::ExitCode;
 
+mod invocation;
 mod refusal;
+use invocation::Invocation;
 
 use clap::Parser;
 use pm_rust::cli::{Cli, CollectionArgs, Command, OwnershipArgs};
@@ -787,9 +789,7 @@ fn project_close_receipt_scope(receipt: &mut serde_json::Value, raw: &[String]) 
             .filter_map(serde_json::Value::as_str)
             .map(str::to_owned)
             .collect::<Vec<_>>();
-        if args.first().is_some_and(|arg| arg == "--pm-path") {
-            args.drain(..2);
-        }
+        strip_bootstrap_scope(&mut args);
         args.splice(0..0, scope.clone());
         receipt["follow_up"]["suggested_command"] = serde_json::json!(render_recovery(&args));
         receipt["follow_up"]["suggested_command_args"] = serde_json::json!(args);
@@ -976,30 +976,27 @@ fn close_payload(
 
 /// Accepts canonical item namespaces emitted by verified retry commands.
 fn native_arguments(mut args: Vec<std::ffi::OsString>) -> Vec<std::ffi::OsString> {
-    let mut index = 1;
-    while let Some(arg) = args.get(index) {
-        let arg = arg.to_string_lossy();
-        if matches!(arg.as_ref(), "--workspace" | "--pm-path" | "--path") {
-            index += 2;
-        } else if ["--workspace=", "--pm-path=", "--path="]
-            .iter()
-            .any(|flag| arg.starts_with(flag))
-        {
-            index += 1;
-        } else {
-            if arg == "item" {
-                match args.get(index + 1).and_then(|arg| arg.to_str()) {
-                    Some("deps") => {
-                        args.remove(index);
-                    }
-                    Some("comments") => {
-                        args.remove(index);
-                        args[index] = "comment".into();
-                    }
-                    _ => {}
-                }
+    // Ordinary commands need no namespace rewrite or second parser definition.
+    if !args.iter().skip(1).any(|arg| arg == "item") {
+        return args;
+    }
+    let raw = args
+        .iter()
+        .skip(1)
+        .map(|arg| arg.to_string_lossy().into_owned())
+        .collect::<Vec<_>>();
+    if let Some(index) = Invocation::parse(&raw).command.map(|index| index + 1)
+        && args.get(index).is_some_and(|arg| arg == "item")
+    {
+        match args.get(index + 1).and_then(|arg| arg.to_str()) {
+            Some("deps") => {
+                args.remove(index);
             }
-            break;
+            Some("comments") => {
+                args.remove(index);
+                args[index] = "comment".into();
+            }
+            _ => {}
         }
     }
     args
@@ -1045,18 +1042,15 @@ fn validate_claim_target(
 
 /// Resolves explicit wire encoding before the legacy JSON switch for error output.
 fn json_requested(args: &[String]) -> bool {
-    let explicit = args
-        .windows(2)
-        .find(|pair| pair[0] == "--output-format")
-        .map(|pair| pair[1].as_str())
-        .or_else(|| {
-            args.iter()
-                .find_map(|arg| arg.strip_prefix("--output-format="))
-        });
-    explicit.map_or_else(
-        || args.iter().any(|arg| arg == "--json"),
-        |format| format == "json",
-    )
+    let parsed = Invocation::parse(args);
+    parsed
+        .options
+        .iter()
+        .find(|option| option.name == "output-format")
+        .map_or_else(
+            || parsed.options.iter().any(|option| option.name == "json"),
+            |option| option.value == Some("json"),
+        )
 }
 
 /// Parses the command line and maps success or failure to the process exit code.
@@ -1066,9 +1060,8 @@ fn main() -> ExitCode {
         Ok(cli) => cli,
         Err(error) => {
             let mut args = published_read_arguments(std::env::args_os().skip(1));
-            let orientation = args
-                .iter()
-                .position(|arg| !arg.starts_with('-'))
+            let orientation = Invocation::parse(&args)
+                .command
                 .filter(|&index| matches!(args[index].as_str(), "context" | "history" | "deps"));
             if error.kind() == clap::error::ErrorKind::UnknownArgument
                 && let Some(index) = orientation
@@ -1262,9 +1255,10 @@ fn rejected_orientation_argument<'a>(
     };
     rejected
         .or_else(|| {
-            args.iter()
-                .map(String::as_str)
-                .filter(|arg| arg.starts_with('-'))
+            Invocation::parse(args)
+                .options
+                .iter()
+                .map(|option| args[option.start].as_str())
                 .find(|arg| !allowed.contains(&arg.split('=').next().unwrap_or_default()))
         })
         .map_or("option", |arg| arg.split('=').next().unwrap_or_default())
@@ -1594,41 +1588,38 @@ where
     I: IntoIterator<Item = S>,
     S: AsRef<std::ffi::OsStr>,
 {
-    let mut arguments = Vec::new();
-    let mut args = args
+    let raw = args
         .into_iter()
-        .map(|arg| arg.as_ref().to_string_lossy().into_owned());
-    while let Some(arg) = args.next() {
-        if arg == "--" {
-            arguments.push(arg);
-            arguments.extend(args);
-            break;
-        }
-        if matches!(
-            arg.as_str(),
-            "--timestamp" | "--workspace" | "--pm-path" | "--path"
-        ) {
-            args.next();
-        } else if !["--timestamp=", "--workspace=", "--pm-path=", "--path="]
-            .iter()
-            .any(|prefix| arg.starts_with(prefix))
-        {
-            arguments.push(arg);
+        .map(|arg| arg.as_ref().to_string_lossy().into_owned())
+        .collect::<Vec<_>>();
+    let parsed = Invocation::parse(&raw);
+    let mut excluded = vec![false; raw.len()];
+    for option in &parsed.options {
+        if option.name == "timestamp" || (option.bootstrap && option.name == "workspace") {
+            excluded[option.start..option.end].fill(true);
         }
     }
+    let mut arguments = raw
+        .iter()
+        .enumerate()
+        .filter(|(index, _)| !excluded[*index])
+        .map(|(_, argument)| argument.clone())
+        .collect::<Vec<_>>();
     if arguments.starts_with(&["item".to_owned(), "deps".to_owned()]) {
         arguments.remove(0);
     }
     if arguments.first().is_some_and(|command| command == "close") {
-        for arg in arguments.iter_mut().take_while(|arg| arg.as_str() != "--") {
-            let alias = match arg.as_str() {
-                "--expected" => Some("--expected-result"),
-                "--actual" => Some("--actual-result"),
+        let aliases = Invocation::parse(&arguments)
+            .options
+            .iter()
+            .filter_map(|option| match arguments[option.start].as_str() {
+                "--expected" => Some((option.start, "--expected-result")),
+                "--actual" => Some((option.start, "--actual-result")),
                 _ => None,
-            };
-            if let Some(alias) = alias {
-                alias.clone_into(arg);
-            }
+            })
+            .collect::<Vec<_>>();
+        for (index, alias) in aliases {
+            alias.clone_into(&mut arguments[index]);
         }
     }
     if arguments
@@ -1697,24 +1688,28 @@ fn raw_invocation() -> Vec<String> {
 
 /// Resolves an explicit native workspace into canonical published bootstrap tokens.
 fn invocation_scope(raw: &[String]) -> Vec<String> {
-    for (index, arg) in raw.iter().enumerate() {
-        // Native bootstrap options precede the command; later values are command data.
-        if arg == "--" || !arg.starts_with('-') {
-            break;
-        }
-        if matches!(arg.as_str(), "--workspace" | "--pm-path" | "--path") {
-            return raw
-                .get(index + 1)
-                .map_or_else(Vec::new, |path| vec!["--pm-path".to_owned(), path.clone()]);
-        }
-        if let Some(path) = ["--workspace=", "--pm-path=", "--path="]
-            .iter()
-            .find_map(|prefix| arg.strip_prefix(prefix))
-        {
-            return vec!["--pm-path".to_owned(), path.to_owned()];
-        }
+    Invocation::parse(raw)
+        .scope()
+        .map_or_else(Vec::new, |path| {
+            if path.starts_with('-') && path != "-" {
+                vec![format!("--pm-path={path}")]
+            } else {
+                vec!["--pm-path".to_owned(), path.to_owned()]
+            }
+        })
+}
+
+/// Removes only bootstrap scope options while retaining every command value verbatim.
+fn strip_bootstrap_scope(args: &mut Vec<String>) {
+    let ranges = Invocation::parse(args)
+        .options
+        .iter()
+        .filter(|option| option.bootstrap && option.name == "workspace")
+        .map(|option| option.start..option.end)
+        .collect::<Vec<_>>();
+    for range in ranges.into_iter().rev() {
+        args.drain(range);
     }
-    Vec::new()
 }
 
 /// Renders canonical recovery arguments with the shared published shell renderer.
@@ -1731,9 +1726,12 @@ fn render_recovery(args: &[String]) -> String {
 /// Adds invocation scope to executable advice while respecting an explicit producer scope.
 fn scope_recovery_command(command: &str, scope: &[String]) -> Option<String> {
     let command = command.strip_prefix("pm ")?;
-    if ["--pm-path", "--path", "--workspace"].iter().any(|flag| {
-        command.starts_with(&format!("{flag} ")) || command.starts_with(&format!("{flag}="))
-    }) {
+    let prefix = command
+        .split_whitespace()
+        .take(2)
+        .map(str::to_owned)
+        .collect::<Vec<_>>();
+    if Invocation::parse(&prefix).scope().is_some() {
         return None;
     }
     Some(format!("{} {command}", render_recovery(scope)))
@@ -1780,10 +1778,7 @@ fn preserve_refusal_scope(payload: &mut serde_json::Value, raw: &[String]) {
             .filter_map(serde_json::Value::as_str)
             .map(str::to_owned)
             .collect::<Vec<_>>();
-        if !args
-            .iter()
-            .any(|arg| arg == "--pm-path" || arg.starts_with("--pm-path="))
-        {
+        if Invocation::parse(&args).scope().is_none() {
             args.splice(0..0, scope.clone());
         }
         recovery.insert(
@@ -1801,9 +1796,8 @@ fn preserve_refusal_scope(payload: &mut serde_json::Value, raw: &[String]) {
             .and_then(serde_json::Value::as_array)
             .cloned()
             .unwrap_or_default();
-        if !fields.iter().any(|flag| flag == "--pm-path") {
-            fields.insert(0, serde_json::json!("--pm-path"));
-        }
+        fields.retain(|flag| flag != "--pm-path");
+        fields.insert(0, serde_json::json!("--pm-path"));
         recovery.insert("provided_fields".to_owned(), serde_json::json!(fields));
     }
     if payload["code"] == "lock_conflict" {
@@ -2028,9 +2022,7 @@ fn apply_close_error_recovery(
                 .filter_map(serde_json::Value::as_str)
                 .map(str::to_owned)
                 .collect::<Vec<_>>();
-            if retry.first().is_some_and(|arg| arg == "--pm-path") {
-                retry.drain(..2);
-            }
+            strip_bootstrap_scope(&mut retry);
             payload["recovery"]["suggested_retry"] = serde_json::json!(render_recovery(&retry));
             payload["recovery"]["suggested_retry_args"] = serde_json::json!(retry);
         }
@@ -2091,6 +2083,7 @@ fn apply_close_error_recovery(
 
 /// Formats command-specific rejected flag values in usage refusals.
 fn command_refusal_detail(detail: &str, args: &[String], exit_code: u8) -> serde_json::Value {
+    let parsed = Invocation::parse(args);
     let surface = detail
         .split_whitespace()
         .filter(|word| word.starts_with("--"))
@@ -2103,9 +2096,10 @@ fn command_refusal_detail(detail: &str, args: &[String], exit_code: u8) -> serde
         let rejected = args
             .iter()
             .position(|arg| arg == surface)
-            .and_then(|index| args.get(index + 1))
-            // The published extractor omits these shared author/output controls.
-            .filter(|arg| !matches!(arg.as_str(), "--author" | "--json"));
+            .and_then(|index| {
+                args.get(index + 1)
+                    .filter(|_| !parsed.is_identity_or_format(index + 1))
+            });
         if let Some(rejected) = rejected {
             return serde_json::json!({"surface":surface,"rejected_value":rejected,"exit_code":exit_code});
         }
@@ -2124,10 +2118,12 @@ fn close_error_refusal(
         .as_array()
         .cloned()
         .unwrap_or_default();
-    let args: Vec<&str> = normalized
+    let args: Vec<String> = normalized
         .iter()
         .filter_map(serde_json::Value::as_str)
+        .map(str::to_owned)
         .collect();
+    let parsed = Invocation::parse(&args);
     let flag = payload["flag"].as_str().or_else(|| {
         detail
             .split(|ch: char| !ch.is_ascii_alphanumeric() && ch != '-' && ch != '_')
@@ -2139,11 +2135,10 @@ fn close_error_refusal(
         .unwrap_or("close");
     let mut receipt = serde_json::json!({"surface":surface});
     if let Some(flag) = flag {
-        let rejected = args
-            .iter()
-            .position(|arg| *arg == flag)
-            .and_then(|index| args.get(index + 1))
-            .filter(|arg| !matches!(**arg, "--json" | "--author"));
+        let rejected = args.iter().position(|arg| *arg == flag).and_then(|index| {
+            args.get(index + 1)
+                .filter(|_| !parsed.is_identity_or_format(index + 1))
+        });
         if let Some(rejected) = rejected {
             receipt["rejected_value"] = serde_json::json!(rejected);
         }

@@ -1372,3 +1372,238 @@ fn round10_scoped_next_step_cannot_mutate_default_tracker() -> Result<(), Box<dy
     );
     Ok(())
 }
+
+/// Seeds two non-git trackers with the same issue ID for recovery execution checks.
+fn overlapping_issue_trackers() -> Result<(TempDir, TempDir), Box<dyn std::error::Error>> {
+    let default = workspace()?;
+    let selected = workspace()?;
+    for tracker in [&default, &selected] {
+        expect_ok(
+            tracker,
+            &[
+                "create",
+                "--id",
+                "sample-one",
+                "--title",
+                "Scope collision control",
+                "--type",
+                "Issue",
+                "--author",
+                "cli-agent",
+            ],
+        )?;
+    }
+    Ok((default, selected))
+}
+
+/// Executing the scoped retry closes the selected overlapping ID and leaves the default untouched.
+#[test]
+fn round11_scoped_close_retry_executes_only_selected_tracker()
+-> Result<(), Box<dyn std::error::Error>> {
+    let (default, selected) = overlapping_issue_trackers()?;
+    let untouched = default.path().join(".agents/pm");
+    let before = (
+        fs::read(untouched.join("issues/sample-one.toon"))?,
+        fs::read(untouched.join("history/sample-one.jsonl"))?,
+    );
+    let scope = selected
+        .path()
+        .join(".agents/pm")
+        .to_string_lossy()
+        .into_owned();
+    let output = Command::new(env!("CARGO_BIN_EXE_pm-rust"))
+        .current_dir(default.path())
+        .args([
+            "--pm-path",
+            &scope,
+            "close",
+            "sample-one",
+            "--validate-close",
+            "strict",
+            "--json",
+            "--",
+            "--pm-path=literal",
+        ])
+        .output()?;
+    assert_eq!(
+        output.status.code(),
+        Some(2),
+        "{}",
+        String::from_utf8_lossy(&output.stderr)
+    );
+    let refusal: serde_json::Value = serde_json::from_slice(&output.stderr)?;
+    for key in ["normalized_args", "suggested_retry_args"] {
+        let values = refusal["recovery"][key]
+            .as_array()
+            .ok_or("missing recovery argv")?;
+        assert_eq!(
+            &values[..2],
+            &[serde_json::json!("--pm-path"), serde_json::json!(scope)]
+        );
+        assert_eq!(values.last(), Some(&serde_json::json!("--pm-path=literal")));
+    }
+    let expected = format!("pm --pm-path {} close ", pm_rust::quote_command_arg(&scope));
+    for key in ["attempted_command", "suggested_retry"] {
+        assert!(
+            refusal["recovery"][key]
+                .as_str()
+                .ok_or("command")?
+                .starts_with(&expected)
+        );
+    }
+    let retry = refusal["recovery"]["suggested_retry_args"]
+        .as_array()
+        .ok_or("retry")?
+        .iter()
+        .map(|value| {
+            value.as_str().ok_or("argument").map(|text| {
+                if text == "<value>" {
+                    "Verified evidence".to_owned()
+                } else {
+                    text.to_owned()
+                }
+            })
+        })
+        .collect::<Result<Vec<_>, _>>()?;
+    let closed = Command::new(env!("CARGO_BIN_EXE_pm-rust"))
+        .current_dir(default.path())
+        .args(&retry)
+        .output()?;
+    assert!(
+        closed.status.success(),
+        "{}",
+        String::from_utf8_lossy(&closed.stderr)
+    );
+    assert_eq!(
+        pm_rust::Workspace::discover(selected.path())?
+            .get("sample-one")?
+            .metadata
+            .status,
+        "closed"
+    );
+    assert_eq!(
+        pm_rust::Workspace::discover(selected.path())?
+            .get("sample-one")?
+            .metadata
+            .extra["close_reason"],
+        "--pm-path=literal"
+    );
+    assert_eq!(
+        (
+            fs::read(untouched.join("issues/sample-one.toon"))?,
+            fs::read(untouched.join("history/sample-one.jsonl"))?
+        ),
+        before
+    );
+    Ok(())
+}
+
+#[path = "support/refusal_corpus.rs"]
+mod refusal_corpus;
+
+/// Stored holders and close retries mirror the shared authority corpus in both refusal formats.
+#[test]
+fn round11_stored_holder_and_public_retry_boundaries() -> Result<(), Box<dyn std::error::Error>> {
+    exercise_round11_holder_boundaries(None)
+}
+
+/// Public URL prose keeps the stored display and the same-close retry advice.
+#[test]
+fn round11_public_prose_process_keeps_retry() -> Result<(), Box<dyn std::error::Error>> {
+    exercise_round11_holder_boundaries(Some(false))
+}
+
+/// Runs the shared corpus against real persisted holders without Git or SDK mocks.
+fn exercise_round11_holder_boundaries(
+    private_only: Option<bool>,
+) -> Result<(), Box<dyn std::error::Error>> {
+    let mut mismatches = Vec::new();
+    for &(input, expected) in refusal_corpus::AUTHORITIES {
+        for &prefix in refusal_corpus::DECORATIONS {
+            let tracker = workspace()?;
+            expect_ok(
+                &tracker,
+                &[
+                    "create",
+                    "--id",
+                    "sample-holder",
+                    "--title",
+                    "Stored holder fixture",
+                    "--type",
+                    "Issue",
+                    "--author",
+                    "fixture",
+                ],
+            )?;
+            let holder = format!("{prefix}{input}");
+            let expected = format!("{prefix}{expected}");
+            let private = holder != expected;
+            if private_only.is_some_and(|wanted| wanted != private) {
+                continue;
+            }
+
+            expect_ok(
+                &tracker,
+                &[
+                    "claim",
+                    "sample-holder",
+                    "--author",
+                    &holder,
+                    "--force",
+                    "--json",
+                ],
+            )?;
+            let root = tracker.path().join(".agents/pm");
+            let item = root.join("issues/sample-holder.toon");
+            let history = root.join("history/sample-holder.jsonl");
+            let before = (fs::read(&item)?, fs::read(&history)?);
+            for json in [false, true] {
+                let mut claim = vec!["claim", "sample-holder", "--author", "beta"];
+                if json {
+                    claim.push("--json");
+                }
+                let output = pm_rust(&tracker, &claim)?;
+                assert_eq!(output.status.code(), Some(4));
+                assert!(output.stdout.is_empty());
+                let text = String::from_utf8(output.stderr)?;
+                if json {
+                    if serde_json::from_str::<serde_json::Value>(&text)?["claimed_by"] != expected {
+                        mismatches.push(format!("JSON holder: {holder}"));
+                    }
+                } else if !text.contains(&format!("Held by: {expected}")) {
+                    mismatches.push(format!("human holder: {holder}"));
+                }
+                let mut close = vec![
+                    "close",
+                    "sample-holder",
+                    "--author",
+                    holder.as_str(),
+                    "--validate-close",
+                    "strict",
+                ];
+                if json {
+                    close.push("--json");
+                }
+                close.extend(["--", "Closing reason"]);
+                let output = pm_rust(&tracker, &close)?;
+                assert_eq!(output.status.code(), Some(2));
+                assert!(output.stdout.is_empty());
+                let text = String::from_utf8(output.stderr)?;
+                if !text.contains(&expected) {
+                    mismatches.push(format!("close projection json={json}: {holder}"));
+                }
+                if json {
+                    let payload: serde_json::Value = serde_json::from_str(&text)?;
+                    if payload["recovery"].get("suggested_retry").is_none() != private {
+                        mismatches.push(format!("JSON retry: {holder}"));
+                    }
+                } else if text.contains("Run: pm ") == private {
+                    mismatches.push(format!("human retry: {holder}"));
+                }
+                assert_eq!((fs::read(&item)?, fs::read(&history)?), before);
+            }
+        }
+    }
+    assert!(mismatches.is_empty(), "{}", mismatches.join("\n"));
+    Ok(())
+}

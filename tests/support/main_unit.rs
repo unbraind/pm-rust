@@ -108,7 +108,7 @@ fn orientation_error_recovery_contract() {
             "--limit",
             "1"
         ]),
-        strings(&["context", "--limit", "1"])
+        strings(&["context", "--workspace=ignored", "--limit", "1"])
     );
 }
 
@@ -132,6 +132,9 @@ fn owned_published_argument_streams() {
             ],
             &[
                 "context",
+                "--workspace",
+                "fixture",
+                "--workspace=fixture",
                 "--workspace-extra=kept",
                 "--timestamp-extra=kept",
                 "--json",
@@ -2360,4 +2363,137 @@ fn round10_recovery_scope_and_alias_controls() {
         &["close", "id", "--", "ordinary reason"].map(str::to_owned),
         &missing
     ));
+}
+
+/// A delimited scope-shaped reason cannot override bootstrap scope or output controls.
+#[test]
+fn round11_bootstrap_scope_ignores_command_data() -> Result<(), Box<dyn std::error::Error>> {
+    for flag in ["--pm-path", "--path", "--workspace"] {
+        for reason in [
+            "--pm-path=literal",
+            "--workspace=literal",
+            "--json",
+            "--output-format=json",
+            "--author=literal",
+        ] {
+            let raw = [
+                flag,
+                "selected",
+                "close",
+                "sample-one",
+                "--validate-close",
+                "strict",
+                "--json",
+                "--",
+                reason,
+            ]
+            .map(str::to_owned);
+            let args = super::published_read_arguments(&raw);
+            let context = serde_json::json!({"code":"close_validation_missing_fields","recovery":{"missing":["--actual-result","--expected-result"]}});
+            let mut payload = super::ownership_error_json("Missing evidence", &context, &args);
+            super::preserve_refusal_scope(&mut payload, &raw);
+            for key in ["normalized_args", "suggested_retry_args"] {
+                let values = payload["recovery"][key]
+                    .as_array()
+                    .ok_or("recovery argv missing")?;
+                assert_eq!(
+                    &values[..2],
+                    &[
+                        serde_json::json!("--pm-path"),
+                        serde_json::json!("selected")
+                    ]
+                );
+                assert_eq!(values.last(), Some(&serde_json::json!(reason)));
+            }
+            for key in ["attempted_command", "suggested_retry"] {
+                assert!(
+                    payload["recovery"][key]
+                        .as_str()
+                        .unwrap_or_default()
+                        .starts_with("pm --pm-path selected close ")
+                );
+            }
+        }
+    }
+    Ok(())
+}
+
+/// Declared values and delimited positionals cannot supply format, author or workspace controls.
+#[test]
+fn round11_option_values_never_become_controls() {
+    for raw in [
+        vec!["close", "sample-one", "--", "--json"],
+        vec!["close", "sample-one", "--completed-at", "--json"],
+        vec!["deps", "sample-one", "--", "--output-format=json"],
+    ] {
+        assert!(!super::json_requested(
+            &raw.into_iter().map(str::to_owned).collect::<Vec<_>>()
+        ));
+    }
+    let raw = [
+        "close",
+        "sample-one",
+        "--message",
+        "literal --pm-path=wrong --json --author=wrong",
+        "--",
+        "--pm-path=reason",
+    ]
+    .map(str::to_owned);
+    assert!(super::invocation_scope(&raw).is_empty());
+    assert_eq!(super::published_read_arguments(&raw), raw);
+    for value in [
+        "--workspace=literal",
+        "--pm-path=literal",
+        "--timestamp=literal",
+        "--expected",
+        "--actual",
+        "--json",
+        "--output-format=json",
+        "--author=literal",
+    ] {
+        let raw = ["close", "sample-one", "--completed-at", value].map(str::to_owned);
+        assert_eq!(super::published_read_arguments(&raw), raw);
+        assert!(!super::json_requested(&raw));
+        assert!(super::invocation_scope(&raw).is_empty());
+    }
+
+    assert_eq!(
+        super::invocation_scope(&["--workspace", "-", "close"].map(str::to_owned)),
+        ["--pm-path", "-"]
+    );
+    let bare = ["pm-rust", "item"].map(std::ffi::OsString::from).to_vec();
+    assert_eq!(super::native_arguments(bare.clone()), bare);
+    assert!(!super::json_requested(&["search", "-"].map(str::to_owned)));
+    for control in ["--author", "--json", "--output-format"] {
+        let args = ["deps", "sample-one", "--bogus", control, "value"].map(str::to_owned);
+        let refusal = super::command_refusal_detail("--bogus requires a value", &args, 2);
+        assert!(refusal.get("rejected_value").is_none());
+    }
+    let args = ["context", "--limit", "--json"].map(str::to_owned);
+    assert_eq!(
+        super::command_refusal_detail("--limit must be a number", &args, 2)["rejected_value"],
+        "--json"
+    );
+
+    for command in [
+        "pm --pm-path - close sample-one",
+        "pm --workspace \"chosen tracker\" close sample-one",
+        "pm --path=chosen close sample-one",
+    ] {
+        assert!(
+            super::scope_recovery_command(
+                command,
+                &["--pm-path".to_owned(), "selected".to_owned()]
+            )
+            .is_none()
+        );
+    }
+
+    for path in ["--json", "--author=literal", "--"] {
+        let raw = [format!("--workspace={path}"), "close".to_owned()];
+        let scope = super::invocation_scope(&raw);
+        assert_eq!(scope, [format!("--pm-path={path}")]);
+        assert_eq!(super::Invocation::parse(&scope).scope(), Some(path));
+        assert!(!super::json_requested(&scope));
+    }
 }

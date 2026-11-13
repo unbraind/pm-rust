@@ -3,6 +3,9 @@
 use std::collections::HashSet;
 
 use serde_json::Value;
+#[cfg(test)]
+#[path = "../tests/support/refusal_corpus.rs"]
+mod corpus;
 
 /// Published replacement token and replay instruction.
 const REDACTED: &str = "[redacted]";
@@ -459,6 +462,53 @@ pub(super) fn redact(payload: &mut Value, raw: &[String]) {
 mod tests {
     use super::*;
     use serde_json::json;
+
+    /// Registration and every projection share one mirrored authority corpus.
+    #[test]
+    fn round11_authority_registration_and_projection_corpus() {
+        for &(input, expected) in corpus::AUTHORITIES {
+            for &prefix in corpus::DECORATIONS {
+                let source = format!("{prefix}{input}");
+                let expected = format!("{prefix}{expected}");
+                let private = source != expected;
+                let credentials = Credentials::new(std::slice::from_ref(&source));
+                assert_eq!(credentials.carried, private, "registration: {source}");
+                assert_eq!(redact_token(&source), expected, "projection: {source}");
+                for raw in [vec![], vec![source.clone()]] {
+                    let mut payload = json!({"claimed_by":source,"details":{"title":source},"recovery":{"normalized_args":["claim","sample-own",source],"attempted_command":"placeholder","suggested_retry":"pm claim sample-own","suggested_retry_args":["claim","sample-own"]}});
+                    redact(&mut payload, &raw);
+                    assert_eq!(payload["claimed_by"], expected);
+                    assert_eq!(payload["details"]["title"], expected);
+                    assert_eq!(payload["recovery"]["normalized_args"][2], expected);
+                    assert_eq!(
+                        payload["recovery"].get("suggested_retry").is_none(),
+                        private
+                    );
+                }
+            }
+        }
+    }
+
+    /// Public prose must not register credentials or suppress executable retry advice.
+    #[test]
+    fn round11_public_prose_preserves_retry() {
+        for &(input, expected) in corpus::AUTHORITIES
+            .iter()
+            .filter(|(input, expected)| input == expected)
+        {
+            for &prefix in corpus::DECORATIONS {
+                let source = format!("{prefix}{input}");
+                assert!(
+                    !Credentials::new(std::slice::from_ref(&source)).carried,
+                    "{source}"
+                );
+                let mut payload = json!({"claimed_by":source,"recovery":{"suggested_retry":"pm claim sample-own","suggested_retry_args":["claim","sample-own"]}});
+                let original = payload.clone();
+                redact(&mut payload, std::slice::from_ref(&source));
+                assert_eq!(payload, original, "{expected}");
+            }
+        }
+    }
 
     /// Bare and decorated URLs share one credential corpus across persisted fields and recovery.
     #[test]
