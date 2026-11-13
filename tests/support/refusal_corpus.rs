@@ -167,3 +167,30 @@ pub const COPIED_PASSWORDS: &[(&str, &str)] = &[
         "Message: \"https://[redacted]@host.invalid copied [redacted]\"",
     ),
 ];
+
+/// Stored diagnostics enroll URL credentials before projecting copies elsewhere in the text.
+pub const DIAGNOSTICS: &[(&str, &str)] = &[
+    (
+        "https://u:demo-secret@host.invalid copied demo-secret",
+        "demo-secret",
+    ),
+    ("https://u:abc@host.invalid copied abc", "abc"),
+    (
+        "https://stored user@host.invalid copied stored user",
+        "stored user",
+    ),
+    (
+        "https://user.invalid:443/secret@host.invalid copied 443/secret",
+        "443/secret",
+    ),
+    (
+        "https://public.invalid/path@ref https://u:demo-secret@host.invalid copied demo-secret",
+        "demo-secret",
+    ),
+];
+/// Public diagnostic data must remain verbatim when it enrolls no secret.
+pub const PUBLIC_DIAGNOSTICS: &[&str] = &[
+    "Contact https://host.invalid or user@example.invalid",
+    "https://public.invalid/path@ref copied demo-secret",
+    "https://127.0.0.1:8080 then ops@example.invalid",
+];

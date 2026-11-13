@@ -3478,3 +3478,36 @@ fn round14_missing_workflow_atomic_matches_oracle() -> Result<(), Box<dyn std::e
 fn round14_missing_workflow_close_matches_oracle() -> Result<(), Box<dyn std::error::Error>> {
     round14_missing_workflow_case("close")
 }
+
+/// Published blocker advice quotes stored shell syntax, preserving all other bytes and writes.
+#[test]
+fn round15_blocker_advice_matches_published_bytes() -> Result<(), Box<dyn std::error::Error>> {
+    for blocked_by in [
+        "sample-missing",
+        "sample-missing;id",
+        "sample-$(printf injected)",
+        "sample-\"quote",
+    ] {
+        let Some(fixture) = Fixture::new("none")? else {
+            return Ok(());
+        };
+        for root in [fixture.node.path(), fixture.rust.path()] {
+            let path = root.join(".agents/pm/tasks/sample-own.toon");
+            let mut item: serde_json::Value =
+                toon_format::decode_default(&fs::read_to_string(&path)?)?;
+            item["blocked_by"] = serde_json::json!(blocked_by);
+            fs::write(path, toon_format::encode_default(&item)?)?;
+        }
+        let before = start_snapshot(fixture.rust.path())?;
+        fixture.step(&[
+            "claim",
+            "sample-own",
+            "--start",
+            "--author",
+            "alpha",
+            "--json",
+        ])?;
+        assert_eq!(start_snapshot(fixture.rust.path())?, before);
+    }
+    Ok(())
+}

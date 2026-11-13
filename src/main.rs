@@ -1027,7 +1027,7 @@ fn validate_claim_target(
     } else {
         id.filter(|_| next).map(|id| (
             "Specify either an item id or --next, not both",
-            serde_json::json!({"code":"ambiguous_option_combination","required":"Pass either an item id or --next.","next_steps":[format!("Retry as pm claim {id}{suffix} to claim that item, or drop the id to select with --next.")]}),
+            serde_json::json!({"code":"ambiguous_option_combination","required":"Pass either an item id or --next.","next_steps":[format!("Retry as {} to claim that item, or drop the id to select with --next.",pm_rust::render_pm_command(["claim",id]))]}),
         ))
     };
     match refusal {
@@ -1420,7 +1420,7 @@ fn orientation_error_json(
             "Check allowed values in command help, then rerun with corrected input."
         ]);
         context["examples"] = serde_json::json!([
-            format!("pm {command} --help"),
+            pm_rust::render_pm_command([command.as_str(), "--help"]),
             "pm contracts --command <command> --flags-only --json".to_owned()
         ]);
     }
@@ -1447,13 +1447,9 @@ fn orientation_error_json(
     }
     if detail.starts_with("--strict-exit requires --verify") {
         result["recovery"]["missing"] = serde_json::json!(["--verify"]);
-        result["recovery"]["suggested_retry"] = serde_json::json!(format!(
-            "pm {} --verify",
-            args.iter()
-                .map(|arg| pm_rust::quote_command_arg(arg))
-                .collect::<Vec<_>>()
-                .join(" ")
-        ));
+        let mut retry = args.clone();
+        retry.push("--verify".to_owned());
+        result["recovery"]["suggested_retry"] = serde_json::json!(render_recovery(&retry));
     }
     result["exit_code"] = serde_json::json!(exit_code);
     // Insertion order is part of the wire contract.
@@ -1537,17 +1533,7 @@ fn search_error_json(
             if let Some(value) = retry.get_mut(index + 1) {
                 domain[0].as_str().unwrap_or_default().clone_into(value);
             }
-            result["examples"] = serde_json::json!([
-                format!(
-                    "pm {}",
-                    retry
-                        .iter()
-                        .map(|arg| pm_rust::quote_command_arg(arg))
-                        .collect::<Vec<_>>()
-                        .join(" ")
-                ),
-                "pm search --help"
-            ]);
+            result["examples"] = serde_json::json!([render_recovery(&retry), "pm search --help"]);
         } else {
             result["examples"] = serde_json::json!([
                 "pm search --help",
@@ -1563,21 +1549,36 @@ fn search_error_json(
             .collect::<Vec<_>>();
         result["recovery"]["provided_fields"] = serde_json::json!(provided);
     }
-    if let Ok(Cli {
+    instantiate_search_examples(&mut result, args);
+    result
+}
+
+/// Instantiates only the fixed SDK template token, never text inside rendered user arguments.
+fn instantiate_search_examples(result: &mut serde_json::Value, args: &[String]) {
+    let Ok(Cli {
         command: Command::Search { query, .. },
         ..
     }) = Cli::try_parse_from(std::iter::once("pm-rust".to_owned()).chain(args.iter().cloned()))
-        && let Some(examples) = result["examples"].as_array_mut()
-    {
-        for example in examples {
-            if let Some(text) = example.as_str() {
-                *example = serde_json::json!(
-                    text.replace("<query>", &pm_rust::quote_command_arg(&query.join(" ")))
-                );
-            }
-        }
+    else {
+        return;
+    };
+    for example in result["examples"].as_array_mut().into_iter().flatten() {
+        let Some(suffix) = example
+            .as_str()
+            .and_then(|text| text.strip_prefix("pm search <query> "))
+        else {
+            continue;
+        };
+        let Some(tail) = pm_rust::parse_command_args(suffix) else {
+            *example = serde_json::json!(
+                "Search advice could not be decoded safely; inspect command help before retrying."
+            );
+            continue;
+        };
+        let mut invocation = vec!["search".to_owned(), query.join(" ")];
+        invocation.extend(tail);
+        *example = serde_json::json!(render_recovery(&invocation));
     }
-    result
 }
 
 /// Removes native clock and discovery controls from published error recovery arguments.
@@ -1716,27 +1717,24 @@ fn strip_bootstrap_scope(args: &mut Vec<String>) {
 
 /// Renders canonical recovery arguments with the shared published shell renderer.
 fn render_recovery(args: &[String]) -> String {
-    format!(
-        "pm {}",
-        args.iter()
-            .map(|arg| pm_rust::quote_command_arg(arg))
-            .collect::<Vec<_>>()
-            .join(" ")
-    )
+    pm_rust::render_pm_command(args)
 }
 
 /// Adds invocation scope to executable advice while respecting an explicit producer scope.
 fn scope_recovery_command(command: &str, scope: &[String]) -> Option<String> {
-    let command = command.strip_prefix("pm ")?;
-    let prefix = command
-        .split_whitespace()
-        .take(2)
-        .map(str::to_owned)
-        .collect::<Vec<_>>();
-    if Invocation::parse(&prefix).scope().is_some() {
+    command.strip_prefix("pm ")?;
+    let Some(mut args) = pm_rust::parse_command_args(command) else {
+        return Some(
+            "Recovery advice could not be decoded safely; inspect command help before retrying."
+                .to_owned(),
+        );
+    };
+    args.remove(0);
+    if Invocation::parse(&args).scope().is_some() {
         return None;
     }
-    Some(format!("{} {command}", render_recovery(scope)))
+    args.splice(0..0, scope.iter().cloned());
+    Some(render_recovery(&args))
 }
 
 /// Preserves explicit tracker scope for every recovery bundle, including close evidence.
@@ -1824,7 +1822,7 @@ fn cursor_error_json(code: &str, detail: &str, args: &[String]) -> serde_json::V
         }
     }
     let recovery_args = orientation_arguments(args);
-    let mut payload = serde_json::json!({"code":code,"required":"Adjust command input or tracker state and retry.","recovery":{"attempted_command":format!("pm {}",recovery_args.iter().map(|arg| pm_rust::quote_command_arg(arg)).collect::<Vec<_>>().join(" ")),"normalized_args":recovery_args,"provided_fields":provided}});
+    let mut payload = serde_json::json!({"code":code,"required":"Adjust command input or tracker state and retry.","recovery":{"attempted_command":render_recovery(&recovery_args),"normalized_args":recovery_args,"provided_fields":provided}});
     if code == "invalid_query_cursor" {
         let flag = if args
             .iter()
@@ -2171,17 +2169,14 @@ fn write_cursor_refusal_to(
     writer: &mut dyn Write,
     payload: &serde_json::Value,
 ) -> Result<(), Box<dyn std::error::Error>> {
-    let attempted = payload["recovery"]["normalized_args"]
+    let args = payload["recovery"]["normalized_args"]
         .as_array()
         .into_iter()
         .flatten()
-        .filter_map(serde_json::Value::as_str)
-        .map(pm_rust::quote_command_arg)
-        .collect::<Vec<_>>()
-        .join(" ");
+        .filter_map(serde_json::Value::as_str);
     let attempted = payload["recovery"]["attempted_command"]
         .as_str()
-        .map_or_else(|| format!("pm {attempted}"), str::to_owned);
+        .map_or_else(|| pm_rust::render_pm_command(args), str::to_owned);
     let close_evidence = payload["code"] == "close_validation_missing_fields";
     let run = payload["recovery"]["suggested_retry"].as_str().filter(|_| close_evidence)
         .map_or_else(String::new, |retry| format!("\nRun: {retry}\nTemplate: replace every placeholder with real evidence before running."));

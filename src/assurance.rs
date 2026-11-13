@@ -78,13 +78,7 @@ impl Workspace {
             "2000".to_owned(),
             "--json".to_owned(),
         ];
-        let command = format!(
-            "pm {}",
-            args.iter()
-                .map(|arg| crate::quote_command_arg(arg))
-                .collect::<Vec<_>>()
-                .join(" ")
-        );
+        let command = crate::render_pm_command(&args);
         Err(crate::collections::refusal(
             format!("assurance {kind} {id} not found"),
             2,

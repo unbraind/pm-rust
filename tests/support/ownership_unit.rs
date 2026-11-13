@@ -828,3 +828,33 @@ fn round12_runtime_default_schema_discovery() -> Result<(), Box<dyn std::error::
     );
     Ok(())
 }
+
+/// Persisted-state inspection commands quote identities even after a partial failure.
+#[cfg(unix)]
+#[test]
+fn round15_partial_failure_advice_shell_round_trip() -> Result<(), Box<dyn std::error::Error>> {
+    use crate::test_advice_corpus as corpus;
+    for value in corpus::VALUES {
+        let error = partial_failure(
+            PmRustError::InvalidMutationRequest {
+                reason: "later step failed".to_owned(),
+            },
+            value,
+            "claim",
+        );
+        let PmRustError::CommandRefusal { context, .. } = error else {
+            return Err("partial refusal".into());
+        };
+        let step = context["next_steps"][0]
+            .as_str()
+            .ok_or("step")?
+            .strip_prefix("Inspect the persisted state with ")
+            .ok_or("prefix")?
+            .strip_suffix(" before retrying the failed step.")
+            .ok_or("suffix")?;
+        let (get, history) = step.split_once(" and ").ok_or("two commands")?;
+        corpus::assert_shell_args(get, &["pm", "get", value])?;
+        corpus::assert_shell_args(history, &["pm", "history", value])?;
+    }
+    Ok(())
+}

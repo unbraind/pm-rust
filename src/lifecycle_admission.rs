@@ -81,7 +81,7 @@ pub(crate) fn admit_with_registry(
                 "Cannot start terminal item {}; reopen it with pm item reopen before starting it",
                 request.id
             ),
-            context: json!({"code":"terminal_state_conflict","item_id":request.id,"why":"Starting work moves an active item into progress; a terminal item must be reopened so its recurrence evidence is recorded.","next_steps":[format!("Run pm item reopen {} \"<reason>\", then pm claim {} --start.",request.id,request.id)]}),
+            context: json!({"code":"terminal_state_conflict","item_id":request.id,"why":"Starting work moves an active item into progress; a terminal item must be reopened so its recurrence evidence is recorded.","next_steps":[format!("Run {}, then {}.",crate::render_pm_command(["item","reopen",&request.id,"<reason>"]),crate::render_pm_command(["claim",&request.id,"--start"]))]}),
         });
     }
     let mut warnings = if phase == Phase::Claim {
@@ -287,11 +287,12 @@ fn unblock(before: &ItemDocument, first: &str, settings: &Value) -> String {
         .and_then(Value::as_str)
         .unwrap_or_default();
     let inspect = || {
-        format!(
-            "pm get {} --fields {}",
-            before.metadata.id,
-            crate::quote_command_arg("blocked_by,dependencies")
-        )
+        crate::render_pm_command([
+            "get",
+            &before.metadata.id,
+            "--fields",
+            "blocked_by,dependencies",
+        ])
     };
     if deps.iter().any(|dep| {
         blocking_kind(dep["kind"].as_str().unwrap_or_default())
@@ -312,7 +313,7 @@ fn unblock(before: &ItemDocument, first: &str, settings: &Value) -> String {
                     .eq_ignore_ascii_case(scalar.trim())
             })
     {
-        return format!("pm update {} --unset blocked_by", before.metadata.id);
+        return crate::render_pm_command(["update", &before.metadata.id, "--unset", "blocked_by"]);
     }
     let matches: Vec<_> = deps
         .iter()
@@ -326,14 +327,15 @@ fn unblock(before: &ItemDocument, first: &str, settings: &Value) -> String {
             .as_str()
             .is_some_and(|id| external(id, "") || id == canonical(id))
     {
-        return format!(
-            "pm update {} --dep-remove {}",
-            before.metadata.id,
-            crate::quote_command_arg(&format!(
+        return crate::render_pm_command([
+            "update",
+            &before.metadata.id,
+            "--dep-remove",
+            &format!(
                 "id={},kind=blocked_by",
                 matches[0]["id"].as_str().unwrap_or_default()
-            ))
-        );
+            ),
+        ]);
     }
     inspect()
 }
@@ -406,14 +408,19 @@ fn admit_blockers(
         .iter()
         .filter(|row| row["external"] != true)
         .take(3)
-        .map(|row| json!(format!("pm get {}", row["id"].as_str().unwrap_or_default())))
+        .map(|row| {
+            json!(crate::render_pm_command([
+                "get",
+                row["id"].as_str().unwrap_or_default()
+            ]))
+        })
         .collect();
     steps.push(json!(unblock(
         before,
         open[0]["id"].as_str().unwrap_or_default(),
         settings
     )));
-    steps.push(json!("pm next"));
+    steps.push(json!(crate::render_pm_command(["next"])));
     let plural = if open.len() == 1 {
         "its blocker".to_owned()
     } else {

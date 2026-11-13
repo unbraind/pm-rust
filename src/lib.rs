@@ -14,6 +14,7 @@ pub mod changes;
 pub mod cli;
 mod collation;
 mod collections;
+mod command_line;
 pub mod discovery;
 mod error;
 mod history;
@@ -44,6 +45,7 @@ mod toon_output;
 mod workspace;
 
 pub use collections::CollectionOptions;
+pub use command_line::{parse_command_args, render_pm_command};
 pub use error::PmRustError;
 pub use history::canonical_metadata_pairs;
 pub use item::{ItemDocument, ItemMetadata, ItemSummary};
@@ -81,3 +83,7 @@ mod test_process_environment;
 #[allow(dead_code)]
 #[path = "../tests/support/published_cli.rs"]
 mod published_cli;
+
+#[cfg(test)]
+#[path = "../tests/support/advice_corpus.rs"]
+mod test_advice_corpus;

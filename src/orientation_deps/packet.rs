@@ -899,13 +899,7 @@ fn disclose(result: ListOutput, options: &DepsOptions) -> Result<ListOutput, PmR
 
 /// Renders an argument vector using the public command quoting contract.
 fn command(args: &[String]) -> String {
-    format!(
-        "pm {}",
-        args.iter()
-            .map(|arg| crate::quote_command_arg(arg))
-            .collect::<Vec<_>>()
-            .join(" ")
-    )
+    crate::render_pm_command(args)
 }
 
 /// Preserves validated query controls in a replayable canonical command.

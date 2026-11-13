@@ -1,3 +1,6 @@
+#[cfg(unix)]
+#[path = "advice_corpus.rs"]
+mod advice_corpus;
 use serde_json::Map;
 use std::fs;
 use std::io;
@@ -2530,4 +2533,85 @@ fn round14_last_output_format_controls_refusal() {
         .map(str::to_owned);
         assert_eq!(super::json_requested(&args), expected);
     }
+}
+
+/// Scope and ambiguity advice preserve the same concrete argv through a real shell.
+#[cfg(unix)]
+#[test]
+fn round15_scoped_advice_shell_round_trip() -> Result<(), Box<dyn std::error::Error>> {
+    use advice_corpus as corpus;
+    for value in corpus::VALUES {
+        let scope = ["--pm-path".to_owned(), (*value).to_owned()];
+        let base = pm_rust::render_pm_command(["get", value]);
+        let scoped = super::scope_recovery_command(&base, &scope).ok_or("scope")?;
+        corpus::assert_shell_args(&scoped, &["pm", "--pm-path", value, "get", value])?;
+        let error = super::validate_claim_target(Some(value), true, false, false);
+        let Err(pm_rust::PmRustError::CommandRefusal { context, .. }) = error else {
+            return Err("claim refusal".into());
+        };
+        let command = context["next_steps"][0]
+            .as_str()
+            .ok_or("step")?
+            .strip_prefix("Retry as ")
+            .ok_or("prefix")?
+            .strip_suffix(" to claim that item, or drop the id to select with --next.")
+            .ok_or("suffix")?;
+        corpus::assert_shell_args(command, &["pm", "claim", value])?;
+    }
+    let scoped = super::scope_recovery_command(
+        "pm get sample-missing;id",
+        &["--pm-path".to_owned(), "selected".to_owned()],
+    )
+    .ok_or("legacy scope")?;
+    assert!(
+        !scoped.starts_with("pm "),
+        "unparsed shell syntax must withhold execution advice"
+    );
+    assert!(
+        super::scope_recovery_command(
+            "pm get \"unclosed",
+            &["--pm-path".to_owned(), "selected".to_owned()]
+        )
+        .ok_or("unsafe advice explanation")?
+        .starts_with("Recovery advice could not be decoded safely")
+    );
+    Ok(())
+}
+
+/// Placeholder-looking query text is data, never a second interpolation pass.
+#[cfg(unix)]
+#[test]
+fn round15_search_advice_does_not_reinterpolate() -> Result<(), Box<dyn std::error::Error>> {
+    use advice_corpus as corpus;
+    let query = "term\"<query>$(printf INJECTED)";
+    let domain = "Task;printf INJECTED";
+    let args = ["search", query, "--type", "bad"].map(str::to_owned);
+    let context =
+        serde_json::json!({"code":"invalid_argument_value","recovery":{"allowed_values":[domain]}});
+    let result = super::search_error_json("Invalid type", &context, &args, 2);
+    corpus::assert_shell_args(
+        result["examples"][0].as_str().ok_or("corrected example")?,
+        &["pm", "search", query, "--type", domain],
+    )?;
+    Ok(())
+}
+
+/// Unsafe or malformed generic examples are withheld; unrelated examples remain data.
+#[test]
+fn round15_search_template_boundaries() {
+    let args = ["search", "ordinary"].map(str::to_owned);
+    let mut payload =
+        serde_json::json!({"examples":[null,"keep this","pm search <query> --type \"unclosed"]});
+    super::instantiate_search_examples(&mut payload, &args);
+    assert_eq!(payload["examples"][0], serde_json::Value::Null);
+    assert_eq!(payload["examples"][1], "keep this");
+    assert!(
+        !payload["examples"][2]
+            .as_str()
+            .unwrap_or_default()
+            .starts_with("pm ")
+    );
+    let before = payload.clone();
+    super::instantiate_search_examples(&mut payload, &[]);
+    assert_eq!(payload, before);
 }

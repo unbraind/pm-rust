@@ -1646,3 +1646,59 @@ fn round12_quoted_message_copies_are_redacted() -> Result<(), Box<dyn std::error
     }
     Ok(())
 }
+
+/// Real stored-row diagnostics redact enrolled copies in both requested refusal modes.
+#[test]
+fn round15_stored_duplicate_diagnostics_never_leak() -> Result<(), Box<dyn std::error::Error>> {
+    use refusal_corpus as corpus;
+    let tracker = workspace()?;
+    for id in ["sample-first", "sample-second"] {
+        expect_ok(
+            &tracker,
+            &[
+                "create", "--id", id, "--title", "Fixture", "--type", "Task", "--author", "alpha",
+            ],
+        )?;
+    }
+    let paths = ["sample-first", "sample-second"]
+        .map(|id| tracker.path().join(format!(".agents/pm/tasks/{id}.toon")));
+    let baseline: serde_json::Value = toon_format::decode_default(&fs::read_to_string(&paths[0])?)?;
+    for (text, secret) in corpus::DIAGNOSTICS
+        .iter()
+        .map(|(text, secret)| (*text, Some(*secret)))
+        .chain(corpus::PUBLIC_DIAGNOSTICS.iter().map(|text| (*text, None)))
+    {
+        let mut document = baseline.clone();
+        document["id"] = serde_json::json!(text);
+        for path in &paths {
+            fs::write(path, toon_format::encode_default(&document)?)?;
+        }
+        for json in [false, true] {
+            let args = if json {
+                vec!["deps", "sample-first", "--json"]
+            } else {
+                vec!["deps", "sample-first"]
+            };
+            let output = pm_rust(&tracker, &args)?;
+            let diagnostic = String::from_utf8(output.stderr)?;
+            assert_eq!(output.status.code(), Some(2), "{diagnostic}");
+            assert!(diagnostic.contains("duplicate pm item id"));
+            if let Some(secret) = secret {
+                assert!(
+                    !diagnostic.contains(secret),
+                    "stored credential copy must not reach stderr"
+                );
+                assert!(diagnostic.contains("[redacted]"));
+            } else {
+                assert!(diagnostic.contains(text));
+            }
+            for path in &paths {
+                assert_eq!(
+                    fs::read_to_string(path)?,
+                    toon_format::encode_default(&document)?
+                );
+            }
+        }
+    }
+    Ok(())
+}

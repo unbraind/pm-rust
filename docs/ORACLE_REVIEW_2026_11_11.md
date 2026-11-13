@@ -56,7 +56,7 @@ exceeds the requested 45-minute budget and remains for CI.
   reason cannot redirect completion advice. String-only history retries retain
   explicit scope without inventing argument arrays absent from the oracle.
 - Human partial failures retain completed-step explanations. Published JSON
-  omits that explanation, and the JSON differential continues to require it.
+  omits that explanation, and the JSON differential requires the omission.
 - Atomic claim/start checks configured lifecycle terminal roles under the same
   lock as the ownership transition, including forced starts. Tests call the
   actual published atomic-start implementation and assert unchanged durable bytes.

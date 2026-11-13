@@ -297,7 +297,7 @@ fn omitted(
         .div_ceil(100)
         * 100;
     let derived = receipt["budget_derived_limit"].as_u64().unwrap_or(1);
-    json!({"budget_exceeded":{"omitted_result":true,"reason":if budget==3200 {"declared_budget_infeasible"} else {"effective_budget_infeasible"},"restore_with":format!("pm list --for triage --token-budget {recovery} --limit {derived}")},"context_intent":receipt}).into()
+    json!({"budget_exceeded":{"omitted_result":true,"reason":if budget==3200 {"declared_budget_infeasible"} else {"effective_budget_infeasible"},"restore_with":crate::render_pm_command(["list","--for","triage","--token-budget",&recovery.to_string(),"--limit",&derived.to_string()])},"context_intent":receipt}).into()
 }
 
 /// Finalizes delivery through the same continuation and output-budget pipeline on every pass.

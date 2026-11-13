@@ -5672,3 +5672,56 @@ fn round5_claim_registry_read_failure_keeps_release_available()
     assert_eq!(ownership_item(&root, &owner, true)?.changed_field_count, 2);
     Ok(())
 }
+
+/// Missing and chained duplicate targets remain literal argv in recovery examples.
+#[cfg(unix)]
+#[test]
+fn round15_duplicate_examples_shell_round_trip() -> Result<(), Box<dyn std::error::Error>> {
+    use crate::test_advice_corpus as corpus;
+    let (_directory, root) = root("{}")?;
+    create_item(&root, request())?;
+    let path = root.join("tasks/sample-unit.toon");
+    let baseline = decode_item(&path, &fs::read_to_string(&path)?)?;
+    for value in &corpus::VALUES[..corpus::VALUES.len() - 1] {
+        let target = format!("{value}-missing");
+        let Err(PmRustError::CommandRefusal { context, .. }) =
+            close_duplicate(&root, value, Some(&target))
+        else {
+            return Err("missing duplicate refusal".into());
+        };
+        corpus::assert_shell_args(
+            context["examples"][0].as_str().ok_or("example")?,
+            &[
+                "pm",
+                "close",
+                value,
+                &format!("Duplicate of {target}"),
+                "--duplicate-of",
+                &target,
+            ],
+        )?;
+        let mut document = baseline.clone();
+        document
+            .metadata
+            .extra
+            .insert("duplicate_of".to_owned(), serde_json::json!(value));
+        fs::write(&path, toon_format::encode_default(&document)?)?;
+        let Err(PmRustError::CommandRefusal { context, .. }) =
+            close_duplicate(&root, "sample-caller", Some("sample-unit"))
+        else {
+            return Err("chained duplicate refusal".into());
+        };
+        corpus::assert_shell_args(
+            context["examples"][0].as_str().ok_or("example")?,
+            &[
+                "pm",
+                "close",
+                "sample-caller",
+                &format!("Duplicate of {value}"),
+                "--duplicate-of",
+                value,
+            ],
+        )?;
+    }
+    Ok(())
+}

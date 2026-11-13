@@ -403,7 +403,9 @@ impl Credentials {
 
 /// Redacts fallback parser and runtime diagnostics with the same credential registry.
 pub(super) fn diagnostic(text: &str, raw: &[String]) -> String {
-    Credentials::new(raw).text(text, false)
+    let mut sources = raw.to_vec();
+    collect_credential_sources(&Value::String(text.to_owned()), &mut sources);
+    Credentials::new(&sources).text(text, false)
 }
 
 /// Registers credential-bearing producer strings before any copied fragment is projected.
@@ -1029,5 +1031,34 @@ mod tests {
             lower("İabcdef"),
             "İabcdef".encode_utf16().collect::<Vec<_>>()
         );
+    }
+}
+
+#[cfg(test)]
+mod stored_diagnostics {
+    use super::*;
+    /// Duplicate, parse, lock and history text all use the same pre-projection registry.
+    #[test]
+    fn round15_stored_diagnostic_credentials() {
+        for prefix in [
+            "duplicate id",
+            "invalid document",
+            "lock owner",
+            "invalid history",
+        ] {
+            for (source, secret) in corpus::DIAGNOSTICS {
+                let text = format!("{prefix}: {source}");
+                let actual = diagnostic(&text, &["deps".to_owned(), "sample-own".to_owned()]);
+                assert!(
+                    !actual.contains(secret),
+                    "copied credential must be redacted"
+                );
+                assert!(actual.contains(REDACTED));
+            }
+            for source in corpus::PUBLIC_DIAGNOSTICS {
+                let text = format!("{prefix}: {source}");
+                assert_eq!(diagnostic(&text, &[]), text);
+            }
+        }
     }
 }

@@ -2398,13 +2398,7 @@ fn close_evidence_tokens(
     for flag in &flags {
         args.extend([flag.clone(), "<value>".to_owned()]);
     }
-    let command = format!(
-        "pm {}",
-        args.iter()
-            .map(|arg| quote_command_arg(arg))
-            .collect::<Vec<_>>()
-            .join(" ")
-    );
+    let command = crate::render_pm_command(&args);
     Some((flags, command, args))
 }
 
@@ -2579,7 +2573,7 @@ fn close_duplicate(
                     "Duplicate target \"{target}\" was not found. Create or locate the canonical item first."
                 ),
                 2,
-                serde_json::json!({"code":"duplicate_target_missing","why":"Duplicate closure should point at a real canonical pm item so future dedupe and changelog tooling can trace the relationship.","examples":[format!("pm close {id} \"Duplicate of {target}\" --duplicate-of {target}")],"next_steps":["Run pm search/list to find the canonical item, then retry with --duplicate-of <id>."]}),
+                serde_json::json!({"code":"duplicate_target_missing","why":"Duplicate closure should point at a real canonical pm item so future dedupe and changelog tooling can trace the relationship.","examples":[crate::render_pm_command(["close", id, &format!("Duplicate of {target}"), "--duplicate-of", target])],"next_steps":["Run pm search/list to find the canonical item, then retry with --duplicate-of <id>."]}),
             ));
         }
         Err(error) => return Err(error),
@@ -2613,7 +2607,7 @@ fn close_duplicate(
                 initial.trim()
             ),
             2,
-            serde_json::json!({"code":"duplicate_target_is_duplicate","why":"Duplicate closure should point directly at the canonical item, not another duplicate.","examples":[format!("pm close {id} \"Duplicate of {}\" --duplicate-of {}",initial.trim(),initial.trim())],"next_steps":["Use the canonical item referenced by duplicate_of as the --duplicate-of target."]}),
+            serde_json::json!({"code":"duplicate_target_is_duplicate","why":"Duplicate closure should point directly at the canonical item, not another duplicate.","examples":[crate::render_pm_command(["close", id, &format!("Duplicate of {}", initial.trim()), "--duplicate-of", initial.trim()])],"next_steps":["Use the canonical item referenced by duplicate_of as the --duplicate-of target."]}),
         ));
     }
     Ok(Some(target_doc.metadata.id))
@@ -2921,13 +2915,9 @@ pub(crate) fn close_item(
             "--completed-at",
             "<ISO>",
         ];
-        let command = args
-            .iter()
-            .map(|arg| quote_command_arg(arg))
-            .collect::<Vec<_>>()
-            .join(" ");
+        let command = crate::render_pm_command(args);
         completion["hint"] = serde_json::json!(format!(
-            "completed_at defaults to the close time. If work finished earlier, correct it with pm {command}."
+            "completed_at defaults to the close time. If work finished earlier, correct it with {command}."
         ));
     }
     receipt["completion"] = completion.clone();
@@ -3197,7 +3187,7 @@ pub(crate) fn collection_item(
         return Err(crate::collections::refusal(
             "No linked tests matched the requested removal selector",
             3,
-            serde_json::json!({"code":"linked_test_remove_no_match","unmatched":edit.removes.iter().map(|(kind,value)|format!("{kind}={value}")).chain(edit.indices.iter().map(|i|format!("index={i}"))).collect::<Vec<_>>(),"required":"List linked tests and retry with an exact command/path or a current 1-based --remove-index.","examples":[format!("pm test {id} --list"),format!("pm test {id} --remove-index 1")]}),
+            serde_json::json!({"code":"linked_test_remove_no_match","unmatched":edit.removes.iter().map(|(kind,value)|format!("{kind}={value}")).chain(edit.indices.iter().map(|i|format!("index={i}"))).collect::<Vec<_>>(),"required":"List linked tests and retry with an exact command/path or a current 1-based --remove-index.","examples":[crate::render_pm_command(["test",id,"--list"]),crate::render_pm_command(["test",id,"--remove-index","1"])]}),
         ));
     }
     if current == rows {
@@ -3409,7 +3399,7 @@ pub(crate) fn ownership_item_with_options(
         }
         if document.metadata.status == "in_progress" {
             warnings.push("released_unclaimed_in_progress".to_owned());
-            suggestions.push(format!("{} remains in_progress and unclaimed. If work is paused, run pm release {} --pause to move it to open.", request.id, request.id));
+            suggestions.push(format!("{} remains in_progress and unclaimed. If work is paused, run {} to move it to open.", request.id, crate::render_pm_command(["release", &request.id, "--pause"])));
         }
     }
     let start = if let Some(registry) = registry.as_ref().filter(|_| {

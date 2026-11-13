@@ -701,7 +701,9 @@ pub fn partial_failure(error: PmRustError, id: &str, completed: &str) -> PmRustE
         .as_str()
         .map_or(String::new(), |why| format!(" {why}"));
     let mut steps = vec![json!(format!(
-        "Inspect the persisted state with pm get {id} and pm history {id} before retrying the failed step."
+        "Inspect the persisted state with {} and {} before retrying the failed step.",
+        crate::render_pm_command(["get", id]),
+        crate::render_pm_command(["history", id])
     ))];
     if let Some(original) = context["next_steps"].as_array() {
         steps.extend(original.clone());

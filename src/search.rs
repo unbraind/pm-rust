@@ -79,7 +79,7 @@ fn types(raw: Option<&str>, settings: &Value) -> Result<Option<Vec<String>>, PmR
     let mut domain: Vec<_> = aliases.values().cloned().collect();
     domain.sort_by(|a, b| crate::collation::compare(a, b));
     domain.dedup();
-    raw.split(',').map(str::trim).filter(|s|!s.is_empty()).map(|token|aliases.get(&token.to_lowercase()).cloned().ok_or_else(||crate::collections::refusal(format!("--type filter token \"{token}\" must be one of {}",domain.join("|")),2,json!({"code":"invalid_argument_value","recovery":{"allowed_values":domain},"next_steps":[format!("Allowed values: {}",domain.join("|")),"Run \"pm search --help\" to confirm command-specific constraints."],"examples":[format!("pm search <query> --type {} --json",domain[0]),"pm search --help"]})))).collect::<Result<Vec<_>,_>>().map(Some)
+    raw.split(',').map(str::trim).filter(|s|!s.is_empty()).map(|token|aliases.get(&token.to_lowercase()).cloned().ok_or_else(||crate::collections::refusal(format!("--type filter token \"{token}\" must be one of {}",domain.join("|")),2,json!({"code":"invalid_argument_value","recovery":{"allowed_values":domain},"next_steps":[format!("Allowed values: {}",domain.join("|")),"Run \"pm search --help\" to confirm command-specific constraints."],"examples":[format!("pm search <query> {}",crate::render_pm_command(["--type",domain[0].as_str(),"--json"]).strip_prefix("pm ").unwrap_or_default()),"pm search --help"]})))).collect::<Result<Vec<_>,_>>().map(Some)
 }
 
 /// Parses the oracle's numeric producer limit, which floors fractional values.

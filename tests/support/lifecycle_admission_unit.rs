@@ -540,13 +540,11 @@ fn round12_fifo_blockers_are_not_items() -> Result<(), Box<dyn std::error::Error
     let (_temp, root, mut before) = disk()?;
     let path = root.join("tasks/sample-gate.toon");
     fs::remove_file(&path)?;
-    rustix::fs::mknodat(
-        rustix::fs::CWD,
-        &path,
-        rustix::fs::FileType::Fifo,
-        rustix::fs::Mode::RUSR | rustix::fs::Mode::WUSR,
-        0,
-    )?;
+    let created = std::process::Command::new("mkfifo")
+        .args(["-m", "600"])
+        .arg(&path)
+        .output()?;
+    assert!(created.status.success(), "portable FIFO creation failed");
     let mut found = Vec::new();
     blocker_paths(&root, true, "sample-gate", &mut found)?;
     assert!(found.is_empty());
@@ -580,5 +578,69 @@ fn round12_fifo_blockers_are_not_items() -> Result<(), Box<dyn std::error::Error
         Some(true),
         "opened FIFO must refuse before waiting for EOF"
     );
+    Ok(())
+}
+
+/// Every dependency-recovery branch renders stored values as argv, never shell syntax.
+#[cfg(unix)]
+#[test]
+fn round15_blocker_advice_shell_round_trip() -> Result<(), Box<dyn std::error::Error>> {
+    use crate::test_advice_corpus as corpus;
+    for value in &corpus::VALUES[..corpus::VALUES.len() - 1] {
+        let (_temp, root, mut before) = disk()?;
+        before
+            .metadata
+            .extra
+            .insert("blocked_by".to_owned(), json!(value));
+        let result = context(admission(&root, &before, false, Phase::AtomicStart))?;
+        assert_eq!(result["code"], "start_blocked_by_open_dependency");
+        corpus::assert_shell_args(
+            result["next_steps"][0].as_str().ok_or("get advice")?,
+            &["pm", "get", value],
+        )?;
+        let mut decorated = before.clone();
+        decorated.metadata.id = (*value).to_owned();
+        decorated.metadata.status = "closed".to_owned();
+        let terminal = context(admission(&root, &decorated, false, Phase::AtomicStart))?;
+        assert_eq!(terminal["code"], "terminal_state_conflict");
+        let terminal_step = terminal["next_steps"][0]
+            .as_str()
+            .ok_or("terminal advice")?
+            .strip_prefix("Run ")
+            .ok_or("run prefix")?
+            .strip_suffix('.')
+            .ok_or("period")?;
+        let (reopen, claim) = terminal_step.split_once(", then ").ok_or("two commands")?;
+        corpus::assert_shell_args(reopen, &["pm", "item", "reopen", value, "<reason>"])?;
+        corpus::assert_shell_args(claim, &["pm", "claim", value, "--start"])?;
+        decorated.metadata.status = "open".to_owned();
+        corpus::assert_shell_args(
+            &unblock(&decorated, value, &json!({})),
+            &["pm", "update", value, "--unset", "blocked_by"],
+        )?;
+        decorated.metadata.extra.insert(
+            "dependencies".to_owned(),
+            json!([{"id":"github:gate","kind":"blocked_by"}]),
+        );
+        decorated.metadata.extra.remove("blocked_by");
+        corpus::assert_shell_args(
+            &unblock(&decorated, "github:gate", &json!({})),
+            &[
+                "pm",
+                "update",
+                value,
+                "--dep-remove",
+                "id=github:gate,kind=blocked_by",
+            ],
+        )?;
+        decorated.metadata.extra.insert(
+            "dependencies".to_owned(),
+            json!([{"id":"sample-gate","kind":"depends_on"}]),
+        );
+        corpus::assert_shell_args(
+            &unblock(&decorated, "sample-gate", &json!({})),
+            &["pm", "get", value, "--fields", "blocked_by,dependencies"],
+        )?;
+    }
     Ok(())
 }
