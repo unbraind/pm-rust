@@ -1342,6 +1342,8 @@ fn canonical_packet_retry_arguments_are_accepted() -> Result<(), Box<dyn std::er
         vec!["pm-rust"],
         vec!["pm-rust", "--workspace"],
         vec!["pm-rust", "--workspace", "item", "deps", "root"],
+        // `item` only as an option value: the invocation has no command, so nothing is rewritten.
+        vec!["pm-rust", "--workspace", "item"],
         vec!["pm-rust", "item", "get", "root"],
         vec!["pm-rust", "deps", "item"],
     ] {
