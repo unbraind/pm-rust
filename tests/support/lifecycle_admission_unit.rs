@@ -531,3 +531,54 @@ fn round8_default_alias_and_workflow_rules() -> Result<(), Box<dyn std::error::E
     }
     Ok(())
 }
+
+/// FIFO entries remain unresolved and replacement handles cannot block admission.
+#[cfg(unix)]
+#[test]
+fn round12_fifo_blockers_are_not_items() -> Result<(), Box<dyn std::error::Error>> {
+    use std::io::Write as _;
+    let (_temp, root, mut before) = disk()?;
+    let path = root.join("tasks/sample-gate.toon");
+    fs::remove_file(&path)?;
+    rustix::fs::mknodat(
+        rustix::fs::CWD,
+        &path,
+        rustix::fs::FileType::Fifo,
+        rustix::fs::Mode::RUSR | rustix::fs::Mode::WUSR,
+        0,
+    )?;
+    let mut found = Vec::new();
+    blocker_paths(&root, true, "sample-gate", &mut found)?;
+    assert!(found.is_empty());
+    before
+        .metadata
+        .extra
+        .insert("blocked_by".to_owned(), json!("sample-gate"));
+    assert_eq!(
+        context(admission(&root, &before, false, Phase::AtomicStart))?["code"],
+        "start_blocked_by_open_dependency"
+    );
+    assert!(admission(&root, &before, true, Phase::AtomicStart).is_ok());
+    // Keep a live producer so reverting to blocking fs::read cannot return an EOF.
+    let fd = rustix::fs::open(
+        &path,
+        rustix::fs::OFlags::RDWR | rustix::fs::OFlags::NONBLOCK,
+        rustix::fs::Mode::empty(),
+    )?;
+    let mut producer = fs::File::from(fd);
+    producer
+        .write_all(toon_format::encode_default(&document("sample-gate", "closed"))?.as_bytes())?;
+    let (tx, rx) = std::sync::mpsc::channel();
+    let reader = std::thread::spawn(move || {
+        let _ = tx.send(read_blocker(&path, "sample-gate").is_err());
+    });
+    let outcome = rx.recv_timeout(std::time::Duration::from_secs(3));
+    drop(producer);
+    reader.join().map_err(|_| "reader panicked")?;
+    assert_eq!(
+        outcome.ok(),
+        Some(true),
+        "opened FIFO must refuse before waiting for EOF"
+    );
+    Ok(())
+}

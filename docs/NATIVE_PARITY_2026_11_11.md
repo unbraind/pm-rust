@@ -508,3 +508,12 @@ An additional instrumented binary-unit run passes all 64 tests and measures `src
 ## Completed authorities in decorated text
 
 The owner clarified the whitespace boundary on 2026-11-13: a completed dotted hostname, IPv4 literal, bracketed IPv6 literal or localhost (optionally with a port) ends the URL at whitespace. A later email address remains public and does not suppress retry advice. Bare labels and unresolved authorities remain private up to `@`, including whitespace; ambiguity resolves to redaction. Registration and projection use the same structural classifier, with no prose-word exceptions. Existing multi-URL scanning and conservative password handling remain covered. The mirrored corpus runs through stored holders and JSON/human refusal streams.
+
+
+The whitespace decision is evaluated against the current URL's credential `@`,
+not whitespace in a later copied phrase. A completed-looking host/port before a
+slash-bearing password must not cancel registration after that credential URL
+has already ended. Copied passwords are projected across refusal fields and
+recovery arguments. The pinned oracle agrees for the ordinary message case; it
+over-redacts surrounding text in the quoted-message variant without leaking the
+password. Native retains that public decoration under the same structural rule.

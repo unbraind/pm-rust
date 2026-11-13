@@ -203,10 +203,22 @@ pub(crate) fn default_schema(name: &str) -> Value {
     }
 }
 
+/// Discovers explicit schema locations or the published default sidecar path.
+pub(crate) fn schema_path(root: &Path, schema: &Value, name: &str) -> std::path::PathBuf {
+    root.join(
+        schema["files"][name]
+            .as_str()
+            .unwrap_or(&format!("schema/{name}.json")),
+    )
+}
+
 /// Loads optional runtime schema data without requiring the scaffold to exist.
-fn optional_schema(root: &Path, schema: &Value, name: &str) -> Result<Value, PmRustError> {
-    let fallback = format!("schema/{name}.json");
-    let path = root.join(schema["files"][name].as_str().unwrap_or(&fallback));
+pub(crate) fn optional_schema(
+    root: &Path,
+    schema: &Value,
+    name: &str,
+) -> Result<Value, PmRustError> {
+    let path = schema_path(root, schema, name);
     match fs::read(&path) {
         Ok(bytes) => Ok(crate::strict_json::from_slice(&bytes).unwrap_or(Value::Null)),
         Err(error) if error.kind() == std::io::ErrorKind::NotFound => Ok(Value::Null),

@@ -383,14 +383,13 @@ fn list_and_get_dispatch_over_real_processes() -> Result<(), Box<dyn std::error:
         let value: serde_json::Value = if format == "json" {
             serde_json::from_slice(&output.stdout)?
         } else {
-            toon_format::decode_default(std::str::from_utf8(&output.stdout)?)?
+            pm_rust::parse_toon(std::str::from_utf8(&output.stdout)?)?
         };
         assert!(value.is_object());
     }
     let changes = pm_rust(&workspace, &["changes"])?;
     assert!(changes.status.success());
-    let page: serde_json::Value =
-        toon_format::decode_default(std::str::from_utf8(&changes.stdout)?)?;
+    let page: serde_json::Value = pm_rust::parse_toon(std::str::from_utf8(&changes.stdout)?)?;
     assert!(page["events"].is_array());
     let cancelled = workspace.path().join("cancelled");
     fs::write(&cancelled, b"cancel")?;
@@ -1518,7 +1517,10 @@ fn exercise_round11_holder_boundaries(
     private_only: Option<bool>,
 ) -> Result<(), Box<dyn std::error::Error>> {
     let mut mismatches = Vec::new();
-    for &(input, expected) in refusal_corpus::AUTHORITIES {
+    for &(input, expected) in refusal_corpus::AUTHORITIES
+        .iter()
+        .chain(refusal_corpus::COPIED_PASSWORDS)
+    {
         for &prefix in refusal_corpus::DECORATIONS {
             let tracker = workspace()?;
             expect_ok(
@@ -1589,7 +1591,12 @@ fn exercise_round11_holder_boundaries(
                 assert_eq!(output.status.code(), Some(2));
                 assert!(output.stdout.is_empty());
                 let text = String::from_utf8(output.stderr)?;
-                if !text.contains(&expected) {
+                let encoded = if json {
+                    serde_json::to_string(&expected)?
+                } else {
+                    pm_rust::quote_command_arg(&expected)
+                };
+                if !text.contains(&expected) && !text.contains(&encoded) {
                     mismatches.push(format!("close projection json={json}: {holder}"));
                 }
                 if json {
@@ -1605,5 +1612,37 @@ fn exercise_round11_holder_boundaries(
         }
     }
     assert!(mismatches.is_empty(), "{}", mismatches.join("\n"));
+    Ok(())
+}
+
+/// Quoted message arguments register slash passwords before projecting copied values.
+#[test]
+fn round12_quoted_message_copies_are_redacted() -> Result<(), Box<dyn std::error::Error>> {
+    let tracker = workspace()?;
+    seed_item(&tracker)?;
+    expect_ok(
+        &tracker,
+        &["claim", "sample-cli", "--author", "alpha", "--force"],
+    )?;
+    for &(input, _) in refusal_corpus::COPIED_PASSWORDS {
+        for json in [false, true] {
+            let mut args = vec![
+                "claim",
+                "sample-cli",
+                "--author",
+                "beta",
+                "--message",
+                input,
+            ];
+            if json {
+                args.push("--json");
+            }
+            let output = pm_rust(&tracker, &args)?;
+            assert_eq!(output.status.code(), Some(4));
+            let text = String::from_utf8(output.stderr)?;
+            assert!(text.contains("[redacted]"));
+            assert!(!text.contains("443/secret"), "{text}");
+        }
+    }
     Ok(())
 }

@@ -1,10 +1,11 @@
 //! Shared locked admission for atomic and composed lifecycle transitions.
 use crate::{ItemDocument, OwnershipItem, PmRustError, list_registry::Lifecycle};
 use serde_json::{Value, json};
+#[cfg(test)]
+use std::fs;
 use std::{
     cell::RefCell,
     collections::{BTreeMap, BTreeSet},
-    fs,
     path::{Path, PathBuf},
 };
 
@@ -198,7 +199,7 @@ fn blocker_paths(
         }
         if path.is_dir() {
             blocker_paths(&path, false, id, found)?;
-        } else if name.eq_ignore_ascii_case(&format!("{id}.toon")) {
+        } else if path.is_file() && name.eq_ignore_ascii_case(&format!("{id}.toon")) {
             found.push(path);
         }
     }
@@ -231,9 +232,24 @@ fn blocker(root: &Path, id: &str, settings: &Value) -> Result<Option<ItemDocumen
     read_blocker(path, &canonical).map(Some)
 }
 
+/// Admits the opened handle, so replacement FIFOs cannot block an item lock.
+fn read_blocker_bytes(path: &Path) -> std::io::Result<Vec<u8>> {
+    use std::io::Read as _;
+    let mut file = crate::changes::open_history(path)?;
+    if !file.metadata()?.is_file() {
+        return Err(std::io::Error::new(
+            std::io::ErrorKind::InvalidInput,
+            "Blocker is not a regular file",
+        ));
+    }
+    let mut bytes = Vec::new();
+    file.read_to_end(&mut bytes)?;
+    Ok(bytes)
+}
+
 /// Reads a resolved blocker at the final I/O boundary, retaining typed encoding diagnostics.
 fn read_blocker(path: &Path, canonical: &str) -> Result<ItemDocument, PmRustError> {
-    let bytes = fs::read(path).map_err(|source| PmRustError::Io {
+    let bytes = read_blocker_bytes(path).map_err(|source| PmRustError::Io {
         path: path.to_path_buf(),
         source,
     })?;

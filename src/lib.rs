@@ -39,6 +39,7 @@ mod read_session;
 mod search;
 mod selection;
 pub mod strict_json;
+mod toon_input;
 mod toon_output;
 mod workspace;
 
@@ -58,6 +59,7 @@ pub use ownership::{
     AuthorIdentity, OwnershipOptions, SelectionOptions, partial_failure as completed_step_failure,
 };
 pub use search::SearchOptions;
+pub use toon_input::parse_toon;
 pub use toon_output::stringify_toon;
 pub use workspace::{ItemFilter, ListResult, Workspace};
 

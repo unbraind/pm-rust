@@ -1115,9 +1115,7 @@ fn compare_toon(directory: &Path, flags: &[&str], success: bool) -> TestResultVa
     if !success {
         return Ok(Value::Null);
     }
-    Ok(toon_format::decode_default(std::str::from_utf8(
-        &native.stdout,
-    )?)?)
+    Ok(pm_rust::parse_toon(std::str::from_utf8(&native.stdout)?)?)
 }
 
 /// Decoded differential output with an owned error channel.

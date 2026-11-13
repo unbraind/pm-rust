@@ -759,3 +759,72 @@ fn context_reads_one_captured_corpus() -> Result<(), Box<dyn std::error::Error>>
     assert_eq!(output["summary"]["total_items"], 2);
     Ok(())
 }
+
+/// Runtime builders share lifecycle discovery without replacing built-in roles.
+#[test]
+fn round12_runtime_default_schema_discovery() -> Result<(), Box<dyn std::error::Error>> {
+    let temp = tempfile::tempdir()?;
+    let root = temp.path();
+    fs::create_dir(root.join("schema"))?;
+    fs::write(root.join("settings.json"), "{}")?;
+    fs::write(
+        root.join("schema/statuses.json"),
+        r#"{"statuses":[{"id":"queued","roles":["active"]},{"id":"done","roles":["terminal"]}]}"#,
+    )?;
+    fs::write(
+        root.join("schema/workflows.json"),
+        r#"{"workflow":{"in_progress_status":"queued"}}"#,
+    )?;
+    let settings = runtime_settings(root)?;
+    let captured =
+        crate::list_registry::Lifecycle::from_values(&settings, &Value::Null, &Value::Null);
+    let loaded = crate::list_registry::Lifecycle::load(root)?;
+    for status in ["open", "in_progress", "queued", "done", "closed"] {
+        assert_eq!(
+            captured.role(status, "active"),
+            loaded.role(status, "active")
+        );
+        assert_eq!(captured.terminal(status), loaded.terminal(status));
+    }
+    assert!(captured.role("queued", "active"));
+    assert!(captured.terminal("done"));
+    assert_eq!(captured.start_status(), loaded.start_status());
+    for external in [
+        json!([{"id":"queued","roles":["active"]}]),
+        json!({"definitions":[{"id":"queued","roles":["active"]}]}),
+        json!({"statuses":[{"id":"queued","roles":["active"]}]}),
+    ] {
+        fs::write(root.join("schema/statuses.json"), external.to_string())?;
+        let captured = crate::list_registry::Lifecycle::from_values(
+            &runtime_settings(root)?,
+            &Value::Null,
+            &Value::Null,
+        );
+        assert!(captured.role("queued", "active"));
+    }
+    fs::write(
+        root.join("schema/workflows.json"),
+        r#"{"in_progress_status":"queued"}"#,
+    )?;
+    assert_eq!(
+        crate::list_registry::Lifecycle::from_values(
+            &runtime_settings(root)?,
+            &Value::Null,
+            &Value::Null
+        )
+        .start_status(),
+        "queued"
+    );
+    fs::write(root.join("schema/statuses.json"), "invalid json")?;
+    assert!(runtime_settings(root).is_ok());
+    fs::remove_file(root.join("schema/statuses.json"))?;
+    assert!(
+        crate::list_registry::Lifecycle::from_values(
+            &runtime_settings(root)?,
+            &Value::Null,
+            &Value::Null
+        )
+        .role("open", "active")
+    );
+    Ok(())
+}

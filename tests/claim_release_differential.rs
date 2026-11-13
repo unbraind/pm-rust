@@ -3038,6 +3038,7 @@ fn round8_nested_password_invocation_matches_published() -> Result<(), Box<dyn s
         "https://user:secret;value://tail@host.invalid",
         "https://user:secret value://tail@host.invalid",
         "https://public.invalid:443/p https://second.invalid/path",
+        "https://user.invalid:443/secret@host.invalid copied 443/secret",
     ] {
         for json in [false, true] {
             let mut args = vec![
@@ -3250,6 +3251,63 @@ fn round10_missing_workflow_start_matches_oracle() -> Result<(), Box<dyn std::er
                 .metadata
                 .status,
             "working"
+        );
+    }
+    Ok(())
+}
+
+/// Ranked candidates and terminal prerequisites discover default status sidecars.
+#[test]
+fn round12_selection_default_status_sidecar_matches_oracle()
+-> Result<(), Box<dyn std::error::Error>> {
+    for (status, gate) in [
+        ("queued", None),
+        ("open", Some("done")),
+        ("open", Some("closed")),
+    ] {
+        let Some(fixture) = Fixture::new("none")? else {
+            return Ok(());
+        };
+        for root in [fixture.node.path(), fixture.rust.path()] {
+            let pm = root.join(".agents/pm");
+            let path = pm.join("settings.json");
+            let mut settings: serde_json::Value = serde_json::from_slice(&fs::read(&path)?)?;
+            settings["schema"]["files"]
+                .as_object_mut()
+                .ok_or("files")?
+                .shift_remove("statuses");
+            fs::write(path, serde_json::to_vec_pretty(&settings)?)?;
+            fs::write(
+                pm.join("schema/statuses.json"),
+                r#"{"statuses":[{"id":"queued","roles":["active"]},{"id":"done","roles":["terminal_done"]}]}"#,
+            )?;
+            let path = pm.join("tasks/sample-own.toon");
+            let mut item: serde_json::Value =
+                toon_format::decode_default(&fs::read_to_string(&path)?)?;
+            item["status"] = status.into();
+            if let Some(gate_status) = gate {
+                item["blocked_by"] = "sample-gate".into();
+                let mut blocker = item.clone();
+                blocker["id"] = "sample-gate".into();
+                blocker["status"] = gate_status.into();
+                blocker
+                    .as_object_mut()
+                    .ok_or("blocker")?
+                    .shift_remove("blocked_by");
+                fs::write(
+                    pm.join("tasks/sample-gate.toon"),
+                    toon_format::encode_default(&blocker)?,
+                )?;
+            }
+            fs::write(path, toon_format::encode_default(&item)?)?;
+        }
+        fixture.step(&["claim", "--next", "--author", "alpha", "--json"])?;
+        assert_eq!(
+            pm_rust::Workspace::discover(fixture.rust.path())?
+                .get("sample-own")?
+                .metadata
+                .extra["assignee"],
+            "alpha"
         );
     }
     Ok(())

@@ -221,17 +221,45 @@ pub(crate) fn runtime_settings(pm_root: &Path) -> Result<Value, PmRustError> {
         ("statuses", &["statuses"][..]),
         ("workflows", &["workflow", "type_workflows"][..]),
     ] {
-        if let Some(relative) = schema.get("files").and_then(|files| files[name].as_str()) {
-            let external = match read_json(&pm_root.join(relative)) {
-                Err(PmRustError::Io { source, .. })
-                    if name == "workflows" && source.kind() == std::io::ErrorKind::NotFound =>
-                {
-                    continue;
+        {
+            let explicit = schema
+                .get("files")
+                .and_then(|files| files[name].as_str())
+                .is_some();
+            let path =
+                crate::list_registry::schema_path(pm_root, &Value::Object(schema.clone()), name);
+            let external = if explicit {
+                match read_json(&path) {
+                    Err(PmRustError::Io { source, .. })
+                        if name == "workflows" && source.kind() == std::io::ErrorKind::NotFound =>
+                    {
+                        continue;
+                    }
+                    result => result?,
                 }
-                result => result?,
+            } else {
+                crate::list_registry::optional_schema(
+                    pm_root,
+                    &Value::Object(schema.clone()),
+                    name,
+                )?
             };
             for key in keys {
-                if let Some(value) = external.get(*key) {
+                let value = external.get(*key).or_else(|| {
+                    if explicit {
+                        None
+                    } else if *key == "statuses" {
+                        external
+                            .as_array()
+                            .map(|_| &external)
+                            .or_else(|| external.get("definitions"))
+                    } else if *key == "workflow" && external.is_object() {
+                        Some(&external)
+                    } else {
+                        None
+                    }
+                });
+                if let Some(value) = value {
                     let value = if *key == "statuses" {
                         let mut entries = schema
                             .get(*key)
@@ -255,6 +283,20 @@ pub(crate) fn runtime_settings(pm_root: &Path) -> Result<Value, PmRustError> {
                             }
                         }
                         Value::Array(entries)
+                    } else if *key == "workflow" && !explicit {
+                        let mut merged = schema
+                            .get(*key)
+                            .and_then(Value::as_object)
+                            .cloned()
+                            .unwrap_or_default();
+                        merged.extend(
+                            value
+                                .as_object()
+                                .into_iter()
+                                .flatten()
+                                .map(|(key, value)| (key.clone(), value.clone())),
+                        );
+                        Value::Object(merged)
                     } else {
                         value.clone()
                     };

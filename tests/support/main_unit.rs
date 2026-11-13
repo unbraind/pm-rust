@@ -2497,3 +2497,18 @@ fn round11_option_values_never_become_controls() {
         assert!(!super::json_requested(&scope));
     }
 }
+
+/// A hyphen-permitting value consumes the delimiter token before output controls.
+#[test]
+fn round12_hyphen_value_delimiter() {
+    let args: Vec<String> = ["context", "--limit", "--", "--json"]
+        .map(str::to_owned)
+        .to_vec();
+    let parsed = crate::invocation::Invocation::parse(&args);
+    assert_eq!(parsed.options[0].value, Some("--"));
+    assert!(super::json_requested(&args));
+    let positional: Vec<String> = ["close", "sample-one", "--", "--json"]
+        .map(str::to_owned)
+        .to_vec();
+    assert!(!super::json_requested(&positional));
+}

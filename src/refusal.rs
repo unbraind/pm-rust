@@ -111,8 +111,10 @@ fn userinfos(text: &str) -> Vec<(usize, usize)> {
         let first_end = remaining
             .find(|ch| whitespace(ch) || matches!(ch, '/' | '?' | '#' | '@'))
             .unwrap_or(remaining.len());
-        if remaining.chars().any(whitespace)
-            && remaining.as_bytes().get(first_end) != Some(&b'@')
+        if remaining
+            .find(whitespace)
+            .zip(remaining.find('@'))
+            .is_some_and(|(space, at)| space < at)
             && completed_authority(&remaining[..first_end])
         {
             // Only this URL ends here; subsequent schemes are still independently scanned.
@@ -520,6 +522,28 @@ mod tests {
                         payload["recovery"].get("suggested_retry").is_none(),
                         private
                     );
+                }
+            }
+        }
+    }
+
+    /// Registration sees the URL before later whitespace and hides copies in every field.
+    #[test]
+    fn round12_copied_slash_passwords() {
+        for &(input, expected) in corpus::COPIED_PASSWORDS {
+            for &prefix in corpus::DECORATIONS {
+                let source = format!("{prefix}{input}");
+                let expected = format!("{prefix}{expected}");
+                for raw in [
+                    vec![],
+                    vec!["comment".to_owned(), "--message".to_owned(), source.clone()],
+                ] {
+                    let mut payload = json!({"claimed_by":source,"details":{"title":source},"recovery":{"normalized_args":["comment","--message",source],"attempted_command":"placeholder"}});
+                    redact(&mut payload, &raw);
+                    assert_eq!(payload["claimed_by"], expected);
+                    assert_eq!(payload["details"]["title"], expected);
+                    assert_eq!(payload["recovery"]["normalized_args"][2], expected);
+                    assert!(!payload.to_string().contains("443/secret"));
                 }
             }
         }

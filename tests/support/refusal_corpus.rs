@@ -155,3 +155,15 @@ pub const AUTHORITIES: &[(&str, &str)] = &[
 
 /// Identical URL boundaries apply regardless of surrounding producer decoration.
 pub const DECORATIONS: &[&str] = &["", "Gate: ", "Contact "];
+
+/// Copied slash-bearing passwords must also be projected outside the URL.
+pub const COPIED_PASSWORDS: &[(&str, &str)] = &[
+    (
+        "https://user.invalid:443/secret@host.invalid copied 443/secret",
+        "https://[redacted]@host.invalid copied [redacted]",
+    ),
+    (
+        "Message: \"https://user.invalid:443/secret@host.invalid copied 443/secret\"",
+        "Message: \"https://[redacted]@host.invalid copied [redacted]\"",
+    ),
+];

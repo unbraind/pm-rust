@@ -2324,3 +2324,37 @@ fn round10_shortened_reference_receipt_matches_published_gap() -> TestResult {
     }
     Ok(())
 }
+
+/// A delimiter accepted as a numeric option value does not hide the following JSON flag.
+#[test]
+fn round12_hyphen_value_json_refusal_contract() -> TestResult {
+    let Some(published) = published_cli::published_cli_or_skip("hyphen numeric argument") else {
+        return Ok(());
+    };
+    let scratch = tempfile::tempdir()?;
+    let driver = orientation_driver(scratch.path(), &published)?;
+    let root = tempfile::tempdir()?;
+    assert!(
+        oracle(&driver, root.path(), &["init", "sample-", "--defaults"])?
+            .status
+            .success()
+    );
+    fixture(root.path(), &[])?;
+    let args = ["context", "--limit", "--", "--json"];
+    let actual = native(root.path(), &args)?;
+    assert_eq!(actual.status.code(), Some(2));
+    let refusal: Value = serde_json::from_slice(&actual.stderr)?;
+    assert_eq!(refusal["code"], "invalid_argument_value");
+    assert_eq!(refusal["refusal"]["rejected_value"], "--");
+    // Commander treats this delimiter differently; it does not render the native numeric refusal.
+    let expected = oracle(&driver, root.path(), &args)?;
+    assert_eq!(expected.status.code(), Some(2));
+    assert!(String::from_utf8(expected.stderr)?.contains("Unknown option --json"));
+    let allowed = ["context", "--limit", "1", "--json"];
+    compare(
+        &oracle(&driver, root.path(), &allowed)?,
+        &native(root.path(), &allowed)?,
+        &allowed,
+    );
+    Ok(())
+}

@@ -36,7 +36,7 @@ fn definition() -> &'static clap::Command {
 }
 
 impl<'a> Invocation<'a> {
-    /// Parses only declared option boundaries; `--` permanently ends option interpretation.
+    /// Parses declared boundaries; a standalone `--` ends options unless consumed as a value.
     pub fn parse(args: &'a [String]) -> Self {
         let mut result = Self {
             command: None,
@@ -86,7 +86,7 @@ impl<'a> Invocation<'a> {
                         let Some(next) = args.get(index) else {
                             break;
                         };
-                        if next == "--" || (next.starts_with('-') && next != "-" && !allow_hyphen) {
+                        if next.starts_with('-') && next != "-" && !allow_hyphen {
                             break;
                         }
                         value.get_or_insert(next.as_str());
