@@ -21,6 +21,9 @@ where
 /// This is the inverse of the platform renderer, not a shell interpreter. It
 /// permits existing string-only advice to acquire bootstrap scope as an argv.
 /// Unclosed quotes or escapes return `None` rather than executable advice.
+/// On Windows, a backslash run before `"` emits half as many backslashes:
+/// an even run toggles quoting, while an odd run emits a literal quote. Other
+/// backslash runs stay literal; unquoted whitespace separates arguments.
 #[must_use]
 pub fn parse_command_args(text: &str) -> Option<Vec<String>> {
     let mut chars = text.chars().peekable();

@@ -2569,14 +2569,6 @@ fn round15_scoped_advice_shell_round_trip() -> Result<(), Box<dyn std::error::Er
         !scoped.starts_with("pm "),
         "unparsed shell syntax must withhold execution advice"
     );
-    assert!(
-        super::scope_recovery_command(
-            "pm get \"unclosed",
-            &["--pm-path".to_owned(), "selected".to_owned()]
-        )
-        .ok_or("unsafe advice explanation")?
-        .starts_with("Recovery advice could not be decoded safely")
-    );
     Ok(())
 }
 
@@ -2616,4 +2608,22 @@ fn round15_search_template_boundaries() {
     let before = payload.clone();
     super::instantiate_search_examples(&mut payload, &[]);
     assert_eq!(payload, before);
+}
+
+/// Unclosed advice quotes withhold execution on Windows as well as Unix.
+#[test]
+fn round19_unclosed_recovery_advice_is_not_executable() {
+    let scope = ["--pm-path".to_owned(), "selected".to_owned()];
+    assert_eq!(
+        super::scope_recovery_command("pm get \"unclosed", &scope),
+        Some(
+            "Recovery advice could not be decoded safely; inspect command help before retrying."
+                .to_owned()
+        )
+    );
+    let valid = super::scope_recovery_command("pm get sample-one", &scope);
+    assert_eq!(
+        valid,
+        Some("pm --pm-path selected get sample-one".to_owned())
+    );
 }

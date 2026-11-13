@@ -125,7 +125,8 @@ jobs:
     runs-on: ${{ matrix.os }}
     # Windows exhausted 35 minutes during the second, instrumented oracle pass.
     # Preserve every gate and threshold; budget for both full passes and cleanup.
-    timeout-minutes: ${{ matrix.os == 'windows-latest' && 60 || 35 }}
+    # macOS reached 100% coverage but exhausted 35 minutes in final changelog checks.
+    timeout-minutes: ${{ matrix.os == 'windows-latest' && 60 || matrix.os == 'macos-latest' && 45 || 35 }}
     strategy:
       fail-fast: false
       matrix:

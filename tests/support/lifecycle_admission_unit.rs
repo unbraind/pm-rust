@@ -737,3 +737,42 @@ fn round18_blocker_handle_errors_are_typed_and_read_only() -> Result<(), Box<dyn
     ));
     Ok(())
 }
+
+/// An opened directory refuses before reading on every platform, preserving the plain tracker.
+#[test]
+fn round19_opened_nonregular_blocker_is_read_only() -> Result<(), Box<dyn std::error::Error>> {
+    let (_temp, root, _before) = disk()?;
+    let paths = [
+        root.join("settings.json"),
+        root.join("tasks").join("sample-own.toon"),
+        root.join("tasks").join("sample-gate.toon"),
+    ];
+    let original = paths.iter().map(fs::read).collect::<Result<Vec<_>, _>>()?;
+    let directory = root.join("tasks").join("not-an-item");
+    fs::create_dir(&directory)?;
+    let mut options = fs::OpenOptions::new();
+    options.read(true);
+    #[cfg(windows)]
+    {
+        use std::os::windows::fs::OpenOptionsExt as _;
+        // FILE_FLAG_BACKUP_SEMANTICS admits a real directory handle for the kind guard.
+        options.custom_flags(0x0200_0000);
+    }
+    let result = read_blocker_handle(options.open(&directory)?);
+    assert!(matches!(result, Err(error)
+        if error.kind() == std::io::ErrorKind::InvalidInput
+        && error.to_string() == "Blocker is not a regular file"));
+    assert_eq!(
+        read_blocker_handle(fs::File::open(&paths[2])?)?,
+        original[2]
+    );
+    assert_eq!(
+        paths.iter().map(fs::read).collect::<Result<Vec<_>, _>>()?,
+        original
+    );
+    assert!(directory.is_dir());
+    assert_eq!(fs::read_dir(&directory)?.count(), 0);
+    assert_eq!(fs::read_dir(&root)?.count(), 2);
+    assert_eq!(fs::read_dir(root.join("tasks"))?.count(), 3);
+    Ok(())
+}

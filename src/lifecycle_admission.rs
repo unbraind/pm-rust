@@ -234,8 +234,12 @@ fn blocker(root: &Path, id: &str, settings: &Value) -> Result<Option<ItemDocumen
 
 /// Admits the opened handle, so replacement FIFOs cannot block an item lock.
 fn read_blocker_bytes(path: &Path) -> std::io::Result<Vec<u8>> {
+    read_blocker_handle(crate::changes::open_history(path)?)
+}
+
+/// Checks the opened object's type before reading, independently of platform open flags.
+fn read_blocker_handle(mut file: std::fs::File) -> std::io::Result<Vec<u8>> {
     use std::io::Read as _;
-    let mut file = crate::changes::open_history(path)?;
     let metadata = file.metadata();
     #[cfg(test)]
     let metadata = crate::changes::inject_io(metadata, 1);

@@ -70,3 +70,30 @@ fn round15_posix_shell_argument_round_trip() -> Result<(), Box<dyn std::error::E
     }
     Ok(())
 }
+
+/// Windows halves backslashes before a quote: even runs toggle quoting, odd runs escape it.
+#[cfg(windows)]
+#[test]
+fn round19_windows_decoder_edges() {
+    // Two backslashes emit one literal backslash and open or close the quoted span.
+    // One or three emit zero or one backslash plus a literal quote, without toggling.
+    // Runs not followed by a quote (including a trailing run) stay literal.
+    for (text, args) in [
+        (r#"pm a\\"b c""#, vec!["pm", r"a\b c"]),
+        (r#"pm "a\\"b"#, vec!["pm", r"a\b"]),
+        (r#"pm a\"b"#, vec!["pm", r#"a"b"#]),
+        (r#"pm a\\\"b"#, vec!["pm", r#"a\"b"#]),
+        (r#"pm "a\"b""#, vec!["pm", r#"a"b"#]),
+        (r#"pm "a\\\"b""#, vec!["pm", r#"a\"b"#]),
+        (r"pm a\\", vec!["pm", r"a\\"]),
+        (r"pm a\\b", vec!["pm", r"a\\b"]),
+    ] {
+        assert_eq!(
+            parse_command_args(text),
+            Some(args.into_iter().map(str::to_owned).collect()),
+            "{text}"
+        );
+    }
+    assert_eq!(parse_command_args(r#"pm a\\"b"#), None);
+    assert_eq!(parse_command_args(r#"pm "a\\"b""#), None);
+}
