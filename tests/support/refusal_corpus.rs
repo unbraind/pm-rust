@@ -38,6 +38,118 @@ pub const AUTHORITIES: &[(&str, &str)] = &[
         "https://host.invalid/path@ref",
         "https://host.invalid/path@ref",
     ),
+    (
+        "https://intranet pass@host.invalid",
+        "https://[redacted]@host.invalid",
+    ),
+    (
+        "https://u:p@host.invalid",
+        "https://[redacted]@host.invalid",
+    ),
+    (
+        "https://127.0.0.1:8080 then ops@example.invalid",
+        "https://127.0.0.1:8080 then ops@example.invalid",
+    ),
+    (
+        "https://[::1] and admin@example.invalid",
+        "https://[::1] and admin@example.invalid",
+    ),
+    (
+        "https://[::1]:8080 then ops@example.invalid",
+        "https://[::1]:8080 then ops@example.invalid",
+    ),
+    (
+        "https://localhost or ops@example.invalid",
+        "https://localhost or ops@example.invalid",
+    ),
+    (
+        "https://localhost:8080 then ops@example.invalid",
+        "https://localhost:8080 then ops@example.invalid",
+    ),
+    (
+        "https://stored.name user@host.invalid",
+        "https://stored.name user@host.invalid",
+    ),
+    (
+        "https://stored.name user name@host.invalid",
+        "https://stored.name user name@host.invalid",
+    ),
+    (
+        "https:// host@host.invalid",
+        "https://[redacted]@host.invalid",
+    ),
+    (
+        "https://bad..label pass@host.invalid",
+        "https://[redacted]@host.invalid",
+    ),
+    (
+        "https://localhost:bad pass@host.invalid",
+        "https://[redacted]@host.invalid",
+    ),
+    (
+        "https://[bad] pass@host.invalid",
+        "https://[redacted]@host.invalid",
+    ),
+    (
+        "https://[::1]junk pass@host.invalid",
+        "https://[redacted]@host.invalid",
+    ),
+    (
+        "https://localhost: pass@host.invalid",
+        "https://[redacted]@host.invalid",
+    ),
+    (
+        "https://localhost:65536 pass@host.invalid",
+        "https://[redacted]@host.invalid",
+    ),
+    (
+        "https://[bad pass@host.invalid",
+        "https://[redacted]@host.invalid",
+    ),
+    (
+        "https://LOCALHOST:80 then ops@example.invalid",
+        "https://LOCALHOST:80 then ops@example.invalid",
+    ),
+    (
+        "https://127.0.0.1:8080/path then ops@example.invalid",
+        "https://127.0.0.1:8080/path then ops@example.invalid",
+    ),
+    (
+        "https://host.invalid:8080?ref=x then ops@example.invalid",
+        "https://host.invalid:8080?ref=x then ops@example.invalid",
+    ),
+    (
+        "https://localhost@host.invalid then text",
+        "https://[redacted]@host.invalid then text",
+    ),
+    (
+        "https://bad.name:secret:2 pass@host.invalid",
+        "https://[redacted]@host.invalid",
+    ),
+    (
+        "https://bad!.name pass@host.invalid",
+        "https://[redacted]@host.invalid",
+    ),
+    (
+        "https://-bad.name pass@host.invalid",
+        "https://[redacted]@host.invalid",
+    ),
+    (
+        "https://bad-.name pass@host.invalid",
+        "https://[redacted]@host.invalid",
+    ),
+    (
+        "https://host.invalid. then ops@example.invalid",
+        "https://host.invalid. then ops@example.invalid",
+    ),
+    (
+        "https://host-name.invalid then ops@example.invalid",
+        "https://host-name.invalid then ops@example.invalid",
+    ),
+    (
+        "https://bad!x.name pass@host.invalid",
+        "https://[redacted]@host.invalid",
+    ),
     ("user@example.invalid", "user@example.invalid"),
 ];
 

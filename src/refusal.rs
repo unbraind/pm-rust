@@ -51,6 +51,40 @@ fn public_authority(prefix: &str) -> bool {
     })
 }
 
+/// Recognizes the owner's completed-authority boundary before whitespace in free text.
+fn completed_authority(token: &str) -> bool {
+    let host = if let Some(bracketed) = token.strip_prefix('[') {
+        let Some((address, suffix)) = bracketed.split_once(']') else {
+            return false;
+        };
+        return address.parse::<std::net::Ipv6Addr>().is_ok()
+            && (suffix.is_empty() || suffix.strip_prefix(':').is_some_and(valid_port));
+    } else if let Some((host, port)) = token.rsplit_once(':') {
+        if !valid_port(port) {
+            return false;
+        }
+        host
+    } else {
+        token
+    };
+    let host = host.strip_suffix('.').unwrap_or(host);
+    !host.contains([':', '[', ']'])
+        && (host.eq_ignore_ascii_case("localhost")
+            || (host.contains('.')
+                && host.split('.').all(|label| {
+                    label.starts_with(|ch: char| ch.is_alphanumeric())
+                        && label.ends_with(|ch: char| ch.is_alphanumeric())
+                        && label.chars().all(|ch| ch.is_alphanumeric() || ch == '-')
+                })))
+}
+
+/// Invalid or empty ports leave the authority unresolved and therefore private.
+fn valid_port(port: &str) -> bool {
+    !port.is_empty()
+        && port.bytes().all(|byte| byte.is_ascii_digit())
+        && port.parse::<u16>().is_ok()
+}
+
 /// Finds userinfo in every URL, allowing slash-bearing passwords under the GH-1707 rule.
 fn userinfos(text: &str) -> Vec<(usize, usize)> {
     let schemes = url_schemes(text);
@@ -73,6 +107,17 @@ fn userinfos(text: &str) -> Vec<(usize, usize)> {
                 .find(|next| next.0 > start + at)
                 .map_or(text.len(), |next| next.0);
         }
+        let remaining = &text[start..stop];
+        let first_end = remaining
+            .find(|ch| whitespace(ch) || matches!(ch, '/' | '?' | '#' | '@'))
+            .unwrap_or(remaining.len());
+        if remaining.chars().any(whitespace)
+            && remaining.as_bytes().get(first_end) != Some(&b'@')
+            && completed_authority(&remaining[..first_end])
+        {
+            // Only this URL ends here; subsequent schemes are still independently scanned.
+            continue;
+        }
         let candidate = &text[start..stop];
         let boundary = candidate.find(['/', '?', '#']).unwrap_or(candidate.len());
         let authority = &candidate[..boundary];
@@ -86,15 +131,6 @@ fn userinfos(text: &str) -> Vec<(usize, usize)> {
         let Some(end) = end.filter(|end| *end > 0) else {
             continue;
         };
-        let span = &candidate[..end];
-        // Explicit connective prose separates a public URL from a following email.
-        // This boundary depends on URL content, never its position in a producer field.
-        if !span.contains(':')
-            && let Some((_, prose)) = span.split_once(whitespace)
-            && prose.trim_start_matches(whitespace).starts_with("and ")
-        {
-            continue;
-        }
         spans.push((start, start + end));
     }
     spans
@@ -517,8 +553,6 @@ mod tests {
             "stored user",
             "stored\tuser",
             "stored user name",
-            "stored.name user",
-            "stored.name user name",
             "stored",
             "user:stored password",
             "user:secret",
@@ -545,7 +579,7 @@ mod tests {
         for prefix in ["", "Gate: ", "Comment: ", "Close reason: "] {
             for public in [
                 "https://host.invalid and user@example.invalid",
-                "https://host and contact user@example.invalid",
+                "https://localhost and contact user@example.invalid",
                 "https://host.invalid/path and user@example.invalid",
                 "https://www.npmjs.com/package/@scope/x",
                 "user@example.invalid",
@@ -621,7 +655,7 @@ mod tests {
             "https://host/path@ref",
             "https://host?ref=user@example.invalid",
             "https://host#user@example.invalid",
-            "Visit https://host and contact user@example.invalid",
+            "Visit https://localhost and contact user@example.invalid",
             "urn:public-record",
             "https://@example.invalid",
         ] {
