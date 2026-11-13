@@ -244,3 +244,47 @@ pub const USERINFO_COMPONENTS: &[(&str, &str, &str)] = &[
     ),
     ("https://:@host.invalid", "github legit", "github legit"),
 ];
+
+/// Completed credential hosts end before public email text and copied password echoes.
+pub const EMAIL_AFTER_CREDENTIALS: &[(&str, &str)] = &[
+    (
+        "https://u:abc@host.invalid contact a@b.invalid copied abc",
+        "https://[redacted]@host.invalid contact a@b.invalid copied [redacted]",
+    ),
+    (
+        "https://u:abc@host.invalid and ops@example.invalid",
+        "https://[redacted]@host.invalid and ops@example.invalid",
+    ),
+    (
+        "https://u:abc@host.invalid and ops@example.invalid copied abc",
+        "https://[redacted]@host.invalid and ops@example.invalid copied [redacted]",
+    ),
+    (
+        "https://u:abc@127.0.0.1:8080 contact a@b.invalid copied abc",
+        "https://[redacted]@127.0.0.1:8080 contact a@b.invalid copied [redacted]",
+    ),
+    (
+        "https://u:abc@[::1]:8080 contact a@b.invalid copied abc",
+        "https://[redacted]@[::1]:8080 contact a@b.invalid copied [redacted]",
+    ),
+    (
+        "https://u:abc@localhost contact a@b.invalid copied abc",
+        "https://[redacted]@localhost contact a@b.invalid copied [redacted]",
+    ),
+    (
+        "https://u:abc/def@host.invalid/path contact a@b.invalid copied abc/def",
+        "https://[redacted]@host.invalid/path contact a@b.invalid copied [redacted]",
+    ),
+    (
+        "https://u:alpha beta@host.invalid contact a@b.invalid copied alpha beta",
+        "https://[redacted]@host.invalid contact a@b.invalid copied [redacted]",
+    ),
+    (
+        "https://u:abc@def@host.invalid contact a@b.invalid copied abc@def",
+        "https://[redacted]@host.invalid contact a@b.invalid copied [redacted]",
+    ),
+    (
+        "https://host.invalid contact a@b.invalid copied abc",
+        "https://host.invalid contact a@b.invalid copied abc",
+    ),
+];

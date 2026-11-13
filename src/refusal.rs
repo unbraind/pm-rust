@@ -107,6 +107,24 @@ fn userinfos(text: &str) -> Vec<(usize, usize)> {
                 .find(|next| next.0 > start + at)
                 .map_or(text.len(), |next| next.0);
         }
+        let mut credential_at = None;
+        for (offset, ch) in text[start..stop].char_indices() {
+            if ch == '@' {
+                credential_at = Some(offset);
+            } else if whitespace(ch)
+                && let Some(at) = credential_at.take()
+            {
+                let host = text[start + at + 1..start + offset]
+                    .split(['/', '?', '#'])
+                    .next()
+                    .unwrap_or_default();
+                if completed_authority(host) {
+                    // Public prose after this completed host cannot extend URL userinfo.
+                    stop = start + offset;
+                    break;
+                }
+            }
+        }
         let remaining = &text[start..stop];
         let first_end = remaining
             .find(|ch| whitespace(ch) || matches!(ch, '/' | '?' | '#' | '@'))
@@ -511,6 +529,30 @@ pub(super) fn redact(payload: &mut Value, raw: &[String]) {
 mod tests {
     use super::*;
     use serde_json::json;
+
+    /// A completed credential host cannot enroll a later public email as password material.
+    #[test]
+    fn round17_email_boundary_preserves_password_registration() {
+        for &(input, expected) in corpus::EMAIL_AFTER_CREDENTIALS {
+            assert_eq!(diagnostic(input, &[]), expected);
+            for persisted in [false, true] {
+                let raw = if persisted {
+                    vec![]
+                } else {
+                    vec![input.to_owned()]
+                };
+                let mut payload = json!({"detail":input,"claimed_by":input,"recovery":{"normalized_args":["--message",input],"attempted_command":"placeholder","suggested_retry":"pm --help"}});
+                redact(&mut payload, &raw);
+                assert_eq!(payload["detail"], expected);
+                assert_eq!(payload["claimed_by"], expected);
+                assert_eq!(payload["recovery"]["normalized_args"][1], expected);
+                assert_eq!(
+                    payload["recovery"].get("suggested_retry").is_none(),
+                    input != expected
+                );
+            }
+        }
+    }
 
     /// Both userinfo components enroll copies while short spellings preserve public words.
     #[test]

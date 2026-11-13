@@ -1820,3 +1820,105 @@ fn stored_userinfo_component_diagnostics(json: bool) -> Result<(), Box<dyn std::
     }
     Ok(())
 }
+
+/// The message's credential URL cannot consume later public email text in JSON recovery.
+#[test]
+fn round17_email_invocation_json() -> Result<(), Box<dyn std::error::Error>> {
+    email_boundary_refusals(true, false)
+}
+/// Human attempted commands preserve public email text while masking copied passwords.
+#[test]
+fn round17_email_invocation_human() -> Result<(), Box<dyn std::error::Error>> {
+    email_boundary_refusals(false, false)
+}
+/// Stored diagnostic text registers the password before a later email, without URL argv.
+#[test]
+fn round17_email_stored_json() -> Result<(), Box<dyn std::error::Error>> {
+    email_boundary_refusals(true, true)
+}
+/// The human fallback uses the same shared stored-source corpus and boundary.
+#[test]
+fn round17_email_stored_human() -> Result<(), Box<dyn std::error::Error>> {
+    email_boundary_refusals(false, true)
+}
+/// Runs the actual binary against a plain tracker, keeping both positive and public controls.
+fn email_boundary_refusals(json: bool, stored: bool) -> Result<(), Box<dyn std::error::Error>> {
+    let tracker = workspace()?;
+    seed_item(&tracker)?;
+    expect_ok(
+        &tracker,
+        &["claim", "sample-cli", "--author", "alpha", "--force"],
+    )?;
+    let root = tracker.path().join(".agents/pm");
+    let item = root.join("tasks/sample-cli.toon");
+    let history = root.join("history/sample-cli.jsonl");
+    let original = (fs::read(&item)?, fs::read(&history)?);
+    let baseline: serde_json::Value = toon_format::decode_default(&fs::read_to_string(&item)?)?;
+    for &(input, expected) in refusal_corpus::EMAIL_AFTER_CREDENTIALS {
+        if stored {
+            let mut value = baseline.clone();
+            value["id"] = serde_json::json!(input);
+            let document = toon_format::encode_default(&value)?;
+            let second = root.join("tasks/sample-second.toon");
+            for path in [&item, &second] {
+                fs::write(path, &document)?;
+            }
+            let mut args = vec!["deps", "sample-cli"];
+            if json {
+                args.push("--json");
+            }
+            let output = pm_rust(&tracker, &args)?;
+            assert_eq!(output.status.code(), Some(2));
+            assert!(output.stdout.is_empty());
+            let text = String::from_utf8(output.stderr)?;
+            assert!(text.contains("duplicate pm item id"));
+            assert!(text.contains(expected), "{text}");
+            for path in [&item, &second] {
+                assert_eq!(fs::read_to_string(path)?, document);
+            }
+        } else {
+            let mut args = vec![
+                "claim",
+                "sample-cli",
+                "--author",
+                "beta",
+                "--message",
+                input,
+            ];
+            if json {
+                args.push("--json");
+            }
+            let output = pm_rust(&tracker, &args)?;
+            assert_eq!(output.status.code(), Some(4));
+            assert!(output.stdout.is_empty());
+            let text = String::from_utf8(output.stderr)?;
+            if json {
+                let payload: serde_json::Value = serde_json::from_str(&text)?;
+                let args = payload["recovery"]["normalized_args"]
+                    .as_array()
+                    .ok_or("arguments")?;
+                let index = args
+                    .iter()
+                    .position(|value| value == "--message")
+                    .ok_or("message")?
+                    + 1;
+                assert_eq!(args[index], expected);
+                let args = args
+                    .iter()
+                    .filter_map(serde_json::Value::as_str)
+                    .collect::<Vec<_>>();
+                assert_eq!(
+                    payload["recovery"]["attempted_command"],
+                    pm_rust::render_pm_command(args)
+                );
+            } else {
+                assert!(
+                    text.contains(&pm_rust::quote_command_arg(expected)),
+                    "{text}"
+                );
+            }
+            assert_eq!((fs::read(&item)?, fs::read(&history)?), original);
+        }
+    }
+    Ok(())
+}

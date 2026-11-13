@@ -269,7 +269,7 @@ pub(crate) fn runtime_settings(pm_root: &Path) -> Result<Value, PmRustError> {
                             .unwrap_or_else(crate::list_registry::defaults);
                         for entry in value.as_array().into_iter().flatten() {
                             let existing = entry["id"].as_str().and_then(|id| {
-                                entries.iter_mut().find(|before| {
+                                entries.iter_mut().rev().find(|before| {
                                     before["id"].as_str().is_some_and(|before| {
                                         crate::list_registry::token(before)
                                             == crate::list_registry::token(id)

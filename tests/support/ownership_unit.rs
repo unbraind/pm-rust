@@ -858,3 +858,28 @@ fn round15_partial_failure_advice_shell_round_trip() -> Result<(), Box<dyn std::
     }
     Ok(())
 }
+
+/// External schemas replace the last normalized inline definition, matching the live loader.
+#[test]
+fn round17_runtime_duplicate_status_precedence() -> Result<(), Box<dyn std::error::Error>> {
+    let directory = tempfile::tempdir()?;
+    let root = directory.path();
+    fs::create_dir(root.join("schema"))?;
+    fs::write(root.join("settings.json"),json!({"schema":{"statuses":[{"id":"open","roles":["active"]},{"id":"OPEN","roles":["terminal"]}]}}).to_string())?;
+    for role in ["active", "terminal"] {
+        fs::write(
+            root.join("schema/statuses.json"),
+            json!({"statuses":[{"id":"open","roles":[role]}]}).to_string(),
+        )?;
+        let captured = crate::list_registry::Lifecycle::from_values(
+            &runtime_settings(root)?,
+            &Value::Null,
+            &Value::Null,
+        );
+        let live = crate::list_registry::Lifecycle::load(root)?;
+        assert_eq!(captured.terminal("open"), live.terminal("open"));
+        assert_eq!(captured.role("open", "active"), role == "active");
+        assert_eq!(captured.terminal("open"), role == "terminal");
+    }
+    Ok(())
+}

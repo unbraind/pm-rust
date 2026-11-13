@@ -535,3 +535,18 @@ with exit 4 in JSON and human modes, but retain the copied username token in
 gap in normalized arguments, rebuilt attempted commands and stored diagnostic
 text. The six new native regressions cover both formats and source paths; the
 existing exact oracle assertions are unchanged. No upstream issue was filed.
+
+## Completed credential hosts before public email text
+
+The native userinfo scanner reuses the completed-authority predicate at the
+actual whitespace boundary after a credential host. Later email at-signs cannot
+extend its userinfo or replace the registered password. Public email text stays
+verbatim, copied passwords are projected through the shared registry, and
+whitespace/slash-bearing passwords and unresolved embedded at-signs remain
+covered by the common corpus.
+
+Published lifecycle admission still treats stored `none`, `null`, `n/a` and `na`
+as unresolved blocker identifiers. Exact oracle comparisons pin that refusal
+for explicit and atomic starts; the packet normalizer has a different marker
+contract. Native retains measured lifecycle parity rather than introducing the
+review's proposed marker filter.

@@ -3511,3 +3511,75 @@ fn round15_blocker_advice_matches_published_bytes() -> Result<(), Box<dyn std::e
     }
     Ok(())
 }
+
+/// Published lifecycle admission still refuses stored absent-reference marker strings.
+#[test]
+fn round17_absent_blocker_starts_match_oracle() -> Result<(), Box<dyn std::error::Error>> {
+    for marker in ["none", "NULL", "n/a", "Na"] {
+        for atomic in [false, true] {
+            let Some(fixture) = Fixture::new("none")? else {
+                return Ok(());
+            };
+            for root in [fixture.node.path(), fixture.rust.path()] {
+                let path = root.join(".agents/pm/tasks/sample-own.toon");
+                let mut item: serde_json::Value =
+                    toon_format::decode_default(&fs::read_to_string(&path)?)?;
+                item["blocked_by"] = serde_json::json!(marker);
+                fs::write(path, toon_format::encode_default(&item)?)?;
+            }
+            let args = if atomic {
+                vec![
+                    "claim",
+                    "sample-own",
+                    "--start",
+                    "--author",
+                    "alpha",
+                    "--json",
+                ]
+            } else {
+                vec!["start-task", "sample-own", "--author", "alpha", "--json"]
+            };
+            let native_before = start_snapshot(fixture.rust.path())?;
+            let oracle_before = start_snapshot(fixture.node.path())?;
+            let published = published_run(&fixture.driver, fixture.node.path(), &args)?;
+            assert_eq!(published.status.code(), Some(4));
+            let payload: serde_json::Value = serde_json::from_slice(&published.stderr)?;
+            assert_eq!(payload["code"], "start_blocked_by_open_dependency");
+            fixture.step(&args)?;
+            assert_eq!(start_snapshot(fixture.rust.path())?, native_before);
+            assert_eq!(start_snapshot(fixture.node.path())?, oracle_before);
+        }
+    }
+    Ok(())
+}
+
+/// Ranked ownership uses the oracle's last-definition precedence for external status overlays.
+#[test]
+fn round17_external_duplicate_status_claim_next_matches_oracle()
+-> Result<(), Box<dyn std::error::Error>> {
+    for role in ["active", "terminal"] {
+        let Some(fixture) = Fixture::new("none")? else {
+            return Ok(());
+        };
+        for root in [fixture.node.path(), fixture.rust.path()] {
+            let pm = root.join(".agents/pm");
+            let path = pm.join("settings.json");
+            let mut settings: serde_json::Value = serde_json::from_slice(&fs::read(&path)?)?;
+            settings["schema"]["statuses"] = serde_json::json!([{"id":"open","roles":["active"]},{"id":"OPEN","roles":["terminal"]}]);
+            fs::write(path, serde_json::to_vec_pretty(&settings)?)?;
+            fs::write(
+                pm.join("schema/statuses.json"),
+                serde_json::json!({"statuses":[{"id":"open","roles":[role]}]}).to_string(),
+            )?;
+        }
+        let before = start_snapshot(fixture.rust.path())?;
+        fixture.step(&["claim", "--next", "--author", "alpha", "--json"])?;
+        let item = pm_rust::Workspace::discover(fixture.rust.path())?.get("sample-own")?;
+        if role == "active" {
+            assert_eq!(item.metadata.extra["assignee"], "alpha");
+        } else {
+            assert_eq!(start_snapshot(fixture.rust.path())?, before);
+        }
+    }
+    Ok(())
+}
