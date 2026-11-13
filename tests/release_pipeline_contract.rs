@@ -1236,17 +1236,40 @@ fn round7_custom_cargo_profile_paths() -> Result<(), Box<dyn std::error::Error>>
 /// Finds this crate's build script across the stable and nightly Cargo artifact layouts.
 fn own_build_scripts() -> Result<Vec<std::path::PathBuf>, Box<dyn std::error::Error>> {
     let executable = std::env::current_exe()?;
-    let profile = cargo_profile_directory(&executable)?;
+    build_scripts_for_executable(&executable)
+}
+
+/// Finds profile artifacts and adjacent host artifacts in Cargo cache directories.
+fn build_scripts_for_executable(
+    executable: &std::path::Path,
+) -> Result<Vec<std::path::PathBuf>, Box<dyn std::error::Error>> {
+    let profile = cargo_profile_directory(executable)?;
+    let mut directories = std::collections::BTreeSet::from([profile.join("build")]);
+    if let Some(parent) = profile.parent()
+        && let Some(root) = parent
+            .parent()
+            .filter(|root| root.join("CACHEDIR.TAG").is_file())
+        && let Some(name) = profile.file_name()
+    {
+        directories.insert(root.join(name).join("build"));
+    }
     let mut folders = vec![];
-    for entry in std::fs::read_dir(profile.join("build"))? {
-        let entry = entry?;
-        let name = entry.file_name();
-        if name == "pm-rust" {
-            for hash in std::fs::read_dir(entry.path())? {
-                folders.push(hash?.path().join("out"));
+    for directory in directories {
+        let entries = match std::fs::read_dir(directory) {
+            Ok(entries) => entries,
+            Err(error) if error.kind() == std::io::ErrorKind::NotFound => continue,
+            Err(error) => return Err(error.into()),
+        };
+        for entry in entries {
+            let entry = entry?;
+            let name = entry.file_name();
+            if name == "pm-rust" {
+                for hash in std::fs::read_dir(entry.path())? {
+                    folders.push(hash?.path().join("out"));
+                }
+            } else if name.to_string_lossy().starts_with("pm-rust-") {
+                folders.push(entry.path());
             }
-        } else if name.to_string_lossy().starts_with("pm-rust-") {
-            folders.push(entry.path());
         }
     }
     let suffix = std::env::consts::EXE_SUFFIX;
@@ -1283,5 +1306,39 @@ fn build_script_stack_contract() -> Result<(), Box<dyn std::error::Error>> {
             assert_eq!(String::from_utf8(output.stdout)?, expected);
         }
     }
+    Ok(())
+}
+
+/// Explicit-target layouts find host scripts even without a triple build directory.
+#[test]
+fn round14_host_build_script_discovery() -> Result<(), Box<dyn std::error::Error>> {
+    let temp = tempfile::tempdir()?;
+    let root = temp.path().join("custom-target-root");
+    std::fs::create_dir_all(root.join("custom-check/build/pm-rust-hash"))?;
+    std::fs::write(
+        root.join("CACHEDIR.TAG"),
+        "Signature: 8a477f597d28d172789f06886806bc55
+",
+    )?;
+    let script = root.join(format!(
+        "custom-check/build/pm-rust-hash/build-script-build{}",
+        std::env::consts::EXE_SUFFIX
+    ));
+    std::fs::write(&script, "fixture")?;
+    assert_eq!(
+        build_scripts_for_executable(&root.join("triple/custom-check/deps/test"))?,
+        vec![script.clone()]
+    );
+    assert_eq!(
+        build_scripts_for_executable(&root.join("custom-check/deps/test"))?,
+        vec![script]
+    );
+    std::fs::create_dir_all(root.join("triple/custom-check/build"))?;
+    // Cargo also writes a cache marker in the target-triple directory.
+    std::fs::write(root.join("triple/CACHEDIR.TAG"), "cache marker")?;
+    assert_eq!(
+        build_scripts_for_executable(&root.join("triple/custom-check/deps/test"))?.len(),
+        1
+    );
     Ok(())
 }

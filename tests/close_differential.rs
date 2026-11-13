@@ -567,3 +567,20 @@ fn round11_scoped_close_reason_matches_oracle() -> TestResult {
         true,
     )
 }
+
+/// The oracle withdraws a retry with blank evidence before a delimiter; retain exact policy.
+#[test]
+fn round14_blank_evidence_retry_matches_published_policy() -> TestResult {
+    compare_close(
+        &[],
+        &[
+            "--actual-result",
+            " ",
+            "--validate-close",
+            "strict",
+            "--json",
+            "--",
+            "Done",
+        ],
+    )
+}

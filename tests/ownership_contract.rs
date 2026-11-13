@@ -126,6 +126,11 @@ fn lifecycle_storage_faults_preserve_claim_and_recovery_journal() -> TestResult 
         root.join("settings.json"),
         r#"{"schema":{"files":{"workflows":"missing.json"}}}"#,
     )?;
+    // The published host accepts an explicitly missing sidecar and falls back.
+    assert_eq!(workspace.pause_task(&alpha, &options)?["status"], "open");
+    assert_eq!(fs::read(root.join("tasks/sample-one.toon"))?, before);
+    // A directory at the configured path is an actual storage fault, not absence.
+    fs::create_dir(root.join("missing.json"))?;
     assert!(matches!(
         workspace.pause_task(&alpha, &options),
         Err(PmRustError::Io { .. })

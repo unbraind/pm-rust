@@ -2358,3 +2358,38 @@ fn round12_hyphen_value_json_refusal_contract() -> TestResult {
     );
     Ok(())
 }
+
+/// Repeated format flags use the same final format for published/native refusals.
+#[test]
+fn round14_repeated_output_formats_match_oracle() -> TestResult {
+    let Some(published) = published_cli::published_cli_or_skip("repeated output format") else {
+        return Ok(());
+    };
+    let scratch = tempfile::tempdir()?;
+    let driver = orientation_driver(scratch.path(), &published)?;
+    let root = tempfile::tempdir()?;
+    assert!(
+        oracle(&driver, root.path(), &["init", "sample-", "--defaults"])?
+            .status
+            .success()
+    );
+    fixture(root.path(), &[item("sample-cli", "Task", "open", 1)])?;
+    for formats in [["toon", "json"], ["json", "toon"]] {
+        let args = [
+            "deps",
+            "sample-cli",
+            "--output-format",
+            formats[0],
+            "--output-format",
+            formats[1],
+            "--format",
+            "bogus",
+        ];
+        compare(
+            &oracle(&driver, root.path(), &args)?,
+            &native(root.path(), &args)?,
+            &args,
+        );
+    }
+    Ok(())
+}

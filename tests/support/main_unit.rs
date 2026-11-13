@@ -2512,3 +2512,22 @@ fn round12_hyphen_value_delimiter() {
         .to_vec();
     assert!(!super::json_requested(&positional));
 }
+
+/// Refusal output uses the effective final format, with aliases and values kept separate.
+#[test]
+fn round14_last_output_format_controls_refusal() {
+    for (formats, expected) in [(["toon", "json"], true), (["json", "toon"], false)] {
+        let args = [
+            "deps",
+            "sample-cli",
+            "--output-format",
+            formats[0],
+            "--output-format",
+            formats[1],
+            "--format",
+            "bogus",
+        ]
+        .map(str::to_owned);
+        assert_eq!(super::json_requested(&args), expected);
+    }
+}

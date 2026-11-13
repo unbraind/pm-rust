@@ -132,7 +132,7 @@ fn restore_row(
         }
     }
     let mut restored = Map::new();
-    for column in encoding.column_order.as_ref().unwrap_or(&columns) {
+    for column in encoding.column_order.iter().flatten().chain(&columns) {
         if !encoding.absent.contains(&(index, column.clone()))
             && let Some(cell) = cells.shift_remove(column)
         {

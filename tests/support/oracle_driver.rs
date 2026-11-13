@@ -48,7 +48,7 @@ fn driver_script(sdk: &Path, entry: &Path) -> String {
 // both imports go through `pathToFileURL` so the specifiers are valid on every
 // platform.
 import { pathToFileURL } from "node:url";
-const { runWithWorkspaceRecipe, release, claim, startTask } = await import(pathToFileURL(__SDK_JSON__));
+const { runWithWorkspaceRecipe, release, claim, startTask, pauseTask } = await import(pathToFileURL(__SDK_JSON__));
 
 const fixed = Date.parse(process.env.FIXED_CLOCK);
 class pinnedDate extends Date {
@@ -85,6 +85,18 @@ try {
         await claimNextFromRecommendations([{id:process.argv[3],reasons:["captured ready candidate"]}], process.argv[4] === "true", {path:process.cwd()}, {author:"alpha",start:true});
         console.log(JSON.stringify({ok:true}));
       } catch (error) { console.log(JSON.stringify({detail:error.message,exit_code:error.exitCode,context:error.context})); }
+    } else if (process.argv[2] === "__workflow_receipt") {
+      const action = process.argv[3], id = process.argv[4];
+      if (action === "atomic") {
+        const { runClaim } = await import(new URL("./sdk/lifecycle/claim.js", pathToFileURL(__ENTRY_JSON__)));
+        await runClaim(id, false, {path:process.cwd()}, {author:"alpha",start:true});
+      } else if (action === "close") {
+        const { runClose } = await import(new URL("./sdk/lifecycle/close.js", pathToFileURL(__ENTRY_JSON__)));
+        await runClose(id, "Done", {author:"alpha",validateClose:"off"}, {path:process.cwd()});
+      } else {
+        await (action === "pause" ? pauseTask : startTask)(id, {author:"alpha"}, {path:process.cwd()});
+      }
+      console.log(JSON.stringify({ok:true}));
     } else if (process.argv[2] === "__ownership_error") {
       try {
         await (process.argv[3] === "claim" ? claim : process.argv[3] === "start" ? startTask : release)(process.argv[4], { author: "alpha" }, { path: process.cwd() });

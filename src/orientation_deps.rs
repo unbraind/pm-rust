@@ -341,10 +341,14 @@ impl Workspace {
             .trim()
             .to_lowercase();
         if !["tree", "graph", "context"].contains(&format.as_str()) {
-            return Err(invalid(format!(
-                "Invalid --format value \"{}\". Use \"tree\", \"graph\", or \"context\".",
-                options.format.as_deref().unwrap_or_default()
-            )));
+            return Err(crate::collections::refusal(
+                format!(
+                    "Invalid --format value \"{}\". Use \"tree\", \"graph\", or \"context\".",
+                    options.format.as_deref().unwrap_or_default()
+                ),
+                2,
+                json!({"code":"invalid_argument_value", "surface":"deps"}),
+            ));
         }
         let depth = options
             .max_depth

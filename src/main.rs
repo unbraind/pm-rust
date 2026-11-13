@@ -1046,7 +1046,7 @@ fn json_requested(args: &[String]) -> bool {
     parsed
         .options
         .iter()
-        .find(|option| option.name == "output-format")
+        .rfind(|option| option.name == "output-format")
         .map_or_else(
             || parsed.options.iter().any(|option| option.name == "json"),
             |option| option.value == Some("json"),
@@ -1440,6 +1440,8 @@ fn orientation_error_json(
         result["refusal"] = serde_json::json!({"surface":"id","rejected_value":context["id"],"exit_code":exit_code});
         result["flag"] = serde_json::json!("id");
         result["value"] = context["id"].clone();
+    } else if let Some(surface) = context.get("surface") {
+        result["refusal"] = serde_json::json!({"surface":surface,"exit_code":exit_code});
     } else {
         result["refusal"] = command_refusal_detail(detail, &args, exit_code);
     }

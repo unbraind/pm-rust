@@ -3312,3 +3312,169 @@ fn round12_selection_default_status_sidecar_matches_oracle()
     }
     Ok(())
 }
+
+/// Compares explicit and default absence at each real lifecycle CLI boundary.
+fn round14_missing_workflow_case(action: &str) -> Result<(), Box<dyn std::error::Error>> {
+    for explicit in [false, true] {
+        let Some(fixture) = Fixture::new("none")? else {
+            return Ok(());
+        };
+        for root in [fixture.node.path(), fixture.rust.path()] {
+            let pm = root.join(".agents/pm");
+            let path = pm.join("settings.json");
+            let mut settings: serde_json::Value = serde_json::from_slice(&fs::read(&path)?)?;
+            if explicit {
+                settings["schema"]["files"]["workflows"] = "missing.json".into();
+            } else {
+                settings["schema"]["files"]
+                    .as_object_mut()
+                    .ok_or("files")?
+                    .shift_remove("workflows");
+            }
+            fs::write(path, serde_json::to_vec_pretty(&settings)?)?;
+            fs::remove_file(pm.join("schema/workflows.json"))?;
+        }
+        let args = match action {
+            "pause" => vec!["pause-task", "sample-own", "--author", "alpha", "--json"],
+            "start" => vec!["start-task", "sample-own", "--author", "alpha", "--json"],
+            "atomic" => vec![
+                "claim",
+                "sample-own",
+                "--start",
+                "--author",
+                "alpha",
+                "--json",
+            ],
+            "close" => vec![
+                "close",
+                "sample-own",
+                "Done",
+                "--author",
+                "alpha",
+                "--validate-close",
+                "off",
+                "--json",
+            ],
+            _ => return Err("unknown lifecycle action".into()),
+        };
+        fixture.step(&args)?;
+        let item = pm_rust::Workspace::discover(fixture.rust.path())?.get("sample-own")?;
+        assert_eq!(
+            item.metadata.status,
+            match action {
+                "pause" => "open",
+                "close" => "closed",
+                _ => "in_progress",
+            }
+        );
+    }
+    round14_minimal_workflow_case(action)
+}
+
+/// Checks the exact minimal settings through public SDK mutations and persisted bytes.
+fn round14_minimal_workflow_case(action: &str) -> Result<(), Box<dyn std::error::Error>> {
+    for explicit in [false, true] {
+        let Some(fixture) = Fixture::new("none")? else {
+            return Ok(());
+        };
+        for root in [fixture.node.path(), fixture.rust.path()] {
+            let pm = root.join(".agents/pm");
+            fs::write(
+                pm.join("settings.json"),
+                if explicit {
+                    r#"{"schema":{"files":{"workflows":"missing.json"}}}"#
+                } else {
+                    "{}"
+                },
+            )?;
+            fs::remove_file(pm.join("schema/workflows.json"))?;
+        }
+        let output = published_run(
+            &fixture.driver,
+            fixture.node.path(),
+            &["__workflow_receipt", action, "sample-own"],
+        )?;
+        assert!(
+            output.status.success(),
+            "{}",
+            String::from_utf8_lossy(&output.stderr)
+        );
+        assert_eq!(
+            serde_json::from_slice::<serde_json::Value>(&output.stdout)?,
+            serde_json::json!({"ok":true})
+        );
+        let workspace = pm_rust::Workspace::discover(fixture.rust.path())?;
+        let request = pm_rust::OwnershipItem {
+            id: "sample-own".to_owned(),
+            author: "alpha".to_owned(),
+            timestamp: Some(CLOCK.to_owned()),
+            message: None,
+            force: false,
+            if_available: false,
+            provenance_role: None,
+        };
+        match action {
+            "pause" => {
+                workspace.pause_task(&request, &pm_rust::OwnershipOptions::default())?;
+            }
+            "start" => {
+                workspace.start_task(&request, &pm_rust::OwnershipOptions::default())?;
+            }
+            "atomic" => {
+                workspace.claim_with_options(
+                    &request,
+                    &pm_rust::OwnershipOptions {
+                        start: true,
+                        ..Default::default()
+                    },
+                )?;
+            }
+            "close" => {
+                workspace.close(pm_rust::CloseItem {
+                    id: request.id.clone(),
+                    author: request.author.clone(),
+                    reason: "Done".to_owned(),
+                    timestamp: request.timestamp.clone(),
+                    provenance_role: Some("implementer".to_owned()),
+                    force_stale_lock: false,
+                    fields: pm_rust::CloseFields {
+                        validate_close: Some("off".to_owned()),
+                        ..Default::default()
+                    },
+                })?;
+            }
+            _ => return Err("unknown action".into()),
+        }
+        fixture.compare_bytes()?;
+        assert_eq!(
+            workspace.get("sample-own")?.metadata.status,
+            match action {
+                "pause" => "open",
+                "close" => "closed",
+                _ => "in_progress",
+            }
+        );
+    }
+    Ok(())
+}
+
+/// Published pause accepts both forms of absent workflow sidecar.
+#[test]
+fn round14_missing_workflow_pause_matches_oracle() -> Result<(), Box<dyn std::error::Error>> {
+    round14_missing_workflow_case("pause")
+}
+/// Published start accepts both forms of absent workflow sidecar.
+#[test]
+fn round14_missing_workflow_start_matches_oracle() -> Result<(), Box<dyn std::error::Error>> {
+    round14_missing_workflow_case("start")
+}
+/// Published atomic start accepts both forms of absent workflow sidecar.
+#[test]
+fn round14_missing_workflow_atomic_matches_oracle() -> Result<(), Box<dyn std::error::Error>> {
+    round14_missing_workflow_case("atomic")
+}
+/// Published close accepts both forms of absent workflow sidecar.
+#[test]
+fn round14_missing_workflow_close_matches_oracle() -> Result<(), Box<dyn std::error::Error>> {
+    round14_missing_workflow_case("close")
+}

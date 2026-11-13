@@ -114,3 +114,31 @@ fn round13_instruction_shaped_item_fields_remain_opaque() -> Result<(), Box<dyn 
     assert_eq!(parse_toon(&wire)?, source);
     Ok(())
 }
+
+/// Partial, duplicate and empty column hints retain every delivered non-absent cell.
+#[test]
+fn round14_column_order_is_only_an_order_hint() -> Result<(), Box<dyn std::error::Error>> {
+    for order in [json!([]), json!(["b", "b", "ghost"])] {
+        let source = json!({"items":[{"a":"[]","b":3,"keep":"value","missing":null}],"items_encoding":{"json_columns":["a"],"absent":[[0,"missing"]],"null_columns":["n"],"null_column_index":[0],"column_order":order}});
+        let result = parse_toon(&toon_format::encode_default(&source)?)?;
+        assert_eq!(
+            result["items"][0],
+            json!({"a":[],"b":3,"keep":"value","n":null})
+        );
+        let keys: Vec<_> = result["items"][0]
+            .as_object()
+            .ok_or("row")?
+            .keys()
+            .map(String::as_str)
+            .collect();
+        assert_eq!(
+            keys,
+            if order.as_array().ok_or("order")?.is_empty() {
+                vec!["n", "a", "b", "keep"]
+            } else {
+                vec!["b", "n", "a", "keep"]
+            }
+        );
+    }
+    Ok(())
+}
