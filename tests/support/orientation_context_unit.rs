@@ -1489,3 +1489,49 @@ fn round5_invalid_cutoff_precedes_context_storage() -> Result<(), Box<dyn std::e
     assert_eq!(fs::read(path)?, before);
     Ok(())
 }
+
+/// A real sidecar failure after runtime settings are captured propagates without writing context state.
+#[test]
+fn round18_late_context_registry_failure_is_read_only() -> Result<(), Box<dyn std::error::Error>> {
+    let (_temp, workspace, _) = workspace()?;
+    let root = workspace.pm_root();
+    fs::create_dir(root.join("schema"))?;
+    let status = root.join("schema/statuses.json");
+    fs::write(&status, "{}")?;
+    let settings = root.join("settings.json");
+    let original_settings = fs::read(&settings)?;
+    let original_status = fs::read(&status)?;
+    let watched = root.to_path_buf();
+    let selected = status.clone();
+    let saved = status.with_extension("saved");
+    let moved = saved.clone();
+    crate::lifecycle_admission::tests::PATH_READ.with(|hook| {
+        *hook.borrow_mut() = Some(Box::new(move |path| {
+            assert_eq!(path, watched);
+            assert!(fs::rename(&selected, &moved).is_ok());
+            assert!(fs::create_dir(&selected).is_ok());
+        }));
+    });
+    let clear = crate::lifecycle_admission::tests::ClearPathRead;
+    let result = workspace.context_with_global(
+        &ContextOptions {
+            no_extension_health: true,
+            ..Default::default()
+        },
+        NOW,
+        None,
+    );
+    drop(clear);
+    fs::remove_dir(&status)?;
+    fs::rename(&saved, &status)?;
+    assert!(
+        matches!(result,Err(PmRustError::Io{path,source}) if path==status && source.kind()!=std::io::ErrorKind::NotFound)
+    );
+    assert_eq!(fs::read(&settings)?, original_settings);
+    assert_eq!(fs::read(&status)?, original_status);
+    assert_eq!(fs::read_dir(root.join("tasks"))?.count(), 0);
+    assert_eq!(fs::read_dir(root.join("history"))?.count(), 0);
+    assert_eq!(fs::read_dir(root)?.count(), 4);
+    assert_eq!(fs::read_dir(root.join("schema"))?.count(), 1);
+    Ok(())
+}

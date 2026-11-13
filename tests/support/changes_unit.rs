@@ -668,13 +668,13 @@ fn source_file_kinds_are_admitted_on_the_opened_handle() -> TestResult {
 
 thread_local! {
     /// Fault injection affects only a test's owned real-file operation.
-    static IO_FAILURE: Cell<u8> = const { Cell::new(0) };
+    pub(crate) static IO_FAILURE: Cell<u8> = const { Cell::new(0) };
     /// One cancellation or filesystem transition at a native step boundary.
     static BOUNDARY: Cell<(u8, u8)> = const { Cell::new((0, 0)) };
 }
 
 /// Preserves real I/O by default; tests can inject an otherwise rare OS failure.
-pub(super) fn inject_io<T>(result: io::Result<T>, stage: u8) -> io::Result<T> {
+pub(crate) fn inject_io<T>(result: io::Result<T>, stage: u8) -> io::Result<T> {
     if IO_FAILURE.with(|setting| setting.get() == stage) {
         Err(io::Error::other("injected OS failure"))
     } else {

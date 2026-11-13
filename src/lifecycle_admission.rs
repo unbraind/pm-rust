@@ -236,14 +236,20 @@ fn blocker(root: &Path, id: &str, settings: &Value) -> Result<Option<ItemDocumen
 fn read_blocker_bytes(path: &Path) -> std::io::Result<Vec<u8>> {
     use std::io::Read as _;
     let mut file = crate::changes::open_history(path)?;
-    if !file.metadata()?.is_file() {
+    let metadata = file.metadata();
+    #[cfg(test)]
+    let metadata = crate::changes::inject_io(metadata, 1);
+    if !metadata?.is_file() {
         return Err(std::io::Error::new(
             std::io::ErrorKind::InvalidInput,
             "Blocker is not a regular file",
         ));
     }
     let mut bytes = Vec::new();
-    file.read_to_end(&mut bytes)?;
+    let read = file.read_to_end(&mut bytes);
+    #[cfg(test)]
+    let read = crate::changes::inject_io(read, 4);
+    read?;
     Ok(bytes)
 }
 
@@ -462,11 +468,11 @@ fn unverifiable_code(error: &PmRustError) -> Option<&str> {
 
 #[cfg(test)]
 #[path = "../tests/support/lifecycle_admission_unit.rs"]
-mod tests;
+pub(crate) mod tests;
 
 /// Runs the filesystem scheduler in tests without changing traversal control flow.
 #[cfg(test)]
-fn before_path_read(root: &Path) {
+pub(crate) fn before_path_read(root: &Path) {
     tests::before_path_read(root);
 }
 

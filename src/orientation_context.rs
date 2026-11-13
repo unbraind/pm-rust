@@ -1183,6 +1183,8 @@ impl Workspace {
                 crate::read_projection::Projection::ContextSections
             })?
             .collect::<Result<Vec<_>, _>>()?;
+        #[cfg(test)]
+        crate::lifecycle_admission::before_path_read(self.pm_root());
         let lifecycle = Lifecycle::load(self.pm_root())?;
         let blocked = crate::selection::dependency_blocked_ids(&documents, &lifecycle);
         // Keep the list's default source order while projecting this one captured corpus.

@@ -556,7 +556,7 @@ mod tests {
 
     /// Both userinfo components enroll copies while short spellings preserve public words.
     #[test]
-    fn round16_userinfo_components_share_registration() -> Result<(), Box<dyn std::error::Error>> {
+    fn round16_userinfo_components_share_registration() {
         for &(url, message, expected) in corpus::USERINFO_COMPONENTS {
             let credentials = Credentials::new(&[url.to_owned()]);
             assert_eq!(credentials.text(message, false), expected, "{url}");
@@ -574,11 +574,11 @@ mod tests {
                 redact(&mut payload, &raw);
                 assert_eq!(payload["details"]["message"], expected);
                 assert_eq!(payload["recovery"]["normalized_args"][3], expected);
-                let projected = payload["recovery"]["normalized_args"]
+                assert!(payload["recovery"]["normalized_args"].is_array());
+                let expected_args = payload["recovery"]["normalized_args"]
                     .as_array()
-                    .ok_or("arguments")?;
-                let expected_args = projected
-                    .iter()
+                    .into_iter()
+                    .flatten()
                     .filter_map(Value::as_str)
                     .map(str::to_owned)
                     .collect::<Vec<_>>();
@@ -588,7 +588,6 @@ mod tests {
                 );
             }
         }
-        Ok(())
     }
 
     /// Stored errors enroll both components without any credential-bearing invocation argument.

@@ -358,7 +358,7 @@ fn round5_unverifiable_policy_never_hides_io() -> Result<(), Box<dyn std::error:
 type PathReadHook = Box<dyn FnMut(&Path)>;
 thread_local! {
     /// Places real filesystem changes at a read boundary to model concurrent disappearance.
-    static PATH_READ: RefCell<Option<PathReadHook>> = const { RefCell::new(None) };
+    pub(crate) static PATH_READ: RefCell<Option<PathReadHook>> = const { RefCell::new(None) };
 }
 /// Runs the test-scoped scheduler before the actual filesystem read.
 pub(super) fn before_path_read(path: &Path) {
@@ -369,7 +369,7 @@ pub(super) fn before_path_read(path: &Path) {
     });
 }
 /// Clears a filesystem scheduler on every test exit, including a panic.
-struct ClearPathRead;
+pub(crate) struct ClearPathRead;
 impl Drop for ClearPathRead {
     fn drop(&mut self) {
         PATH_READ.with(|hook| {
@@ -670,5 +670,70 @@ fn round15_blocker_advice_shell_round_trip() -> Result<(), Box<dyn std::error::E
             &["pm", "get", value, "--fields", "blocked_by,dependencies"],
         )?;
     }
+    Ok(())
+}
+
+/// A missing explicitly mapped status schema fails after lifecycle discovery and before admission writes.
+#[test]
+fn round18_admission_runtime_settings_error_is_read_only() -> Result<(), Box<dyn std::error::Error>>
+{
+    let (_temp, root, before) = disk()?;
+    fs::write(
+        root.join("settings.json"),
+        json!({"schema":{"files":{"statuses":"missing.json"}}}).to_string(),
+    )?;
+    let paths = [
+        root.join("settings.json"),
+        root.join("tasks/sample-own.toon"),
+        root.join("tasks/sample-gate.toon"),
+    ];
+    let original = paths.iter().map(fs::read).collect::<Result<Vec<_>, _>>()?;
+    let error = admission(&root, &before, false, Phase::AtomicStart);
+    assert!(
+        matches!(error,Err(PmRustError::Io{path,source}) if path==root.join("missing.json") && source.kind()==std::io::ErrorKind::NotFound)
+    );
+    assert_eq!(
+        paths.iter().map(fs::read).collect::<Result<Vec<_>, _>>()?,
+        original
+    );
+    assert_eq!(fs::read_dir(&root)?.count(), 2);
+    assert_eq!(fs::read_dir(root.join("tasks"))?.count(), 2);
+    Ok(())
+}
+
+/// Existing per-thread OS faults reach both blocker handle errors without creating durable writes.
+#[test]
+fn round18_blocker_handle_errors_are_typed_and_read_only() -> Result<(), Box<dyn std::error::Error>>
+{
+    let (_temp, root, mut before) = disk()?;
+    before
+        .metadata
+        .extra
+        .insert("blocked_by".to_owned(), json!("sample-gate"));
+    let paths = [
+        root.join("settings.json"),
+        root.join("tasks/sample-own.toon"),
+        root.join("tasks/sample-gate.toon"),
+    ];
+    let original = paths.iter().map(fs::read).collect::<Result<Vec<_>, _>>()?;
+    for stage in [1, 4] {
+        let previous = crate::changes::IO_FAILURE.replace(stage);
+        let error = admission(&root, &before, false, Phase::AtomicStart);
+        crate::changes::IO_FAILURE.set(previous);
+        assert!(
+            matches!(error,Err(PmRustError::Io{path,source}) if path==paths[2] && source.kind()==std::io::ErrorKind::Other && source.to_string()=="injected OS failure")
+        );
+        assert_eq!(
+            paths.iter().map(fs::read).collect::<Result<Vec<_>, _>>()?,
+            original
+        );
+        assert_eq!(fs::read_dir(&root)?.count(), 2);
+        assert_eq!(fs::read_dir(root.join("tasks"))?.count(), 2);
+    }
+    assert!(matches!(
+        admission(&root, &before, false, Phase::AtomicStart),
+        Err(PmRustError::OwnershipRefusal { context, .. })
+            if context["code"] == "start_blocked_by_open_dependency"
+    ));
     Ok(())
 }

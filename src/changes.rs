@@ -679,6 +679,10 @@ impl<A: NativeAdapter> ChangeReader<A> {
     }
 }
 
+/// Reuses the existing thread-local OS-failure seam for owned-file admission tests.
+#[cfg(test)]
+pub(crate) use tests::{IO_FAILURE, inject_io};
+
 #[cfg(test)]
 #[path = "../tests/support/changes_unit.rs"]
 mod tests;

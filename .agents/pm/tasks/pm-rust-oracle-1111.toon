@@ -6,10 +6,10 @@ status: in_progress
 priority: 1
 tags[4]: conformance,"gh:unbraind/pm-rust#164","gh:unbraind/pm-rust#165",oracle
 created_at: "2026-11-11T05:32:00.010Z"
-updated_at: "2026-11-13T18:10:24.651Z"
+updated_at: "2026-11-13T21:33:50.301Z"
 author: codex-rust164-1111
 parent: pm-rust-u4al
-comments[111]{created_at,author,text}:
+comments[118]{created_at,author,text}:
   "2026-11-11T05:32:04.866Z",codex-rust164-1111,"Confirmed current npm latest is 2026.11.11 and updated the locked published oracle. Baseline differential runs precede native changes. Centralize refusal recovery, scope and redaction; retain byte comparisons and all existing cases."
   "2026-11-11T05:50:02.157Z",codex-rust164-1111,"Baseline against 2026.11.11: 120 differential tests, 59 passed and 61 failed (claim target 20 passed and 7 failed). Additional drift includes compact TOON list/null columns, complete omission receipts, newest-first compact history with total/order echoes, actual-format intent estimates, exclusive activity windows, relationship root-evidence ordering, close completion provenance and close recovery retries. All existing byte and durable-state comparisons remain exact; stale claim-attribution expectations now assert the published warning and successful durable transition."
   "2026-11-11T06:11:46.818Z",codex-rust164-1111,"The expanded orientation pass reached 25 of 32 passing before the final shared fixes: matching-active test health, root-edge cost reservation and incident-root edge ordering. All 397 library unit tests pass; the focused CLI/bin/parity run then passed 44 binary tests, 18 CLI dispatch tests and 14 parity contracts. Corrected the final ownership fault expectation to require the published warning. Running all eight differential targets through linked pm tests, sequentially, with each cargo command capped at 1200 seconds and two test threads."
@@ -121,7 +121,14 @@ comments[111]{created_at,author,text}:
   "2026-11-13T16:45:05.720Z",codex-agent,"Round 17 final gates: full cargo test --locked -j2 --all-targets --all-features passed 910 tests, 0 failed, 0 ignored, across 29 test-bearing targets plus five zero-test examples in 1857.7 seconds (30.96 minutes). All 173 differential tests pass, with no existing assertion changes. Library 452, binary 82, CLI dispatch 41, admission 12, claim/release 59, close 11, identity 7 and release-pipeline 23 pass. PM-linked round17 command passed all eight tests. Final Linux/Windows clippy, Windows GNU and Apple ARM64 cargo check --tests, and fmt pass. Seven literal-revert regressions and the marker policy sensitivity control fail with the old/proposed behavior and pass restored. Privacy and schema precedence are fixed; absent-marker production filtering is declined with exact pinned refusal/no-write evidence. All three complete threads were read; no thread replies/resolutions, no upstream issue filed, and no threshold/exclusion changes. Own claim will be released without closing; fresh CI certifies platform runtime and aggregate coverage."
   "2026-11-13T16:46:04.056Z",codex-agent,"Round 17 completion: changelog generation/check pass after releasing the claim. Final generation/check follows this last tracker write. PM-linked command passed all eight new tests without writing package test-run artifacts. Public additions passed privacy inspection and history is an exact prefix-extension of the prior head. Item remains in_progress and unclaimed, never closed. Marker-policy decline is backed by published refusal/no-write comparisons and a failing counterfactual filter control; the privacy and status fixes have literal-function revert proofs. Source gates pass; fresh CI still certifies Windows/Apple runtime and aggregate coverage. No review thread action was taken."
   "2026-11-13T18:10:24.651Z",orchestrator,"Orchestrator, release gate on 7d9d2bc: branch coverage was 4431/4432. The uncovered branch was the None arm of the let-chain in native_arguments (src/main.rs:988), where argv contains item only as an option value and parses with no command. Added ['pm-rust', '--workspace', 'item'] to the native_arguments table in tests/support/main_unit.rs, so the argv stays unchanged. A local cargo +nightly-2026-08-06 llvm-cov --branch run reports both branches at main.rs:988 covered (10 and 1); the full local coverage run had found exactly that one branch missing."
-files[72]:
+  "2026-11-13T19:44:01.019Z",codex-agent,"Round 18 is coverage-only at the accepted remote head. Inspect the five reported uncovered error arms, reuse existing filesystem/fault seams, assert typed failures and no writes, and remove the impossible error arm in the test without changing its assertions. No threshold or coverage exclusion changes. Run the complete local branch/region coverage gate first, then full cargo test and the requested cross-checks, clippy, fmt and final changelog checks. Commit tracker evidence with the changes and release without closing; no review threads are open."
+  "2026-11-13T19:57:45.941Z",codex-agent,"Round 18 focused tests pass for all reported boundaries. Admission uses an explicitly mapped missing status file to reach runtime_settings after optional lifecycle discovery. Context uses the existing thread-local filesystem scheduler to turn the sidecar into a directory only at its later lifecycle load; it returns the typed path error, then exact fixture restoration proves no product writes. Blocker metadata/read results reuse the existing changes IO_FAILURE/inject_io seam (stages 1 and 4); both return typed Io with the blocker path, bytes/counts unchanged, and normal behavior resumes after reset. The refusal test now asserts array shape and iterates without an impossible Result arm, retaining its credential/recovery assertions. The complete instrumented coverage command is running before the requested full test and cross-platform gates. No threshold/exclusion changes."
+  "2026-11-13T20:31:09.083Z",codex-agent,"Round 18 first complete instrumented run passed all tests and covered all four production error arms. Regions were 31892/31893; lines, branches and functions were 100%. The remaining region was the compiler-generated false arm of matches! in the test-only shape assertion. Replaced it with is_array(), keeping the explicit shape check and every existing credential/recovery assertion. Targeted instrumented execution now reports zero uncovered regions in that test function. A fresh full coverage rerun is running before the ordinary full cargo test and cross-platform gates. No threshold or exclusion changes."
+  "2026-11-13T21:00:31.435Z",codex-agent,"Round 18 complete instrumented coverage passes at unchanged thresholds: regions 31893/31893, branches 4434/4434, lines 19480/19480 and functions 1993/1993, all exactly 100 percent. Command: cargo +nightly-2026-08-06 llvm-cov --locked --branch --all-targets --all-features --json --output-path coverage.json (report kept outside the tracker). All 913 tests pass across 34 targets with two build jobs and test threads; elapsed 1765.3 seconds. All four production error arms are covered. The remaining impossible test conversion is replaced by an explicit array-shape assertion with all value assertions retained. Isolated propagation controls and the full stable suite follow."
+  "2026-11-13T21:01:50.148Z",codex-agent,"Round 18 sensitivity proof in an isolated source copy: swallowing the admission runtime-settings error fails round18_admission_runtime_settings; bypassing metadata injection fails round18_blocker_handle; bypassing read injection fails the same test at its second stage; bypassing the late lifecycle load fails round18_late_context_registry. Each negative is an executed assertion failure (exit 101, one failed test), not a compile/setup failure. Restoring each control yields one pass (exit 0); all copied tracked source/test bytes match the reviewed worktree afterward. These are propagation/seam sensitivity controls for already-correct production handlers, rather than claims of a new behavioral product fix. Full stable cargo test is running with a 45-minute cap."
+  "2026-11-13T21:31:55.350Z",codex-agent,"Round 18 full stable cargo test --locked -j2 --all-targets --all-features passes: 913 passed, 0 failed, 0 ignored, across 29 test-bearing targets plus five zero-test examples. Elapsed 1733.0 seconds (28.88 minutes), below the 45-minute cap, oracle required and two test threads. Windows GNU and Apple ARM64 cargo check --tests both pass; clippy and final tracker-linked checks follow. Coverage remains exactly 100 percent in all four required metrics."
+  "2026-11-13T21:33:45.845Z",codex-agent,"Round 18 final code validation: full instrumented suite 913/0/0 in 1765.3 seconds and exact 100 percent regions (31893), branches (4434), lines (19480), functions (1993); full stable suite 913/0/0 in 1733.0 seconds. Windows GNU and Apple ARM64 test cross-checks, Linux and Windows all-target/all-feature clippy with denied warnings, and fmt all pass within each command cap. Two linked PM runs pass the three new production-error tests and one restructured refusal test; run-artifact recording is disabled. Four isolated negative/restored controls pass with byte-identical restoration. Evidence is in docs/ORACLE_COVERAGE_ROUND18_2026_11_13.md. Only test scaffolding and test shape change; thresholds, product policy and differential assertions remain unchanged. Releasing my claim before commit; fresh CI certifies Windows/Apple execution and the aggregate on the pushed head. Final changelog generation/check and commit identity checks follow tracker writes."
+files[74]:
   - path: CHANGELOG.md
     scope: project
   - path: docs/NATIVE_PARITY_2026_11_11.md
@@ -151,6 +158,8 @@ files[72]:
   - path: src/admission.rs
     scope: project
   - path: src/assurance.rs
+    scope: project
+  - path: src/changes.rs
     scope: project
   - path: src/collections.rs
     scope: project
@@ -248,6 +257,8 @@ files[72]:
     scope: project
   - path: tests/support/advice_corpus.rs
     scope: project
+  - path: tests/support/changes_unit.rs
+    scope: project
   - path: tests/support/collections_unit.rs
     scope: project
   - path: tests/support/command_line_unit.rs
@@ -298,7 +309,7 @@ files[72]:
   - path: tests/support/workspace_unit.rs
     scope: project
     note: "Round-five review implementation, behavioral coverage and review evidence"
-tests[100]:
+tests[102]:
   - command: PM_RUST_REQUIRE_PUBLISHED_CLI=1 CARGO_BUILD_JOBS=2 timeout 1200 cargo +1.90.0 test --locked -j 2 --lib --bin pm-rust --test cli_dispatch --test ownership_contract --test parity_1021_contract --test release_pipeline_contract -- --test-threads=2
     scope: project
     timeout_seconds: 1200
@@ -1074,10 +1085,26 @@ tests[100]:
       created_at: "2026-11-13T16:12:40.760Z"
       source_kind: local_mutation
       source_ref: oracle-pm-cli-2026-11-11
-docs[14]:
+  - command: cargo test --locked -j2 --lib round18
+    scope: project
+    provenance:
+      author: codex-agent
+      created_at: "2026-11-13T21:31:37.244Z"
+      source_kind: local_mutation
+      source_ref: oracle-pm-cli-2026-11-11
+  - command: cargo test --locked -j2 --bin pm-rust round16_userinfo_components_share_registration
+    scope: project
+    provenance:
+      author: codex-agent
+      created_at: "2026-11-13T21:33:11.998Z"
+      source_kind: local_mutation
+      source_ref: oracle-pm-cli-2026-11-11
+docs[15]:
   - path: docs/NATIVE_PARITY_2026_11_11.md
     scope: project
   - path: docs/ORACLE_CI_ROUND6_2026_11_12.md
+    scope: project
+  - path: docs/ORACLE_COVERAGE_ROUND18_2026_11_13.md
     scope: project
   - path: docs/ORACLE_REVIEW_2026_11_11.md
     scope: project
