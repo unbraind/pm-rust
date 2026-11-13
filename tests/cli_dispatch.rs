@@ -1702,3 +1702,121 @@ fn round15_stored_duplicate_diagnostics_never_leak() -> Result<(), Box<dyn std::
     }
     Ok(())
 }
+
+/// Username-as-token copies are hidden in structured and human invocation recovery.
+#[test]
+fn round16_username_copies_json() -> Result<(), Box<dyn std::error::Error>> {
+    userinfo_component_refusals(true)
+}
+
+/// Human recovery shares the same registry and preserves ordinary words containing short names.
+#[test]
+fn round16_username_copies_human() -> Result<(), Box<dyn std::error::Error>> {
+    userinfo_component_refusals(false)
+}
+
+/// Exercises actual ownership refusals and stored duplicate diagnostics without credential argv.
+fn userinfo_component_refusals(json: bool) -> Result<(), Box<dyn std::error::Error>> {
+    let tracker = workspace()?;
+    seed_item(&tracker)?;
+    expect_ok(
+        &tracker,
+        &["claim", "sample-cli", "--author", "alpha", "--force"],
+    )?;
+    let root = tracker.path().join(".agents/pm");
+    let item = root.join("tasks/sample-cli.toon");
+    let history = root.join("history/sample-cli.jsonl");
+    let original = (fs::read(&item)?, fs::read(&history)?);
+    for &(url, message, expected) in refusal_corpus::USERINFO_COMPONENTS {
+        let input = format!("{url} copied {message}");
+        let projected = format!("https://[redacted]@host.invalid copied {expected}");
+        let mut args = vec![
+            "claim",
+            "sample-cli",
+            "--author",
+            "beta",
+            "--message",
+            &input,
+        ];
+        if json {
+            args.push("--json");
+        }
+        let output = pm_rust(&tracker, &args)?;
+        assert_eq!(output.status.code(), Some(4));
+        assert!(output.stdout.is_empty());
+        let text = String::from_utf8(output.stderr)?;
+        if json {
+            let payload: serde_json::Value = serde_json::from_str(&text)?;
+            let arguments = payload["recovery"]["normalized_args"]
+                .as_array()
+                .ok_or("arguments")?;
+            let message_index = arguments
+                .iter()
+                .position(|value| value == "--message")
+                .ok_or("message argument")?
+                + 1;
+            assert_eq!(arguments[message_index], projected);
+            let expected_args = arguments
+                .iter()
+                .filter_map(serde_json::Value::as_str)
+                .collect::<Vec<_>>();
+            assert_eq!(
+                payload["recovery"]["attempted_command"],
+                pm_rust::render_pm_command(expected_args)
+            );
+        } else {
+            assert!(
+                text.contains(&pm_rust::quote_command_arg(&projected)),
+                "{text}"
+            );
+        }
+        assert_eq!((fs::read(&item)?, fs::read(&history)?), original);
+    }
+    Ok(())
+}
+
+/// Stored duplicate diagnostics redact username copies in requested JSON output.
+#[test]
+fn round16_stored_username_copies_json() -> Result<(), Box<dyn std::error::Error>> {
+    stored_userinfo_component_diagnostics(true)
+}
+
+/// Stored duplicate diagnostics redact username copies in human output.
+#[test]
+fn round16_stored_username_copies_human() -> Result<(), Box<dyn std::error::Error>> {
+    stored_userinfo_component_diagnostics(false)
+}
+
+/// Exercises stored-text sources with no URL in argv and preserves both historical rows.
+fn stored_userinfo_component_diagnostics(json: bool) -> Result<(), Box<dyn std::error::Error>> {
+    let tracker = workspace()?;
+    seed_item(&tracker)?;
+    let root = tracker.path().join(".agents/pm");
+    let item = root.join("tasks/sample-cli.toon");
+    let baseline: serde_json::Value = toon_format::decode_default(&fs::read_to_string(&item)?)?;
+    let second = root.join("tasks/sample-second.toon");
+    for &(url, message, expected) in refusal_corpus::USERINFO_COMPONENTS {
+        let source = format!("{url} copied {message}");
+        let projected = format!("https://[redacted]@host.invalid copied {expected}");
+        let mut value = baseline.clone();
+        value["id"] = serde_json::json!(source);
+        let document = toon_format::encode_default(&value)?;
+        for path in [&item, &second] {
+            fs::write(path, &document)?;
+        }
+        let mut args = vec!["deps", "sample-cli"];
+        if json {
+            args.push("--json");
+        }
+        let output = pm_rust(&tracker, &args)?;
+        assert_eq!(output.status.code(), Some(2));
+        assert!(output.stdout.is_empty());
+        let text = String::from_utf8(output.stderr)?;
+        assert!(text.contains("duplicate pm item id"));
+        assert!(text.contains(&projected), "{text}");
+        for path in [&item, &second] {
+            assert_eq!(fs::read_to_string(path)?, document);
+        }
+    }
+    Ok(())
+}

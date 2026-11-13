@@ -208,13 +208,13 @@ fn windows_spelling(span: &str) -> String {
     output
 }
 
-/// Bounded registered password fragments prevent re-escaped credential echoes.
+/// Bounded registered credential fragments prevent re-escaped userinfo echoes.
 struct Credentials {
     /// Whether the original invocation carried URL userinfo.
     carried: bool,
-    /// Fixed-width UTF-16 windows from original and escaped passwords.
+    /// Fixed-width UTF-16 windows from original and escaped credential components.
     fragments: HashSet<Vec<u16>>,
-    /// Complete nonempty spellings that cannot form a full window.
+    /// Complete username spellings and passwords that cannot form a full window.
     short: Vec<Vec<u16>>,
     /// Window width and sampling stride share the published registration bound.
     width: usize,
@@ -229,15 +229,22 @@ impl Credentials {
             for (start, end) in userinfos(token) {
                 carried = true;
                 let span = &token[start..end];
-                let secret = span
+                let (username, password) = span
                     .split_once(':')
-                    .filter(|(_, secret)| !secret.is_empty())
-                    .map_or(span, |(_, secret)| secret);
-                let mut secrets = vec![secret];
-                if span.chars().any(whitespace) {
-                    secrets.push(span);
+                    .map_or((span, None), |(username, password)| {
+                        (username, Some(password))
+                    });
+                let mut secrets = Vec::new();
+                if !username.is_empty() {
+                    secrets.push((username, true));
                 }
-                for secret in secrets {
+                if let Some(password) = password.filter(|password| !password.is_empty()) {
+                    secrets.push((password, false));
+                }
+                if span.chars().any(whitespace) {
+                    secrets.push((span, false));
+                }
+                for (secret, username) in secrets {
                     let escaped: String = secret
                         .chars()
                         .flat_map(|ch| {
@@ -255,22 +262,24 @@ impl Credentials {
                         windows_spelling(secret),
                         json[1..json.len() - 1].to_owned(),
                     ] {
-                        spellings.insert(lower(&spelling));
+                        spellings.insert((lower(&spelling), username));
                     }
                 }
             }
         }
         let positions: usize = spellings
             .iter()
-            .map(|spelling| spelling.len().saturating_sub(5) + 1)
+            .filter(|(_, username)| !username)
+            .map(|(spelling, _)| spelling.len().saturating_sub(5) + 1)
             .sum();
         let stride = positions.div_ceil(65_536).max(1);
         let width = stride.max(6);
         let mut fragments = HashSet::new();
         let mut short = Vec::new();
-        for spelling in spellings {
-            if spelling.len() < width {
-                // Userinfo spans are nonempty; an empty password falls back to its span.
+        for (spelling, username) in spellings {
+            if username || spelling.len() < width {
+                // Whole username spellings must not hide shared public hostname suffixes.
+                // Short components retain the existing complete-token boundary.
                 short.push(spelling);
             } else {
                 for index in (0..=spelling.len() - width).step_by(stride) {
@@ -502,6 +511,61 @@ pub(super) fn redact(payload: &mut Value, raw: &[String]) {
 mod tests {
     use super::*;
     use serde_json::json;
+
+    /// Both userinfo components enroll copies while short spellings preserve public words.
+    #[test]
+    fn round16_userinfo_components_share_registration() -> Result<(), Box<dyn std::error::Error>> {
+        for &(url, message, expected) in corpus::USERINFO_COMPONENTS {
+            let credentials = Credentials::new(&[url.to_owned()]);
+            assert_eq!(credentials.text(message, false), expected, "{url}");
+            for source_in_args in [false, true] {
+                let mut raw = vec![
+                    "claim".to_owned(),
+                    "sample-own".to_owned(),
+                    "--message".to_owned(),
+                    message.to_owned(),
+                ];
+                if source_in_args {
+                    raw.push(url.to_owned());
+                }
+                let mut payload = json!({"claimed_by":url,"details":{"message":message},"recovery":{"normalized_args":raw,"attempted_command":"placeholder","suggested_retry":"pm claim sample-own"}});
+                redact(&mut payload, &raw);
+                assert_eq!(payload["details"]["message"], expected);
+                assert_eq!(payload["recovery"]["normalized_args"][3], expected);
+                let projected = payload["recovery"]["normalized_args"]
+                    .as_array()
+                    .ok_or("arguments")?;
+                let expected_args = projected
+                    .iter()
+                    .filter_map(Value::as_str)
+                    .map(str::to_owned)
+                    .collect::<Vec<_>>();
+                assert_eq!(
+                    payload["recovery"]["attempted_command"],
+                    super::super::render_recovery(&expected_args)
+                );
+            }
+        }
+        Ok(())
+    }
+
+    /// Stored errors enroll both components without any credential-bearing invocation argument.
+    #[test]
+    fn round16_stored_userinfo_components() {
+        for &(url, message, expected) in corpus::USERINFO_COMPONENTS {
+            for prefix in [
+                "duplicate id",
+                "invalid document",
+                "lock owner",
+                "invalid history",
+            ] {
+                assert_eq!(
+                    diagnostic(&format!("{prefix}: {url} copied {message}"), &[]),
+                    format!("{prefix}: https://[redacted]@host.invalid copied {expected}")
+                );
+            }
+        }
+    }
 
     /// Registration and every projection share one mirrored authority corpus.
     #[test]

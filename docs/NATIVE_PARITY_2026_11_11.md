@@ -517,3 +517,21 @@ has already ended. Copied passwords are projected across refusal fields and
 recovery arguments. The pinned oracle agrees for the ordinary message case; it
 over-redacts surrounding text in the quoted-message variant without leaking the
 password. Native retains that public decoration under the same structural rule.
+
+## Token-as-username credential copies
+
+Native registers both nonempty userinfo components, including username tokens
+with a nonempty, empty or absent password. Complete username spellings and their
+shell/JSON representations are projected through the same registry used by
+invocation recovery and stored diagnostics. Password-fragment handling remains
+bounded as before. Short components keep their complete-token boundary, so
+registered `git` and `u` do not alter `github` or `legit`. Matching the complete
+username also avoids concealing an unrelated public hostname solely because it
+shares a suffix such as `.invalid`.
+
+Independent probes of published pm-cli 2026.11.11 produce `already_claimed_by`
+with exit 4 in JSON and human modes, but retain the copied username token in
+`--message` after hiding URL userinfo. Native intentionally closes this privacy
+gap in normalized arguments, rebuilt attempted commands and stored diagnostic
+text. The six new native regressions cover both formats and source paths; the
+existing exact oracle assertions are unchanged. No upstream issue was filed.

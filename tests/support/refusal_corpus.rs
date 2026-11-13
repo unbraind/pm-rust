@@ -194,3 +194,53 @@ pub const PUBLIC_DIAGNOSTICS: &[&str] = &[
     "https://public.invalid/path@ref copied demo-secret",
     "https://127.0.0.1:8080 then ops@example.invalid",
 ];
+
+/// Username and password copies share registration, including short whole-token controls.
+pub const USERINFO_COMPONENTS: &[(&str, &str, &str)] = &[
+    (
+        "https://demo-user-token:x@host.invalid",
+        "demo-user-token x github legit",
+        "[redacted] [redacted] github legit",
+    ),
+    (
+        "https://demo-user-token@host.invalid",
+        "demo-user-token github legit",
+        "[redacted] github legit",
+    ),
+    (
+        "https://demo-user-token:@host.invalid",
+        "demo-user-token github legit",
+        "[redacted] github legit",
+    ),
+    (
+        "https://git:x@host.invalid",
+        "git x github legit",
+        "[redacted] [redacted] github legit",
+    ),
+    (
+        "https://u:x@host.invalid",
+        "u x github legit",
+        "[redacted] [redacted] github legit",
+    ),
+    (
+        "https://:demo-password@host.invalid",
+        "demo-password github legit",
+        "[redacted] github legit",
+    ),
+    (
+        "https://user.invalid:x@host.invalid",
+        "user.invalid x github legit",
+        "[redacted] [redacted] github legit",
+    ),
+    (
+        "https://user.invalid@host.invalid",
+        "user.invalid github legit",
+        "[redacted] github legit",
+    ),
+    (
+        "https://user.invalid:@host.invalid",
+        "user.invalid github legit",
+        "[redacted] github legit",
+    ),
+    ("https://:@host.invalid", "github legit", "github legit"),
+];

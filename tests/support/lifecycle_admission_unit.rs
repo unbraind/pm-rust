@@ -23,13 +23,14 @@ fn document(id: &str, status: &str) -> ItemDocument {
 /// Persists actual canonical files in a plain tracker.
 fn disk() -> Result<(tempfile::TempDir, PathBuf, ItemDocument), Box<dyn std::error::Error>> {
     let temp = tempfile::tempdir()?;
-    let root = temp.path().join(".agents/pm");
+    let root = temp.path().join(".agents").join("pm");
     fs::create_dir_all(root.join("tasks"))?;
     fs::write(root.join("settings.json"), r#"{"id_prefix":"sample-"}"#)?;
     let before = document("sample-own", "open");
     for item in [&before, &document("sample-gate", "open")] {
         fs::write(
-            root.join(format!("tasks/{}.toon", item.metadata.id)),
+            root.join("tasks")
+                .join(format!("{}.toon", item.metadata.id)),
             toon_format::encode_default(item)?,
         )?;
     }
@@ -475,19 +476,46 @@ fn round7_windows_junction_is_not_a_blocker_source() -> Result<(), Box<dyn std::
     let external = tempfile::tempdir()?;
     fs::write(
         external.path().join("sample-gate.toon"),
-        "unrelated external document",
+        toon_format::encode_default(&document("sample-gate", "closed"))?,
     )?;
-    let junction = root.join("tasks/ignored");
+    let tasks = root.join("tasks");
+    let junction = tasks.join("ignored");
+    assert!(tasks.is_dir(), "fixture item directory must exist");
+    assert!(
+        !junction.try_exists()?,
+        "junction destination must be absent"
+    );
+    assert!(external.path().is_dir(), "junction source must exist");
     let output = std::process::Command::new("cmd")
         .args(["/C", "mklink", "/J"])
         .arg(&junction)
         .arg(external.path())
         .output()?;
-    assert!(output.status.success(), "junction creation failed");
+    assert!(
+        output.status.success(),
+        "junction creation failed: stdout={}, stderr={}",
+        String::from_utf8_lossy(&output.stdout),
+        String::from_utf8_lossy(&output.stderr)
+    );
     assert!(junction.is_symlink());
     let mut paths = vec![];
     blocker_paths(&root, true, "sample-gate", &mut paths)?;
-    assert_eq!(paths, vec![root.join("tasks/sample-gate.toon")]);
+    assert_eq!(paths, vec![tasks.join("sample-gate.toon")]);
+    assert_eq!(
+        blocker(&root, "sample-gate", &json!({}))?
+            .ok_or("local blocker")?
+            .metadata
+            .status,
+        "open"
+    );
+    fs::remove_file(tasks.join("sample-gate.toon"))?;
+    paths.clear();
+    blocker_paths(&root, true, "sample-gate", &mut paths)?;
+    assert!(
+        paths.is_empty(),
+        "junction must not supply missing blockers"
+    );
+    assert!(blocker(&root, "sample-gate", &json!({}))?.is_none());
     fs::remove_dir(junction)?;
     Ok(())
 }

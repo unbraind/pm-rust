@@ -6,10 +6,10 @@ status: in_progress
 priority: 1
 tags[4]: conformance,"gh:unbraind/pm-rust#164","gh:unbraind/pm-rust#165",oracle
 created_at: "2026-11-11T05:32:00.010Z"
-updated_at: "2026-11-13T13:28:01.598Z"
+updated_at: "2026-11-13T15:18:54.964Z"
 author: codex-rust164-1111
 parent: pm-rust-u4al
-comments[101]{created_at,author,text}:
+comments[105]{created_at,author,text}:
   "2026-11-11T05:32:04.866Z",codex-rust164-1111,"Confirmed current npm latest is 2026.11.11 and updated the locked published oracle. Baseline differential runs precede native changes. Centralize refusal recovery, scope and redaction; retain byte comparisons and all existing cases."
   "2026-11-11T05:50:02.157Z",codex-rust164-1111,"Baseline against 2026.11.11: 120 differential tests, 59 passed and 61 failed (claim target 20 passed and 7 failed). Additional drift includes compact TOON list/null columns, complete omission receipts, newest-first compact history with total/order echoes, actual-format intent estimates, exclusive activity windows, relationship root-evidence ordering, close completion provenance and close recovery retries. All existing byte and durable-state comparisons remain exact; stale claim-attribution expectations now assert the published warning and successful durable transition."
   "2026-11-11T06:11:46.818Z",codex-rust164-1111,"The expanded orientation pass reached 25 of 32 passing before the final shared fixes: matching-active test health, root-edge cost reservation and incident-root edge ordering. All 397 library unit tests pass; the focused CLI/bin/parity run then passed 44 binary tests, 18 CLI dispatch tests and 14 parity contracts. Corrected the final ownership fault expectation to require the published warning. Running all eight differential targets through linked pm tests, sequentially, with each cargo command capped at 1200 seconds and two test threads."
@@ -111,6 +111,10 @@ comments[101]{created_at,author,text}:
   "2026-11-13T13:11:13.620Z",codex-agent,"Final Linux and Windows GNU all-target/all-feature clippy with denied warnings, Apple aarch64 cargo check --tests and fmt pass. PM-linked round15 regression execution passes. Full cargo test --locked -j2 --all-targets --all-features is running with two test threads and a 45-minute process-group deadline; complete claim/release (57) and CLI dispatch (33) targets pass. The shared runner hold remains active, so no push has occurred. A fresh fetch confirms main is fully included and the PR remote head is unchanged."
   "2026-11-13T13:27:00.262Z",codex-agent,"Round 15 final full-suite gate: cargo test --locked -j2 --all-targets --all-features passed 896 tests, 0 failed, 0 ignored, across 29 test-bearing targets plus five zero-test examples in 1700.4 seconds (28.34 minutes), with two test threads and the required pinned oracle. All 171 differential tests pass. Library 451, binary 79, admission 12, claim/release 57, CLI dispatch 33, close 11, identity 7 and release-pipeline 23 pass. PM-linked round15 execution passes all 12 focused tests. Final Linux/Windows GNU all-target/all-feature clippy, Apple aarch64 cargo check --tests and fmt pass. The review receipt lists every concrete advice producer, all eleven verified negative/restored controls and full target counts. Releasing own claim without closing; local commit will include tracker evidence and code. Runner hold is still active; push waits for clearance. Fresh CI certifies platform runtime and unchanged aggregate coverage."
   "2026-11-13T13:28:01.597Z",codex-agent,"Changelog generation and check passed after releasing the claim: npm run changelog:full; npm run changelog:check. Tracker history is a byte-identical prefix-extension of the previous head; the item does not yet exist on main. Public source, tests and receipt additions passed the local path/privacy inspection. The final regeneration/check runs after this last tracker write. Item remains in_progress and unclaimed, never closed. All code gates passed; push continues to wait for the shared runner hold."
+  "2026-11-13T14:34:50.818Z",codex-agent,"Round 16: clean remote head confirmed and main is fully included. Read PRRT_kwDOTwgMRs63Ik26 in full. Fix shared credential registration to enroll both username and password spellings while preserving short-token boundaries, and extend the common corpus through both refusal formats and stored diagnostics. Repair the Windows junction fixture with native path components and actionable mklink diagnostics, checking fixture preconditions. Full Rust suite, Windows/Apple test cross-checks, Linux/Windows clippy, fmt and changelog gates follow, with isolated function-revert proofs. Windows execution remains for CI; no thread replies or resolutions."
+  "2026-11-13T14:50:33.327Z",codex-agent,"Round 16 proof: six regressions reproduce the leak with the original constructor: two unit tests and four separate binary tests for invocation/stored sources in JSON/human modes. Literal Credentials::new reversion in a disposable copy fails all six, restoration passes all six, and all copied source/tests match byte-for-byte. The initial fragment-sampling candidate corrupted a public hostname suffix; the unchanged round12 test caught it. Final username registration uses complete spellings, preserves short-token boundaries and retains password sampling. All 81 binary and 37 CLI tests pass, along with Linux/Windows clippy, Windows GNU and Apple ARM64 cargo check --tests, and fmt. Published 2026.11.11 independently retains a copied username in already_claimed_by in both modes; native intentionally redacts it, documented without filing an issue. Full suite is running. Windows runtime remains unverified locally; source history confirms disk() is unchanged since round7, and the fixture now uses native components, setup preconditions and mklink diagnostics."
+  "2026-11-13T15:17:50.004Z",codex-agent,"Round 16 final test gates: full cargo test --locked -j2 --all-targets --all-features passed 902 tests, 0 failed, 0 ignored, across 29 test-bearing targets plus five zero-test examples in 1692.1 seconds (28.20 minutes), with the required pinned oracle and two test threads. All 171 differential tests pass unchanged. Library 451, binary 81, CLI dispatch 37, admission 12, claim/release 57, close 11, identity 7 and release-pipeline 23 pass. PM-linked round16 execution passed all six focused tests. Windows GNU and Apple ARM64 cargo check --tests, Linux/Windows all-target/all-feature clippy and fmt pass. Both failing Windows job logs identify only the junction setup test; disk() is unchanged since round7. Native path components, parent/source/destination checks and captured mklink output correct its setup, while stronger assertions preserve local regular blockers and reject external junction-only blockers. Windows execution is unavailable locally and remains for fresh CI, alongside aggregate coverage. No threshold or assertion changes; no thread replies/resolutions."
+  "2026-11-13T15:18:54.964Z",codex-agent,"Round 16 completion: npm run changelog:full and npm run changelog:check pass after claim release; final generation/check will follow this last tracker write. Public additions pass the local path/privacy inspection, and tracker history remains an exact prefix-extension of the previous head. PM-linked tests passed all six new cases. Item stays in_progress and unclaimed, never closed. Code and tracker evidence will be committed together; fresh CI must execute Windows junction traversal and certify platform runtime/aggregate coverage. No review thread action was taken."
 files[72]:
   - path: CHANGELOG.md
     scope: project
@@ -288,7 +292,7 @@ files[72]:
   - path: tests/support/workspace_unit.rs
     scope: project
     note: "Round-five review implementation, behavioral coverage and review evidence"
-tests[98]:
+tests[99]:
   - command: PM_RUST_REQUIRE_PUBLISHED_CLI=1 CARGO_BUILD_JOBS=2 timeout 1200 cargo +1.90.0 test --locked -j 2 --lib --bin pm-rust --test cli_dispatch --test ownership_contract --test parity_1021_contract --test release_pipeline_contract -- --test-threads=2
     scope: project
     timeout_seconds: 1200
@@ -1050,7 +1054,14 @@ tests[98]:
       created_at: "2026-11-13T12:55:09.541Z"
       source_kind: local_mutation
       source_ref: oracle-pm-cli-2026-11-11
-docs[12]:
+  - command: cargo test --locked -j2 --bin pm-rust --test cli_dispatch round16 -- --test-threads=2
+    scope: project
+    provenance:
+      author: codex-agent
+      created_at: "2026-11-13T14:50:36.853Z"
+      source_kind: local_mutation
+      source_ref: oracle-pm-cli-2026-11-11
+docs[13]:
   - path: docs/NATIVE_PARITY_2026_11_11.md
     scope: project
   - path: docs/ORACLE_CI_ROUND6_2026_11_12.md
@@ -1071,6 +1082,8 @@ docs[12]:
     scope: project
     note: Workflow oracle decision and review evidence
   - path: docs/ORACLE_REVIEW_ROUND15_2026_11_13.md
+    scope: project
+  - path: docs/ORACLE_REVIEW_ROUND16_2026_11_13.md
     scope: project
   - path: docs/ORACLE_REVIEW_ROUND5_2026_11_12.md
     scope: project
