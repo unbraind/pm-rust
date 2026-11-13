@@ -625,3 +625,73 @@ fn round12_compact_list_round_trip_matches_oracle() -> Result<(), Box<dyn std::e
     assert_eq!(restored["count"], json["count"]);
     Ok(())
 }
+
+#[path = "support/toon_data_corpus.rs"]
+mod toon_data_corpus;
+
+/// Published bytes and complete JSON rows survive instruction-shaped extension fields.
+#[test]
+fn round13_user_encoding_fields_match_oracle() -> Result<(), Box<dyn std::error::Error>> {
+    let directory = tracker()?;
+    let published = published_driver(directory.path())?;
+    let root = directory.path().join(".agents/pm/tasks");
+    let template: Value =
+        toon_format::decode_default(&fs::read_to_string(root.join("demo-a.toon"))?)?;
+    let mut corpus = toon_data_corpus::items();
+    corpus.push(toon_data_corpus::instruction_shaped_item());
+    for (index, data) in corpus.iter().cycle().take(32).enumerate() {
+        let mut item = template.clone();
+        for (key, value) in data.as_object().ok_or("data")? {
+            if key != "id" {
+                item[key] = value.clone();
+            }
+        }
+        let id = format!("demo-extension{index}");
+        item["id"] = id.clone().into();
+        fs::write(
+            root.join(format!("{id}.toon")),
+            toon_format::encode_default(&item)?,
+        )?;
+    }
+    let args = [
+        "list",
+        "--all",
+        "--full",
+        "--output-budget",
+        "unbounded",
+        "--output-limit",
+        "unbounded",
+    ];
+    let actual = Command::new(env!("CARGO_BIN_EXE_pm-rust"))
+        .args(args)
+        .args(["--timestamp", CLOCK])
+        .current_dir(directory.path())
+        .env_remove("PM_PATH")
+        .output()?;
+    assert!(actual.status.success());
+    if let Some((interpreter, driver)) = &published {
+        let expected = published_cli::oracle_command(interpreter)
+            .arg(driver)
+            .args(args)
+            .current_dir(directory.path())
+            .env_remove("PM_PATH")
+            .output()?;
+        assert_eq!(actual.status.code(), expected.status.code());
+        assert_eq!(actual.stderr, expected.stderr);
+        assert_eq!(actual.stdout, expected.stdout);
+    }
+    let decoded = pm_rust::parse_toon(std::str::from_utf8(&actual.stdout)?);
+    assert!(decoded.is_ok(), "{decoded:?}");
+    let decoded = decoded?;
+    let json = Command::new(env!("CARGO_BIN_EXE_pm-rust"))
+        .args(args)
+        .args(["--json", "--timestamp", CLOCK])
+        .current_dir(directory.path())
+        .env_remove("PM_PATH")
+        .output()?;
+    assert!(json.status.success());
+    let json: Value = serde_json::from_slice(&json.stdout)?;
+    assert_eq!(decoded["items"], json["items"]);
+    assert_eq!(decoded["count"], json["count"]);
+    Ok(())
+}

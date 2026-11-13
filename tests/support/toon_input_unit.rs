@@ -79,7 +79,38 @@ fn round12_invalid_table_read_refuses() -> Result<(), Box<dyn std::error::Error>
             "{value}"
         );
         assert!(parse_toon(&toon_format::encode_default(&json!({"nested":value}))?).is_err());
-        assert!(parse_toon(&toon_format::encode_default(&json!([value]))?).is_err());
+        // A root array is encoded opaquely by the renderer, so its values are data.
+        let opaque = json!([value]);
+        assert_eq!(parse_toon(&toon_format::encode_default(&opaque)?)?, opaque);
     }
+    Ok(())
+}
+
+#[path = "toon_data_corpus.rs"]
+mod data_corpus;
+
+/// Every JSON kind remains data inside item fields, in expanded and compact tables.
+#[test]
+fn round13_user_field_names_round_trip() -> Result<(), Box<dyn std::error::Error>> {
+    for item in data_corpus::items() {
+        for count in [1, 32] {
+            let source = json!({"items":vec![item.clone();count],"count":count});
+            let wire = crate::stringify_toon(&source.clone().into())?;
+            let decoded = parse_toon(&wire);
+            assert!(decoded.is_ok(), "{decoded:?}");
+            assert_eq!(decoded?, source, "{wire}");
+        }
+    }
+    Ok(())
+}
+
+/// Valid-looking instructions inside data must neither remove fields nor rewrite cells.
+#[test]
+fn round13_instruction_shaped_item_fields_remain_opaque() -> Result<(), Box<dyn std::error::Error>>
+{
+    let item = data_corpus::instruction_shaped_item();
+    let source = json!({"page":{"items":vec![item;32],"count":32}});
+    let wire = crate::stringify_toon(&source.clone().into())?;
+    assert_eq!(parse_toon(&wire)?, source);
     Ok(())
 }

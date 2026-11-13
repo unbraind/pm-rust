@@ -300,6 +300,8 @@ fn render(value: &Value, depth: usize) -> String {
                     format!("{indent}{key}: complete")
                 } else if value.is_array() {
                     let expanded = encode(&json!({key:value}), depth);
+                    // Envelope siblings reserve this position for pre-encoded table controls.
+                    // encode() keeps all array elements opaque: item fields never enter render().
                     if fields.contains_key(&format!("{key}_encoding")) {
                         expanded
                     } else {

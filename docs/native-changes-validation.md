@@ -103,3 +103,12 @@ change-stream pages, discovery receipts, mutation refusals and crash-review
 reports use their own ordinary TOON encodings and retain their existing codecs.
 Round-trip tests cover complete synthetic envelopes, real oracle-backed list
 rows with list/all-null columns, nested sparse tables and framed session pages.
+
+
+Restoration follows only object-member envelope paths from the page root, matching
+`toon_output::render`. Every array is an opaque boundary: expanded item records,
+restored records and decoded JSON cells retain all their user-defined fields.
+Envelope `<field>_encoding` siblings remain reserved for producer table controls;
+item fields such as `labels_encoding`, `list_columns`, `null_columns` and
+`x_encoding` are never interpreted as instructions. No escaping or published
+wire-byte change is needed.

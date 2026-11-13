@@ -6,7 +6,8 @@ use std::collections::{BTreeMap, BTreeSet};
 /// Decodes a read envelope, restoring compact tables to their original JSON values.
 ///
 /// Ordinary TOON decoders parse the wire syntax but leave table encoding metadata intact.
-/// This reader restores lists, explicit nulls, nested JSON cells and absent fields recursively.
+/// This reader restores lists, explicit nulls, nested JSON cells and absent fields at
+/// object-only envelope paths. Array elements and restored cells are opaque user data.
 /// It does not expand fields intentionally omitted by a brief output projection.
 ///
 /// # Errors
@@ -45,40 +46,36 @@ struct Encoding {
     column_order: Option<Vec<String>>,
 }
 
-/// Restores every explicitly encoded table, including tables nested in envelope objects.
+/// Follows the renderer's object-only envelope paths; array elements are opaque data.
+/// At each such path, array siblings reserve `<field>_encoding` for wire controls.
 fn restore(value: &mut Value) -> Result<(), crate::PmRustError> {
-    match value {
-        Value::Object(fields) => {
-            let tables: Vec<_> = fields
-                .iter()
-                .filter_map(|(key, metadata)| {
-                    key.strip_suffix("_encoding")
-                        .filter(|name| fields.get(*name).is_some_and(Value::is_array))
-                        .map(|name| (name.to_owned(), metadata.clone()))
-                })
-                .collect();
-            for (name, metadata) in tables {
-                let encoding: Encoding = serde_json::from_value(metadata).map_err(invalid)?;
-                fields.shift_remove(&format!("{name}_encoding"));
-                for (index, row) in fields[&name]
-                    .as_array_mut()
-                    .into_iter()
-                    .flatten()
-                    .enumerate()
-                {
-                    restore_row(row, index, &encoding)?;
-                }
-            }
-            for child in fields.values_mut() {
-                restore(child)?;
-            }
+    let Some(fields) = value.as_object_mut() else {
+        return Ok(());
+    };
+    let tables: Vec<_> = fields
+        .iter()
+        .filter(|(_, value)| value.is_array())
+        .filter_map(|(name, _)| {
+            fields
+                .get(&format!("{name}_encoding"))
+                .map(|metadata| (name.clone(), metadata.clone()))
+        })
+        .collect();
+    for (name, metadata) in tables {
+        let encoding: Encoding = serde_json::from_value(metadata).map_err(invalid)?;
+        fields.shift_remove(&format!("{name}_encoding"));
+        for (index, row) in fields[&name]
+            .as_array_mut()
+            .into_iter()
+            .flatten()
+            .enumerate()
+        {
+            restore_row(row, index, &encoding)?;
         }
-        Value::Array(rows) => {
-            for row in rows {
-                restore(row)?;
-            }
-        }
-        _ => {}
+    }
+    // render() recurses only into object children, never into expanded or decoded rows.
+    for child in fields.values_mut().filter(|child| child.is_object()) {
+        restore(child)?;
     }
     Ok(())
 }
