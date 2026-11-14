@@ -2041,3 +2041,355 @@ fn padded_inverse_blockers_match_oracle() -> TestResult {
     }
     Ok(())
 }
+
+/// Scoped string-only history recovery matches the published bootstrap path and JSON mode.
+#[test]
+fn scoped_history_retry_matches_published_bytes() -> TestResult {
+    let Some(published) = published_cli::published_cli_or_skip("scoped history retry") else {
+        return Ok(());
+    };
+    let scratch = tempfile::tempdir()?;
+    let driver = orientation_driver(scratch.path(), &published)?;
+    let root = tempfile::tempdir()?;
+    assert!(
+        oracle(&driver, root.path(), &["init", "sample-", "--defaults"])?
+            .status
+            .success()
+    );
+    fixture(root.path(), &[item("sample-one", "Task", "open", 1)])?;
+    let args = [
+        "--pm-path",
+        ".agents/pm",
+        "history",
+        "sample-one",
+        "--strict-exit",
+        "--json",
+    ];
+    let expected = oracle(&driver, root.path(), &args)?;
+    let actual = native(root.path(), &args)?;
+    compare(&expected, &actual, &args);
+    let value: Value = serde_json::from_slice(&actual.stderr)?;
+    assert_eq!(
+        value["recovery"]["suggested_retry"],
+        "pm --pm-path .agents/pm history sample-one --strict-exit --json --verify"
+    );
+    Ok(())
+}
+
+/// Activity uses instants across fractional widths and excludes the exact window boundary.
+#[test]
+fn activity_mixed_fractional_precision_matches_published_bytes() -> TestResult {
+    let Some(published) = published_cli::published_cli_or_skip("mixed precision activity") else {
+        return Ok(());
+    };
+    let scratch = tempfile::tempdir()?;
+    let driver = orientation_driver(scratch.path(), &published)?;
+    let root = tempfile::tempdir()?;
+    let now = "2026-08-22T10:00:00.500Z";
+    fs::write(
+        &driver,
+        format!(
+            "process.env.FIXED_CLOCK = {now:?};\n{}",
+            fs::read_to_string(&driver)?
+        ),
+    )?;
+    assert!(
+        oracle(&driver, root.path(), &["init", "sample-", "--defaults"])?
+            .status
+            .success()
+    );
+    let rows = [
+        item("sample-early", "Task", "open", 1),
+        item("sample-later", "Task", "open", 1),
+        item("sample-exact", "Task", "open", 1),
+    ];
+    fixture(root.path(), &rows)?;
+    for (id, ts) in [
+        ("sample-early", "2026-08-22T10:00:00Z"),
+        ("sample-later", "2026-08-22T10:00:00.250Z"),
+        ("sample-exact", now),
+    ] {
+        fs::write(
+            root.path().join(format!(".agents/pm/history/{id}.jsonl")),
+            format!(
+                "{}\n",
+                json!({"ts":ts,"op":"update","author":"fixture-agent"})
+            ),
+        )?;
+    }
+    let args = [
+        "context",
+        "--depth",
+        "standard",
+        "--json",
+        "--no-extension-health",
+    ];
+    let expected = oracle(&driver, root.path(), &args)?;
+    let mut command = Command::new(env!("CARGO_BIN_EXE_pm-rust"));
+    mutation_differential::isolate_environment(&mut command);
+    let actual = command
+        .current_dir(root.path())
+        .args(args)
+        .args(["--timestamp", now])
+        .env("HOME", root.path().join("synthetic-home"))
+        .env("USERPROFILE", root.path().join("synthetic-home"))
+        .output()?;
+    compare(&expected, &actual, &args);
+    let value: Value = serde_json::from_slice(&actual.stdout)?;
+    assert_eq!(
+        value["activity"]
+            .as_array()
+            .ok_or("activity")?
+            .iter()
+            .map(|row| row["id"].clone())
+            .collect::<Vec<_>>(),
+        vec![json!("sample-early"), json!("sample-later")]
+    );
+    Ok(())
+}
+
+/// Invalid clock cutoffs refuse like the oracle; equivalent RFC 3339 offsets keep real activity.
+#[test]
+fn context_cutoff_validation_matches_published_clock_refusal() -> TestResult {
+    let Some(published) = published_cli::published_cli_or_skip("context cutoff validation") else {
+        return Ok(());
+    };
+    let scratch = tempfile::tempdir()?;
+    let driver = orientation_driver(scratch.path(), &published)?;
+    let root = tempfile::tempdir()?;
+    assert!(
+        oracle(&driver, root.path(), &["init", "sample-", "--defaults"])?
+            .status
+            .success()
+    );
+    fixture(root.path(), &[item("sample-one", "Task", "open", 1)])?;
+    let history = root.path().join(".agents/pm/history/sample-one.jsonl");
+    fs::write(
+        &history,
+        format!(
+            "{}\n{}\n",
+            json!({"ts":"2026-08-22T09:59:59Z","op":"update","author":"fixture-agent"}),
+            json!({"ts":CLOCK,"op":"update","author":"fixture-agent"})
+        ),
+    )?;
+    let before = fs::read(&history)?;
+    let invalid_driver = scratch.path().join("invalid-clock.mjs");
+    fs::write(
+        &invalid_driver,
+        format!(
+            "import {{pathToFileURL}} from 'node:url'; const OriginalDate=Date; globalThis.Date=class extends OriginalDate {{constructor(...args){{args.length?super(...args):super(Number.NaN)}} static now(){{return Date.parse({clock});}}}}; process.argv=[process.argv[0],'pm',...process.argv.slice(2)]; await import(pathToFileURL({entry}));",
+            clock = serde_json::to_string(CLOCK)?,
+            entry = serde_json::to_string(&published.entry)?
+        ),
+    )?;
+    for json_output in [false, true] {
+        let mut args = vec!["context", "--depth", "standard"];
+        if json_output {
+            args.push("--json");
+        }
+        let expected = oracle(&invalid_driver, root.path(), &args)?;
+        assert_eq!(expected.status.code(), Some(1));
+        for cutoff in ["", "invalid", "2026-02-30T10:00:00Z", "2026-08-22"] {
+            let mut command = Command::new(env!("CARGO_BIN_EXE_pm-rust"));
+            mutation_differential::isolate_environment(&mut command);
+            let actual = command
+                .current_dir(root.path())
+                .args(&args)
+                .args(["--timestamp", cutoff])
+                .output()?;
+            compare(&expected, &actual, &args);
+            assert_eq!(fs::read(&history)?, before);
+        }
+    }
+    let args = [
+        "context",
+        "--depth",
+        "standard",
+        "--json",
+        "--no-extension-health",
+    ];
+    let expected = oracle(&driver, root.path(), &args)?;
+    assert!(expected.status.success());
+    let expected: Value = serde_json::from_slice(&expected.stdout)?;
+    let workspace = pm_rust::Workspace::discover(root.path())?;
+    for cutoff in [
+        CLOCK,
+        "2026-08-22T12:00:00+02:00",
+        "2026-08-22T05:00:00-05:00",
+    ] {
+        let actual = workspace.context(
+            &pm_rust::ContextOptions {
+                depth: Some("standard".to_owned()),
+                no_extension_health: true,
+                ..Default::default()
+            },
+            cutoff,
+        )?;
+        assert_eq!(actual["now"], cutoff);
+        assert_eq!(actual["activity"], expected["activity"]);
+        assert_eq!(actual["activity"].as_array().map(Vec::len), Some(1));
+        assert_eq!(fs::read(&history)?, before);
+    }
+    Ok(())
+}
+
+/// Pins the published missing-reference receipt gap until its coupled budget contract changes.
+#[test]
+fn round10_shortened_reference_receipt_matches_published_gap() -> TestResult {
+    let published = published_cli::published_cli_or_skip("missing-reference receipt parity");
+    let scratch = tempfile::tempdir()?;
+    let driver = published
+        .as_ref()
+        .map(|cli| orientation_driver(scratch.path(), cli))
+        .transpose()?;
+    let root = tempfile::tempdir()?;
+    fs::create_dir_all(root.path().join(".agents/pm"))?;
+    fs::write(
+        root.path().join(".agents/pm/settings.json"),
+        include_bytes!("fixtures/list-settings.json"),
+    )?;
+    let mut start = item("sample-root", "Task", "open", 1);
+    start["parent"] = json!("sample-parent");
+    start["dependencies"] = json!([
+        {"id":"sample-missing","kind":"related_to","created_at":CLOCK},
+        {"id":"sample-other","kind":"blocked_by","created_at":CLOCK}
+    ]);
+    fixture(root.path(), &[start])?;
+    let mut observed = false;
+    for budget in (250..=1500).step_by(25) {
+        let budget = budget.to_string();
+        let args = [
+            "deps",
+            "sample-root",
+            "--format",
+            "context",
+            "--edge-limit",
+            "40",
+            "--token-budget",
+            &budget,
+            "--json",
+        ];
+        let actual = native(root.path(), &args)?;
+        if let Some(driver) = &driver {
+            compare(&oracle(driver, root.path(), &args)?, &actual, &args);
+        }
+        if actual.status.success() {
+            let packet: Value = serde_json::from_slice(&actual.stdout)?;
+            let returned = packet["missing_references"]
+                .as_array()
+                .ok_or("references")?
+                .len() as u64;
+            if packet["missing_reference_count"].as_u64().ok_or("count")? > returned
+                && packet["context"]["meta"]["truncated"] == false
+            {
+                assert_eq!(packet["omission_receipt"]["has_omissions"], false);
+                observed = true;
+                break;
+            }
+        }
+    }
+    assert!(
+        observed,
+        "must exercise shortened references with an untruncated packet"
+    );
+    for summary in [false, true] {
+        let mut args = vec![
+            "deps",
+            "sample-root",
+            "--format",
+            "context",
+            "--token-budget",
+            "5000",
+            "--json",
+        ];
+        if summary {
+            args.push("--summary");
+        }
+        let actual = native(root.path(), &args)?;
+        assert!(actual.status.success());
+        if let Some(driver) = &driver {
+            compare(&oracle(driver, root.path(), &args)?, &actual, &args);
+        }
+        let packet: Value = serde_json::from_slice(&actual.stdout)?;
+        if summary {
+            assert!(packet.get("missing_references").is_none());
+        } else {
+            assert_eq!(
+                packet["missing_reference_count"].as_u64(),
+                packet["missing_references"]
+                    .as_array()
+                    .map(|r| r.len() as u64)
+            );
+        }
+    }
+    Ok(())
+}
+
+/// A delimiter accepted as a numeric option value does not hide the following JSON flag.
+#[test]
+fn round12_hyphen_value_json_refusal_contract() -> TestResult {
+    let Some(published) = published_cli::published_cli_or_skip("hyphen numeric argument") else {
+        return Ok(());
+    };
+    let scratch = tempfile::tempdir()?;
+    let driver = orientation_driver(scratch.path(), &published)?;
+    let root = tempfile::tempdir()?;
+    assert!(
+        oracle(&driver, root.path(), &["init", "sample-", "--defaults"])?
+            .status
+            .success()
+    );
+    fixture(root.path(), &[])?;
+    let args = ["context", "--limit", "--", "--json"];
+    let actual = native(root.path(), &args)?;
+    assert_eq!(actual.status.code(), Some(2));
+    let refusal: Value = serde_json::from_slice(&actual.stderr)?;
+    assert_eq!(refusal["code"], "invalid_argument_value");
+    assert_eq!(refusal["refusal"]["rejected_value"], "--");
+    // Commander treats this delimiter differently; it does not render the native numeric refusal.
+    let expected = oracle(&driver, root.path(), &args)?;
+    assert_eq!(expected.status.code(), Some(2));
+    assert!(String::from_utf8(expected.stderr)?.contains("Unknown option --json"));
+    let allowed = ["context", "--limit", "1", "--json"];
+    compare(
+        &oracle(&driver, root.path(), &allowed)?,
+        &native(root.path(), &allowed)?,
+        &allowed,
+    );
+    Ok(())
+}
+
+/// Repeated format flags use the same final format for published/native refusals.
+#[test]
+fn round14_repeated_output_formats_match_oracle() -> TestResult {
+    let Some(published) = published_cli::published_cli_or_skip("repeated output format") else {
+        return Ok(());
+    };
+    let scratch = tempfile::tempdir()?;
+    let driver = orientation_driver(scratch.path(), &published)?;
+    let root = tempfile::tempdir()?;
+    assert!(
+        oracle(&driver, root.path(), &["init", "sample-", "--defaults"])?
+            .status
+            .success()
+    );
+    fixture(root.path(), &[item("sample-cli", "Task", "open", 1)])?;
+    for formats in [["toon", "json"], ["json", "toon"]] {
+        let args = [
+            "deps",
+            "sample-cli",
+            "--output-format",
+            formats[0],
+            "--output-format",
+            formats[1],
+            "--format",
+            "bogus",
+        ];
+        compare(
+            &oracle(&driver, root.path(), &args)?,
+            &native(root.path(), &args)?,
+            &args,
+        );
+    }
+    Ok(())
+}

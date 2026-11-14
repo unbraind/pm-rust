@@ -3,18 +3,8 @@
 use crate::{ListOptions, ListOutput, PmRustError, list::bound, pagination};
 use serde_json::{Value, json};
 
-/// Estimates output tokens using the published UTF-8 byte heuristic.
-pub(crate) fn estimate(value: &(impl serde::Serialize + ?Sized), pretty: bool) -> usize {
-    let bytes = if pretty {
-        crate::stringify_json(value, true).len() + 1
-    } else {
-        crate::stringify_json(value, false).len()
-    };
-    bytes.div_ceil(4)
-}
-
 /// Measures the exact selected list wire encoding, including its trailing newline.
-fn measure(result: &ListOutput, toon: bool) -> usize {
+pub(crate) fn measure(result: &ListOutput, toon: bool) -> usize {
     if toon {
         crate::toon_output::render_output(result).len().div_ceil(4)
     } else {
@@ -23,24 +13,13 @@ fn measure(result: &ListOutput, toon: bool) -> usize {
 }
 
 /// Stabilizes a receipt in the requested wire encoding.
-fn update_output(result: &mut ListOutput, toon: bool) {
+pub(crate) fn update_output(result: &mut ListOutput, toon: bool) {
     for _ in 0..8 {
         let measured = measure(result, toon);
         if result.value["read_output"]["estimated_tokens"] == measured {
             break;
         }
         result.value["read_output"]["estimated_tokens"] = json!(measured);
-    }
-}
-
-/// Stabilizes a self-referential receipt estimate after changing output content.
-pub(crate) fn update(result: &mut ListOutput, key: &str, pretty: bool) {
-    for _ in 0..8 {
-        let measured = estimate(result, pretty);
-        if result.value[key]["estimated_tokens"] == measured {
-            break;
-        }
-        result.value[key]["estimated_tokens"] = json!(measured);
     }
 }
 
@@ -51,6 +30,11 @@ pub(crate) fn update(result: &mut ListOutput, key: &str, pretty: bool) {
 /// (published 2026.10.17+ contract, GH-1478). Already-malformed values keep the
 /// lossless overrides that [`crate::ListOutput`] serialization retains.
 pub(crate) fn compact_strings(value: &mut Value) -> bool {
+    compact_strings_at(value, true)
+}
+
+/// Protects only the root cursor envelope while compacting identically named item metadata.
+fn compact_strings_at(value: &mut Value, envelope: bool) -> bool {
     match value {
         Value::String(text) if text.encode_utf16().count() > 240 => {
             let units = text.encode_utf16().take(240).collect::<Vec<_>>();
@@ -62,11 +46,14 @@ pub(crate) fn compact_strings(value: &mut Value) -> bool {
             *text = format!("{}…", String::from_utf16_lossy(&units[..end]));
             true
         }
-        Value::Array(rows) => rows
-            .iter_mut()
-            .fold(false, |changed, row| compact_strings(row) | changed),
+        Value::Array(rows) => rows.iter_mut().fold(false, |changed, row| {
+            compact_strings_at(row, false) | changed
+        }),
         Value::Object(map) => map.iter_mut().fold(false, |changed, (key, row)| {
-            (key != "focus_row_states" && compact_strings(row)) | changed
+            (!(key == "focus_row_states"
+                || (envelope && matches!(key.as_str(), "next_cursor" | "output_cursor")))
+                && compact_strings_at(row, false))
+                | changed
         }),
         _ => false,
     }
@@ -337,6 +324,13 @@ pub(crate) fn apply_command(
         .as_deref()
         .map(|raw| pagination::output_command(raw, &original_rows, &snapshot, command))
         .transpose()?;
+    if result.get("budget_exceeded").is_some() || result.get("output_budget_exceeded").is_some() {
+        result.value["read_output"] = receipt_for(options, default_budget, command);
+        result.value["read_output"]["within_budget"] = json!(false);
+        result.value["read_output"]["result_omitted"] = json!(true);
+        update_output(&mut result, options.toon);
+        return Ok(result);
+    }
     let amount_binds = amount.is_some_and(|limit| {
         original_rows
             .as_array()
@@ -401,7 +395,7 @@ pub(crate) fn apply_command(
     }
     update_output(&mut result, options.toon);
     if result.get("context_intent").is_some() {
-        crate::list_intent::stabilize(&mut result);
+        crate::list_intent::stabilize(&mut result, options.toon);
     }
     Ok(result)
 }

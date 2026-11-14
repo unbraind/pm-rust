@@ -221,11 +221,86 @@ pub(crate) fn runtime_settings(pm_root: &Path) -> Result<Value, PmRustError> {
         ("statuses", &["statuses"][..]),
         ("workflows", &["workflow", "type_workflows"][..]),
     ] {
-        if let Some(relative) = schema.get("files").and_then(|files| files[name].as_str()) {
-            let external = read_json(&pm_root.join(relative))?;
+        {
+            let explicit = schema
+                .get("files")
+                .and_then(|files| files[name].as_str())
+                .is_some();
+            let path =
+                crate::list_registry::schema_path(pm_root, &Value::Object(schema.clone()), name);
+            let external = if explicit {
+                match read_json(&path) {
+                    Err(PmRustError::Io { source, .. })
+                        if name == "workflows" && source.kind() == std::io::ErrorKind::NotFound =>
+                    {
+                        continue;
+                    }
+                    result => result?,
+                }
+            } else {
+                crate::list_registry::optional_schema(
+                    pm_root,
+                    &Value::Object(schema.clone()),
+                    name,
+                )?
+            };
             for key in keys {
-                if let Some(value) = external.get(*key) {
-                    schema.insert((*key).to_owned(), value.clone());
+                let value = external.get(*key).or_else(|| {
+                    if explicit {
+                        None
+                    } else if *key == "statuses" {
+                        external
+                            .as_array()
+                            .map(|_| &external)
+                            .or_else(|| external.get("definitions"))
+                    } else if *key == "workflow" && external.is_object() {
+                        Some(&external)
+                    } else {
+                        None
+                    }
+                });
+                if let Some(value) = value {
+                    let value = if *key == "statuses" {
+                        let mut entries = schema
+                            .get(*key)
+                            .and_then(Value::as_array)
+                            .filter(|entries| !entries.is_empty())
+                            .cloned()
+                            .unwrap_or_else(crate::list_registry::defaults);
+                        for entry in value.as_array().into_iter().flatten() {
+                            let existing = entry["id"].as_str().and_then(|id| {
+                                entries.iter_mut().rev().find(|before| {
+                                    before["id"].as_str().is_some_and(|before| {
+                                        crate::list_registry::token(before)
+                                            == crate::list_registry::token(id)
+                                    })
+                                })
+                            });
+                            if let Some(existing) = existing {
+                                *existing = entry.clone();
+                            } else {
+                                entries.push(entry.clone());
+                            }
+                        }
+                        Value::Array(entries)
+                    } else if *key == "workflow" && !explicit {
+                        let mut merged = schema
+                            .get(*key)
+                            .and_then(Value::as_object)
+                            .cloned()
+                            .unwrap_or_default();
+                        merged.extend(
+                            value
+                                .as_object()
+                                .into_iter()
+                                .flatten()
+                                .map(|(key, value)| (key.clone(), value.clone())),
+                        );
+                        Value::Object(merged)
+                    } else {
+                        value.clone()
+                    };
+                    schema.insert((*key).to_owned(), value);
                 }
             }
         }
@@ -309,9 +384,13 @@ pub struct OwnershipOptions {
     pub identity: Option<AuthorIdentity>,
     /// Approved package-level handoff that only clears ownership metadata.
     pub release_bypass: bool,
+    /// Move a selected claim into progress in the same atomic write.
+    pub start: bool,
 }
 
 /// Filters and atomic retry budget for native claim-next selection.
+// Independent selection/start flags mirror the public CLI and SDK option contract.
+#[allow(clippy::struct_excessive_bools)]
 #[derive(Clone, Debug, Default, PartialEq)]
 pub struct SelectionOptions {
     /// Exact type filter, case insensitive.
@@ -336,6 +415,8 @@ pub struct SelectionOptions {
     pub include_containers: bool,
     /// Attempt at most this many ranked candidates (default ten).
     pub max_attempts: Option<usize>,
+    /// Start the winning ranked claim atomically.
+    pub start: bool,
 }
 
 impl Workspace {
@@ -349,20 +430,28 @@ impl Workspace {
         options: &OwnershipOptions,
     ) -> Result<OwnershipResult, PmRustError> {
         let mut parents = BTreeMap::new();
-        let receipt = with_identity(self.pm_root(), options, || {
+        let mut receipt = with_identity(self.pm_root(), options, || {
             crate::mutation::ownership_item_with_options(
                 self.pm_root(),
                 request,
                 true,
                 options,
                 &mut || {
-                    parents = ownership_parents(self, request)?;
+                    parents = ownership_parents(
+                        self,
+                        request,
+                        options.start || crate::lifecycle_admission::explicit_claim(),
+                    )?;
                     Ok(())
                 },
             )
         })?;
-        if receipt.skipped.is_none() {
-            record_semantics(self, request, options, true, &parents)?;
+        if receipt.skipped.is_none()
+            && record_semantics(self, request, options, true, &parents).is_err()
+        {
+            receipt
+                .warnings
+                .push("claim_semantic_attribution_unrecorded".to_owned());
         }
         Ok(receipt)
     }
@@ -384,7 +473,7 @@ impl Workspace {
                 false,
                 options,
                 &mut || {
-                    parents = ownership_parents(self, request)?;
+                    parents = ownership_parents(self, request, false)?;
                     Ok(())
                 },
             )
@@ -412,14 +501,18 @@ impl Workspace {
                 context: json!({"code":"invalid_argument_value","required":"Remove --next and --if-available when starting an explicit item.","next_steps":["Remove --next and --if-available, keep the explicit item ID and other supplied arguments, then retry."]}),
             });
         }
-        let claim = self.claim_with_options(request, options)?;
-        let update = with_identity(self.pm_root(), options, || {
-            crate::mutation::lifecycle_status(self.pm_root(), request, options, true)
+        crate::lifecycle_admission::with_explicit_start(|| {
+            let mut claim_options = options.clone();
+            claim_options.start = false;
+            let claim = self.claim_with_options(request, &claim_options)?;
+            let update = with_identity(self.pm_root(), options, || {
+                crate::mutation::lifecycle_status(self.pm_root(), request, options, true)
+            })
+            .map_err(|error| partial_failure(error, &request.id, "claim"))?;
+            Ok(
+                json!({"id":claim.id,"action":"start_task","claim":claim,"update":update,"status":update["status"],"changed_field_count":u64::try_from(claim.changed_field_count).unwrap_or_default() + update["changed_field_count"].as_u64().unwrap_or_default()}),
+            )
         })
-        .map_err(|error| partial_failure(error, &request.id, "claim"))?;
-        Ok(
-            json!({"id":claim.id,"action":"start_task","claim":claim,"update":update,"status":update["status"],"changed_field_count":u64::try_from(claim.changed_field_count).unwrap_or_default() + update["changed_field_count"].as_u64().unwrap_or_default()}),
-        )
     }
 
     /// Opens the item first, then releases it; a failed release preserves the update.
@@ -460,8 +553,9 @@ pub(crate) fn with_identity<T>(
 fn ownership_parents(
     workspace: &Workspace,
     request: &OwnershipItem,
+    admitted_start: bool,
 ) -> Result<BTreeMap<String, Option<String>>, PmRustError> {
-    let parents = workspace.read_parent_index()?;
+    let parents = workspace.read_parent_index(admitted_start)?;
     if !parents.contains_key(&request.id) {
         return Err(PmRustError::ItemNotFound {
             id: request.id.clone(),
@@ -607,7 +701,9 @@ pub fn partial_failure(error: PmRustError, id: &str, completed: &str) -> PmRustE
         .as_str()
         .map_or(String::new(), |why| format!(" {why}"));
     let mut steps = vec![json!(format!(
-        "Inspect the persisted state with pm get {id} and pm history {id} before retrying the failed step."
+        "Inspect the persisted state with {} and {} before retrying the failed step.",
+        crate::render_pm_command(["get", id]),
+        crate::render_pm_command(["history", id])
     ))];
     if let Some(original) = context["next_steps"].as_array() {
         steps.extend(original.clone());

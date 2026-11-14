@@ -123,9 +123,10 @@ fn lifecycle_storage_faults_preserve_recovery_evidence() -> Result<(), Box<dyn s
     mutation.id = "sample-absent".to_owned();
     assert!(lifecycle_status(&pm_root, &mutation, &options, true).is_err());
     mutation.id = "sample-unit".to_owned();
+    fs::create_dir(pm_root.join("workflow-directory"))?;
     fs::write(
         &settings_path,
-        r#"{"schema":{"files":{"workflows":"missing.json"}}}"#,
+        r#"{"schema":{"files":{"workflows":"workflow-directory"}}}"#,
     )?;
     assert!(matches!(
         lifecycle_status(&pm_root, &mutation, &options, true),
@@ -173,10 +174,10 @@ fn ownership_session_faults_and_contention_preserve_durable_steps()
     let options = crate::OwnershipOptions::default();
     let session = pm_root.join("runtime/session.json");
     fs::create_dir(&session)?;
-    assert!(matches!(
-        workspace.claim_with_options(&mutation, &options),
-        Err(PmRustError::Io { .. })
-    ));
+    assert_eq!(
+        workspace.claim_with_options(&mutation, &options)?.warnings,
+        ["claim_semantic_attribution_unrecorded"]
+    );
     assert_eq!(
         workspace.get("sample-unit")?.metadata.extra["assignee"],
         "unit-agent"
@@ -3831,7 +3832,7 @@ fn ownership_provenance_and_legacy_metadata_are_preserved() -> Result<(), Box<dy
         provenance_role: None,
     };
     assert_eq!(
-        ownership_phrase(&history_path, "other")?,
+        ownership_phrase(&ownership_evidence(&history_path, "other")?, "other"),
         "assigned to other"
     );
     for (raw, expected) in [
@@ -3840,24 +3841,27 @@ fn ownership_provenance_and_legacy_metadata_are_preserved() -> Result<(), Box<dy
             "assigned to other",
         ),
         (
-            "{\"op\":\"update\",\"patch\":[{\"path\":\"/metadata/assignee\"}]}\n",
+            "{\"op\":\"update\",\"patch\":[{\"path\":\"/metadata/assignee\",\"value\":\"other\"}]}\n",
             "assigned to other",
         ),
         (
-            "{\"op\":\"claim\",\"patch\":[{\"path\":\"/metadata/assignee\"}]}\n",
+            "{\"op\":\"claim\",\"patch\":[{\"path\":\"/metadata/assignee\",\"value\":\"other\"}]}\n",
             "claimed by other",
         ),
     ] {
         fs::write(&history_path, raw)?;
-        assert_eq!(ownership_phrase(&history_path, "other")?, expected);
+        assert_eq!(
+            ownership_phrase(&ownership_evidence(&history_path, "other")?, "other"),
+            expected
+        );
     }
     fs::remove_file(&history_path)?;
     assert_eq!(
-        ownership_phrase(&history_path, "other")?,
+        ownership_phrase(&ownership_evidence(&history_path, "other")?, "other"),
         "assigned to other"
     );
     fs::create_dir(&history_path)?;
-    assert!(ownership_phrase(&history_path, "other").is_err());
+    assert!(ownership_evidence(&history_path, "other").is_err());
     fs::remove_dir(&history_path)?;
     // A legacy assignment lacks claim_principal. Reclaim adds only that field.
     document
@@ -4345,6 +4349,7 @@ fn ownership_refusals_and_interrupted_history_append_remain_recoverable()
     mutation.force = false;
     let bypass = crate::OwnershipOptions {
         release_bypass: true,
+        start: false,
         ..crate::OwnershipOptions::default()
     };
     assert_eq!(
@@ -5595,5 +5600,128 @@ fn admission_recovery_identity_revalidates_planned_and_current_images()
         Err(PmRustError::RecoveryConflict { .. })
     ));
     assert!(!path.exists());
+    Ok(())
+}
+
+/// Older assignee patches without an operation retain unknown provenance instead of inventing a claim.
+#[test]
+fn round5_legacy_assignment_evidence_without_operation() -> Result<(), Box<dyn std::error::Error>> {
+    let (_temp, root) = root("{}")?;
+    let path = root.join("history/legacy.jsonl");
+    fs::create_dir_all(path.parent().ok_or("history directory")?)?;
+    fs::write(
+        &path,
+        format!(
+            "{}\ninvalid\n",
+            serde_json::json!({"ts":TS,"patch":[{"path":"/metadata/assignee","value":"alpha"}]})
+        ),
+    )?;
+    assert_eq!(
+        ownership_evidence(&path, "alpha")?,
+        serde_json::json!({"claimed_by":"alpha","claimed_at":TS,"claim_source":"unknown"})
+    );
+    assert_eq!(
+        ownership_evidence(&path, "beta")?,
+        serde_json::json!({"claimed_by":"beta","claimed_at":null,"claim_source":"unknown"})
+    );
+    fs::write(&path, "{}\ninvalid\n")?;
+    assert_eq!(
+        ownership_evidence(&path, "alpha")?["claim_source"],
+        "unknown"
+    );
+    fs::remove_file(&path)?;
+    assert_eq!(
+        ownership_evidence(&path, "alpha")?["claimed_at"],
+        serde_json::Value::Null
+    );
+    fs::create_dir(&path)?;
+    assert!(matches!(
+        ownership_evidence(&path, "alpha"),
+        Err(PmRustError::Io { .. })
+    ));
+    Ok(())
+}
+
+/// Claim admission refuses an unreadable runtime registry, while release retains its allowed bypass.
+#[test]
+fn round5_claim_registry_read_failure_keeps_release_available()
+-> Result<(), Box<dyn std::error::Error>> {
+    let (_temp, root) = root(&settings("sample-", "toon", 1800))?;
+    create_item(&root, request())?;
+    let owner = OwnershipItem {
+        id: "sample-unit".to_owned(),
+        author: "unit-agent".to_owned(),
+        timestamp: Some(TS.to_owned()),
+        message: None,
+        force: false,
+        if_available: false,
+        provenance_role: None,
+    };
+    ownership_item(&root, &owner, true)?;
+    let item = root.join("tasks/sample-unit.toon");
+    let history = root.join("history/sample-unit.jsonl");
+    let before = (fs::read(&item)?, fs::read(&history)?);
+    fs::create_dir_all(root.join("schema/statuses.json"))?;
+    assert!(matches!(
+        ownership_item(&root, &owner, true),
+        Err(PmRustError::Io { .. })
+    ));
+    assert_eq!((fs::read(&item)?, fs::read(&history)?), before);
+    assert_eq!(ownership_item(&root, &owner, false)?.changed_field_count, 2);
+    fs::remove_dir(root.join("schema/statuses.json"))?;
+    assert_eq!(ownership_item(&root, &owner, true)?.changed_field_count, 2);
+    Ok(())
+}
+
+/// Missing and chained duplicate targets remain literal argv in recovery examples.
+#[cfg(unix)]
+#[test]
+fn round15_duplicate_examples_shell_round_trip() -> Result<(), Box<dyn std::error::Error>> {
+    use crate::test_advice_corpus as corpus;
+    let (_directory, root) = root("{}")?;
+    create_item(&root, request())?;
+    let path = root.join("tasks/sample-unit.toon");
+    let baseline = decode_item(&path, &fs::read_to_string(&path)?)?;
+    for value in &corpus::VALUES[..corpus::VALUES.len() - 1] {
+        let target = format!("{value}-missing");
+        let Err(PmRustError::CommandRefusal { context, .. }) =
+            close_duplicate(&root, value, Some(&target))
+        else {
+            return Err("missing duplicate refusal".into());
+        };
+        corpus::assert_shell_args(
+            context["examples"][0].as_str().ok_or("example")?,
+            &[
+                "pm",
+                "close",
+                value,
+                &format!("Duplicate of {target}"),
+                "--duplicate-of",
+                &target,
+            ],
+        )?;
+        let mut document = baseline.clone();
+        document
+            .metadata
+            .extra
+            .insert("duplicate_of".to_owned(), serde_json::json!(value));
+        fs::write(&path, toon_format::encode_default(&document)?)?;
+        let Err(PmRustError::CommandRefusal { context, .. }) =
+            close_duplicate(&root, "sample-caller", Some("sample-unit"))
+        else {
+            return Err("chained duplicate refusal".into());
+        };
+        corpus::assert_shell_args(
+            context["examples"][0].as_str().ok_or("example")?,
+            &[
+                "pm",
+                "close",
+                "sample-caller",
+                &format!("Duplicate of {value}"),
+                "--duplicate-of",
+                value,
+            ],
+        )?;
+    }
     Ok(())
 }

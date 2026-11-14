@@ -426,10 +426,10 @@ fn estimates_and_string_compaction_handle_nested_unicode() {
     assert_eq!(value["rows"][1], "x".repeat(240));
     assert!(!compact_strings(&mut json!([true, null, "short"])));
     let mut measured = crate::ListOutput::from(json!({"read_output":{"estimated_tokens":0}}));
-    super::update(&mut measured, "read_output", true);
+    super::update_output(&mut measured, false);
     assert_eq!(
         measured["read_output"]["estimated_tokens"],
-        super::estimate(&measured, true)
+        super::measure(&measured, false)
     );
 }
 
@@ -592,5 +592,62 @@ fn assert_toon_budget_contract() -> Result<(), Box<dyn std::error::Error>> {
         super::apply(malformed, &options),
         Err(crate::PmRustError::ToonEncoding { .. })
     ));
+    Ok(())
+}
+
+/// Oversized omitted results still validate cursor syntax and preserve valid omission receipts.
+#[test]
+fn round5_omission_cursor_policy() -> Result<(), Box<dyn std::error::Error>> {
+    for marker in ["budget_exceeded", "output_budget_exceeded"] {
+        let source = crate::ListOutput::from(
+            json!({"items":[{"id":"demo-one"}],marker:{"omitted_result":true}}),
+        );
+        let options = ListOptions {
+            output_cursor: Some("invalid".to_owned()),
+            ..Default::default()
+        };
+        assert!(super::apply(source.clone(), &options).is_err());
+        let valid = crate::pagination::encode(
+            &json!({"v":1,"c":"list","p":"items","o":0,"n":1,"f":source.row_fingerprint()}),
+        );
+        // The no-cursor must-allow outcome preserves both original omission markers.
+        let result = super::apply(source.clone(), &ListOptions::default())?;
+        assert_eq!(result["read_output"]["result_omitted"], true);
+        let returned = super::apply(
+            source.clone(),
+            &ListOptions {
+                output_cursor: Some(valid),
+                ..Default::default()
+            },
+        )?;
+        assert!(returned[marker].is_object());
+        assert_eq!(returned["read_output"]["result_omitted"], true);
+        assert_eq!(returned["read_output"]["within_budget"], false);
+    }
+    Ok(())
+}
+
+/// Item metadata cursor names compact while genuine root continuations remain executable.
+#[test]
+fn round7_cursor_metadata_compacts_below_the_envelope() -> Result<(), Box<dyn std::error::Error>> {
+    let long = "a".repeat(30_000);
+    let mut source = json!({"next_cursor":long,"output_cursor":long,"items":[{"id":"sample-one","next_cursor":long,"output_cursor":long}]});
+    assert!(compact_strings(&mut source));
+    for field in ["next_cursor", "output_cursor"] {
+        assert_eq!(source[field], long);
+        assert_eq!(source["items"][0][field], format!("{}…", "a".repeat(240)));
+    }
+    let payload = json!({"items":[{"id":"sample-one","next_cursor":long,"output_cursor":long}],"count":1,"total":1,"has_more":false,"next_cursor":null});
+    let result = apply(
+        payload,
+        &ListOptions {
+            full: true,
+            output_budget: Some("2000".to_owned()),
+            ..Default::default()
+        },
+    )?;
+    assert_eq!(result["read_output"]["within_budget"], true);
+    assert_eq!(result["count"], 1);
+    assert!(result.get("output_budget_exceeded").is_none());
     Ok(())
 }

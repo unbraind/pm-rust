@@ -939,3 +939,39 @@ fn snapshot_digest_preserves_non_utf8_path_bytes() -> TestResult {
     }
     Ok(())
 }
+
+/// The maintained reader restores compact values inside one framed session page.
+#[test]
+fn round12_session_toon_restores_list_columns() -> TestResult {
+    let (_directory, workspace) = fixture(32)?;
+    for index in 0..32 {
+        let path = workspace
+            .pm_root()
+            .join(format!("tasks/nested/demo-{index}.toon"));
+        let raw = fs::read_to_string(&path)?;
+        fs::write(path, format!("{raw}tags[2]: alpha,beta\n"))?;
+    }
+    let limits = ReadSessionLimits {
+        page_items: 32,
+        toon: true,
+        ..Default::default()
+    };
+    let mut session = workspace.read_session(&limits, SessionCancellation::default(), CLOCK)?;
+    let mut page = session.next_page()?.ok_or("page")?;
+    page.output = workspace.list_page(
+        &ItemFilter::default(),
+        &ListOptions {
+            full: true,
+            toon: true,
+            output_budget: Some("unbounded".to_owned()),
+            output_limit: Some("unbounded".to_owned()),
+            ..Default::default()
+        },
+        CLOCK,
+    )?;
+    let wire = page.stringify_toon()?;
+    assert!(wire.contains("list_columns:"));
+    let restored = crate::parse_toon(&wire)?;
+    assert_eq!(restored["items"], page.output["items"]);
+    Ok(())
+}

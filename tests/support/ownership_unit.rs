@@ -64,6 +64,7 @@ fn sdk_lifecycle_succeeds_with_explicit_and_default_identity()
             &BTreeMap::new(),
         )),
         release_bypass: false,
+        start: false,
     };
     assert_eq!(
         workspace.start_task(&request, &default)?["changed_field_count"],
@@ -124,7 +125,7 @@ fn semantic_worksets_preserve_focus_and_bound_lineage() -> Result<(), Box<dyn st
         provenance_role: None,
     };
     let options = OwnershipOptions::default();
-    let parents = workspace.read_parent_index()?;
+    let parents = workspace.read_parent_index(false)?;
     record_semantics(&workspace, &request, &options, true, &parents)?;
     let session = root.join("runtime/session.json");
     let mut state: Value = serde_json::from_slice(&fs::read(&session)?)?;
@@ -540,7 +541,15 @@ fn external_runtime_schema_precedence_and_errors() -> Result<(), Box<dyn std::er
     )?;
     let settings = runtime_settings(root)?;
     assert_eq!(settings["schema"]["workflow"]["open_status"], "ready");
-    assert_eq!(settings["schema"]["statuses"][0]["id"], "ready");
+    assert_eq!(settings["schema"]["statuses"][0]["id"], "draft");
+    assert_eq!(
+        settings["schema"]["statuses"]
+            .as_array()
+            .ok_or("statuses")?
+            .last()
+            .ok_or("ready")?["id"],
+        "ready"
+    );
     fs::write(root.join("workflows.json"), "{}")?;
     assert_eq!(
         runtime_settings(root)?["schema"]["workflow"]["open_status"],
@@ -554,6 +563,11 @@ fn external_runtime_schema_precedence_and_errors() -> Result<(), Box<dyn std::er
         ));
     }
     fs::remove_file(root.join("workflows.json"))?;
+    assert_eq!(
+        runtime_settings(root)?["schema"]["workflow"]["open_status"],
+        "open"
+    );
+    fs::create_dir(root.join("workflows.json"))?;
     assert!(matches!(
         runtime_settings(root),
         Err(PmRustError::Io { .. })
@@ -603,10 +617,10 @@ fn ownership_lineage_scans_corpus_once() -> Result<(), Box<dyn std::error::Error
     let mut absent = request.clone();
     absent.id = "sample-absent".to_owned();
     assert!(matches!(
-        ownership_parents(&workspace, &absent),
+        ownership_parents(&workspace, &absent, false),
         Err(PmRustError::ItemNotFound { id }) if id == absent.id
     ));
-    assert_eq!(ownership_parents(&workspace, &request)?.len(), 52);
+    assert_eq!(ownership_parents(&workspace, &request, false)?.len(), 52);
     assert!(!root.join("runtime/session.json").exists());
     let before = READ_ITEMS_SCANS.get();
     workspace.claim_with_options(&request, &OwnershipOptions::default())?;
@@ -680,7 +694,7 @@ updated_at: "2026-08-22T10:00:00.000Z"
         )?;
     }
     let workspace = Workspace::discover(&root)?;
-    let parents = workspace.read_parent_index()?;
+    let parents = workspace.read_parent_index(false)?;
     record_semantics(
         &workspace,
         &OwnershipItem {
@@ -743,5 +757,129 @@ fn context_reads_one_captured_corpus() -> Result<(), Box<dyn std::error::Error>>
     )?;
     assert_eq!(READ_ITEMS_SCANS.get() - before, 1);
     assert_eq!(output["summary"]["total_items"], 2);
+    Ok(())
+}
+
+/// Runtime builders share lifecycle discovery without replacing built-in roles.
+#[test]
+fn round12_runtime_default_schema_discovery() -> Result<(), Box<dyn std::error::Error>> {
+    let temp = tempfile::tempdir()?;
+    let root = temp.path();
+    fs::create_dir(root.join("schema"))?;
+    fs::write(root.join("settings.json"), "{}")?;
+    fs::write(
+        root.join("schema/statuses.json"),
+        r#"{"statuses":[{"id":"queued","roles":["active"]},{"id":"done","roles":["terminal"]}]}"#,
+    )?;
+    fs::write(
+        root.join("schema/workflows.json"),
+        r#"{"workflow":{"in_progress_status":"queued"}}"#,
+    )?;
+    let settings = runtime_settings(root)?;
+    let captured =
+        crate::list_registry::Lifecycle::from_values(&settings, &Value::Null, &Value::Null);
+    let loaded = crate::list_registry::Lifecycle::load(root)?;
+    for status in ["open", "in_progress", "queued", "done", "closed"] {
+        assert_eq!(
+            captured.role(status, "active"),
+            loaded.role(status, "active")
+        );
+        assert_eq!(captured.terminal(status), loaded.terminal(status));
+    }
+    assert!(captured.role("queued", "active"));
+    assert!(captured.terminal("done"));
+    assert_eq!(captured.start_status(), loaded.start_status());
+    for external in [
+        json!([{"id":"queued","roles":["active"]}]),
+        json!({"definitions":[{"id":"queued","roles":["active"]}]}),
+        json!({"statuses":[{"id":"queued","roles":["active"]}]}),
+    ] {
+        fs::write(root.join("schema/statuses.json"), external.to_string())?;
+        let captured = crate::list_registry::Lifecycle::from_values(
+            &runtime_settings(root)?,
+            &Value::Null,
+            &Value::Null,
+        );
+        assert!(captured.role("queued", "active"));
+    }
+    fs::write(
+        root.join("schema/workflows.json"),
+        r#"{"in_progress_status":"queued"}"#,
+    )?;
+    assert_eq!(
+        crate::list_registry::Lifecycle::from_values(
+            &runtime_settings(root)?,
+            &Value::Null,
+            &Value::Null
+        )
+        .start_status(),
+        "queued"
+    );
+    fs::write(root.join("schema/statuses.json"), "invalid json")?;
+    assert!(runtime_settings(root).is_ok());
+    fs::remove_file(root.join("schema/statuses.json"))?;
+    assert!(
+        crate::list_registry::Lifecycle::from_values(
+            &runtime_settings(root)?,
+            &Value::Null,
+            &Value::Null
+        )
+        .role("open", "active")
+    );
+    Ok(())
+}
+
+/// Persisted-state inspection commands quote identities even after a partial failure.
+#[cfg(unix)]
+#[test]
+fn round15_partial_failure_advice_shell_round_trip() -> Result<(), Box<dyn std::error::Error>> {
+    use crate::test_advice_corpus as corpus;
+    for value in corpus::VALUES {
+        let error = partial_failure(
+            PmRustError::InvalidMutationRequest {
+                reason: "later step failed".to_owned(),
+            },
+            value,
+            "claim",
+        );
+        let PmRustError::CommandRefusal { context, .. } = error else {
+            return Err("partial refusal".into());
+        };
+        let step = context["next_steps"][0]
+            .as_str()
+            .ok_or("step")?
+            .strip_prefix("Inspect the persisted state with ")
+            .ok_or("prefix")?
+            .strip_suffix(" before retrying the failed step.")
+            .ok_or("suffix")?;
+        let (get, history) = step.split_once(" and ").ok_or("two commands")?;
+        corpus::assert_shell_args(get, &["pm", "get", value])?;
+        corpus::assert_shell_args(history, &["pm", "history", value])?;
+    }
+    Ok(())
+}
+
+/// External schemas replace the last normalized inline definition, matching the live loader.
+#[test]
+fn round17_runtime_duplicate_status_precedence() -> Result<(), Box<dyn std::error::Error>> {
+    let directory = tempfile::tempdir()?;
+    let root = directory.path();
+    fs::create_dir(root.join("schema"))?;
+    fs::write(root.join("settings.json"),json!({"schema":{"statuses":[{"id":"open","roles":["active"]},{"id":"OPEN","roles":["terminal"]}]}}).to_string())?;
+    for role in ["active", "terminal"] {
+        fs::write(
+            root.join("schema/statuses.json"),
+            json!({"statuses":[{"id":"open","roles":[role]}]}).to_string(),
+        )?;
+        let captured = crate::list_registry::Lifecycle::from_values(
+            &runtime_settings(root)?,
+            &Value::Null,
+            &Value::Null,
+        );
+        let live = crate::list_registry::Lifecycle::load(root)?;
+        assert_eq!(captured.terminal("open"), live.terminal("open"));
+        assert_eq!(captured.role("open", "active"), role == "active");
+        assert_eq!(captured.terminal("open"), role == "terminal");
+    }
     Ok(())
 }

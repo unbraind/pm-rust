@@ -9,6 +9,10 @@ use std::process::Command;
 
 use tempfile::TempDir;
 
+#[allow(dead_code)]
+#[path = "support/published_cli.rs"]
+mod published_cli;
+
 /// Builds a tracker fixture and returns its workspace directory.
 fn workspace() -> Result<TempDir, Box<dyn std::error::Error>> {
     let directory = tempfile::tempdir()?;
@@ -223,12 +227,101 @@ fn seed_item(workspace: &TempDir) -> Result<(), Box<dyn std::error::Error>> {
     )
 }
 
+/// Delivery failures retain successful mutations and report failures from read projections.
+#[test]
+fn round5_read_and_mutation_delivery_failures_retain_commits()
+-> Result<(), Box<dyn std::error::Error>> {
+    use std::process::Stdio;
+    let workspace = workspace()?;
+    for args in [
+        vec![
+            "create",
+            "--id",
+            "sample-delivery",
+            "--title",
+            "Delivery",
+            "--type",
+            "Task",
+            "--author",
+            "cli-agent",
+        ],
+        vec![
+            "update",
+            "sample-delivery",
+            "--title",
+            "Retained",
+            "--author",
+            "cli-agent",
+        ],
+        vec![
+            "comment",
+            "sample-delivery",
+            "Retained comment",
+            "--author",
+            "cli-agent",
+        ],
+        vec![
+            "close",
+            "sample-delivery",
+            "Retained close",
+            "--validate-close",
+            "off",
+            "--author",
+            "cli-agent",
+            "--json",
+        ],
+        vec!["files", "sample-delivery", "--json"],
+        vec!["docs", "sample-delivery", "--json"],
+        vec!["context", "--json", "--no-extension-health"],
+    ] {
+        let output = Command::new(env!("CARGO_BIN_EXE_pm-rust"))
+            .current_dir(workspace.path())
+            .args(&args)
+            .stdout(Stdio::from(closed_stdout()?))
+            .output()?;
+        assert!(!output.status.success(), "{args:?}");
+        assert!(!output.stderr.is_empty(), "{args:?}");
+    }
+    let item = pm_rust(&workspace, &["get", "sample-delivery"])?;
+    let item: serde_json::Value = serde_json::from_slice(&item.stdout)?;
+    assert_eq!(item["title"], "Retained");
+    assert_eq!(item["status"], "closed");
+    assert!(
+        item["comments"]
+            .as_array()
+            .ok_or("comments")?
+            .iter()
+            .any(|row| row["text"] == "Retained comment")
+    );
+    for args in [
+        vec!["list", "--timestamp", "invalid"],
+        vec!["assurance", "show", "measurement", "missing", "--json"],
+    ] {
+        let output = pm_rust(&workspace, &args)?;
+        assert!(!output.status.success(), "{args:?}");
+        assert!(output.stdout.is_empty());
+    }
+    Ok(())
+}
+
 /// Verified history succeeds strictly and propagates a reader closing its output pipe.
 #[test]
 fn history_strict_success_and_closed_pipe() -> Result<(), Box<dyn std::error::Error>> {
     use std::process::Stdio;
     let workspace = workspace()?;
     seed_item(&workspace)?;
+    for (flags, message) in [
+        (
+            vec!["history", "sample-cli", "--full", "--compact"],
+            "mutually exclusive",
+        ),
+        (
+            vec!["history", "sample-cli", "--strict-exit"],
+            "requires --verify",
+        ),
+    ] {
+        expect_err(&workspace, &flags, message)?;
+    }
     expect_ok(
         &workspace,
         &[
@@ -244,16 +337,26 @@ fn history_strict_success_and_closed_pipe() -> Result<(), Box<dyn std::error::Er
     entry["author"] = serde_json::json!("fixture".repeat(100_000));
     fs::write(&path, format!("{}\n", serde_json::to_string(&entry)?))?;
     let before = fs::read(&path)?;
+    let refused = pm_rust(
+        &workspace,
+        &[
+            "history",
+            "sample-cli",
+            "--verify",
+            "--strict-exit",
+            "--json",
+        ],
+    )?;
+    assert!(!refused.status.success());
+    let verified: serde_json::Value = serde_json::from_slice(&refused.stdout)?;
+    assert_eq!(verified["verification"]["ok"], false);
     // Confirm the edited stream loads before isolating the closed-pipe failure.
     expect_ok(&workspace, &["history", "sample-cli", "--full", "--json"])?;
-    let mut child = Command::new(env!("CARGO_BIN_EXE_pm-rust"))
+    let output = Command::new(env!("CARGO_BIN_EXE_pm-rust"))
         .current_dir(workspace.path())
         .args(["--workspace=.", "history", "sample-cli", "--full", "--json"])
-        .stdout(Stdio::piped())
-        .stderr(Stdio::piped())
-        .spawn()?;
-    drop(child.stdout.take());
-    let output = child.wait_with_output()?;
+        .stdout(Stdio::from(closed_stdout()?))
+        .output()?;
     assert_eq!(output.status.code(), Some(2));
     assert!(!output.stderr.is_empty());
     assert_eq!(fs::read(path)?, before);
@@ -271,6 +374,35 @@ fn list_and_get_dispatch_over_real_processes() -> Result<(), Box<dyn std::error:
         "empty list projection missing"
     );
     seed_item(&workspace)?;
+    for format in ["json", "toon"] {
+        let output = pm_rust(
+            &workspace,
+            &["deps", "sample-cli", "--output-format", format],
+        )?;
+        assert!(output.status.success());
+        let value: serde_json::Value = if format == "json" {
+            serde_json::from_slice(&output.stdout)?
+        } else {
+            pm_rust::parse_toon(std::str::from_utf8(&output.stdout)?)?
+        };
+        assert!(value.is_object());
+    }
+    let changes = pm_rust(&workspace, &["changes"])?;
+    assert!(changes.status.success());
+    let page: serde_json::Value = pm_rust::parse_toon(std::str::from_utf8(&changes.stdout)?)?;
+    assert!(page["events"].is_array());
+    let cancelled = workspace.path().join("cancelled");
+    fs::write(&cancelled, b"cancel")?;
+    let output = pm_rust(
+        &workspace,
+        &[
+            "changes",
+            "--cancel-file",
+            cancelled.to_str().ok_or("UTF8")?,
+        ],
+    )?;
+    assert!(!output.status.success());
+    assert!(output.stdout.is_empty());
     let output = pm_rust(&workspace, &["list", "--status", "open", "--type", "task"])?;
     assert!(String::from_utf8_lossy(&output.stdout).contains("sample-cli"));
     let output = pm_rust(&workspace, &["get", "sample-cli"])?;
@@ -748,8 +880,10 @@ fn scoped_alias_refusals_match_the_native_command() -> Result<(), Box<dyn std::e
                 let payload: serde_json::Value = serde_json::from_slice(&output.stderr)?;
                 assert_eq!(payload["code"], "unsupported_native_option");
                 assert_eq!(payload["flag"], "--bogus");
+                assert_eq!(payload["recovery"]["normalized_args"][0], "--pm-path");
+                assert_eq!(payload["recovery"]["normalized_args"][1], ".");
                 assert_eq!(
-                    payload["recovery"]["normalized_args"][0],
+                    payload["recovery"]["normalized_args"][2],
                     if command == ["context"] {
                         "context"
                     } else {
@@ -757,6 +891,1033 @@ fn scoped_alias_refusals_match_the_native_command() -> Result<(), Box<dyn std::e
                     }
                 );
             }
+        }
+    }
+    Ok(())
+}
+
+/// Parser failures use the same credential projection as structured command refusals.
+#[test]
+fn parser_diagnostics_redact_credential_bearing_tokens() -> Result<(), Box<dyn std::error::Error>> {
+    let directory = workspace()?;
+    let output = pm_rust(
+        &directory,
+        &["https://fixture:test-password@example.invalid"],
+    )?;
+    assert_eq!(output.status.code(), Some(2));
+    let stderr = String::from_utf8(output.stderr)?;
+    assert!(!stderr.contains("test-password"));
+    assert!(!stderr.contains("fixture:"));
+    assert!(stderr.contains("[redacted]@example.invalid"));
+    Ok(())
+}
+
+/// Stored credential authorities are withheld in JSON and human foreign-claim refusals.
+#[test]
+fn persisted_holder_credentials_never_reach_refusal_streams()
+-> Result<(), Box<dyn std::error::Error>> {
+    for secret in ["stored password", "a b", "quoted\" pass"] {
+        let workspace = workspace()?;
+        seed_item(&workspace)?;
+        let holder = format!("https://fixture:{secret}@example.invalid");
+        let claimed = Command::new(env!("CARGO_BIN_EXE_pm-rust"))
+            .current_dir(workspace.path())
+            .args([
+                "claim",
+                "sample-cli",
+                "--author",
+                &holder,
+                "--force",
+                "--json",
+            ])
+            .output()?;
+        assert!(
+            claimed.status.success(),
+            "{}",
+            String::from_utf8_lossy(&claimed.stderr)
+        );
+        for format in [vec!["--json"], vec![]] {
+            let output = Command::new(env!("CARGO_BIN_EXE_pm-rust"))
+                .current_dir(workspace.path())
+                .args(["claim", "sample-cli", "--author", "beta"])
+                .args(&format)
+                .output()?;
+            assert_eq!(output.status.code(), Some(4));
+            let text = String::from_utf8_lossy(&output.stderr);
+            assert!(!text.contains(secret));
+            assert!(text.contains("https://[redacted]@example.invalid"));
+            if format.is_empty() {
+                assert!(text.contains("Held by: https://[redacted]@example.invalid"));
+            } else {
+                assert_eq!(
+                    serde_json::from_slice::<serde_json::Value>(&output.stderr)?["claimed_by"],
+                    "https://[redacted]@example.invalid"
+                );
+            }
+        }
+    }
+    Ok(())
+}
+
+/// Native positional reason text cannot redirect recovery away from the mutated workspace.
+#[test]
+fn positional_close_text_keeps_actual_recovery_scope() -> Result<(), Box<dyn std::error::Error>> {
+    let root = workspace()?;
+    seed_item(&root)?;
+    let output = Command::new(env!("CARGO_BIN_EXE_pm-rust"))
+        .current_dir(root.path())
+        .args([
+            "close",
+            "sample-cli",
+            "--author",
+            "cli-agent",
+            "--validate-close",
+            "off",
+            "--json",
+            "--",
+            "--pm-path=other",
+        ])
+        .output()?;
+    assert!(
+        output.status.success(),
+        "{}",
+        String::from_utf8_lossy(&output.stderr)
+    );
+    let value: serde_json::Value = serde_json::from_slice(&output.stdout)?;
+    let hint = value["completion"]["hint"]
+        .as_str()
+        .ok_or("completion hint")?;
+    assert!(hint.contains("pm update sample-cli --completed-at"));
+    assert!(!hint.contains("other"));
+    assert_eq!(
+        pm_rust::Workspace::discover(root.path())?
+            .get("sample-cli")?
+            .metadata
+            .status,
+        "closed"
+    );
+    assert!(!root.path().join("other").exists());
+    Ok(())
+}
+
+/// All URL credentials are projected in both refusal encodings, while public paths remain intact.
+#[test]
+fn multiple_url_credentials_never_reach_refusal_streams() -> Result<(), Box<dyn std::error::Error>>
+{
+    let root = workspace()?;
+    seed_item(&root)?;
+    expect_ok(&root, &["claim", "sample-cli", "--author", "cli-agent"])?;
+    for (input, expected) in [
+        (
+            "https://first:alpha-secret@one.invalid/p https://second:beta-secret@two.invalid/q",
+            "https://[redacted]@one.invalid/p https://[redacted]@two.invalid/q",
+        ),
+        (
+            "https://first:alpha-secret@one.invalid/p,https://second:beta-secret@two.invalid/q",
+            "https://[redacted]@one.invalid/p,https://[redacted]@two.invalid/q",
+        ),
+        (
+            "https://first:alpha-secret@one.invalid;https://second:beta-secret@two.invalid",
+            "https://[redacted]@one.invalid;https://[redacted]@two.invalid",
+        ),
+        (
+            "https://www.npmjs.com/package/@scope/x https://u:p@host",
+            "https://www.npmjs.com/package/@scope/x https://[redacted]@host",
+        ),
+        (
+            "See https://public.invalid/docs and https://fixture:abc def@example.invalid",
+            "See https://public.invalid/docs and https://[redacted]@example.invalid",
+        ),
+        (
+            "https://user:abc/def+gh==@host/x",
+            "https://[redacted]@host/x",
+        ),
+        (
+            "https://user:long-lived-secret://tail@host.invalid",
+            "https://[redacted]@host.invalid",
+        ),
+        (
+            "https://www.npmjs.com/package/@scope/x",
+            "https://www.npmjs.com/package/@scope/x",
+        ),
+    ] {
+        for format in [vec![], vec!["--json"]] {
+            let mut args = vec![
+                "claim",
+                "sample-cli",
+                "--author",
+                "beta",
+                "--message",
+                input,
+            ];
+            args.extend(&format);
+            let output = pm_rust(&root, &args)?;
+            assert_eq!(output.status.code(), Some(4));
+            assert!(output.stdout.is_empty());
+            let text = String::from_utf8(output.stderr)?;
+            for secret in [
+                "alpha-secret",
+                "beta-secret",
+                "abc def",
+                "abc/def",
+                "long-lived-secret",
+            ] {
+                assert!(!text.contains(secret), "{args:?}");
+            }
+            if format.is_empty() {
+                assert!(text.contains(expected));
+            } else {
+                let value: serde_json::Value = serde_json::from_str(&text)?;
+                let args = value["recovery"]["normalized_args"]
+                    .as_array()
+                    .ok_or("normalized args")?;
+                let message = args
+                    .iter()
+                    .position(|arg| arg == "--message")
+                    .ok_or("message flag")?;
+                assert_eq!(args[message + 1], expected);
+                if input == expected {
+                    assert!(!text.contains("restore them before replaying"));
+                    assert!(text.contains(input));
+                }
+            }
+        }
+    }
+    Ok(())
+}
+
+/// A stored blocker title enrolls its credentials before either refusal stream is rendered.
+#[test]
+fn round5_stored_blocker_credentials_never_reach_refusal_streams()
+-> Result<(), Box<dyn std::error::Error>> {
+    let workspace = workspace()?;
+    seed_item(&workspace)?;
+    let root = workspace.path().join(".agents/pm");
+    let mut own = pm_rust::Workspace::discover(workspace.path())?.get("sample-cli")?;
+    let mut gate = own.clone();
+    gate.metadata.id = "sample-gate".to_owned();
+    gate.metadata.title =
+        "https://user:long-lived-secret://tail@host.invalid copied long-lived-secret://tail"
+            .to_owned();
+    own.metadata
+        .extra
+        .insert("blocked_by".to_owned(), serde_json::json!("sample-gate"));
+    let paths = [
+        root.join("tasks/sample-cli.toon"),
+        root.join("tasks/sample-gate.toon"),
+    ];
+    for (path, item) in paths.iter().zip([&own, &gate]) {
+        fs::write(path, toon_format::encode_default(item)?)?;
+    }
+    let before = paths.iter().map(fs::read).collect::<Result<Vec<_>, _>>()?;
+    for format in [vec!["--json"], vec![]] {
+        let mut args = vec!["claim", "sample-cli", "--start", "--author", "beta"];
+        args.extend(format);
+        let output = pm_rust(&workspace, &args)?;
+        assert_eq!(output.status.code(), Some(4));
+        assert!(output.stdout.is_empty());
+        let text = String::from_utf8(output.stderr)?;
+        assert!(!text.contains("long-lived-secret"));
+        assert!(text.contains("https://[redacted]@host.invalid copied [redacted]"));
+        for (path, bytes) in paths.iter().zip(&before) {
+            assert_eq!(&fs::read(path)?, bytes);
+        }
+    }
+    Ok(())
+}
+
+/// Parser diagnostics project credentials on both help stdout and refusal stderr.
+#[test]
+fn round5_parser_credential_projection_covers_both_streams()
+-> Result<(), Box<dyn std::error::Error>> {
+    let workspace = workspace()?;
+    let help = pm_rust(
+        &workspace,
+        &[
+            "claim",
+            "--help",
+            "--author",
+            "https://u:author@host.invalid",
+        ],
+    )?;
+    assert!(help.status.success());
+    assert!(help.stderr.is_empty());
+    assert!(String::from_utf8(help.stdout)?.contains("[redacted]"));
+    let refusal = pm_rust(&workspace, &["https://u:long-secret@host.invalid"])?;
+    assert_eq!(refusal.status.code(), Some(2));
+    assert!(refusal.stdout.is_empty());
+    let text = String::from_utf8(refusal.stderr)?;
+    assert!(text.contains("[redacted]"));
+    assert!(!text.contains("long-secret"));
+    Ok(())
+}
+
+/// Both legacy intent and canonical cost omissions keep their machine receipt and exit two.
+#[test]
+fn round5_list_budget_omissions_keep_their_exit_contract() -> Result<(), Box<dyn std::error::Error>>
+{
+    let workspace = workspace()?;
+    seed_item(&workspace)?;
+    let native = pm_rust::Workspace::discover(workspace.path())?;
+    let mut item = native.get("sample-cli")?;
+    item.metadata.title = "x".repeat(20_000);
+    let path = workspace.path().join(".agents/pm/tasks/sample-cli.toon");
+    fs::write(&path, toon_format::encode_default(&item)?)?;
+    let before = fs::read(&path)?;
+    for (args, key) in [
+        (
+            vec!["list", "--json", "--output-budget", "1"],
+            "output_budget_exceeded",
+        ),
+        (
+            vec!["list", "--json", "--for", "triage", "--token-budget", "256"],
+            "budget_exceeded",
+        ),
+    ] {
+        let output = pm_rust(&workspace, &args)?;
+        assert_eq!(output.status.code(), Some(2));
+        assert!(output.stderr.is_empty());
+        let receipt: serde_json::Value = serde_json::from_slice(&output.stdout)?;
+        assert_eq!(receipt[key]["omitted_result"], true);
+        assert_eq!(fs::read(&path)?, before);
+    }
+    Ok(())
+}
+
+/// Creates a pipe with no readers before the child process exists.
+fn closed_stdout() -> std::io::Result<std::io::PipeWriter> {
+    let (reader, writer) = std::io::pipe()?;
+    drop(reader);
+    Ok(writer)
+}
+
+/// The delivery-failure invariant exists before scheduling any child.
+#[test]
+fn round7_closed_pipe_precedes_child_creation() -> Result<(), Box<dyn std::error::Error>> {
+    use std::io::Write as _;
+    let mut writer = closed_stdout()?;
+    assert_eq!(
+        writer
+            .write_all(b"receipt")
+            .err()
+            .ok_or("pipe remained readable")?
+            .kind(),
+        std::io::ErrorKind::BrokenPipe
+    );
+    Ok(())
+}
+
+/// Stored titles and positional comments/reasons share decorated-userinfo privacy on both streams.
+#[test]
+fn round10_decorated_credentials_never_reach_refusal_streams()
+-> Result<(), Box<dyn std::error::Error>> {
+    let workspace = workspace()?;
+    seed_item(&workspace)?;
+    let root = workspace.path().join(".agents/pm");
+    let own_path = root.join("tasks/sample-cli.toon");
+    let mut own = pm_rust::Workspace::discover(workspace.path())?.get("sample-cli")?;
+    let mut gate = own.clone();
+    gate.metadata.id = "sample-gate".to_owned();
+    own.metadata
+        .extra
+        .insert("blocked_by".to_owned(), serde_json::json!("sample-gate"));
+    own.metadata
+        .extra
+        .insert("assignee".to_owned(), serde_json::json!("alpha"));
+    fs::write(&own_path, toon_format::encode_default(&own)?)?;
+    // Governance refuses comment/close before persisting their decorated input.
+    let settings = root.join("settings.json");
+    let mut value: serde_json::Value = serde_json::from_slice(&fs::read(&settings)?)?;
+    value["governance"] = serde_json::json!({"preset":"custom","ownership_enforcement":"strict"});
+    fs::write(settings, serde_json::to_vec(&value)?)?;
+    for (source, expected) in [
+        (
+            "Gate: https://stored user@host.invalid",
+            "Gate: https://[redacted]@host.invalid",
+        ),
+        (
+            "Gate: https://host.invalid and user@example.invalid",
+            "Gate: https://host.invalid and user@example.invalid",
+        ),
+    ] {
+        gate.metadata.title = source.to_owned();
+        fs::write(
+            root.join("tasks/sample-gate.toon"),
+            toon_format::encode_default(&gate)?,
+        )?;
+        for json in [false, true] {
+            let mut formats = vec![];
+            if json {
+                formats.push("--json");
+            }
+            for mut args in [
+                vec!["claim", "sample-cli", "--start", "--author", "alpha"],
+                vec!["comment", "sample-cli", source, "--author", "beta"],
+                vec!["close", "sample-cli", source, "--author", "beta"],
+            ] {
+                if json && args[0] == "comment" {
+                    continue;
+                }
+                args.extend(&formats);
+                let before = fs::read(&own_path)?;
+                let output = pm_rust(&workspace, &args)?;
+                assert!(!output.status.success(), "{args:?}");
+                assert!(output.stdout.is_empty());
+                let text = String::from_utf8(output.stderr)?;
+                assert!(text.contains(expected), "{args:?}: {text}");
+                if source.contains("stored user") {
+                    assert!(!text.contains("stored user"));
+                }
+                assert_eq!(fs::read(&own_path)?, before);
+            }
+        }
+    }
+    Ok(())
+}
+
+/// An executable blocker-removal step targets the selected tracker even when IDs overlap.
+#[test]
+fn round10_scoped_next_step_cannot_mutate_default_tracker() -> Result<(), Box<dyn std::error::Error>>
+{
+    let default = workspace()?;
+    let selected = workspace()?;
+    for tracker in [&default, &selected] {
+        seed_item(tracker)?;
+        let store = pm_rust::Workspace::discover(tracker.path())?;
+        let mut own = store.get("sample-cli")?;
+        let mut gate = own.clone();
+        gate.metadata.id = "sample-gate".to_owned();
+        own.metadata
+            .extra
+            .insert("blocked_by".to_owned(), serde_json::json!("sample-gate"));
+        for item in [&own, &gate] {
+            fs::write(
+                store
+                    .pm_root()
+                    .join(format!("tasks/{}.toon", item.metadata.id)),
+                toon_format::encode_default(item)?,
+            )?;
+        }
+    }
+    let target = selected.path().join(".agents/pm");
+    let output = Command::new(env!("CARGO_BIN_EXE_pm-rust"))
+        .current_dir(default.path())
+        .arg("--pm-path")
+        .arg(&target)
+        .args([
+            "claim",
+            "sample-cli",
+            "--start",
+            "--author",
+            "beta",
+            "--json",
+        ])
+        .output()?;
+    assert_eq!(output.status.code(), Some(4));
+    let refusal: serde_json::Value = serde_json::from_slice(&output.stderr)?;
+    let expected = format!(
+        "pm --pm-path {} update sample-cli --unset blocked_by",
+        pm_rust::quote_command_arg(&target.to_string_lossy())
+    );
+    assert!(
+        refusal["next_steps"]
+            .as_array()
+            .ok_or("steps")?
+            .iter()
+            .any(|s| s == &expected)
+    );
+    let default_item = default.path().join(".agents/pm/tasks/sample-cli.toon");
+    let default_history = default.path().join(".agents/pm/history/sample-cli.jsonl");
+    let before = (fs::read(&default_item)?, fs::read(&default_history)?);
+    let Some(published) = published_cli::published_cli_or_skip("scoped executable next step")
+    else {
+        return Ok(());
+    };
+    let mut command = published_cli::oracle_command(
+        std::env::var("PM_NODE_INTERPRETER").unwrap_or_else(|_| "node".to_owned()),
+    );
+    let output = command
+        .env("DO_NOT_TRACK", "1")
+        .arg(published.entry)
+        .current_dir(default.path())
+        .arg("--pm-path")
+        .arg(&target)
+        .args([
+            "update",
+            "sample-cli",
+            "--unset",
+            "blocked_by",
+            "--author",
+            "beta",
+            "--json",
+        ])
+        .output()?;
+    assert!(
+        output.status.success(),
+        "{}",
+        String::from_utf8_lossy(&output.stderr)
+    );
+    assert_eq!(
+        (fs::read(default_item)?, fs::read(default_history)?),
+        before
+    );
+    assert!(
+        pm_rust::Workspace::discover(selected.path())?
+            .get("sample-cli")?
+            .metadata
+            .extra
+            .get("blocked_by")
+            .is_none()
+    );
+    Ok(())
+}
+
+/// Seeds two non-git trackers with the same issue ID for recovery execution checks.
+fn overlapping_issue_trackers() -> Result<(TempDir, TempDir), Box<dyn std::error::Error>> {
+    let default = workspace()?;
+    let selected = workspace()?;
+    for tracker in [&default, &selected] {
+        expect_ok(
+            tracker,
+            &[
+                "create",
+                "--id",
+                "sample-one",
+                "--title",
+                "Scope collision control",
+                "--type",
+                "Issue",
+                "--author",
+                "cli-agent",
+            ],
+        )?;
+    }
+    Ok((default, selected))
+}
+
+/// Executing the scoped retry closes the selected overlapping ID and leaves the default untouched.
+#[test]
+fn round11_scoped_close_retry_executes_only_selected_tracker()
+-> Result<(), Box<dyn std::error::Error>> {
+    let (default, selected) = overlapping_issue_trackers()?;
+    let untouched = default.path().join(".agents/pm");
+    let before = (
+        fs::read(untouched.join("issues/sample-one.toon"))?,
+        fs::read(untouched.join("history/sample-one.jsonl"))?,
+    );
+    let scope = selected
+        .path()
+        .join(".agents/pm")
+        .to_string_lossy()
+        .into_owned();
+    let output = Command::new(env!("CARGO_BIN_EXE_pm-rust"))
+        .current_dir(default.path())
+        .args([
+            "--pm-path",
+            &scope,
+            "close",
+            "sample-one",
+            "--validate-close",
+            "strict",
+            "--json",
+            "--",
+            "--pm-path=literal",
+        ])
+        .output()?;
+    assert_eq!(
+        output.status.code(),
+        Some(2),
+        "{}",
+        String::from_utf8_lossy(&output.stderr)
+    );
+    let refusal: serde_json::Value = serde_json::from_slice(&output.stderr)?;
+    for key in ["normalized_args", "suggested_retry_args"] {
+        let values = refusal["recovery"][key]
+            .as_array()
+            .ok_or("missing recovery argv")?;
+        assert_eq!(
+            &values[..2],
+            &[serde_json::json!("--pm-path"), serde_json::json!(scope)]
+        );
+        assert_eq!(values.last(), Some(&serde_json::json!("--pm-path=literal")));
+    }
+    let expected = format!("pm --pm-path {} close ", pm_rust::quote_command_arg(&scope));
+    for key in ["attempted_command", "suggested_retry"] {
+        assert!(
+            refusal["recovery"][key]
+                .as_str()
+                .ok_or("command")?
+                .starts_with(&expected)
+        );
+    }
+    let retry = refusal["recovery"]["suggested_retry_args"]
+        .as_array()
+        .ok_or("retry")?
+        .iter()
+        .map(|value| {
+            value.as_str().ok_or("argument").map(|text| {
+                if text == "<value>" {
+                    "Verified evidence".to_owned()
+                } else {
+                    text.to_owned()
+                }
+            })
+        })
+        .collect::<Result<Vec<_>, _>>()?;
+    let closed = Command::new(env!("CARGO_BIN_EXE_pm-rust"))
+        .current_dir(default.path())
+        .args(&retry)
+        .output()?;
+    assert!(
+        closed.status.success(),
+        "{}",
+        String::from_utf8_lossy(&closed.stderr)
+    );
+    assert_eq!(
+        pm_rust::Workspace::discover(selected.path())?
+            .get("sample-one")?
+            .metadata
+            .status,
+        "closed"
+    );
+    assert_eq!(
+        pm_rust::Workspace::discover(selected.path())?
+            .get("sample-one")?
+            .metadata
+            .extra["close_reason"],
+        "--pm-path=literal"
+    );
+    assert_eq!(
+        (
+            fs::read(untouched.join("issues/sample-one.toon"))?,
+            fs::read(untouched.join("history/sample-one.jsonl"))?
+        ),
+        before
+    );
+    Ok(())
+}
+
+#[path = "support/refusal_corpus.rs"]
+mod refusal_corpus;
+
+/// Stored holders and close retries mirror the shared authority corpus in both refusal formats.
+#[test]
+fn round11_stored_holder_and_public_retry_boundaries() -> Result<(), Box<dyn std::error::Error>> {
+    exercise_round11_holder_boundaries(None)
+}
+
+/// Public URL prose keeps the stored display and the same-close retry advice.
+#[test]
+fn round11_public_prose_process_keeps_retry() -> Result<(), Box<dyn std::error::Error>> {
+    exercise_round11_holder_boundaries(Some(false))
+}
+
+/// Runs the shared corpus against real persisted holders without Git or SDK mocks.
+fn exercise_round11_holder_boundaries(
+    private_only: Option<bool>,
+) -> Result<(), Box<dyn std::error::Error>> {
+    let mut mismatches = Vec::new();
+    for &(input, expected) in refusal_corpus::AUTHORITIES
+        .iter()
+        .chain(refusal_corpus::COPIED_PASSWORDS)
+    {
+        for &prefix in refusal_corpus::DECORATIONS {
+            let tracker = workspace()?;
+            expect_ok(
+                &tracker,
+                &[
+                    "create",
+                    "--id",
+                    "sample-holder",
+                    "--title",
+                    "Stored holder fixture",
+                    "--type",
+                    "Issue",
+                    "--author",
+                    "fixture",
+                ],
+            )?;
+            let holder = format!("{prefix}{input}");
+            let expected = format!("{prefix}{expected}");
+            let private = holder != expected;
+            if private_only.is_some_and(|wanted| wanted != private) {
+                continue;
+            }
+
+            expect_ok(
+                &tracker,
+                &[
+                    "claim",
+                    "sample-holder",
+                    "--author",
+                    &holder,
+                    "--force",
+                    "--json",
+                ],
+            )?;
+            let root = tracker.path().join(".agents/pm");
+            let item = root.join("issues/sample-holder.toon");
+            let history = root.join("history/sample-holder.jsonl");
+            let before = (fs::read(&item)?, fs::read(&history)?);
+            for json in [false, true] {
+                let mut claim = vec!["claim", "sample-holder", "--author", "beta"];
+                if json {
+                    claim.push("--json");
+                }
+                let output = pm_rust(&tracker, &claim)?;
+                assert_eq!(output.status.code(), Some(4));
+                assert!(output.stdout.is_empty());
+                let text = String::from_utf8(output.stderr)?;
+                if json {
+                    if serde_json::from_str::<serde_json::Value>(&text)?["claimed_by"] != expected {
+                        mismatches.push(format!("JSON holder: {holder}"));
+                    }
+                } else if !text.contains(&format!("Held by: {expected}")) {
+                    mismatches.push(format!("human holder: {holder}"));
+                }
+                let mut close = vec![
+                    "close",
+                    "sample-holder",
+                    "--author",
+                    holder.as_str(),
+                    "--validate-close",
+                    "strict",
+                ];
+                if json {
+                    close.push("--json");
+                }
+                close.extend(["--", "Closing reason"]);
+                let output = pm_rust(&tracker, &close)?;
+                assert_eq!(output.status.code(), Some(2));
+                assert!(output.stdout.is_empty());
+                let text = String::from_utf8(output.stderr)?;
+                let encoded = if json {
+                    serde_json::to_string(&expected)?
+                } else {
+                    pm_rust::quote_command_arg(&expected)
+                };
+                if !text.contains(&expected) && !text.contains(&encoded) {
+                    mismatches.push(format!("close projection json={json}: {holder}"));
+                }
+                if json {
+                    let payload: serde_json::Value = serde_json::from_str(&text)?;
+                    if payload["recovery"].get("suggested_retry").is_none() != private {
+                        mismatches.push(format!("JSON retry: {holder}"));
+                    }
+                } else if text.contains("Run: pm ") == private {
+                    mismatches.push(format!("human retry: {holder}"));
+                }
+                assert_eq!((fs::read(&item)?, fs::read(&history)?), before);
+            }
+        }
+    }
+    assert!(mismatches.is_empty(), "{}", mismatches.join("\n"));
+    Ok(())
+}
+
+/// Quoted message arguments register slash passwords before projecting copied values.
+#[test]
+fn round12_quoted_message_copies_are_redacted() -> Result<(), Box<dyn std::error::Error>> {
+    let tracker = workspace()?;
+    seed_item(&tracker)?;
+    expect_ok(
+        &tracker,
+        &["claim", "sample-cli", "--author", "alpha", "--force"],
+    )?;
+    for &(input, _) in refusal_corpus::COPIED_PASSWORDS {
+        for json in [false, true] {
+            let mut args = vec![
+                "claim",
+                "sample-cli",
+                "--author",
+                "beta",
+                "--message",
+                input,
+            ];
+            if json {
+                args.push("--json");
+            }
+            let output = pm_rust(&tracker, &args)?;
+            assert_eq!(output.status.code(), Some(4));
+            let text = String::from_utf8(output.stderr)?;
+            assert!(text.contains("[redacted]"));
+            assert!(!text.contains("443/secret"), "{text}");
+        }
+    }
+    Ok(())
+}
+
+/// Real stored-row diagnostics redact enrolled copies in both requested refusal modes.
+#[test]
+fn round15_stored_duplicate_diagnostics_never_leak() -> Result<(), Box<dyn std::error::Error>> {
+    use refusal_corpus as corpus;
+    let tracker = workspace()?;
+    for id in ["sample-first", "sample-second"] {
+        expect_ok(
+            &tracker,
+            &[
+                "create", "--id", id, "--title", "Fixture", "--type", "Task", "--author", "alpha",
+            ],
+        )?;
+    }
+    let paths = ["sample-first", "sample-second"]
+        .map(|id| tracker.path().join(format!(".agents/pm/tasks/{id}.toon")));
+    let baseline: serde_json::Value = toon_format::decode_default(&fs::read_to_string(&paths[0])?)?;
+    for (text, secret) in corpus::DIAGNOSTICS
+        .iter()
+        .map(|(text, secret)| (*text, Some(*secret)))
+        .chain(corpus::PUBLIC_DIAGNOSTICS.iter().map(|text| (*text, None)))
+    {
+        let mut document = baseline.clone();
+        document["id"] = serde_json::json!(text);
+        for path in &paths {
+            fs::write(path, toon_format::encode_default(&document)?)?;
+        }
+        for json in [false, true] {
+            let args = if json {
+                vec!["deps", "sample-first", "--json"]
+            } else {
+                vec!["deps", "sample-first"]
+            };
+            let output = pm_rust(&tracker, &args)?;
+            let diagnostic = String::from_utf8(output.stderr)?;
+            assert_eq!(output.status.code(), Some(2), "{diagnostic}");
+            assert!(diagnostic.contains("duplicate pm item id"));
+            if let Some(secret) = secret {
+                assert!(
+                    !diagnostic.contains(secret),
+                    "stored credential copy must not reach stderr"
+                );
+                assert!(diagnostic.contains("[redacted]"));
+            } else {
+                assert!(diagnostic.contains(text));
+            }
+            for path in &paths {
+                assert_eq!(
+                    fs::read_to_string(path)?,
+                    toon_format::encode_default(&document)?
+                );
+            }
+        }
+    }
+    Ok(())
+}
+
+/// Username-as-token copies are hidden in structured and human invocation recovery.
+#[test]
+fn round16_username_copies_json() -> Result<(), Box<dyn std::error::Error>> {
+    userinfo_component_refusals(true)
+}
+
+/// Human recovery shares the same registry and preserves ordinary words containing short names.
+#[test]
+fn round16_username_copies_human() -> Result<(), Box<dyn std::error::Error>> {
+    userinfo_component_refusals(false)
+}
+
+/// Exercises actual ownership refusals and stored duplicate diagnostics without credential argv.
+fn userinfo_component_refusals(json: bool) -> Result<(), Box<dyn std::error::Error>> {
+    let tracker = workspace()?;
+    seed_item(&tracker)?;
+    expect_ok(
+        &tracker,
+        &["claim", "sample-cli", "--author", "alpha", "--force"],
+    )?;
+    let root = tracker.path().join(".agents/pm");
+    let item = root.join("tasks/sample-cli.toon");
+    let history = root.join("history/sample-cli.jsonl");
+    let original = (fs::read(&item)?, fs::read(&history)?);
+    for &(url, message, expected) in refusal_corpus::USERINFO_COMPONENTS {
+        let input = format!("{url} copied {message}");
+        let projected = format!("https://[redacted]@host.invalid copied {expected}");
+        let mut args = vec![
+            "claim",
+            "sample-cli",
+            "--author",
+            "beta",
+            "--message",
+            &input,
+        ];
+        if json {
+            args.push("--json");
+        }
+        let output = pm_rust(&tracker, &args)?;
+        assert_eq!(output.status.code(), Some(4));
+        assert!(output.stdout.is_empty());
+        let text = String::from_utf8(output.stderr)?;
+        if json {
+            let payload: serde_json::Value = serde_json::from_str(&text)?;
+            let arguments = payload["recovery"]["normalized_args"]
+                .as_array()
+                .ok_or("arguments")?;
+            let message_index = arguments
+                .iter()
+                .position(|value| value == "--message")
+                .ok_or("message argument")?
+                + 1;
+            assert_eq!(arguments[message_index], projected);
+            let expected_args = arguments
+                .iter()
+                .filter_map(serde_json::Value::as_str)
+                .collect::<Vec<_>>();
+            assert_eq!(
+                payload["recovery"]["attempted_command"],
+                pm_rust::render_pm_command(expected_args)
+            );
+        } else {
+            assert!(
+                text.contains(&pm_rust::quote_command_arg(&projected)),
+                "{text}"
+            );
+        }
+        assert_eq!((fs::read(&item)?, fs::read(&history)?), original);
+    }
+    Ok(())
+}
+
+/// Stored duplicate diagnostics redact username copies in requested JSON output.
+#[test]
+fn round16_stored_username_copies_json() -> Result<(), Box<dyn std::error::Error>> {
+    stored_userinfo_component_diagnostics(true)
+}
+
+/// Stored duplicate diagnostics redact username copies in human output.
+#[test]
+fn round16_stored_username_copies_human() -> Result<(), Box<dyn std::error::Error>> {
+    stored_userinfo_component_diagnostics(false)
+}
+
+/// Exercises stored-text sources with no URL in argv and preserves both historical rows.
+fn stored_userinfo_component_diagnostics(json: bool) -> Result<(), Box<dyn std::error::Error>> {
+    let tracker = workspace()?;
+    seed_item(&tracker)?;
+    let root = tracker.path().join(".agents/pm");
+    let item = root.join("tasks/sample-cli.toon");
+    let baseline: serde_json::Value = toon_format::decode_default(&fs::read_to_string(&item)?)?;
+    let second = root.join("tasks/sample-second.toon");
+    for &(url, message, expected) in refusal_corpus::USERINFO_COMPONENTS {
+        let source = format!("{url} copied {message}");
+        let projected = format!("https://[redacted]@host.invalid copied {expected}");
+        let mut value = baseline.clone();
+        value["id"] = serde_json::json!(source);
+        let document = toon_format::encode_default(&value)?;
+        for path in [&item, &second] {
+            fs::write(path, &document)?;
+        }
+        let mut args = vec!["deps", "sample-cli"];
+        if json {
+            args.push("--json");
+        }
+        let output = pm_rust(&tracker, &args)?;
+        assert_eq!(output.status.code(), Some(2));
+        assert!(output.stdout.is_empty());
+        let text = String::from_utf8(output.stderr)?;
+        assert!(text.contains("duplicate pm item id"));
+        assert!(text.contains(&projected), "{text}");
+        for path in [&item, &second] {
+            assert_eq!(fs::read_to_string(path)?, document);
+        }
+    }
+    Ok(())
+}
+
+/// The message's credential URL cannot consume later public email text in JSON recovery.
+#[test]
+fn round17_email_invocation_json() -> Result<(), Box<dyn std::error::Error>> {
+    email_boundary_refusals(true, false)
+}
+/// Human attempted commands preserve public email text while masking copied passwords.
+#[test]
+fn round17_email_invocation_human() -> Result<(), Box<dyn std::error::Error>> {
+    email_boundary_refusals(false, false)
+}
+/// Stored diagnostic text registers the password before a later email, without URL argv.
+#[test]
+fn round17_email_stored_json() -> Result<(), Box<dyn std::error::Error>> {
+    email_boundary_refusals(true, true)
+}
+/// The human fallback uses the same shared stored-source corpus and boundary.
+#[test]
+fn round17_email_stored_human() -> Result<(), Box<dyn std::error::Error>> {
+    email_boundary_refusals(false, true)
+}
+/// Runs the actual binary against a plain tracker, keeping both positive and public controls.
+fn email_boundary_refusals(json: bool, stored: bool) -> Result<(), Box<dyn std::error::Error>> {
+    let tracker = workspace()?;
+    seed_item(&tracker)?;
+    expect_ok(
+        &tracker,
+        &["claim", "sample-cli", "--author", "alpha", "--force"],
+    )?;
+    let root = tracker.path().join(".agents/pm");
+    let item = root.join("tasks/sample-cli.toon");
+    let history = root.join("history/sample-cli.jsonl");
+    let original = (fs::read(&item)?, fs::read(&history)?);
+    let baseline: serde_json::Value = toon_format::decode_default(&fs::read_to_string(&item)?)?;
+    for &(input, expected) in refusal_corpus::EMAIL_AFTER_CREDENTIALS {
+        if stored {
+            let mut value = baseline.clone();
+            value["id"] = serde_json::json!(input);
+            let document = toon_format::encode_default(&value)?;
+            let second = root.join("tasks/sample-second.toon");
+            for path in [&item, &second] {
+                fs::write(path, &document)?;
+            }
+            let mut args = vec!["deps", "sample-cli"];
+            if json {
+                args.push("--json");
+            }
+            let output = pm_rust(&tracker, &args)?;
+            assert_eq!(output.status.code(), Some(2));
+            assert!(output.stdout.is_empty());
+            let text = String::from_utf8(output.stderr)?;
+            assert!(text.contains("duplicate pm item id"));
+            assert!(text.contains(expected), "{text}");
+            for path in [&item, &second] {
+                assert_eq!(fs::read_to_string(path)?, document);
+            }
+        } else {
+            let mut args = vec![
+                "claim",
+                "sample-cli",
+                "--author",
+                "beta",
+                "--message",
+                input,
+            ];
+            if json {
+                args.push("--json");
+            }
+            let output = pm_rust(&tracker, &args)?;
+            assert_eq!(output.status.code(), Some(4));
+            assert!(output.stdout.is_empty());
+            let text = String::from_utf8(output.stderr)?;
+            if json {
+                let payload: serde_json::Value = serde_json::from_str(&text)?;
+                let args = payload["recovery"]["normalized_args"]
+                    .as_array()
+                    .ok_or("arguments")?;
+                let index = args
+                    .iter()
+                    .position(|value| value == "--message")
+                    .ok_or("message")?
+                    + 1;
+                assert_eq!(args[index], expected);
+                let args = args
+                    .iter()
+                    .filter_map(serde_json::Value::as_str)
+                    .collect::<Vec<_>>();
+                assert_eq!(
+                    payload["recovery"]["attempted_command"],
+                    pm_rust::render_pm_command(args)
+                );
+            } else {
+                assert!(
+                    text.contains(&pm_rust::quote_command_arg(expected)),
+                    "{text}"
+                );
+            }
+            assert_eq!((fs::read(&item)?, fs::read(&history)?), original);
         }
     }
     Ok(())

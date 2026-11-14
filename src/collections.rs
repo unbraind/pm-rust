@@ -930,7 +930,7 @@ impl Workspace {
             return Err(refusal(
                 "Commander does not recognize option --remove-index for this command path.",
                 2,
-                json!({"code":"unknown_option","required":"Use an option declared on this path, or move the declared option to one of its accepting command paths.","recovery":{"candidate_commands":["item test"],"candidate_commands_total":1,"option_scope":"declared_elsewhere"},"next_steps":["Run command help to confirm the exact option contracts for this command path.","--remove-index is accepted by item test. Inspect those command contracts only if you intended a different operation."],"title":"Unknown option --remove-index","examples":[format!("pm item {key} --help")],"flag":"--remove-index","value":"--remove-index"}),
+                json!({"code":"unknown_option","required":"Use an option declared on this path, or move the declared option to one of its accepting command paths.","recovery":{"candidate_commands":["item test"],"candidate_commands_total":1,"option_scope":"declared_elsewhere"},"next_steps":["Run command help to confirm the exact option contracts for this command path.","--remove-index is accepted by item test. Inspect those command contracts only if you intended a different operation."],"title":"Unknown option --remove-index","examples":[crate::render_pm_command(["item",key,"--help"])],"flag":"--remove-index","value":"--remove-index"}),
             ));
         }
         let root = self

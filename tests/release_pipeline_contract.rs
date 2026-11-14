@@ -1192,3 +1192,153 @@ fn npm_and_bun_share_the_full_native_aggregate() -> Result<(), BoxError> {
     );
     Ok(())
 }
+
+/// Locates Cargo's active profile by its deps/build artifact directories, including custom profiles.
+fn cargo_profile_directory(
+    executable: &std::path::Path,
+) -> Result<&std::path::Path, Box<dyn std::error::Error>> {
+    executable
+        .ancestors()
+        .find_map(|path| {
+            let name = path.file_name()?.to_str()?;
+            if name == "deps" || name == "build" {
+                path.parent()
+            } else {
+                None
+            }
+        })
+        .ok_or_else(|| "Cargo profile directory".into())
+}
+
+/// Custom and cross-target profile names obey both stable and nightly artifact layouts.
+#[test]
+fn round7_custom_cargo_profile_paths() -> Result<(), Box<dyn std::error::Error>> {
+    for executable in [
+        "target/custom-check/deps/test-binary",
+        "target/custom-check/build/pm-rust/hash/out/test-binary",
+        "target/triple/custom-check/deps/test-binary",
+    ] {
+        let path = std::path::Path::new(executable);
+        let expected = if executable.contains("triple") {
+            "target/triple/custom-check"
+        } else {
+            "target/custom-check"
+        };
+        assert_eq!(
+            cargo_profile_directory(path)?,
+            std::path::Path::new(expected)
+        );
+    }
+    assert!(cargo_profile_directory(std::path::Path::new("some/test-binary")).is_err());
+    Ok(())
+}
+
+/// Finds this crate's build script across the stable and nightly Cargo artifact layouts.
+fn own_build_scripts() -> Result<Vec<std::path::PathBuf>, Box<dyn std::error::Error>> {
+    let executable = std::env::current_exe()?;
+    build_scripts_for_executable(&executable)
+}
+
+/// Finds profile artifacts and adjacent host artifacts in Cargo cache directories.
+fn build_scripts_for_executable(
+    executable: &std::path::Path,
+) -> Result<Vec<std::path::PathBuf>, Box<dyn std::error::Error>> {
+    let profile = cargo_profile_directory(executable)?;
+    let mut directories = std::collections::BTreeSet::from([profile.join("build")]);
+    if let Some(parent) = profile.parent()
+        && let Some(root) = parent
+            .parent()
+            .filter(|root| root.join("CACHEDIR.TAG").is_file())
+        && let Some(name) = profile.file_name()
+    {
+        directories.insert(root.join(name).join("build"));
+    }
+    let mut folders = vec![];
+    for directory in directories {
+        let entries = match std::fs::read_dir(directory) {
+            Ok(entries) => entries,
+            Err(error) if error.kind() == std::io::ErrorKind::NotFound => continue,
+            Err(error) => return Err(error.into()),
+        };
+        for entry in entries {
+            let entry = entry?;
+            let name = entry.file_name();
+            if name == "pm-rust" {
+                for hash in std::fs::read_dir(entry.path())? {
+                    folders.push(hash?.path().join("out"));
+                }
+            } else if name.to_string_lossy().starts_with("pm-rust-") {
+                folders.push(entry.path());
+            }
+        }
+    }
+    let suffix = std::env::consts::EXE_SUFFIX;
+    Ok(folders
+        .into_iter()
+        .flat_map(|folder| {
+            [
+                folder.join(format!("build-script-build{suffix}")),
+                folder.join(format!("build_script_build{suffix}")),
+            ]
+        })
+        .filter(|path| path.is_file())
+        .collect())
+}
+
+/// The actual build script reserves the MSVC stack and emits no linker option for other targets.
+#[test]
+fn build_script_stack_contract() -> Result<(), Box<dyn std::error::Error>> {
+    let scripts = own_build_scripts()?;
+    assert!(
+        !scripts.is_empty(),
+        "this crate's compiled build script must exist"
+    );
+    for script in scripts {
+        for (target, expected) in [
+            ("gnu", ""),
+            ("msvc", "cargo:rustc-link-arg-bin=pm-rust=/STACK:8388608\n"),
+        ] {
+            let output = std::process::Command::new(&script)
+                .env("CARGO_CFG_TARGET_ENV", target)
+                .output()?;
+            assert!(output.status.success());
+            assert!(output.stderr.is_empty());
+            assert_eq!(String::from_utf8(output.stdout)?, expected);
+        }
+    }
+    Ok(())
+}
+
+/// Explicit-target layouts find host scripts even without a triple build directory.
+#[test]
+fn round14_host_build_script_discovery() -> Result<(), Box<dyn std::error::Error>> {
+    let temp = tempfile::tempdir()?;
+    let root = temp.path().join("custom-target-root");
+    std::fs::create_dir_all(root.join("custom-check/build/pm-rust-hash"))?;
+    std::fs::write(
+        root.join("CACHEDIR.TAG"),
+        "Signature: 8a477f597d28d172789f06886806bc55
+",
+    )?;
+    let script = root.join(format!(
+        "custom-check/build/pm-rust-hash/build-script-build{}",
+        std::env::consts::EXE_SUFFIX
+    ));
+    std::fs::write(&script, "fixture")?;
+    assert_eq!(
+        build_scripts_for_executable(&root.join("triple/custom-check/deps/test"))?,
+        vec![script.clone()]
+    );
+    assert_eq!(
+        build_scripts_for_executable(&root.join("custom-check/deps/test"))?,
+        vec![script]
+    );
+    std::fs::create_dir_all(root.join("triple/custom-check/build"))?;
+    // Cargo also writes a cache marker in the target-triple directory.
+    std::fs::write(root.join("triple/CACHEDIR.TAG"), "cache marker")?;
+    assert_eq!(
+        build_scripts_for_executable(&root.join("triple/custom-check/deps/test"))?.len(),
+        1
+    );
+    Ok(())
+}

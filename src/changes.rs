@@ -260,7 +260,7 @@ struct Cursor {
 
 /// Opens without following replacement symlinks or blocking on a replacement FIFO.
 #[cfg(unix)]
-fn open_history(path: &std::path::Path) -> io::Result<fs::File> {
+pub(crate) fn open_history(path: &std::path::Path) -> io::Result<fs::File> {
     use rustix::fs::{Mode, OFlags, open};
     open(
         path,
@@ -273,7 +273,7 @@ fn open_history(path: &std::path::Path) -> io::Result<fs::File> {
 
 /// Opens the selected file itself, retaining reparse-point type information.
 #[cfg(windows)]
-fn open_history(path: &std::path::Path) -> io::Result<fs::File> {
+pub(crate) fn open_history(path: &std::path::Path) -> io::Result<fs::File> {
     use std::os::windows::fs::OpenOptionsExt as _;
     fs::OpenOptions::new()
         .read(true)
@@ -678,6 +678,10 @@ impl<A: NativeAdapter> ChangeReader<A> {
         Ok(page)
     }
 }
+
+/// Reuses the existing thread-local OS-failure seam for owned-file admission tests.
+#[cfg(test)]
+pub(crate) use tests::{IO_FAILURE, inject_io};
 
 #[cfg(test)]
 #[path = "../tests/support/changes_unit.rs"]

@@ -175,10 +175,10 @@ pub(crate) fn records(workspace: &Workspace, id: &str) -> Result<Vec<Value>, PmR
                     index + 1
                 ),
                 1,
-                json!({"code":"history_merge_conflict_markers_detected","required":"Repair the history stream by resolving merge-conflict markers.","why":"Conflict markers break JSONL parsing and invalidate deterministic audit history.","examples":[format!("pm history {id}"),format!("pm restore {id} <timestamp-or-version>")],"next_steps":["Resolve or restore the history file, then rerun the command."]}),
+                json!({"code":"history_merge_conflict_markers_detected","required":"Repair the history stream by resolving merge-conflict markers.","why":"Conflict markers break JSONL parsing and invalidate deterministic audit history.","examples":[crate::render_pm_command(["history",id]),format!("{} <timestamp-or-version>",crate::render_pm_command(["restore",id]))],"next_steps":["Resolve or restore the history file, then rerun the command."]}),
             ));
         }
-        result.push(crate::strict_json::from_str(line).map_err(|_| refusal(format!("History for {id} contains invalid JSON at line {}. Repair or restore the history stream and retry.",index+1),1,json!({"code":"history_json_invalid","next_steps":[format!("Run pm history-repair {id} --salvage-tail --dry-run to check whether only an invalid suffix is damaged.")]})))?);
+        result.push(crate::strict_json::from_str(line).map_err(|_| refusal(format!("History for {id} contains invalid JSON at line {}. Repair or restore the history stream and retry.",index+1),1,json!({"code":"history_json_invalid","next_steps":[format!("Run {} to check whether only an invalid suffix is damaged.",crate::render_pm_command(["history-repair",id,"--salvage-tail","--dry-run"]))]})))?);
     }
     Ok(result)
 }
@@ -239,15 +239,15 @@ impl Workspace {
         }
         let entries = records(self, resolved)?;
         let start = entries.len().saturating_sub(limit.unwrap_or(entries.len()));
-        let mut result = json!({"id":resolved,"history":entries[start..],"compact":false,"projection":{"mode":"full","row_key":"history"},"omission_receipt":complete_receipt(),"count":entries.len()-start,"limit":limit});
+        let mut result = json!({"id":resolved,"history":entries[start..],"compact":false,"projection":{"mode":"full","row_key":"history"},"omission_receipt":complete_receipt(),"count":entries.len()-start,"total":entries.len(),"order":if options.full {"oldest_first"}else{"newest_first"},"limit":limit});
         if !options.full {
-            let compact: Vec<_> = entries.iter().enumerate().skip(start).map(|(index,entry)| {
+            let compact: Vec<_> = entries.iter().enumerate().skip(start).rev().map(|(index,entry)| {
                 let patch: Vec<_> = entry["patch"].as_array().into_iter().flatten().filter(|op| op["op"].is_string() && op["path"].is_string()).collect();
                 let mut fields: Vec<_> = patch.iter().flat_map(|op| [op["path"].as_str(),op["from"].as_str()].into_iter().flatten()).map(changed_field).collect();
                 fields.sort_by(|a,b| crate::collation::compare(a,b)); fields.dedup();
                 json!({"index":index+1,"ts":entry["ts"],"op":entry["op"],"author":entry["author"],"patch_ops":patch.len(),"changed_fields":fields})
             }).collect();
-            result = json!({"id":resolved,"compact_history":compact,"compact":true,"projection":{"mode":"compact","row_key":"compact_history"},"omission_receipt":{"has_omissions":true,"omitted_field_group_count":1,"omitted_field_groups":[{"name":"raw_history","restore_with":"--full"}]},"count":entries.len()-start,"limit":limit});
+            result = json!({"id":resolved,"compact_history":compact,"compact":true,"projection":{"mode":"compact","row_key":"compact_history"},"omission_receipt":{"has_omissions":true,"omitted_field_group_count":1,"omitted_field_groups":[{"name":"raw_history","restore_with":"--full"}]},"count":entries.len()-start,"total":entries.len(),"order":"newest_first","limit":limit});
         }
         if entries
             .first()

@@ -2,8 +2,7 @@
 use super::*;
 type TestResult = Result<(), Box<dyn std::error::Error>>;
 
-#[path = "process_environment.rs"]
-mod process_environment;
+use crate::test_process_environment as process_environment;
 
 /// Exercises independent pair spellings, quoting and path anchoring.
 #[test]

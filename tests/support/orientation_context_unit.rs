@@ -433,7 +433,7 @@ fn deep_sections_preserve_relationships_and_evidence() -> Result<(), Box<dyn std
         workspace.pm_root().join("history/sample-deleted.jsonl"),
         format!(
             "{}\n",
-            json!({"ts":NOW,"op":"create","author":"fixture","message":"Retained evidence"})
+            json!({"ts":"2026-08-21T00:00:00.000Z","op":"create","author":"fixture","message":"Retained evidence"})
         ),
     )?;
     let result = workspace.context_with_global(
@@ -1452,5 +1452,86 @@ fn legacy_blocker_aliases_keep_the_resolved_target() -> Result<(), Box<dyn std::
             vec!["sample-inverse", "sample-target"]
         );
     }
+    Ok(())
+}
+
+/// A valid large recurrence interval stops at the calendar domain without losing the first event.
+#[test]
+fn round5_recurrence_calendar_domain_boundary() {
+    let start = "2026-08-22T10:00:00.000Z";
+    let event =
+        serde_json::json!({"start_at":start,"recurrence":{"freq":"weekly","interval":1_000_000}});
+    assert_eq!(super::event_dates(&event, start), vec![start.to_owned()]);
+    let event =
+        serde_json::json!({"start_at":start,"recurrence":{"freq":"weekly","interval":1,"count":2}});
+    assert_eq!(
+        super::event_dates(&event, start),
+        vec![start.to_owned(), "2026-08-29T10:00:00.000Z".to_owned()]
+    );
+}
+
+/// Cutoff validation precedes storage reads and preserves the published runtime refusal.
+#[test]
+fn round5_invalid_cutoff_precedes_context_storage() -> Result<(), Box<dyn std::error::Error>> {
+    let (_temp, workspace, _) = workspace()?;
+    let path = workspace.pm_root().join("settings.json");
+    let before = fs::read(&path)?;
+    fs::remove_file(&path)?;
+    let options = ContextOptions {
+        no_extension_health: true,
+        ..Default::default()
+    };
+    assert!(
+        matches!(workspace.context_with_global(&options,"invalid",None),Err(PmRustError::CommandRefusal{detail,exit_code:1,context}) if detail=="Invalid time value" && context["code"]=="unknown_error")
+    );
+    fs::write(&path, &before)?;
+    assert!(workspace.context_with_global(&options, NOW, None).is_ok());
+    assert_eq!(fs::read(path)?, before);
+    Ok(())
+}
+
+/// A real sidecar failure after runtime settings are captured propagates without writing context state.
+#[test]
+fn round18_late_context_registry_failure_is_read_only() -> Result<(), Box<dyn std::error::Error>> {
+    let (_temp, workspace, _) = workspace()?;
+    let root = workspace.pm_root();
+    fs::create_dir(root.join("schema"))?;
+    let status = root.join("schema/statuses.json");
+    fs::write(&status, "{}")?;
+    let settings = root.join("settings.json");
+    let original_settings = fs::read(&settings)?;
+    let original_status = fs::read(&status)?;
+    let watched = root.to_path_buf();
+    let selected = status.clone();
+    let saved = status.with_extension("saved");
+    let moved = saved.clone();
+    crate::lifecycle_admission::tests::PATH_READ.with(|hook| {
+        *hook.borrow_mut() = Some(Box::new(move |path| {
+            assert_eq!(path, watched);
+            assert!(fs::rename(&selected, &moved).is_ok());
+            assert!(fs::create_dir(&selected).is_ok());
+        }));
+    });
+    let clear = crate::lifecycle_admission::tests::ClearPathRead;
+    let result = workspace.context_with_global(
+        &ContextOptions {
+            no_extension_health: true,
+            ..Default::default()
+        },
+        NOW,
+        None,
+    );
+    drop(clear);
+    fs::remove_dir(&status)?;
+    fs::rename(&saved, &status)?;
+    assert!(
+        matches!(result,Err(PmRustError::Io{path,source}) if path==status && source.kind()!=std::io::ErrorKind::NotFound)
+    );
+    assert_eq!(fs::read(&settings)?, original_settings);
+    assert_eq!(fs::read(&status)?, original_status);
+    assert_eq!(fs::read_dir(root.join("tasks"))?.count(), 0);
+    assert_eq!(fs::read_dir(root.join("history"))?.count(), 0);
+    assert_eq!(fs::read_dir(root)?.count(), 4);
+    assert_eq!(fs::read_dir(root.join("schema"))?.count(), 1);
     Ok(())
 }

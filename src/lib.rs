@@ -4,7 +4,7 @@
 //! field-update, comment-append, and close transactions, each backed by
 //! per-item locking with a wait budget, durable journaling, recovery, and
 //! canonical `item_hash_version: 3` history compatible with the published
-//! `pm` 2026.10.21 release. Merge operations remain gated on differential
+//! `pm` 2026.11.11 release. Merge operations remain gated on differential
 //! conformance evidence.
 
 pub mod admission;
@@ -14,12 +14,14 @@ pub mod changes;
 pub mod cli;
 mod collation;
 mod collections;
+mod command_line;
 pub mod discovery;
 mod error;
 mod history;
 mod identity_probes;
 mod item;
 mod json_output;
+mod lifecycle_admission;
 mod list;
 mod list_intent;
 mod list_registry;
@@ -38,10 +40,12 @@ mod read_session;
 mod search;
 mod selection;
 pub mod strict_json;
+mod toon_input;
 mod toon_output;
 mod workspace;
 
 pub use collections::CollectionOptions;
+pub use command_line::{parse_command_args, render_pm_command};
 pub use error::PmRustError;
 pub use history::canonical_metadata_pairs;
 pub use item::{ItemDocument, ItemMetadata, ItemSummary};
@@ -57,11 +61,12 @@ pub use ownership::{
     AuthorIdentity, OwnershipOptions, SelectionOptions, partial_failure as completed_step_failure,
 };
 pub use search::SearchOptions;
+pub use toon_input::parse_toon;
 pub use toon_output::stringify_toon;
 pub use workspace::{ItemFilter, ListResult, Workspace};
 
 /// Published canonical `pm` release used by this compatibility slice.
-pub const COMPATIBLE_PM_VERSION: &str = "2026.10.21";
+pub const COMPATIBLE_PM_VERSION: &str = "2026.11.11";
 
 pub use read_session::{
     ReadSession, ReadSessionLimits, SessionCancellation, SessionPage, SessionReceipt,
@@ -69,3 +74,16 @@ pub use read_session::{
 };
 
 pub use query_cost::{QueryCost, QueryCostRefusal, QueryCostRequest, QueryProjection, WorkBound};
+
+#[cfg(test)]
+#[path = "../tests/support/process_environment.rs"]
+mod test_process_environment;
+
+#[cfg(test)]
+#[allow(dead_code)]
+#[path = "../tests/support/published_cli.rs"]
+mod published_cli;
+
+#[cfg(test)]
+#[path = "../tests/support/advice_corpus.rs"]
+mod test_advice_corpus;

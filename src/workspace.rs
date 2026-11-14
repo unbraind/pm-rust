@@ -225,16 +225,38 @@ impl Workspace {
     ///
     /// Every document uses the full strict decoder. Unlike `read_items`, this
     /// boundary drops comments, bodies and test payloads before opening the next
-    /// item; malformed unrelated payloads and duplicate IDs still refuse.
+    /// item. An admitted start can omit unverifiable documents after its blocker check;
+    /// ordinary ownership retains strict corpus validation and duplicate IDs still refuse.
     pub(crate) fn read_parent_index(
         &self,
+        admitted_start: bool,
     ) -> Result<BTreeMap<String, Option<String>>, PmRustError> {
         #[cfg(test)]
         crate::ownership::tests::READ_ITEMS_SCANS.with(|count| count.set(count.get() + 1));
         let mut by_id: BTreeMap<String, (PathBuf, Option<String>)> = BTreeMap::new();
+        let mut ambiguous = std::collections::BTreeSet::new();
         for path in self.item_paths()? {
-            let document = read_item(&path)?;
+            // The locked mutation has already validated its target. Unreadable unrelated
+            // documents cannot invalidate the published warning/force blocker bypass.
+            let document = match read_item(&path) {
+                Ok(document) => document,
+                Err(PmRustError::InvalidItemDocument { .. }) if admitted_start => continue,
+                Err(PmRustError::Io { source, .. })
+                    if admitted_start && source.kind() == std::io::ErrorKind::InvalidData =>
+                {
+                    continue;
+                }
+                Err(error) => return Err(error),
+            };
+            if ambiguous.contains(&document.metadata.id) {
+                continue;
+            }
             if let Some((first, _)) = by_id.get(&document.metadata.id) {
+                if admitted_start {
+                    by_id.remove(&document.metadata.id);
+                    ambiguous.insert(document.metadata.id);
+                    continue;
+                }
                 return Err(PmRustError::DuplicateItemId {
                     id: document.metadata.id,
                     first: first.clone(),

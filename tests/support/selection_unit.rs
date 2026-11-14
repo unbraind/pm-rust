@@ -341,6 +341,7 @@ fn selection_validation_and_storage_errors_preserve_items() -> Result<(), Box<dy
             &BTreeMap::new(),
         )),
         release_bypass: false,
+        start: false,
     };
     assert_eq!(
         workspace.claim_next(&request(), &explicit, &SelectionOptions::default())?["id"],
@@ -563,9 +564,9 @@ fn readiness_index_preserves_case_cycles_and_existential_roles() {
     assert!(index.has_active_descendants("sample-a"));
     assert!(index.has_active_descendants("sample-b"));
     assert!(index.has_active_descendants("sample-self"));
-    assert!(index.is_terminal("sample-a", &json!({})));
-    assert!(!index.is_terminal("sample-self", &json!({})));
-    assert!(!index.is_terminal("sample-absent", &json!({})));
+    assert!(index.is_terminal("sample-a"));
+    assert!(!index.is_terminal("sample-self"));
+    assert!(!index.is_terminal("sample-absent"));
     assert!(blockers(&corpus[0], &index).is_empty());
     assert!(index.exact_parents.contains("SAMPLE-B"));
     assert!(!index.exact_parents.contains("sample-b"));
@@ -682,4 +683,424 @@ fn contended_claim_next_does_not_rescan_rejected_candidates()
             .exists()
     );
     Ok(())
+}
+
+use crate::published_cli;
+#[allow(dead_code)]
+#[path = "oracle_driver.rs"]
+mod start_driver;
+use published_cli::PublishedCli;
+
+/// A blocker reopening after ranking is refused under the actual atomic claim lock.
+#[test]
+fn ranked_start_rechecks_reopened_blocker_against_oracle() -> Result<(), Box<dyn std::error::Error>>
+{
+    let Some(published) = published_cli::published_cli_or_skip("ranked start stale blocker") else {
+        return Ok(());
+    };
+    let scratch = tempfile::tempdir()?;
+    // The shared driver expects the same launcher type in its own parent module.
+    let driver_root = scratch.path().join("driver");
+    fs::create_dir(&driver_root)?;
+    let driver = start_driver::write_driver(&driver_root, &published)?;
+    let root = tempfile::tempdir()?;
+    let run = |args: &[&str]| -> Result<std::process::Output, Box<dyn std::error::Error>> {
+        let mut command = published_cli::oracle_command(
+            std::env::var("PM_NODE_INTERPRETER").unwrap_or_else(|_| "node".to_owned()),
+        );
+        crate::test_process_environment::isolate_environment(&mut command);
+        command
+            .current_dir(root.path())
+            .env("FIXED_CLOCK", CLOCK)
+            .env("DO_NOT_TRACK", "1")
+            .arg(&driver)
+            .args(args);
+        Ok(command.output()?)
+    };
+    prepare_ranked_start_tracker(&run)?;
+    let workspace = Workspace::discover(root.path())?;
+    let ranked = workspace.get("sample-own")?;
+    let output = run(&[
+        "update",
+        "sample-gate",
+        "--status",
+        "open",
+        "--author",
+        "alpha",
+    ])?;
+    assert!(
+        output.status.success(),
+        "{}",
+        String::from_utf8_lossy(&output.stderr)
+    );
+    let item = fs::read(workspace.pm_root().join("tasks/sample-own.toon"))?;
+    let history = fs::read(workspace.pm_root().join("history/sample-own.jsonl"))?;
+    let expected = run(&["__ranked_claim_error", "sample-own"])?;
+    assert!(expected.status.success());
+    let expected: Value = serde_json::from_slice(&expected.stdout)?;
+    let caller = request();
+    let options = OwnershipOptions {
+        start: true,
+        ..Default::default()
+    };
+    let error = workspace
+        .claim_ranked(&caller, &options, &[ranked], 1)
+        .err()
+        .ok_or("stale ranked start admitted")?;
+    let PmRustError::CommandRefusal {
+        detail,
+        exit_code,
+        mut context,
+    } = error
+    else {
+        return Err(format!("unexpected error {error}").into());
+    };
+    if let Some(steps) = context
+        .as_object_mut()
+        .and_then(|value| value.shift_remove("next_steps"))
+    {
+        context["nextSteps"] = steps;
+    }
+    assert_eq!(detail, expected["detail"]);
+    assert_eq!(json!(exit_code), expected["exit_code"]);
+    assert_eq!(context, expected["context"]);
+    assert_eq!(
+        fs::read(workspace.pm_root().join("tasks/sample-own.toon"))?,
+        item
+    );
+    assert_eq!(
+        fs::read(workspace.pm_root().join("history/sample-own.jsonl"))?,
+        history
+    );
+    assert!(!workspace.pm_root().join("runtime/session.json").exists());
+    assert!(!root.path().join(".git").exists());
+    Ok(())
+}
+
+/// Creates genuine published records before the captured ranking is made stale.
+fn prepare_ranked_start_tracker(
+    mut run: impl FnMut(&[&str]) -> Result<std::process::Output, Box<dyn std::error::Error>>,
+) -> Result<(), Box<dyn std::error::Error>> {
+    for args in [
+        vec!["init", "sample-", "--defaults"],
+        vec![
+            "create",
+            "--id",
+            "sample-own",
+            "--title",
+            "Ready",
+            "--type",
+            "Task",
+            "--author",
+            "alpha",
+        ],
+        vec![
+            "create",
+            "--id",
+            "sample-gate",
+            "--title",
+            "Gate",
+            "--type",
+            "Task",
+            "--author",
+            "alpha",
+        ],
+        vec![
+            "close",
+            "sample-gate",
+            "Done",
+            "--validate-close",
+            "off",
+            "--author",
+            "alpha",
+        ],
+        vec![
+            "update",
+            "sample-own",
+            "--blocked-by",
+            "sample-gate",
+            "--author",
+            "alpha",
+        ],
+    ] {
+        let output = run(&args)?;
+        assert!(
+            output.status.success(),
+            "{}",
+            String::from_utf8_lossy(&output.stderr)
+        );
+    }
+    Ok(())
+}
+
+/// Real stale candidates can be skipped, exhausted or followed by a successful atomic start.
+#[test]
+fn round5_ranked_start_mixed_outcomes() -> Result<(), Box<dyn std::error::Error>> {
+    let (_directory, workspace) = tracker()?;
+    seed(&workspace)?;
+    let root = workspace.pm_root();
+    for id in ["sample-gate", "sample-blocked", "sample-ready"] {
+        let mut document = item(id);
+        if id == "sample-blocked" {
+            document
+                .metadata
+                .extra
+                .insert("blocked_by".to_owned(), json!("sample-gate"));
+        }
+        fs::write(
+            root.join(format!("tasks/{id}.toon")),
+            toon_format::encode_default(&document)?,
+        )?;
+    }
+    let blocked = workspace.get("sample-blocked")?;
+    let ready = workspace.get("sample-ready")?;
+    let foreign = workspace.get("sample-own")?;
+    let mut owner = request();
+    owner.author = "other".to_owned();
+    workspace.claim_with_options(&owner, &OwnershipOptions::default())?;
+    let options = OwnershipOptions {
+        start: true,
+        ..Default::default()
+    };
+    let error = workspace
+        .claim_ranked(&request(), &options, &[blocked.clone(), foreign], 2)
+        .err()
+        .ok_or("mixed exhaustion admitted")?;
+    assert!(
+        matches!(error,PmRustError::CommandRefusal{exit_code:4,context,..} if context["why"].as_str().is_some_and(|text|text.contains("every other attempted candidate")))
+    );
+    let mut caller = request();
+    caller.if_available = true;
+    let receipt = workspace.claim_ranked(&caller, &options, std::slice::from_ref(&blocked), 1)?;
+    assert_eq!(receipt["available"], false);
+    assert_eq!(receipt["start_refused"], json!(["sample-blocked"]));
+    let receipt = workspace.claim_ranked(&request(), &options, &[blocked, ready], 2)?;
+    assert_eq!(receipt["available"], true);
+    assert_eq!(receipt["start_refused"], json!(["sample-blocked"]));
+    assert_eq!(
+        workspace.get("sample-ready")?.metadata.status,
+        "in_progress"
+    );
+    Ok(())
+}
+
+/// Ranked reads share status aliases and terminal roles with the locked admission registry.
+#[test]
+fn round5_status_registry_normalizes_aliases_for_ranked_reads() {
+    let settings = json!({"schema":{"statuses":[{"id":"ready","roles":["active"],"aliases":["Ready Alias"]},{"id":"done","roles":["terminal_done"],"aliases":["Finished"]}]}});
+    let mut complete = item("sample-done");
+    complete.metadata.status = " FINISHED ".to_owned();
+    let mut ready = item("sample-ready");
+    ready.metadata.status = "ready-alias".to_owned();
+    let corpus = [complete, ready];
+    let index = CorpusIndex::new(&corpus, &settings);
+    assert!(index.is_terminal("sample-done"));
+    assert!(!index.is_terminal("sample-ready"));
+    assert!(has_role(&corpus[1], &index.lifecycle, "active"));
+    let unknown = item("sample-unknown");
+    assert!(!has_role(&unknown, &index.lifecycle, "active"));
+}
+
+/// A captured ranked item is rechecked against the same default-file terminal policy under its lock.
+/// Native-only, so Rust-only runs keep this check when the published CLI is absent.
+#[test]
+fn round7_stale_ranked_status_uses_terminal_policy_native() -> Result<(), Box<dyn std::error::Error>>
+{
+    for terminal in [true, false] {
+        let (_directory, workspace) = tracker()?;
+        seed(&workspace)?;
+        let ranked = workspace.get("sample-own")?;
+        fs::create_dir_all(workspace.pm_root().join("schema"))?;
+        fs::write(
+            workspace.pm_root().join("settings.json"),
+            json!({"workflow":{"close_status":"done"},"schema":{"workflow":{"close_status":"done"}}}).to_string(),
+        )?;
+        let roles = if terminal {
+            json!(["terminal_done"])
+        } else {
+            json!(["active"])
+        };
+        fs::write(
+            workspace.pm_root().join("schema/statuses.json"),
+            json!({"statuses":[{"id":"done","roles":roles}]}).to_string(),
+        )?;
+        let path = workspace.pm_root().join("tasks/sample-own.toon");
+        fs::write(
+            &path,
+            fs::read_to_string(&path)?.replace("status: open", "status: done"),
+        )?;
+        let item_before = fs::read(&path)?;
+        let history_path = workspace.pm_root().join("history/sample-own.jsonl");
+        let history_before = fs::read(&history_path)?;
+        let mut caller = request();
+        caller.force = true;
+        let actual = workspace.claim_ranked(
+            &caller,
+            &OwnershipOptions {
+                start: true,
+                ..Default::default()
+            },
+            &[ranked],
+            1,
+        );
+        if terminal {
+            assert!(
+                matches!(actual,Err(PmRustError::OwnershipRefusal{context,..})if context["code"]=="terminal_state_conflict")
+            );
+            assert_eq!(fs::read(&path)?, item_before);
+            assert_eq!(fs::read(&history_path)?, history_before);
+        } else {
+            assert_eq!(actual?["status"], "in_progress");
+            assert_eq!(workspace.get("sample-own")?.metadata.status, "in_progress");
+        }
+    }
+    Ok(())
+}
+
+/// Oracle differential: the same stale ranked claim matches the published CLI byte for byte.
+#[test]
+fn round7_stale_ranked_status_uses_terminal_policy() -> Result<(), Box<dyn std::error::Error>> {
+    let Some(published) = published_cli::published_cli_or_skip("stale ranked close-status policy")
+    else {
+        return Ok(());
+    };
+    let scratch = tempfile::tempdir()?;
+    let driver = start_driver::write_driver(scratch.path(), &published)?;
+    for (terminal, force) in [(true, false), (true, true), (false, false), (false, true)] {
+        let oracle = tempfile::tempdir()?;
+        let native = tempfile::tempdir()?;
+        let run =
+            |root: &std::path::Path, args: &[&str]| run_stale_ranked_oracle(&driver, root, args);
+        for root in [oracle.path(), native.path()] {
+            for args in [
+                vec!["init", "sample-", "--defaults"],
+                vec![
+                    "create",
+                    "--id",
+                    "sample-own",
+                    "--title",
+                    "Ready",
+                    "--type",
+                    "Task",
+                    "--author",
+                    "alpha",
+                ],
+            ] {
+                let result = run(root, &args)?;
+                assert!(
+                    result.status.success(),
+                    "{}",
+                    String::from_utf8_lossy(&result.stderr)
+                );
+            }
+        }
+        let workspace = Workspace::discover(native.path())?;
+        let ranked = workspace.get("sample-own")?;
+        assert_eq!(ranked.metadata.status, "open");
+        for root in [oracle.path(), native.path()] {
+            configure_stale_ranked_close_status(root, terminal)?;
+        }
+        let path = workspace.pm_root().join("tasks/sample-own.toon");
+        let history_path = workspace.pm_root().join("history/sample-own.jsonl");
+        let item_before = fs::read(&path)?;
+        let history_before = fs::read(&history_path)?;
+        let expected = run(
+            oracle.path(),
+            &[
+                "__ranked_claim_error",
+                "sample-own",
+                if force { "true" } else { "false" },
+            ],
+        )?;
+        assert!(expected.status.success());
+        let expected: Value = serde_json::from_slice(&expected.stdout)?;
+        let mut caller = request();
+        caller.force = force;
+        let actual = workspace.claim_ranked(
+            &caller,
+            &OwnershipOptions {
+                start: true,
+                ..Default::default()
+            },
+            &[ranked],
+            1,
+        );
+        if terminal {
+            assert_ne!(expected["ok"], true);
+            if force {
+                assert!(
+                    matches!(actual, Err(PmRustError::OwnershipRefusal {context,..}) if context["code"] == "terminal_state_conflict")
+                );
+            } else {
+                assert!(actual.is_err());
+            }
+            assert_eq!(fs::read(&path)?, item_before);
+            assert_eq!(fs::read(&history_path)?, history_before);
+        } else {
+            assert_eq!(expected, json!({"ok":true}));
+            assert_eq!(actual?["status"], "in_progress");
+            assert_eq!(workspace.get("sample-own")?.metadata.status, "in_progress");
+            assert_ne!(fs::read(&path)?, item_before);
+            assert_ne!(fs::read(&history_path)?, history_before);
+        }
+        // Both outcomes compare the complete item and history bytes; no normalization.
+        for relative in ["tasks/sample-own.toon", "history/sample-own.jsonl"] {
+            assert_eq!(
+                fs::read(workspace.pm_root().join(relative))?,
+                fs::read(oracle.path().join(".agents/pm").join(relative))?,
+                "{relative}, terminal={terminal}, force={force}"
+            );
+        }
+        assert!(!native.path().join(".git").exists());
+        assert!(!oracle.path().join(".git").exists());
+    }
+    Ok(())
+}
+
+/// Makes a previously ranked open candidate stale under a configured close target.
+fn configure_stale_ranked_close_status(
+    root: &std::path::Path,
+    terminal: bool,
+) -> Result<(), Box<dyn std::error::Error>> {
+    let pm = root.join(".agents/pm");
+    let path = pm.join("settings.json");
+    let mut settings: Value = serde_json::from_slice(&fs::read(&path)?)?;
+    settings["telemetry"]["enabled"] = json!(false);
+    settings["workflow"]["close_status"] = json!("done");
+    settings["schema"]["workflow"]["close_status"] = json!("done");
+    settings["schema"]["statuses"].as_array_mut().ok_or("statuses")?.push(json!({"id":"done","roles":if terminal {json!(["terminal_done"])} else {json!(["active"])}}));
+    fs::write(path, serde_json::to_vec(&settings)?)?;
+    fs::write(
+        pm.join("schema/statuses.json"),
+        json!({"statuses":settings["schema"]["statuses"]}).to_string(),
+    )?;
+    fs::write(
+        pm.join("schema/workflows.json"),
+        json!({"workflow":settings["schema"]["workflow"]}).to_string(),
+    )?;
+    let item = pm.join("tasks/sample-own.toon");
+    fs::write(
+        &item,
+        fs::read_to_string(&item)?.replace("status: open", "status: done"),
+    )?;
+    Ok(())
+}
+
+/// Runs a captured-candidate SDK invocation with an isolated identity and fixed clock.
+fn run_stale_ranked_oracle(
+    driver: &std::path::Path,
+    root: &std::path::Path,
+    args: &[&str],
+) -> Result<std::process::Output, Box<dyn std::error::Error>> {
+    let mut command = published_cli::oracle_command(
+        std::env::var("PM_NODE_INTERPRETER").unwrap_or_else(|_| "node".to_owned()),
+    );
+    crate::test_process_environment::isolate_environment(&mut command);
+    Ok(command
+        .current_dir(root)
+        .env("FIXED_CLOCK", CLOCK)
+        .env("DO_NOT_TRACK", "1")
+        .arg(driver)
+        .args(args)
+        .output()?)
 }

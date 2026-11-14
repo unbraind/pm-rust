@@ -9,7 +9,7 @@ const ownershipPath = join(repo, 'src/ownership.rs');
 const mutationPath = join(repo, 'src/mutation.rs');
 const originalOwnership = readFileSync(ownershipPath, 'utf8');
 const originalMutation = readFileSync(mutationPath, 'utf8');
-const lineage = '    let parents = workspace.read_parent_index()?;';
+const lineage = '    let parents = workspace.read_parent_index(admitted_start)?;';
 const materialize = `    let parents: BTreeMap<String, Option<String>> = workspace
         .read_items()?
         .into_iter()
