@@ -359,6 +359,8 @@ type PathReadHook = Box<dyn FnMut(&Path)>;
 thread_local! {
     /// Places real filesystem changes at a read boundary to model concurrent disappearance.
     pub(crate) static PATH_READ: RefCell<Option<PathReadHook>> = const { RefCell::new(None) };
+    /// Schedules a real entry change after listing and before live type checks.
+    static ENTRY_TYPE: RefCell<Option<PathReadHook>> = const { RefCell::new(None) };
 }
 /// Runs the test-scoped scheduler before the actual filesystem read.
 pub(super) fn before_path_read(path: &Path) {
@@ -367,6 +369,23 @@ pub(super) fn before_path_read(path: &Path) {
             hook(path);
         }
     });
+}
+/// Runs only the per-entry scheduler, keeping directory-read schedules independent.
+pub(super) fn before_entry_type(path: &Path) {
+    ENTRY_TYPE.with(|hook| {
+        if let Some(hook) = hook.borrow_mut().as_mut() {
+            hook(path);
+        }
+    });
+}
+/// Clears the entry scheduler on normal return or unwinding.
+struct ClearEntryType;
+impl Drop for ClearEntryType {
+    fn drop(&mut self) {
+        ENTRY_TYPE.with(|hook| {
+            hook.borrow_mut().take();
+        });
+    }
 }
 /// Clears a filesystem scheduler on every test exit, including a panic.
 pub(crate) struct ClearPathRead;
@@ -774,5 +793,72 @@ fn round19_opened_nonregular_blocker_is_read_only() -> Result<(), Box<dyn std::e
     assert_eq!(fs::read_dir(&directory)?.count(), 0);
     assert_eq!(fs::read_dir(&root)?.count(), 2);
     assert_eq!(fs::read_dir(root.join("tasks"))?.count(), 3);
+    Ok(())
+}
+
+/// A listed blocker removed before its type check is skipped, exactly like an absent target.
+#[test]
+fn round20_listed_blocker_disappearance_matches_absence() -> Result<(), Box<dyn std::error::Error>>
+{
+    use std::{cell::Cell, rc::Rc};
+    let (_temp, root, mut before) = disk()?;
+    before
+        .metadata
+        .extra
+        .insert("blocked_by".to_owned(), json!("sample-gate"));
+    let own = root.join("tasks").join("sample-own.toon");
+    fs::write(&own, toon_format::encode_default(&before)?)?;
+    let gate = root.join("tasks").join("sample-gate.toon");
+    let gate_bytes = fs::read(&gate)?;
+    let settings = root.join("settings.json");
+    let original = [fs::read(&settings)?, fs::read(&own)?];
+    fs::remove_file(&gate)?;
+    let absent = context(admission(&root, &before, false, Phase::AtomicStart))?;
+    assert_eq!(absent["code"], "start_blocked_by_open_dependency");
+    assert_eq!(
+        absent["details"]["open_blockers"],
+        json!([{
+            "id":"sample-gate", "title":null, "status":null, "external":false
+        }])
+    );
+    for inspect_paths in [true, false] {
+        fs::write(&gate, &gate_bytes)?;
+        let removed = Rc::new(Cell::new(0));
+        let visits = Rc::clone(&removed);
+        let watched = gate.clone();
+        ENTRY_TYPE.with(|hook| {
+            *hook.borrow_mut() = Some(Box::new(move |path| {
+                if path == watched {
+                    assert!(path.is_file(), "listed fixture exists before removal");
+                    assert!(
+                        fs::remove_file(path).is_ok(),
+                        "remove the actual listed blocker"
+                    );
+                    visits.set(visits.get() + 1);
+                }
+            }));
+        });
+        let clear = ClearEntryType;
+        if inspect_paths {
+            let mut found = Vec::new();
+            blocker_paths(&root, true, "sample-gate", &mut found)?;
+            assert!(
+                found.is_empty(),
+                "a vanished matching entry must not be found"
+            );
+        }
+        let result = admission(&root, &before, false, Phase::AtomicStart);
+        drop(clear);
+        assert_eq!(
+            removed.get(),
+            1,
+            "removal must occur after directory enumeration"
+        );
+        assert_eq!(context(result)?, absent);
+        assert!(!gate.try_exists()?);
+        assert_eq!([fs::read(&settings)?, fs::read(&own)?], original);
+        assert_eq!(fs::read_dir(&root)?.count(), 2);
+        assert_eq!(fs::read_dir(root.join("tasks"))?.count(), 1);
+    }
     Ok(())
 }

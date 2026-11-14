@@ -189,6 +189,8 @@ fn blocker_paths(
     before_path_read(root);
     for entry in crate::workspace::read_directory(root)? {
         let path = entry.path();
+        #[cfg(test)]
+        tests::before_entry_type(&path);
         if path.is_symlink() {
             continue;
         }
