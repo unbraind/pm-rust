@@ -31,7 +31,7 @@ public static class ProofJob {
   [DllImport("kernel32")] static extern IntPtr GetStdHandle(int id);
   static void Check(bool ok) { if (!ok) throw new System.ComponentModel.Win32Exception(); }
   public static int Run(string command,string marker) {
-    IntPtr job=CreateJobObject(IntPtr.Zero,null), data=Marshal.AllocHGlobal(144);
+    IntPtr job=CreateJobObject(IntPtr.Zero,marker), data=Marshal.AllocHGlobal(144);
     ProcessInfo child=new ProcessInfo(); bool assigned=false, initialized=false;
     IntPtr attributes=IntPtr.Zero, jobList=IntPtr.Zero, bytes=IntPtr.Zero;
     try {
@@ -76,5 +76,33 @@ public static class ProofJob {
   const line = [command, ...args].map(quote).join(' ');
   const payload = Buffer.from(JSON.stringify({ command, args, line, marker })).toString('base64');
   const script = `$ErrorActionPreference='Stop'\n$invocation = [Text.Encoding]::UTF8.GetString([Convert]::FromBase64String('${payload}')) | ConvertFrom-Json\nAdd-Type -TypeDefinition @'\n${declarations}\n'@\nexit ([ProofJob]::Run($invocation.line,$invocation.marker))`;
+  return { command: 'powershell.exe', args: ['-NoProfile', '-NonInteractive', '-EncodedCommand', Buffer.from(script, 'utf16le').toString('base64')] };
+}
+
+/** Terminate the uniquely named kernel job without looking up or trusting a process ID. */
+export function windowsJobStop(marker: string): { command: string; args: string[] } {
+  const declarations = `using System; using System.Runtime.InteropServices; using System.Threading;
+public static class StopProofJob {
+ [DllImport("kernel32",SetLastError=true,CharSet=CharSet.Unicode)] static extern IntPtr OpenJobObject(int access,bool inherit,string name);
+ [DllImport("kernel32",SetLastError=true)] static extern bool TerminateJobObject(IntPtr job,uint code);
+ [DllImport("kernel32",SetLastError=true)] static extern bool QueryInformationJobObject(IntPtr job,int kind,IntPtr data,int length,IntPtr returned);
+ [DllImport("kernel32")] static extern bool CloseHandle(IntPtr handle);
+ public static void Run(string name) {
+  IntPtr job=OpenJobObject(12,false,name);
+  if(job==IntPtr.Zero) { if(Marshal.GetLastWin32Error()==2) return; throw new System.ComponentModel.Win32Exception(); }
+  IntPtr data=Marshal.AllocHGlobal(48);
+  try {
+   if(!TerminateJobObject(job,1)) throw new System.ComponentModel.Win32Exception();
+   for(int i=0;;i++) {
+    if(!QueryInformationJobObject(job,1,data,48,IntPtr.Zero)) throw new System.ComponentModel.Win32Exception();
+    if(Marshal.ReadInt32(data,40)==0) return;
+    if(i>=500) throw new Exception("Windows job did not drain");
+    Thread.Sleep(10);
+   }
+  } finally { Marshal.FreeHGlobal(data); CloseHandle(job); }
+ }
+}`;
+  const name = Buffer.from(marker).toString('base64');
+  const script = `$ErrorActionPreference='Stop'\nAdd-Type -TypeDefinition @'\n${declarations}\n'@\n[StopProofJob]::Run([Text.Encoding]::UTF8.GetString([Convert]::FromBase64String('${name}')))`;
   return { command: 'powershell.exe', args: ['-NoProfile', '-NonInteractive', '-EncodedCommand', Buffer.from(script, 'utf16le').toString('base64')] };
 }

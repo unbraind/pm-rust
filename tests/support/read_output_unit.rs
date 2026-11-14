@@ -16,14 +16,19 @@ fn intent_declarations_are_immutable_during_wire_compaction()
             let declaration = json!({"command":"context","included_field_groups":groups,"future":{"groups":groups},"description":"m".repeat(500)});
             let mut source = json!({"context_intent":declaration,"activity":[{"title":"a"},{"title":"b"}],"read_output":{"compacted_row_paths":[]}});
             super::compact_strings_with_intent(&mut source, true);
+            // proof-behavior
             assert_eq!(source["context_intent"], declaration);
             let mut candidates = Vec::new();
             super::collections(&source, "", &mut candidates);
+            // proof-behavior
             assert_eq!(candidates, vec![("/activity".to_owned(), 2)]);
             let mut output = crate::ListOutput::from(source);
             super::compact_collections(&mut output, toon, 1, |_| {});
+            // proof-behavior
             assert_eq!(output["context_intent"], declaration);
+            // proof-behavior
             assert_eq!(output["activity"].as_array().map(Vec::len), Some(1));
+            // proof-behavior
             assert_eq!(
                 output["read_output"]["compacted_row_paths"],
                 json!(["activity"])
@@ -61,16 +66,20 @@ fn intent_declarations_are_immutable_during_wire_compaction()
                 ];
                 for output in outputs {
                     if output.get("context_intent").is_some() {
+                        // proof-behavior
                         assert_eq!(
                             output["context_intent"]["included_field_groups"],
                             declaration["included_field_groups"]
                         );
+                        // proof-behavior
                         assert_eq!(output["context_intent"]["future"], declaration["future"]);
+                        // proof-behavior
                         assert_eq!(
                             output["context_intent"]["description"],
                             declaration["description"]
                         );
                     } else {
+                        // proof-behavior
                         assert_eq!(output["read_output"]["result_omitted"], true);
                     }
                 }
@@ -316,11 +325,14 @@ fn amount_and_alias_receipts_preserve_requested_dimensions()
         false,
         "context",
     );
+    // proof-behavior
     assert_eq!(
         selected_context["legacy_aliases_used"],
         json!(["--section"])
     );
+    // proof-behavior
     assert_eq!(selected_context["requested_dimensions"], json!(["include"]));
+    // proof-behavior
     assert_eq!(
         selected_context["migration_hints"],
         json!(["--section is a compatibility alias; prefer --output-include <csv>."])
@@ -342,7 +354,9 @@ fn amount_and_alias_receipts_preserve_requested_dimensions()
         },
     ] {
         let result = apply(envelope(2, 0), &options)?;
+        // proof-behavior
         assert_eq!(result["count"], 1);
+        // proof-behavior
         assert!(result["read_output"].is_object());
     }
     let zero = ListOptions {
@@ -350,7 +364,9 @@ fn amount_and_alias_receipts_preserve_requested_dimensions()
         output_budget: Some("1".to_owned()),
         ..ListOptions::default()
     };
+    // proof-behavior
     assert!(apply(envelope(2, 0), &zero)?["output_budget_exceeded"].is_object());
+    // proof-behavior
     assert!(
         apply(
             envelope(2, 0),
@@ -361,6 +377,7 @@ fn amount_and_alias_receipts_preserve_requested_dimensions()
         )
         .is_err()
     );
+    // proof-behavior
     assert!(
         apply(
             envelope(2, 0),
@@ -392,6 +409,7 @@ fn amount_and_alias_receipts_preserve_requested_dimensions()
         },
         false,
     );
+    // proof-behavior
     assert!(
         apply(
             envelope(0, 0),
@@ -718,19 +736,24 @@ fn stabilized_orientation_receipts_respect_final_ceilings() -> Result<(), Box<dy
                 )?;
                 if output["context_intent"].is_object() && output["read_output"].is_object() {
                     both_receipts += 1;
-                    let compact = super::estimate(&output, false);
+                    let compact = super::measure_intent(&output, toon);
+                    // proof-behavior
                     assert_eq!(output["context_intent"]["estimated_tokens"], compact);
+                    // proof-behavior
                     assert_eq!(output["context_intent"]["within_budget"], compact <= budget);
+                    // proof-behavior
                     assert_eq!(
                         output["context_intent"]["declaration_feasible"],
                         compact <= 320
                     );
                 }
                 if output["read_output"]["within_budget"] == true {
+                    // proof-behavior
                     assert!(super::measure(&output, toon) <= budget);
                 }
             }
         }
+        // proof-behavior
         assert!(
             both_receipts > 0,
             "must check returned packets with both receipts"
@@ -741,12 +764,16 @@ fn stabilized_orientation_receipts_respect_final_ceilings() -> Result<(), Box<dy
                     "token_budget":budget,"declared_token_budget":budget,"result_omitted":false},
                 "read_output":{"estimated_tokens":0}}).into();
             super::update_orientation_output(&mut stale, toon);
+            // proof-behavior
             assert_eq!(stale["context_intent"]["within_budget"], false);
+            // proof-behavior
             assert_eq!(stale["context_intent"]["declaration_feasible"], false);
+            // proof-behavior
             assert_eq!(
                 stale["context_intent"]["estimated_tokens"],
-                super::estimate(&stale, false)
+                super::measure_intent(&stale, toon)
             );
+            // proof-behavior
             assert_eq!(
                 stale["read_output"]["estimated_tokens"],
                 super::measure(&stale, toon)
@@ -778,6 +805,7 @@ fn shared_read_commands_bound_final_self_referential_receipts()
                     };
                     let output = super::apply_command(source, &options, command)?;
                     if output["read_output"]["within_budget"] == true {
+                        // proof-behavior
                         assert!(
                             super::measure(&output, toon) <= budget,
                             "{command}, toon={toon}, padding={padding}, budget={budget}"
@@ -820,6 +848,7 @@ fn item_metadata_named_context_intent_compacts_under_budgets()
                 "list",
             )?;
             let omitted = output.get("output_budget_exceeded").is_some();
+            // proof-behavior
             assert_eq!(!omitted, delivered, "budget {budget}, toon {toon}");
             if delivered && budget <= 700 {
                 // The fitting item is delivered with the metadata compacted,
@@ -827,18 +856,24 @@ fn item_metadata_named_context_intent_compacts_under_budgets()
                 let cell = output["items"][0]["context_intent"]
                     .as_str()
                     .ok_or("missing metadata cell")?;
+                // proof-behavior
                 assert_eq!(
                     cell.encode_utf16().count(),
                     241,
                     "budget {budget}, toon {toon}"
                 );
+                // proof-behavior
                 assert!(cell.ends_with('…'), "budget {budget}, toon {toon}");
             }
-            if delivered && budget == 400 {
+            if budget == 5000 {
+                // proof-behavior
+                assert!(delivered, "generous budget must retain metadata");
                 // A generous budget never compacts and never omits.
+                // proof-behavior
                 assert_eq!(
                     output["items"][0]["context_intent"].as_str(),
-                    Some(long.as_str())
+                    Some(long.as_str()),
+                    "review154: generous budget preserves item metadata"
                 );
             }
         }
@@ -847,10 +882,12 @@ fn item_metadata_named_context_intent_compacts_under_budgets()
         let mut declaration = json!({"command":"context","description":"m".repeat(600)});
         let mut envelope = json!({"context_intent": declaration.clone(), "items": [], "count": 0});
         super::compact_strings_with_intent(&mut envelope, true);
+        // proof-behavior
         assert_eq!(envelope["context_intent"], declaration);
         declaration["future"] = json!(null);
         let mut unprotected = json!({"rows": [{"context_intent": declaration.clone()}]});
         super::compact_strings_with_intent(&mut unprotected, false);
+        // proof-behavior
         assert!(
             unprotected["rows"][0]["context_intent"]["description"]
                 .as_str()
@@ -879,12 +916,15 @@ fn orientation_wire_string_compaction_retains_fitting_rows()
                     command,
                     &["rows"],
                 )?;
+                // proof-behavior
                 assert_ne!(
                     output["read_output"]["result_omitted"], true,
                     "{command} {toon} {budget}"
                 );
+                // proof-behavior
                 assert_eq!(output["read_output"]["strings_compacted"], true);
                 for key in ["title", "context_intent"] {
+                    // proof-behavior
                     assert_eq!(
                         output["rows"][0][key]
                             .as_str()
@@ -892,6 +932,7 @@ fn orientation_wire_string_compaction_retains_fitting_rows()
                         Some(241)
                     );
                 }
+                // proof-behavior
                 assert!(super::measure(&output, toon) <= budget);
             }
         }
@@ -1014,5 +1055,25 @@ fn round7_cursor_metadata_compacts_below_the_envelope() -> Result<(), Box<dyn st
     assert_eq!(result["read_output"]["within_budget"], true);
     assert_eq!(result["count"], 1);
     assert!(result.get("output_budget_exceeded").is_none());
+    Ok(())
+}
+
+/// Final list receipts charge exactly the selected JSON or TOON bytes.
+#[test]
+fn review154_list_wire_receipt() -> Result<(), Box<dyn std::error::Error>> {
+    for toon in [false, true] {
+        let mut result: crate::ListOutput = json!({"items":[{"id":"sample-wire","tags":vec!["evidence";20]}],"context_intent":{"command":"list","estimated_tokens":0},"read_output":{"estimated_tokens":0}}).into();
+        super::update_output(&mut result, toon);
+        let bytes = if toon {
+            crate::stringify_toon(&result)?
+        } else {
+            result.stringify_read_json()
+        };
+        assert_eq!(
+            result["read_output"]["estimated_tokens"],
+            bytes.len().div_ceil(4),
+            "review154: list receipt must measure the selected encoding"
+        );
+    }
     Ok(())
 }

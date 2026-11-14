@@ -1138,16 +1138,16 @@ impl Workspace {
                 json!({"code":"unsupported_native_context","field":"settings.context","required":"Use object-valued context settings or the published pm CLI for schema-warning fallback."}),
             ));
         }
-        let settings_fallback = read.fallback | sections::settings_fallback(&mut settings);
+        let settings_fallback = read.fallback;
+        sections::normalize_settings(&mut settings);
         self.context_with_settings(options, now, global, settings, settings_fallback)
-            .map_err(|error| {
-                if settings_fallback {
-                    PmRustError::ContextSettingsFallback {
-                        source: Box::new(error),
-                    }
-                } else {
-                    error
+            .map_err(|mut error| {
+                if settings_fallback
+                    && let PmRustError::CommandRefusal { context, .. } = &mut error {
+                        context["warnings"] = json!(["settings_read_invalid_schema"]);
+                        context["warning_details"] = json!([{"code":"settings_read_invalid_schema","message":crate::json_output::SETTINGS_FALLBACK_WARNING}]);
                 }
+                error
             })
     }
 
@@ -1160,13 +1160,12 @@ impl Workspace {
     #[must_use]
     pub fn context_settings_warning(&self) -> Option<&'static str> {
         let read = crate::ownership::runtime_settings(self.pm_root()).ok()?;
-        let mut settings = read.value;
         if read.unsupported_context {
             // The hard non-object refusal boundary matches the runtime path.
             return None;
         }
-        let fallback = read.fallback | sections::settings_fallback(&mut settings);
-        fallback.then_some(crate::json_output::SETTINGS_FALLBACK_WARNING)
+        read.fallback
+            .then_some(crate::json_output::SETTINGS_FALLBACK_WARNING)
     }
 
     /// Evaluate one context request using the captured settings and warning policy.
@@ -1240,6 +1239,9 @@ impl Workspace {
             .as_deref()
             .filter(|raw| !raw.is_empty())
         {
+            if trim_control(raw).is_empty() {
+                return Err(invalid("--activity-limit must be a non-negative integer"));
+            }
             let value = numeric(
                 raw,
                 true,
@@ -1261,13 +1263,29 @@ impl Workspace {
             })
             .transpose()?
             .unwrap_or_else(|| limit.saturating_mul(160).max(256));
-        let mut documents = self
-            .stream_items(if names.is_empty() {
-                crate::read_projection::Projection::Context
-            } else {
-                crate::read_projection::Projection::ContextSections
-            })?
-            .collect::<Result<Vec<_>, _>>()?;
+        let mut documents = Vec::new();
+        let mut item_warnings = Vec::new();
+        for document in self.stream_items(if names.is_empty() {
+            crate::read_projection::Projection::Context
+        } else {
+            crate::read_projection::Projection::ContextSections
+        })? {
+            match document {
+                Ok(document) => documents.push(document),
+                Err(
+                    PmRustError::InvalidItemDocument { path, .. } | PmRustError::Io { path, .. },
+                ) => {
+                    item_warnings.push(format!(
+                        "item_list_item_read_failed:{}",
+                        path.strip_prefix(self.pm_root())
+                            .unwrap_or(&path)
+                            .to_string_lossy()
+                            .replace('\\', "/")
+                    ));
+                }
+                Err(error) => return Err(error),
+            }
+        }
         #[cfg(test)]
         crate::lifecycle_admission::before_path_read(self.pm_root());
         let lifecycle = if settings_fallback {
@@ -1594,6 +1612,16 @@ impl Workspace {
         result["omission_receipt"] = json!({"has_omissions":!groups.is_empty(),"omitted_field_group_count":groups.len(),"omitted_field_groups":groups,"summary_scope":"matching_items"});
         if let Some(intent) = &intent {
             result = intent.attach(result.into(), original).value;
+        }
+        if !item_warnings.is_empty() {
+            let mut warnings = result["warnings"].as_array().cloned().unwrap_or_default();
+            warnings.extend(item_warnings.into_iter().map(Value::String));
+            result["warnings"] = json!(warnings);
+            let mut delivery: ListOutput = result.into();
+            if delivery.get("context_intent").is_some() {
+                crate::read_output::stabilize_intent(&mut delivery, original.toon);
+            }
+            result = delivery.value;
         }
         if options.after.is_some() {
             for key in [

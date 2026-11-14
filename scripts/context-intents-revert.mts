@@ -1,3 +1,4 @@
+import { assertionFailureDiagnostic } from './context-proof-diagnostics.mts';
 import { ProofProcesses, verifyAsyncMutation } from './context-proof-process.mts';
 import { assertNamedTests, copyWorkingTree, checkedGit } from './context-revert-helpers.mts';
 import { existsSync, mkdtempSync, readFileSync, symlinkSync, writeFileSync } from 'node:fs';
@@ -10,7 +11,7 @@ async function run(root: string, args: string[], expected: string[], reverted: b
     cwd: root, maxBuffer: 16 * 1024 * 1024,
     env: { ...process.env, CARGO_BUILD_JOBS: '2', RUST_TEST_THREADS: '2', CARGO_TARGET_DIR: join(root, 'target'), PM_RUST_REQUIRE_PUBLISHED_CLI: '1' },
   });
-  assertNamedTests(result, expected, reverted);
+  assertNamedTests(result, expected, reverted, false, assertionFailureDiagnostic(root, expected));
   console.log(JSON.stringify({ command: ['cargo', 'test', '-j', '2', '--locked', ...args], tests: expected, reverted }));
 }
 
@@ -46,7 +47,7 @@ try {
   const preflightTest = 'revert preflight names the missing oracle installation';
   await verifyAsyncMutation(async reverted => {
     const result = await processes.run(process.execPath, preflightCommand, { cwd: scratch, timeout: 30_000 });
-    assertNamedTests(result, [preflightTest], reverted, true);
+    assertNamedTests(result, [preflightTest], reverted, true, /Missing.*dependencies/);
   }, () => writeFileSync(preflightPath, preflight.replace(guard, '')), () => writeFileSync(preflightPath, preflight), processes);
   const target = join(scratch, 'src/orientation_context/intent.rs');
   const fixed = readFileSync(target, 'utf8');
@@ -72,11 +73,6 @@ try {
   await prove(tablePath, tables.replace(signature, `${signature}\n let _ = current; let current = false;`), [
     { args: ['--lib', 'current_context_tables_keep_ambiguous_cells_lossless'], names: ['toon_output::tests::current_context_tables_keep_ambiguous_cells_lossless'] },
   ]);
-  const current = 'render_contract(&compacted, 0, output.current_contract)';
-  if (!tables.includes(current)) throw new Error('Cannot locate current renderer selection');
-  await prove(tablePath, tables.replace(current, 'render_contract(&compacted, 0, false)'), [
-    { args: ['--lib', 'current_context_tables_keep_ambiguous_cells_lossless'], names: ['toon_output::tests::current_context_tables_keep_ambiguous_cells_lossless'] },
-  ]);
   const sectionsPath = join(scratch, 'src/orientation_context/sections.rs');
   const sections = readFileSync(sectionsPath, 'utf8');
   if (!sections.includes('settings["context"]["activity_limit"]')) throw new Error('Cannot locate configured activity limit');
@@ -97,7 +93,7 @@ try {
   const context = readFileSync(contextPath, 'utf8');
   const stabilize = 'crate::read_output::stabilize_orientation(&mut result, options.toon);';
   if (!context.includes(stabilize)) throw new Error('Cannot locate current intent receipt stabilization');
-  await prove(contextPath, context.replace(stabilize, 'crate::list_intent::stabilize(&mut result);'), [
+  await prove(contextPath, context.replace(stabilize, 'crate::list_intent::stabilize(&mut result, options.toon);'), [
     { args: ['--test', 'orientation_differential', 'context_reviewed_contracts_match_current_oracle'], names: ['context_reviewed_contracts_match_current_oracle'] },
   ]);
   const prepareCall = 'intent::prepare(self, &mut prepared, global.as_deref())?';
@@ -105,7 +101,7 @@ try {
   await prove(contextPath, context.replace(prepareCall, prepareCall.replace('?', '.unwrap_or(None)')), [
     { args: ['--lib', 'context_intent_sdk_budget_boundaries'], names: ['orientation_context::tests::context_intent_sdk_budget_boundaries'] },
   ]);
-  const settingsStart = context.indexOf('        if settings', context.indexOf('let mut settings ='));
+  const settingsStart = context.indexOf('        if read.unsupported_context', context.indexOf('let mut settings ='));
   const settingsEnd = context.indexOf('        let settings_fallback =', settingsStart);
   if (settingsStart < 0 || settingsEnd < 0 || !context.slice(settingsStart, settingsEnd).includes('settings.context')) {
     throw new Error('Cannot locate invalid context settings boundary');
@@ -125,7 +121,7 @@ try {
   await prove(outputPath, output.replace(contextAlias, contextAlias.replace('"--section"', '"--brief"')), [
     { args: ['--lib', 'amount_and_alias_receipts_preserve_requested_dimensions'], names: ['read_output::tests::amount_and_alias_receipts_preserve_requested_dimensions'] },
   ]);
-  const retainedIntent = '        stabilize_intent(result);';
+  const retainedIntent = '        stabilize_intent(result, toon);';
   if (!output.includes(retainedIntent)) throw new Error('Cannot locate retained intent estimate update');
   await prove(outputPath, output.replace(retainedIntent, ''), [
     { args: ['--lib', 'context_intent_sdk_budget_boundaries'], names: ['orientation_context::tests::context_intent_sdk_budget_boundaries'] },

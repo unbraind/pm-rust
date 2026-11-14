@@ -1,3 +1,5 @@
+import { assertionFailureDiagnostic } from './context-proof-diagnostics.mts';
+import { proofCopyFilter, registerCargoConfiguration } from './context-revert-helpers.mts';
 import { absentLink } from './context-revert-helpers.mts';
 /** Behavioral regressions run only in an owned disposable copy, never the reviewed checkout. */
 import assert from 'node:assert/strict';
@@ -30,6 +32,7 @@ assert.ok(process.argv.length<=3 && proofs.length>0,'pass one documented proof n
 const scratch=mkdtempSync(join(tmpdir(),'native-changes-revert-'));
 const source=join(scratch,'src/changes.rs');
 
+registerCargoConfiguration(root, scratch);
 const processes = new ProofProcesses();
 
 /** Run the selected regression with the shared descendant and interruption safety contract. */
@@ -39,9 +42,9 @@ async function revertedTest(test: string, childEnv: NodeJS.ProcessEnv) {
 }
 
 try {
-  for (const path of ['Cargo.toml','Cargo.lock','build.rs','src','examples']) cpSync(join(root,path),join(scratch,path),{recursive:true,dereference:true,filter:path=>!absentLink(path)});
+  for (const path of ['Cargo.toml','Cargo.lock','build.rs','src','examples']) cpSync(join(root,path),join(scratch,path),{recursive:true,dereference:true,filter:path=>!absentLink(path) && proofCopyFilter(path)});
   mkdirSync(join(scratch,'tests'));
-  for (const path of ['support','fixtures']) cpSync(join(root,'tests',path),join(scratch,'tests',path),{recursive:true,dereference:true,filter:path=>!absentLink(path)});
+  for (const path of ['support','fixtures']) cpSync(join(root,'tests',path),join(scratch,'tests',path),{recursive:true,dereference:true,filter:path=>!absentLink(path) && proofCopyFilter(path)});
   const original=readFileSync(source,'utf8');
   const childEnv: NodeJS.ProcessEnv = {};
   for (const name of ['PATH','HOME','CARGO_HOME','RUSTUP_HOME','LD_LIBRARY_PATH','SYSTEMROOT','WINDIR','TMPDIR','TEMP','TMP']) {
@@ -55,12 +58,12 @@ try {
   childEnv.PM_TELEMETRY_SOURCE_CONTEXT='test';
   for (const proof of proofs) {
     assert.equal(original.split(proof.before).length,2,`unique behavioral change: ${proof.name}`);
-    assertNamedTests(await revertedTest(proof.test,childEnv), [`changes::tests::${proof.test}`], false);
+    assertNamedTests(await revertedTest(proof.test,childEnv), [`changes::tests::${proof.test}`], false, false, assertionFailureDiagnostic(scratch, [`changes::tests::${proof.test}`]));
     try {
       writeFileSync(source,original.replace(proof.before,proof.after));
-      assertNamedTests(await revertedTest(proof.test,childEnv), [`changes::tests::${proof.test}`], true);
+      assertNamedTests(await revertedTest(proof.test,childEnv), [`changes::tests::${proof.test}`], true, false, assertionFailureDiagnostic(scratch, [`changes::tests::${proof.test}`]));
     } finally { await processes.settled(); writeFileSync(source,original); }
-    assertNamedTests(await revertedTest(proof.test,childEnv), [`changes::tests::${proof.test}`], false);
+    assertNamedTests(await revertedTest(proof.test,childEnv), [`changes::tests::${proof.test}`], false, false, assertionFailureDiagnostic(scratch, [`changes::tests::${proof.test}`]));
     console.log(JSON.stringify({behavior:proof.name,test:proof.test,failed_as_required:true}));
   }
 } catch (error) {

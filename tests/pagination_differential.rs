@@ -100,9 +100,9 @@ fn compare_outputs(
 ) -> Result<Output, Box<dyn std::error::Error>> {
     let mut native = Command::new(env!("CARGO_BIN_EXE_pm-rust"));
     if equals_controls {
-        native.args(["--workspace=.", "list", &format!("--timestamp={CLOCK}")]);
+        native.args(["list", &format!("--timestamp={CLOCK}")]);
     } else {
-        native.args(["--workspace", ".", "list", "--timestamp", CLOCK]);
+        native.args(["list", "--timestamp", CLOCK]);
     }
     let native = native
         .arg("--json")
@@ -149,8 +149,23 @@ fn triage_omitted_intent_receipts_match_published() -> TestResult {
             "--output-budget",
             budget,
         ];
-        compare(directory.path(), &flags, false)?;
-        compare_toon(directory.path(), &flags, false)?;
+        for receipt in [
+            compare(directory.path(), &flags, false)?,
+            compare_toon(directory.path(), &flags, false)?,
+        ] {
+            // proof-behavior
+            assert_eq!(
+                receipt["output_budget_exceeded"]["omitted_result"], true,
+                "review154: terminal omission must be explicit"
+            );
+            // proof-behavior
+            assert_eq!(
+                receipt["read_output"]["result_omitted"], true,
+                "review154: terminal receipt survives without an oracle"
+            );
+            // proof-behavior
+            assert_eq!(receipt["read_output"]["within_budget"], false);
+        }
     }
     assert!(!directory.path().join(".git").exists());
     Ok(())
@@ -520,7 +535,15 @@ fn bounded_receipts_match_bytes() -> TestResult {
         vec!["--for", "triage", "--token-budget", "10000", "--full"],
         vec![],
     ] {
-        compare(directory.path(), &flags, flags != ["--output-budget", "1"])?;
+        // The current oracle exits two for every receipt-only infeasible result.
+        let success = ![
+            vec!["--output-budget", "1"],
+            vec!["--for", "triage", "--token-budget", "256"],
+            vec!["--for", "triage"],
+            vec!["--for", "triage", "--brief"],
+        ]
+        .contains(&flags);
+        compare(directory.path(), &flags, success)?;
     }
     Ok(())
 }
@@ -808,17 +831,15 @@ fn legacy_after_without_after_index_omits_final_triage_page() -> TestResult {
         "--full",
         "--after",
         legacy.as_str(),
-        "--output-budget",
-        "unbounded",
     ];
     let native = Command::new(env!("CARGO_BIN_EXE_pm-rust"))
-        .args(["--workspace", ".", "list", "--timestamp", CLOCK, "--json"])
+        .args(["list", "--timestamp", CLOCK, "--json"])
         .args(flags)
         .current_dir(directory.path())
         .env_remove("PM_PATH")
         .output()?;
     assert!(
-        native.status.success(),
+        native.status.code() == Some(2),
         "native: {}",
         String::from_utf8_lossy(&native.stderr)
     );
@@ -850,11 +871,9 @@ fn legacy_after_without_after_index_omits_final_triage_page() -> TestResult {
         );
         assert!(published_page.get("items").is_none());
         assert!(published_page["next_cursor"].is_null());
-        // Fingerprint spelling is tracked separately; this test pins omission.
-        assert_eq!(
-            published_page["continuation_contract"]["metadata"],
-            "reference"
-        );
+        assert!(published_page.get("continuation_contract").is_none());
+        assert!(native_page.get("continuation_contract").is_none());
+        assert_bytes(&native, &published, &flags);
     }
     Ok(())
 }
@@ -1103,7 +1122,19 @@ fn compare_toon(directory: &Path, flags: &[&str], success: bool) -> TestResultVa
         assert_bytes(&native, &published, flags);
     }
     if !success {
-        return Ok(Value::Null);
+        let bytes = if native.stdout.is_empty() {
+            &native.stderr
+        } else {
+            &native.stdout
+        };
+        return Ok(serde_json::from_slice(bytes)
+            .ok()
+            .or_else(|| {
+                std::str::from_utf8(bytes)
+                    .ok()
+                    .and_then(|text| toon_format::decode_default(text).ok())
+            })
+            .unwrap_or(Value::Null));
     }
     Ok(toon_format::decode_default(std::str::from_utf8(
         &native.stdout,

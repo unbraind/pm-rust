@@ -6,12 +6,6 @@ use std::path::PathBuf;
 /// Failures returned by the Rust-native read surface.
 #[derive(Debug, thiserror::Error)]
 pub enum PmRustError {
-    /// A context refusal after invalid stored settings required warning-backed defaults.
-    #[error("{source}")]
-    ContextSettingsFallback {
-        /// Original typed failure, retained for SDK callers and CLI recovery rendering.
-        source: Box<PmRustError>,
-    },
     /// A rendered integrity report failed the requested strict exit gate.
     #[error("history verification failed")]
     HistoryVerificationFailed,
@@ -143,7 +137,17 @@ impl PmRustError {
     /// Returns the settings fallback warning independently of the original refusal.
     #[must_use]
     pub fn settings_warning(&self) -> Option<&'static str> {
-        matches!(self, Self::ContextSettingsFallback { .. })
-            .then_some(crate::json_output::SETTINGS_FALLBACK_WARNING)
+        match self {
+            Self::CommandRefusal { context, .. }
+                if context["warnings"].as_array().is_some_and(|warnings| {
+                    warnings
+                        .iter()
+                        .any(|warning| warning == "settings_read_invalid_schema")
+                }) =>
+            {
+                Some(crate::json_output::SETTINGS_FALLBACK_WARNING)
+            }
+            _ => None,
+        }
     }
 }

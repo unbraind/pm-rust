@@ -7,7 +7,7 @@ native applications.
 The project is pre-release. Its current delivery slice reads workspaces and
 creates, updates, comments on, closes, claims, and releases canonical items
 against the published `pm` 2026.11.11 on-disk contract, with context and dependency
-reads independently compared against 2026.11.5. Production code, tests, benchmarks,
+reads independently compared against 2026.11.11. Production code, tests, benchmarks,
 and build tooling use Rust and typed test harnesses; the distributed binary does not require Node.js,
 Bun, JavaScript, or TypeScript.
 
@@ -453,7 +453,7 @@ Dependabot tracks this manifest; oracle upgrades must also update the native
 compatibility version and tooling contracts. Changelog generation keeps its
 separate exact pm-changelog/CLI pairing.
 
-Context and dependency differentials use the independent 2026.11.5 pin in
+Context and dependency differentials use the independent 2026.11.11 pin in
 `tests/orientation-oracle`. `just oracle-install` installs both contracts; history
 continues to use the baseline oracle.
 

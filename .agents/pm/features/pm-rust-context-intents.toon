@@ -7,13 +7,11 @@ status: in_progress
 priority: 2
 tags[4]: "gh:unbraind/pm-rust#154",native,oracle,orientation
 created_at: "2026-11-06T09:15:56.754Z"
-updated_at: "2026-11-14T04:01:13.975Z"
-assignee: codex-agent
-claim_principal: codex-agent
+updated_at: "2026-11-14T10:47:04.002Z"
 author: codex-astra
 acceptance_criteria: "JSON and TOON bytes, status and stderr match the oracle on generated non-git trackers and public tracker copies; retain typed calendar and memory refusals; focused tests fail on behavioral revert; record latency and differential counts."
 parent: pm-rust-s6j4
-comments[98]{created_at,author,text}:
+comments[113]{created_at,author,text}:
   "2026-11-06T09:28:14.771Z",codex-astra,"Implemented core intent preparation, section selection, activity bounds and intent receipts. Current-oracle exploration identified three inherited context drifts: bounded activity excludes timestamps at or after the read clock; test health covers all matching active items and declares its scope; TOON auto-tables choose compact list/null columns only when shorter. Bringing these paths to the requested November contract before running the public-copy corpus."
   "2026-11-06T09:44:02.034Z",codex-astra,"Public-copy packet differential exposed the newer required-root-evidence-first-v1 ordering, reserved root-edge budget, root-edge priority and bounded-relationship omission receipt. Porting those native packet semantics as part of this slice, including updated producer fingerprints. No legacy packet result is being counted as current-oracle evidence."
   "2026-11-06T10:08:53.263Z",codex-astra,"Generated intent comparisons passed before the final expanded matrix. Public-copy exploration exposed the distinction between compact intent estimates and complete JSON wire ceilings, now handled by the shared output-budget path. Current dependency packets also require root-evidence-first ordering and revised refusal text; preserving the existing bounded retry test while eliminating repeated rendering of identical packets."
@@ -112,7 +110,24 @@ comments[98]{created_at,author,text}:
   "2026-11-09T19:36:07.388Z",codex-agent,"Final local verification complete for the four native threads: source commits 5dc3dc1, 656198e and 9174201; full thread-to-commit mapping and exact test commands are in docs/NATIVE_CONTEXT_REVIEW_154.md. The five scoped pm-linked commands pass, including the final 50-case alias-aware refusal matrix and the legacy format refusal. Six distinct regressions fail independent behavioral reverts; 24 fixed controls pass across the original, final-schema and alias repeats. Strict Clippy, fmt, private Rustdoc, TypeScript, ESLint, audit and seven identity tests pass. The complete instrumented corpus passes 780 tests/34 targets; final changed-path instrumented checks pass 47 additional test executions. Whole-source coverage with verified reporter 0.9.1 passes the unchanged exact floor: 17967 lines, 1876 functions, 29034 regions and 4034 branches, all covered. Retaining the existing allowed advisory and self-host advisories. Releasing this claim for orchestrator verification; item stays in_progress. Final changelog/history checks and receipt push follow. No review-thread actions, merge, release or issue-161 work."
   "2026-11-14T03:54:44.301Z",codex-agent,"Review round: merge current main first, preserve lifecycle admission, credential userinfo redaction and platform budgets from PR 165; verify all unresolved review findings, add behavioral regressions and disposable revert proofs, then certify release/platform gates. Shared b4yl item and history restored from main before re-recording branch evidence."
   "2026-11-14T04:01:13.972Z",codex-agent,"Merged current main, preserving lifecycle admission and refusal scope/redaction. Kept both independent regression corpora, including the current orientation oracle and the main lifecycle oracle. Baseline platform run 43541768359 has all 10 product jobs green; aggregate durations were 31-39 minutes. Retained the feature larger CI budgets pending final-head measurement."
-files[65]:
+  "2026-11-14T04:16:34.531Z",codex-agent,"Verified 33 unresolved threads across 127 total; fetched every comment and the latest CodeRabbit review (no outside-diff section). Merge 8873d86 retains all main platform budgets, lifecycle admission and credential redaction. New harness regressions pass 7/7; new SDK context regression passes 1/1. The merged full library run exposed receipt recursion and outdated shared test expectations; the recursion is fixed and newer main tests are restored while retaining feature-specific cases. Current focused validation is continuing."
+  "2026-11-14T05:26:10.397Z",codex-agent,"Revert evidence: 30 Linux behavioral mutations completed 90 checks (passing control, named mutation-specific assertion failure, restored passing control). Command: node scripts/context-round154-revert.mts. The focused lossless-retry proof was repeated after control-character handling. Windows argv mutation runs in Windows CI. Focused reviewed-context and terminal-pagination differentials pass against main 2026.11.11; TypeScript and clippy pass. Full Cargo and branch coverage run separately because the previous local aggregate exceeded 55 minutes before instrumentation finished. Compare every final platform job with baseline run 43541768359; required checks alone are insufficient."
+  "2026-11-14T05:36:04.395Z",codex-agent,"Full library validation passed 486 tests. Full binary validation passed 89 tests after restoring main expectations in conflicted argument/refusal tests. Review fixes retain main argument roles, lifecycle admission and userinfo redaction. The one merge reconciliation attempt refused an unstaged receipt; the obsolete operation receipt was preserved outside the active store after taking the main item/history pair and re-recording this branch intent. No history was repaired or rewritten."
+  "2026-11-14T05:48:32.225Z",codex-agent,"Self-review removed generic assertion-only patterns from every legacy proof runner. Legacy controls now require the selected regression assertion location (primary panic or first TAP failure frame), excluding fixture-helper assertion failures. All 90 managed definitions resolve to direct assertions. Added legacy-mutation-diagnostic revert: fixed pass, mutated assertion-specific matcher fail, restored pass. Total 31 Linux behavioral reverts and 93 checks; Windows argv remains CI-only."
+  "2026-11-14T05:59:41.529Z",codex-agent,"Final self-review proofs: 33 Linux behavioral reverts, 99 passing/failing/restored checks. whole-settings-fallback now mutates the live shared settings reader; its regression rejects preserving schema after invalid stored context. main-refusal-compaction rejects restoring duplicate human detail paragraphs outside orientation. The exact lifecycle published-CLI differential passes after preserving main duplicate-detail suppression; binary tests pass 89/89. Earlier full runs exposed integration defects and were not counted as passing gates."
+  "2026-11-14T06:14:42.345Z",codex-agent,"VSbR contract evidence: the current 2026.11.11 oracle and native context --activity-limit --path --json both exit 2 with byte-identical text diagnostics. Commander consumes the JSON token as the global path value, so the original JSON-output expectation is not the published contract. Shared Invocation preserves the raw argument stream; the dedicated raw-role regression and full flag-shaped-value differential cover that distinction. Historical performance evidence now explicitly leaves the exact measured source revision unknown and identifies only receipt introduction."
+  "2026-11-14T06:48:24.006Z",codex-agent,"The complete TypeScript gate passed 157 tests with 2 Windows-only skips; its typecheck, lint, history-prefix gate and retained-commit evidence gate passed. The full stable Cargo run passed lifecycle (59), CLI dispatch (41), closure differential (11), and other earlier targets before exposing a harness fixture missing the newly shared helper. That fixture is corrected and its 28 tests pass directly. The complete Cargo gate is rerunning with no-fail-fast and two workers; failed earlier attempts are not reported as passing gates. All 33 review reverts retain 99 certified checks after narrowing Node diagnostics to the intended inner failure. Registration simulations now give error recovery a 5-second timeout to avoid conflating it with their deliberately short timeout scenario."
+  "2026-11-14T08:02:37.325Z",codex-agent,"Full no-fail-fast Cargo audit completed: three targets failed. Preserving main's list exit codes and explicit-scope recovery; correcting stale branch expectations. Additional runtime fixes narrow diagnostic control preservation to explicit path values and align stored full depth with the current pinned CLI. Partial context tests now require warning-backed success while strict item/list/search reads still reject damaged bytes. No thresholds changed; affected suites will run before the next full gate."
+  "2026-11-14T08:18:32.883Z",codex-agent,"Self-review reproduced stale intent estimates after partial-item warnings in a non-git tracker: declared estimate 770 versus 790 delivered JSON tokens. Warning attachment now stabilizes the selected wire estimate before output admission; the regression checks JSON and TOON, and partial-warning-estimate will require a named behavioral failure plus passing controls. Current affected suites have passed the stored-settings, whitespace, compaction and partial-context cases so far."
+  "2026-11-14T08:28:22.487Z",codex-agent,"The unchanged five-second large-edge-limit guard failed twice; a separate tiny missing-reference tracker reproduced the refusal in 9.309 seconds. Canonical recovery rendered each candidate with a fresh producer cache. RenderMeasurements now retains one bounded RenderCache across the preserved query's probes, with the existing two-MiB producer and cost-key caps. A deterministic JSON/TOON regression compares fresh and cached delivery across decimal budget widths, asserts retained producer work, and requires repeated probes to perform zero new builds. A surgical canonical-probe-cache revert is registered; no probe or threshold is removed."
+  "2026-11-14T08:42:12.469Z",codex-agent,"Focused final-source checks pass: four native review units, lossless path/role diagnostics, the unchanged five-second large-edge-limit guard (all twelve cases), and complete legacy omission refusal bytes. PM test started the linked revert runner at timeout_ms=120000 despite timeout_seconds=3600 metadata; stopped that owned attempt with SIGTERM and confirmed cleanup. Re-running with explicit --timeout 3600; the interrupted attempt is not proof evidence."
+  "2026-11-14T09:02:48.721Z",codex-agent,"Final-source behavioral reverts passed through pinned PM with explicit --timeout 3600: 37 Linux cases, 111 checks, 74 passing controls/restorations, 17 expected named Rust assertion failures (101), and 20 expected named Node failures (1). Every case restored and passed again. Includes path-only-diagnostics, stored-full-depth, partial-warning-estimate and canonical-probe-cache. Windows argv proof is explicitly deferred to Windows CI. Registry contains 46 linked commands; this PM invocation executed exactly the one complete revert runner and exited 0. Starting final format/clippy/docs and full Cargo before separate Linux branch coverage; the prior ordinary full run alone took 70.9 minutes, so the combined aggregate cannot fit the local one-hour budget."
+  "2026-11-14T10:45:02.480Z",codex-agent,"Continuation follows targeted-only verification and CI certification. Fresh Linux checks pass 18 Rust tests across 14 commands with -j 2 and two test workers; selected context, dependency, pagination and TOON oracle regressions pass. Affected Node files have 100 unique passes plus two Windows-only skips; four readiness timeouts passed alone at unchanged limits. Linux clippy passes with denied warnings. The earlier full run reported 960 passes and no failures before interruption and is not complete evidence. No new full suite or coverage run is being started. Full suite, four 100-percent coverage metrics and every platform gate remain CI obligations. Review evidence lists exact commands and all 33 thread decisions."
+  "2026-11-14T10:45:04.734Z",codex-agent,"Final proof guard explicitly marks behavior assertions and checks precise source line/column spans, including declared comparison helpers. Inline/setup assertions and same-line/prefix lookalikes are rejected. All 101 audited legacy selections have diagnostics. Initial complete runner certified 37 cases/111 states through pinned PM; final Node-only rerun certified all 22 Node cases/66 states, including inline-fixture-diagnostic and same-line-fixture-diagnostic. Combined unchanged 17 native cases and final 22 Node cases give 39 Linux cases/117 verified states: 78 passes, 17 expected Rust failures, 22 expected Node failures. Every case restored and passed. Exact final Node command: node scripts/context-round154-revert.mts same-line-fixture-diagnostic,inline-fixture-diagnostic,legacy-mutation-diagnostic,registration,preload-registration,bounded-stop,runner-cause,kernel-job,stale-windows-registration,ps-search,version-snapshot,signal-status,mutation-diagnostic,link-errors,directory-cycle,dangling-kind,interpreter,oracle-preflight,cargo-configuration,compiler-diagnostic,historical-receipt,managed-definitions. Windows argv proof remains CI-only. CI run and all 10 baseline comparisons will be recorded at https://github.com/unbraind/pm-rust/pull/154#review-round-2026-11-14 so tracker writes finish before final-head certification."
+  "2026-11-14T10:47:01.336Z",codex-agent,"Final targeted static gates pass: cargo fmt --check, Linux clippy -j 2 with denied warnings, TypeScript typecheck and lint. Clean-profile pinned tracker health passes with installed merge drivers; all changed histories preserve main prefixes. The two pinned-contract findings remain on pm-rust-context-history-output: repeated-section rejected-value/retry semantics and dependency summary bounds. No review thread was replied to, resolved or reacted to. PM UX notes: linked timeout_seconds metadata used the 120-second default until an explicit --timeout was supplied; merge reconcile rejected the generated unindexed receipt on its single permitted attempt. Normal-profile extension version skew is separate from the passing clean-profile health check. Changelog generation/check follows this final tracker update and claim release."
+files[74]:
+  - path: .github/workflows/ci.yml
+    scope: project
   - path: justfile
     scope: project
   - path: scripts/context-intents-revert.mts
@@ -125,6 +140,8 @@ files[65]:
     scope: project
     note: Review safety and behavioral proof boundary
   - path: scripts/context-proof-definitions.test.mts
+    scope: project
+  - path: scripts/context-proof-diagnostics.mts
     scope: project
   - path: scripts/context-proof-process.mts
     scope: project
@@ -227,9 +244,23 @@ files[65]:
     scope: project
   - path: tests/harness/tsconfig.json
     scope: project
+  - path: tests/native_adapter_contract.rs
+    scope: project
   - path: tests/orientation_differential.rs
     scope: project
+  - path: tests/orientation-oracle/package-lock.json
+    scope: project
+  - path: tests/orientation-oracle/package.json
+    scope: project
   - path: tests/pagination_differential.rs
+    scope: project
+  - path: tests/read_contract.rs
+    scope: project
+  - path: tests/strict_json_contract.rs
+    scope: project
+  - path: tests/support/changes_unit.rs
+    scope: project
+  - path: tests/support/discovery_unit.rs
     scope: project
   - path: tests/support/json_output_unit.rs
     scope: project
@@ -257,7 +288,7 @@ files[65]:
     scope: project
   - path: tests/support/toon_output_unit.rs
     scope: project
-tests[44]:
+tests[46]:
   - command: just orientation-check
     scope: project
     timeout_seconds: 3600
@@ -597,10 +628,26 @@ tests[44]:
       created_at: "2026-11-09T19:33:38.897Z"
       source_kind: local_mutation
       source_ref: native-context-intents-and-relationship-packets
-docs[3]:
+  - command: node --test --test-concurrency=2 scripts/context-round154.test.mts
+    scope: project
+    provenance:
+      author: codex-agent
+      created_at: "2026-11-14T04:55:42.103Z"
+      source_kind: local_mutation
+      source_ref: native-context-intents-and-relationship-packets
+  - command: node scripts/context-round154-revert.mts
+    scope: project
+    provenance:
+      author: codex-agent
+      created_at: "2026-11-14T08:14:21.463Z"
+      source_kind: local_mutation
+      source_ref: native-context-intents-and-relationship-packets
+docs[4]:
   - path: docs/benchmarks/native-context-intents-2026-11-06.json
     scope: project
   - path: docs/NATIVE_CONTEXT_INTENTS.md
+    scope: project
+  - path: docs/NATIVE_CONTEXT_REVIEW_154_2026_11_14.md
     scope: project
   - path: docs/NATIVE_CONTEXT_REVIEW_154.md
     scope: project

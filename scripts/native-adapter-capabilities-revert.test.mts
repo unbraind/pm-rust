@@ -32,7 +32,7 @@ syncBuiltinESMExports();
       });
       assert.equal(result.error, undefined);
       assert.equal(result.status, 1);
-      assert.match(result.stderr, /Error: separator corpus verified/);
+      assert.match(/* proof-behavior */ result.stderr, /Error: separator corpus verified/);
     } finally { rmSync(scratch, { recursive: true, force: true }); }
   });
 }
@@ -46,9 +46,12 @@ for (const mode of ['existing', 'absent', 'first-failure', 'second-failure']) {
       for (const name of ['Cargo.toml', 'Cargo.lock', 'build.rs']) writeFileSync(join(root, name), 'fixture');
       writeFileSync(join(root, 'src/discovery.rs'), '/* fixture */\npub fn discover_capabilities() {\n    fixed()\n}\n');
       writeFileSync(join(root, 'src/main.rs'), '/* fixture */\nfn write_discovery_to() {\n    fixed()\n}\n');
+      writeFileSync(join(root, 'tests/capability_contract.rs'), 'fn discovery_is_complete_bounded_and_tracker_free() { assert!(/* proof-behavior */ true); }\n');
+      mkdirSync(join(root, 'tests/support'));
+      writeFileSync(join(root, 'tests/support/main_unit.rs'), 'fn capabilities_writer_refusals() { assert!(/* proof-behavior */ true); }\n');
       const runner = join(root, 'scripts/native-adapter-capabilities-revert.mts');
       writeFileSync(runner, readFileSync(new URL('./native-adapter-capabilities-revert.mts', import.meta.url)));
-      for (const helper of ['context-revert-helpers.mts', 'context-proof-process.mts', 'context-windows-job.mts']) writeFileSync(join(root, 'scripts', helper), readFileSync(new URL(helper, import.meta.url)));
+      for (const helper of ['context-revert-helpers.mts', 'context-proof-diagnostics.mts', 'context-proof-process.mts', 'context-windows-job.mts']) writeFileSync(join(root, 'scripts', helper), readFileSync(new URL(helper, import.meta.url)));
       const binary = join(root, 'target/debug/pm-rust');
       if (mode !== 'absent') writeFileSync(binary, 'fixed executable');
       // A fragment marker also catches path-as-specifier bugs on POSIX hosts.
@@ -65,7 +68,10 @@ writeFileSync(join(target, 'debug/pm-rust'), 'sabotaged executable');
 const delivery = args.includes('--bin');
 const fail = ${JSON.stringify(mode)} === (delivery ? 'second-failure' : 'first-failure');
 const mutated = readFileSync(join(options.cwd, delivery ? 'src/main.rs' : 'src/discovery.rs'), 'utf8').includes(delivery ? 'let _ = (writer' : 'let _ = request');
-return {status:mutated && !fail ? 101 : 0, stderr:'', stdout:'test ' + (delivery ? 'tests::capabilities_writer_refusals' : 'discovery_is_complete_bounded_and_tracker_free') + ' ... ' + (mutated && !fail ? 'FAILED' : 'ok')};
+const testPath = delivery ? 'tests/support/main_unit.rs' : 'tests/capability_contract.rs';
+const column = readFileSync(join(options.cwd, testPath), 'utf8').indexOf('assert!') + 1;
+const diagnostic = mutated && !fail ? 'thread proof panicked at ' + testPath + ':1:' + column + ': assertion failed' : '';
+return {status:mutated && !fail ? 101 : 0, stderr:diagnostic, stdout:'test ' + (delivery ? 'tests::capabilities_writer_refusals' : 'discovery_is_complete_bounded_and_tracker_free') + ' ... ' + (mutated && !fail ? 'FAILED' : 'ok')};
 };
 ${syncSpawnBridge}
 syncBuiltinESMExports();
@@ -86,8 +92,8 @@ syncBuiltinESMExports();
         if (mode === 'first-failure') assert.equal(result.stdout, '');
         else assert.equal(JSON.parse(result.stdout).reverted_test, 'discovery_is_complete_bounded_and_tracker_free');
       }
-      if (mode === 'absent') assert.equal(existsSync(binary), false);
-      else assert.equal(readFileSync(binary, 'utf8'), 'fixed executable');
+      if (mode === 'absent') assert.equal(/* proof-behavior */ existsSync(binary), false);
+      else assert.equal(/* proof-behavior */ readFileSync(binary, 'utf8'), 'fixed executable');
     } finally { rmSync(scratch, { recursive: true, force: true }); }
   });
 }

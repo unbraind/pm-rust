@@ -25,6 +25,11 @@ fn intent_controls_validate_overrides_and_constrain_explicit_pages()
             limit: Some("bad".to_owned()),
             ..ListOptions::default()
         },
+        ListOptions {
+            intent: Some("triage".to_owned()),
+            output_budget: Some("bad".to_owned()),
+            ..ListOptions::default()
+        },
     ] {
         assert!(super::prepare(&mut options.clone()).is_err());
     }
@@ -83,11 +88,11 @@ fn both_receipts_stabilize_after_projection_changes() {
     super::stabilize(&mut result, false);
     assert_eq!(
         result["context_intent"]["estimated_tokens"],
-        crate::read_output::estimate(&result, false)
+        crate::read_output::measure(&result, false)
     );
     assert_eq!(
         result["read_output"]["estimated_tokens"],
-        crate::read_output::estimate(&result, true)
+        crate::read_output::measure(&result, false)
     );
 }
 
@@ -173,7 +178,7 @@ fn cursor_intents_disclose_effective_infeasibility_without_losing_metadata() {
     assert_eq!(result["context_intent"]["result_omitted"], true);
 }
 
-/// Legacy list receipts preserve the pinned pre-projection feasibility contract.
+/// List receipts follow main's current wire contract in each selected encoding.
 #[test]
 fn legacy_list_intent_feasibility_preserves_published_projection() {
     for toon in [false, true] {
@@ -185,31 +190,26 @@ fn legacy_list_intent_feasibility_preserves_published_projection() {
         };
         let mut feasible = 0;
         let mut infeasible = 0;
-        let mut metadata_boundary = false;
         for count in 60..110 {
             let result = super::attach(
                 json!({"items":[],"payload":vec!["x".repeat(130);count]}),
                 &options,
                 50000,
             );
-            let measured = crate::read_output::estimate(&result, false);
-            assert_eq!(result["context_intent"]["estimated_tokens"], measured);
-            let mut declared_projection = result.clone();
-            declared_projection.value["row_contract"] = json!({"command":"list","row_kind":"collection","row_keys":["items"],"fields":"supported","jq_selector":".row_contract.row_keys[] as $key | getpath($key | split(\".\")) | if type == \"array\" then .[] else if type == \"object\" then to_entries[] else empty end end","toon_encoding":"tabular_when_uniform"});
-            crate::read_output::update(&mut declared_projection, "context_intent", false);
-            let expected = crate::read_output::estimate(&declared_projection, false) <= 3200;
-            metadata_boundary |= measured <= 3200 && !expected;
+            let measured = crate::read_output::measure(&result, toon);
+            // proof-behavior
             assert_eq!(
-                result["context_intent"]["declaration_feasible"], expected,
-                "toon={toon}, count={count}"
+                result["context_intent"]["estimated_tokens"], measured,
+                "review154: list intent estimate uses delivered encoding"
             );
-            if expected {
-                feasible += 1;
-            } else {
-                infeasible += 1;
-            }
+            let expected = measured <= 3200;
+            // proof-behavior
+            assert_eq!(result["context_intent"]["declaration_feasible"], expected);
+            feasible += usize::from(expected);
+            infeasible += usize::from(!expected);
         }
-        assert!(feasible > 0 && infeasible > 0 && metadata_boundary);
+        // proof-behavior
+        assert!(feasible > 0 && infeasible > 0);
     }
 }
 

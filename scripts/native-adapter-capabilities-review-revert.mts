@@ -1,3 +1,5 @@
+import { assertionFailureDiagnostic } from './context-proof-diagnostics.mts';
+import { proofCopyFilter, registerCargoConfiguration } from './context-revert-helpers.mts';
 import { absentLink } from './context-revert-helpers.mts';
 import { ProofProcesses, verifyAsyncMutation } from './context-proof-process.mts';
 /** Prove review regressions with independent behavior reverts in an isolated non-git copy. */
@@ -17,10 +19,11 @@ function replace(source: string, before: string, after: string): string {
   return source.replace(before, after);
 }
 
+registerCargoConfiguration(root, scratch);
 const processes = new ProofProcesses();
 try {
   for (const name of ['Cargo.toml', 'Cargo.lock', 'build.rs', 'src', 'tests', 'scripts', 'examples']) {
-    cpSync(join(root, name), join(scratch, name), { recursive: true, dereference: true, filter: path => !path.split(/[\\/]/).includes('node_modules') && !absentLink(path) });
+    cpSync(join(root, name), join(scratch, name), { recursive: true, dereference: true, filter: path => !path.split(/[\\/]/).includes('node_modules') && !absentLink(path) && proofCopyFilter(path) });
   }
   // Only the already installed, pinned test oracle is shared; no build artifacts are shared.
   symlinkSync(join(root, 'tests/oracle/node_modules'), join(scratch, 'tests/oracle/node_modules'), 'dir');
@@ -31,12 +34,12 @@ try {
   const runnerSource = readFileSync(runner, 'utf8');
   const nodeTests = join(scratch, 'scripts/native-adapter-capabilities-revert.test.mts');
   const baseline = await processes.run(process.execPath, ['--test', '--test-reporter=tap', '--test-concurrency=2', nodeTests], { cwd: scratch, timeout: 60000 });
-  assertNamedTests(baseline, ['capability revert isolates checkout artifacts: existing'], false, true);
+  assertNamedTests(baseline, ['capability revert isolates checkout artifacts: existing'], false, true, assertionFailureDiagnostic(scratch, ['capability revert isolates checkout artifacts: existing'], true));
   writeFileSync(runner, runnerSource.replaceAll("CARGO_TARGET_DIR: join(scratch, 'target')", "CARGO_TARGET_DIR: join(root, 'target')"));
   const isolation = await processes.run(process.execPath, ['--test', '--test-reporter=tap', '--test-concurrency=2', nodeTests], {
     cwd: scratch, env: { PATH: process.env.PATH, HOME: process.env.HOME }, timeout: 60000,
   });
-  assertNamedTests(isolation, ['capability revert isolates checkout artifacts: existing'], true, true);
+  assertNamedTests(isolation, ['capability revert isolates checkout artifacts: existing'], true, true, assertionFailureDiagnostic(scratch, ['capability revert isolates checkout artifacts: existing'], true));
   assert.match(isolation.stdout, /sabotaged executable/);
   console.log(JSON.stringify({ behavior: 'checkout binary isolation', failed_as_required: true }));
   writeFileSync(runner, runnerSource);
@@ -49,7 +52,7 @@ try {
     const result = await processes.run(process.execPath, ['--test', '--test-reporter=tap', '--test-concurrency=2', '--test-name-pattern=capability copy filters', join(scratch, 'scripts/native-adapter-capabilities-revert.test.mts')], {
       cwd: scratch, env: { PATH: process.env.PATH, HOME: process.env.HOME }, timeout: 60000,
     });
-    assertNamedTests(result, [`capability copy filters both path separators: ${name}`], true, true);
+    assertNamedTests(result, [`capability copy filters both path separators: ${name}`], true, true, assertionFailureDiagnostic(scratch, [`capability copy filters both path separators: ${name}`], true));
     assert.match(result.stdout, /tests 2/);
     assert.match(result.stdout, /pass 1/);
     assert.match(result.stdout, /fail 1/);
@@ -103,7 +106,7 @@ try {
       const result = await processes.run('cargo', ['+1.90.0', 'test', '-j', '2', '--locked', ...proof.target, proof.test, '--', '--exact', '--test-threads=2'], {
         cwd: scratch, env: childEnv, timeout: 900000, maxBuffer: 4 * 1024 * 1024,
       });
-      assertNamedTests(result, [proof.test], reverted);
+      assertNamedTests(result, [proof.test], reverted, false, assertionFailureDiagnostic(scratch, [proof.test]));
     }, () => {
       if (proof.main) writeFileSync(mainPath, proof.mutate(originalMain));
       else writeFileSync(library, proof.mutate(original));

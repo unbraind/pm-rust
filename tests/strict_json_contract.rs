@@ -58,11 +58,13 @@ fn strict_json_validates_before_typed_fields_are_ignored() -> TestResult {
         skipped: bool,
     }
     let valid = r#"{"skipped":true,"future":[{"a":1},{"a":2}]}"#;
+    // proof-behavior
     assert_eq!(
         strict_json::from_str::<Receipt>(valid)?,
         Receipt { skipped: true }
     );
     let invalid = r#"{"skipped":true,"future":[{"a":1,"\u0061":2}]}"#;
+    // proof-behavior
     assert!(strict_json::from_str::<Receipt>(invalid).is_err());
     Ok(())
 }
@@ -82,6 +84,7 @@ fn strict_json_tracker_decodes_refuse_duplicates_without_git() -> TestResult {
     let workspace = Workspace::discover(&root)?;
     let settings = r#"{"schema":{"workflow":{"open_status":"open","open\u005fstatus":"closed"}}}"#;
     fs::write(root.join("settings.json"), settings)?;
+    // proof-behavior
     assert!(
         workspace
             .list_page(
@@ -91,24 +94,30 @@ fn strict_json_tracker_decodes_refuse_duplicates_without_git() -> TestResult {
             )
             .is_err()
     );
+    // proof-behavior
     assert_eq!(fs::read_to_string(root.join("settings.json"))?, settings);
     fs::write(root.join("settings.json"), "{}")?;
     let history = "{\"action\":\"claim\",\"changes\":[{\"skipped\":true,\"skipped\":false}]}\n";
     fs::write(root.join("history/demo-1.jsonl"), history)?;
+    // proof-behavior
     assert!(
         workspace
             .history("demo-1", &HistoryOptions::default())
             .is_err()
     );
+    // proof-behavior
     assert_eq!(
         fs::read_to_string(root.join("history/demo-1.jsonl"))?,
         history
     );
     let registry = r#"{"measurements":[{"id":"m1","receipt":{"a":1,"\u0061":2}}]}"#;
     fs::write(root.join("assurance.json"), registry)?;
+    // proof-behavior
     assert!(workspace.assurance_declarations("measurement").is_err());
+    // proof-behavior
     assert_eq!(fs::read_to_string(root.join("assurance.json"))?, registry);
     fs::write(root.join("assurance.json"), r#"{"measurements":[]}"#)?;
+    // proof-behavior
     assert_eq!(
         workspace.assurance_declarations("measurement")?["items"],
         json!([])

@@ -778,7 +778,7 @@ fn write_search_to(
     json: bool,
 ) -> Result<(), Box<dyn std::error::Error>> {
     write_list_to(&mut writer, result, json)?;
-    if result.get("output_budget_exceeded").is_some() {
+    if result.get("output_budget_exceeded").is_some() || result.get("budget_exceeded").is_some() {
         return Err(Box::new(pm_rust::PmRustError::OutputBudgetExceeded));
     }
     Ok(())
@@ -1213,6 +1213,11 @@ fn main() -> ExitCode {
                     .and_then(|path| Workspace::discover(&path).ok())
                     .and_then(|workspace| workspace.context_settings_warning());
                 let mut stderr = std::io::stderr().lock();
+                if !json_requested(&args)
+                    && let Some(warning) = settings_warning
+                {
+                    let _ = write_settings_warning_to(&mut stderr, warning, false);
+                }
                 attach_settings_warning(&mut payload, settings_warning);
                 let _ = write_command_refusal_to(
                     &mut stderr,
@@ -1241,26 +1246,23 @@ fn main() -> ExitCode {
             };
         }
     };
+    let execution_settings_warning = matches!(cli.command, Command::Context { .. })
+        .then(|| Workspace::discover(&cli.workspace).ok())
+        .flatten()
+        .and_then(|workspace| workspace.context_settings_warning());
     match run(cli) {
         Ok(()) => ExitCode::SUCCESS,
         Err(error) => {
             let settings_warning = error
                 .downcast_ref::<pm_rust::PmRustError>()
-                .and_then(pm_rust::PmRustError::settings_warning);
+                .and_then(pm_rust::PmRustError::settings_warning)
+                .or(execution_settings_warning);
             let args = published_read_arguments(std::env::args_os().skip(1));
             if !json_requested(&args)
                 && let Some(warning) = settings_warning
             {
                 let _ = write_settings_warning_to(&mut std::io::stderr().lock(), warning, false);
             }
-            let error: &(dyn std::error::Error + 'static) =
-                if let Some(pm_rust::PmRustError::ContextSettingsFallback { source }) =
-                    error.downcast_ref::<pm_rust::PmRustError>()
-                {
-                    source.as_ref()
-                } else {
-                    error.as_ref()
-                };
             if let Some(refusal) = error.downcast_ref::<pm_rust::discovery::DiscoveryRefusal>() {
                 let payload = serde_json::json!({"ok":false,"refusal":refusal,"exit_code":2});
                 let _ = write_json_to(&mut std::io::stderr().lock(), &payload);
@@ -1354,7 +1356,7 @@ fn main() -> ExitCode {
             } else {
                 let _ = write_runtime_error_to(
                     &mut std::io::stderr().lock(),
-                    error,
+                    error.as_ref(),
                     settings_warning,
                     json_requested(&args),
                 );
@@ -2382,9 +2384,9 @@ fn current_orientation_refusal(payload: &serde_json::Value) -> bool {
         || (command[0] == "item" && command[1] == "deps")
 }
 
-/// Current orientation diagnostics omit a detail that duplicates the title.
-fn compact_orientation_refusal(payload: &serde_json::Value) -> bool {
-    payload["detail"] == payload["title"] && current_orientation_refusal(payload)
+/// Shared current diagnostics omit a detail that duplicates the title.
+fn duplicate_refusal_detail(payload: &serde_json::Value) -> bool {
+    payload["detail"] == payload["title"]
 }
 
 /// Preserves line breaks while replacing control characters in current diagnostic text.
@@ -2392,9 +2394,62 @@ fn orientation_diagnostic_text(payload: &serde_json::Value, text: String) -> Str
     if !current_orientation_refusal(payload) {
         return text;
     }
-    text.replace("\r\n", "\n")
-        .chars()
-        .map(|c| if c.is_control() && c != '\n' { ' ' } else { c })
+    let recovery = &payload["recovery"];
+    let commands = ["suggested_retry", "attempted_command", "next_best_command"]
+        .into_iter()
+        .filter_map(|key| recovery[key].as_str())
+        .chain(
+            recovery["fallback_candidates"]
+                .as_array()
+                .into_iter()
+                .flatten()
+                .filter_map(|candidate| candidate["command"].as_str()),
+        )
+        .chain(
+            payload["examples"]
+                .as_array()
+                .into_iter()
+                .flatten()
+                .filter_map(serde_json::Value::as_str),
+        );
+    let mut spans = Vec::new();
+    for command in commands.filter(|command| command.starts_with("pm ")) {
+        let Some(args) = pm_rust::parse_command_args(command) else {
+            continue;
+        };
+        let Some(scope) = Invocation::parse(&args[1..]).scope() else {
+            continue;
+        };
+        let quoted = pm_rust::quote_command_arg(scope);
+        for flag in ["--pm-path", "--path", "--workspace"] {
+            for separator in [" ", "="] {
+                let prefix = format!("{flag}{separator}");
+                let argument = format!("{prefix}{quoted}");
+                for (offset, _) in command.match_indices(&argument) {
+                    for (start, _) in text.match_indices(command) {
+                        let start = start + offset + prefix.len();
+                        spans.push(start..start + quoted.len());
+                    }
+                }
+            }
+        }
+    }
+    text.char_indices()
+        .filter_map(|(index, c)| {
+            if c == '\r'
+                && text.as_bytes().get(index + 1) == Some(&b'\n')
+                && !spans.iter().any(|span| span.contains(&index))
+            {
+                return None;
+            }
+            Some(
+                if c.is_control() && c != '\n' && !spans.iter().any(|span| span.contains(&index)) {
+                    ' '
+                } else {
+                    c
+                },
+            )
+        })
         .collect()
 }
 
@@ -2428,7 +2483,7 @@ fn write_cursor_refusal_to(
                 .map(|step| format!("  - {}", step.as_str().unwrap_or_default())),
         );
     }
-    if !compact_orientation_refusal(payload) {
+    if !duplicate_refusal_detail(payload) {
         parts.push(format!(
             "\nWhat happened:\n  {}",
             payload["detail"].as_str().unwrap_or_default()
@@ -2640,16 +2695,13 @@ fn write_runtime_error_to(
     warning: Option<&str>,
     json: bool,
 ) -> std::io::Result<()> {
+    let detail = refusal::diagnostic(&error.to_string(), &raw_invocation());
     if json && warning.is_some() {
-        let mut payload = serde_json::json!({"error":format!("pm-rust: {error}"),"exit_code":2});
+        let mut payload = serde_json::json!({"error":format!("pm-rust: {detail}"),"exit_code":2});
         attach_settings_warning(&mut payload, warning);
         writeln!(writer, "{}", pm_rust::stringify_json(&payload, true))
     } else {
-        writeln!(
-            writer,
-            "pm-rust: {}",
-            refusal::diagnostic(&error.to_string(), &raw_invocation())
-        )
+        writeln!(writer, "pm-rust: {detail}")
     }
 }
 

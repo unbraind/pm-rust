@@ -4,6 +4,7 @@ use crate::{ListOptions, ListOutput, PmRustError, list::bound, pagination};
 use serde_json::{Value, json};
 
 /// Estimates output tokens using the published UTF-8 byte heuristic.
+#[cfg(test)]
 pub(crate) fn estimate(value: &(impl serde::Serialize + ?Sized), pretty: bool) -> usize {
     let bytes = if pretty {
         crate::stringify_json(value, true).len() + 1
@@ -14,6 +15,7 @@ pub(crate) fn estimate(value: &(impl serde::Serialize + ?Sized), pretty: bool) -
 }
 
 /// Stabilizes a self-referential receipt estimate after changing output content.
+#[cfg(test)]
 pub(crate) fn update(result: &mut ListOutput, key: &str, pretty: bool) {
     for _ in 0..8 {
         let measured = estimate(result, pretty);
@@ -42,10 +44,6 @@ pub(crate) fn update_output(result: &mut ListOutput, toon: bool) {
         }
         result.value["read_output"]["estimated_tokens"] = json!(measured);
     }
-    // Intent estimates can grow a digit and change admission during compaction.
-    if result["context_intent"]["command"] == "list" {
-        crate::list_intent::stabilize(result, toon);
-    }
 }
 
 /// Stabilizes current wire receipts while preserving estimates for an omitted intent result.
@@ -55,7 +53,7 @@ pub(crate) fn stabilize_orientation(result: &mut ListOutput, toon: bool) {
             result["context_intent"]["estimated_tokens"].clone(),
             result["read_output"]["estimated_tokens"].clone(),
         );
-        stabilize_intent(result);
+        stabilize_intent(result, toon);
         update_output(result, toon);
         if before
             == (
@@ -69,14 +67,14 @@ pub(crate) fn stabilize_orientation(result: &mut ListOutput, toon: bool) {
 }
 
 /// Recomputes current context feasibility after projection changes, preserving omitted estimates.
-pub(crate) fn stabilize_intent(result: &mut ListOutput) {
+pub(crate) fn stabilize_intent(result: &mut ListOutput, toon: bool) {
     if result["context_intent"]["result_omitted"] == true {
         return;
     }
     for _ in 0..8 {
-        update(result, "context_intent", false);
+        update_intent_estimate(result, toon);
         let before = result["context_intent"].clone();
-        let measured = estimate(result, false) as u64;
+        let measured = measure_intent(result, toon) as u64;
         result.value["context_intent"]["within_budget"] = json!(
             measured
                 <= result["context_intent"]["token_budget"]
@@ -92,6 +90,26 @@ pub(crate) fn stabilize_intent(result: &mut ListOutput) {
         if before == result["context_intent"] {
             break;
         }
+    }
+}
+
+/// Measures intent delivery with the same suppressed row metadata as the wire.
+pub(crate) fn measure_intent(result: &ListOutput, toon: bool) -> usize {
+    let mut delivered = result.clone();
+    if let Some(fields) = delivered.value.as_object_mut() {
+        fields.shift_remove("row_contract");
+    }
+    measure(&delivered, toon)
+}
+
+/// Stabilizes the intent's self-referential estimate in its selected wire format.
+pub(crate) fn update_intent_estimate(result: &mut ListOutput, toon: bool) {
+    for _ in 0..8 {
+        let measured = measure_intent(result, toon);
+        if result["context_intent"]["estimated_tokens"] == measured {
+            break;
+        }
+        result.value["context_intent"]["estimated_tokens"] = json!(measured);
     }
 }
 
@@ -437,6 +455,12 @@ pub(crate) fn apply_command(
         result.value["read_output"]["within_budget"] = json!(false);
         result.value["read_output"]["result_omitted"] = json!(true);
         update_output(&mut result, options.toon);
+        if let Some(budget) = budget.filter(|budget| measure(&result, options.toon) > *budget) {
+            let mut state = capture(&result, options, cursor.as_ref());
+            state.command = command;
+            result = compact_budget(result, options, &state, budget, default_budget);
+            update_output(&mut result, options.toon);
+        }
         return Ok(result);
     }
     let amount_binds = amount.is_some_and(|limit| {
@@ -917,6 +941,10 @@ pub(crate) fn apply_orientation(
             }
         }
         receipt = Value::Object(ordered);
+    }
+    if result["budget_exceeded"]["omitted_result"] == true {
+        receipt["within_budget"] = json!(false);
+        receipt["result_omitted"] = json!(true);
     }
     let refusal_receipt = receipt.clone();
     if covered_intent {

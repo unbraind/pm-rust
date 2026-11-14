@@ -293,6 +293,12 @@ fn encode(value: &Value, depth: usize) -> String {
         .join("\n")
 }
 
+/// Render the current default contract for direct renderer tests.
+#[cfg(test)]
+fn render(value: &Value, depth: usize) -> String {
+    render_contract(value, depth, false)
+}
+
 /// Renders object scalars with quoted strings and arrays with the TOON codec.
 fn render_contract(value: &Value, depth: usize, current_context: bool) -> String {
     if let Some(fields) = value.as_object() {
@@ -316,14 +322,10 @@ fn render_contract(value: &Value, depth: usize, current_context: bool) -> String
                         for (rows, encoding) in (if current_context {
                             table_contract(value, false)
                         } else {
-                            table(value)
+                            table(value, false)
                         })
                         .into_iter()
-                        .chain(
-                            current_context
-                                .then(|| table_contract(value, true))
-                                .flatten(),
-                        ) {
+                        .chain(table_contract(value, true)) {
                             let candidate = encode(
                                 &json!({key:rows, format!("{key}_encoding"):encoding}),
                                 depth,
@@ -380,11 +382,8 @@ fn javascript_keys(map: &Map<String, Value>) -> Vec<&str> {
 }
 
 /// Builds a bounded union-column table for nested or sparse object rows.
-fn table(value: &Value) -> Option<(Value, Value)> {
-    if value.as_array()?.len() < 2 {
-        return None;
-    }
-    table_contract(value, false)
+fn table(value: &Value, compact: bool) -> Option<(Value, Value)> {
+    table_contract(value, compact)
 }
 
 /// Builds current compact list/null columns only for the newer context contract.

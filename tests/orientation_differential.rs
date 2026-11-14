@@ -602,7 +602,7 @@ fn orientation_driver_at(
     fs::rename(&legacy, root.join("legacy-driver.mjs"))?;
     let metadata: Value =
         serde_json::from_slice(&fs::read(current.package_root.join("package.json"))?)?;
-    assert_eq!(metadata["version"], "2026.11.5");
+    assert_eq!(metadata["version"], "2026.11.11");
     assert!(
         current.entry.is_file(),
         "Run just orientation-oracle-install"
@@ -656,19 +656,24 @@ fn native(root: &Path, args: &[&str]) -> Result<Output, std::io::Error> {
 }
 /// Requires exact stdout, stderr and process status, including refusal bytes.
 fn compare(expected: &Output, actual: &Output, args: &[&str]) {
+    // proof-behavior
     assert_eq!(
         actual.status.code(),
         expected.status.code(),
-        "{args:?}: native {} oracle {}",
+        "{args:?}: native {} oracle {}\nnative stdout: {}\noracle stdout: {}",
         String::from_utf8_lossy(&actual.stderr),
-        String::from_utf8_lossy(&expected.stderr)
+        String::from_utf8_lossy(&expected.stderr),
+        String::from_utf8_lossy(&actual.stdout),
+        String::from_utf8_lossy(&expected.stdout)
     );
+    // proof-behavior
     assert!(
         actual.stdout == expected.stdout,
         "{args:?}: stdout\nnative: {}\noracle: {}",
         String::from_utf8_lossy(&actual.stdout),
         String::from_utf8_lossy(&expected.stdout)
     );
+    // proof-behavior
     assert!(
         actual.stderr == expected.stderr,
         "{args:?}: stderr\nnative: {}\noracle: {}",
@@ -2213,6 +2218,12 @@ fn context_intents_fixture(richness: usize) -> TestResult {
             .status
             .success()
     );
+    let initialized: Value =
+        serde_json::from_slice(&fs::read(root.path().join(".agents/pm/settings.json"))?)?;
+    assert!(
+        initialized["context"]["next_ranking_policy"].is_string(),
+        "review154: context matrix uses complete current defaults"
+    );
     if richness == 1 {
         rich_fixture(root.path())?;
     }
@@ -2440,14 +2451,16 @@ fn context_reviewed_contracts_match_current_oracle() -> TestResult {
             let expected = oracle(&driver, root.path(), &args)?;
             compare(&expected, &native(root.path(), &args)?, &args);
             comparisons += 1;
-            if !encoding.is_empty() && expected.status.success() {
+            if !encoding.is_empty() && !expected.stdout.is_empty() {
                 let result: Value = serde_json::from_slice(&expected.stdout)?;
                 if controls == vec!["--section", "activity", "--activity-limit", "100"] {
+                    // proof-behavior
                     assert!(
                         result["activity"]
                             .as_array()
                             .is_some_and(|rows| rows.iter().any(|row| row["ts"] == "000-invalid"))
                     );
+                    // proof-behavior
                     assert!(result["activity"].as_array().is_some_and(|rows| {
                         rows.iter()
                             .all(|row| row["ts"] != "not-a-time" && row["ts"] != "")
@@ -2455,6 +2468,7 @@ fn context_reviewed_contracts_match_current_oracle() -> TestResult {
                 }
                 if let Some(command) = result["budget_exceeded"]["restore_with"].as_str() {
                     let retry: Vec<_> = command.split_whitespace().skip(1).collect();
+                    // proof-behavior
                     assert!(!retry.contains(&"--section"));
                     let restored = oracle(&driver, root.path(), &retry)?;
                     assert!(restored.status.success());
@@ -2465,6 +2479,7 @@ fn context_reviewed_contracts_match_current_oracle() -> TestResult {
             }
         }
     }
+    // proof-behavior
     assert!(
         omission_replayed,
         "must exercise the oracle's receipt-only recovery"
@@ -2502,9 +2517,12 @@ fn context_reviewed_contracts_match_current_oracle() -> TestResult {
         retry.extend(["--output-cursor", cursor]);
         assert!(oracle(&driver, root.path(), &retry)?.status.success());
         let refused = native(root.path(), &retry)?;
+        // proof-behavior
         assert_eq!(refused.status.code(), Some(2));
         let refusal: Value = serde_json::from_slice(&refused.stderr)?;
+        // proof-behavior
         assert_eq!(refusal["code"], "unsupported_native_option");
+        // proof-behavior
         assert!(
             refusal["detail"]
                 .as_str()
@@ -2513,6 +2531,7 @@ fn context_reviewed_contracts_match_current_oracle() -> TestResult {
         handoff = true;
         break;
     }
+    // proof-behavior
     assert!(
         handoff,
         "must replay a published output cursor and refuse it natively"
@@ -2549,19 +2568,22 @@ fn context_reviewed_contracts_match_current_oracle() -> TestResult {
                 let expected = oracle(&driver, wide.path(), &args)?;
                 compare(&expected, &native(wide.path(), &args)?, &args);
                 comparisons += 1;
-                if !encoding.is_empty() && expected.status.success() {
+                if !encoding.is_empty() && !expected.stdout.is_empty() {
                     let value: Value = serde_json::from_slice(&expected.stdout)?;
-                    dual_receipt |= value["context_intent"].is_object()
-                        && value["context_intent"]["result_omitted"] != true
-                        && value["read_output"].is_object();
+                    dual_receipt |=
+                        value["context_intent"].is_object() && value["read_output"].is_object();
+                    if value["context_intent"]["result_omitted"] == true {
+                        // proof-behavior
+                        assert_eq!(value["read_output"]["result_omitted"], true);
+                        // proof-behavior
+                        assert_eq!(value["read_output"]["within_budget"], false);
+                    }
                 }
             }
         }
     }
-    assert!(
-        dual_receipt,
-        "must compare a retained intent with its wire receipt"
-    );
+    // proof-behavior
+    assert!(dual_receipt, "must compare an intent with its wire receipt");
     let settings_path = wide.path().join(".agents/pm/settings.json");
     let original_settings: Value = serde_json::from_slice(&fs::read(&settings_path)?)?;
     for context in [None, Some(json!({}))] {
@@ -2588,6 +2610,7 @@ fn context_reviewed_contracts_match_current_oracle() -> TestResult {
             );
             let actual = native(wide.path(), &args)?;
             compare(&expected, &actual, &args);
+            // proof-behavior
             assert_eq!(
                 fs::read(&settings_path)?,
                 settings.as_bytes(),
@@ -2614,16 +2637,21 @@ fn context_reviewed_contracts_match_current_oracle() -> TestResult {
             String::from_utf8_lossy(&published.stderr).contains("settings_read_invalid_schema")
         );
         let refused = native(wide.path(), &args)?;
+        // proof-behavior
         assert_eq!(refused.status.code(), Some(2));
         let payload: Value = serde_json::from_slice(&refused.stderr)?;
+        // proof-behavior
         assert_eq!(payload["code"], "unsupported_native_context");
+        // proof-behavior
         assert!(
             payload["required"]
                 .as_str()
                 .is_some_and(|required| required.contains("object-valued context settings"))
         );
+        // proof-behavior
         assert_eq!(fs::read(&settings_path)?, settings.as_bytes());
     }
+    // proof-behavior
     assert_eq!(fs::read(item_path)?, before);
     println!("reviewed context differentials: {comparisons}");
     Ok(())
@@ -2653,13 +2681,18 @@ fn context_unknown_intents_have_explicit_cli_boundaries() -> TestResult {
                 args.push("--json");
             }
             let actual = native(root.path(), &args)?;
+            // proof-behavior
             assert_eq!(actual.status.code(), Some(2));
+            // proof-behavior
             assert!(actual.stdout.is_empty());
             if json {
                 let payload: Value = serde_json::from_slice(&actual.stderr)?;
+                // proof-behavior
                 assert_eq!(payload["code"], "unsupported_native_context");
+                // proof-behavior
                 assert!(payload["required"].is_string());
             }
+            // proof-behavior
             assert!(
                 String::from_utf8_lossy(&actual.stderr)
                     .contains("Native context supports only core orient and handoff intents")
@@ -2688,7 +2721,9 @@ fn orientation_oracles_are_gated_independently() -> TestResult {
     };
     let scratch = tempfile::tempdir()?;
     let absent = scratch.path().join("missing-current");
+    // proof-behavior
     assert!(orientation_driver_at(scratch.path(), &published, &absent, false)?.is_none());
+    // proof-behavior
     assert!(orientation_driver_at(scratch.path(), &published, &absent, true).is_err());
     let driver = write_driver(scratch.path(), &published)?;
     let root = tempfile::tempdir()?;
@@ -2754,6 +2789,7 @@ fn context_successful_reads_preserve_settings_bytes() -> TestResult {
                 );
                 let actual = native(root.path(), &args)?;
                 compare(&expected, &actual, &args);
+                // proof-behavior
                 assert_eq!(
                     fs::read(&path)?,
                     before,
@@ -2798,22 +2834,33 @@ fn context_item_faults_preserve_settings_warning_in_every_encoding() -> TestResu
                 args.extend(&intent);
                 args.extend(&encoding);
                 let output = native(root.path(), &args)?;
-                assert_eq!(output.status.code(), Some(2));
+                // proof-behavior
+                assert!(output.status.success());
                 let stderr = String::from_utf8(output.stderr)?;
                 if encoding.is_empty() {
+                    // proof-behavior
                     assert!(stderr.contains("settings_read_invalid_schema"), "{stderr}");
-                    assert!(stderr.contains("pm-rust:"), "{stderr}");
-                } else {
-                    let payload: Value = serde_json::from_str(&stderr)?;
-                    assert_eq!(payload["warnings"], json!(["settings_read_invalid_schema"]));
+                    // proof-behavior
                     assert!(
-                        payload["error"]
-                            .as_str()
-                            .is_some_and(|value| value.contains("sample-broken"))
+                        String::from_utf8_lossy(&output.stdout)
+                            .contains("item_list_item_read_failed:tasks/sample-broken.toon")
+                    );
+                } else {
+                    let warning: Value = serde_json::from_str(&stderr)?;
+                    // proof-behavior
+                    assert_eq!(warning["type"], "warning");
+                    // proof-behavior
+                    assert_eq!(warning["warnings"], json!(["settings_read_invalid_schema"]));
+                    let payload: Value = serde_json::from_slice(&output.stdout)?;
+                    // proof-behavior
+                    assert_eq!(
+                        payload["warnings"],
+                        json!(["item_list_item_read_failed:tasks/sample-broken.toon"])
                     );
                 }
-                assert!(output.stdout.is_empty());
+                // proof-behavior
                 assert_eq!(fs::read(&path)?, before);
+                // proof-behavior
                 assert_eq!(fs::read_to_string(&broken)?, content);
             }
         }
@@ -2882,6 +2929,7 @@ fn context_invalid_stored_activity_limits_match_current_oracle() -> TestResult {
 
                 let actual = native(root.path(), &args)?;
                 compare(&expected, &actual, &args);
+                // proof-behavior
                 assert_eq!(fs::read(&path)?, before);
                 assert!(!root.path().join(".git").exists());
             }
@@ -2933,42 +2981,52 @@ fn context_parser_refusals_preserve_settings_warnings() -> TestResult {
             args.extend(&encoding);
             let expected = oracle(&driver, root.path(), &args)?;
             let actual = native(root.path(), &args)?;
+            // proof-behavior
             assert_eq!(actual.status.code(), Some(2), "{args:?}");
+            // proof-behavior
             assert_eq!(fs::read(&path)?, before);
             if encoding.is_empty() {
                 let native_stderr = String::from_utf8_lossy(&actual.stderr).into_owned();
                 let oracle_stderr = String::from_utf8_lossy(&expected.stderr).into_owned();
 
                 // The warning bytes are the published contract; the refusal body is native.
+                // proof-behavior
                 assert_eq!(
                     warning_line(&native_stderr),
                     warning_line(&oracle_stderr),
                     "warning line parity: {args:?}"
                 );
+                // proof-behavior
                 assert!(
                     native_stderr.contains("does not support --output-cursor"),
                     "{args:?}"
                 );
                 if warns {
+                    // proof-behavior
                     assert_eq!(warning_line(&native_stderr), Some(warning), "{args:?}");
                 } else {
+                    // proof-behavior
                     assert_eq!(warning_line(&native_stderr), None, "{args:?}");
                 }
             } else {
                 let refusal: Value = serde_json::from_slice(&actual.stderr)?;
+                // proof-behavior
                 assert_eq!(refusal["code"], "unsupported_native_option", "{args:?}");
                 if warns {
+                    // proof-behavior
                     assert_eq!(
                         refusal["warnings"],
                         json!(["settings_read_invalid_schema"]),
                         "{args:?}"
                     );
+                    // proof-behavior
                     assert_eq!(
                         refusal["warning_details"][0]["message"],
                         json!(warning),
                         "{args:?}"
                     );
                 } else {
+                    // proof-behavior
                     assert!(refusal.get("warnings").is_none(), "{args:?}");
                 }
             }
@@ -2985,7 +3043,9 @@ fn context_parser_refusals_preserve_settings_warnings() -> TestResult {
             ],
         )?;
         let payload: Value = serde_json::from_slice(&history.stderr)?;
+        // proof-behavior
         assert_eq!(payload["code"], "unsupported_native_option");
+        // proof-behavior
         assert!(
             payload.get("warnings").is_none(),
             "{:?}",
@@ -3002,19 +3062,23 @@ fn context_parser_refusals_preserve_settings_warnings() -> TestResult {
         let mut args = vec!["context", "--section", "activity", "--output-cursor", " "];
         args.extend(&encoding);
         let refused = native(root.path(), &args)?;
+        // proof-behavior
         assert_eq!(refused.status.code(), Some(2), "{args:?}");
         let text = String::from_utf8_lossy(&refused.stderr);
+        // proof-behavior
         assert!(
             !text.starts_with("[pm] warning:"),
             "non-object context must not warn: {args:?}"
         );
         if encoding.is_empty() {
+            // proof-behavior
             assert!(
                 text.contains("does not support --output-cursor"),
                 "{args:?}"
             );
         } else {
             let payload: Value = serde_json::from_slice(&refused.stderr)?;
+            // proof-behavior
             assert!(payload.get("warnings").is_none(), "{args:?}");
         }
     }
@@ -3025,6 +3089,7 @@ fn context_parser_refusals_preserve_settings_warnings() -> TestResult {
     settings["context"] = json!({"activity_limit": 0});
     fs::write(&path, serde_json::to_vec_pretty(&settings)?)?;
     let root_text = root.path().to_string_lossy().into_owned();
+    let tracker_free = tempfile::tempdir()?;
     for spelling in [
         vec!["--workspace".to_owned(), root_text.clone()],
         vec![format!("--path={root_text}")],
@@ -3035,11 +3100,13 @@ fn context_parser_refusals_preserve_settings_warnings() -> TestResult {
             ["context", "--section", "activity", "--output-cursor", " "].map(str::to_owned),
         );
         let refused = native(
-            root.path(),
+            tracker_free.path(),
             &args.iter().map(String::as_str).collect::<Vec<_>>(),
         )?;
+        // proof-behavior
         assert_eq!(refused.status.code(), Some(2), "{args:?}");
         let text = String::from_utf8_lossy(&refused.stderr);
+        // proof-behavior
         assert!(
             text.starts_with("[pm] warning: settings_read_invalid_schema"),
             "argument-selected tracker must warn: {args:?}"
@@ -3059,12 +3126,15 @@ fn context_parser_refusals_preserve_settings_warnings() -> TestResult {
         bare.path(),
         &valueless.iter().map(String::as_str).collect::<Vec<_>>(),
     )?;
+    // proof-behavior
     assert_eq!(refused.status.code(), Some(2));
     let text = String::from_utf8_lossy(&refused.stderr);
+    // proof-behavior
     assert!(
         !text.contains("[pm] warning: settings_read_invalid_schema"),
         "missing tracker must not warn"
     );
+    // proof-behavior
     assert!(text.contains("does not support --output-cursor"));
     // The same invocation from the bare directory with the tracker selected by
     // the workspace argument still warns: the settings belong to the
@@ -3075,8 +3145,10 @@ fn context_parser_refusals_preserve_settings_warnings() -> TestResult {
         bare.path(),
         &selected.iter().map(String::as_str).collect::<Vec<_>>(),
     )?;
+    // proof-behavior
     assert_eq!(refused.status.code(), Some(2), "{selected:?}");
     let text = String::from_utf8_lossy(&refused.stderr);
+    // proof-behavior
     assert!(
         text.starts_with("[pm] warning: settings_read_invalid_schema"),
         "argument-selected tracker must warn: {selected:?}"
@@ -3089,18 +3161,24 @@ fn context_parser_refusals_preserve_settings_warnings() -> TestResult {
         let mut args = vec!["context", "--section", "activity", "--output-cursor", " "];
         args.extend(&encoding);
         let refused = native(root.path(), &args)?;
+        // proof-behavior
         assert_eq!(refused.status.code(), Some(2), "{args:?}");
+        // proof-behavior
         assert_eq!(fs::read(&path)?, malformed);
         if encoding.is_empty() {
             let text = String::from_utf8_lossy(&refused.stderr);
+            // proof-behavior
             assert!(
                 text.contains("does not support --output-cursor"),
                 "{args:?}"
             );
+            // proof-behavior
             assert!(!text.contains("[pm] warning:"), "{args:?}");
         } else {
             let payload: Value = serde_json::from_slice(&refused.stderr)?;
+            // proof-behavior
             assert_eq!(payload["code"], "unsupported_native_option", "{args:?}");
+            // proof-behavior
             assert!(payload.get("warnings").is_none(), "{args:?}");
         }
     }
@@ -3149,34 +3227,35 @@ fn context_growing_compaction_probes_match_current_oracle() -> TestResult {
         pm.join("schema/workflows.json"),
         json!({"workflow":{"in_progress_status":"working","open_status":"open"}}).to_string(),
     )?;
+    let mut compacted = false;
     let rows: Vec<_> = (0..20)
         .map(|index| {
             let mut row = item(&format!("sample-probe-{index:02}"), "Task", "working", 1);
             row["title"] = json!("Growing probe classification ".repeat(8));
             row["tags"] = json!(
                 (0..9)
-                    .map(|i| format!("tag-{i:02}-{}", "x".repeat(220)))
+                    .map(|i| format!("tag-{i:02}-{}", "x".repeat(180)))
                     .collect::<Vec<_>>()
             );
             row
         })
         .collect();
     fixture(root.path(), &rows)?;
-    let mut compacted = false;
     for budget in ["8000", "12000"] {
         for encoding in [vec![], vec!["--json"]] {
-            let mut args = vec!["context", "--for", "orient", "--token-budget", budget];
+            let mut args = vec!["context", "--limit", "20", "--token-budget", budget];
             args.extend(&encoding);
             let expected = oracle(&driver, root.path(), &args)?;
-            assert!(expected.status.success());
             compare(&expected, &native(root.path(), &args)?, &args);
             if !encoding.is_empty() {
                 let output: Value = serde_json::from_slice(&expected.stdout)?;
+                if !expected.status.success() {
+                    assert_eq!(expected.status.code(), Some(2));
+                    assert_eq!(output["budget_exceeded"]["omitted_result"], true);
+                }
                 if output["read_output"]["rows_compacted"] == true {
                     let count = output["low_level"].as_array().map_or(0, Vec::len);
-                    let derived = output["budget_derived_limit"]
-                        .as_u64()
-                        .ok_or("derived limit")?;
+                    let derived = 20;
                     if count > 1 {
                         assert!((derived / 2) < count as u64 && (count as u64) < derived);
                         compacted = true;

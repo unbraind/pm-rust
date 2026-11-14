@@ -310,7 +310,7 @@ fn tokens(result: &Value, toon: bool) -> usize {
 
 /// Measures wire bytes once for numeric receipt stabilization without changing rendering policy.
 fn rendered_bytes(result: &Value, toon: bool) -> usize {
-    let output = ListOutput::from(result.clone());
+    let output = dependency_output(result.clone());
     if toon {
         crate::toon_output::render_output(&output).len()
     } else {

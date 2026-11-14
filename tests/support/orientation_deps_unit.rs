@@ -368,6 +368,7 @@ fn dependency_wire_measurement_matches_delivery() -> Result<(), Box<dyn std::err
                             ..Default::default()
                         },
                     )?;
+                    // proof-behavior
                     assert!(output.current_contract, "{format} {summary} {toon}");
                     let wire = if toon {
                         crate::stringify_toon(&output)?
@@ -375,14 +376,17 @@ fn dependency_wire_measurement_matches_delivery() -> Result<(), Box<dyn std::err
                         output.stringify_read_json()
                     };
                     let measured = wire.len().div_ceil(4);
+                    // proof-behavior
                     assert_eq!(
                         tokens(&output.value, toon),
                         measured,
                         "{format} {summary} {toon}"
                     );
                     if !summary {
+                        // proof-behavior
                         assert!(measured <= budget, "{format} {toon} {budget}: {measured}");
                         if output.get("truncation").is_some() {
+                            // proof-behavior
                             assert_eq!(output["truncation"]["estimated_tokens"], json!(measured));
                         }
                     }

@@ -1,3 +1,4 @@
+import { assertionFailureDiagnostic } from './context-proof-diagnostics.mts';
 import { ProofProcesses, verifyAsyncMutation } from './context-proof-process.mts';
 import { assertNamedTests, copyWorkingTree, checkedGit } from './context-revert-helpers.mts';
 import { mkdtempSync, readFileSync, writeFileSync } from 'node:fs';
@@ -11,7 +12,7 @@ async function check(root: string, name: string, reverted: boolean): Promise<voi
     cwd: root, maxBuffer: 16 * 1024 * 1024,
     env: { ...process.env, CARGO_BUILD_JOBS: '2', RUST_TEST_THREADS: '2', CARGO_TARGET_DIR: join(root, 'target') },
   });
-  assertNamedTests(result, [`orientation_deps::packet::tests::${name}`], reverted);
+  assertNamedTests(result, [`orientation_deps::packet::tests::${name}`], reverted, false, assertionFailureDiagnostic(root, [`orientation_deps::packet::tests::${name}`]));
   console.log(JSON.stringify({ command: ['cargo', ...command], reverted, result: reverted ? 'named assertion failure' : 'pass' }));
 }
 

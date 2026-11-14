@@ -263,26 +263,29 @@ impl Intent {
             result.value["filters"]["requested_limit"] = json!(requested.to_string());
         }
         result.value["context_intent"] = receipt;
-        read_output::update(&mut result, "context_intent", false);
-        if read_output::estimate(&result, false) > *budget {
+        read_output::update_intent_estimate(&mut result, original.toon);
+        if read_output::measure_intent(&result, original.toon) > *budget {
             read_output::compact_strings_with_intent(&mut result.value, true);
             result.value["context_intent"]["degradation"] = json!("recursive_budget_compaction");
-            read_output::update(&mut result, "context_intent", false);
+            read_output::update_intent_estimate(&mut result, original.toon);
         }
-        let measured = read_output::estimate(&result, false);
+        let measured = read_output::measure_intent(&result, original.toon);
         result.value["context_intent"]["declaration_feasible"] = json!(measured <= *declared);
         if measured > *budget {
             result.value["context_intent"]["degradation"] = json!("budget_receipt_only");
             result.value["context_intent"]["result_omitted"] = json!(true);
             result.value["context_intent"]["within_budget"] = json!(false);
-            let recovery = measured.div_ceil(100) * 100;
+            let recovery = (measured.max(budget.saturating_add(1)) * 5)
+                .div_ceil(4)
+                .div_ceil(100)
+                * 100;
             result = json!({"budget_exceeded":{"omitted_result":true,"reason":if budget==declared {"declared_budget_infeasible"} else {"effective_budget_infeasible"},"restore_with":format!("pm context --for {name} --token-budget {recovery} --limit {derived}")},"context_intent":result["context_intent"]}).into();
         } else {
             result
                 .value
                 .as_object_mut()
                 .map(|map| map.shift_remove("row_contract"));
-            read_output::stabilize_intent(&mut result);
+            read_output::stabilize_intent(&mut result, original.toon);
         }
         result
     }

@@ -1192,5 +1192,12 @@
         }
       ]
     }
+  },
+  "evidence_scope": {
+    "status": "historical",
+    "measured_revision": null,
+    "revision_note": "The exact measured source revision was not retained. receipt_revision identifies receipt introduction, and per-binary hashes identify measured builds. Later implementation and runner changes require fresh final-head measurement.",
+    "runner_semantics": "2026-11-06 runner; predates strict oracle provenance, signal-status checks and version-probe snapshot ordering.",
+    "receipt_revision": "f1fa3ff6eb125f3cbdfbed536024de9744c97c13"
   }
 }

@@ -3,6 +3,6 @@
   "private": true,
   "version": "1.0.0",
   "dependencies": {
-    "@unbrained/pm-cli": "2026.11.5"
+    "@unbrained/pm-cli": "2026.11.11"
   }
 }

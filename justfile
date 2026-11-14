@@ -58,6 +58,11 @@ orientation-revert-proof: oracle-install
 crash *args:
     node scripts/crash-cli.mts "$@"
 
+# Prove the current review regressions with passing controls around each mutation.
+[positional-arguments]
+review154-revert-proof *args: oracle-install
+    node scripts/context-round154-revert.mts "$@"
+
 # Targeted TypeScript harness checks; Rust tests/build remain separate.
 crash-check: oracle-install
     npm ci --prefix tests/harness --ignore-scripts --prefer-offline --maxsockets=2

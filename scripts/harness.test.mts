@@ -31,7 +31,7 @@ for (const signal of ['SIGINT', 'SIGTERM'] as const) {
       for (const [name, bytes] of originals) writeFileSync(join(root, `src/${name}.rs`), bytes);
       const script = join(root, 'scripts/perf-revert-proof.mts');
       writeFileSync(script, readFileSync(new URL('./perf-revert-proof.mts', import.meta.url)));
-      for (const helper of ['context-proof-process.mts', 'context-windows-job.mts']) writeFileSync(join(root, 'scripts', helper), readFileSync(new URL(helper, import.meta.url)));
+      for (const helper of ['context-revert-helpers.mts', 'context-proof-process.mts', 'context-windows-job.mts']) writeFileSync(join(root, 'scripts', helper), readFileSync(new URL(helper, import.meta.url)));
       const cargo = join(root, 'bin/cargo');
       const cargoProgram = join(root, 'cargo.mjs');
       writeFileSync(cargoProgram, `import { spawn } from 'node:child_process';
@@ -112,34 +112,34 @@ syncBuiltinESMExports();
         const cargoPid = marker.pid;
         ownedCargo = cargoPid;
         sandbox = marker.root;
-        assert.notEqual(sandbox, root);
-        assert.equal(existsSync(join(root, 'target')), false, 'checkout build artifacts remain untouched');
+        assert.notEqual(/* proof-behavior */ sandbox, root);
+        assert.equal(/* proof-behavior */ existsSync(join(root, 'target')), false, 'checkout build artifacts remain untouched');
         const baselines = readFileSync(join(root, 'baselines.jsonl'), 'utf8').trim().split('\n').map(line => JSON.parse(line) as string[]);
-        assert.equal(baselines.length, 2, 'both passing controls must precede mutation');
-        assert.ok(baselines[0].includes('ownership::tests::ownership_lineage_scans_corpus_once'));
-        assert.ok(baselines[1].includes('mutation::tests::locator_metadata_work_depends_on_directories_and_targets'));
+        assert.equal(/* proof-behavior */ baselines.length, 2, 'both passing controls must precede mutation');
+        assert.ok(/* proof-behavior */ baselines[0].includes('ownership::tests::ownership_lineage_scans_corpus_once'));
+        assert.ok(/* proof-behavior */ baselines[1].includes('mutation::tests::locator_metadata_work_depends_on_directories_and_targets'));
         assert.ok(Number.isSafeInteger(cargoPid) && cargoPid > 1, 'cargo PID must identify an ordinary child process');
         for (const [name, bytes] of originals) {
-          assert.equal(readFileSync(join(root, `src/${name}.rs`), 'utf8'), bytes, 'checkout stays unchanged during mutation');
-          assert.notEqual(readFileSync(join(sandbox, `src/${name}.rs`), 'utf8'), bytes);
+          assert.equal(/* proof-behavior */ readFileSync(join(root, `src/${name}.rs`), 'utf8'), bytes, 'checkout stays unchanged during mutation');
+          assert.notEqual(/* proof-behavior */ readFileSync(join(sandbox, `src/${name}.rs`), 'utf8'), bytes);
         }
         assert.ok(child.pid && child.pid > 1);
         const target = delivery === 'process group' ? -child.pid : delivery === 'parent only' || delivery === 'stubborn descendant' ? child.pid :
           cargoPid;
         process.kill(target, signal);
         const result = await completed;
-        assert.deepEqual(result, { code: signal === 'SIGINT' ? 130 : 143, signal: null }, diagnostic);
-        for (const [name, bytes] of originals) assert.equal(readFileSync(join(root, `src/${name}.rs`), 'utf8'), bytes);
-        assert.deepEqual(JSON.parse(readFileSync(join(root, 'restored.json'), 'utf8')), [true, true], 'both sandbox sources restore before exit');
+        assert.deepEqual(/* proof-behavior */ result, { code: signal === 'SIGINT' ? 130 : 143, signal: null }, diagnostic);
+        for (const [name, bytes] of originals) assert.equal(/* proof-behavior */ readFileSync(join(root, `src/${name}.rs`), 'utf8'), bytes);
+        assert.deepEqual(/* proof-behavior */ JSON.parse(readFileSync(join(root, 'restored.json'), 'utf8')), [true, true], 'both sandbox sources restore before exit');
         if (delivery === 'stubborn descendant') {
           const state = spawnSync('ps', ['-p', String(marker.worker), '-o', 'stat='], { encoding: 'utf8' });
           assert.ifError(state.error);
-          assert.ok(state.status === 1 || state.stdout.trim().startsWith('Z'), 'uncooperative descendant must stop before cleanup');
+          assert.ok(/* proof-behavior */ state.status === 1 || state.stdout.trim().startsWith('Z'), 'uncooperative descendant must stop before cleanup');
         } else {
-          assert.equal(JSON.parse(readFileSync(join(root, 'worker-stopped.json'), 'utf8')), true, 'descendants must stop while their scratch sources still exist');
+          assert.equal(/* proof-behavior */ JSON.parse(readFileSync(join(root, 'worker-stopped.json'), 'utf8')), true, 'descendants must stop while their scratch sources still exist');
         }
-        assert.equal(existsSync(sandbox), false, 'owned scratch and build artifacts are removed');
-        assert.deepEqual(result, { code: signal === 'SIGINT' ? 130 : 143, signal: null });
+        assert.equal(/* proof-behavior */ existsSync(sandbox), false, 'owned scratch and build artifacts are removed');
+        assert.deepEqual(/* proof-behavior */ result, { code: signal === 'SIGINT' ? 130 : 143, signal: null });
       } finally {
         if (child.pid) {
           try { process.kill(-child.pid, 'SIGKILL'); } catch { /* The process group already exited. */ }
@@ -268,18 +268,18 @@ test('authoritative snapshots exclude caches only at the tracker root', () => {
     writeFileSync(join(root, 'settings.json'), '{}\n');
     const before = authoritative(root);
     writeFileSync(join(root, 'settings.json'), '{"changed":true}\n');
-    assert.notEqual(authoritative(root).get('settings.json'), before.get('settings.json'));
+    assert.notEqual(/* proof-behavior */ authoritative(root).get('settings.json'), before.get('settings.json'));
     writeFileSync(join(root, 'settings.json'), '{}\n');
-    assert.equal(before.size, 16);
-    assert.ok(before.has('settings.json'));
+    assert.equal(/* proof-behavior */ before.size, 16);
+    assert.ok(/* proof-behavior */ before.has('settings.json'));
     for (const name of ['runtime', 'locks', 'transactions', 'checkpoints', 'search']) {
       for (const extension of ['toon', 'jsonl', 'json']) {
         const relative = join('custom-types', name, `item.${extension}`);
-        assert.ok(before.has(relative));
+        assert.ok(/* proof-behavior */ before.has(relative));
         writeFileSync(join(root, name, `item.${extension}`), 'cache changed\n');
-        assert.deepEqual(authoritative(root), before);
+        assert.deepEqual(/* proof-behavior */ authoritative(root), before);
         writeFileSync(join(root, relative), 'authoritative changed\n');
-        assert.notEqual(authoritative(root).get(relative), before.get(relative));
+        assert.notEqual(/* proof-behavior */ authoritative(root).get(relative), before.get(relative));
         writeFileSync(join(root, relative), extension === 'toon' ? 'title: before\n' : '{}\n');
       }
     }

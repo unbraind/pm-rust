@@ -1,3 +1,5 @@
+import { assertionFailureDiagnostic } from './context-proof-diagnostics.mts';
+import { proofCopyFilter, registerCargoConfiguration } from './context-revert-helpers.mts';
 import { absentLink } from './context-revert-helpers.mts';
 import { ProofProcesses, verifyAsyncMutation } from './context-proof-process.mts';
 import assert from 'node:assert/strict';
@@ -8,9 +10,10 @@ import { join, resolve } from 'node:path';
 
 const root = resolve(import.meta.dirname, '..');
 const scratch = mkdtempSync(join(tmpdir(), 'native-capabilities-revert-'));
+registerCargoConfiguration(root, scratch);
 const processes = new ProofProcesses();
 try {
-  for (const name of ['Cargo.toml', 'Cargo.lock', 'build.rs', 'src', 'tests', 'examples']) cpSync(join(root, name), join(scratch, name), { recursive: true, dereference: true, filter: path => !path.split(/[\\/]/).includes('node_modules') && !absentLink(path) });
+  for (const name of ['Cargo.toml', 'Cargo.lock', 'build.rs', 'src', 'tests', 'examples']) cpSync(join(root, name), join(scratch, name), { recursive: true, dereference: true, filter: path => !path.split(/[\\/]/).includes('node_modules') && !absentLink(path) && proofCopyFilter(path) });
   const path = join(scratch, 'src/discovery.rs');
   const source = readFileSync(path, 'utf8');
   const start = source.indexOf('pub fn discover_capabilities(');
@@ -22,7 +25,7 @@ try {
       cwd: scratch, timeout: 600000,
       env: { PATH: process.env.PATH, HOME: process.env.HOME, CARGO_BUILD_JOBS: '2', RUST_TEST_THREADS: '2', CARGO_TARGET_DIR: join(scratch, 'target') },
     });
-    assertNamedTests(result, ['discovery_is_complete_bounded_and_tracker_free'], reverted);
+    assertNamedTests(result, ['discovery_is_complete_bounded_and_tracker_free'], reverted, false, assertionFailureDiagnostic(scratch, ['discovery_is_complete_bounded_and_tracker_free']));
   }, () => writeFileSync(path, `${source.slice(0, body + 1)}\n    let _ = request;\n    Err(refuse(DiscoveryRefusalCode::UnsupportedOperation))\n}\n${source.slice(end)}`), () => writeFileSync(path, source), processes);
   console.log(JSON.stringify({ reverted_test: 'discovery_is_complete_bounded_and_tracker_free', passed_control: true, failed: 1 }));
   writeFileSync(path, source);
@@ -37,7 +40,7 @@ try {
       cwd: scratch, timeout: 600000,
       env: { PATH: process.env.PATH, HOME: process.env.HOME, CARGO_BUILD_JOBS: '2', RUST_TEST_THREADS: '2', CARGO_TARGET_DIR: join(scratch, 'target') },
     });
-    assertNamedTests(delivery, ['tests::capabilities_writer_refusals'], reverted);
+    assertNamedTests(delivery, ['tests::capabilities_writer_refusals'], reverted, false, assertionFailureDiagnostic(scratch, ['tests::capabilities_writer_refusals']));
   }, () => writeFileSync(mainPath, `${main.slice(0, writerBody + 1)}\n    let _ = (writer, response, json);\n    Ok(())\n}\n${main.slice(writerEnd)}`), () => writeFileSync(mainPath, main), processes);
   console.log(JSON.stringify({ reverted_test: 'tests::capabilities_writer_refusals', passed_control: true, failed: 1 }));
 } catch (error) {

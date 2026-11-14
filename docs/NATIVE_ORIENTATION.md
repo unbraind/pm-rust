@@ -1,6 +1,6 @@
 # Native agent orientation
 
-The current context and dependency oracle is locked to 2026.11.5 by
+The current context and dependency oracle is locked to 2026.11.11 by
 `tests/orientation-oracle/package.json` and its lockfile. See
 [native context intents](NATIVE_CONTEXT_INTENTS.md) for the newer contract.
 This slice belongs to [pm-rust-u4al](../.agents/pm/epics/pm-rust-u4al.toon), tracked
@@ -59,12 +59,11 @@ the oracle's directory-entry policy.
 
 ## History
 
-History retains the 2026.10.21 oracle contract. The newer newest-first projection
-and its total/order fields are deferred with the richer history feature.
+History uses the shared 2026.11.11 oracle contract.
 
-`history <id>` defaults to compact timeline rows: record index, time,
-operation, author, patch count and changed fields. `--full` retains complete
-immutable entries and their original member order. `--limit` selects the latest
+`history <id>` defaults to newest-first compact timeline rows: record index,
+time, operation, author, patch count and changed fields. `--full` retains complete
+immutable entries in oldest-first order and their original member order. `--limit` selects the latest
 records; zero selects none and fractional values use the oracle's floor rule.
 `--json` changes encoding. Compacted streams retain version-addressing evidence.
 

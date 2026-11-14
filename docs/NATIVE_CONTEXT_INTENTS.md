@@ -2,8 +2,8 @@
 
 Tracked by [pm-rust-context-intents](../.agents/pm/features/pm-rust-context-intents.toon)
 under [pm-rust-s6j4](../.agents/pm/tasks/pm-rust-s6j4.toon).
-The context and dependency oracle is independently locked to pm **2026.11.5** in
-`tests/orientation-oracle`; history and the remaining package oracle retain their prior pin.
+The context and dependency oracle is independently locked to pm **2026.11.11** in
+`tests/orientation-oracle`, matching the shared package oracle.
 
 `context --for orient` selects hierarchy, blockers and activity at standard depth,
 with a 3000-token declaration. `context --for handoff` selects activity, progress
@@ -14,8 +14,8 @@ controls retained history rows. The SDK exposes the same controls through
 
 The intents derive row ceilings from their token budgets, cap larger requested
 limits and disclose the original request, effective limit and recovery budget.
-Smaller explicit limits bind. Intent estimates measure compact JSON; the final
-read-output ceiling measures the requested JSON or TOON wire representation.
+Smaller explicit limits bind. Intent estimates and the final read-output ceiling
+measure the requested JSON or TOON wire representation.
 An infeasible declaration returns an omission receipt, rather than an approximate
 packet. Budgets below 256 receive the published usage refusal. Numeric parsing
 retains the distinction between decimal intent controls and the underlying
@@ -83,7 +83,11 @@ Both wall-clock time and the oracle's monotonic packing clock are fixed during
 differentials, so its elapsed-time packing guard cannot vary with host scheduling.
 Latency still measures real elapsed time outside each fresh process.
 
-## Generated evidence
+## Historical development evidence
+
+These corpus and unit counts predate the main merge for the 2026-11-14 review.
+Current validation and thread decisions are recorded in
+[the review evidence](NATIVE_CONTEXT_REVIEW_154_2026_11_14.md).
 
 The focused current-oracle runs pass 434 context comparisons: 342 rich, empty
 and wide intent/section cases, 20 Unicode control cases, and 72 reviewed-contract
@@ -104,7 +108,7 @@ release and coverage gates run in CI; these local results do not claim coverage.
 
 ## Public-copy measurements
 
-The release binary passes the following exact comparisons against the locked
+The historical 2026-11-06 binary passed the following exact comparisons against the locked
 oracle on copies of the public pm-vcs, pm-rl and pm-context trackers. Authoritative
 item/history/configuration hashes remain unchanged in every copy.
 
@@ -119,7 +123,7 @@ has five alternating samples per runtime; filesystem caches were not flushed.
 The fixed clocks make packing deterministic. These shared-host observations are
 not latency guarantees. They were collected locally on Node 24.19.0; CI uses
 Node 26 and independently runs the release gates. The receipt includes every
-sample, p95 and binary hash.
+sample, p95 and binary hash. These results predate the current runner and code; they do not certify final-head performance or parity. The receipt records its introduction revision and historical runner semantics.
 
 | Tracker | Brief | Deep | Orient | Handoff | Relationship |
 | --- | ---: | ---: | ---: | ---: | ---: |
@@ -133,7 +137,7 @@ sample, p95 and binary hash.
 
 `just orientation-revert-proof` requires behavioral assertion failures, not
 compilation failures. Mutations run in a disposable source copy and are restored
-between checks. The completed proof covers 26 required assertion failures across 24
+between checks. The historical completed proof covers 26 required assertion failures across 24
 mutation commands and 17 distinct tests, covering all twelve new tests. The
 20-command recipe run and four subsequent isolated retry-guard reverts use the
 same scratch-copy harness; the recipe now includes all 24 mutations.

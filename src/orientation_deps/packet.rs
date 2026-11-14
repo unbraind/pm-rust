@@ -779,6 +779,8 @@ fn budget_floor(error: &PmRustError) -> bool {
 struct RenderMeasurements {
     /// Encoding and structural envelope identity map to bytes excluding the counters.
     fixed_bytes: BTreeMap<(bool, String), usize>,
+    /// One preserved query shares bounded producer work across canonical budget probes.
+    producers: RenderCache,
 }
 
 impl RenderMeasurements {
@@ -832,9 +834,11 @@ fn render_packet(
         traversal,
         evidence,
         options,
-        &mut RenderCache::default(),
+        &mut measurements.producers,
     )?;
-    measurements.settle(&mut result.value, options.toon);
+    if !options.summary {
+        measurements.settle(&mut result.value, options.toon);
+    }
     Ok(result)
 }
 

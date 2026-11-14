@@ -35,12 +35,12 @@ function fixture(root: string): string {
 test('Windows signal proof selection preserves every supported case and reports skips', () => {
   const cases = [{ test: 'ordinary rust test' }, { test: 'runner SIGTERM proof' }, { test: 'runner SIGINT proof' }, { test: 'ordinary node test' }];
   const receipts: string[] = [];
-  assert.deepEqual(supportedProofs(cases, undefined, 'win32', message => receipts.push(message)), [cases[0], cases[3]]);
-  assert.equal(receipts.length, 2);
-  assert.ok(receipts.every(message => message.includes('Unix host')));
-  for (const signal of ['SIGTERM', 'SIGINT']) assert.throws(() => supportedProofs(cases, signal, 'win32'), /requires a Unix host/);
-  assert.deepEqual(supportedProofs(cases, undefined, 'linux'), cases);
-  assert.deepEqual(supportedProofs(cases, 'ordinary rust', 'win32'), [cases[0]]);
+  assert.deepEqual(/* proof-behavior */ supportedProofs(cases, undefined, 'win32', message => receipts.push(message)), [cases[0], cases[3]]);
+  assert.equal(/* proof-behavior */ receipts.length, 2);
+  assert.ok(/* proof-behavior */ receipts.every(message => message.includes('Unix host')));
+  for (const signal of ['SIGTERM', 'SIGINT']) assert.throws(/* proof-behavior */ () => supportedProofs(cases, signal, 'win32'), /requires a Unix host/);
+  assert.deepEqual(/* proof-behavior */ supportedProofs(cases, undefined, 'linux'), cases);
+  assert.deepEqual(/* proof-behavior */ supportedProofs(cases, 'ordinary rust', 'win32'), [cases[0]]);
   const root = mkdtempSync(join(tmpdir(), 'pm-proof-platform-'));
   try {
     const shim = join(root, 'windows-selection.mjs');
@@ -53,9 +53,9 @@ syncBuiltinESMExports();
     const result = spawnSync(process.execPath, ['--import', pathToFileURL(shim).href, join(packageRoot, 'scripts/context-review-revert.mts'), 'SIGTERM'], {
       cwd: packageRoot, encoding: 'utf8', timeout: 30_000, env: simulationEnvironment(root),
     });
-    assert.equal(result.status, 1);
-    assert.match(result.stderr, /Selected signal proof requires a Unix host/);
-    assert.doesNotMatch(result.stderr, /unsupported proof reached a baseline subprocess/);
+    assert.equal(/* proof-behavior */ result.status, 1);
+    assert.match(/* proof-behavior */ result.stderr, /Selected signal proof requires a Unix host/);
+    assert.doesNotMatch(/* proof-behavior */ result.stderr, /unsupported proof reached a baseline subprocess/);
   } finally { rmSync(root, { recursive: true, force: true }); }
 });
 
@@ -79,10 +79,10 @@ test('Windows safety selection excludes every unsupported mutation before its ba
     { name: 'later safe', test: 'ordinary' },
   ];
   const receipts: string[] = [];
-  assert.deepEqual(supportedProofs(cases, undefined, 'win32', row => receipts.push(row)), [cases[0], cases[10]]);
-  assert.equal(receipts.length, 9);
-  assert.deepEqual(supportedProofs(cases, undefined, 'linux'), cases);
-  for (const name of ['symlink', 'descendant', 'nested']) assert.throws(() => supportedProofs(cases, name, 'win32'), /requires a Unix host/);
+  assert.deepEqual(/* proof-behavior */ supportedProofs(cases, undefined, 'win32', row => receipts.push(row)), [cases[0], cases[10]]);
+  assert.equal(/* proof-behavior */ receipts.length, 9);
+  assert.deepEqual(/* proof-behavior */ supportedProofs(cases, undefined, 'linux'), cases);
+  for (const name of ['symlink', 'descendant', 'nested']) assert.throws(/* proof-behavior */ () => supportedProofs(cases, name, 'win32'), /requires a Unix host/);
   const root = mkdtempSync(join(tmpdir(), 'pm-safety-selection-'));
   try {
     const shim = join(root, 'platform.mjs');
@@ -93,9 +93,9 @@ childProcess.spawn = () => { throw new Error('unsupported baseline executed'); }
 syncBuiltinESMExports();`);
     for (const selected of ['symlink isolation', 'dependency junction', 'nested runner ownership']) {
       const result = spawnSync(process.execPath, ['--import', pathToFileURL(shim).href, join(packageRoot, 'scripts/context-safety-revert.mts'), selected], { cwd: packageRoot, encoding: 'utf8', timeout: 30_000, env: simulationEnvironment(root) });
-      assert.equal(result.status, 1);
-      assert.match(result.stderr, /requires a Unix host/);
-      assert.doesNotMatch(result.stderr, /unsupported baseline executed/);
+      assert.equal(/* proof-behavior */ result.status, 1);
+      assert.match(/* proof-behavior */ result.stderr, /requires a Unix host/);
+      assert.doesNotMatch(/* proof-behavior */ result.stderr, /unsupported baseline executed/);
     }
   } finally { rmSync(root, { recursive: true, force: true }); }
 });
@@ -107,7 +107,7 @@ test('benchmark preflight records only identical dependency budget refusals as u
   const success = result(0, { context: {} });
   assert.equal(benchmarkPreflight(success, success, 'context'), undefined);
   for (const bad of [result(1, {}), result(null, {}), result(2, { code: 'invalid_argument_value' }), result(2, { code: 'runtime_error', recovery: { token_budget: { requested_tokens: 5000 } } })]) {
-    assert.throws(() => benchmarkPreflight(bad, bad, 'deps', true), /preflight failed/);
+    assert.throws(() => benchmarkPreflight(bad, bad, 'deps', true), bad.status === null ? /parity failed/ : /preflight failed/);
     assert.throws(() => benchmarkPreflight(refusal, bad, 'deps', true), /parity failed/);
   }
   assert.throws(() => benchmarkPreflight(refusal, refusal, 'context'), /preflight failed/);
@@ -126,7 +126,7 @@ test('real-copy receipts survive infeasible timing while rejecting parity and ru
 childProcess.spawnSync=(command,args)=>{
 const native=command!==process.execPath; const argv=native?args:args.slice(1);
 let status=0, stdout=JSON.stringify({context:{meta:{}}}), stderr='';
-if(argv[0]==='--version') return {status:0,stdout:'2026.11.5\\n',stderr:''};
+if(argv[0]==='--version') return {status:0,stdout:'2026.11.11\\n',stderr:''};
 if(argv[0]==='list') stdout=JSON.stringify({items:[{id:'sample-a',parent:'sample-b'},{id:'sample-b'}]});
 if(argv[0]==='deps' && argv.includes('5000')) {
  status=${mode === 'runtime' ? 1 : 2}; stdout='';
@@ -141,13 +141,13 @@ return {status,stdout:Buffer.from(stdout),stderr:Buffer.from(stderr)};
       if(mode==='budget') {
         assert.equal(result.status,0,result.stderr);
         const receipt=JSON.parse(readFileSync(output,'utf8')) as {unavailable_timings:{reason:string}[];samples:unknown[];authoritative_unchanged:boolean};
-        assert.equal(receipt.unavailable_timings[0].reason,'dependency_token_budget_infeasible');
-        assert.equal(receipt.samples.length,8);
-        assert.equal(receipt.authoritative_unchanged,true);
+        assert.equal(/* proof-behavior */ receipt.unavailable_timings[0].reason,'dependency_token_budget_infeasible');
+        assert.equal(/* proof-behavior */ receipt.samples.length,8);
+        assert.equal(/* proof-behavior */ receipt.authoritative_unchanged,true);
       } else {
-        assert.equal(result.status,1,result.stderr);
-        assert.match(result.stderr,mode==='runtime'?/preflight failed/:/parity failed/);
-        assert.equal(existsSync(output),false);
+        assert.equal(/* proof-behavior */ result.status,1,result.stderr);
+        assert.match(/* proof-behavior */ result.stderr,mode==='runtime'?/preflight failed/:/parity failed/);
+        assert.equal(/* proof-behavior */ existsSync(output),false);
       }
     }
   } finally {rmSync(root,{recursive:true,force:true});}
@@ -162,14 +162,14 @@ import childProcess from 'node:child_process';import {EventEmitter} from 'node:e
 Object.defineProperty(process,'platform',{value:'win32'});
 let child, killed=false;
 const scratch=${JSON.stringify(join(root,'scratch'))};mkdirSync(scratch);
-childProcess.spawn=(command,args)=>{assert.equal(command,'powershell.exe');assert.ok(Buffer.from(args.at(-1),'base64').toString('utf16le').includes('PROC_THREAD_ATTRIBUTE_JOB_LIST'));child=new EventEmitter();child.pid=424242;child.stdout=new PassThrough();child.stderr=new PassThrough();setImmediate(()=>child.emit('exit',0,null));return child;};
-childProcess.execFileSync=(command,args)=>{assert.equal(command,'taskkill');assert.deepEqual(args,['/pid','424242','/T','/F']);assert.ok(existsSync(scratch));killed=true;setImmediate(()=>{child.stdout.end();child.stderr.end();child.emit('close',0);});};
+childProcess.spawn=(command,args)=>{assert.equal(command,'powershell.exe');assert.ok(Buffer.from(args.at(-1),'base64').toString('utf16le').includes('PROC_THREAD_ATTRIBUTE_JOB_LIST'));child=new EventEmitter();child.pid=424242;child.kill=()=>true;child.stdout=new PassThrough();child.stderr=new PassThrough();setImmediate(()=>child.emit('exit',0,null));return child;};
+childProcess.execFileSync=(command,args)=>{assert.equal(command,'powershell.exe');assert.ok(Buffer.from(args.at(-1),'base64').toString('utf16le').includes('OpenJobObject'));assert.ok(existsSync(scratch));killed=true;setImmediate(()=>{child.stdout.end();child.stderr.end();child.emit('close',0);});};
 syncBuiltinESMExports();
 const {ProofProcesses}=await import(${JSON.stringify(pathToFileURL(join(packageRoot,'scripts/context-proof-process.mts')).href)});
 const owned=new ProofProcesses();const result=await owned.run('cargo',[],{timeout:50});
 assert.ok(killed);assert.match(result.error.message,/timeout/);await owned.cleanup(scratch);assert.equal(existsSync(scratch),false);`);
     const result=spawnSync(process.execPath,[script],{encoding:'utf8',timeout:10000,env:simulationEnvironment(root)});
-    assert.equal(result.status,0,result.stderr);
+    assert.equal(/* proof-behavior */ result.status,0,result.stderr);
   } finally {rmSync(root,{recursive:true,force:true});}
 });
 
@@ -220,10 +220,10 @@ finally { await owned.cleanup(${JSON.stringify(join(root, 'scratch'))}); }`);
       for (let i=0; !existsSync(marker) && i<1000; i++) { if(child.exitCode!==null) break; await setTimeout(10); }
       assert.ok(existsSync(marker), stderr);
       if (ending !== 'exit') child.kill(ending);
-      assert.equal(await finished, ending === 'exit' ? 0 : 143, stderr);
-      assert.equal(readFileSync(marker + '.stopped','utf8'), 'true');
-      assert.equal(readFileSync(marker + '.owner-stopped','utf8'), 'true', 'nested restoration finishes before outer input removal');
-      assert.equal(existsSync(join(root,'scratch')),false);
+      assert.equal(/* proof-behavior */ await finished, ending === 'exit' ? 0 : 143, stderr);
+      assert.equal(/* proof-behavior */ readFileSync(marker + '.stopped','utf8'), 'true');
+      assert.equal(/* proof-behavior */ readFileSync(marker + '.owner-stopped','utf8'), 'true', 'nested restoration finishes before outer input removal');
+      assert.equal(/* proof-behavior */ existsSync(join(root,'scratch')),false);
     } finally {
       if (child.exitCode===null) child.kill('SIGKILL');
       if(existsSync(marker)) { try { process.kill(Number(readFileSync(marker,'utf8')),'SIGKILL'); } catch { /* drained */ } }
@@ -263,10 +263,10 @@ finally{await owned.cleanup(${JSON.stringify(scratch)});}`);
       for(let i=0;!existsSync(marker)&&i<1000;i++) {if(child.exitCode!==null)break;await setTimeout(10);}
       assert.ok(existsSync(marker),diagnostic);
       if(ending!=='exit')child.kill(ending);
-      assert.equal(await finished,ending==='exit'?0:143,diagnostic);
-      assert.equal(readFileSync(marker+'.stopped','utf8'),'true','inputs remain through delayed runner termination');
-      assert.equal(existsSync(marker+'.constructor'),false,'cleanup precedes the constructor');
-      assert.equal(existsSync(scratch),false);
+      assert.equal(/* proof-behavior */ await finished,ending==='exit'?0:143,diagnostic);
+      assert.equal(/* proof-behavior */ readFileSync(marker+'.stopped','utf8'),'true','inputs remain through delayed runner termination');
+      assert.equal(/* proof-behavior */ existsSync(marker+'.constructor'),false,'cleanup precedes the constructor');
+      assert.equal(/* proof-behavior */ existsSync(scratch),false);
     } finally {
       if(child.exitCode===null)child.kill('SIGKILL');
       if(existsSync(marker)){try{process.kill(-Number(readFileSync(marker,'utf8')),'SIGKILL')}catch{/* already stopped */}}
@@ -287,7 +287,7 @@ Object.defineProperty(process,'platform',{value:'darwin'});
 let unavailable=true;
 childProcess.execFileSync=()=>{if(unavailable)throw new Error('termination unavailable');return '';};
 process.kill=()=>true;
-childProcess.spawn=()=>{const child=new EventEmitter();child.pid=424242;child.stdout=new PassThrough();child.stderr=new PassThrough();setImmediate(()=>{child.emit('exit',0,null);child.stdout.end();child.stderr.end();child.emit('close',0)});return child;};
+childProcess.spawn=()=>{const child=new EventEmitter();child.pid=424242;child.kill=()=>true;child.stdout=new PassThrough();child.stderr=new PassThrough();setImmediate(()=>{child.emit('exit',0,null);child.stdout.end();child.stderr.end();child.emit('close',0)});return child;};
 syncBuiltinESMExports();
 const {ProofProcesses,verifyAsyncMutation}=await import(${JSON.stringify(pathToFileURL(join(packageRoot,'scripts/context-proof-process.mts')).href)});
 const owned=new ProofProcesses();let input='fixed';
@@ -297,7 +297,7 @@ unavailable=false;await owned.settled();
 await verifyAsyncMutation(async()=>{},()=>{input='mutated'},()=>{input='fixed'},owned);
 assert.equal(input,'fixed');await owned.cleanup(${JSON.stringify(join(root,'scratch'))});`);
     const result=spawnSync(process.execPath,[script],{encoding:'utf8',timeout:10000,env:simulationEnvironment(root)});
-    assert.equal(result.status,0,result.stderr);
+    assert.equal(/* proof-behavior */ result.status,0,result.stderr);
   } finally {rmSync(root,{recursive:true,force:true});}
 });
 
@@ -312,15 +312,15 @@ test('proof copies skip dangling file and directory links across every runner', 
     mkdirSync(join(source,'folder'));symlinkSync('absent',join(source,'folder/broken'));
     checkedGit(source,['add','kept','broken'],'fixture add');
     const copy=join(root,'copy');mkdirSync(copy);copyWorkingTree(source,copy);
-    assert.equal(readFileSync(join(copy,'kept'),'utf8'),'fixed');
-    for(const name of ['broken','broken-directory','folder/broken'])assert.equal(lstatSync(join(copy,name),{throwIfNoEntry:false}),undefined);
+    assert.equal(/* proof-behavior */ readFileSync(join(copy,'kept'),'utf8'),'fixed');
+    for(const name of ['broken','broken-directory','folder/broken'])assert.equal(/* proof-behavior */ lstatSync(join(copy,name),{throwIfNoEntry:false}),undefined);
     const shim=join(root,'copy.mjs');
     writeFileSync(shim, `import assert from 'node:assert/strict';import fs from 'node:fs';import {syncBuiltinESMExports} from 'node:module';
 const original=fs.cpSync;
 fs.cpSync=(_source,_target,options)=>{const target=${JSON.stringify(join(root,'callback'))};fs.rmSync(target,{recursive:true,force:true});original(${JSON.stringify(source)},target,options);assert.equal(fs.readFileSync(target+'/kept','utf8'),'fixed');assert.equal(fs.lstatSync(target+'/broken',{throwIfNoEntry:false}),undefined);throw new Error('dangling copy verified');};syncBuiltinESMExports();`);
     for(const runner of runners){
       const result=spawnSync(process.execPath,['--import',pathToFileURL(shim).href,join(packageRoot,'scripts',runner)],{cwd:packageRoot,encoding:'utf8',timeout:30000});
-      assert.equal(result.status,1,runner);assert.match(result.stderr,/dangling copy verified/,runner);
+      assert.equal(result.status,1,runner);assert.match(/* proof-behavior */ result.stderr,/dangling copy verified/,runner);
     }
   } finally {rmSync(root,{recursive:true,force:true});}
 });
@@ -341,6 +341,18 @@ test('Windows kernel jobs drain orphaned descendants before returning output', {
   } finally { await owned.cleanup(root); }
 });
 
+test('Windows proof job argv round-trips losslessly', { skip: process.platform !== 'win32', timeout: 30_000 }, async () => {
+  const root = mkdtempSync(join(tmpdir(), 'pm-windows-argv-'));
+  const owned = new ProofProcesses();
+  try {
+    const argv = ['', 'space and "quote"', 'trailing\\', 'embedded\\"quote', 'two\\\\', 'nonascii-ä'];
+    const roundTrip = await owned.run(process.execPath, ['-e', 'process.stdout.write(JSON.stringify(process.argv.slice(1)))', ...argv], { timeout: 15_000 });
+    assert.equal(roundTrip.error, undefined, "Windows argv job must start without tool errors");
+    assert.equal(roundTrip.status, 0, "Windows argv child must reach the argument comparison");
+    assert.deepEqual(JSON.parse(roundTrip.stdout), argv, 'review154: kernel job argv must round-trip');
+  } finally { await owned.cleanup(root); }
+});
+
 test('JSON snapshot additions removals and changes are authoritative in every custom directory', () => {
   const root = mkdtempSync(join(tmpdir(), 'pm-json-snapshot-'));
   try {
@@ -354,10 +366,10 @@ test('JSON snapshot additions removals and changes are authoritative in every cu
         if (mutation === 'change') writeFileSync(path, '{"changed":true}');
         if (mutation === 'remove') rmSync(path);
         if (mutation === 'add') writeFileSync(added, '{}');
-        assert.notDeepEqual(authoritative(root), before, `${folder}: ${mutation}`);
+        assert.notDeepEqual(/* proof-behavior */ authoritative(root), before, `${folder}: ${mutation}`);
         writeFileSync(path, '{}');
         rmSync(added, { force: true });
-        assert.deepEqual(authoritative(root), before);
+        assert.deepEqual(/* proof-behavior */ authoritative(root), before);
       }
     }
   } finally { rmSync(root, { recursive: true, force: true }); }
@@ -368,10 +380,10 @@ test('real-copy oracle provenance refuses mismatched missing failed or noisy dri
   try {
     const driver = join(root, 'driver.mjs');
     const environment = { PATH: process.env.PATH, PM_SENTRY_DISABLED: '1', PM_TELEMETRY_SOURCE_CONTEXT: 'test' };
-    assert.equal(verifiedOracleVersion(join(packageRoot, 'tests/orientation-oracle/node_modules/@unbrained/pm-cli/dist/cli.js'), root, environment), '2026.11.5');
-    for (const response of ["console.log('2026.11.4')", "console.log('')", "console.log('2026.11.5'); process.exit(2)", "console.log('2026.11.5'); console.error('warning')", "throw new Error('unavailable')"]) {
+    assert.equal(verifiedOracleVersion(join(packageRoot, 'tests/orientation-oracle/node_modules/@unbrained/pm-cli/dist/cli.js'), root, environment), '2026.11.11');
+    for (const response of ["console.log('2026.11.4')", "console.log('')", "console.log('2026.11.11'); process.exit(2)", "console.log('2026.11.11'); console.error('warning')", "throw new Error('unavailable')"]) {
       writeFileSync(driver, response);
-      assert.throws(() => verifiedOracleVersion(driver, root, environment), /must verify the pinned oracle/);
+      assert.throws(/* proof-behavior */ () => verifiedOracleVersion(driver, root, environment), /must verify the pinned oracle/);
       mkdirSync(join(root, '.agents/pm/runtime'), { recursive: true });
       writeFileSync(join(root, '.pm-rust-read-copy'), 'fixture');
       const retained = join(root, '.agents/pm/runtime/retained');
@@ -379,12 +391,12 @@ test('real-copy oracle provenance refuses mismatched missing failed or noisy dri
       const output = join(root, 'receipt.json');
       const result = spawnSync(process.execPath, [join(packageRoot, 'scripts/context-real.mts'), '--copy', root, '--driver', driver, '--binary', process.execPath, '--samples', '1', '--output', output], { encoding: 'utf8' });
       assert.equal(result.status, 1);
-      assert.match(result.stderr, /must verify the pinned oracle/);
-      assert.equal(readFileSync(retained, 'utf8'), 'unchanged');
-      assert.equal(existsSync(output), false);
+      assert.match(/* proof-behavior */ result.stderr, /must verify the pinned oracle/);
+      assert.equal(/* proof-behavior */ readFileSync(retained, 'utf8'), 'unchanged');
+      assert.equal(/* proof-behavior */ existsSync(output), false);
     }
-    writeFileSync(driver, "console.log('2026.11.5')");
-    assert.equal(verifiedOracleVersion(driver, root, environment), '2026.11.5');
+    writeFileSync(driver, "console.log('2026.11.11')");
+    assert.equal(/* proof-behavior */ verifiedOracleVersion(driver, root, environment), '2026.11.11');
   } finally { rmSync(root, { recursive: true, force: true }); }
 });
 
@@ -402,12 +414,12 @@ test('proof copies materialize absolute relative and directory symlinks before a
     mkdirSync(join(source, 'nested'));
     symlinkSync(join(source, 'original'), join(source, 'nested/node_modules'));
     copyWorkingTree(source, destination);
-    assert.equal(existsSync(join(destination, 'node_modules')), false);
-    assert.equal(existsSync(join(destination, 'nested/node_modules')), false);
+    assert.equal(/* proof-behavior */ existsSync(join(destination, 'node_modules')), false);
+    assert.equal(/* proof-behavior */ existsSync(join(destination, 'nested/node_modules')), false);
     for (const name of ['absolute.rs', 'relative.rs', 'directory/target.rs']) {
-      assert.equal(lstatSync(join(destination, name)).isSymbolicLink(), false);
+      assert.equal(/* proof-behavior */ lstatSync(join(destination, name)).isSymbolicLink(), false);
       writeFileSync(join(destination, name), 'mutation');
-      assert.equal(readFileSync(join(source, 'original/target.rs'), 'utf8'), 'original');
+      assert.equal(/* proof-behavior */ readFileSync(join(source, 'original/target.rs'), 'utf8'), 'original');
     }
     // Execute every copy callback against a real symlink, rather than inspecting its spelling.
     const shim = join(root, 'copy-shim.mjs');
@@ -430,7 +442,7 @@ syncBuiltinESMExports();
     for (const runner of runners) {
       const result = spawnSync(process.execPath, ['--import', pathToFileURL(shim).href, join(packageRoot, 'scripts', runner)], { cwd: packageRoot, encoding: 'utf8', timeout: 30_000 });
       assert.equal(result.status, 1, runner);
-      assert.match(result.stderr, /symlink isolation verified/, runner);
+      assert.match(/* proof-behavior */ result.stderr, /symlink isolation verified/, runner);
     }
   } finally { rmSync(root, { recursive: true, force: true }); }
 });
@@ -479,11 +491,11 @@ syncBuiltinESMExports();
         owned = JSON.parse(readFileSync(marker, 'utf8')) as typeof owned;
         child.kill(signal);
         const deadline = globalThis.setTimeout(() => child.kill('SIGKILL'), 8000);
-        try { assert.equal(await finished, signal === 'SIGINT' ? 130 : 143, stderr); }
+        try { assert.equal(/* proof-behavior */ await finished, signal === 'SIGINT' ? 130 : 143, stderr); }
         finally { clearTimeout(deadline); }
         assert.ok(owned);
-        assert.equal(readFileSync(`${marker}.stopped`, 'utf8'), 'true', 'worker stops with its scratch inputs present');
-        assert.equal(existsSync(owned.root), false, 'scratch is removed after worker termination');
+        assert.equal(/* proof-behavior */ readFileSync(`${marker}.stopped`, 'utf8'), 'true', 'worker stops with its scratch inputs present');
+        assert.equal(/* proof-behavior */ existsSync(owned.root), false, 'scratch is removed after worker termination');
       } finally {
         if (child.exitCode === null) child.kill('SIGKILL');
         if (owned) {
@@ -512,13 +524,13 @@ import { existsSync, mkdirSync } from 'node:fs';
 Object.defineProperty(process, 'platform', { value: 'win32' });
 const calls = [];
 childProcess.execFileSync = (command, args) => {
-  assert.equal(command, 'taskkill');
-  assert.deepEqual(args, ['/pid', '424242', '/T', '/F']);
+  assert.equal(command, 'powershell.exe');
+  assert.ok(Buffer.from(args.at(-1),'base64').toString('utf16le').includes('OpenJobObject'));
   calls.push(args);
   if (${fail}) throw new Error('tree termination unavailable');
 };
 childProcess.spawn = () => {
-  const child = new EventEmitter(); child.pid = 424242;
+  const child = new EventEmitter(); child.pid = 424242; child.kill=()=>true;
   child.stdout = new PassThrough(); child.stderr = new PassThrough();
   setImmediate(() => {
     process.emit('SIGTERM');
@@ -540,7 +552,7 @@ assert.equal(existsSync(scratch), ${fail});
 process.exitCode = 0;
 `);
       const result = spawnSync(process.execPath, [script], { encoding: 'utf8', timeout: 10_000, env: simulationEnvironment(root) });
-      assert.equal(result.status, 0, result.stderr);
+      assert.equal(/* proof-behavior */ result.status, 0, result.stderr);
       rmSync(join(root, 'scratch'), { force: true, recursive: true });
     }
   } finally { rmSync(root, { recursive: true, force: true }); }
@@ -559,7 +571,7 @@ Object.defineProperty(process,'platform',{value:'darwin'});
 let clock=0,killed=false,checks=0;Object.defineProperty(performance,'now',{value:()=>clock+=1100});
 process.kill=(_pid,signal)=>{if(signal==='SIGKILL'){killed=true;throw Object.assign(new Error('kill EPERM'),{code:'EPERM'})}return true;};
 childProcess.execFileSync=()=>{if(!killed)return '424242 S';checks++;if(checks===1&&${JSON.stringify(state)}==='unavailable')throw new Error('process table unavailable');if(checks===1&&${JSON.stringify(state)}==='live')return '424242 S';return ${JSON.stringify(state)}==='zombie'?'424242 Z':'';};
-childProcess.spawn=()=>{const child=new EventEmitter();child.pid=424242;child.stdout=new PassThrough();child.stderr=new PassThrough();setImmediate(()=>{child.emit('exit',0,null);child.stdout.end();child.stderr.end();child.emit('close',0)});return child;};syncBuiltinESMExports();
+childProcess.spawn=()=>{const child=new EventEmitter();child.pid=424242;child.kill=()=>true;child.stdout=new PassThrough();child.stderr=new PassThrough();setImmediate(()=>{child.emit('exit',0,null);child.stdout.end();child.stderr.end();child.emit('close',0)});return child;};syncBuiltinESMExports();
 const {ProofProcesses,verifyAsyncMutation}=await import(${JSON.stringify(pathToFileURL(join(packageRoot,'scripts/context-proof-process.mts')).href)});const owned=new ProofProcesses();
 if(${runner})writeFileSync(owned.registry+'/424242.owner','424242');
 const scratch=${JSON.stringify(join(root,'scratch'))};mkdirSync(scratch,{recursive:true});let input='fixed';
@@ -568,7 +580,7 @@ if(${state==='absent'||state==='zombie'}){await run();assert.equal(input,'fixed'
 else{await assert.rejects(run());assert.equal(input,'mutated');await assert.rejects(owned.cleanup(scratch),/scratch retained/);}
 assert.ok(killed);`);
       const result=spawnSync(process.execPath,[script],{encoding:'utf8',timeout:10000,env:simulationEnvironment(root)});
-      assert.equal(result.status,0,`${runner} ${state}: ${result.stderr}`);
+      assert.equal(/* proof-behavior */ result.status,0,`${runner} ${state}: ${result.stderr}`);
     }
   } finally {rmSync(root,{recursive:true,force:true});}
 });
@@ -585,10 +597,10 @@ Object.defineProperty(process,'platform',{value:'darwin'});
 let clock=0,kills=0;Object.defineProperty(performance,'now',{value:()=>clock+=1100});const started=Date.now();
 process.kill=(_pid,signal)=>{if(signal==='SIGKILL'){kills++;while(Date.now()-started<1200){}if(kills>1)throw Object.assign(new Error('kill EPERM'),{code:'EPERM'});}return true;};
 childProcess.execFileSync=()=>kills?'':'424242 S';
-childProcess.spawn=()=>{const child=new EventEmitter();child.pid=424242;child.stdout=new PassThrough();child.stderr=new PassThrough();setTimeout(()=>{child.emit('exit',0,null);child.stdout.end();child.stderr.end();child.emit('close',0)},20);return child;};syncBuiltinESMExports();
+childProcess.spawn=()=>{const child=new EventEmitter();child.pid=424242;child.kill=()=>true;child.stdout=new PassThrough();child.stderr=new PassThrough();setTimeout(()=>{child.emit('exit',0,null);child.stdout.end();child.stderr.end();child.emit('close',0)},20);return child;};syncBuiltinESMExports();
 const {ProofProcesses}=await import(${JSON.stringify(pathToFileURL(join(packageRoot,'scripts/context-proof-process.mts')).href)});const owned=new ProofProcesses();await owned.run('cargo',[],{timeout:1});assert.equal(kills,1);await owned.cleanup(${JSON.stringify(join(root,'scratch'))});`);
     const result=spawnSync(process.execPath,[script],{encoding:'utf8',timeout:10000,env:simulationEnvironment(root)});
-    assert.equal(result.status,0,result.stderr);
+    assert.equal(/* proof-behavior */ result.status,0,result.stderr);
   } finally {rmSync(root,{recursive:true,force:true});}
 });
 
@@ -604,7 +616,7 @@ const {ProofProcesses}=await import(${JSON.stringify(pathToFileURL(join(packageR
 try{for(width=1;width<=Buffer.byteLength(out);width++){const result=await owned.run('cargo',[]);assert.ifError(result.error);assert.equal(result.stdout,out);assert.equal(result.stderr,err);}}
 finally{await owned.cleanup(${JSON.stringify(join(root,'scratch'))});}`);
     const result=spawnSync(process.execPath,[script],{encoding:'utf8',timeout:10000,env:simulationEnvironment(root)});
-    assert.equal(result.status,0,result.stderr);
+    assert.equal(/* proof-behavior */ result.status,0,result.stderr);
   } finally {rmSync(root,{recursive:true,force:true});}
 });
 
@@ -619,6 +631,6 @@ test('simulated process registries never leak into the parent ownership scope', 
       encoding:'utf8',timeout:30000,env:environment,
     });
     assertNamedTests(result,['Windows proof interruption terminates the complete tree or retains scratch inputs','signal errors require positive termination evidence before restoration'],false,true);
-    assert.deepEqual(readdirSync(registry),[],'synthetic PID registrations belong to the fixture only');
+    assert.deepEqual(/* proof-behavior */ readdirSync(registry),[],'synthetic PID registrations belong to the fixture only');
   } finally {rmSync(root,{recursive:true,force:true});}
 });

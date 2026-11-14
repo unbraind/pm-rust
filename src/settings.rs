@@ -3,7 +3,7 @@ use crate::{ListOutput, PmRustError, Workspace};
 use serde_json::{Value, json};
 use std::{path::Path, sync::LazyLock};
 
-/// Supplied-field schema from the published 2026.11.5 settings validator.
+/// Supplied-field schema aligned with the published 2026.11.11 settings validator.
 /// Missing fields remain allowed for legacy native partial settings documents;
 /// unknown extension sections and future keys remain readable.
 static SHAPE: LazyLock<Value> =

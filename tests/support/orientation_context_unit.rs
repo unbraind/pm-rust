@@ -2,6 +2,152 @@
 use super::*;
 use std::{fmt::Write, fs};
 const NOW: &str = "2026-08-22T10:00:00.000Z";
+
+/// Validation belongs to the stored document; external ignored aliases retain lifecycle semantics.
+#[test]
+fn review154_external_schema_and_partial_context() -> Result<(), Box<dyn std::error::Error>> {
+    let (_root, workspace, _) = workspace()?;
+    let mut settings: Value = serde_json::from_str(include_str!("../fixtures/list-settings.json"))?;
+    settings["id_prefix"] = json!("sample-");
+    settings["context"]["activity_limit"] = json!(2.0);
+    fs::write(
+        workspace.pm_root().join("settings.json"),
+        settings.to_string(),
+    )?;
+    fs::create_dir_all(workspace.pm_root().join("schema"))?;
+    fs::write(
+        workspace.pm_root().join("schema/statuses.json"),
+        r#"{"statuses":[{"id":"done","label":"Done","roles":["terminal"],"aliases":[null]}]}"#,
+    )?;
+    fs::write(
+        workspace.pm_root().join("tasks/sample-done.toon"),
+        toon_format::encode_default(&item("sample-done", "done"))?,
+    )?;
+    fs::write(
+        workspace.pm_root().join("tasks/sample-open.toon"),
+        toon_format::encode_default(&item("sample-open", "open"))?,
+    )?;
+    let options = ContextOptions {
+        intent: Some("orient".into()),
+        token_budget: Some("10000".into()),
+        no_extension_health: true,
+        ..Default::default()
+    };
+    assert!(
+        workspace.context_settings_warning().is_none(),
+        "review154: valid stored settings must survive external null aliases"
+    );
+    let result = workspace.context_with_global(&options, NOW, None)?;
+    assert!(
+        result.settings_warning().is_none(),
+        "review154: merged schema must not invalidate stored settings"
+    );
+    assert_eq!(
+        result["summary"]["active_items"], 1,
+        "review154: terminal schema must remain active"
+    );
+    fs::write(
+        workspace.pm_root().join("tasks/sample-broken.toon"),
+        "<<<<<<< branch\nid: sample-broken\n=======\nid: other\n>>>>>>> main\n",
+    )?;
+    let partial = workspace.context_with_global(&options, NOW, None);
+    assert!(
+        partial.is_ok(),
+        "review154: unreadable item must preserve a partial packet"
+    );
+    let result = partial?;
+    assert_eq!(
+        result["summary"]["total_items"], 2,
+        "review154: unreadable item must not abort remaining context"
+    );
+    assert!(
+        result["warnings"]
+            .as_array()
+            .into_iter()
+            .flatten()
+            .any(|warning| warning == "item_list_item_read_failed:tasks/sample-broken.toon"),
+        "review154: partial context must disclose the unreadable item"
+    );
+    for value in [" ", "\t", "\u{feff}"] {
+        assert!(
+            matches!(
+                workspace.context_with_global(
+                    &ContextOptions {
+                        activity_limit: Some(value.into()),
+                        ..Default::default()
+                    },
+                    NOW,
+                    None
+                ),
+                Err(PmRustError::CommandRefusal { .. })
+            ),
+            "review154: whitespace-only activity limits must refuse"
+        );
+    }
+    assert!(
+        workspace
+            .context_with_global(
+                &ContextOptions {
+                    activity_limit: Some(String::new()),
+                    ..Default::default()
+                },
+                NOW,
+                None
+            )
+            .is_ok(),
+        "review154: empty activity limit keeps default behavior"
+    );
+    review154_item_io_and_duplicates(&workspace, &options)?;
+    Ok(())
+}
+/// Item read failures preserve partial packets, while ambiguous identities remain fatal.
+fn review154_item_io_and_duplicates(
+    workspace: &Workspace,
+    options: &ContextOptions,
+) -> Result<(), Box<dyn std::error::Error>> {
+    fs::write(
+        workspace.pm_root().join("tasks/sample-unreadable.toon"),
+        [0xff],
+    )?;
+    for toon in [false, true] {
+        let unreadable = workspace.context_with_global(
+            &ContextOptions {
+                toon,
+                ..options.clone()
+            },
+            NOW,
+            None,
+        )?;
+        assert!(
+        unreadable["warnings"]
+            .as_array()
+            .into_iter()
+            .flatten()
+            .any(|warning| warning == "item_list_item_read_failed:tasks/sample-unreadable.toon"),
+        "review154: item I/O failures preserve partial context with an explicit warning"
+    );
+        assert_eq!(unreadable["summary"]["total_items"], 2);
+        assert_eq!(
+            unreadable["context_intent"]["estimated_tokens"],
+            crate::read_output::measure_intent(&unreadable, toon),
+            "review154: partial warning bytes must enter the selected intent estimate"
+        );
+    }
+    fs::create_dir(workspace.pm_root().join("custom"))?;
+    fs::copy(
+        workspace.pm_root().join("tasks/sample-open.toon"),
+        workspace.pm_root().join("custom/sample-open.toon"),
+    )?;
+    assert!(
+        matches!(
+            workspace.context_with_global(options, NOW, None),
+            Err(PmRustError::DuplicateItemId { .. })
+        ),
+        "review154: partial context must retain fatal duplicate-identity refusals"
+    );
+    Ok(())
+}
+
 /// Creates a minimal real tracker and validated lifecycle registry.
 fn workspace() -> Result<(tempfile::TempDir, Workspace, Lifecycle), Box<dyn std::error::Error>> {
     let root = tempfile::tempdir()?;
@@ -21,7 +167,7 @@ fn item(id: &str, status: &str) -> Value {
     json!({"id":id,"title":id,"description":"","type":"Task","status":status,"priority":2,"tags":[],"created_at":NOW,"updated_at":NOW})
 }
 
-/// SDK intents retain compact intent estimates and requested wire estimates independently.
+/// SDK intents retain intent estimates and read-output receipts for the selected wire format.
 #[test]
 fn context_intent_sdk_budget_boundaries() -> Result<(), Box<dyn std::error::Error>> {
     let (_root, workspace, _) = workspace()?;
@@ -51,33 +197,43 @@ fn context_intent_sdk_budget_boundaries() -> Result<(), Box<dyn std::error::Erro
                     NOW,
                     None,
                 )?;
-                if result["context_intent"].is_object() {
+                if result.get("output_budget_exceeded").is_none() {
+                    // proof-behavior
+                    assert!(
+                        result["context_intent"].is_object(),
+                        "each intent retains its own receipt: {name}, toon={toon}, budget={budget}"
+                    );
+                    // proof-behavior
                     assert_eq!(result["context_intent"]["intent"], name);
                     saw_omitted_intent |= result["context_intent"]["result_omitted"] == true;
                     if result["context_intent"]["within_budget"] == true {
+                        // proof-behavior
                         assert!(
-                            crate::stringify_json(&result, false).len().div_ceil(4)
+                            crate::read_output::measure(&result, toon)
                                 <= budget.parse::<usize>()?,
                             "intent exceeds {budget}: {name}, toon={toon}"
                         );
                     }
                     if result["context_intent"]["result_omitted"] != true {
-                        saw_wire_receipt |= result["read_output"].is_object();
+                        // proof-behavior
                         assert_eq!(
                             result["context_intent"]["estimated_tokens"],
-                            crate::stringify_json(&result, false).len().div_ceil(4)
+                            crate::read_output::measure(&result, toon)
                         );
                     }
                 }
                 if result["read_output"].is_object() {
+                    saw_wire_receipt = true;
                     let wire = if toon {
                         crate::stringify_toon(&result)?
                     } else {
                         result.stringify_read_json()
                     };
                     let measured = wire.len().div_ceil(4);
+                    // proof-behavior
                     assert_eq!(result["read_output"]["estimated_tokens"], measured);
                     if result["read_output"]["within_budget"] == true {
+                        // proof-behavior
                         assert!(
                             measured <= budget.parse::<usize>()?,
                             "wire estimate {measured} exceeds {budget}: {name}, toon={toon}"
@@ -87,17 +243,27 @@ fn context_intent_sdk_budget_boundaries() -> Result<(), Box<dyn std::error::Erro
             }
         }
     }
+    // proof-behavior
     assert!(
         saw_wire_receipt,
-        "must certify a retained intent with a separate wire ceiling"
+        "must certify intent omission with a separate wire receipt"
     );
+    // proof-behavior
     assert!(
         saw_omitted_intent,
         "must retain the omitted intent estimate"
     );
+    assert_sdk_intent_overrides(&workspace)?;
+    assert_sdk_intent_refusals(&workspace)?;
+    Ok(())
+}
+
+/// Explicit SDK controls retain their precedence over core intent defaults.
+fn assert_sdk_intent_overrides(workspace: &Workspace) -> Result<(), Box<dyn std::error::Error>> {
     let explicit = workspace.context_with_global(
         &ContextOptions {
             intent: Some("orient".to_owned()),
+            token_budget: Some("10000".to_owned()),
             sections: vec!["progress".to_owned()],
             depth: Some("brief".to_owned()),
             activity_limit: Some("2".to_owned()),
@@ -112,6 +278,7 @@ fn context_intent_sdk_budget_boundaries() -> Result<(), Box<dyn std::error::Erro
     let explicit_depth = workspace.context_with_global(
         &ContextOptions {
             intent: Some("handoff".to_owned()),
+            token_budget: Some("10000".to_owned()),
             depth: Some("brief".to_owned()),
             ..Default::default()
         },
@@ -119,7 +286,6 @@ fn context_intent_sdk_budget_boundaries() -> Result<(), Box<dyn std::error::Erro
         None,
     )?;
     assert_eq!(explicit_depth["depth"], "brief");
-    assert_sdk_intent_refusals(&workspace)?;
     Ok(())
 }
 
@@ -165,6 +331,7 @@ fn context_settings_shape_boundaries() -> Result<(), Box<dyn std::error::Error>>
         NOW,
         None,
     )?;
+    // proof-behavior
     assert_eq!(activity["activity"], json!([]));
     for raw in ["bad", "-1", "1.5"] {
         let error = workspace
@@ -178,11 +345,13 @@ fn context_settings_shape_boundaries() -> Result<(), Box<dyn std::error::Error>>
             )
             .err()
             .ok_or("invalid activity limits must refuse before projection")?;
+        // proof-behavior
         assert!(
             error
                 .to_string()
                 .contains("--activity-limit must be a non-negative integer")
         );
+        // proof-behavior
         assert_eq!(fs::read(&item_path)?, before);
     }
     fs::write(
@@ -198,7 +367,9 @@ fn context_settings_shape_boundaries() -> Result<(), Box<dyn std::error::Error>>
         NOW,
         None,
     )?;
+    // proof-behavior
     assert_eq!(repeated["activity"], activity["activity"]);
+    // proof-behavior
     assert!(
         workspace
             .context_with_global(
@@ -226,10 +397,13 @@ fn context_settings_shape_boundaries() -> Result<(), Box<dyn std::error::Error>>
             .context_with_global(&ContextOptions::default(), NOW, None)
             .err()
             .ok_or("invalid settings diagnostics require the published CLI")?;
+        // proof-behavior
         assert!(
             matches!(error, PmRustError::CommandRefusal { context: ref payload, .. } if payload["code"] == "unsupported_native_context" && payload["field"] == "settings.context")
         );
+        // proof-behavior
         assert_eq!(workspace.list(crate::ItemFilter::default())?.count, 1);
+        // proof-behavior
         assert_eq!(fs::read(&item_path)?, before);
     }
     Ok(())
@@ -1458,10 +1632,10 @@ fn context_storage_failure_propagation() -> Result<(), Box<dyn std::error::Error
         workspace.pm_root().join("tasks/invalid.toon"),
         "invalid item",
     )?;
-    assert!(
-        workspace
-            .context_with_global(&ContextOptions::default(), NOW, None)
-            .is_err()
+    let partial = workspace.context_with_global(&ContextOptions::default(), NOW, None)?;
+    assert_eq!(
+        partial["warnings"],
+        json!(["item_list_item_read_failed:tasks/invalid.toon"])
     );
     fs::remove_file(workspace.pm_root().join("tasks/invalid.toon"))?;
     fs::create_dir_all(workspace.pm_root().join("schema/statuses.json"))?;
@@ -1716,7 +1890,6 @@ fn context_stored_settings_fallback_precedes_overrides() -> Result<(), Box<dyn s
         json!({"stale_threshold_days":0}),
         json!({"stale_threshold_days":-1}),
         json!({"stale_threshold_days":null}),
-        json!({"default_depth":"full"}),
         json!({"default_depth":null}),
         json!({"next_ranking_policy":"unknown"}),
         json!({"next_ranking_policy":null}),
@@ -1730,6 +1903,7 @@ fn context_stored_settings_fallback_precedes_overrides() -> Result<(), Box<dyn s
         json!({"activity_limit":1.0}),
         json!({"activity_limit":9_007_199_254_740_991u64}),
         json!({"default_depth":"deep"}),
+        json!({"default_depth":"full"}),
         json!({"next_ranking_policy":"weighted"}),
         json!({"next_ranking_policy":"priority_floor"}),
         json!({"stale_threshold_days":7}),
@@ -1770,6 +1944,7 @@ fn context_stored_settings_fallback_precedes_overrides() -> Result<(), Box<dyn s
                                     .min(12)
                             }
                         });
+                    // proof-behavior
                     assert_eq!(
                         result["activity"].as_array().map(Vec::len),
                         Some(expected),
@@ -1778,16 +1953,20 @@ fn context_stored_settings_fallback_precedes_overrides() -> Result<(), Box<dyn s
                     // Only a fallback that discards every non-context setting
                     // restores the default lifecycle: with the custom schema the
                     // queued item is in progress, after fallback it is unknown.
+                    // proof-behavior
                     assert_eq!(
                         result["summary"]["in_progress"],
                         json!(i32::from(!fallback)),
-                        "{context}, {override_limit:?}"
+                        "review154: invalid stored settings must drop schema: {context}, {override_limit:?}"
                     );
+                    // proof-behavior
                     assert_eq!(result.settings_warning().is_some(), fallback);
+                    // proof-behavior
                     assert_eq!(
                         fs::read_to_string(workspace.pm_root().join("settings.json"))?,
                         before
                     );
+                    // proof-behavior
                     assert!(result.get("settings_warning").is_none());
                 }
             }
@@ -1844,17 +2023,22 @@ fn context_settings_warning_survives_refusals() -> Result<(), Box<dyn std::error
                     .context_with_global(&options, NOW, None)
                     .err()
                     .ok_or("invalid control must refuse")?;
+                // proof-behavior
+                assert!(
+                    matches!(error, PmRustError::CommandRefusal { .. }),
+                    "review154: SDK refusal classification must remain CommandRefusal"
+                );
+                // proof-behavior
                 assert_eq!(error.settings_warning().is_some(), fallback);
-                assert_eq!(std::error::Error::source(&error).is_some(), fallback);
-                let cause = match &error {
-                    PmRustError::ContextSettingsFallback { source } => source.as_ref(),
-                    other => other,
-                };
+                let cause = &error;
+                // proof-behavior
                 assert!(
                     matches!(cause, PmRustError::CommandRefusal { .. }),
                     "{cause:?}"
                 );
+                // proof-behavior
                 assert_eq!(error.to_string(), cause.to_string());
+                // proof-behavior
                 assert_eq!(
                     fs::read_to_string(workspace.pm_root().join("settings.json"))?,
                     settings
@@ -1943,5 +2127,36 @@ fn round18_late_context_registry_failure_is_read_only() -> Result<(), Box<dyn st
     assert_eq!(fs::read_dir(root.join("history"))?.count(), 0);
     assert_eq!(fs::read_dir(root)?.count(), 4);
     assert_eq!(fs::read_dir(root.join("schema"))?.count(), 1);
+    Ok(())
+}
+
+/// Every core intent retains its own receipt in each encoding and budget outcome.
+#[test]
+fn review154_each_intent_retains_receipt() -> Result<(), Box<dyn std::error::Error>> {
+    let (_root, workspace, _) = workspace()?;
+    for name in ["orient", "handoff"] {
+        for toon in [false, true] {
+            for budget in ["256", "5000"] {
+                let result = workspace.context_with_global(
+                    &ContextOptions {
+                        intent: Some(name.into()),
+                        token_budget: Some(budget.into()),
+                        toon,
+                        no_extension_health: true,
+                        ..Default::default()
+                    },
+                    NOW,
+                    None,
+                )?;
+                if result.get("output_budget_exceeded").is_none() {
+                    assert!(
+                        result["context_intent"].is_object(),
+                        "each intent retains its own receipt: {name}, toon={toon}, budget={budget}"
+                    );
+                    assert_eq!(result["context_intent"]["intent"], name);
+                }
+            }
+        }
+    }
     Ok(())
 }

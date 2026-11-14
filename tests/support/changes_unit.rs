@@ -78,6 +78,7 @@ fn seeded_500_sequences_preserve_physical_events_and_foreign_data() -> TestResul
             )?;
             let history = output["history"].as_array().ok_or("history")?;
             let authoritative = history.last().ok_or("entry")?;
+            // proof-behavior
             assert_eq!(authoritative, &entry);
             let version = events.len() as u64 + 1;
             events.push(MutationEvent {
@@ -95,11 +96,15 @@ fn seeded_500_sequences_preserve_physical_events_and_foreign_data() -> TestResul
             page.validate(&request)?;
             let roundtrip: ChangePage =
                 crate::strict_json::from_str(&crate::stringify_json(&page, false))?;
+            // proof-behavior
             assert_eq!(roundtrip.events, page.events);
+            // proof-behavior
             assert!(page.stringify_toon().contains(PROTOCOL));
             let toon: Value = toon_format::decode_strict(&page.stringify_toon())?;
             let decoded: ChangePage = serde_json::from_value(toon)?;
+            // proof-behavior
             assert_eq!(decoded.events, page.events);
+            // proof-behavior
             assert_eq!(decoded.next_cursor, page.next_cursor);
             saved.push((request.clone(), page.events.clone()));
             for event in page.events {
@@ -124,7 +129,9 @@ fn seeded_500_sequences_preserve_physical_events_and_foreign_data() -> TestResul
             break;
         }
     }
+    // proof-behavior
     assert_eq!(observed, expected);
+    // proof-behavior
     assert!(adapter.pull(&request)?.events.is_empty());
     // Old cursors re-evaluate from their admitted per-stream positions, including new streams.
     for (old, _) in saved {
@@ -146,6 +153,7 @@ fn seeded_500_sequences_preserve_physical_events_and_foreign_data() -> TestResul
             .take(usize::from(old.limit))
             .cloned()
             .collect();
+        // proof-behavior
         assert_eq!(adapter.pull(&old)?.events, reference);
     }
     Ok(())
@@ -302,11 +310,13 @@ fn stale_prefixes_and_partial_appends() -> TestResult {
         .append(true)
         .open(&path)?
         .write_all(partial.as_bytes())?;
+    // proof-behavior
     assert!(adapter.pull(&request)?.events.is_empty());
     fs::OpenOptions::new()
         .append(true)
         .open(&path)?
         .write_all(b"\n")?;
+    // proof-behavior
     assert_eq!(adapter.pull(&request)?.events[0].version, 2);
     for raw in [
         b"".as_slice(),
@@ -314,6 +324,7 @@ fn stale_prefixes_and_partial_appends() -> TestResult {
         original[..original.len() - 1].as_ref(),
     ] {
         fs::write(&path, raw)?;
+        // proof-behavior
         assert_eq!(
             adapter.pull(&request).err().ok_or("stale")?.code(),
             "changes_stale_cursor"
@@ -323,11 +334,13 @@ fn stale_prefixes_and_partial_appends() -> TestResult {
     let mut changed = original.clone();
     changed[2] = b'X';
     fs::write(&path, changed)?;
+    // proof-behavior
     assert!(matches!(
         adapter.pull(&request),
         Err(ChangeRefusal::StaleCursor)
     ));
     fs::remove_file(&path)?;
+    // proof-behavior
     assert!(matches!(
         adapter.pull(&request),
         Err(ChangeRefusal::StaleCursor)
@@ -337,6 +350,7 @@ fn stale_prefixes_and_partial_appends() -> TestResult {
         URL_SAFE_NO_PAD.encode("bad json"),
         URL_SAFE_NO_PAD.encode(r#"{"protocol":"old","tracker":"x","prefixes":{}}"#),
     ] {
+        // proof-behavior
         assert!(matches!(
             adapter.pull(&ChangeRequest {
                 cursor: Some(cursor),
@@ -354,6 +368,7 @@ fn stale_prefixes_and_partial_appends() -> TestResult {
             "bytes" | "version" => value["prefixes"]["demo-1"][mutation] = json!(0),
             _ => value["prefixes"]["demo-1"][mutation] = json!("other"),
         }
+        // proof-behavior
         assert!(matches!(
             adapter.pull(&ChangeRequest {
                 cursor: Some(URL_SAFE_NO_PAD.encode(crate::stringify_json(&value, false))),
@@ -509,7 +524,9 @@ fn backend_refusals_and_cancelled_exchange_retain_checkpoint() -> TestResult {
     )
     .err()
     .ok_or("unsupported")?;
+    // proof-behavior
     assert_eq!(error.code(), "changes_adapter_refused");
+    // proof-behavior
     assert!(error.to_string().contains("authorized adapter"));
     let mut reader = ChangeReader::new(
         peer(
@@ -520,9 +537,13 @@ fn backend_refusals_and_cancelled_exchange_retain_checkpoint() -> TestResult {
         ChangeRequest::default(),
         cancellation.clone(),
     )?;
+    // proof-behavior
     assert!(matches!(reader.pull(), Err(ChangeRefusal::Cancelled)));
+    // proof-behavior
     assert!(reader.cursor().is_none());
+    // proof-behavior
     assert!(matches!(reader.pull(), Err(ChangeRefusal::Cancelled)));
+    // proof-behavior
     assert!(matches!(
         adapter.pull(&ChangeRequest::default()),
         Err(ChangeRefusal::Cancelled)
@@ -545,6 +566,7 @@ fn backend_refusals_and_cancelled_exchange_retain_checkpoint() -> TestResult {
             cancel.clone(),
         )?;
         let error = reader.pull().err().ok_or("refusal")?;
+        // proof-behavior
         assert!(reader.cursor().is_none());
         if let ChangeRefusal::Backend {
             code,
@@ -553,11 +575,16 @@ fn backend_refusals_and_cancelled_exchange_retain_checkpoint() -> TestResult {
             details,
         } = error
         {
+            // proof-behavior
             assert_eq!(code, "stale_backend_cursor");
+            // proof-behavior
             assert_eq!(message, "stale");
+            // proof-behavior
             assert_eq!(remedy, "reorient using SDK");
+            // proof-behavior
             assert_eq!(*details, json!({"retained":true}));
         } else {
+            // proof-behavior
             assert!(matches!(error, ChangeRefusal::InvalidPage));
         }
     }
@@ -574,7 +601,9 @@ fn backend_refusals_and_cancelled_exchange_retain_checkpoint() -> TestResult {
         ChangeRequest::default(),
         cancel,
     )?;
+    // proof-behavior
     assert!(matches!(reader.pull(), Err(ChangeRefusal::InvalidPage)));
+    // proof-behavior
     assert!(reader.cursor().is_none());
     Ok(())
 }
@@ -1043,9 +1072,12 @@ fn delayed_older_pages_cannot_rewind_a_reader() -> TestResult {
         },
         cancellation,
     )?;
+    // proof-behavior
     assert_eq!(reader.pull()?.events[0].version, 1);
+    // proof-behavior
     assert_eq!(reader.pull()?.events[0].version, 2);
     let retained = reader.cursor().ok_or("cursor")?.to_owned();
+    // proof-behavior
     assert!(matches!(
         reader.pull(),
         Err(ChangeRefusal::Adapter(
@@ -1055,7 +1087,9 @@ fn delayed_older_pages_cannot_rewind_a_reader() -> TestResult {
             }
         ))
     ));
+    // proof-behavior
     assert_eq!(reader.cursor(), Some(retained.as_str()));
+    // proof-behavior
     assert_eq!(reader.pull()?.events[0].version, 3);
     Ok(())
 }
@@ -1069,6 +1103,7 @@ fn duplicate_backend_positions_refuse_before_cursor_admission() -> TestResult {
     let mut page =
         LocalChangeAdapter::new(workspace, token.clone()).pull(&ChangeRequest::default())?;
     page.events.push(page.events[0].clone());
+    // proof-behavior
     assert!(matches!(
         page.validate(&ChangeRequest::default()),
         Err(ChangeRefusal::InvalidPage)
@@ -1088,7 +1123,9 @@ fn duplicate_backend_positions_refuse_before_cursor_admission() -> TestResult {
         cancel: None,
     };
     let mut reader = ChangeReader::new(peer, ChangeRequest::default(), token)?;
+    // proof-behavior
     assert!(matches!(reader.pull(), Err(ChangeRefusal::InvalidPage)));
+    // proof-behavior
     assert!(reader.cursor().is_none());
     Ok(())
 }
@@ -1099,8 +1136,11 @@ fn duplicate_backend_positions_refuse_before_cursor_admission() -> TestResult {
 fn history_filename_bytes_validate_before_filesystem_access() -> TestResult {
     use std::os::unix::ffi::OsStringExt as _;
     let invalid = std::ffi::OsString::from_vec(vec![255, b'.', b'j', b's', b'o', b'n', b'l']);
+    // proof-behavior
     assert!(history_stream_id(std::path::Path::new(&invalid)).is_err());
+    // proof-behavior
     assert!(history_stream_id(std::path::Path::new(".")).is_err());
+    // proof-behavior
     assert_eq!(
         history_stream_id(std::path::Path::new("demo-1.jsonl"))?,
         "demo-1"

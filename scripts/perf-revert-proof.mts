@@ -1,3 +1,4 @@
+import { proofCopyFilter, registerCargoConfiguration } from './context-revert-helpers.mts';
 import { ProofProcesses } from './context-proof-process.mts';
 import { createHash } from 'node:crypto';
 import { cpSync, existsSync, lstatSync, mkdirSync, mkdtempSync, readFileSync, writeFileSync } from 'node:fs';
@@ -7,10 +8,11 @@ import { fileURLToPath } from 'node:url';
 
 const sourceRoot = join(dirname(fileURLToPath(import.meta.url)), '..');
 const repo = mkdtempSync(join(tmpdir(), 'pm-perf-revert-'));
+registerCargoConfiguration(sourceRoot, repo);
 const processes = new ProofProcesses();
 try {
 for (const name of ['Cargo.toml', 'Cargo.lock', 'build.rs', 'src', 'tests', 'examples']) {
-  cpSync(join(sourceRoot, name), join(repo, name), { recursive: true, dereference: true, filter: path => !path.split(/[\\/]/).includes('node_modules') && !(lstatSync(path).isSymbolicLink() && !existsSync(path)) });
+  cpSync(join(sourceRoot, name), join(repo, name), { recursive: true, dereference: true, filter: path => !path.split(/[\\/]/).includes('node_modules') && !(lstatSync(path).isSymbolicLink() && !existsSync(path)) && proofCopyFilter(path) });
 }
 const ownershipPath = join(repo, 'src/ownership.rs');
 const mutationPath = join(repo, 'src/mutation.rs');
@@ -49,7 +51,7 @@ async function run(test: { name: string; failure: string }, reverted: boolean): 
     : child.status === 0 && output.includes('1 passed; 0 failed;'));
   results.push({ test: test.name, mode: reverted ? 'behavior reverted' : 'restored', command: `cargo ${args.join(' ')}`, status: child.status, expected_result: expected });
   console.log(JSON.stringify(results.at(-1)));
-  if (!expected) throw new Error(`Unexpected ${reverted ? 'negative' : 'positive'} control result for ${test.name}`);
+  if (!expected) throw new Error(`Unexpected ${reverted ? 'negative' : 'positive'} control result for ${test.name}: ${child.error?.message ?? ''}\n${child.stdout ?? ''}\n${child.stderr ?? ''}`);
 }
 
 /** Restore the exact original bytes even after a failing assertion or tool invocation. */

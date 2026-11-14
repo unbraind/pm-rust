@@ -1,3 +1,4 @@
+import { assertionFailureDiagnostic } from './context-proof-diagnostics.mts';
 import { ProofProcesses, verifyAsyncMutation } from './context-proof-process.mts';
 /** Independent review mutations run only in a disposable source copy with real pinned oracles. */
 import assert from 'node:assert/strict';
@@ -12,7 +13,7 @@ const childEnv: NodeJS.ProcessEnv = {
   CARGO_BUILD_JOBS: '2', RUST_TEST_THREADS: '2', PM_RUST_REQUIRE_PUBLISHED_CLI: '1',
   CARGO_TARGET_DIR: join(scratch, 'target'),
 };
-for (const name of ['PATH', 'HOME', 'CARGO_HOME', 'RUSTUP_HOME', 'LD_LIBRARY_PATH', 'SystemRoot', 'SystemDrive', 'windir', 'TMPDIR', 'TEMP', 'TMP']) {
+for (const name of ['PATH', 'HOME', 'CARGO_HOME', 'RUSTUP_HOME', 'LD_LIBRARY_PATH', 'SystemRoot', 'SystemDrive', 'windir', 'TMPDIR', 'TEMP', 'TMP', 'PM_NODE_INTERPRETER']) {
   const value = process.env[name];
   if (value !== undefined) childEnv[name] = value;
 }
@@ -24,7 +25,7 @@ async function check(target: string[], name: string, reverted: boolean): Promise
   const result = await processes.run(node ? process.execPath : 'cargo', args, {
     cwd: scratch, env: childEnv, timeout: 900_000, maxBuffer: 8 * 1024 * 1024,
   });
-  assertNamedTests(result, [name], reverted, node);
+  assertNamedTests(result, [name], reverted, node, assertionFailureDiagnostic(scratch, [name], node));
   console.log(JSON.stringify({ command: [node ? 'node' : 'cargo', ...args], reverted, result: reverted ? 'named behavioral failure' : 'pass' }));
 }
 
@@ -47,9 +48,9 @@ try {
       target: ['node', '--test', '--test-concurrency=2', 'scripts/harness.test.mts'], test: 'revert proof restores both source files on SIGTERM (parent only)' },
     { path: 'scripts/context-proof-process.mts', before: "    if (!this.groups.has(pid)) return;", after: "    if (signal === 'SIGKILL') return;\n    if (!this.groups.has(pid)) return;",
       target: ['node', '--test', '--test-concurrency=2', 'scripts/harness.test.mts'], test: 'revert proof restores both source files on SIGTERM (stubborn descendant)' },
-    { path: 'src/orientation_context.rs', before: 'let settings_fallback = sections::settings_fallback(&mut settings);', after: 'let settings_fallback = false;',
+    { path: 'src/orientation_context.rs', before: 'let settings_fallback = read.fallback;', after: 'let settings_fallback = false;',
       target: ['--lib'], test: 'orientation_context::tests::context_stored_settings_fallback_precedes_overrides' },
-    { path: 'src/orientation_context.rs', before: 'let settings_fallback = sections::settings_fallback(&mut settings);', after: 'let settings_fallback = false;',
+    { path: 'src/orientation_context.rs', before: 'let settings_fallback = read.fallback;', after: 'let settings_fallback = false;',
       target: ['--test', 'orientation_differential'], test: 'context_invalid_stored_activity_limits_match_current_oracle' },
 
     { path: 'scripts/context-revert-helpers.mts', before: "${message}: ${result.error?.message ?? ''}${result.stderr ?? ''}", after: "${message}: ${result.error?.message ?? ''}",
@@ -60,9 +61,9 @@ try {
       target: ['node', '--test', '--test-concurrency=2', 'scripts/context-intents-revert.test.mts'], test: 'standalone harness check installs the orientation oracle first' },
     { path: 'justfile', before: 'orientation-revert-proof: oracle-install', after: 'orientation-revert-proof:',
       target: ['node', '--test', '--test-concurrency=2', 'scripts/context-intents-revert.test.mts'], test: 'standalone harness check installs the orientation oracle first' },
-    { path: 'src/orientation_context/intent.rs', before: '            read_output::stabilize_intent(&mut result);', after: '            read_output::update(&mut result, "context_intent", false);',
+    { path: 'src/orientation_context/intent.rs', before: '            read_output::stabilize_intent(&mut result, original.toon);', after: '            read_output::update_intent_estimate(&mut result, original.toon);',
       target: ['--lib'], test: 'orientation_context::intent::tests::retained_context_intent_feasibility_matches_projection' },
-    { path: 'src/list_intent.rs', before: '        result.value = Value::Object(map);\n        read_output::update(&mut result, "context_intent", false);', after: '        result.value = Value::Object(map);\n        read_output::stabilize_intent(&mut result);',
+    { path: 'src/list_intent.rs', before: '        result.value = Value::Object(map);\n        update_intent(&mut result, options.toon);', after: '        result.value = Value::Object(map);\n        read_output::stabilize_intent(&mut result, false);',
       target: ['--lib'], test: 'list_intent::tests::legacy_list_intent_feasibility_preserves_published_projection' },
     { path: 'src/orientation_deps/packet.rs', before: 'if used + reserved + tokens + edge_cost > budget {', after: 'if false {',
       target: ['--lib'], test: 'orientation_deps::packet::tests::packet_direct_reservations_are_reused' },
@@ -82,9 +83,9 @@ try {
       target: ['--test', 'orientation_differential'], test: 'context_unknown_intents_have_explicit_cli_boundaries' },
     { path: 'src/orientation_context.rs', before: '        let depth = trim_control(', after: '        let _ = std::fs::write(self.pm_root().join("settings.json"), settings.to_string());\n        let depth = trim_control(',
       target: ['--test', 'orientation_differential'], test: 'context_successful_reads_preserve_settings_bytes' },
-    { path: 'src/read_output.rs', before: '    let changed = compact_strings(&mut target.value, preserve_intent);', after: '    let changed = false;',
+    { path: 'src/read_output.rs', before: '    let changed = compact_strings_with_intent(&mut target.value, preserve_intent);', after: '    let changed = false;',
       target: ['--lib'], test: 'read_output::tests::orientation_wire_string_compaction_retains_fitting_rows' },
-    { path: 'src/read_output.rs', before: '        let measured = estimate(result, false) as u64;', after: '        let measured = 0;',
+    { path: 'src/read_output.rs', before: '        let measured = measure_intent(result, toon) as u64;', after: '        let measured = 0;',
       target: ['--lib'], test: 'read_output::tests::stabilized_orientation_receipts_respect_final_ceilings' },
     { path: 'src/read_output.rs', before: '        stabilize_orientation(result, toon);', after: '        update_output(result, toon);',
       target: ['--lib'], test: 'read_output::tests::stabilized_orientation_receipts_respect_final_ceilings' },

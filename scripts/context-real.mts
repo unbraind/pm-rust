@@ -34,9 +34,9 @@ function run(runtime: 'native' | 'oracle', args: string[]): { bytes: Buffer; ms:
 }
 
 const driverHash = createHash('sha256').update(readFileSync(driver)).digest('hex');
-const oracleVersion = verifiedOracleVersion(driver, root, environment);
 const tracker = join(root, '.agents/pm');
 const before = authoritative(tracker);
+const oracleVersion = verifiedOracleVersion(driver, root, environment);
 let comparisons = 0;
 rmSync(join(tracker, 'runtime'), { recursive: true, force: true });
 // Read decoded metadata so plain external namespaces cannot masquerade as local links.
@@ -52,7 +52,7 @@ for (const id of roots) {
       const args = ['deps', id, '--format', 'context', ...controls, ...format];
       const oracle = run('oracle', args);
       const native = run('native', args);
-      if (oracle.status !== native.status || !oracle.bytes.equals(native.bytes)) {
+      if (oracle.status === null || native.status === null || oracle.status !== native.status || !oracle.bytes.equals(native.bytes)) {
         writeFileSync(join(root, 'oracle-output.private'), oracle.bytes);
         writeFileSync(join(root, 'native-output.private'), native.bytes);
         throw new Error(`Real-copy packet parity failed at comparison ${packetComparisons + 1}`);
@@ -66,7 +66,7 @@ for (const id of roots) {
     const args = ['deps', id, '--format', 'context', '--node-limit', '1', '--json', ...(cursor ? ['--cursor', cursor] : [])];
     const oracle = run('oracle', args);
     const native = run('native', args);
-    if (oracle.status !== native.status || !oracle.bytes.equals(native.bytes)) throw new Error('Real-copy packet continuation parity failed');
+    if (oracle.status === null || native.status === null || oracle.status !== native.status || !oracle.bytes.equals(native.bytes)) throw new Error('Real-copy packet continuation parity failed');
     comparisons += 1;
     packetComparisons += 1;
     if (oracle.status !== 0) break;
@@ -89,7 +89,7 @@ for (const depth of [[], ['--depth', 'deep']]) {
       const oracle = run('oracle', args);
       const native = run('native', args);
       comparisons += 1;
-      if (oracle.status !== native.status || !oracle.bytes.equals(native.bytes)) {
+      if (oracle.status === null || native.status === null || oracle.status !== native.status || !oracle.bytes.equals(native.bytes)) {
         writeFileSync(join(root, 'oracle-output.private'), oracle.bytes);
         writeFileSync(join(root, 'native-output.private'), native.bytes);
         throw new Error(`Parity failed: ${args.join(' ')} (private diagnostics retained in copy)`);
@@ -102,7 +102,7 @@ for (const depth of [[], ['--depth', 'deep']]) {
     const oracle = run('oracle', args);
     const native = run('native', args);
     comparisons += 1;
-    if (oracle.status !== native.status || !oracle.bytes.equals(native.bytes)) throw new Error(`Continuation parity failed at page ${page + 1}`);
+    if (oracle.status === null || native.status === null || oracle.status !== native.status || !oracle.bytes.equals(native.bytes)) throw new Error(`Continuation parity failed at page ${page + 1}`);
     const parsed: { next_cursor?: string } = JSON.parse(oracle.bytes.toString().split('\0')[0]);
     cursor = parsed.next_cursor;
     if (!cursor) break;
@@ -115,7 +115,7 @@ for (const intent of ['orient', 'handoff']) {
       const args = ['context', '--for', intent, ...controls, ...encoding];
       const oracle = run('oracle', args);
       const native = run('native', args);
-      if (oracle.status !== native.status || !oracle.bytes.equals(native.bytes)) {
+      if (oracle.status === null || native.status === null || oracle.status !== native.status || !oracle.bytes.equals(native.bytes)) {
         writeFileSync(join(root, 'oracle-output.private'), oracle.bytes);
         writeFileSync(join(root, 'native-output.private'), native.bytes);
         throw new Error(`Intent parity failed: ${args.join(' ')}`);

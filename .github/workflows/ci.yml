@@ -206,6 +206,9 @@ jobs:
       - name: Run release:check aggregate gate
         run: ${{ matrix.runtime }} run release:check
 
+      - name: Prove Windows argument round trips reject the unquoted job command
+        if: runner.os == 'Windows'
+        run: node scripts/context-round154-revert.mts windows-argv
       - name: Install clone-local pm merge drivers
         run: node tests/oracle/launch.mts merge install
       - name: Verify tracked pm project health

@@ -529,7 +529,7 @@ fn operation(command: &clap::Command) -> Result<OperationContract, DiscoveryRefu
             Some(
                 "tests/orientation_differential.rs::context_intents_and_sections_match_current_oracle",
             ),
-            "Oracle 2026.11.5: core orient/handoff intents, explicit sections and activity limits; generic output cursors require the published CLI; refuses sources with 10000 or more items, invalid context-setting shapes and runtime intent declarations; no dynamic extension execution.",
+            "Oracle 2026.11.11: core orient/handoff intents, explicit sections and activity limits; generic output cursors require the published CLI; refuses sources with 10000 or more items, invalid context-setting shapes and runtime intent declarations; no dynamic extension execution.",
         ),
         "history" => (
             &["Workspace::history"],
@@ -539,7 +539,7 @@ fn operation(command: &clap::Command) -> Result<OperationContract, DiscoveryRefu
         "deps" => (
             &["Workspace::deps"],
             Some("tests/orientation_differential.rs::relationship_packets_match_oracle"),
-            "Oracle 2026.11.5: read dependency tree/graph/packet only; supported direction/kind/bounds are runtime validated.",
+            "Oracle 2026.11.11: read dependency tree/graph/packet only; supported direction/kind/bounds are runtime validated.",
         ),
         "search" => (
             &["Workspace::search"],

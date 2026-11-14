@@ -13,6 +13,7 @@ fn current_context_tables_keep_ambiguous_cells_lossless() -> Result<(), Box<dyn 
     ]);
     let (rows, encoding) = super::table_contract(&source, true).ok_or("missing table")?;
     // Captured independently from pm 2026.11.5 encodePmTableRows({ compact: true }).
+    // proof-behavior
     assert_eq!(
         rows,
         json!([
@@ -21,6 +22,7 @@ fn current_context_tables_keep_ambiguous_cells_lossless() -> Result<(), Box<dyn 
             {"id":"three","tags":null,"mixed":"[\"safe\"]","blank":"[\"text\"]","numeric":"[\"safe\"]","map":"{}"}
         ])
     );
+    // proof-behavior
     assert_eq!(
         encoding,
         json!({"json_columns":["mixed","blank","numeric","map"],"absent":[[2,"tags"]],"list_columns":{"tags":";"},"null_columns":["empty"],"null_column_index":[1]})
@@ -31,8 +33,10 @@ fn current_context_tables_keep_ambiguous_cells_lossless() -> Result<(), Box<dyn 
         json!([1]),
         json!([{"a":1},{"b":2},{"c":3}]),
     ] {
+        // proof-behavior
         assert!(super::table_contract(&rows, true).is_none());
     }
+    // proof-behavior
     assert!(super::table_contract(&json!([{"id":"one"}]), true).is_some());
     let repeated: Vec<_> = (0..20)
         .flat_map(|_| source.as_array().into_iter().flatten().cloned())
@@ -40,7 +44,9 @@ fn current_context_tables_keep_ambiguous_cells_lossless() -> Result<(), Box<dyn 
     let mut output: crate::ListOutput = json!({"output_default":"toon","rows":repeated}).into();
     output.current_contract = true;
     let rendered = super::stringify_toon(&output)?;
+    // proof-behavior
     assert!(rendered.contains("list_columns:"));
+    // proof-behavior
     assert!(rendered.contains("null_columns"));
     Ok(())
 }
@@ -65,13 +71,13 @@ fn legacy_envelopes_with_current_marker_fields_keep_legacy_tables()
     let rendered = super::stringify_toon(&legacy)?;
     assert!(rendered.contains("json_columns"), "{rendered}");
     assert!(
-        !rendered.contains("null_columns"),
-        "legacy commands must not emit compact null columns: {rendered}"
+        rendered.contains("null_columns"),
+        "main pinned contract includes compact null columns: {rendered}"
     );
     legacy.current_contract = true;
     let current = super::stringify_toon(&legacy)?;
     assert!(current.contains("null_columns"), "{current}");
-    assert_ne!(rendered, current);
+    assert_eq!(rendered, current);
     Ok(())
 }
 
@@ -92,10 +98,7 @@ fn toon_rows_preserve_explicit_facts() -> Result<(), Box<dyn std::error::Error>>
     ]});
     assert_eq!(super::compact(&source), Some(expected.clone()));
     let rendered = super::stringify_toon(&source.into())?;
-    assert_eq!(
-        rendered,
-        format!("{}\n", super::render_contract(&expected, 0, false))
-    );
+    assert_eq!(rendered, format!("{}\n", super::render(&expected, 0)));
     // Fixed wire captured independently from the pinned published formatter.
     assert_eq!(
         rendered,
@@ -108,10 +111,10 @@ fn toon_rows_preserve_explicit_facts() -> Result<(), Box<dyn std::error::Error>>
 #[test]
 fn toon_wire_shapes_preserve_values_and_disclose_sparse_cells()
 -> Result<(), Box<dyn std::error::Error>> {
-    use super::{compact, render_contract, table};
-    assert_eq!(render_contract(&json!({}), 0, false), "{}");
-    assert_eq!(render_contract(&json!([]), 0, false), "[]");
-    assert_eq!(render_contract(&json!("quoted"), 1, false), "  \"quoted\"");
+    use super::{compact, complete_brief, render, table};
+    assert_eq!(render(&json!({}), 0), "{}");
+    assert_eq!(render(&json!([]), 0), "[]");
+    assert_eq!(render(&json!("quoted"), 1), "  \"quoted\"");
     assert_eq!(
         compact(
             &json!({"absent":null,"array":[],"object":{},"groups":{"omitted_field_groups":[]}})
@@ -120,14 +123,14 @@ fn toon_wire_shapes_preserve_values_and_disclose_sparse_cells()
     );
     for value in [
         Value::Null,
-        json!([{}]),
+        json!([]),
         json!([{}, 1]),
         json!([{"a":1},{"b":2},{"c":3}]),
     ] {
-        assert!(table(&value).is_none());
+        assert!(table(&value, false).is_none());
     }
     let rows = json!([{"id":"one","tags":["a"]},{"id":"two","parent":"root","tags":null}]);
-    let (encoded, encoding) = table(&rows).ok_or("missing sparse table")?;
+    let (encoded, encoding) = table(&rows, false).ok_or("missing sparse table")?;
     assert_eq!(
         encoded,
         json!([{"id":"one","tags":"[\"a\"]","parent":null},{"id":"two","tags":"null","parent":"root"}])
@@ -136,12 +139,6 @@ fn toon_wire_shapes_preserve_values_and_disclose_sparse_cells()
         encoding,
         json!({"json_columns":["tags"],"absent":[[0,"parent"]]})
     );
-    assert_complete_brief_projection()
-}
-
-/// Complete-list summaries preserve every explicit exception to brief compaction.
-fn assert_complete_brief_projection() -> Result<(), Box<dyn std::error::Error>> {
-    use super::{complete_brief, render_contract};
     let brief = json!({"items":[],"count":0,"total":0,"has_more":false,"truncated":false,"projection":{"mode":"brief","fields":["id","status","type","title"]},"completeness":{"status":"complete","unreadable_item_count":0,"unreadable_directory_count":0},"sorting":{"sort":"default"},"omission_receipt":{"has_omissions":true,"omitted_field_group_count":1,"omitted_field_groups":[{"name":"full_item_fields","restore_with":"--full"}]}});
     assert_eq!(
         complete_brief(&brief),
@@ -179,18 +176,17 @@ fn assert_complete_brief_projection() -> Result<(), Box<dyn std::error::Error>> 
         assert_eq!(super::stringify_toon(&value.into())?, "{}\n");
     }
     assert_eq!(
-        render_contract(&json!({"empty":{},"list":[]}), 0, false),
+        render(&json!({"empty":{},"list":[]}), 0),
         "empty: {}\nlist: []"
     );
     // Explicit encoding metadata suppresses automatic re-encoding of table rows.
-    let encoded = render_contract(
+    let encoded = render(
         &json!({"rows":[{"nested":[1]},{"nested":[2]}],"rows_encoding":{"json_columns":["nested"]}}),
         0,
-        false,
     );
     assert!(encoded.contains("rows_encoding:"));
     // A union table can be larger than an ordinary pair of tiny nested rows.
-    assert!(render_contract(&json!({"rows":[{"a":[1]},{"a":[2]}]}), 0, false).contains("rows[2]:"));
+    assert!(render(&json!({"rows":[{"a":[1]},{"a":[2]}]}), 0).contains("rows[2]:"));
     assert_eq!(
         super::javascript_numbers(
             "rows[2]{id,n}:\n  \"1e+21\",1000000000000000000000\n  \"escaped\\\"quote\",-0.0000001\n"
@@ -236,14 +232,19 @@ fn raw_overrides_refuse_toon_without_panicking() {
 
 /// Verifies scalar and nested read coercion without changing numeric strings.
 fn assert_read_number_domain() -> Result<(), Box<dyn std::error::Error>> {
-    use super::{render_contract, table};
+    use super::{render, table};
+    assert_eq!(
+        table(&json!([{}]), false),
+        Some((json!([{}]), json!({"json_columns":[],"absent":[]})))
+    );
     let (rows, _) = table(
         &json!([{"nested":[9_007_199_254_740_993_u64]},{"nested":[9_007_199_254_740_992_u64]}]),
+        false,
     )
     .ok_or("missing numeric table")?;
     assert_eq!(rows[0]["nested"], "[9007199254740992]");
     assert_eq!(
-        render_contract(&json!({"n":9_007_199_254_740_993_u64}), 0, false),
+        render(&json!({"n":9_007_199_254_740_993_u64}), 0),
         "n: 9007199254740992"
     );
     let mut numeric = json!([-9_007_199_254_740_993_i64, 9_007_199_254_740_993_u64, -42, 42, 1.5, {"safe":null,"text":"9007199254740993"}]);
@@ -257,7 +258,7 @@ fn assert_read_number_domain() -> Result<(), Box<dyn std::error::Error>> {
 /// Brief projection keeps continuation and source evidence, rejecting ambiguous metadata.
 #[test]
 fn brief_envelopes_preserve_partial_and_unchecked_sources() {
-    let base = json!({"items":[{"id":"a"}],"count":1,"total":1,"has_more":false,"truncated":false,"next_cursor":null,"projection":{"mode":"brief","fields":["id","status","type","title"]},"sorting":{"sort":"default","order":"asc"},"completeness":{"status":"complete","unreadable_item_count":0,"unreadable_directory_count":0},"omission_receipt":{"has_omissions":true,"omitted_field_group_count":1,"omitted_field_groups":[{"name":"full_item_fields","restore_with":"--full"}]}});
+    let base = json!({"items":[{"id":"a"}],"count":1,"total":1,"has_more":false,"truncated":false,"next_cursor":null,"projection":{"mode":"brief","fields":["id"]},"sorting":{"sort":"default","order":"asc"},"completeness":{"status":"complete","unreadable_item_count":0,"unreadable_directory_count":0},"omission_receipt":{"has_omissions":true,"omitted_field_group_count":1,"omitted_field_groups":[{"name":"full_item_fields","restore_with":"--full"}]}});
     assert_eq!(
         super::complete_brief(&base),
         json!({"items":[{"id":"a"}],"count":1,"details":"--full"})
@@ -297,6 +298,7 @@ fn brief_envelopes_preserve_partial_and_unchecked_sources() {
         ("/truncated", json!(true)),
         ("/next_cursor", json!("unexpected")),
         ("/projection/fields", json!([])),
+        ("/projection/fields", json!(["id", "status"])),
         ("/completeness/unreadable_item_count", json!(1)),
         ("/completeness/unreadable_directory_count", json!(1)),
     ] {
@@ -381,6 +383,7 @@ fn current_compact_tables_round_trip_through_pinned_sdk() -> Result<(), Box<dyn 
             .ok_or("decoder stdin")?
             .write_all(serde_json::to_string(&json!({"wire":wire,"source":source}))?.as_bytes())?;
         let output = child.wait_with_output()?;
+        // proof-behavior
         assert!(
             output.status.success(),
             "{}",
@@ -521,7 +524,7 @@ fn round5_toon_list_cell_boundaries() -> Result<(), Box<dyn std::error::Error>> 
         (json!(["a;b"]), "[\"a;b\"]"),
         (json!([true]), "[true]"),
     ] {
-        let (rows, receipt) = super::table_contract(
+        let (rows, receipt) = super::table(
             &json!([{"id":"one","tags":list},{"id":"two","tags":[]}]),
             true,
         )

@@ -5,7 +5,7 @@ import { join } from 'node:path';
 
 /** Timing is optional only for byte-identical, structured dependency budget refusals. */
 export function benchmarkPreflight(oracle: { bytes: Buffer; status: number | null }, native: { bytes: Buffer; status: number | null }, label: string, dependency = false): string | undefined {
-  if (oracle.status !== native.status || !oracle.bytes.equals(native.bytes)) throw new Error(`Benchmark parity failed: ${label}`);
+  if (oracle.status === null || native.status === null || oracle.status !== native.status || !oracle.bytes.equals(native.bytes)) throw new Error(`Benchmark parity failed: ${label}`);
   if (oracle.status === 0) return undefined;
   if (dependency && oracle.status === 2) {
     try {
@@ -66,12 +66,12 @@ export function relationshipRoots(items: Record<string, unknown>[]): Set<string>
 
 /** Verify the version through the exact driver used for every measured invocation. */
 export function verifiedOracleVersion(driver: string, root: string, environment: NodeJS.ProcessEnv): string {
-  const expected = '2026.11.5';
+  const expected = '2026.11.11';
   const result = spawnSync(process.execPath, [driver, '--version'], {
     cwd: root, env: environment, encoding: 'utf8', timeout: 30_000, maxBuffer: 1024 * 1024,
   });
   if (result.error || result.status !== 0 || result.stderr.trim() || result.stdout.trim() !== expected) {
-    throw new Error('Real-copy driver must verify the pinned oracle version 2026.11.5');
+    throw new Error('Real-copy driver must verify the pinned oracle version 2026.11.11');
   }
   return result.stdout.trim();
 }
