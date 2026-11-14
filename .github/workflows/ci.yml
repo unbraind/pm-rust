@@ -32,7 +32,8 @@ jobs:
     runs-on: ${{ matrix.os }}
     # Windows exhausted 20 minutes during passing differential tests on PR 132.
     # Keep Unix budgets and allow the complete Windows corpus plus cleanup.
-    timeout-minutes: ${{ matrix.os == 'windows-latest' && 35 || 20 }}
+    # macOS took 16-19 minutes for passing tests and was cancelled at 20 on PR 165.
+    timeout-minutes: ${{ matrix.os == 'windows-latest' && 35 || matrix.os == 'macos-latest' && 30 || 20 }}
     strategy:
       fail-fast: false
       matrix:
@@ -126,7 +127,8 @@ jobs:
     # Windows exhausted 35 minutes during the second, instrumented oracle pass.
     # Preserve every gate and threshold; budget for both full passes and cleanup.
     # macOS reached 100% coverage but exhausted 35 minutes in final changelog checks.
-    timeout-minutes: ${{ matrix.os == 'windows-latest' && 60 || matrix.os == 'macos-latest' && 45 || 35 }}
+    # The Linux aggregates take 31-32 minutes; one passing run was cancelled at 35 on PR 165.
+    timeout-minutes: ${{ matrix.os == 'windows-latest' && 60 || 45 }}
     strategy:
       fail-fast: false
       matrix:
