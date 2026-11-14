@@ -2,13 +2,18 @@ id: pm-rust-oracle-1111
 title: Match current published claim and session-lock refusal envelopes
 description: "Supersede the dependency-only update with native refusal parity against pm-cli 2026.11.11. Preserve exact differential assertions; cover every oracle-backed contract target and crash harness, admission defaults, stored credential privacy, configured terminal starts, scoped recovery, activity precision and bounded packet measurements."
 type: Task
-status: in_progress
+status: closed
 priority: 1
 tags[4]: conformance,"gh:unbraind/pm-rust#164","gh:unbraind/pm-rust#165",oracle
 created_at: "2026-11-11T05:32:00.010Z"
-updated_at: "2026-11-14T00:43:37.608Z"
+updated_at: "2026-11-14T02:20:57.276Z"
+closed_at: "2026-11-14T02:20:57.219Z"
+completed_at: "2026-11-14T02:20:57.219Z"
 author: codex-rust164-1111
 parent: pm-rust-u4al
+resolution: Implemented and merged in #165 (e6a22e5).
+expected_result: The change described by this item is on main.
+actual_result: "Merged in #165 as e6a22e5; checks successful at head e5ec703: Analyze Rust, CodeQL, Native latency macos-latest, Native latency ubuntu-latest, Native latency windows-latest, Release gate aggregate, Release gate aggregate bun, Release gate aggregate macos-latest, Release gate aggregate windows-latest, Rust macos-latest, Rust ubuntu-latest, Rust windows-latest."
 comments[127]{created_at,author,text}:
   "2026-11-11T05:32:04.866Z",codex-rust164-1111,"Confirmed current npm latest is 2026.11.11 and updated the locked published oracle. Baseline differential runs precede native changes. Centralize refusal recovery, scope and redaction; retain byte comparisons and all existing cases."
   "2026-11-11T05:50:02.157Z",codex-rust164-1111,"Baseline against 2026.11.11: 120 differential tests, 59 passed and 61 failed (claim target 20 passed and 7 failed). Additional drift includes compact TOON list/null columns, complete omission receipts, newest-first compact history with total/order echoes, actual-format intent estimates, exclusive activity windows, relationship root-evidence ordering, close completion provenance and close recovery retries. All existing byte and durable-state comparisons remain exact; stale claim-attribution expectations now assert the published warning and successful durable transition."
@@ -1161,4 +1166,5 @@ docs[17]:
     scope: project
   - path: docs/ORACLE_WINDOWS_BRANCH_ROUND20_2026_11_14.md
     scope: project
+close_reason: "Delivered by #165 \"Match pm-cli 2026.11.11 refusals and atomic lifecycle admission natively\" (merged as e6a22e5). Checks successful at the PR head e5ec703: Analyze Rust, CodeQL, Native latency macos-latest, Native latency ubuntu-latest, Native latency windows-latest, Release gate aggregate, Release gate aggregate bun, Release gate aggregate macos-latest, Release gate aggregate windows-latest, Rust macos-latest, Rust ubuntu-latest, Rust windows-latest."
 body: ""
