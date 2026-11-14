@@ -98,10 +98,12 @@ fn canonical_outcomes_survive_the_byte_boundary() -> TestResult {
         let actual = client.call(&request(Operation::Get {
             id: "demo-1".into(),
         }))?;
+        // proof-behavior
         assert_eq!(
             serde_json::to_value(actual)?,
             serde_json::to_value(response)?
         );
+        // proof-behavior
         assert_eq!(calls.get(), 1);
     }
     Ok(())
@@ -139,6 +141,7 @@ fn admission_refuses_before_transport_or_writes() -> TestResult {
             author: "caller".into(),
         },
     ] {
+        // proof-behavior
         assert_eq!(
             client
                 .call(&request(operation))
@@ -152,16 +155,19 @@ fn admission_refuses_before_transport_or_writes() -> TestResult {
         id: "demo-1".into(),
     });
     invalid.abi = "pm-native-adapter/2".into();
+    // proof-behavior
     assert_eq!(
         client.call(&invalid).err().ok_or("must refuse")?.code,
         Code::IncompatibleAbi
     );
     invalid.abi = ABI.into();
     invalid.request_id.clear();
+    // proof-behavior
     assert_eq!(
         client.call(&invalid).err().ok_or("must refuse")?.code,
         Code::InvalidFrame
     );
+    // proof-behavior
     assert_eq!(calls.get(), 0);
     Ok(())
 }
@@ -173,6 +179,7 @@ fn versions_fields_and_limits_are_fail_closed() -> TestResult {
         abi: "other".into(),
         ..manifest()
     };
+    // proof-behavior
     assert_eq!(
         prepare_adapter_request(
             &invalid,
@@ -186,6 +193,7 @@ fn versions_fields_and_limits_are_fail_closed() -> TestResult {
         Code::IncompatibleAbi
     );
     let calls = Rc::new(Cell::new(0));
+    // proof-behavior
     assert!(
         NativeAdapterClient::new(Peer {
             declaration: invalid,
@@ -194,6 +202,7 @@ fn versions_fields_and_limits_are_fail_closed() -> TestResult {
         })
         .is_err()
     );
+    // proof-behavior
     assert_eq!(calls.get(), 0);
     for abi in [
         "",
@@ -201,6 +210,7 @@ fn versions_fields_and_limits_are_fail_closed() -> TestResult {
         "pm-native-adapter/1.1",
         "pm-native-adapter/2",
     ] {
+        // proof-behavior
         assert_eq!(
             check_adapter_manifest(&AdapterManifest {
                 abi: abi.into(),
@@ -213,6 +223,7 @@ fn versions_fields_and_limits_are_fail_closed() -> TestResult {
         );
     }
     for size in [0, MAX + 1] {
+        // proof-behavior
         assert_eq!(
             check_adapter_manifest(&AdapterManifest {
                 max_frame_bytes: size,
@@ -224,6 +235,7 @@ fn versions_fields_and_limits_are_fail_closed() -> TestResult {
             Code::FrameLimit
         );
     }
+    // proof-behavior
     assert!(
         check_adapter_manifest(&AdapterManifest {
             max_frame_bytes: 1,
@@ -522,21 +534,27 @@ fn raw_frame_seeded_corpus_matches_live_client() -> TestResult {
         let live = client.call(&call);
         let offline_verdict = offline.as_ref().map(|_| ()).map_err(|error| error.code);
         let live_verdict = live.as_ref().map(|_| ()).map_err(|error| error.code);
+        // proof-behavior
         assert_eq!(
             offline_verdict,
             live_verdict,
             "seed={SEED:#x} frame={index} bytes={}",
             frame.len()
         );
+        // proof-behavior
         assert_eq!(live_verdict, expected, "seed={SEED:#x} frame={index}");
+        // proof-behavior
         assert_eq!(calls.get(), 1);
         if let Ok(receipt) = offline {
+            // proof-behavior
             assert_eq!(receipt["dispatched"], false);
             accepted += 1;
         } else {
+            // proof-behavior
             assert!(live.err().ok_or("live refusal")?.dispatched);
         }
     }
+    // proof-behavior
     assert_eq!(accepted, 240);
     Ok(())
 }
@@ -563,19 +581,29 @@ fn strict_frame_verdict(frame: &[u8], valid: bool) -> TestResult {
     } else {
         Err(Code::InvalidFrame)
     };
+    // proof-behavior
     assert_eq!(direct.as_ref().map(|_| ()).map_err(|e| e.code), expected);
+    // proof-behavior
     assert_eq!(offline.as_ref().map(|_| ()).map_err(|e| e.code), expected);
+    // proof-behavior
     assert_eq!(live.as_ref().map(|_| ()).map_err(|e| e.code), expected);
+    // proof-behavior
     assert_eq!(calls.get(), 1);
     if valid {
         let original: Value = pm_rust::strict_json::from_slice(frame)?;
+        // proof-behavior
         assert_eq!(serde_json::to_value(live?)?, original);
+        // proof-behavior
         assert_eq!(offline?["dispatched"], false);
     } else {
+        // proof-behavior
         assert!(!direct.err().ok_or("direct refusal")?.dispatched);
+        // proof-behavior
         assert!(!offline.err().ok_or("offline refusal")?.dispatched);
         let error = live.err().ok_or("live refusal")?;
+        // proof-behavior
         assert!(error.dispatched);
+        // proof-behavior
         assert!(error.remedy.contains("reconcile"));
     }
     Ok(())
@@ -975,13 +1003,17 @@ fn cli_validates_without_tracker_git_node_or_backend_execution() -> TestResult {
             let output = command
                 .write_stdin(if valid { input.clone() } else { b"{}".to_vec() })
                 .output()?;
+            // proof-behavior
             assert_eq!(output.status.success(), valid);
             let stdout = String::from_utf8(output.stdout)?;
+            // proof-behavior
             assert!(stdout.len() < 600);
             if json_output {
                 let value: Value = serde_json::from_str(&stdout)?;
+                // proof-behavior
                 assert_eq!(value["ok"], valid);
             } else {
+                // proof-behavior
                 assert!(stdout.contains(if valid {
                     "dispatched: false"
                 } else {
@@ -990,6 +1022,7 @@ fn cli_validates_without_tracker_git_node_or_backend_execution() -> TestResult {
             }
         }
     }
+    // proof-behavior
     assert!(!directory.path().join(".agents").exists());
     Ok(())
 }

@@ -2,6 +2,85 @@
 
 use serde_json::{Value, json};
 
+/// Current tables distinguish absent cells, explicit nulls and ambiguous list delimiters.
+#[test]
+fn current_context_tables_keep_ambiguous_cells_lossless() -> Result<(), Box<dyn std::error::Error>>
+{
+    let source = json!([
+        {"id":"one","empty":null,"tags":["a","b"],"mixed":["semi;colon"],"blank":[""],"numeric":[1],"map":{"a":true}},
+        {"id":"two","empty":null,"tags":[],"mixed":[],"blank":[],"numeric":null,"map":"literal"},
+        {"id":"three","empty":null,"mixed":["safe"],"blank":["text"],"numeric":["safe"],"map":{}}
+    ]);
+    let (rows, encoding) = super::table_contract(&source, true).ok_or("missing table")?;
+    // Captured independently from pm 2026.11.5 encodePmTableRows({ compact: true }).
+    // proof-behavior
+    assert_eq!(
+        rows,
+        json!([
+            {"id":"one","tags":"a;b","mixed":"[\"semi;colon\"]","blank":"[\"\"]","numeric":"[1]","map":"{\"a\":true}"},
+            {"id":"two","tags":"","mixed":"[]","blank":"[]","numeric":"null","map":"\"literal\""},
+            {"id":"three","tags":null,"mixed":"[\"safe\"]","blank":"[\"text\"]","numeric":"[\"safe\"]","map":"{}"}
+        ])
+    );
+    // proof-behavior
+    assert_eq!(
+        encoding,
+        json!({"json_columns":["mixed","blank","numeric","map"],"absent":[[2,"tags"]],"list_columns":{"tags":";"},"null_columns":["empty"],"null_column_index":[1]})
+    );
+    for rows in [
+        Value::Null,
+        json!([]),
+        json!([1]),
+        json!([{"a":1},{"b":2},{"c":3}]),
+    ] {
+        // proof-behavior
+        assert!(super::table_contract(&rows, true).is_none());
+    }
+    // proof-behavior
+    assert!(super::table_contract(&json!([{"id":"one"}]), true).is_some());
+    let repeated: Vec<_> = (0..20)
+        .flat_map(|_| source.as_array().into_iter().flatten().cloned())
+        .collect();
+    let mut output: crate::ListOutput = json!({"output_default":"toon","rows":repeated}).into();
+    output.current_contract = true;
+    let rendered = super::stringify_toon(&output)?;
+    // proof-behavior
+    assert!(rendered.contains("list_columns:"));
+    // proof-behavior
+    assert!(rendered.contains("null_columns"));
+    Ok(())
+}
+
+/// Legacy commands keep legacy tables even when documents carry current marker fields.
+#[test]
+fn legacy_envelopes_with_current_marker_fields_keep_legacy_tables()
+-> Result<(), Box<dyn std::error::Error>> {
+    // An assurance declaration can contain edge_basis or output_default fields;
+    // the command contract, not those fields, selects the table encoding.
+    let rows: Vec<_> = (0..24)
+        .map(|index| match index % 3 {
+            0 => json!({"id":format!("row-{index:03}"),"empty":null,"detail":{"deep":true},"tags":["a"]}),
+            1 => json!({"id":format!("row-{index:03}"),"empty":null,"detail":{"deep":false},"tags":[]}),
+            _ => json!({"id":format!("row-{index:03}"),"empty":null,"detail":"literal"}),
+        })
+        .collect();
+    let mut legacy: crate::ListOutput =
+        json!({"edge_basis":"deduplicated_directed","output_default":"toon","declarations":rows})
+            .into();
+    legacy.current_contract = false;
+    let rendered = super::stringify_toon(&legacy)?;
+    assert!(rendered.contains("json_columns"), "{rendered}");
+    assert!(
+        rendered.contains("null_columns"),
+        "main pinned contract includes compact null columns: {rendered}"
+    );
+    legacy.current_contract = true;
+    let current = super::stringify_toon(&legacy)?;
+    assert!(current.contains("null_columns"), "{current}");
+    assert_eq!(rendered, current);
+    Ok(())
+}
+
 /// Object rows retain explicit null, empty and nested facts while envelopes remain compact.
 #[test]
 fn toon_rows_preserve_explicit_facts() -> Result<(), Box<dyn std::error::Error>> {
@@ -244,6 +323,74 @@ fn brief_envelopes_preserve_partial_and_unchecked_sources() {
         &json!({"count":1.0,"total":1.0,"has_more":false,"truncated":false}),
         1
     ));
+}
+
+/// Rendered compact tables reconstruct exact source rows through the current pinned SDK.
+#[test]
+fn current_compact_tables_round_trip_through_pinned_sdk() -> Result<(), Box<dyn std::error::Error>>
+{
+    use std::{
+        io::Write,
+        path::Path,
+        process::{Command, Stdio},
+    };
+    let decoder = Path::new(env!("CARGO_MANIFEST_DIR"));
+    if !decoder
+        .join("tests/orientation-oracle/node_modules/@unbrained/pm-cli/dist/cli.js")
+        .is_file()
+    {
+        assert!(
+            std::env::var("PM_RUST_REQUIRE_PUBLISHED_CLI").is_err(),
+            "run just orientation-oracle-install"
+        );
+        println!("skip: compact table decoder requires the current orientation oracle");
+        return Ok(());
+    }
+    for (variant, offset) in (0..12usize).map(|combined| (combined / 4, combined % 4)) {
+        let source: Vec<_> = (0..60).map(|index| {
+            let mut row = match variant {
+                // Integer-like keys sort like JavaScript Object.keys before the
+                // insertion-order string keys, so column positions stay aligned.
+                2 => json!({"tail":"x","4294967295":"ordinary","00":"ordinary","0":format!("a{index}"),"4294967294":"last index","4294967296":"overflow","-1":"negative","1.0":"float","empty":null,"3":null,"tags":["a","b"],"mixed":["semi;colon"]}),
+                1 => json!({"tail":"x","2":format!("a{index}"),"id":format!("row-{index:03}"),"empty":null,"10":"b","3":null,"tags":["a","b"],"mixed":["semi;colon"]}),
+                _ => json!({"id":format!("row-{index:03}"),"empty":null,"tags":["a","b"],"other_null":null,"mixed":["semi;colon"],"tail":null}),
+            };
+            match (index + offset) % 4 {
+                0 => { row["tags"] = json!([]); row["mixed"] = json!([]); }
+                1 => { row.as_object_mut().map(|map| map.shift_remove("tags")); }
+                2 => { row["mixed"] = json!(["", "safe"]); }
+                _ => {}
+            }
+            row
+        }).collect();
+        let mut envelope: crate::ListOutput = json!({"output_default":"toon","rows":source}).into();
+        envelope.current_contract = true;
+        let wire = super::stringify_toon(&envelope)?;
+        let mut command = Command::new(
+            std::env::var("PM_NODE_INTERPRETER").unwrap_or_else(|_| "node".to_owned()),
+        );
+        command
+            .arg(decoder.join("tests/oracle/launch.mts"))
+            .arg("--entry")
+            .arg(decoder.join("scripts/context-table-decode.mts"))
+            .stdin(Stdio::piped())
+            .stdout(Stdio::piped())
+            .stderr(Stdio::piped());
+        let mut child = command.spawn()?;
+        child
+            .stdin
+            .take()
+            .ok_or("decoder stdin")?
+            .write_all(serde_json::to_string(&json!({"wire":wire,"source":source}))?.as_bytes())?;
+        let output = child.wait_with_output()?;
+        // proof-behavior
+        assert!(
+            output.status.success(),
+            "{}",
+            String::from_utf8_lossy(&output.stderr)
+        );
+    }
+    Ok(())
 }
 
 /// Sparse and empty projections retain recovery-relevant shapes instead of hiding their contract.

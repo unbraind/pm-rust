@@ -132,3 +132,22 @@ pub enum PmRustError {
         reason: String,
     },
 }
+
+impl PmRustError {
+    /// Returns the settings fallback warning independently of the original refusal.
+    #[must_use]
+    pub fn settings_warning(&self) -> Option<&'static str> {
+        match self {
+            Self::CommandRefusal { context, .. }
+                if context["warnings"].as_array().is_some_and(|warnings| {
+                    warnings
+                        .iter()
+                        .any(|warning| warning == "settings_read_invalid_schema")
+                }) =>
+            {
+                Some(crate::json_output::SETTINGS_FALLBACK_WARNING)
+            }
+            _ => None,
+        }
+    }
+}

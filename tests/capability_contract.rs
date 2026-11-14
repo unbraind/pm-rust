@@ -92,7 +92,30 @@ fn snapshot(root: &Path) -> Result<BTreeMap<PathBuf, Vec<u8>>, std::io::Error> {
 #[test]
 fn discovery_is_complete_bounded_and_tracker_free() -> TestResult {
     let directory = tempfile::tempdir()?;
-    let expected = serde_json::to_value(discover_capabilities(&DiscoveryRequest::default())?)?;
+    let response = discover_capabilities(&DiscoveryRequest::default())?;
+    let context = response
+        .operations
+        .iter()
+        .find(|op| op.name == "context")
+        .ok_or("context")?;
+    for id in [
+        "intent",
+        "depth",
+        "sections",
+        "activity_limit",
+        "token_budget",
+        "limit",
+        "after",
+    ] {
+        // proof-behavior
+        assert!(context.arguments.iter().any(|arg| arg.id == id));
+        // proof-behavior
+        assert!(
+            context.dimensions.iter().any(|dimension| dimension == id),
+            "missing context dimension {id}"
+        );
+    }
+    let expected = serde_json::to_value(response)?;
     for json_output in [false, true] {
         let args = if json_output {
             vec!["--workspace", "missing", "capabilities", "--json"]
@@ -100,20 +123,25 @@ fn discovery_is_complete_bounded_and_tracker_free() -> TestResult {
             vec!["--workspace", "missing", "capabilities"]
         };
         let output = native(directory.path(), &args, None)?;
+        // proof-behavior
         assert!(
             output.status.success(),
             "{}",
             String::from_utf8_lossy(&output.stderr)
         );
+        // proof-behavior
         assert!(output.stdout.len() <= DISCOVERY_MAX_BYTES as usize);
         let decoded: Value = if json_output {
             serde_json::from_slice(&output.stdout)?
         } else {
             toon_format::decode_default(&String::from_utf8(output.stdout)?)?
         };
+        // proof-behavior
         assert_eq!(decoded, expected);
+        // proof-behavior
         assert!(output.stderr.is_empty());
     }
+    // proof-behavior
     assert!(snapshot(directory.path())?.is_empty());
     for args in [
         vec!["capabilities", "--operation", "sync", "--json"],
@@ -128,10 +156,14 @@ fn discovery_is_complete_bounded_and_tracker_free() -> TestResult {
         vec!["capabilities", "--adapter", "{}", "--json"],
     ] {
         let output = native(directory.path(), &args, None)?;
+        // proof-behavior
         assert_eq!(output.status.code(), Some(2));
+        // proof-behavior
         assert!(output.stdout.is_empty());
         let refusal: Value = serde_json::from_slice(&output.stderr)?;
+        // proof-behavior
         assert_eq!(refusal["ok"], false);
+        // proof-behavior
         assert_eq!(refusal["exit_code"], 2);
         let retry = refusal["refusal"]["retry_args"]
             .as_array()
@@ -139,6 +171,7 @@ fn discovery_is_complete_bounded_and_tracker_free() -> TestResult {
             .iter()
             .map(|v| v.as_str().ok_or("argument"))
             .collect::<Result<Vec<_>, _>>()?;
+        // proof-behavior
         assert!(native(directory.path(), &retry, None)?.status.success());
     }
     Ok(())
@@ -165,13 +198,18 @@ fn nested_adapter_refusals_match_sdk_and_cli() -> TestResult {
         )?;
         match sdk {
             Err(refusal) => {
+                // proof-behavior
                 assert_eq!(output.status.code(), Some(2));
+                // proof-behavior
                 assert!(output.stdout.is_empty());
                 let cli: Value = serde_json::from_slice(&output.stderr)?;
+                // proof-behavior
                 assert_eq!(cli["refusal"], serde_json::to_value(refusal)?);
             }
             Ok(request) => {
+                // proof-behavior
                 assert!(output.status.success());
+                // proof-behavior
                 assert_eq!(
                     serde_json::from_slice::<Value>(&output.stdout)?,
                     serde_json::to_value(discover_capabilities(&request)?)?
@@ -179,6 +217,7 @@ fn nested_adapter_refusals_match_sdk_and_cli() -> TestResult {
             }
         }
     }
+    // proof-behavior
     assert!(snapshot(directory.path())?.is_empty());
     Ok(())
 }
@@ -210,22 +249,26 @@ fn ownership_encodings_match_default_cli_output() -> TestResult {
             .iter()
             .find(|op| op.name == name)
             .ok_or("operation")?;
+        // proof-behavior
         assert_eq!(operation.encodings, ["json"]);
         let output = native(
             directory.path(),
             &[name, "sample-encoding", "--author", "fixture-agent"],
             None,
         )?;
+        // proof-behavior
         assert!(
             output.status.success(),
             "{}",
             String::from_utf8_lossy(&output.stderr)
         );
         let value: Value = serde_json::from_slice(&output.stdout)?;
+        // proof-behavior
         assert!(value.is_object());
     }
     // Commands with selectable producers retain both encodings.
     for name in ["list", "close", "capabilities"] {
+        // proof-behavior
         assert_eq!(
             response
                 .operations
@@ -270,7 +313,9 @@ fn session_refusal_producer_matches_recovery_descriptor() -> TestResult {
         let mut args = vec!["read-session"];
         args.extend(controls);
         let output = native(directory.path(), &args, None)?;
+        // proof-behavior
         assert_eq!(output.status.code(), Some(2));
+        // proof-behavior
         assert!(output.stdout.is_empty());
         let value: Value = serde_json::from_slice(&output.stderr)?;
         let fields: BTreeSet<_> = value
@@ -279,8 +324,11 @@ fn session_refusal_producer_matches_recovery_descriptor() -> TestResult {
             .keys()
             .map(String::as_str)
             .collect();
+        // proof-behavior
         assert!(required.is_subset(&fields));
+        // proof-behavior
         assert!(fields.is_subset(&allowed));
+        // proof-behavior
         assert_eq!(value["exit_code"], 2);
     }
     Ok(())

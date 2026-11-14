@@ -1,8 +1,93 @@
 //! Bounded delivery, nested collection and receipt-only recovery contracts.
 
-use super::{Continuation, capture, compact_strings, finalize, receipt, retain};
+use super::{Continuation, capture, compact_strings_with_intent, finalize, receipt, retain};
 use crate::ListOptions;
 use serde_json::{Value, json};
+
+/// Every collection walker preserves declarations while continuing to compact actual rows.
+#[test]
+fn intent_declarations_are_immutable_during_wire_compaction()
+-> Result<(), Box<dyn std::error::Error>> {
+    for toon in [false, true] {
+        for count in [2, 20, 80] {
+            let groups = (0..count)
+                .map(|i| format!("field-group-{i}"))
+                .collect::<Vec<_>>();
+            let declaration = json!({"command":"context","included_field_groups":groups,"future":{"groups":groups},"description":"m".repeat(500)});
+            let mut source = json!({"context_intent":declaration,"activity":[{"title":"a"},{"title":"b"}],"read_output":{"compacted_row_paths":[]}});
+            super::compact_strings_with_intent(&mut source, true);
+            // proof-behavior
+            assert_eq!(source["context_intent"], declaration);
+            let mut candidates = Vec::new();
+            super::collections(&source, "", &mut candidates);
+            // proof-behavior
+            assert_eq!(candidates, vec![("/activity".to_owned(), 2)]);
+            let mut output = crate::ListOutput::from(source);
+            super::compact_collections(&mut output, toon, 1, |_| {});
+            // proof-behavior
+            assert_eq!(output["context_intent"], declaration);
+            // proof-behavior
+            assert_eq!(output["activity"].as_array().map(Vec::len), Some(1));
+            // proof-behavior
+            assert_eq!(
+                output["read_output"]["compacted_row_paths"],
+                json!(["activity"])
+            );
+            for budget in [400, 600, 800, 1000, 1200, 1600] {
+                let mut public_declaration = declaration.clone();
+                public_declaration["token_budget"] = json!(budget);
+                public_declaration["declared_token_budget"] = json!(3000);
+                let source = json!({"context_intent":public_declaration,"activity":[{"title":"a"},{"title":"b"}]});
+                let mut list_declaration = public_declaration.clone();
+                list_declaration["command"] = json!("list");
+                list_declaration["source"] = json!("core");
+                list_declaration["intent"] = json!("triage");
+                let list_source = json!({"context_intent":list_declaration,"items":[{"id":"sample-a","title":"a"},{"id":"sample-b","title":"b"}],"count":2,"total":2});
+                let outputs = [
+                    super::apply_orientation(
+                        source.into(),
+                        &ListOptions {
+                            toon,
+                            token_budget: Some(budget.to_string()),
+                            ..Default::default()
+                        },
+                        "context",
+                        &["activity"],
+                    )?,
+                    super::apply_command(
+                        list_source.into(),
+                        &ListOptions {
+                            toon,
+                            output_budget: Some(budget.to_string()),
+                            ..Default::default()
+                        },
+                        "list",
+                    )?,
+                ];
+                for output in outputs {
+                    if output.get("context_intent").is_some() {
+                        // proof-behavior
+                        assert_eq!(
+                            output["context_intent"]["included_field_groups"],
+                            declaration["included_field_groups"]
+                        );
+                        // proof-behavior
+                        assert_eq!(output["context_intent"]["future"], declaration["future"]);
+                        // proof-behavior
+                        assert_eq!(
+                            output["context_intent"]["description"],
+                            declaration["description"]
+                        );
+                    } else {
+                        // proof-behavior
+                        assert_eq!(output["read_output"]["result_omitted"], true);
+                    }
+                }
+            }
+        }
+    }
+    Ok(())
+}
 
 /// Adapts simple unit-test envelopes to the lossless output type.
 fn apply(value: Value, options: &ListOptions) -> Result<crate::ListOutput, crate::PmRustError> {
@@ -43,7 +128,7 @@ fn custom_focus_classification_survives_compaction() {
     let states = "I".repeat(300);
     let mut payload =
         json!({"summary":{"focus_row_states":{"low_level":states}},"title":"x".repeat(300)});
-    assert!(compact_strings(&mut payload));
+    assert!(compact_strings_with_intent(&mut payload, true));
     assert_eq!(payload["summary"]["focus_row_states"]["low_level"], states);
 }
 
@@ -232,6 +317,26 @@ fn amount_limit_rebases_only_advertised_producer_boundaries()
 #[test]
 fn amount_and_alias_receipts_preserve_requested_dimensions()
 -> Result<(), Box<dyn std::error::Error>> {
+    let selected_context = super::receipt_for(
+        &ListOptions {
+            brief: true,
+            ..ListOptions::default()
+        },
+        false,
+        "context",
+    );
+    // proof-behavior
+    assert_eq!(
+        selected_context["legacy_aliases_used"],
+        json!(["--section"])
+    );
+    // proof-behavior
+    assert_eq!(selected_context["requested_dimensions"], json!(["include"]));
+    // proof-behavior
+    assert_eq!(
+        selected_context["migration_hints"],
+        json!(["--section is a compatibility alias; prefer --output-include <csv>."])
+    );
     for options in [
         ListOptions {
             brief: true,
@@ -249,7 +354,9 @@ fn amount_and_alias_receipts_preserve_requested_dimensions()
         },
     ] {
         let result = apply(envelope(2, 0), &options)?;
+        // proof-behavior
         assert_eq!(result["count"], 1);
+        // proof-behavior
         assert!(result["read_output"].is_object());
     }
     let zero = ListOptions {
@@ -257,7 +364,9 @@ fn amount_and_alias_receipts_preserve_requested_dimensions()
         output_budget: Some("1".to_owned()),
         ..ListOptions::default()
     };
+    // proof-behavior
     assert!(apply(envelope(2, 0), &zero)?["output_budget_exceeded"].is_object());
+    // proof-behavior
     assert!(
         apply(
             envelope(2, 0),
@@ -268,6 +377,7 @@ fn amount_and_alias_receipts_preserve_requested_dimensions()
         )
         .is_err()
     );
+    // proof-behavior
     assert!(
         apply(
             envelope(2, 0),
@@ -299,6 +409,7 @@ fn amount_and_alias_receipts_preserve_requested_dimensions()
         },
         false,
     );
+    // proof-behavior
     assert!(
         apply(
             envelope(0, 0),
@@ -421,15 +532,18 @@ fn producer_rebasing_and_disclosure_keep_indices_and_snapshot() {
 #[test]
 fn estimates_and_string_compaction_handle_nested_unicode() {
     let mut value = json!({"rows":["😀".repeat(130),"x".repeat(240),null,3]});
-    assert!(compact_strings(&mut value));
+    assert!(compact_strings_with_intent(&mut value, true));
     assert_eq!(value["rows"][0], format!("{}…", "😀".repeat(120)));
     assert_eq!(value["rows"][1], "x".repeat(240));
-    assert!(!compact_strings(&mut json!([true, null, "short"])));
+    assert!(!compact_strings_with_intent(
+        &mut json!([true, null, "short"]),
+        true
+    ));
     let mut measured = crate::ListOutput::from(json!({"read_output":{"estimated_tokens":0}}));
-    super::update_output(&mut measured, false);
+    super::update(&mut measured, "read_output", true);
     assert_eq!(
         measured["read_output"]["estimated_tokens"],
-        super::measure(&measured, false)
+        super::estimate(&measured, true)
     );
 }
 
@@ -577,7 +691,7 @@ fn assert_toon_budget_contract() -> Result<(), Box<dyn std::error::Error>> {
     let title = format!("{}😀{}", "x".repeat(239), "y".repeat(300));
     let mut cut: crate::ListOutput = envelope(1, 0).into();
     cut.value["items"][0]["title"] = json!(title);
-    compact_strings(&mut cut.value);
+    compact_strings_with_intent(&mut cut.value, true);
     assert!(super::apply(cut, &options).is_ok());
     let mut original = envelope(200, 400);
     original["items"][0]["title"] = json!(format!("{}😀{}", "x".repeat(239), "y".repeat(300)));
@@ -592,6 +706,298 @@ fn assert_toon_budget_contract() -> Result<(), Box<dyn std::error::Error>> {
         super::apply(malformed, &options),
         Err(crate::PmRustError::ToonEncoding { .. })
     ));
+    Ok(())
+}
+
+/// Final self-referential receipts never advertise a ceiling smaller than the retained packet.
+#[test]
+fn stabilized_orientation_receipts_respect_final_ceilings() -> Result<(), Box<dyn std::error::Error>>
+{
+    for toon in [false, true] {
+        let mut both_receipts = 0;
+        for padding in 0..8 {
+            for budget in [319, 320, 321, 998, 999, 1000, 1001] {
+                let mut source: crate::ListOutput = json!({
+                    "output_default":"toon", "depth":"brief",
+                    "low_level":[{"id":"sample-a","tags":vec!["evidence"; 180 + padding]}],
+                    "context_intent":{"command":"context","estimated_tokens":0,"within_budget":true,
+                        "token_budget":budget,"declared_token_budget":320,"declaration_feasible":true,"result_omitted":false}
+                }).into();
+                super::update(&mut source, "context_intent", false);
+                let output = super::apply_orientation(
+                    source,
+                    &ListOptions {
+                        toon,
+                        token_budget: Some(budget.to_string()),
+                        ..Default::default()
+                    },
+                    "context",
+                    &["low_level"],
+                )?;
+                if output["context_intent"].is_object() && output["read_output"].is_object() {
+                    both_receipts += 1;
+                    let compact = super::measure_intent(&output, toon);
+                    // proof-behavior
+                    assert_eq!(output["context_intent"]["estimated_tokens"], compact);
+                    // proof-behavior
+                    assert_eq!(output["context_intent"]["within_budget"], compact <= budget);
+                    // proof-behavior
+                    assert_eq!(
+                        output["context_intent"]["declaration_feasible"],
+                        compact <= 320
+                    );
+                }
+                if output["read_output"]["within_budget"] == true {
+                    // proof-behavior
+                    assert!(super::measure(&output, toon) <= budget);
+                }
+            }
+        }
+        // proof-behavior
+        assert!(
+            both_receipts > 0,
+            "must check returned packets with both receipts"
+        );
+        for budget in [99, 100, 999, 1000] {
+            let mut stale: crate::ListOutput = json!({"padding":"x".repeat(budget * 4),
+                "context_intent":{"estimated_tokens":0,"within_budget":true,"declaration_feasible":true,
+                    "token_budget":budget,"declared_token_budget":budget,"result_omitted":false},
+                "read_output":{"estimated_tokens":0}}).into();
+            super::update_orientation_output(&mut stale, toon);
+            // proof-behavior
+            assert_eq!(stale["context_intent"]["within_budget"], false);
+            // proof-behavior
+            assert_eq!(stale["context_intent"]["declaration_feasible"], false);
+            // proof-behavior
+            assert_eq!(
+                stale["context_intent"]["estimated_tokens"],
+                super::measure_intent(&stale, toon)
+            );
+            // proof-behavior
+            assert_eq!(
+                stale["read_output"]["estimated_tokens"],
+                super::measure(&stale, toon)
+            );
+        }
+    }
+    Ok(())
+}
+
+/// Every shared read command enforces its wire ceiling after all receipt updates.
+#[test]
+fn shared_read_commands_bound_final_self_referential_receipts()
+-> Result<(), Box<dyn std::error::Error>> {
+    for command in ["list", "search", "files", "docs", "test"] {
+        for toon in [false, true] {
+            for padding in 0..4 {
+                for budget in [319, 320, 321, 998, 999, 1000, 1001] {
+                    let source = envelope(8, 80 + padding);
+                    let options = ListOptions {
+                        toon,
+                        output_budget: Some(budget.to_string()),
+                        intent: (command == "list").then(|| "triage".to_owned()),
+                        ..Default::default()
+                    };
+                    let source = if command == "list" {
+                        crate::list_intent::attach(source, &options, 5000)
+                    } else {
+                        source.into()
+                    };
+                    let output = super::apply_command(source, &options, command)?;
+                    if output["read_output"]["within_budget"] == true {
+                        // proof-behavior
+                        assert!(
+                            super::measure(&output, toon) <= budget,
+                            "{command}, toon={toon}, padding={padding}, budget={budget}"
+                        );
+                    }
+                }
+            }
+        }
+    }
+    Ok(())
+}
+/// Item metadata named `context_intent` compacts while the top-level declaration stays immutable.
+#[test]
+fn item_metadata_named_context_intent_compacts_under_budgets()
+-> Result<(), Box<dyn std::error::Error>> {
+    let long = "m".repeat(3000);
+    for toon in [false, true] {
+        let source = json!({
+            "items": [{"id": "sample-a", "title": "a", "context_intent": long}],
+            "count": 1,
+            "total": 1,
+            "has_more": false,
+            "truncated": false,
+            "next_cursor": null
+        });
+        for (budget, delivered) in [
+            (150usize, false),
+            (300, true),
+            (500, true),
+            (700, true),
+            (5000, true),
+        ] {
+            let output = super::apply_command(
+                source.clone().into(),
+                &ListOptions {
+                    output_budget: Some(budget.to_string()),
+                    toon,
+                    ..Default::default()
+                },
+                "list",
+            )?;
+            let omitted = output.get("output_budget_exceeded").is_some();
+            // proof-behavior
+            assert_eq!(!omitted, delivered, "budget {budget}, toon {toon}");
+            if delivered && budget <= 700 {
+                // The fitting item is delivered with the metadata compacted,
+                // instead of the whole result being omitted.
+                let cell = output["items"][0]["context_intent"]
+                    .as_str()
+                    .ok_or("missing metadata cell")?;
+                // proof-behavior
+                assert_eq!(
+                    cell.encode_utf16().count(),
+                    241,
+                    "budget {budget}, toon {toon}"
+                );
+                // proof-behavior
+                assert!(cell.ends_with('…'), "budget {budget}, toon {toon}");
+            }
+            if budget == 5000 {
+                // proof-behavior
+                assert!(delivered, "generous budget must retain metadata");
+                // A generous budget never compacts and never omits.
+                // proof-behavior
+                assert_eq!(
+                    output["items"][0]["context_intent"].as_str(),
+                    Some(long.as_str()),
+                    "review154: generous budget preserves item metadata"
+                );
+            }
+        }
+        // The top-level declaration protection is unaffected: a large
+        // declaration string under the reserved key stays byte-identical.
+        let mut declaration = json!({"command":"context","description":"m".repeat(600)});
+        let mut envelope = json!({"context_intent": declaration.clone(), "items": [], "count": 0});
+        super::compact_strings_with_intent(&mut envelope, true);
+        // proof-behavior
+        assert_eq!(envelope["context_intent"], declaration);
+        declaration["future"] = json!(null);
+        let mut unprotected = json!({"rows": [{"context_intent": declaration.clone()}]});
+        super::compact_strings_with_intent(&mut unprotected, false);
+        // proof-behavior
+        assert!(
+            unprotected["rows"][0]["context_intent"]["description"]
+                .as_str()
+                .is_some_and(|text| text.ends_with('…')),
+            "nested identical metadata compacts without top-level protection"
+        );
+    }
+    Ok(())
+}
+
+/// Every orientation command compacts nested user strings before dropping a fitting result.
+#[test]
+fn orientation_wire_string_compaction_retains_fitting_rows()
+-> Result<(), Box<dyn std::error::Error>> {
+    for command in ["context", "history", "deps"] {
+        for toon in [false, true] {
+            for budget in [1000usize, 2000] {
+                let source = json!({"rows":[{"id":"sample-a","title":"m".repeat(10000),"context_intent":"n".repeat(10000)}]});
+                let output = super::apply_orientation(
+                    source.into(),
+                    &ListOptions {
+                        toon,
+                        token_budget: Some(budget.to_string()),
+                        ..Default::default()
+                    },
+                    command,
+                    &["rows"],
+                )?;
+                // proof-behavior
+                assert_ne!(
+                    output["read_output"]["result_omitted"], true,
+                    "{command} {toon} {budget}"
+                );
+                // proof-behavior
+                assert_eq!(output["read_output"]["strings_compacted"], true);
+                for key in ["title", "context_intent"] {
+                    // proof-behavior
+                    assert_eq!(
+                        output["rows"][0][key]
+                            .as_str()
+                            .map(|text| text.encode_utf16().count()),
+                        Some(241)
+                    );
+                }
+                // proof-behavior
+                assert!(super::measure(&output, toon) <= budget);
+            }
+        }
+    }
+    Ok(())
+}
+
+/// A fitting short prefix cannot erase custom classifications used by larger probes.
+#[test]
+fn growing_compaction_probes_preserve_custom_focus_classifications()
+-> Result<(), Box<dyn std::error::Error>> {
+    let rows: Vec<_> = (0..20)
+        .map(|i| json!({"id":format!("sample-{i:02}"),"status":if i < 10 {"open"} else {"working"},"title":"x".repeat(180)}))
+        .collect();
+    let source = json!({"context_intent":{},"summary":{"focus_row_states":{"low_level":format!("{}{}", "o".repeat(10), "i".repeat(10))}},"high_level":[],"low_level":rows,"blocked_fallback":[]});
+    for toon in [false, true] {
+        let mut grew = false;
+        for budget in [1000, 1400] {
+            let output = super::apply_orientation(
+                source.clone().into(),
+                &ListOptions {
+                    toon,
+                    token_budget: Some(budget.to_string()),
+                    ..Default::default()
+                },
+                "context",
+                &["high_level", "low_level", "blocked_fallback"],
+            )?;
+            let retained = output["low_level"].as_array().map_or(0, Vec::len);
+            if (11..20).contains(&retained) {
+                grew = true;
+                assert_eq!(
+                    output["summary"]["returned_focus"]["in_progress"],
+                    retained - 10,
+                    "budget {budget}, toon {toon}"
+                );
+                assert_eq!(output["summary"]["returned_focus"]["open"], 10);
+            }
+        }
+        assert!(
+            grew,
+            "must retain a growing prefix with a custom status: toon {toon}"
+        );
+    }
+    Ok(())
+}
+
+/// Final list intent stabilization is included in the budget admission decision.
+#[test]
+fn list_intent_stabilization_respects_wire_budget() -> Result<(), Box<dyn std::error::Error>> {
+    let source = json!({"items":(0..12).map(|i|json!({"id":format!("demo-{i:04}"),"title":"x".repeat(match i {0=>500,10=>59,_=>51}),"status":"open","type":"Task","priority":0,"parent":null,"assignee":null,"risk":null,"blocked_by":null})).collect::<Vec<_>>(),"count":12,"total":12,"applied_limit":100,"has_more":false,"truncated":false,"next_cursor":null,"completeness":{"status":"complete","unreadable_item_count":0,"unreadable_directory_count":0},"filters":{"limit":"100","runtime_filters":{},"fields":"id,title,status,type,priority,parent,assignee,risk,blocked_by"},"projection":{"mode":"fields","fields":crate::list_intent::FIELDS},"sorting":{"sort":"default","order":"asc","effective_keys":[["status_registry:nonterminal_before_terminal","asc"],["priority","asc"],["updated_at","desc"],["id","asc"]]},"now":"2026-10-02T10:00:00.000Z","omission_receipt":{"has_omissions":true,"omitted_field_group_count":1,"omitted_field_groups":[{"name":"full_item_fields","restore_with":"--full"}]}});
+    for (budget, measured, count) in [(1403, 1402, 11), (1401, 1340, 6)] {
+        let options = ListOptions {
+            intent: Some("triage".to_owned()),
+            output_limit: Some("11".to_owned()),
+            output_budget: Some(budget.to_string()),
+            ..Default::default()
+        };
+        let source = crate::list_intent::attach(source.clone(), &options, 3200);
+        let output = super::apply(source, &options)?;
+        assert_eq!(output["read_output"]["within_budget"], true);
+        assert_eq!(super::measure(&output, false), measured);
+        assert_eq!(output["count"], count);
+        assert!(super::measure(&output, false) <= budget);
+    }
     Ok(())
 }
 
@@ -632,7 +1038,7 @@ fn round5_omission_cursor_policy() -> Result<(), Box<dyn std::error::Error>> {
 fn round7_cursor_metadata_compacts_below_the_envelope() -> Result<(), Box<dyn std::error::Error>> {
     let long = "a".repeat(30_000);
     let mut source = json!({"next_cursor":long,"output_cursor":long,"items":[{"id":"sample-one","next_cursor":long,"output_cursor":long}]});
-    assert!(compact_strings(&mut source));
+    assert!(super::compact_strings(&mut source));
     for field in ["next_cursor", "output_cursor"] {
         assert_eq!(source[field], long);
         assert_eq!(source["items"][0][field], format!("{}…", "a".repeat(240)));
@@ -649,5 +1055,25 @@ fn round7_cursor_metadata_compacts_below_the_envelope() -> Result<(), Box<dyn st
     assert_eq!(result["read_output"]["within_budget"], true);
     assert_eq!(result["count"], 1);
     assert!(result.get("output_budget_exceeded").is_none());
+    Ok(())
+}
+
+/// Final list receipts charge exactly the selected JSON or TOON bytes.
+#[test]
+fn review154_list_wire_receipt() -> Result<(), Box<dyn std::error::Error>> {
+    for toon in [false, true] {
+        let mut result: crate::ListOutput = json!({"items":[{"id":"sample-wire","tags":vec!["evidence";20]}],"context_intent":{"command":"list","estimated_tokens":0},"read_output":{"estimated_tokens":0}}).into();
+        super::update_output(&mut result, toon);
+        let bytes = if toon {
+            crate::stringify_toon(&result)?
+        } else {
+            result.stringify_read_json()
+        };
+        assert_eq!(
+            result["read_output"]["estimated_tokens"],
+            bytes.len().div_ceil(4),
+            "review154: list receipt must measure the selected encoding"
+        );
+    }
     Ok(())
 }

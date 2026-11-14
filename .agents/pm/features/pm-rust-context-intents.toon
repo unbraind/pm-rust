@@ -1,0 +1,655 @@
+id: pm-rust-context-intents
+title: Native core context intents and explicit section selection
+description: "Implement orient and handoff intent defaults, section selection, activity limits and budget receipts; certify deeper context and relationship packets against pm 2026.11.5."
+type: Feature
+pm_format_version: 2
+status: in_progress
+priority: 2
+tags[4]: "gh:unbraind/pm-rust#154",native,oracle,orientation
+created_at: "2026-11-06T09:15:56.754Z"
+updated_at: "2026-11-14T10:47:04.002Z"
+author: codex-astra
+acceptance_criteria: "JSON and TOON bytes, status and stderr match the oracle on generated non-git trackers and public tracker copies; retain typed calendar and memory refusals; focused tests fail on behavioral revert; record latency and differential counts."
+parent: pm-rust-s6j4
+comments[113]{created_at,author,text}:
+  "2026-11-06T09:28:14.771Z",codex-astra,"Implemented core intent preparation, section selection, activity bounds and intent receipts. Current-oracle exploration identified three inherited context drifts: bounded activity excludes timestamps at or after the read clock; test health covers all matching active items and declares its scope; TOON auto-tables choose compact list/null columns only when shorter. Bringing these paths to the requested November contract before running the public-copy corpus."
+  "2026-11-06T09:44:02.034Z",codex-astra,"Public-copy packet differential exposed the newer required-root-evidence-first-v1 ordering, reserved root-edge budget, root-edge priority and bounded-relationship omission receipt. Porting those native packet semantics as part of this slice, including updated producer fingerprints. No legacy packet result is being counted as current-oracle evidence."
+  "2026-11-06T10:08:53.263Z",codex-astra,"Generated intent comparisons passed before the final expanded matrix. Public-copy exploration exposed the distinction between compact intent estimates and complete JSON wire ceilings, now handled by the shared output-budget path. Current dependency packets also require root-evidence-first ordering and revised refusal text; preserving the existing bounded retry test while eliminating repeated rendering of identical packets."
+  "2026-11-06T10:37:55.523Z",codex-astra,"The expanded current-oracle corpus passed 306 intent/section/continuation comparisons. The broader suite passed 32 of 33 tests; the remaining debug retry timeout motivated sharing exact rendered-cost measurements across budget recovery probes. All library tests except the old ordering fingerprint fixture passed; that fixture is updated for the already-differentially-verified ordering. Added equal-sign option and token-budget alias refusal cases, plus lossless compact-table edge coverage. Strict Clippy and all 41 binary unit tests pass."
+  "2026-11-06T10:44:49.532Z",codex-astra,"Behavioral revert proofs passed in a disposable text-source copy: disabling only intent preparation failed core_intent_boundaries_and_budget_receipts and context_intents_and_sections_match_current_oracle; disabling compact columns failed current_context_tables_keep_ambiguous_cells_lossless; restoring the prior packet implementation failed relationship_packets_match_oracle. Every run reached named test failures, with no compilation-only false positive. The package worktree stayed fixed; positive reruns follow."
+  "2026-11-06T11:18:17.403Z",codex-astra,"The final expanded run exceeded its 30-minute linked-run timeout under shared-host oracle startup cost; it is not counted as a pass. Split the identical rich, empty and wide evidence matrices into independent tests, retaining every comparison while keeping the fixed two-worker ceiling. Increased the linked-run timeout to one hour. Each split test is included in the behavioral revert proof."
+  "2026-11-06T11:29:42.852Z",codex-astra,"Behavioral revert validation passed for all five new tests: core intent unit, rich/empty/wide-wire integration fixtures, and lossless compact-table unit. The upgraded relationship packet differential also fails against the previous packet implementation. The scratch runner requires named assertion failures and rejects compilation-only failures. Clippy passed with all targets and features and warnings denied; the final positive differential run is underway."
+  "2026-11-06T11:46:16.743Z",codex-astra,"Opened https://github.com/unbraind/pm-rust/pull/154 at 5b5f128 and immediately queued CodeRabbit using the required review queue. The PR distinguishes completed clippy, harness and six behavioral revert checks from the still-running generated differential suite and pending public-copy latency receipts. Full CI is now running independently."
+  "2026-11-06T12:11:55.061Z",codex-astra,"The expanded positive run completed 34 of 35 tests successfully; its existing five-second debug-process guard failed under concurrent load for a low-budget dangling-reference packet. The isolated unchanged query returns the exact 496-token recovery receipt in about 0.8 seconds. Added query-local producer memoization with a two-MiB serialized retention ceiling, preserving every canonical recovery probe and the original timing guard. Separate oracle probes confirmed BOM/NEL normalization mismatches in intent, section and numeric controls; a shared ECMAScript trim domain and a 20-comparison regression matrix now cover them. Both fixes receive independent behavioral revert checks."
+  "2026-11-06T12:18:23.767Z",codex-astra,"The first release-gate CI run exposed two legacy collection diagnostic differences: the context compaction predicate selected every item subcommand. Restricted that predicate to item deps, added a dedicated scope regression and its behavioral revert mutation, and included collection_commands_match_oracle in the focused rerun. The Unicode differential additionally exposed current human diagnostic control-character replacement; structured values remain unchanged while human context/dependency diagnostics preserve newline and replace control characters."
+  "2026-11-06T12:30:22.269Z",codex-astra,"Current-oracle generated evidence now covers 342 rich/empty/wide intent and section comparisons plus 20 BOM/NEL controls and 128 distinct relationship comparisons. Five packet tests passed concurrently; the existing five-second resource guard passed all 12 cases in a serial rerun, retaining its threshold. Concurrent runs exceeded that wall-clock guard on this shared host, so they are not reported as full-suite passes. The linked whitespace regression passed. The collection diagnostic CI regression and final checks are still being verified."
+  "2026-11-06T12:52:51.417Z",codex-astra,"CodeRabbit round 1 completed with nine threads and two additional comments. Fixed the unstable revert baseline using a committed reverse patch; strengthened high-budget override, configured activity-limit and public TOON-rendering assertions. The reviewed malformed-timestamp case exposed a genuine native/oracle mismatch: activity now uses the published numeric comparison with lexical fallback, preserving older invalid timestamp data where the oracle retains it. Added an exact reviewed-contract matrix, an output-cursor published-CLI replay with explicit native refusal, and a tighter multi-edge cap fixture before deciding the remaining compatibility findings."
+  "2026-11-06T13:08:20.391Z",codex-astra,"The reviewed-contract regression now passes 16 exact current-oracle comparisons, including receipt-only recovery replay. It exposed a second native defect: generic list receipt stabilization overwrote the omitted intent estimate and used JSON cost for TOON. Context now preserves the omitted-result estimate, measures the selected wire encoding, and retains explicit-section alias metadata. An independent behavioral revert mutation covers this correction. The regression also replays a real canonical output cursor through the published CLI and confirms the explicit native unsupported-option boundary."
+  "2026-11-06T13:24:22.738Z",codex-astra,"The expanded behavioral revert harness passed all 12 isolated mutation commands, producing 14 required assertion failures across 11 distinct tests, including every one of the nine new tests. This covers intent preparation, both compact-table and public renderer selection, configured activity caps, timestamp comparison, omitted-intent/wire receipt stabilization, ECMAScript control trimming, diagnostic scope, producer memoization and stored prior packet semantics. No compile-only failure was counted. Strict Clippy passes. The expanded multiple-edge reference matrix passes all 40 comparisons; current generated counts are 378 intent/section/control comparisons and 138 relationship comparisons across the focused successful runs."
+  "2026-11-06T13:38:06.898Z",codex-astra,"Release-binary public-copy validation passed 271 exact comparisons: pm-vcs 99 (62 context, 37 relationships), pm-rl 101 (62, 39), pm-context 71 (60, 11). Together with 378 generated context and 138 generated relationship comparisons, this records 787 exact stdout/stderr/status comparisons. All authoritative copy hashes remained unchanged. The sanitized benchmark receipt records all samples, p50/p95 and the binary hash; five alternating fresh-process samples were measured per runtime and projection. Median native/oracle orient latency was 169.0/882.5 ms, 242.2/1471.0 ms and 97.5/1231.0 ms respectively. Formatting, strict Clippy, private-item rustdoc and release build passed; 398 library, 42 binary, 46 acceptance and 25 Node harness tests passed. The linked lookup run passed 34 tests and the linked Unicode differential passed. The 12-command revert run requires 14 assertion failures across all nine new tests and two upgraded existing tests. First-head CI collection diagnostics were fixed and the focused oracle regression passed. Round-1 review fixes and compatibility evidence are ready for the next push; final-head CI and review remain pending on PR 154."
+  "2026-11-06T14:08:29.518Z",codex-astra,"The exact-head CI run was canceled before any job executed; a retry is queued. A local unit-only branch-coverage audit passed 398 library and 42 binary tests and confirmed all four coverage dimensions at 100 percent for the relationship packet module. It also identified unexercised guard cases for a non-array compact-table input and an empty activity timestamp. Extending existing regression fixtures for these guards, then rerunning their positive differentials and behavioral revert proofs. This partial audit is not a full release-gate coverage claim; production behavior and the measured release binary are unchanged."
+  "2026-11-06T14:35:36.243Z",codex-astra,"The guard follow-up passed all 398 library tests and all 16 reviewed-contract differentials, retaining the total of 787 reported exact comparisons. The expanded revert proof passed 13 mutation commands with 15 named assertion failures across 12 distinct tests, including all nine new tests. Removing only the empty-timestamp guard now fails the retained-activity regression. Focused instrumented unit runs exercise the non-array table and empty-timestamp paths. Strict Clippy, formatting, TypeScript and ESLint passed. Rebuilding the release executable produced the identical SHA-256 already recorded by all three public-copy receipts, so the measured code and latency artifact remain unchanged. This follow-up changes tests, proof metadata and PM records only. Releasing the claim for final exact-head CI and review on PR 154."
+  "2026-11-06T14:55:07.418Z",codex-astra,"Review round two identifies a dependency preflight improvement and a closed core-intent representation. The benchmark records the actual local Node runtime; clarify local measurement provenance. Recheck exact oracle packets and behavioral reverts after these focused changes, then release the claim and regenerate the changelog before pushing."
+  "2026-11-06T15:24:50.868Z",codex-astra,"Resume check confirms the expected worktree changes and this author owns the feature claim. Current enum refactor passes 398 library tests, 42 binary tests, the 342 intent comparisons and 16 reviewed contracts, plus strict documentation, formatting, Clippy and typed harness lint. The new dependency preflight passes through the linked test runner. An extra broad crash harness was stopped before completion to keep local gates targeted; no full crash-harness pass is claimed. Feature-specific revert and public-copy receipts are being refreshed before the fix push."
+  "2026-11-06T15:57:01.327Z",codex-astra,"Review round two fixes are verified: closed core-intent enum with named declarations, source-anchored dependency preflight, and explicit local benchmark provenance. Current generated context comparisons pass 378; relationship matrices retain 138 comparisons; fresh public-copy passes are 99, 101 and 71, for 787 reported exact stdout/stderr/status comparisons. All public authoritative hashes remain unchanged. The refreshed receipt records 150 samples and binary SHA-256 298e2f5d5a22920cde2fdf5f30a155c8655ba4bba221048975d3d4b7cb5b12e5. Rust units pass 398 library plus 42 binary; 23 harness/release contracts, strict docs, formatting, Clippy, typed harness lint and the linked preflight pass. The feature revert proof passes 14 isolated mutation commands with 16 named behavioral failures across 13 distinct tests, covering all ten new tests. Positive preflight and core-intent tests pass afterward. The extra broad crash run was stopped and is not claimed as a full gate pass. Output cursors retain the exact published receipt, successful published-CLI replay and explicit native refusal; native implementation remains a follow-up. Final CI and review receipts will be recorded in the PR."
+  "2026-11-06T16:53:38.108Z",codex-astra,"Final-head macOS and Windows Rust suites pass, but both aggregate gates expose uncovered context-budget, intent and read-output paths at the unchanged four-dimensional 100 percent threshold. Reclaiming this feature to add focused behavioral coverage and revert evidence; preserve all thresholds and supported packet bytes."
+  "2026-11-06T17:25:31.474Z",codex-astra,"Targeted coverage confirms every branch in context and every line, region, function and branch in the intent module. Wide-tag SDK fixtures exercise retained dual receipts and infeasible intent receipts. Missing/object context settings remain allowed; invalid scalar, array and null context shapes now receive an explicit native refusal instead of approximating the oracle schema-warning fallback. The output follow-up records warning-parity acceptance criteria. Final rendering uses Result::map to transform successful packets while preserving renderer errors unchanged."
+  "2026-11-06T18:17:37.155Z",codex-astra,"Coverage follow-up verified: 400 library and 42 binary tests pass; 46 capability, dispatch, harness and release contracts pass; strict documentation, formatting, Clippy and typed harness lint pass. Both new SDK tests pass through pm test --run --match boundaries --progress. The 17-command revert proof requires 19 named behavioral failures across 15 distinct tests, covering all twelve new tests. The expanded reviewed matrix passes 68 byte-exact cases, giving 430 generated context comparisons, 138 generated relationship comparisons and fresh public-copy passes of 99, 101 and 71: 839 reported exact stdout/stderr/status comparisons. Five invalid settings warning/refusal pairs are separate boundary assertions; missing/object settings match exactly and item reads remain available. All public authoritative hashes remain unchanged. The receipt records 150 fresh-process samples, controlled clocks and candidate binary SHA-256 3a263a038269b2e491db1b0ddc640487a1a9de9d7ac46406ee5e5ae68714dd5c. Median ranges are 9.7 to 608.6 ms native and 531.2 to 4060.3 ms oracle on the shared host. New context branches and all four intent-module coverage dimensions are covered locally; full package thresholds remain unchanged and require fresh final-head CI. The preceding candidate passed 728 Rust tests on macOS and Windows but failed aggregate coverage. Final review and CI receipts belong in the PR after this fix push."
+  "2026-11-06T19:15:21.849Z",codex-astra,"The follow-up head passes the macOS and Windows Rust suites (730 and 724 tests). Aggregate coverage now has one uncovered branch, four regions and two lines; investigating the remaining exact source spans without changing thresholds."
+  "2026-11-06T19:42:15.292Z",codex-astra,"Round 3 completed with one valid diagnostic bounds finding: a final --section token consumed as an activity-limit value could panic while constructing retry examples. The published oracle returns a typed refusal with generic examples. Adding the index guard, JSON/text exact differentials and independent behavioral revert checks; no approximation or relaxed coverage threshold."
+  "2026-11-06T19:52:16.835Z",codex-astra,"The bounds guard passes the recovery unit test and 70 reviewed-contract oracle comparisons, including both new JSON/text refusal cases. Three focused SDK/receipt tests and all four linked PM tests pass. Clippy with warnings denied is clean. Combined revert evidence covers 22 isolated mutation commands, 24 required named failures and 17 distinct tests: the 20-command recipe plus two focused guard reverts using the same scratch-copy harness. All twelve new tests have behavioral revert proofs. Refreshing the public-copy receipt against the rebuilt release binary."
+  "2026-11-06T20:08:12.087Z",codex-astra,"The diagnostic guard now checks for a following value token as well as bounds. All 72 reviewed-contract differentials pass, including four argument-order refusal cases. The final proof matrix covers 24 mutation commands, 26 required named failures and 17 distinct tests; four isolated guard checks supplement the completed 20-command recipe. Clippy is clean and the linked recovery test passes with both refused and ordinary value-token retries. The public-copy differential and latency refresh is in progress; final-head CI and another full bot review will follow the fix push."
+  "2026-11-06T20:17:28.805Z",codex-astra,"Final local evidence: 843 exact comparisons (434 generated context, 138 generated relationships, 271 public-copy comparisons: 99 pm-vcs, 101 pm-rl, 71 pm-context). All three public copies retain authoritative hashes. The final release artifact was measured with 150 alternating fresh-process samples; native median ranges are 9.3-411 ms and oracle 496.8-2033.7 ms on the shared host. The 72 reviewed-contract comparisons and four linked PM tests pass; Clippy, formatting and TypeScript/ESLint pass. Revert evidence covers 24 mutation commands, 26 required named failures and all twelve new tests. Round 3 identified one retry bounds finding, now fixed with bounds and value-token guards plus JSON/text differentials. Fresh CI and round 4 review are required after the push. Items remain in progress for verifier closure."
+  "2026-11-08T06:28:16.110Z",codex-agent,"Review round: fetched all review threads with complete comments; two unresolved findings PRRT_kwDOTwgMRs60vKzU (repeated direct-edge reservation scans) and PRRT_kwDOTwgMRs60vKzd (unbounded render-cost shape keys) are valid. Latest CodeRabbit body has no outside-diff findings. Branch is current with remote and contains main. Plan: index reservation costs and direct roles once per traversal, cap retained shape-key bytes, add behavioral regression and disposable revert proofs, self-review the full PR diff, run required native and harness gates, commit tracker evidence and push without resolving threads."
+  "2026-11-08T06:34:47.704Z",codex-agent,"Implemented one traversal-time index for direct-edge reservation costs and semantic reasons (including source/target and self-loop semantics), plus a separate two-MiB retained shape-key byte cap. Focused cargo test -j 2 --locked --lib packet_ passes 14/14 in 52.49 seconds. New regressions compare cached/fresh JSON and TOON delivery over real non-git trackers and count packing measurements deterministically. Self-review found the adjacent role scan and stale packet-behavior revert fixture; both are corrected. Disposable revert proof and full native verification follow."
+  "2026-11-08T06:38:05.921Z",codex-agent,"Both isolated behavioral mutations reached named assertion failures: restoring the packet() direct-edge reservation scan fails packet_direct_reservations_are_reused; removing only the render_cached() shape-cap guard fails packet_render_cost_keys_are_bounded on retained bytes. Each mutation runs in a disposable source copy and restores in finally, followed by a positive rerun. Pinned pm merge install refreshed clone-local drivers; health --check-only --require-merge-drivers --strict-exit passes under a fresh home (global extension skew is local-only). No existing provenance/history was rewritten. The full just release-check runs ordinary and instrumented full suites; prior local orientation-only runs exceeded 30 minutes, so the aggregate is estimated beyond the requested approximately 60-minute local budget and is deferred to CI at unchanged thresholds. Targeted native, harness, identity, changelog and self-host checks will certify this round locally."
+  "2026-11-08T06:40:25.635Z",codex-agent,"Revert proof complete: node scripts/context-packet-review-revert.mts passed all six commands (four positive runs and two required named assertion failures) and verified the refreshed legacy packet patch applies. Restoring only the per-node direct-edge scan fails packet_direct_reservations_are_reused; removing only the serialized-shape capacity guard fails packet_render_cost_keys_are_bounded on actual retained bytes. Both tests pass again after finally restoration. The pinned pm test --run --match \"check-lookup.mts packet_\" --timeout 180 --progress run in a disposable tracker passes one linked command containing 14/14 packet tests; no run artefacts were written to the package tracker. TypeScript tsc, ESLint, one context preflight test and the history-prefix gate pass. Native and current-oracle relationship gates are running with two workers and isolated Git identity settings."
+  "2026-11-08T06:45:18.492Z",codex-agent,"Final review-round validation: cargo +1.90.0 test -j 2 --locked --lib --bins --test identity_audit --test release_pipeline_contract passes 402 library + 42 binary + 7 identity + 20 release contract tests (471 total). cargo +1.90.0 test -j 2 --locked --test orientation_differential relationship_ -- --nocapture passes 6/6 tests and 138 exact current-oracle stdout/stderr/status comparisons, including the unchanged five-second packet floor guard. Formatting, all-target/all-feature Clippy with denied warnings, strict private documentation, TypeScript tsc and ESLint pass. The existing preflight passes 1/1; pinned linked pm test passes 14/14 packet tests in a disposable tracker. The two isolated behavioral reverts fail their named regressions and all four positive proof runs pass. Evidence retention passes 21 receipts / 37 commit references; history-prefix verification passes. Self-review of the complete PR found and fixed the matching direct-role scan and refreshed the legacy packet revert fixture; no other valid same-class instance or outside-diff finding remains. No committed dist exists. No thresholds changed. Full release/coverage certification remains deferred to final-head CI under the approximately 60-minute local aggregate budget. Releasing only this authors claim; the item remains in progress for orchestrator verification. Changelog regeneration/check and a fresh-home full strict tracker-health check follow the final tracker write."
+  "2026-11-08T06:47:17.967Z",codex-agent,"Deeper post-validation audit: health --check-only --require-merge-drivers --strict-exit --full detects two pre-existing history-chain mismatches for pm-rust-bj7a and pm-rust-unih. A clean origin/main tracker archive independently reproduces exactly the same two mismatches, and both affected item/history pairs are unchanged from main. Evidence is appended to existing follow-up pm-rust-b4yl; no duplicate follow-up and no history rewriting. Standard CI-mode strict health still passes, but full history integrity remains an explicit baseline risk. The first changelog generation completed; regenerating again after this follow-up evidence before the final check and commit."
+  "2026-11-08T07:28:28.251Z",codex-agent,"Continuation review audit: clean pushed branch includes origin/main; preserving all existing implementation. Reusing this PR 154 item for nine unresolved threads and one additional budget-stabilization concern. General rules: preserve subprocess diagnostics; expose every supported context dimension; gate optional oracles independently; test CLI refusal encodings; prove reads preserve settings per invocation; enforce final serialized budget receipts; bound cumulative cache admission; key rendered costs by digit width; prove compact-table reconstruction with the pinned decoder. Search all package entry points and output encodings, add adversarial regressions and disposable behavioral revert evidence, then run focused and aggregate gates with two workers. No duplicate PR/item, transcript reads, thread replies or resolutions."
+  "2026-11-08T07:39:07.900Z",codex-agent,"Focused review progress: discovery dimensions now include sections/activity_limit; Git diagnostics are shared across both context revert runners and source enumeration. Added independent optional/current-oracle gating and baseline-only history setup, unknown intent CLI spelling/encoding checks, per-invocation non-git settings-byte checks, cumulative producer admission and cached-render digit-width adversaries, and native TOON-to-pinned-SDK table reconstruction (including first-occurrence key order). Dense SDK sweep passed 8188 combinations over every integer budget 256 through 2300 plus 3000/5000 for both intents and encodings, with truthful final wire/intent estimates and ceilings. The additional stabilization concern remains under adversarial receipt-level investigation; no source change or refusal is claimed yet."
+  "2026-11-08T07:51:40.191Z",codex-agent,"Additional review-body hardening is implemented in the shared orientation delivery path: stabilize both receipt estimates before ceiling checks and recompute retained intent within_budget/declaration_feasible flags from final compact bytes. Existing 72 reviewed current-oracle comparisons still match exactly after this change. A new stale-receipt/decimal-boundary unit test passes in JSON and TOON; a 280-case shared-read matrix verifies final wire ceilings for list/triage, search, files, docs and test while preserving their older receipt-estimate contract. Three focused tests passed through pm test --run; automatic test-result storage remains disabled by existing project policy. Final mutation proofs and aggregate validation remain pending."
+  "2026-11-08T07:59:59.439Z",codex-agent,"Bun acceptance passed all three focused commands: unknown-intent CLI boundaries, 36 successful read-only settings comparisons, and four native compact-table fixtures decoded by the pinned SDK. The Node reviewed-contract matrix passes 72 exact comparisons after shared receipt stabilization. Strict check-only self-host health passes with an isolated global environment; the inherited non-isolated optional-extension version skew is not a source regression. Every existing history file remains an origin/main byte-prefix extension. No history repair, re-anchor or retained-record rewrite was performed. Full 15-mutation pm-managed proof is running before the bounded aggregate gate."
+  "2026-11-08T08:08:19.224Z",codex-agent,"Behavioral revert proof PASSED through pm test --run: CARGO_BUILD_JOBS=2 RUST_TEST_THREADS=2 node scripts/context-review-revert.mts. All 15 independent mutations produced named behavioral failures, with compiler-only failures rejected; all 30 pre-mutation/restored controls passed. The same disposable run passed all four real history contracts with only the baseline oracle installed and current oracle absent. Mutations cover Git diagnostic loss; each context discovery dimension; missing-current optional gate; unknown intent acceptance; read-time settings persistence; final wire ceiling enforcement; feasibility recalculation and receipt stabilization; shared list/search/collection ceiling enforcement; cumulative producer admission; budget-digit cache keys; and compact list, absent-cell and null-position reconstruction. The corrected absent-metadata mutation preserves type inference. All source changes stayed in disposable copies and were restored before cleanup. Starting the unchanged aggregate release gate with two workers and an approximately one-hour local cap."
+  "2026-11-08T09:04:33.094Z",codex-agent,"Review follow-up complete for all nine inline threads plus the additional stabilization finding; rules, package-wide scope and per-thread evidence are in docs/NATIVE_CONTEXT_REVIEW_154.md. Final local validation: all 753 ordinary Rust tests across 34 targets and all 90 Node harness tests passed inside the unchanged just release-check. TypeScript/ESLint, fmt, strict Clippy, private-item rustdoc, crash history/evidence checks, seven identity audits and isolated strict check-only self-host health passed. The 55-minute aggregate cap returned timeout 124 during instrumented orientation: 593 instrumented tests across 18 completed targets passed, no assertion failures, but aggregate coverage is incomplete and no 100-percent/full-aggregate result is claimed. Separate cargo audit passed with the unchanged RUSTSEC-2024-0449 allowance. Bun passed all three focused CLI/decoder commands. The pm-managed 15-mutation proof passed all 49 commands (15 named failures, 30 before/after controls, four baseline-only history contracts), and all three other pm-managed focused commands passed. Every existing history file retains the origin/main byte prefix. Current main is already included; all gate processes have stopped. Exact pushed-head CI and a new full review remain pending. The separate configured activity_limit=0 schema warning boundary is recorded on existing pm-rust-qhem. Releasing this claim for orchestrator verification; items remain in progress/open, with no closure, PR merge or software release."
+  "2026-11-08T09:12:52.983Z",codex-agent,"Review handoff receipt for implementation 37a28e4: the public PR summary at https://github.com/unbraind/pm-rust/pull/154#issuecomment-6719636695 matches the reviewed body exactly. GitHub accepted the bot reviewer-request API call, but CodeRabbit completed its check as skipped with the explicit reason: manual review required for this OSS repository. No analysis or review feedback ran, and no review approval is claimed. A new full review was requested in the normal PR comment without mentions; manual orchestrator review remains necessary. Final-head CI and full four-dimensional coverage remain pending. This receipt changes tracker metadata only; implementation/test/script bytes remain those validated at 37a28e4. Claim remains released; this item is not closed."
+  "2026-11-08T12:32:46.864Z",codex-agent,"Continuing PR 154 auto round 2 on the existing branch and item. Remote head matches the clean worktree and already contains main. Verified the diagnostic and compact-table fixes are retained and their threads resolved. Rules for remaining classes: proofs require passing controls and exact named failures; standalone checks install every dependency; feasibility reflects final retained output; tests assert returned receipts and tight-budget root evidence before repair. Auditing all package revert runners, shared SDK/CLI JSON and TOON paths, pinned consumers and non-git fixtures before focused tests and two-worker gates."
+  "2026-11-08T12:40:14.779Z",codex-agent,"Class search found the same post-projection feasibility defect in list triage; both attach paths now share retained-intent stabilization. Tight-budget packet fixture independently asserts one admitted node plus every reserved root edge across neighboring budgets. The receipt regression asserts the raw apply_orientation return and witnesses both receipts. Proof admission is shared across context and native adapter runners: passing baseline, exact named Cargo/TAP results, restoration and passing rerun; old native-adapter mutations now use a disposable copy. Adversarial outcomes reject unrelated names, skipped/TODO tests, compiler/spawn failures and failed controls. Root package is private and ships no dist or separate npm/bun artifact; pinned decoder and actual Node/Bun CLI acceptance cover those consumers. Focused Rust tests passed 6 retained tests, the tight-budget fixture and the raw-receipt test. All 5 context Node tests and TypeScript/ESLint passed."
+  "2026-11-08T12:44:50.509Z",codex-agent,The 72-comparison reviewed current-oracle differential passes after feasibility changes. Bun compact-table decoding also passes. The package-wide scan extended baseline and exact-name admission to all adapter/context runners and preflighted the performance proof; mutation source and build artefacts stay disposable even under an inherited CARGO_TARGET_DIR. Strict Clippy requested splitting the expanded packet assertion into a documented helper; no lint threshold was relaxed. The full Node harness and 21-mutation managed proof are running. A stale diagnostic mutation anchor was made specific after helper refactoring; this was a proof-definition failure and was not counted as evidence.
+  "2026-11-08T13:01:55.599Z",codex-agent,"Managed revert proof passed: 21 mutations, 42 baseline/restored controls and four baseline-only history tests (67 commands); the two final recipe dependency changes also passed six focused proof commands. Current context Node tests and adapter artifact tests pass 11/11; list triage still matches the pinned CLI; Node and Bun reviewed-contract matrices each pass 72 comparisons. The changes-runner baseline exposed a missing compile-time examples input in selective scratch copies, now included; failure diagnostics are retained. Native adapter proofs pass all nine cases including a repaired stale flush anchor. The prior documented release-check exceeded 55 minutes while only 18 of 34 instrumented targets completed. The managed proof now takes 19 minutes under current shared-host load, so the full aggregate cannot reasonably be expected within the task approximately-60-minute limit. Following that explicit runtime exception: run the ordinary Rust suite and individual required gates with two workers, defer full instrumented coverage to exact-head CI, and make no full-aggregate/100-percent claim."
+  "2026-11-08T13:07:04.277Z",codex-agent,"Broad runner verification passed: nine native-adapter mutations (18 controls), the selected UTF-8 changes mutation (two controls), two capability producer/writer mutations (four controls), and two performance mutations (four controls). The capability review runner passed 14 Rust mutations with 28 controls plus three Node adversaries and final restored suites of 13, 6 and 1 tests. Selective snapshots now include compile-time examples, and unexpected test exits retain diagnostics. Current recipes install both pinned oracles and both prerequisite reverts also passed through pm test --run. Fresh fetch confirms main is already included and the remote PR branch has not diverged. Starting isolated-home ordinary Rust and individual release checks; the full-coverage runtime exception remains explicit."
+  "2026-11-08T13:27:14.280Z",codex-agent,"The first ordinary Rust run completed 533 tests in 12 targets, then correctly failed harness_contract because the six existing interruption fixtures assumed mutation occurred in the checkout before any baseline. Updated those same tests without relaxing their 15-second/5-second bounds: two passing controls precede mutation; the checkout sources and build artifacts stay unchanged; both sandbox source files restore byte-for-byte before scratch cleanup; all SIGINT/SIGTERM and process-group/parent/cargo deliveries remain. All six now pass. Three independent reverts (omit baseline, omit interrupt restoration, write build output in checkout) each cause the named test to fail with passing before/after controls. Shared literal-name escaping now covers Node selection as well as TAP results. The full 25-test Node harness passed through pm test --run; all three Rust harness contracts and Bun harness_behavior passed. TypeScript/ESLint now include the harness fixture. Rerunning the ordinary suite and individual gates on this correction."
+  "2026-11-08T14:01:40.817Z",codex-agent,"Compatibility boundary verified for the feasibility class: the unchanged legacy_cursor_fingerprint_matches_published test failed only when current-context recalculation was applied to legacy list. The pinned pm 2026.10.21 oracle emits declaration_feasible=false for 75 synthetic rows with --limit 69 --for triage --token-budget 100000; recalculation emitted true. Under the required versioned-serialization rule, legacy list must preserve that published pre-projection contract, while the independent current context contract receives the reviewed correction. Restored legacy list behavior; the original cursor test now passes unchanged. The new 100-case legacy property retains both true/false outcomes and witnesses the metadata boundary; applying context recalculation there produces a named failure with passing before/after controls. No existing test or threshold was weakened. The ordinary run passed all orientation cases and 25/26 pagination cases before this correction. Finishing pagination, all remaining targets and individual gates on the corrected boundary; full one-invocation aggregate/coverage remains for CI under the runtime exception."
+  "2026-11-08T14:18:47.712Z",codex-agent,"Final local gates PASS on implementation 7bd021c: 755 distinct Rust tests across all 34 ordinary targets were exercised across the full run and corrected/remaining reruns. The final selected cargo +1.90.0 test -j 2 --locked --all-features --lib --bins --examples --test pagination_differential --test parity_1021_contract --test query_cost_contract --test read_contract --test read_session_contract --test release_pipeline_contract --test search_collections_differential --test strict_json_contract passed 558 tests in 15 targets, including all 409 library/42 binary tests and the complete 26-test pagination suite. Earlier unchanged targets contribute 197 tests. This is not a passing single aggregate invocation. Final fmt, strict Clippy, private-item rustdoc, TypeScript/ESLint, just crash-check (93/93), crash history/evidence checks, cargo audit, isolated strict self-host health and changelog check passed. The separate pm-managed general Node harness passed 25/25; Node/Bun reviewed contracts each passed 72 comparisons, plus Bun decoder and corrected interruption acceptance. All eight requested findings are fixed or preserved/verified; the legacy list version boundary is evidence-backed and the original cursor test is unchanged. Code commits: d7c4256, b6a6b87, 7bd021c. Full single-invocation release/coverage and external review are pending for the final pushed head at https://github.com/unbraind/pm-rust/pull/154/checks. Releasing only this authors claim; item remains in progress for orchestrator verification."
+  "2026-11-08T15:20:00.491Z",codex-agent,"Continuing review round 3 on existing PR #154. Verified clean worktree, remote head and main ancestry. General rules: working-tree copies omit deleted tracked entries; authoritative snapshots detect every persisted JSON/TOON/history change; scratch cleanup waits for owned subprocess trees; stored context settings validate and fall back before CLI overrides. Searching package-wide, adding adversarial regressions and isolated behavioral revert proofs; no review replies or resolutions."
+  "2026-11-08T15:33:48.411Z",codex-agent,"Class audit: the only three ls-files working-tree copy loops now use copyWorkingTree; fixed-list native proof copies do not enumerate deleted paths. The shared authoritative reader serves real-copy and benchmark drivers; existing crash-storage snapshots already cover arbitrary file types. The performance runner was the sole exit-time scratch deletion with async Cargo descendants; the native changes runner already owns timeout process groups and has no exit-time deletion. Stored context activity/staleness limits, depth, ranking and section fields now share whole-settings fallback before overrides; exact JSON/TOON diagnostics and SDK receipts are covered without writes. The root npm package is private: no packed native npm/Bun product or committed dist exists. Published npm oracle drivers and real non-git Rust CLI/SDK fixtures certify the applicable consumers."
+  "2026-11-08T15:37:04.556Z",codex-agent,"Round-3 behavioral revert proof passed: node scripts/context-review-revert.mts \"all worktree\" (1 mutation); node scripts/context-review-revert.mts authoritative (1); node scripts/context-review-revert.mts \"revert proof restores\" (6, including original baseline/restoration/build-isolation proofs); node scripts/context-review-revert.mts stored (2, SDK and exact CLI). All 10 independent mutations produced the selected named assertion failure, with 20 passing before/after controls in disposable source copies. Expanded signal coverage also passes all 8 cases, including uncooperative descendants. SDK corpus has 162 cases; exact JSON/TOON CLI corpus has 66 comparisons. Node focused harness passed 31 tests before adding two forced-termination cases; final gates will rerun the expanded suite. One Bun default-timeout failure occurred under host load; retry pending at the unchanged bound."
+  "2026-11-08T16:32:38.199Z",codex-agent,"Final round-3 validation: the single ordinary cargo +1.90.0 test --locked --all-targets --all-features pass completed 757 tests across 34 targets at CARGO_BUILD_JOBS=2 and RUST_TEST_THREADS=2. just crash-check passed typecheck, ESLint, all 94 Node tests with zero skips, history prefixes and retained evidence commits. The final pm test --run --only-index 21 --progress execution in a scratch tracker passed all 33 focused Node tests; no run artefacts were written to the package tracker. bun test scripts/harness.test.mts passed 27 tests on retry at the unchanged timeout (first attempt hit host-load timeout). Formatting, warnings-denied Clippy, private-item rustdoc, identity audit, cargo audit and changelog-check passed. Cargo retained its existing allowed unmaintained-dependency warning. Strict self-host health passed with an isolated global extension root; shared global version skew was left unchanged. The 55-minute timeout around just release-check exited 124 during instrumented orientation tests; no assertion failures were reported, but complete coverage is unverified and remains required in final-head CI. PR checks: https://github.com/unbraind/pm-rust/pull/154/checks . All four requested findings are fixed; review threads remain untouched for orchestrator replies. No new PM CLI/SDK defect was found."
+  "2026-11-08T21:35:29.827Z",codex-agent,"Continuation review: preserved pushed head 1521ee1 and existing tracker evidence; remote matches the clean worktree and contains main. Verified remaining review classes: descendants must stop before scratch cleanup across proof runners; copied mutation targets must not retain symlinks; receipt oracle provenance must be checked; platform-specific proofs must select supported tests; settings fallback diagnostics must survive refusals. Will add adversarial tests, record behavioral revert evidence, run focused and aggregate gates with two workers, and release the claim without closing."
+  "2026-11-08T21:47:46.734Z",codex-agent,"Verified all five remaining inline findings and the additional Windows performance-proof finding. JSON snapshot coverage from 1521ee1 is preserved and expanded to insertions/deletions. Shared async process ownership now covers all eight proof runners; symlink mutation inputs are materialized by every copy path. Exact oracle comparison found that JSON refusals embed warnings rather than emitting a separate frame; SDK retains the typed cause and warning separately. All 22 new adversarial tests and the prior eight signal/delivery tests pass. The previous 3300-second release-check cap is recorded in docs/NATIVE_CONTEXT_REVIEW_154.md; this round applies the authorized runtime exception and will run ordinary Rust plus individual gates, leaving full instrumented coverage to CI."
+  "2026-11-08T22:07:52.487Z",codex-agent,"Behavioral revert evidence: managed pm test of node scripts/context-safety-revert.mts passed its original 13 independent mutations with 26 baseline/restored controls (39 commands). These cover JSON snapshots, driver version verification, Windows proof selection, all six copy implementations, Unix group termination, Windows complete-tree termination, SDK refusal warnings and exact CLI warning bytes. The later Windows selection-call and dependency-junction-exclusion controls each passed baseline / named assertion failure / restored baseline via node scripts/context-safety-revert.mts with the corresponding name filter. node scripts/context-review-revert.mts SIGTERM passed six retained performance safety mutations and twelve passing controls (18 commands), covering drain ordering, complete-group signaling, forced termination, baseline ordering, exact restoration and build isolation. Total: 21 mutations and 42 passing before/after controls across 63 commands, all in disposable source copies; compiler/setup failures are rejected as proof. The canonical safety script now includes all 15 new controls. No assertion or threshold was weakened."
+  "2026-11-08T22:08:19.766Z",codex-agent,"Validation so far: cargo test -j 2 --locked --lib --bins --test identity_audit --test release_pipeline_contract passed 411 library, 43 binary, 7 identity and 20 pipeline tests (481 total). The expanded stored-settings refusal differential passed 132 exact comparisons on Node and independently 132 on Bun. Formatting, all-target warnings-denied Clippy, private-item rustdoc and cargo audit pass; the audit retains the existing allowed RUSTSEC-2024-0449 warning. Both newly linked SDK/renderer unit commands pass through pm test --run --match warning. Project test-result tracking is disabled, so commands/results and revert receipts are recorded in comments without enabling run-artifact tracking."
+  "2026-11-08T22:15:25.787Z",codex-agent,"Final local validation: just crash-check passed TypeScript, ESLint, all 116 Node tests with zero skips, history-prefix verification and evidence-commit verification. The expanded property also exercises the new safety-proof runner itself: all 24 safety tests pass across nine entry points. Separate harness file: 27 passed. Final TypeScript/ESLint and both linked warning tests pass. Strict self-host health passes with existing advisory findings; guidance/stale-item/provenance follow-up work already exists, and append-only history is preserved. All valid review findings are fixed; no inline thread has been answered or resolved. Full instrumented release coverage and native platform verification remain CI requirements under the previously documented 55-minute gate timeout. Preparing the existing PR for a new review; no merge or release."
+  "2026-11-08T23:12:59.623Z",codex-agent,"Continuing review round 5 on the existing PR and branch. Clean remote head and main ancestry verified. Reusing this item for all eight findings. General rules: drain every owned descendant before scratch cleanup, select only platform-supported proof controls, preserve independent diagnostics on every refusal, preserve declaration metadata under row compaction, and distinguish matched budget refusals from timing failures. Search and adversarial behavioral revert checks will cover each shared implementation and caller; thresholds remain unchanged."
+  "2026-11-08T23:22:00.108Z",codex-agent,"Class audit covered all nine proof entry points and shared copy/filter/process helpers; native SDK/CLI diagnostic paths; shared JSON/TOON collection and string compaction; and every real-copy benchmark preflight. The original Cargo interruption thread is already addressed by 28d7398, confirmed with all-runner SIGINT/SIGTERM controls; nested group ownership and Windows orphan ownership remain valid additional cases. New adversarial tests use synthetic non-git trackers and marked copies only. There is no packed npm product or JS SDK in this native crate; npm/Bun launch the same native gates. Prior 55-minute aggregate timeout authorizes the documented full-coverage runtime exception; ordinary all-target tests and individual gates will run with two workers. Native Windows job execution must be verified by the existing Windows CI jobs."
+  "2026-11-08T23:27:19.667Z",codex-agent,"Revert evidence so far: nested ownership; Windows orphan retention; Windows kernel-job dispatch; safety selector call; symlink platform classification; optional dependency timing; and original complete-group signaling each produced the required named assertion failure with passing before/after controls (7 mutations, 14 passing controls). Generic warning and declaration-compaction Rust reverts remain next. The new JSON/TOON item-fault regression passes all 12 malformed/conflicted default/orient/handoff non-git CLI combinations. Full ordinary Rust execution is still running; no aggregate success is claimed."
+  "2026-11-08T23:34:26.372Z",codex-agent,"The package-owned linked safety command passed through pinned pm test --run --progress in a disposable tracker: 30 passed, 1 explicit native-Windows-only skip. Strict check-only health passed with an isolated global extension root and existing advisories. Final self-review also corrected the Windows synchronous control bridge and both minimal fixture copies for the new job helper; the focused 19-test signal/fixture run and two Windows boundary controls pass. Prior CI showed one uncovered warning-write error propagation region; context now renders through caller-owned streams and the existing renderer regression exercises diagnostic and output writer failures without changing thresholds."
+  "2026-11-08T23:45:18.356Z",codex-agent,"Behavioral reverts are complete for every current finding: 11 distinct class mutations each required its named assertion failure and two passing controls (33 executions). Commands: node scripts/context-safety-revert.mts with filters nested ownership, nested runner ownership, Windows orphan ownership, Windows kernel job ownership, safety selection call, symlink platform selection, optional dependency timing, descendant groups, generic refusal warnings, and intent declaration (two mutations). The original node scripts/context-review-revert.mts SIGTERM retained all six independent negative controls plus twelve passing controls. Total: 17 distinct mutations, 34 passing controls, 51 required executions; all restoration occurred in disposable copies. No compiler/setup failure counted as proof. Final diagnostic renderer now exposes both output and warning writer failures to the unchanged Rust coverage gate. Strict Clippy, fmt, private-item rustdoc and cargo audit pass; audit retains only its pre-existing allowed warning. Ordinary all-target Rust tests continue without reported assertion failures."
+  "2026-11-08T23:50:24.284Z",codex-agent,"Additional class-level self-review: the prior macOS harness failure compared a logical temp path with a physical child cwd spelling. Normalize both filesystem paths in the cleanup observer. Every existing signal/restoration test now executes through a temp-directory symlink on Unix, preserving all original assertions. The focused four SIGTERM delivery tests pass and the canonical-path-only behavioral revert fails the named stubborn-descendant regression, with both passing controls. This adds one distinct mutation: current total 18 negative controls and 36 passing controls (54 executions). The final renderer unit and declaration property pass; the non-git malformed-item CLI corpus also passes with the pinned oracle launched through Bun (12 cases). No new PM CLI or SDK defect was identified."
+  "2026-11-09T00:40:18.559Z",codex-agent,"Final class closure: PRRT_kwDOTwgMRs61Cfjp was already addressed by 28d7398 and is re-proved through both signals on all nine runners; nested process groups and restoring runner ownership now cover PRRT_kwDOTwgMRs61FGg1. Atomic Windows kernel job ownership and retained exit/pipe ownership cover PRRT_kwDOTwgMRs61FGg6. Shared Unix-only proof selection covers both PRRT_kwDOTwgMRs61E7rv and PRRT_kwDOTwgMRs61FGhA. Structured unavailable timing receipts cover PRRT_kwDOTwgMRs61FGg-. Generic JSON item-error warning retention and injectable diagnostic streams cover PRRT_kwDOTwgMRs61FGhE. Protected declaration strings/collections, public delivery guards and pinned terminal receipt measurements cover PRRT_kwDOTwgMRs61FGhM. All findings are addressed; no review thread was replied to, resolved or reacted to."
+  "2026-11-09T00:40:20.197Z",codex-agent,"Final behavioral evidence: 20 distinct mutations require 20 named assertion failures and 40 passing before/after controls, 60 required executions in disposable copies. The two latest guards independently revert public intent delivery protection and the pinned complete-omission receipt floor. Unchanged oracle assertions pass 342 intent comparisons, 72 reviewed-contract comparisons and 4 new terminal-receipt comparisons, 418 total. The final shared read-output suite passes 14 tests; all 43 binary tests pass. Node and Bun each pass all 12 non-git malformed/conflicted item boundary cases. The real-copy entry point passes, writes its receipt and retains authoritative hashes. TypeScript, ESLint and the complete crash harness pass 125 tests with one explicit native-Windows-only skip; history prefixes and 21 receipts / 37 evidence commits pass. Final fmt, all-target denied-warning Clippy, strict private rustdoc and cargo audit pass; audit retains its pre-existing allowed advisory. The earlier broad attempt completed 18 targets / 599 tests before four terminal-receipt parity failures; it was stopped and all four affected tests pass after the fix. Its missing-runtime check also passes on the stable executable. No passing whole-package aggregate or coverage result is claimed; full release coverage and native Windows validation remain required on the final pushed head at https://github.com/unbraind/pm-rust/pull/154/checks . No new PM CLI/SDK defect was found."
+  "2026-11-09T01:11:22.185Z",codex-agent,"The whole-package class search also found the legacy list-triage producer of context_intent. Both shared read-output callers now preserve declaration metadata and retain the historical complete-omission estimate through the same compactor. The property exercises 72 budget cases across context and list. A new four-case JSON/TOON non-git list test matches the pinned legacy CLI. Seven list SDK tests and all fourteen shared-output tests pass. Two independent list controls remove delivery protection and the terminal receipt floor; each requires its named failure and both passing controls. Final distinct proof total: 22 mutations, 44 passing controls, 66 required executions. No existing test or threshold was weakened."
+  "2026-11-09T01:12:54.595Z",codex-agent,"Final stable-code Rust gate PASS: cargo +1.90.0 test -j 2 --locked --all-features --lib --bins --test identity_audit --test release_pipeline_contract passed 412 library + 43 binary + 7 identity + 20 release pipeline tests, 482 total. The final two-emitter wire property and list SDK tests also pass (14 shared-output and 7 list-intent tests). Current-oracle and legacy terminal receipts total 422 exact comparisons, plus Node/Bun boundary and real-copy validation. All 22 independent class mutations have named failures and 44 passing controls (66 required executions). Pinned pm test --run --progress passed the safety command in a disposable tracker; strict isolated health passed. TypeScript, ESLint, complete 125-pass / 1-native-Windows-skip harness, formatting, denied-warning Clippy, private rustdoc, identity and audit gates pass without weakened thresholds. Full release/coverage and native Windows execution remain final-head CI requirements under the documented runtime exception. Releasing this author claim for orchestrator verification; item stays in progress. No new PM CLI/SDK defect was found."
+  "2026-11-09T01:56:27.461Z",pi-glm,"Auto round 6 continuation: clean remote head dafa0e2 contains origin/main; reusing this item for the 12 round-6 findings. Three defect classes: (A) proof-runner process and copy hygiene — async signal handling that stops Cargo descendants before scratch removal, deferred restoration until worker termination is confirmed, nested runner registration before detach, dangling-symlink copy tolerance, and a startup-ordering ownership test; (B) stale mutation anchors — the read_output and safety proof scripts target statement sequences that round-5 refactors changed, so the proofs stop at uniqueness/stale-mutation assertions; (C) native output correctness — settings warnings on unsupported-option refusals, top-level-only intent protection, command-based TOON contract selection, JavaScript Object.keys order for null column positions, and a fallback test that proves non-context settings are discarded. Package-wide class search, adversarial regressions with disposable revert proofs, focused then two-worker gates follow."
+  "2026-11-09T07:05:44.359Z",codex-agent,"Continuing the coordinated pi handoff as codex-agent. Preserved two unpushed round-six commits and unfinished harness edits; merged current origin/main before further changes. Auditing all twelve findings by class, with controlled process-startup, failed-reap, symlink and mutation-target regressions, plus the macOS SIGTERM failure. No duplicate PR or tracker item."
+  "2026-11-09T07:14:39.170Z",codex-agent,"CI evidence: ordinary Rust macOS job 128927596026 fails SIGTERM stubborn-descendant after 1294.747 ms with ENOENT for the restoration receipt. Aggregate macOS job 128927596243 instead fails SIGINT stubborn-descendant after 1341.503 ms with the same missing receipt. This disproves a SIGTERM-only defect and a 15-second test timeout; both meet the one-second worker escalation path. Preserving all signal cases and bounds; adding captured subprocess diagnostics, spawn-time ownership, serialized drain and deferred restoration before rerunning them. Focused ownership/copy controls pass: five existing cases plus four new adversarial cases, including delayed constructors and refused reap retaining mutated inputs. The earlier full three-file Node run passed 64 tests with one Windows-only skip."
+  "2026-11-09T07:17:10.937Z",codex-agent,"The whole-package mutation-target audit found additional stale selectors in the intent renderer, deleted-entry guard and intent collection/string policies. All managed review/safety definitions now pass a fast live-source admission test (two tests), including uniqueness checks for every target. Typecheck and ESLint pass at unchanged thresholds. The full process/copy safety file passed through pm test --run: 35 passed, one Windows-only skip. An initial linked command had an unquoted shell alternation, failed with status 127 and was replaced using append-only pm commands; the rerun is the passing evidence."
+  "2026-11-09T07:22:47.511Z",codex-agent,"Revert-proof isolation correction: owned Node children now preload the helper from the disposable working copy and replace only the prior managed preload option. Otherwise a fixed ancestor module masks a reverted spawn hook. Reproved deferred restoration, pre-constructor spawn ownership and restoration grace with named failures and passing controls. Strict Clippy is now clean across all targets/features after simplifying the compaction guard, splitting large fixture helpers and moving warning extraction out of a statement block. Preserved every assertion and lint threshold. The published SDK intentionally protects focus_row_states recursively; that adjacent historical contract remains unchanged. Linux did not reproduce the prior macOS missing receipt in 16 repeated SIGINT/SIGTERM stubborn pairs (32 passes); macOS CI remains necessary."
+  "2026-11-09T07:40:41.665Z",codex-agent,"macOS cause is now confirmed by captured child stderr at head 13a42e7: both stubborn SIGINT (1371.735 ms) and SIGTERM (1382.636 ms) fail with kill EPERM from the one-second Timeout callback in ProofProcesses.stop, exiting 1 before restoration. CI run: https://github.com/unbraind/pm-rust/actions/runs/42578981765 . The timer competes with the drain-loop SIGKILL. Fix: transfer escalation to drain on leader exit, keep signal callback errors inside the owner, and treat EPERM as an already-stopped target only after ps positively shows no executable group/PID member. Live members or unavailable ps retain mutated inputs and scratch. Deterministic regressions cover groups and nested owners with absent, zombie, live and unreadable membership plus a stalled-event-loop duplicate timer. Three independent disposable reverts each fail the named regression, with six passing baseline/restored controls. No timeout was widened. The existing nested-owner restoration adversary now spans escalation instead of finishing before it."
+  "2026-11-09T07:58:55.771Z",codex-agent,"macOS acceptance at 9967ee3: CI job 129039059645 passed harness_contract, all 3 Rust harness tests, including harness_behavior and both stubborn signal cases (9.75 seconds total). The run later exposed the separate dependency TOON delivery bug, not another signal failure. Four new valid review threads are included in this same item: PRRT_kwDOTwgMRs61KYdu (shared dependency measurement/delivery contract), PRRT_kwDOTwgMRs61KYdx (independent UTF-8 streaming decoders), PRRT_kwDOTwgMRs61KYd0 (native parser preserves both workspace spellings and operator bytes), PRRT_kwDOTwgMRs61KnIW (explicit Unix simulation from a Windows seed on every host). Focused dependency budget/receipt matrix and exact deps_mixed_case_dangling_matches_oracle pass. Unicode stdout and stderr mutations and Windows-platform mutation each fail with passing controls. Tightened proof admission rejects test timeouts and cancellation, and already-refused reap does not repeat during restoration. Mock process registries are fixture-local so synthetic PIDs cannot escape into real parent ownership."
+  "2026-11-09T08:04:10.777Z",codex-agent,"The review proof correctly refused a no-op mutation: disabling orientation wire string compaction still passed the old SDK budget fixture (its title never exceeded the compaction threshold and preparation may compact first). Kept that existing SDK test unchanged and added a direct property covering context/history/deps, both encodings and fitting-row retention under explicit budgets. The managed proof now targets that property, not the unrelated SDK sweep. Full review proof is rerunning with the dependency-delivery and lossless-path properties included. Reconfirmed simulated ownership isolation with two explicitly named child tests (no empty nested test run), and independently proved the isolation and timeout-evidence guards fail on revert. The known local aggregate measurement exceeded 55 minutes with only 18 of 34 instrumented targets complete; retain the task runtime exception for local coverage, run the ordinary suite and all individual quality gates with two workers, and let exact-head CI certify the unchanged full aggregate."
+  "2026-11-09T08:15:58.714Z",codex-agent,"Complete current review proof PASSED with 34 independent mutations, 68 passing baseline/restored controls, and four baseline-only real history tests (106 commands). Includes the dependency delivery contract and native parser path-byte properties. The repaired wire-compaction mutation now fails the direct context/history/deps property, and all existing SDK budget tests remain unchanged. Safety evidence comprises the full 46-mutation run plus eight focused additions (Darwin three, Unicode two, Windows simulation, parent mock-registry isolation and timeout-evidence refusal), each with passing baseline/restored controls. Six retained SIGTERM mutations were rerun with the strict timeout/cancellation guard and passed all twelve controls. Starting isolated-home ordinary all-target Rust verification followed by the complete Node harness/typecheck/lint/storage checks with at most two workers."
+  "2026-11-09T09:07:32.189Z",codex-agent,"Final local gates PASSED: isolated-home cargo +1.90.0 test -j 2 --locked --all-targets --all-features: 769 tests across 34 targets, zero failures (1669.914 seconds). just crash-check rerun: 137 passed, zero failures, one Windows-kernel-only skip; includes TypeScript, ESLint, real Linux syscall corpus, history-prefix and retained-commit gates. The first crash-check attempt stopped at an environment-object type inference error, corrected with NodeJS.ProcessEnv; the passing rerun is the evidence. Standalone harness: 27 passed. Strict Clippy, fmt, private-item rustdoc, and cargo audit pass; audit retains the existing allowed RUSTSEC-2024-0449 unmaintained warning. Bun pinned-SDK table decoding and deps_mixed_case_dangling_matches_oracle pass through pm test --run. Current path mutation was reproved with one named failure and both controls. A portable failed-reap simulation revert also fails with both controls. The latest PRRT_kwDOTwgMRs61LAm1 is valid: expanded the same path corpus to native unpaired UTF-16 on Windows instead of skipping the Windows mutation; all aliases and both spellings remain tested. Windows aggregate failure at 2577eab identified the remaining Unix ps-specific reap fixture, now explicitly simulated from a Windows seed without weakening its assertions. All seventeen review findings are addressed in this item."
+  "2026-11-09T09:18:21.785Z",codex-agent,"Pushed tested source/proof head 407fef2 on the existing PR. Thread-to-fix commits and failing revert assertions for all seventeen findings are in docs/NATIVE_CONTEXT_REVIEW_154.md. No second PR, duplicate item, review reply or thread resolution. Main is already included; every changed history file extends origin/main byte-for-byte, and branch author emails are exactly the approved bot identity. Releasing this claim for orchestrator verification without closing the item. Final-head CI, including the full unchanged coverage aggregate and Windows acceptance, remains the release authority; current checks are available at https://github.com/unbraind/pm-rust/pull/154/checks and the final report will name the pushed receipt head and its CI run."
+  "2026-11-09T11:11:37.075Z",pi-glm,"Final review round: scope is only the coverage floor failing all three Release gate aggregate jobs on head c59277c — one uncovered line (src/orientation_context.rs line 1161), three uncovered regions and two uncovered branches (src/main.rs and src/orientation_context.rs). The four newer CodeRabbit findings are deferred to issue 161 and out of scope. Plan: cover each site with real behavior tests (no coverage-only calls, no cfg exclusions), remove a branch only if it is provably unreachable, then verify 100 percent lines/functions/regions/branches locally with the pinned nightly instrumented coverage before pushing."
+  "2026-11-09T12:19:17.305Z",codex-agent,"Continuation audit: existing PR 154 remains open at c59277c; local test commit 8098497 and the prior agent handoff history are retained. origin/main is already an ancestor. Scope remains exactly the coverage floor; issue 161 and review threads are untouched. The pinned nightly is installed. Verify the retained real parser-refusal cases first, then run complete pinned instrumented coverage with two workers."
+  "2026-11-09T12:21:17.550Z",codex-agent,"Focused pinned-nightly parser-refusal regression passed (1 test). The retained cases cover the non-object context warning boundary. Inspection of the remaining main.rs branch found an impossible empty value iterator: the scanner is called only after context has already been identified from the same raw arguments, so every leading workspace flag has a successor. Replace the redundant conditional append with iterator extension, preserving incomplete-input fallback while removing the dead conditional. No runtime behavior or coverage exclusions are removed. CI macOS baseline: lines 17709/17710, functions 1835/1835, regions 28566/28569, branches 3940/3942."
+  "2026-11-09T12:22:57.616Z",codex-agent,"Before executing the full suite, source inspection identified the third region as the runtime-settings early-error return after successful discovery. Added real text and JSON CLI assertions with malformed settings: preserve exit 2 and unsupported-option diagnostics, emit no invented warning, and do not alter stored bytes. Stopped the initial coverage compile before tests began to include this case in a fresh run."
+  "2026-11-09T12:27:24.859Z",codex-agent,"Expanded focused regression passed through pm test --run (1 passed, zero failures), including malformed-settings text and JSON cases. Strict all-target/all-feature Clippy, formatting and private-item rustdoc checks pass. The full pinned-nightly instrumented suite is now executing. History-prefix verification passed for all changed streams; approved branch author email verified."
+  "2026-11-09T13:06:40.338Z",codex-agent,"Coverage floor restored. Complete command: PM_RUST_REQUIRE_PUBLISHED_CLI=1 PM_SENTRY_DISABLED=1 PM_TELEMETRY_SOURCE_CONTEXT=test CARGO_BUILD_JOBS=2 RUST_TEST_THREADS=2 cargo +nightly-2026-08-06 llvm-cov --locked --branch --all-targets --all-features --json --output-path coverage-branch.json. All 769 tests across 34 targets passed. The host report tool was 0.8.7, which additionally reported build.rs unlike CI. Verified the official SHA256 for isolated cargo-llvm-cov 0.9.1, matching CI, and regenerated the report from the same complete instrumented data with cargo +nightly-2026-08-06 llvm-cov report --branch --json --output-path coverage-branch.json; the exact four-total gate passes. Final local Linux totals: lines 17803/17803, functions 1850/1850, regions 28731/28731, branches 3980/3980, all exactly 100 percent. Before Linux CI: lines 17799/17800, functions 1849/1849, regions 28727/28730, branches 3980/3982. Reported macOS baseline: lines 17709/17710, functions 1835/1835, regions 28566/28569, branches 3940/3942. No coverage exclusions, thresholds or build-script behavior changed. Regression cases exercise scalar context settings and malformed settings in text/JSON, explicit tracker aliases and no-tracker refusals. The impossible empty-successor conditional in the parser-refusal workspace scan was removed while retaining iterator fallback semantics. Focused pm-linked regression, strict Clippy, fmt, private rustdoc and history-prefix checks pass. Main remains included; preserve test commit 8098497. No review-thread operations or issue-161 work performed. Releasing the claim without closing; platform aggregate CI on the pushed head remains pending."
+  "2026-11-09T13:08:26.711Z",codex-agent,"Final metadata checks: just changelog-full and just changelog-check pass, with no changelog diff. node scripts/crash-history-prefix.mts passes for every changed history stream. Self-host command node tests/oracle/launch.mts health --check-only --require-merge-drivers --strict-exit passes with a clean temporary home, matching fresh CI state. The regular home fails only on the existing installed pm-github 2026.11.8 versus pinned host 2026.10.21 extension skew; no package or global installation was changed. Source fix commit 1404fc1 retains the prior test commit 8098497. Claim remains released, item remains in_progress. CI on the forthcoming pushed receipt head is not yet verified."
+  "2026-11-09T13:45:12.546Z",codex-agent,"Continuing PR 154 from coverage head 4502aa2. Remote branch matches and contains origin/main. Scope is only PRRT_kwDOTwgMRs61PgcM (immutable focus classifications across growing compaction probes) and PRRT_kwDOTwgMRs61PgcC (whole-document settings validation before context fallback). Will preserve existing work, add behavioral and published-oracle regressions, rerun pinned-nightly four-total coverage, fmt and strict Clippy, then release the claim without closing."
+  "2026-11-09T13:56:16.786Z",codex-agent,"Both scoped fixes have behavioral negative controls in a disposable source copy. Restoring the original apply_orientation fails growing_compaction_probes_preserve_custom_focus_classifications (zero custom in-progress rows instead of three) and context_growing_compaction_probes_match_current_oracle (at budget 8000, native counts five of ten retained working rows as open; published counts all ten in progress). Restoring the original settings_fallback fails invalid_author_discards_context_settings and context_invalid_author_fallback_matches_current_oracle (missing warning and one activity entry rather than the published default ten). Fixed oracle controls pass four growing-probe comparisons and sixteen author/default/override comparisons across TOON and JSON, against published pm 2026.11.5 in synthetic non-git trackers. The settings change adds the missing attribution-field check to the existing all-or-default decision; valid strings, including the empty string accepted by the published schema, retain the stored limit. No review-thread actions taken."
+  "2026-11-09T13:59:34.254Z",codex-agent,"Fix commit 62023ed is complete. Fixed controls pass via pm-linked runs: four growing-probe and sixteen invalid-author/default/override oracle comparisons against pm 2026.11.5. Full library suite: 418 passed, zero failed or skipped. Identity audit: 7 passed. Strict all-target/all-feature Clippy, fmt, private-item rustdoc, self-host health under a clean synthetic home and history-prefix verification pass. Cargo audit passes with the existing allowed unsafe-libyaml advisory. Full pinned-nightly instrumented all-target/all-feature coverage is running with two build jobs and two test threads, using isolated cargo-llvm-cov 0.9.1; its archive SHA256 matches the official release asset digest. No aggregate duplicate run is planned because the previously measured full release aggregate exceeded the task runtime exception."
+  "2026-11-09T14:48:22.490Z",codex-agent,"Pinned-nightly coverage is complete at source fix 62023ed: 773 tests across 34 targets, zero failures and zero ignored tests. Command: PM_RUST_REQUIRE_PUBLISHED_CLI=1 PM_SENTRY_DISABLED=1 PM_TELEMETRY_SOURCE_CONTEXT=test CARGO_BUILD_JOBS=2 RUST_TEST_THREADS=2 cargo +nightly-2026-08-06 llvm-cov --locked --branch --all-targets --all-features --json --output-path coverage-branch.json, using verified cargo-llvm-cov 0.9.1. The exact unchanged four-total assertion passes: lines 17811/17811, functions 1851/1851, regions 28746/28746, branches 3984/3984; all 100 percent. Both new oracle regressions pass under instrumentation. All four negative controls were also rerun with only their corresponding production function reverted and the other scoped fix retained; every run reached the named assertion failure. Final receipts and exact commands are in docs/NATIVE_CONTEXT_REVIEW_154.md. Releasing the claim without closing the item. The remaining final steps are changelog regeneration/check, final tracker and identity checks, receipt commit and push to the existing PR 154. Platform CI on that pushed head remains unverified. No review threads were changed."
+  "2026-11-09T18:01:05.631Z",codex-agent,"Continuation from 7b1d9fd: remote and package worktree match; main is already an ancestor. Scope is only TMqr, TMql, VSbU and VSbR native behavior/documentation findings. Reusing this item and PR 154. Deferred harness findings remain with issue 161; no thread interactions. Plan: final budget checks, one validated settings read, role-aware refusal arguments, focused regressions and independent behavioral reverts, then pinned-nightly four-metric coverage and required gates."
+  "2026-11-09T18:14:39.235Z",codex-agent,"PRRT_kwDOTwgMRs61TMql: added rustdoc on Intent::attach explaining that omission recovery drops explicit sections and activity controls; retry the original command with a larger token budget starting at restore_with and increase as needed. Documentation only. Other scoped fixes remain in progress."
+  "2026-11-09T18:20:13.570Z",codex-agent,"Native fixes now pass the new focused comparisons: list stabilization admits 11 rows at 1403 tokens and six rows at 1401 tokens with exact published bytes; whole-document context fallback passes 28 comparisons; refusal argument roles pass 30 comparisons, including the published global-path alias parser behavior. Shared settings validation precedes schema, lifecycle, search, context, session, identity and mutation projections. Versionless legacy partial documents preserve existing null-alias and fractional-search-limit reader contracts; versioned documents use the published supplied-field schema. Admission refusals remain conservative. Earlier broad native failures identified legacy compatibility and strict-preview boundaries, now covered by unchanged focused assertions; the transient session self-exec fixture passes on isolated retry. Independent function reverts and the complete pinned-nightly four-metric run are underway."
+  "2026-11-09T18:35:57.528Z",codex-agent,"Scoped native changes are ready for commit. PRRT_kwDOTwgMRs61TMqr stabilizes the list intent together with each wire estimate before admission; its unit and published-oracle tests both fail when that function change is removed. The 1403/1401-token cases retain 11/six rows with exact bytes. PRRT_kwDOTwgMRs61VSbU routes settings projections through whole-document validation before use; invalid unrelated sections discard all context overrides and warn. Required fields are enforced in versioned settings, while supported versionless native partial documents preserve their old reader contract. PRRT_kwDOTwgMRs61VSbR retains rejected flag-shaped values and matches the published path-alias parser roles; its unit and 30-case oracle regressions both fail on the original argument-normalization function. All four linked tests pass with results recording disabled. Six distinct negative controls reached named assertion failures in the disposable source copy; restored controls and final-schema revalidation are being completed. Formatting, strict Clippy, private-item Rustdoc, TypeScript, ESLint, clean-home self-host health and the allowed-advisory audit pass. No final coverage claim yet; the full pinned-nightly run is executing."
+  "2026-11-09T19:30:56.102Z",codex-agent,"VSbR class completion: legacy --max-items and --token_budget aliases now preserve the same numeric argument roles and canonical recovery spelling as the published CLI. The expanded 50-case exact differential passes, including native-only flag-shaped values and global path aliases in both encodings. Reverting context_path_usage alone and orientation_arguments alone each fails the same unit and oracle regressions; eight fixed before/after controls pass. The coverage-only fixture retains malformed markdown refusal and adds published-schema-valid json_markdown refusal, exercising the native format boundary after whole-document validation. Complete pinned-nightly all-target/all-feature run: 780 tests across 34 targets, zero failed or ignored. Fresh instrumented CLI and changed-path runs: 45 binary tests plus the 50-case oracle test and one format-boundary library test, all passed. Verified official cargo-llvm-cov 0.9.1 archive SHA256 b3f68e625481fed9b16444174f3fa5ebcdbde4a1878803a35eabe2dcefcdc41a; this is the same reporter version used by the prior receipt. It regenerates the complete accumulated report without changing source exclusions or thresholds: lines 17967/17967, functions 1876/1876, regions 29034/29034, branches 4034/4034, all exactly 100 percent. Host 0.8.7 additionally included build.rs; no build-script behavior or coverage policy changed. Deferred issue-161 findings and all review threads remain untouched."
+  "2026-11-09T19:36:07.388Z",codex-agent,"Final local verification complete for the four native threads: source commits 5dc3dc1, 656198e and 9174201; full thread-to-commit mapping and exact test commands are in docs/NATIVE_CONTEXT_REVIEW_154.md. The five scoped pm-linked commands pass, including the final 50-case alias-aware refusal matrix and the legacy format refusal. Six distinct regressions fail independent behavioral reverts; 24 fixed controls pass across the original, final-schema and alias repeats. Strict Clippy, fmt, private Rustdoc, TypeScript, ESLint, audit and seven identity tests pass. The complete instrumented corpus passes 780 tests/34 targets; final changed-path instrumented checks pass 47 additional test executions. Whole-source coverage with verified reporter 0.9.1 passes the unchanged exact floor: 17967 lines, 1876 functions, 29034 regions and 4034 branches, all covered. Retaining the existing allowed advisory and self-host advisories. Releasing this claim for orchestrator verification; item stays in_progress. Final changelog/history checks and receipt push follow. No review-thread actions, merge, release or issue-161 work."
+  "2026-11-14T03:54:44.301Z",codex-agent,"Review round: merge current main first, preserve lifecycle admission, credential userinfo redaction and platform budgets from PR 165; verify all unresolved review findings, add behavioral regressions and disposable revert proofs, then certify release/platform gates. Shared b4yl item and history restored from main before re-recording branch evidence."
+  "2026-11-14T04:01:13.972Z",codex-agent,"Merged current main, preserving lifecycle admission and refusal scope/redaction. Kept both independent regression corpora, including the current orientation oracle and the main lifecycle oracle. Baseline platform run 43541768359 has all 10 product jobs green; aggregate durations were 31-39 minutes. Retained the feature larger CI budgets pending final-head measurement."
+  "2026-11-14T04:16:34.531Z",codex-agent,"Verified 33 unresolved threads across 127 total; fetched every comment and the latest CodeRabbit review (no outside-diff section). Merge 8873d86 retains all main platform budgets, lifecycle admission and credential redaction. New harness regressions pass 7/7; new SDK context regression passes 1/1. The merged full library run exposed receipt recursion and outdated shared test expectations; the recursion is fixed and newer main tests are restored while retaining feature-specific cases. Current focused validation is continuing."
+  "2026-11-14T05:26:10.397Z",codex-agent,"Revert evidence: 30 Linux behavioral mutations completed 90 checks (passing control, named mutation-specific assertion failure, restored passing control). Command: node scripts/context-round154-revert.mts. The focused lossless-retry proof was repeated after control-character handling. Windows argv mutation runs in Windows CI. Focused reviewed-context and terminal-pagination differentials pass against main 2026.11.11; TypeScript and clippy pass. Full Cargo and branch coverage run separately because the previous local aggregate exceeded 55 minutes before instrumentation finished. Compare every final platform job with baseline run 43541768359; required checks alone are insufficient."
+  "2026-11-14T05:36:04.395Z",codex-agent,"Full library validation passed 486 tests. Full binary validation passed 89 tests after restoring main expectations in conflicted argument/refusal tests. Review fixes retain main argument roles, lifecycle admission and userinfo redaction. The one merge reconciliation attempt refused an unstaged receipt; the obsolete operation receipt was preserved outside the active store after taking the main item/history pair and re-recording this branch intent. No history was repaired or rewritten."
+  "2026-11-14T05:48:32.225Z",codex-agent,"Self-review removed generic assertion-only patterns from every legacy proof runner. Legacy controls now require the selected regression assertion location (primary panic or first TAP failure frame), excluding fixture-helper assertion failures. All 90 managed definitions resolve to direct assertions. Added legacy-mutation-diagnostic revert: fixed pass, mutated assertion-specific matcher fail, restored pass. Total 31 Linux behavioral reverts and 93 checks; Windows argv remains CI-only."
+  "2026-11-14T05:59:41.529Z",codex-agent,"Final self-review proofs: 33 Linux behavioral reverts, 99 passing/failing/restored checks. whole-settings-fallback now mutates the live shared settings reader; its regression rejects preserving schema after invalid stored context. main-refusal-compaction rejects restoring duplicate human detail paragraphs outside orientation. The exact lifecycle published-CLI differential passes after preserving main duplicate-detail suppression; binary tests pass 89/89. Earlier full runs exposed integration defects and were not counted as passing gates."
+  "2026-11-14T06:14:42.345Z",codex-agent,"VSbR contract evidence: the current 2026.11.11 oracle and native context --activity-limit --path --json both exit 2 with byte-identical text diagnostics. Commander consumes the JSON token as the global path value, so the original JSON-output expectation is not the published contract. Shared Invocation preserves the raw argument stream; the dedicated raw-role regression and full flag-shaped-value differential cover that distinction. Historical performance evidence now explicitly leaves the exact measured source revision unknown and identifies only receipt introduction."
+  "2026-11-14T06:48:24.006Z",codex-agent,"The complete TypeScript gate passed 157 tests with 2 Windows-only skips; its typecheck, lint, history-prefix gate and retained-commit evidence gate passed. The full stable Cargo run passed lifecycle (59), CLI dispatch (41), closure differential (11), and other earlier targets before exposing a harness fixture missing the newly shared helper. That fixture is corrected and its 28 tests pass directly. The complete Cargo gate is rerunning with no-fail-fast and two workers; failed earlier attempts are not reported as passing gates. All 33 review reverts retain 99 certified checks after narrowing Node diagnostics to the intended inner failure. Registration simulations now give error recovery a 5-second timeout to avoid conflating it with their deliberately short timeout scenario."
+  "2026-11-14T08:02:37.325Z",codex-agent,"Full no-fail-fast Cargo audit completed: three targets failed. Preserving main's list exit codes and explicit-scope recovery; correcting stale branch expectations. Additional runtime fixes narrow diagnostic control preservation to explicit path values and align stored full depth with the current pinned CLI. Partial context tests now require warning-backed success while strict item/list/search reads still reject damaged bytes. No thresholds changed; affected suites will run before the next full gate."
+  "2026-11-14T08:18:32.883Z",codex-agent,"Self-review reproduced stale intent estimates after partial-item warnings in a non-git tracker: declared estimate 770 versus 790 delivered JSON tokens. Warning attachment now stabilizes the selected wire estimate before output admission; the regression checks JSON and TOON, and partial-warning-estimate will require a named behavioral failure plus passing controls. Current affected suites have passed the stored-settings, whitespace, compaction and partial-context cases so far."
+  "2026-11-14T08:28:22.487Z",codex-agent,"The unchanged five-second large-edge-limit guard failed twice; a separate tiny missing-reference tracker reproduced the refusal in 9.309 seconds. Canonical recovery rendered each candidate with a fresh producer cache. RenderMeasurements now retains one bounded RenderCache across the preserved query's probes, with the existing two-MiB producer and cost-key caps. A deterministic JSON/TOON regression compares fresh and cached delivery across decimal budget widths, asserts retained producer work, and requires repeated probes to perform zero new builds. A surgical canonical-probe-cache revert is registered; no probe or threshold is removed."
+  "2026-11-14T08:42:12.469Z",codex-agent,"Focused final-source checks pass: four native review units, lossless path/role diagnostics, the unchanged five-second large-edge-limit guard (all twelve cases), and complete legacy omission refusal bytes. PM test started the linked revert runner at timeout_ms=120000 despite timeout_seconds=3600 metadata; stopped that owned attempt with SIGTERM and confirmed cleanup. Re-running with explicit --timeout 3600; the interrupted attempt is not proof evidence."
+  "2026-11-14T09:02:48.721Z",codex-agent,"Final-source behavioral reverts passed through pinned PM with explicit --timeout 3600: 37 Linux cases, 111 checks, 74 passing controls/restorations, 17 expected named Rust assertion failures (101), and 20 expected named Node failures (1). Every case restored and passed again. Includes path-only-diagnostics, stored-full-depth, partial-warning-estimate and canonical-probe-cache. Windows argv proof is explicitly deferred to Windows CI. Registry contains 46 linked commands; this PM invocation executed exactly the one complete revert runner and exited 0. Starting final format/clippy/docs and full Cargo before separate Linux branch coverage; the prior ordinary full run alone took 70.9 minutes, so the combined aggregate cannot fit the local one-hour budget."
+  "2026-11-14T10:45:02.480Z",codex-agent,"Continuation follows targeted-only verification and CI certification. Fresh Linux checks pass 18 Rust tests across 14 commands with -j 2 and two test workers; selected context, dependency, pagination and TOON oracle regressions pass. Affected Node files have 100 unique passes plus two Windows-only skips; four readiness timeouts passed alone at unchanged limits. Linux clippy passes with denied warnings. The earlier full run reported 960 passes and no failures before interruption and is not complete evidence. No new full suite or coverage run is being started. Full suite, four 100-percent coverage metrics and every platform gate remain CI obligations. Review evidence lists exact commands and all 33 thread decisions."
+  "2026-11-14T10:45:04.734Z",codex-agent,"Final proof guard explicitly marks behavior assertions and checks precise source line/column spans, including declared comparison helpers. Inline/setup assertions and same-line/prefix lookalikes are rejected. All 101 audited legacy selections have diagnostics. Initial complete runner certified 37 cases/111 states through pinned PM; final Node-only rerun certified all 22 Node cases/66 states, including inline-fixture-diagnostic and same-line-fixture-diagnostic. Combined unchanged 17 native cases and final 22 Node cases give 39 Linux cases/117 verified states: 78 passes, 17 expected Rust failures, 22 expected Node failures. Every case restored and passed. Exact final Node command: node scripts/context-round154-revert.mts same-line-fixture-diagnostic,inline-fixture-diagnostic,legacy-mutation-diagnostic,registration,preload-registration,bounded-stop,runner-cause,kernel-job,stale-windows-registration,ps-search,version-snapshot,signal-status,mutation-diagnostic,link-errors,directory-cycle,dangling-kind,interpreter,oracle-preflight,cargo-configuration,compiler-diagnostic,historical-receipt,managed-definitions. Windows argv proof remains CI-only. CI run and all 10 baseline comparisons will be recorded at https://github.com/unbraind/pm-rust/pull/154#review-round-2026-11-14 so tracker writes finish before final-head certification."
+  "2026-11-14T10:47:01.336Z",codex-agent,"Final targeted static gates pass: cargo fmt --check, Linux clippy -j 2 with denied warnings, TypeScript typecheck and lint. Clean-profile pinned tracker health passes with installed merge drivers; all changed histories preserve main prefixes. The two pinned-contract findings remain on pm-rust-context-history-output: repeated-section rejected-value/retry semantics and dependency summary bounds. No review thread was replied to, resolved or reacted to. PM UX notes: linked timeout_seconds metadata used the 120-second default until an explicit --timeout was supplied; merge reconcile rejected the generated unindexed receipt on its single permitted attempt. Normal-profile extension version skew is separate from the passing clean-profile health check. Changelog generation/check follows this final tracker update and claim release."
+files[74]:
+  - path: .github/workflows/ci.yml
+    scope: project
+  - path: justfile
+    scope: project
+  - path: scripts/context-intents-revert.mts
+    scope: project
+    note: Review safety and behavioral proof boundary
+  - path: scripts/context-intents-revert.test.mts
+    scope: project
+    note: Review safety and behavioral proof boundary
+  - path: scripts/context-packet-review-revert.mts
+    scope: project
+    note: Review safety and behavioral proof boundary
+  - path: scripts/context-proof-definitions.test.mts
+    scope: project
+  - path: scripts/context-proof-diagnostics.mts
+    scope: project
+  - path: scripts/context-proof-process.mts
+    scope: project
+    note: Review safety and behavioral proof boundary
+  - path: scripts/context-real-helpers.mts
+    scope: project
+    note: Review safety and behavioral proof boundary
+  - path: scripts/context-real.mts
+    scope: project
+    note: Review safety and behavioral proof boundary
+  - path: scripts/context-revert-helpers.mts
+    scope: project
+    note: Review safety and behavioral proof boundary
+  - path: scripts/context-review-revert.mts
+    scope: project
+    note: Review safety and behavioral proof boundary
+  - path: scripts/context-review-safety.test.mts
+    scope: project
+    note: Review safety and behavioral proof boundary
+  - path: scripts/context-safety-revert.mts
+    scope: project
+    note: Review safety and behavioral proof boundary
+  - path: scripts/context-table-decode.mts
+    scope: project
+    note: Review safety and behavioral proof boundary
+  - path: scripts/context-test-process-shim.mts
+    scope: project
+    note: Review safety and behavioral proof boundary
+  - path: scripts/context-windows-job.mts
+    scope: project
+  - path: scripts/harness.test.mts
+    scope: project
+  - path: scripts/native-adapter-capabilities-revert.mts
+    scope: project
+  - path: scripts/native-adapter-capabilities-revert.test.mts
+    scope: project
+  - path: scripts/native-adapter-capabilities-review-revert.mts
+    scope: project
+  - path: scripts/native-adapter-changes-revert.mts
+    scope: project
+  - path: scripts/native-adapter-revert.mts
+    scope: project
+  - path: scripts/perf-revert-proof.mts
+    scope: project
+  - path: src/admission.rs
+    scope: project
+  - path: src/cli.rs
+    scope: project
+  - path: src/discovery.rs
+    scope: project
+  - path: src/error.rs
+    scope: project
+    note: Typed context refusal warning cause
+  - path: src/json_output.rs
+    scope: project
+  - path: src/lib.rs
+    scope: project
+  - path: src/list_intent.rs
+    scope: project
+  - path: src/list_registry.rs
+    scope: project
+  - path: src/main.rs
+    scope: project
+    note: Published warning rendering for successful and refused context
+  - path: src/mutation.rs
+    scope: project
+  - path: src/orientation_context.rs
+    scope: project
+  - path: src/orientation_context/intent.rs
+    scope: project
+  - path: src/orientation_context/sections.rs
+    scope: project
+  - path: src/orientation_deps.rs
+    scope: project
+  - path: src/orientation_deps/packet.rs
+    scope: project
+  - path: src/orientation.rs
+    scope: project
+  - path: src/ownership.rs
+    scope: project
+  - path: src/read_output.rs
+    scope: project
+  - path: src/read_session.rs
+    scope: project
+  - path: src/search.rs
+    scope: project
+  - path: src/selection.rs
+    scope: project
+  - path: src/settings_shape.json
+    scope: project
+  - path: src/settings.rs
+    scope: project
+  - path: src/toon_output.rs
+    scope: project
+  - path: tests/capability_contract.rs
+    scope: project
+  - path: tests/fixtures/orientation-packet-root-priority.patch
+    scope: project
+  - path: tests/harness/eslint.config.mjs
+    scope: project
+  - path: tests/harness/tsconfig.json
+    scope: project
+  - path: tests/native_adapter_contract.rs
+    scope: project
+  - path: tests/orientation_differential.rs
+    scope: project
+  - path: tests/orientation-oracle/package-lock.json
+    scope: project
+  - path: tests/orientation-oracle/package.json
+    scope: project
+  - path: tests/pagination_differential.rs
+    scope: project
+  - path: tests/read_contract.rs
+    scope: project
+  - path: tests/strict_json_contract.rs
+    scope: project
+  - path: tests/support/changes_unit.rs
+    scope: project
+  - path: tests/support/discovery_unit.rs
+    scope: project
+  - path: tests/support/json_output_unit.rs
+    scope: project
+  - path: tests/support/list_intent_unit.rs
+    scope: project
+  - path: tests/support/main_unit.rs
+    scope: project
+  - path: tests/support/mutation_unit.rs
+    scope: project
+  - path: tests/support/orientation_context_unit.rs
+    scope: project
+  - path: tests/support/orientation_deps_unit.rs
+    scope: project
+  - path: tests/support/orientation_intent_unit.rs
+    scope: project
+  - path: tests/support/orientation_packet_unit.rs
+    scope: project
+  - path: tests/support/orientation_sections_unit.rs
+    scope: project
+  - path: tests/support/ownership_unit.rs
+    scope: project
+  - path: tests/support/read_output_unit.rs
+    scope: project
+  - path: tests/support/settings_unit.rs
+    scope: project
+  - path: tests/support/toon_output_unit.rs
+    scope: project
+tests[46]:
+  - command: just orientation-check
+    scope: project
+    timeout_seconds: 3600
+    provenance:
+      author: codex-astra
+      created_at: "2026-11-06T09:32:59.274Z"
+      source_kind: local_mutation
+      source_ref: native-context-intents-and-relationship-packets
+    updated_by: codex-astra
+    updated_at: "2026-11-06T11:18:11.092Z"
+  - command: node scripts/check-lookup.mts orientation_context
+    scope: project
+    provenance:
+      author: codex-astra
+      created_at: "2026-11-06T09:33:01.164Z"
+      source_kind: local_mutation
+      source_ref: native-context-intents-and-relationship-packets
+  - command: just orientation-revert-proof
+    scope: project
+    timeout_seconds: 1800
+    provenance:
+      author: codex-astra
+      created_at: "2026-11-06T10:39:32.439Z"
+      source_kind: local_mutation
+      source_ref: native-context-intents-and-relationship-packets
+  - command: cargo test -j 2 --locked --test orientation_differential context_control_whitespace_matches_current_oracle
+    scope: project
+    timeout_seconds: 600
+    provenance:
+      author: codex-astra
+      created_at: "2026-11-06T12:11:57.386Z"
+      source_kind: local_mutation
+      source_ref: native-context-intents-and-relationship-packets
+  - command: cargo test -j 2 --locked --lib --bins
+    scope: project
+    timeout_seconds: 900
+    provenance:
+      author: codex-astra
+      created_at: "2026-11-06T13:38:04.003Z"
+      source_kind: local_mutation
+      source_ref: native-context-intents-and-relationship-packets
+  - command: node --test --test-concurrency=1 scripts/context-intents-revert.test.mts
+    scope: project
+    provenance:
+      author: codex-astra
+      created_at: "2026-11-06T15:00:02.374Z"
+      source_kind: local_mutation
+      source_ref: native-context-intents-and-relationship-packets
+  - command: cargo test -j 2 --locked --lib context_intent_sdk_budget_boundaries
+    scope: project
+    provenance:
+      author: codex-astra
+      created_at: "2026-11-06T17:25:27.481Z"
+      source_kind: local_mutation
+      source_ref: native-context-intents-and-relationship-packets
+  - command: cargo test -j 2 --locked --lib context_settings_shape_boundaries
+    scope: project
+    provenance:
+      author: codex-astra
+      created_at: "2026-11-06T17:25:29.678Z"
+      source_kind: local_mutation
+      source_ref: native-context-intents-and-relationship-packets
+  - command: cargo test -j 2 --locked --lib amount_and_alias_receipts_preserve_requested_dimensions
+    scope: project
+    provenance:
+      author: codex-astra
+      created_at: "2026-11-06T19:18:56.505Z"
+      source_kind: local_mutation
+      source_ref: native-context-intents-and-relationship-packets
+  - command: cargo test -j 2 --locked --bin pm-rust orientation_error_recovery_contract
+    scope: project
+    provenance:
+      author: codex-astra
+      created_at: "2026-11-06T19:43:48.287Z"
+      source_kind: local_mutation
+      source_ref: native-context-intents-and-relationship-packets
+  - command: CARGO_BUILD_JOBS=2 RUST_TEST_THREADS=2 node scripts/context-packet-review-revert.mts
+    scope: project
+    provenance:
+      author: codex-agent
+      created_at: "2026-11-08T06:34:44.771Z"
+      source_kind: local_mutation
+      source_ref: native-context-intents-and-relationship-packets
+  - command: CARGO_BUILD_JOBS=2 RUST_TEST_THREADS=2 node scripts/check-lookup.mts packet_
+    scope: project
+    provenance:
+      author: codex-agent
+      created_at: "2026-11-08T06:34:46.209Z"
+      source_kind: local_mutation
+      source_ref: native-context-intents-and-relationship-packets
+  - command: CARGO_BUILD_JOBS=2 RUST_TEST_THREADS=2 node scripts/context-review-revert.mts
+    scope: project
+    timeout_seconds: 3600
+    provenance:
+      author: codex-agent
+      created_at: "2026-11-08T07:44:59.465Z"
+      source_kind: local_mutation
+      source_ref: native-context-intents-and-relationship-packets
+  - command: node scripts/check-lookup.mts context_successful_reads_preserve_settings_bytes orientation_differential
+    scope: project
+    timeout_seconds: 120
+    provenance:
+      author: codex-agent
+      created_at: "2026-11-08T07:45:04.894Z"
+      source_kind: local_mutation
+      source_ref: native-context-intents-and-relationship-packets
+  - command: node scripts/check-lookup.mts discovery_is_complete_bounded_and_tracker_free capability_contract
+    scope: project
+    timeout_seconds: 120
+    provenance:
+      author: codex-agent
+      created_at: "2026-11-08T07:45:08.504Z"
+      source_kind: local_mutation
+      source_ref: native-context-intents-and-relationship-packets
+  - command: node scripts/check-lookup.mts stabilized_orientation_receipts_respect_final_ceilings
+    scope: project
+    timeout_seconds: 120
+    provenance:
+      author: codex-agent
+      created_at: "2026-11-08T07:45:11.688Z"
+      source_kind: local_mutation
+      source_ref: native-context-intents-and-relationship-packets
+  - command: node scripts/check-lookup.mts retained_
+    scope: project
+    timeout_seconds: 120
+    provenance:
+      author: codex-agent
+      created_at: "2026-11-08T12:42:28.753Z"
+      source_kind: local_mutation
+      source_ref: native-context-intents-and-relationship-packets
+  - command: node scripts/context-review-revert.mts standalone
+    scope: project
+    timeout_seconds: 120
+    provenance:
+      author: codex-agent
+      created_at: "2026-11-08T13:03:48.275Z"
+      source_kind: local_mutation
+      source_ref: native-context-intents-and-relationship-packets
+  - command: node --test --test-concurrency=2 scripts/harness.test.mts
+    scope: project
+    timeout_seconds: 120
+    provenance:
+      author: codex-agent
+      created_at: "2026-11-08T13:25:41.209Z"
+      source_kind: local_mutation
+      source_ref: native-context-intents-and-relationship-packets
+  - command: node scripts/check-lookup.mts legacy_list_intent_feasibility
+    scope: project
+    timeout_seconds: 120
+    provenance:
+      author: codex-agent
+      created_at: "2026-11-08T14:01:41.968Z"
+      source_kind: local_mutation
+      source_ref: native-context-intents-and-relationship-packets
+  - command: node --test --test-concurrency=2 scripts/context-intents-revert.test.mts scripts/harness.test.mts
+    scope: project
+    provenance:
+      author: codex-agent
+      created_at: "2026-11-08T15:32:57.215Z"
+      source_kind: local_mutation
+      source_ref: native-context-intents-and-relationship-packets
+  - command: cargo test -j 2 --locked --lib context_stored_settings_fallback_precedes_overrides
+    scope: project
+    provenance:
+      author: codex-agent
+      created_at: "2026-11-08T15:36:03.640Z"
+      source_kind: local_mutation
+      source_ref: native-context-intents-and-relationship-packets
+  - command: cargo test -j 2 --locked --test orientation_differential context_invalid_stored_activity_limits_match_current_oracle
+    scope: project
+    provenance:
+      author: codex-agent
+      created_at: "2026-11-08T15:36:06.005Z"
+      source_kind: local_mutation
+      source_ref: native-context-intents-and-relationship-packets
+  - command: node --test --test-concurrency=2 scripts/context-review-safety.test.mts
+    scope: project
+    timeout_seconds: 240
+    provenance:
+      author: codex-agent
+      created_at: "2026-11-08T21:48:03.653Z"
+      source_kind: local_mutation
+      source_ref: native-context-intents-and-relationship-packets
+  - command: node scripts/context-safety-revert.mts
+    scope: project
+    timeout_seconds: 1800
+    provenance:
+      author: codex-agent
+      created_at: "2026-11-08T21:48:08.571Z"
+      source_kind: local_mutation
+      source_ref: native-context-intents-and-relationship-packets
+  - command: cargo test -j 2 --locked --lib context_settings_warning_survives_refusals
+    scope: project
+    timeout_seconds: 600
+    provenance:
+      author: codex-agent
+      created_at: "2026-11-08T22:03:49.785Z"
+      source_kind: local_mutation
+      source_ref: native-context-intents-and-relationship-packets
+  - command: cargo test -j 2 --locked --bin pm-rust context_warning_rendering_preserves_refusal_metadata
+    scope: project
+    timeout_seconds: 600
+    provenance:
+      author: codex-agent
+      created_at: "2026-11-08T22:03:52.588Z"
+      source_kind: local_mutation
+      source_ref: native-context-intents-and-relationship-packets
+  - command: cargo test -j 2 --locked --lib intent_declarations_are_immutable_during_wire_compaction
+    scope: project
+    provenance:
+      author: codex-agent
+      created_at: "2026-11-08T23:25:37.984Z"
+      source_kind: local_mutation
+      source_ref: native-context-intents-and-relationship-packets
+  - command: cargo test -j 2 --locked --test orientation_differential context_item_faults_preserve_settings_warning_in_every_encoding
+    scope: project
+    provenance:
+      author: codex-agent
+      created_at: "2026-11-08T23:25:42.130Z"
+      source_kind: local_mutation
+      source_ref: native-context-intents-and-relationship-packets
+  - command: cargo test -j 2 --locked --test orientation_differential context_omitted_intent_receipt_matches_current_oracle
+    scope: project
+    provenance:
+      author: codex-agent
+      created_at: "2026-11-09T00:40:16.614Z"
+      source_kind: local_mutation
+      source_ref: native-context-intents-and-relationship-packets
+  - command: cargo test -j 2 --locked --test pagination_differential triage_omitted_intent_receipts_match_published
+    scope: project
+    provenance:
+      author: codex-agent
+      created_at: "2026-11-09T01:11:18.798Z"
+      source_kind: local_mutation
+      source_ref: native-context-intents-and-relationship-packets
+  - command: node --test --test-concurrency=1 scripts/context-review-safety.test.mts
+    scope: project
+    timeout_seconds: 240
+    provenance:
+      author: codex-agent
+      created_at: "2026-11-09T07:15:23.235Z"
+      source_kind: local_mutation
+      source_ref: native-context-intents-and-relationship-packets
+  - command: PM_NODE_INTERPRETER=bun CARGO_BUILD_JOBS=2 RUST_TEST_THREADS=2 cargo test -j 2 --locked --lib current_compact_tables_round_trip_through_pinned_sdk
+    scope: project
+    timeout_seconds: 600
+    provenance:
+      author: codex-agent
+      created_at: "2026-11-09T07:31:53.587Z"
+      source_kind: local_mutation
+      source_ref: native-context-intents-and-relationship-packets
+  - command: CARGO_BUILD_JOBS=2 RUST_TEST_THREADS=2 PM_RUST_REQUIRE_PUBLISHED_CLI=1 cargo +1.90.0 test -j 2 --locked --all-targets --all-features
+    scope: project
+    timeout_seconds: 3600
+    provenance:
+      author: codex-agent
+      created_at: "2026-11-09T08:15:57.706Z"
+      source_kind: local_mutation
+      source_ref: native-context-intents-and-relationship-packets
+  - command: PM_NODE_INTERPRETER=bun CARGO_BUILD_JOBS=2 RUST_TEST_THREADS=2 PM_RUST_REQUIRE_PUBLISHED_CLI=1 cargo test -j 2 --locked --test orientation_differential deps_mixed_case_dangling_matches_oracle
+    scope: project
+    timeout_seconds: 600
+    provenance:
+      author: codex-agent
+      created_at: "2026-11-09T08:54:17.655Z"
+      source_kind: local_mutation
+      source_ref: native-context-intents-and-relationship-packets
+  - command: CARGO_BUILD_JOBS=2 RUST_TEST_THREADS=2 just crash-check
+    scope: project
+    timeout_seconds: 1800
+    provenance:
+      author: codex-agent
+      created_at: "2026-11-09T09:07:31.039Z"
+      source_kind: local_mutation
+      source_ref: native-context-intents-and-relationship-packets
+  - command: PM_RUST_REQUIRE_PUBLISHED_CLI=1 PM_SENTRY_DISABLED=1 PM_TELEMETRY_SOURCE_CONTEXT=test RUST_TEST_THREADS=2 cargo +nightly-2026-08-06 test -j 2 --locked --test orientation_differential context_parser_refusals_preserve_settings_warnings -- --exact
+    scope: project
+    timeout_seconds: 600
+    provenance:
+      author: codex-agent
+      created_at: "2026-11-09T12:21:45.285Z"
+      source_kind: local_mutation
+      source_ref: native-context-intents-and-relationship-packets
+  - command: PM_RUST_REQUIRE_PUBLISHED_CLI=1 PM_SENTRY_DISABLED=1 PM_TELEMETRY_SOURCE_CONTEXT=test RUST_TEST_THREADS=2 node scripts/check-lookup.mts context_growing_compaction_probes_match_current_oracle orientation_differential
+    scope: project
+    timeout_seconds: 600
+    provenance:
+      author: codex-agent
+      created_at: "2026-11-09T13:54:37.169Z"
+      source_kind: local_mutation
+      source_ref: native-context-intents-and-relationship-packets
+  - command: PM_RUST_REQUIRE_PUBLISHED_CLI=1 PM_SENTRY_DISABLED=1 PM_TELEMETRY_SOURCE_CONTEXT=test RUST_TEST_THREADS=2 node scripts/check-lookup.mts context_invalid_author_fallback_matches_current_oracle orientation_differential
+    scope: project
+    timeout_seconds: 600
+    provenance:
+      author: codex-agent
+      created_at: "2026-11-09T13:55:20.852Z"
+      source_kind: local_mutation
+      source_ref: native-context-intents-and-relationship-packets
+  - command: node scripts/check-lookup.mts list_intent_stabilization_respects_wire_budget
+    scope: project
+    timeout_seconds: 600
+    provenance:
+      author: codex-agent
+      created_at: "2026-11-09T18:18:01.197Z"
+      source_kind: local_mutation
+      source_ref: native-context-intents-and-relationship-packets
+  - command: node scripts/check-lookup.mts triage_stabilized_wire_budget_matches_published pagination_differential
+    scope: project
+    timeout_seconds: 600
+    provenance:
+      author: codex-agent
+      created_at: "2026-11-09T18:18:02.426Z"
+      source_kind: local_mutation
+      source_ref: native-context-intents-and-relationship-packets
+  - command: node scripts/check-lookup.mts context_invalid_document_discards_overrides_matches_oracle orientation_differential
+    scope: project
+    timeout_seconds: 600
+    provenance:
+      author: codex-agent
+      created_at: "2026-11-09T18:18:03.747Z"
+      source_kind: local_mutation
+      source_ref: native-context-intents-and-relationship-packets
+  - command: node scripts/check-lookup.mts context_refusal_value_roles_match_current_oracle orientation_differential
+    scope: project
+    timeout_seconds: 600
+    provenance:
+      author: codex-agent
+      created_at: "2026-11-09T18:18:04.962Z"
+      source_kind: local_mutation
+      source_ref: native-context-intents-and-relationship-packets
+  - command: node scripts/check-lookup.mts validation_rejects_every_unsupported_request_shape
+    scope: project
+    timeout_seconds: 600
+    provenance:
+      author: codex-agent
+      created_at: "2026-11-09T19:33:38.897Z"
+      source_kind: local_mutation
+      source_ref: native-context-intents-and-relationship-packets
+  - command: node --test --test-concurrency=2 scripts/context-round154.test.mts
+    scope: project
+    provenance:
+      author: codex-agent
+      created_at: "2026-11-14T04:55:42.103Z"
+      source_kind: local_mutation
+      source_ref: native-context-intents-and-relationship-packets
+  - command: node scripts/context-round154-revert.mts
+    scope: project
+    provenance:
+      author: codex-agent
+      created_at: "2026-11-14T08:14:21.463Z"
+      source_kind: local_mutation
+      source_ref: native-context-intents-and-relationship-packets
+docs[4]:
+  - path: docs/benchmarks/native-context-intents-2026-11-06.json
+    scope: project
+  - path: docs/NATIVE_CONTEXT_INTENTS.md
+    scope: project
+  - path: docs/NATIVE_CONTEXT_REVIEW_154_2026_11_14.md
+    scope: project
+  - path: docs/NATIVE_CONTEXT_REVIEW_154.md
+    scope: project
+    note: Round four class audit and behavioral proof mapping
+body: ""

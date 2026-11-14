@@ -289,6 +289,9 @@ fn run_with_io(
             return write_search_to(&mut std::io::stdout().lock(), &result, json);
         }
         Command::Context {
+            intent,
+            sections,
+            activity_limit,
             limit,
             token_budget,
             depth,
@@ -302,6 +305,9 @@ fn run_with_io(
             let now = timestamp.unwrap_or_else(pm_rust::current_timestamp);
             let result = workspace.context(
                 &pm_rust::ContextOptions {
+                    intent,
+                    sections,
+                    activity_limit,
                     limit,
                     token_budget,
                     depth,
@@ -312,7 +318,7 @@ fn run_with_io(
                 },
                 &now,
             )?;
-            write_search_to(&mut std::io::stdout().lock(), &result, json)?;
+            return write_context_to(writer, &mut std::io::stderr().lock(), &result, json);
         }
         Command::History {
             id,
@@ -739,9 +745,7 @@ fn run_collection_with_cwd(
     args: CollectionArgs,
     cwd: std::io::Result<PathBuf>,
 ) -> Result<(), Box<dyn std::error::Error>> {
-    let settings: serde_json::Value = pm_rust::strict_json::from_str(&std::fs::read_to_string(
-        workspace.pm_root().join("settings.json"),
-    )?)?;
+    let settings = workspace.read_settings()?;
     let identity = mutation_identity(args.author.as_deref(), settings["author_default"].as_str());
     let result = workspace.collection(
         &args.id,
@@ -774,7 +778,7 @@ fn write_search_to(
     json: bool,
 ) -> Result<(), Box<dyn std::error::Error>> {
     write_list_to(&mut writer, result, json)?;
-    if result.get("output_budget_exceeded").is_some() {
+    if result.get("output_budget_exceeded").is_some() || result.get("budget_exceeded").is_some() {
         return Err(Box::new(pm_rust::PmRustError::OutputBudgetExceeded));
     }
     Ok(())
@@ -892,9 +896,7 @@ fn ownership_request(
             reason: "author must not be empty".to_owned(),
         }));
     }
-    let settings: serde_json::Value = pm_rust::strict_json::from_slice(&std::fs::read(
-        workspace.pm_root().join("settings.json"),
-    )?)?;
+    let settings = workspace.read_settings()?;
     let identity = mutation_identity(args.author.as_deref(), settings["author_default"].as_str());
     let request = OwnershipItem {
         id: args.id.unwrap_or_default(),
@@ -920,9 +922,7 @@ fn scalar_identity(
     workspace: &Workspace,
     author: Option<&str>,
 ) -> Result<AuthorIdentity, Box<dyn std::error::Error>> {
-    let settings: serde_json::Value = pm_rust::strict_json::from_slice(&std::fs::read(
-        workspace.pm_root().join("settings.json"),
-    )?)?;
+    let settings = workspace.read_settings()?;
     Ok(mutation_identity(
         author,
         settings["author_default"].as_str(),
@@ -1053,9 +1053,95 @@ fn json_requested(args: &[String]) -> bool {
         )
 }
 
+/// Resolves the tracker start path from raw arguments, mirroring the native parser.
+///
+/// The parser-refusal path cannot read the parsed workspace option, so the
+/// same `--workspace`/`--pm-path`/`--path` spellings are scanned from the raw
+/// command line, defaulting to the current directory like the parser does.
+fn native_workspace_path<I, S>(args: I) -> PathBuf
+where
+    I: IntoIterator<Item = S>,
+    S: AsRef<std::ffi::OsStr>,
+{
+    let mut values = args.into_iter();
+    let mut prefix = vec![std::ffi::OsString::from("pm-rust")];
+    while let Some(raw) = values.next() {
+        let raw = raw.as_ref();
+        let flags = ["--workspace", "--pm-path", "--path"];
+        if flags.iter().any(|flag| raw == std::ffi::OsStr::new(flag)) {
+            prefix.push(raw.to_owned());
+            // Parser refusals reach this scanner only with a context command,
+            // so a leading workspace flag always has a following argument.
+            // Extend directly, retaining parser fallback for incomplete input.
+            prefix.extend(
+                values
+                    .by_ref()
+                    .take(1)
+                    .map(|value| value.as_ref().to_owned()),
+            );
+        } else if flags.iter().any(|flag| {
+            raw.as_encoded_bytes()
+                .starts_with(format!("{flag}=").as_bytes())
+        }) {
+            prefix.push(raw.to_owned());
+        } else {
+            break;
+        }
+    }
+    // Parse the same native workspace contract, preserving operator path bytes
+    // in both separate and equals spellings. Command option values stay outside it.
+    prefix.push("context".into());
+    Cli::try_parse_from(prefix).map_or_else(|_| PathBuf::from("."), |cli| cli.workspace)
+}
+
+/// Preserves the published parser role when a context value names its global path option.
+fn context_path_usage(args: &[String]) -> Option<(serde_json::Value, bool)> {
+    if args.first().is_none_or(|command| command != "context") {
+        return None;
+    }
+    let mut args = orientation_arguments(args);
+    let index = args.windows(2).position(|pair| {
+        matches!(
+            pair[0].as_str(),
+            "--activity-limit" | "--limit" | "--token-budget"
+        ) && matches!(pair[1].split('=').next(), Some("--path" | "--pm-path"))
+    })?;
+    args[index + 1] = args[index + 1].replacen("--path", "--pm-path", 1);
+    let separate_path = args[index + 1] == "--pm-path";
+    let surface = if separate_path && args.get(index + 2).is_none() {
+        "--pm-path"
+    } else {
+        args[index].as_str()
+    };
+    let metavar = if surface == "--pm-path" { "dir" } else { "n" };
+    let detail = format!("error: option '{surface} <{metavar}>' argument missing");
+    // Commander consumes the following token as the global path, even --json.
+    let json = json_requested(&args)
+        && !(separate_path && args.get(index + 2).is_some_and(|arg| arg == "--json"));
+    let context = serde_json::json!({"code":"invalid_command_usage","required":"Use the command with valid arguments and options.","title":"Invalid command usage","examples":["pm --help","pm context --help"]});
+    let mut payload = orientation_error_json(&detail, &context, &args, 2);
+    payload["refusal"] = serde_json::json!({"surface":surface,"exit_code":2});
+    if json {
+        payload.as_object_mut().map(|map| map.shift_remove("why"));
+    } else {
+        payload["why"] = serde_json::json!("Commander validates CLI contracts before execution.");
+    }
+    Some((payload, json))
+}
+
 /// Parses the command line and maps success or failure to the process exit code.
 #[allow(clippy::too_many_lines)]
 fn main() -> ExitCode {
+    let args = published_read_arguments(std::env::args_os().skip(1));
+    if let Some((payload, json)) = context_path_usage(&args) {
+        let mut stderr = std::io::stderr().lock();
+        let _ = if json {
+            write_json_to(&mut stderr, &payload)
+        } else {
+            write_cursor_refusal_to(&mut stderr, &payload)
+        };
+        return ExitCode::from(2);
+    }
     let cli = match Cli::try_parse_from(native_arguments(std::env::args_os().collect())) {
         Ok(cli) => cli,
         Err(error) => {
@@ -1070,6 +1156,9 @@ fn main() -> ExitCode {
                 args.insert(0, command);
                 let allowed = match args[0].as_str() {
                     "context" => vec![
+                        "--for",
+                        "--section",
+                        "--activity-limit",
                         "--limit",
                         "--max-items",
                         "--token-budget",
@@ -1111,13 +1200,25 @@ fn main() -> ExitCode {
                     "Native {} does not support {flag}; use the published pm CLI for this option.",
                     args[0]
                 );
-                let payload = orientation_error_json(
+                let mut payload = orientation_error_json(
                     &detail,
                     &serde_json::json!({"code":"unsupported_native_option","required":"Use the published pm CLI for options outside the documented native slice.","title":"Unsupported native option","flag":flag,"value":flag}),
                     &args,
                     2,
                 );
+                // The published CLI reports stored settings diagnostics before
+                // refusing; only context commands load context settings.
+                let settings_warning = (args[0] == "context")
+                    .then(|| native_workspace_path(std::env::args_os().skip(1)))
+                    .and_then(|path| Workspace::discover(&path).ok())
+                    .and_then(|workspace| workspace.context_settings_warning());
                 let mut stderr = std::io::stderr().lock();
+                if !json_requested(&args)
+                    && let Some(warning) = settings_warning
+                {
+                    let _ = write_settings_warning_to(&mut stderr, warning, false);
+                }
+                attach_settings_warning(&mut payload, settings_warning);
                 let _ = write_command_refusal_to(
                     &mut stderr,
                     payload["detail"].as_str().unwrap_or_default(),
@@ -1145,9 +1246,23 @@ fn main() -> ExitCode {
             };
         }
     };
+    let execution_settings_warning = matches!(cli.command, Command::Context { .. })
+        .then(|| Workspace::discover(&cli.workspace).ok())
+        .flatten()
+        .and_then(|workspace| workspace.context_settings_warning());
     match run(cli) {
         Ok(()) => ExitCode::SUCCESS,
         Err(error) => {
+            let settings_warning = error
+                .downcast_ref::<pm_rust::PmRustError>()
+                .and_then(pm_rust::PmRustError::settings_warning)
+                .or(execution_settings_warning);
+            let args = published_read_arguments(std::env::args_os().skip(1));
+            if !json_requested(&args)
+                && let Some(warning) = settings_warning
+            {
+                let _ = write_settings_warning_to(&mut std::io::stderr().lock(), warning, false);
+            }
             if let Some(refusal) = error.downcast_ref::<pm_rust::discovery::DiscoveryRefusal>() {
                 let payload = serde_json::json!({"ok":false,"refusal":refusal,"exit_code":2});
                 let _ = write_json_to(&mut std::io::stderr().lock(), &payload);
@@ -1186,7 +1301,8 @@ fn main() -> ExitCode {
             }) = error.downcast_ref::<pm_rust::PmRustError>()
             {
                 let args = published_read_arguments(std::env::args_os().skip(1));
-                let payload = command_error_json(detail, context, &args, *exit_code);
+                let mut payload = command_error_json(detail, context, &args, *exit_code);
+                attach_settings_warning(&mut payload, settings_warning);
                 let mut stderr = std::io::stderr().lock();
                 let _ = write_command_refusal_to(&mut stderr, detail, context, &args, &payload);
                 return ExitCode::from(*exit_code);
@@ -1195,7 +1311,8 @@ fn main() -> ExitCode {
                 error.downcast_ref::<pm_rust::PmRustError>()
             {
                 let args = published_read_arguments(std::env::args_os().skip(1));
-                let payload = ownership_error_json(detail, context, &args);
+                let mut payload = ownership_error_json(detail, context, &args);
+                attach_settings_warning(&mut payload, settings_warning);
                 let mut stderr = std::io::stderr().lock();
                 let _ = write_command_refusal_to(&mut stderr, detail, context, &args, &payload);
                 return ExitCode::from(4);
@@ -1204,11 +1321,12 @@ fn main() -> ExitCode {
                 error.downcast_ref::<pm_rust::PmRustError>()
             {
                 let args = published_read_arguments(std::env::args_os().skip(1));
-                let payload = ownership_error_json(
+                let mut payload = ownership_error_json(
                     &error.to_string(),
                     &serde_json::json!({"code":"lock_conflict"}),
                     &args,
                 );
+                attach_settings_warning(&mut payload, settings_warning);
                 let _ = write_json_to(
                     &mut std::io::stderr().lock(),
                     &complete_refusal(&payload, &raw_invocation()),
@@ -1225,7 +1343,8 @@ fn main() -> ExitCode {
                 error.downcast_ref::<pm_rust::PmRustError>()
             {
                 let args = published_read_arguments(std::env::args_os().skip(1));
-                let payload = cursor_error_json(code, detail, &args);
+                let mut payload = cursor_error_json(code, detail, &args);
+                attach_settings_warning(&mut payload, settings_warning);
                 let mut stderr = std::io::stderr().lock();
                 let _ = write_command_refusal_to(
                     &mut stderr,
@@ -1235,8 +1354,12 @@ fn main() -> ExitCode {
                     &payload,
                 );
             } else {
-                let detail = refusal::diagnostic(&error.to_string(), &raw_invocation());
-                eprintln!("pm-rust: {detail}");
+                let _ = write_runtime_error_to(
+                    &mut std::io::stderr().lock(),
+                    error.as_ref(),
+                    settings_warning,
+                    json_requested(&args),
+                );
             }
             ExitCode::from(2)
         }
@@ -1389,9 +1512,18 @@ fn unhandled_error_json(detail: &str, exit_code: u8) -> serde_json::Value {
     serde_json::json!({"code":"unknown_error","required":"Inspect command input and runtime state, then retry.","exit_code":exit_code,"type":"urn:pm-cli:error:unknown_error","title":"Unhandled error","detail":detail,"why":"Unexpected runtime failures can occur from environment or extension-level issues.","examples":["pm --help","pm health --json"],"refusal":{"surface":"command","exit_code":exit_code}})
 }
 
-/// Preserves the published canonical dependency spelling in recovery arguments.
+/// Preserves published context aliases and the dependency namespace in recovery arguments.
 fn orientation_arguments(args: &[String]) -> Vec<String> {
     let mut args = args.to_vec();
+    if args.first().is_some_and(|arg| arg == "context") {
+        for arg in &mut args {
+            if arg == "--token_budget" || arg.starts_with("--token_budget=") {
+                *arg = arg.replacen("--token_budget", "--token-budget", 1);
+            } else if arg == "--max-items" || arg.starts_with("--max-items=") {
+                *arg = arg.replacen("--max-items", "--limit", 1);
+            }
+        }
+    }
     if args.first().is_some_and(|arg| arg == "deps") {
         args.insert(0, "item".to_owned());
     }
@@ -1399,6 +1531,7 @@ fn orientation_arguments(args: &[String]) -> Vec<String> {
 }
 
 /// Matches orientation command failures to the published problem envelope.
+#[allow(clippy::too_many_lines)]
 fn orientation_error_json(
     detail: &str,
     context: &serde_json::Value,
@@ -1413,18 +1546,42 @@ fn orientation_error_json(
     }
 
     if context["code"] == "invalid_argument_value" {
-        context["required"] =
-            serde_json::json!("Use values that match documented command constraints.");
-        context["title"] = serde_json::json!("Invalid argument value");
-        context["next_steps"] = serde_json::json!([
-            "Check allowed values in command help, then rerun with corrected input."
-        ]);
-        context["examples"] = serde_json::json!([
-            pm_rust::render_pm_command([command.as_str(), "--help"]),
-            "pm contracts --command <command> --flags-only --json".to_owned()
-        ]);
+        for (key, value) in [
+            (
+                "required",
+                serde_json::json!("Use values that match documented command constraints."),
+            ),
+            ("title", serde_json::json!("Invalid argument value")),
+            (
+                "next_steps",
+                serde_json::json!([
+                    "Check allowed values in command help, then rerun with corrected input."
+                ]),
+            ),
+            (
+                "examples",
+                serde_json::json!([
+                    pm_rust::render_pm_command([command.as_str(), "--help"]),
+                    "pm contracts --command <command> --flags-only --json"
+                ]),
+            ),
+        ] {
+            if context.get(key).is_none() {
+                context[key] = value;
+            }
+        }
     }
     let mut result = ownership_error_json(detail, &context, &args);
+    if command != "history" {
+        let mut normalized = Vec::new();
+        for arg in args.iter().filter(|arg| arg.starts_with("--")) {
+            let flag = arg.split_once('=').map_or(arg.as_str(), |(flag, _)| flag);
+            if !normalized.contains(&flag) {
+                normalized.push(flag);
+            }
+        }
+        result["recovery"]["provided_fields"] = serde_json::json!(normalized);
+    }
     if context["code"] == "item_not_found" {
         result["required"] =
             serde_json::json!("Use an existing item ID from current tracker data.");
@@ -1443,13 +1600,68 @@ fn orientation_error_json(
     } else if let Some(surface) = context.get("surface") {
         result["refusal"] = serde_json::json!({"surface":surface,"exit_code":exit_code});
     } else {
-        result["refusal"] = command_refusal_detail(detail, &args, exit_code);
+        let expanded: Vec<_> = args
+            .iter()
+            .flat_map(|arg| {
+                if command != "history"
+                    && arg.starts_with("--")
+                    && let Some((flag, value)) = arg.split_once('=')
+                {
+                    vec![flag.to_owned(), value.to_owned()]
+                } else {
+                    vec![arg.clone()]
+                }
+            })
+            .collect();
+        result["refusal"] = command_refusal_detail(detail, &expanded, exit_code);
+    }
+    if let Some(domain) = context["recovery"].get("allowed_values") {
+        result["recovery"]["allowed_values"] = domain.clone();
+        result["refusal"] = serde_json::json!({"surface":"--section","rejected_value":result["refusal"]["rejected_value"],"legal_domain":domain,"exit_code":exit_code});
+        if let Some(index) = args
+            .iter()
+            .position(|arg| arg == "--section")
+            .filter(|&index| {
+                args.get(index + 1)
+                    .is_some_and(|value| !value.starts_with("--"))
+            })
+        {
+            let mut retry = args.clone();
+            domain[0]
+                .as_str()
+                .unwrap_or_default()
+                .clone_into(&mut retry[index + 1]);
+            result["examples"] = serde_json::json!([
+                format!(
+                    "pm {}",
+                    retry
+                        .iter()
+                        .map(|arg| pm_rust::quote_command_arg(arg))
+                        .collect::<Vec<_>>()
+                        .join(" ")
+                ),
+                "pm context --help"
+            ]);
+        } else {
+            result["examples"] = serde_json::json!([
+                "pm context --help",
+                "pm contracts --command <command> --flags-only --json"
+            ]);
+        }
+    }
+    if let Some(flag) = context.get("flag") {
+        result["refusal"] = serde_json::json!({"surface":flag,"rejected_value":context["value"],"exit_code":exit_code});
     }
     if detail.starts_with("--strict-exit requires --verify") {
         result["recovery"]["missing"] = serde_json::json!(["--verify"]);
         let mut retry = args.clone();
         retry.push("--verify".to_owned());
         result["recovery"]["suggested_retry"] = serde_json::json!(render_recovery(&retry));
+    }
+    if !json_requested(&args)
+        && let Some(why) = context.get("why")
+    {
+        result["why"] = why.clone();
     }
     result["exit_code"] = serde_json::json!(exit_code);
     // Insertion order is part of the wire contract.
@@ -2164,7 +2376,85 @@ fn write_list_to(
     Ok(())
 }
 
+/// Selects the current context/dependency diagnostic contract without changing other commands.
+fn current_orientation_refusal(payload: &serde_json::Value) -> bool {
+    let command = &payload["recovery"]["normalized_args"];
+    payload["recovery"]["token_budget"].is_object()
+        || command[0] == "context"
+        || (command[0] == "item" && command[1] == "deps")
+}
+
+/// Shared current diagnostics omit a detail that duplicates the title.
+fn duplicate_refusal_detail(payload: &serde_json::Value) -> bool {
+    payload["detail"] == payload["title"]
+}
+
+/// Preserves line breaks while replacing control characters in current diagnostic text.
+fn orientation_diagnostic_text(payload: &serde_json::Value, text: String) -> String {
+    if !current_orientation_refusal(payload) {
+        return text;
+    }
+    let recovery = &payload["recovery"];
+    let commands = ["suggested_retry", "attempted_command", "next_best_command"]
+        .into_iter()
+        .filter_map(|key| recovery[key].as_str())
+        .chain(
+            recovery["fallback_candidates"]
+                .as_array()
+                .into_iter()
+                .flatten()
+                .filter_map(|candidate| candidate["command"].as_str()),
+        )
+        .chain(
+            payload["examples"]
+                .as_array()
+                .into_iter()
+                .flatten()
+                .filter_map(serde_json::Value::as_str),
+        );
+    let mut spans = Vec::new();
+    for command in commands.filter(|command| command.starts_with("pm ")) {
+        let Some(args) = pm_rust::parse_command_args(command) else {
+            continue;
+        };
+        let Some(scope) = Invocation::parse(&args[1..]).scope() else {
+            continue;
+        };
+        let quoted = pm_rust::quote_command_arg(scope);
+        for flag in ["--pm-path", "--path", "--workspace"] {
+            for separator in [" ", "="] {
+                let prefix = format!("{flag}{separator}");
+                let argument = format!("{prefix}{quoted}");
+                for (offset, _) in command.match_indices(&argument) {
+                    for (start, _) in text.match_indices(command) {
+                        let start = start + offset + prefix.len();
+                        spans.push(start..start + quoted.len());
+                    }
+                }
+            }
+        }
+    }
+    text.char_indices()
+        .filter_map(|(index, c)| {
+            if c == '\r'
+                && text.as_bytes().get(index + 1) == Some(&b'\n')
+                && !spans.iter().any(|span| span.contains(&index))
+            {
+                return None;
+            }
+            Some(
+                if c.is_control() && c != '\n' && !spans.iter().any(|span| span.contains(&index)) {
+                    ' '
+                } else {
+                    c
+                },
+            )
+        })
+        .collect()
+}
+
 /// Writes the published human-readable cursor diagnostic when JSON was not requested.
+#[allow(clippy::too_many_lines)]
 fn write_cursor_refusal_to(
     writer: &mut dyn Write,
     payload: &serde_json::Value,
@@ -2193,7 +2483,7 @@ fn write_cursor_refusal_to(
                 .map(|step| format!("  - {}", step.as_str().unwrap_or_default())),
         );
     }
-    if payload["detail"] != payload["title"] {
+    if !duplicate_refusal_detail(payload) {
         parts.push(format!(
             "\nWhat happened:\n  {}",
             payload["detail"].as_str().unwrap_or_default()
@@ -2263,7 +2553,9 @@ fn write_cursor_refusal_to(
     }
 
     append_recovery_domains(&mut parts, &payload["recovery"]);
-    writer.write_all(format!("{}\n", parts.join("\n")).as_bytes())?;
+    writer.write_all(
+        orientation_diagnostic_text(payload, format!("{}\n", parts.join("\n"))).as_bytes(),
+    )?;
     writer.flush()?;
     Ok(())
 }
@@ -2371,6 +2663,59 @@ fn append_budget_recovery(parts: &mut Vec<String>, recovery: &serde_json::Value)
             candidate["reason"].as_str().unwrap_or_default()
         ));
     }
+}
+
+/// Emit the same warning frame before either a successful context packet or its refusal.
+fn write_settings_warning_to(
+    writer: &mut dyn Write,
+    warning: &str,
+    json: bool,
+) -> std::io::Result<()> {
+    if json {
+        let payload = serde_json::json!({"type":"warning","warnings":["settings_read_invalid_schema"],"warning_details":[{"code":"settings_read_invalid_schema","message":warning}]});
+        writeln!(writer, "{}", pm_rust::stringify_json(&payload, false))
+    } else {
+        writeln!(writer, "{warning}")
+    }
+}
+
+/// Preserve warning details inside the published JSON refusal envelope.
+fn attach_settings_warning(payload: &mut serde_json::Value, warning: Option<&str>) {
+    if let Some(warning) = warning {
+        payload["warnings"] = serde_json::json!(["settings_read_invalid_schema"]);
+        payload["warning_details"] =
+            serde_json::json!([{"code":"settings_read_invalid_schema","message":warning}]);
+    }
+}
+
+/// Preserve independent settings diagnostics even for unclassified item and I/O errors.
+fn write_runtime_error_to(
+    writer: &mut dyn Write,
+    error: &dyn std::error::Error,
+    warning: Option<&str>,
+    json: bool,
+) -> std::io::Result<()> {
+    let detail = refusal::diagnostic(&error.to_string(), &raw_invocation());
+    if json && warning.is_some() {
+        let mut payload = serde_json::json!({"error":format!("pm-rust: {detail}"),"exit_code":2});
+        attach_settings_warning(&mut payload, warning);
+        writeln!(writer, "{}", pm_rust::stringify_json(&payload, true))
+    } else {
+        writeln!(writer, "pm-rust: {detail}")
+    }
+}
+
+/// Render context through caller-owned streams, including diagnostic write failures.
+fn write_context_to(
+    writer: &mut dyn Write,
+    diagnostics: &mut dyn Write,
+    result: &pm_rust::ListOutput,
+    json: bool,
+) -> Result<(), Box<dyn std::error::Error>> {
+    if let Some(warning) = result.settings_warning() {
+        write_settings_warning_to(diagnostics, warning, json)?;
+    }
+    write_search_to(writer, result, json)
 }
 
 /// Counts distinct fields across close and its separately locked release, including intervening claims.

@@ -251,14 +251,17 @@ fn section_critical_ordering_ties() -> Result<(), Box<dyn std::error::Error>> {
 fn section_activity_storage_and_ordering() -> Result<(), Box<dyn std::error::Error>> {
     let (_directory, workspace, _lifecycle) = workspace()?;
     let history = workspace.pm_root().join("history");
+    // proof-behavior
     assert_eq!(
         activity(&workspace, 10, "9999-12-31T00:00:00.000Z")?,
         json!([])
     );
     fs::write(&history, "not a directory")?;
+    // proof-behavior
     assert!(activity(&workspace, 10, "9999-12-31T00:00:00.000Z").is_err());
     let error = fs::read_dir(&history).err().ok_or("filesystem refusal")?;
     let expected_kind = error.kind();
+    // proof-behavior
     assert!(
         matches!(activity_entries(&workspace, &mut [Err(error)].into_iter(), &history, 10, "9999-12-31T00:00:00.000Z"), Err(PmRustError::Io {path, source}) if path == history && source.kind() == expected_kind)
     );
@@ -287,9 +290,13 @@ fn section_activity_storage_and_ordering() -> Result<(), Box<dyn std::error::Err
         )?;
     }
     let rows = activity(&workspace, 10, "9999-12-31T00:00:00.000Z")?;
+    // proof-behavior
     assert_eq!(rows[0]["op"], "create");
+    // proof-behavior
     assert_eq!(rows[0]["msg"], "Retained evidence");
+    // proof-behavior
     assert_eq!(rows[2]["author"], "unknown");
+    // proof-behavior
     assert_eq!(
         activity(&workspace, 1, "9999-12-31T00:00:00.000Z")?
             .as_array()
@@ -297,6 +304,7 @@ fn section_activity_storage_and_ordering() -> Result<(), Box<dyn std::error::Err
         Some(1)
     );
     fs::write(history.join("sample-b.jsonl"), "invalid JSON")?;
+    // proof-behavior
     assert!(activity(&workspace, 10, "9999-12-31T00:00:00.000Z").is_err());
     Ok(())
 }
@@ -337,9 +345,12 @@ fn configured_sections_preserve_activity_errors_and_stale_order()
         10,
         &json!({"context":{"activity_limit":1}}),
     )?;
+    // proof-behavior
     assert_eq!(result["activity"].as_array().map(Vec::len), Some(1));
+    // proof-behavior
     assert_eq!(result["staleness"][0]["id"], "sample-older");
     fs::write(pm.join("history/sample-gone.jsonl"), "invalid JSON")?;
+    // proof-behavior
     assert!(
         build(
             &workspace,
@@ -355,6 +366,7 @@ fn configured_sections_preserve_activity_errors_and_stale_order()
         )
         .is_err()
     );
+    // proof-behavior
     assert!(
         workspace
             .context(
@@ -367,6 +379,21 @@ fn configured_sections_preserve_activity_errors_and_stale_order()
             .is_err()
     );
     Ok(())
+}
+
+/// An invalid attribution field invalidates the context settings along with the document.
+#[test]
+fn invalid_author_discards_context_settings() {
+    for author in [json!(42), Value::Null, json!(false), json!([]), json!({})] {
+        let mut settings = json!({"author_default":author,"context":{"activity_limit":1}});
+        assert!(super::settings_fallback(&mut settings));
+        assert_eq!(settings, json!({}));
+    }
+    for author in ["", "fixture"] {
+        let mut settings = json!({"author_default":author,"context":{"activity_limit":1}});
+        assert!(!super::settings_fallback(&mut settings));
+        assert_eq!(settings["context"]["activity_limit"], 1);
+    }
 }
 
 /// Invalid historical stamps are omitted while valid fractional timestamps remain visible.

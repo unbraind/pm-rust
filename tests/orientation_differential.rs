@@ -2,6 +2,7 @@
 use serde_json::{Value, json};
 use sha2::Digest;
 use std::{
+    fmt::Write,
     fs,
     path::{Path, PathBuf},
     process::{Command, Output},
@@ -24,7 +25,7 @@ fn history_invalid_filename_matches_oracle() -> TestResult {
         return Ok(());
     };
     let scratch = tempfile::tempdir()?;
-    let driver = orientation_driver(scratch.path(), &published)?;
+    let driver = write_driver(scratch.path(), &published)?;
     let root = tempfile::tempdir()?;
     assert!(
         oracle(&driver, root.path(), &["init", "sample-", "--defaults"])?
@@ -66,7 +67,9 @@ fn deps_mixed_case_dangling_matches_oracle() -> TestResult {
         return Ok(());
     };
     let scratch = tempfile::tempdir()?;
-    let driver = orientation_driver(scratch.path(), &published)?;
+    let Some(driver) = orientation_driver(scratch.path(), &published)? else {
+        return Ok(());
+    };
     let root = tempfile::tempdir()?;
     assert!(
         oracle(&driver, root.path(), &["init", "sample-", "--defaults"])?
@@ -144,7 +147,9 @@ fn deps_no_active_blocker_matches_oracle() -> TestResult {
         return Ok(());
     };
     let scratch = tempfile::tempdir()?;
-    let driver = orientation_driver(scratch.path(), &published)?;
+    let Some(driver) = orientation_driver(scratch.path(), &published)? else {
+        return Ok(());
+    };
     let root = tempfile::tempdir()?;
     assert!(
         oracle(&driver, root.path(), &["init", "sample-", "--defaults"])?
@@ -189,7 +194,9 @@ fn context_non_unicode_environment_matches_oracle() -> TestResult {
         return Ok(());
     };
     let scratch = tempfile::tempdir()?;
-    let driver = orientation_driver(scratch.path(), &published)?;
+    let Some(driver) = orientation_driver(scratch.path(), &published)? else {
+        return Ok(());
+    };
     let root = tempfile::tempdir()?;
     assert!(
         oracle(&driver, root.path(), &["init", "sample-", "--defaults"])?
@@ -225,7 +232,9 @@ fn context_non_active_progress_matches_oracle() -> TestResult {
         return Ok(());
     };
     let scratch = tempfile::tempdir()?;
-    let driver = orientation_driver(scratch.path(), &published)?;
+    let Some(driver) = orientation_driver(scratch.path(), &published)? else {
+        return Ok(());
+    };
     let root = tempfile::tempdir()?;
     assert!(
         oracle(&driver, root.path(), &["init", "sample-", "--defaults"])?
@@ -294,7 +303,9 @@ fn deps_dangling_parents_match_oracle() -> TestResult {
         return Ok(());
     };
     let scratch = tempfile::tempdir()?;
-    let driver = orientation_driver(scratch.path(), &published)?;
+    let Some(driver) = orientation_driver(scratch.path(), &published)? else {
+        return Ok(());
+    };
     for (status, parent, explicit, blocker) in [
         ("open", "sample-deleted", false, ""),
         ("closed", "sample-deleted", false, ""),
@@ -385,7 +396,7 @@ fn history_reserved_patch_paths_match_oracle() -> TestResult {
         return Ok(());
     };
     let scratch = tempfile::tempdir()?;
-    let driver = orientation_driver(scratch.path(), &published)?;
+    let driver = write_driver(scratch.path(), &published)?;
     let root = tempfile::tempdir()?;
     for args in [
         vec!["init", "sample-", "--defaults"],
@@ -431,7 +442,9 @@ fn context_numeric_control_domains() -> TestResult {
         return Ok(());
     };
     let scratch = tempfile::tempdir()?;
-    let driver = orientation_driver(scratch.path(), &published)?;
+    let Some(driver) = orientation_driver(scratch.path(), &published)? else {
+        return Ok(());
+    };
     let root = tempfile::tempdir()?;
     assert!(
         oracle(&driver, root.path(), &["init", "sample-", "--defaults"])?
@@ -466,7 +479,9 @@ fn context_static_extension_contract() -> TestResult {
         return Ok(());
     };
     let scratch = tempfile::tempdir()?;
-    let driver = orientation_driver(scratch.path(), &published)?;
+    let Some(driver) = orientation_driver(scratch.path(), &published)? else {
+        return Ok(());
+    };
     let root = tempfile::tempdir()?;
     assert!(
         oracle(&driver, root.path(), &["init", "sample-", "--defaults"])?
@@ -552,8 +567,47 @@ fn context_usage_disabled_is_read_only() -> TestResult {
 fn orientation_driver(
     root: &Path,
     published: &published_cli::PublishedCli,
-) -> Result<PathBuf, Box<dyn std::error::Error>> {
-    let path = write_driver(root, published)?;
+) -> Result<Option<PathBuf>, Box<dyn std::error::Error>> {
+    let current = PathBuf::from(env!("CARGO_MANIFEST_DIR"))
+        .join("tests/orientation-oracle/node_modules/@unbrained/pm-cli");
+    orientation_driver_at(
+        root,
+        published,
+        &current,
+        std::env::var("PM_RUST_REQUIRE_PUBLISHED_CLI").is_ok(),
+    )
+}
+
+/// Gates the independently pinned current oracle without imposing it on history-only reads.
+fn orientation_driver_at(
+    root: &Path,
+    published: &published_cli::PublishedCli,
+    current: &Path,
+    required: bool,
+) -> Result<Option<PathBuf>, Box<dyn std::error::Error>> {
+    if !current.join("dist/cli.js").is_file() {
+        if required {
+            return Err(
+                "current orientation oracle required; run just orientation-oracle-install".into(),
+            );
+        }
+        println!("skip: no current orientation oracle found (run just orientation-oracle-install)");
+        return Ok(None);
+    }
+    let current = published_cli::PublishedCli {
+        entry: current.join("dist/cli.js"),
+        package_root: current.to_path_buf(),
+    };
+    let legacy = write_driver(root, published)?;
+    fs::rename(&legacy, root.join("legacy-driver.mjs"))?;
+    let metadata: Value =
+        serde_json::from_slice(&fs::read(current.package_root.join("package.json"))?)?;
+    assert_eq!(metadata["version"], "2026.11.11");
+    assert!(
+        current.entry.is_file(),
+        "Run just orientation-oracle-install"
+    );
+    let path = write_driver(root, &current)?;
     let script = fs::read_to_string(&path)?;
     fs::write(
         &path,
@@ -561,10 +615,16 @@ fn orientation_driver(
             "Object.defineProperty(performance, 'now', {{value:()=>0, configurable:true}});\n{script}"
         ),
     )?;
-    Ok(path)
+    Ok(Some(path))
 }
 /// Executes one published invocation in a synthetic fixed-clock tracker.
 fn oracle(driver: &Path, root: &Path, args: &[&str]) -> Result<Output, Box<dyn std::error::Error>> {
+    let legacy = driver.with_file_name("legacy-driver.mjs");
+    let driver = if args.contains(&"context") || args.contains(&"deps") || !legacy.is_file() {
+        driver
+    } else {
+        &legacy
+    };
     let mut arguments = vec![driver.to_string_lossy().into_owned()];
     arguments.extend(args.iter().map(ToString::to_string));
     let interpreter =
@@ -596,22 +656,37 @@ fn native(root: &Path, args: &[&str]) -> Result<Output, std::io::Error> {
 }
 /// Requires exact stdout, stderr and process status, including refusal bytes.
 fn compare(expected: &Output, actual: &Output, args: &[&str]) {
+    // proof-behavior
     assert_eq!(
         actual.status.code(),
         expected.status.code(),
-        "{args:?}: native {} oracle {}",
+        "{args:?}: native {} oracle {}\nnative stdout: {}\noracle stdout: {}",
+        String::from_utf8_lossy(&actual.stderr),
+        String::from_utf8_lossy(&expected.stderr),
+        String::from_utf8_lossy(&actual.stdout),
+        String::from_utf8_lossy(&expected.stdout)
+    );
+    // proof-behavior
+    assert!(
+        actual.stdout == expected.stdout,
+        "{args:?}: stdout\nnative: {}\noracle: {}",
+        String::from_utf8_lossy(&actual.stdout),
+        String::from_utf8_lossy(&expected.stdout)
+    );
+    // proof-behavior
+    assert!(
+        actual.stderr == expected.stderr,
+        "{args:?}: stderr\nnative: {}\noracle: {}",
         String::from_utf8_lossy(&actual.stderr),
         String::from_utf8_lossy(&expected.stderr)
     );
-    assert_eq!(
-        String::from_utf8_lossy(&actual.stdout),
-        String::from_utf8_lossy(&expected.stdout),
-        "{args:?}: stdout"
-    );
-    assert_eq!(
-        String::from_utf8_lossy(&actual.stderr),
-        String::from_utf8_lossy(&expected.stderr),
-        "{args:?}: stderr"
+    println!(
+        "exact_orientation_differential:{}",
+        if args[0] == "history" {
+            "legacy"
+        } else {
+            "current"
+        }
     );
 }
 /// Seals a synthetic retained-history proof with an independently sorted JSON digest.
@@ -711,7 +786,9 @@ fn context_sections_match_oracle() -> TestResult {
         return Ok(());
     };
     let scratch = tempfile::tempdir()?;
-    let driver = orientation_driver(scratch.path(), &published)?;
+    let Some(driver) = orientation_driver(scratch.path(), &published)? else {
+        return Ok(());
+    };
     let root = tempfile::tempdir()?;
     assert!(
         oracle(&driver, root.path(), &["init", "sample-", "--defaults"])?
@@ -767,7 +844,9 @@ fn context_completion_rounding_matches_oracle() -> TestResult {
         return Ok(());
     };
     let scratch = tempfile::tempdir()?;
-    let driver = orientation_driver(scratch.path(), &published)?;
+    let Some(driver) = orientation_driver(scratch.path(), &published)? else {
+        return Ok(());
+    };
     let root = tempfile::tempdir()?;
     assert!(
         oracle(&driver, root.path(), &["init", "sample-", "--defaults"])?
@@ -804,7 +883,9 @@ fn context_cursor_refusals_match_oracle() -> TestResult {
         return Ok(());
     };
     let scratch = tempfile::tempdir()?;
-    let driver = orientation_driver(scratch.path(), &published)?;
+    let Some(driver) = orientation_driver(scratch.path(), &published)? else {
+        return Ok(());
+    };
     let root = tempfile::tempdir()?;
     assert!(
         oracle(&driver, root.path(), &["init", "sample-", "--defaults"])?
@@ -849,7 +930,9 @@ fn context_blocked_fallback_deep_matches_oracle() -> TestResult {
         return Ok(());
     };
     let scratch = tempfile::tempdir()?;
-    let driver = orientation_driver(scratch.path(), &published)?;
+    let Some(driver) = orientation_driver(scratch.path(), &published)? else {
+        return Ok(());
+    };
     let root = tempfile::tempdir()?;
     assert!(
         oracle(&driver, root.path(), &["init", "sample-", "--defaults"])?
@@ -887,7 +970,9 @@ fn relationship_packets_match_oracle() -> TestResult {
         return Ok(());
     };
     let scratch = tempfile::tempdir()?;
-    let driver = orientation_driver(scratch.path(), &published)?;
+    let Some(driver) = orientation_driver(scratch.path(), &published)? else {
+        return Ok(());
+    };
     let root = tempfile::tempdir()?;
     assert!(
         oracle(&driver, root.path(), &["init", "sample-", "--defaults"])?
@@ -957,7 +1042,9 @@ fn relationship_external_namespaces_match_oracle() -> TestResult {
         return Ok(());
     };
     let scratch = tempfile::tempdir()?;
-    let driver = orientation_driver(scratch.path(), &published)?;
+    let Some(driver) = orientation_driver(scratch.path(), &published)? else {
+        return Ok(());
+    };
     let root = tempfile::tempdir()?;
     assert!(
         oracle(&driver, root.path(), &["init", "sample-", "--defaults"])?
@@ -1015,7 +1102,9 @@ fn relationship_packet_refusals_match_oracle() -> TestResult {
         return Ok(());
     };
     let scratch = tempfile::tempdir()?;
-    let driver = orientation_driver(scratch.path(), &published)?;
+    let Some(driver) = orientation_driver(scratch.path(), &published)? else {
+        return Ok(());
+    };
     let root = tempfile::tempdir()?;
     assert!(
         oracle(&driver, root.path(), &["init", "sample-", "--defaults"])?
@@ -1050,7 +1139,9 @@ fn context_matches_oracle() -> TestResult {
         return Ok(());
     };
     let scratch = tempfile::tempdir()?;
-    let driver = orientation_driver(scratch.path(), &published)?;
+    let Some(driver) = orientation_driver(scratch.path(), &published)? else {
+        return Ok(());
+    };
     let root = tempfile::tempdir()?;
     let initialized = oracle(&driver, root.path(), &["init", "sample-", "--defaults"])?;
     assert!(
@@ -1118,7 +1209,9 @@ fn deps_matches_oracle() -> TestResult {
         return Ok(());
     };
     let scratch = tempfile::tempdir()?;
-    let driver = orientation_driver(scratch.path(), &published)?;
+    let Some(driver) = orientation_driver(scratch.path(), &published)? else {
+        return Ok(());
+    };
     let root = tempfile::tempdir()?;
     let initialized = oracle(&driver, root.path(), &["init", "sample-", "--defaults"])?;
     assert!(
@@ -1161,7 +1254,7 @@ fn history_matches_oracle() -> TestResult {
         return Ok(());
     };
     let scratch = tempfile::tempdir()?;
-    let driver = orientation_driver(scratch.path(), &published)?;
+    let driver = write_driver(scratch.path(), &published)?;
     let root = tempfile::tempdir()?;
     let initialized = oracle(&driver, root.path(), &["init", "sample-", "--defaults"])?;
     assert!(
@@ -1309,7 +1402,9 @@ fn orientation_reads_preserve_storage_during_concurrent_writes() -> TestResult {
         return Ok(());
     };
     let scratch = tempfile::tempdir()?;
-    let driver = orientation_driver(scratch.path(), &published)?;
+    let Some(driver) = orientation_driver(scratch.path(), &published)? else {
+        return Ok(());
+    };
     let root = tempfile::tempdir()?;
     assert!(
         oracle(&driver, root.path(), &["init", "sample-", "--defaults"])?
@@ -1434,7 +1529,6 @@ fn unsupported_orientation_flags_refuse_explicitly() -> TestResult {
         (
             "context",
             vec![
-                "--for",
                 "--date",
                 "--from",
                 "--to",
@@ -1449,8 +1543,6 @@ fn unsupported_orientation_flags_refuse_explicitly() -> TestResult {
                 "--parent",
                 "--format",
                 "--fields",
-                "--section",
-                "--activity-limit",
                 "--stale-threshold",
                 "--explain-ranking",
             ],
@@ -1494,7 +1586,9 @@ fn context_group_caps_and_affinity_match_oracle() -> TestResult {
         return Ok(());
     };
     let scratch = tempfile::tempdir()?;
-    let driver = orientation_driver(scratch.path(), &published)?;
+    let Some(driver) = orientation_driver(scratch.path(), &published)? else {
+        return Ok(());
+    };
     let root = tempfile::tempdir()?;
     assert!(
         oracle(&driver, root.path(), &["init", "sample-", "--defaults"])?
@@ -1583,7 +1677,9 @@ fn context_weekly_calendar_matches_oracle() -> TestResult {
         return Ok(());
     };
     let scratch = tempfile::tempdir()?;
-    let driver = orientation_driver(scratch.path(), &published)?;
+    let Some(driver) = orientation_driver(scratch.path(), &published)? else {
+        return Ok(());
+    };
     let root = tempfile::tempdir()?;
     assert!(
         oracle(&driver, root.path(), &["init", "sample-", "--defaults"])?
@@ -1622,7 +1718,7 @@ fn bounded_history_and_refusals_match_oracle() -> TestResult {
         return Ok(());
     };
     let scratch = tempfile::tempdir()?;
-    let driver = orientation_driver(scratch.path(), &published)?;
+    let driver = write_driver(scratch.path(), &published)?;
     let root = tempfile::tempdir()?;
     for args in [
         vec!["init", "sample-", "--defaults"],
@@ -1700,7 +1796,9 @@ fn real_copy_harness_accepts_matching_packet_refusals() -> TestResult {
         return Ok(());
     };
     let scratch = tempfile::tempdir()?;
-    let driver = orientation_driver(scratch.path(), &published)?;
+    let Some(driver) = orientation_driver(scratch.path(), &published)? else {
+        return Ok(());
+    };
     let root = tempfile::tempdir()?;
     assert!(
         oracle(&driver, root.path(), &["init", "sample-", "--defaults"])?
@@ -1797,7 +1895,9 @@ fn relationship_root_evidence_floor_retains_oracle_parity() -> TestResult {
         return Ok(());
     };
     let scratch = tempfile::tempdir()?;
-    let driver = orientation_driver(scratch.path(), &published)?;
+    let Some(driver) = orientation_driver(scratch.path(), &published)? else {
+        return Ok(());
+    };
     let root = tempfile::tempdir()?;
     assert!(
         oracle(&driver, root.path(), &["init", "sample-", "--defaults"])?
@@ -1851,7 +1951,9 @@ fn relationship_large_edge_limit_finishes_at_budget_floor() -> TestResult {
         return Ok(());
     };
     let scratch = tempfile::tempdir()?;
-    let driver = orientation_driver(scratch.path(), &published)?;
+    let Some(driver) = orientation_driver(scratch.path(), &published)? else {
+        return Ok(());
+    };
     let root = tempfile::tempdir()?;
     assert!(
         oracle(&driver, root.path(), &["init", "sample-", "--defaults"])?
@@ -1908,7 +2010,9 @@ fn relationship_reference_limits_match_oracle() -> TestResult {
         return Ok(());
     };
     let scratch = tempfile::tempdir()?;
-    let driver = orientation_driver(scratch.path(), &published)?;
+    let Some(driver) = orientation_driver(scratch.path(), &published)? else {
+        return Ok(());
+    };
     let root = tempfile::tempdir()?;
     assert!(
         oracle(&driver, root.path(), &["init", "sample-", "--defaults"])?
@@ -1920,7 +2024,9 @@ fn relationship_reference_limits_match_oracle() -> TestResult {
     start["dependencies"] = json!([
         {"id":"sample-missing","kind":"related_to","created_at":CLOCK},
         {"id":"sample-missing","kind":"related_to","created_at":CLOCK},
-        {"id":"sample-other","kind":"blocked_by","created_at":CLOCK}
+        {"id":"sample-other","kind":"blocked_by","created_at":CLOCK},
+        {"id":"sample-parent","kind":"related","created_at":CLOCK},
+        {"id":"sample-parent","kind":"blocked_by","created_at":CLOCK}
     ]);
     let mut unrelated = item("sample-unrelated", "Task", "closed", 2);
     unrelated["parent"] = json!("sample-unreachable");
@@ -1932,7 +2038,7 @@ fn relationship_reference_limits_match_oracle() -> TestResult {
         vec!["--max-depth", "0"],
         vec!["--summary"],
     ] {
-        for (limit, budget) in [("1", "300"), ("2", "1200"), ("40", "300")] {
+        for (limit, budget) in [("1", "300"), ("1", "1200"), ("2", "1200"), ("40", "300")] {
             for encoding in [vec![], vec!["--json"]] {
                 let mut args = vec![
                     "deps",
@@ -1964,7 +2070,9 @@ fn blocked_focus_cursor_pages_match_october_21_oracle() -> TestResult {
         return Ok(());
     };
     let scratch = tempfile::tempdir()?;
-    let driver = orientation_driver(scratch.path(), &published)?;
+    let Some(driver) = orientation_driver(scratch.path(), &published)? else {
+        return Ok(());
+    };
     let root = tempfile::tempdir()?;
     assert!(
         oracle(&driver, root.path(), &["init", "sample-", "--defaults"])?
@@ -2013,7 +2121,9 @@ fn padded_inverse_blockers_match_oracle() -> TestResult {
         return Ok(());
     };
     let scratch = tempfile::tempdir()?;
-    let driver = orientation_driver(scratch.path(), &published)?;
+    let Some(driver) = orientation_driver(scratch.path(), &published)? else {
+        return Ok(());
+    };
     let root = tempfile::tempdir()?;
     assert!(
         oracle(&driver, root.path(), &["init", "sample-", "--defaults"])?
@@ -2042,6 +2152,1316 @@ fn padded_inverse_blockers_match_oracle() -> TestResult {
     Ok(())
 }
 
+/// Complete omissions preserve pinned receipt measurements without clipped declarations.
+#[test]
+fn context_omitted_intent_receipt_matches_current_oracle() -> TestResult {
+    let Some(published) = published_cli::published_cli_or_skip("omitted intent receipt") else {
+        return Ok(());
+    };
+    let scratch = tempfile::tempdir()?;
+    let Some(driver) = orientation_driver(scratch.path(), &published)? else {
+        return Ok(());
+    };
+    let root = tempfile::tempdir()?;
+    assert!(
+        oracle(&driver, root.path(), &["init", "sample-", "--defaults"])?
+            .status
+            .success()
+    );
+    for intent in ["orient", "handoff"] {
+        for format in [vec![], vec!["--json"]] {
+            let mut args = vec!["context", "--for", intent, "--token-budget", "256"];
+            args.extend(format);
+            compare(
+                &oracle(&driver, root.path(), &args)?,
+                &native(root.path(), &args)?,
+                &args,
+            );
+        }
+    }
+    assert!(!root.path().join(".git").exists());
+    Ok(())
+}
+
+/// Rich non-git trackers retain exact intent, section and continuation packets.
+#[test]
+fn context_intents_and_sections_match_current_oracle() -> TestResult {
+    context_intents_fixture(1)
+}
+
+/// Empty non-git trackers retain intent defaults, suggestions and refusal receipts.
+#[test]
+fn context_intents_empty_tracker_match_current_oracle() -> TestResult {
+    context_intents_fixture(0)
+}
+
+/// Wide evidence distinguishes compact intent estimates from complete wire budgets.
+#[test]
+fn context_intents_wire_budget_match_current_oracle() -> TestResult {
+    context_intents_fixture(2)
+}
+
+/// Runs the same control matrix independently, allowing the fixed two-worker pool to balance it.
+#[allow(clippy::too_many_lines)]
+fn context_intents_fixture(richness: usize) -> TestResult {
+    let Some(published) = published_cli::published_cli_or_skip("current context intents") else {
+        return Ok(());
+    };
+    let scratch = tempfile::tempdir()?;
+    let Some(driver) = orientation_driver(scratch.path(), &published)? else {
+        return Ok(());
+    };
+    let mut comparisons = 0;
+    let root = tempfile::tempdir()?;
+    assert!(
+        oracle(&driver, root.path(), &["init", "sample-", "--defaults"])?
+            .status
+            .success()
+    );
+    let initialized: Value =
+        serde_json::from_slice(&fs::read(root.path().join(".agents/pm/settings.json"))?)?;
+    assert!(
+        initialized["context"]["next_ranking_policy"].is_string(),
+        "review154: context matrix uses complete current defaults"
+    );
+    if richness == 1 {
+        rich_fixture(root.path())?;
+    }
+    if richness == 2 {
+        let mut row = item("sample-wide", "Feature", "open", 1);
+        row["title"] = json!("Bounded orientation evidence ".repeat(7));
+        fixture(root.path(), &[row])?;
+        fs::write(
+            root.path().join(".agents/pm/history/sample-wide.jsonl"),
+            format!(
+                "{}\n",
+                json!({"ts":"2026-08-21T10:00:00.000Z","op":"update","author":"fixture","message":"Retained continuation evidence ".repeat(6)})
+            ),
+        )?;
+    }
+    for controls in [
+        vec!["--for", "orient", "--token-budget", "255"],
+        vec!["--section", "activity", "--activity-limit", "0"],
+        vec!["--section", " WORKLOAD ", "--section", "workload"],
+        vec!["--section", "bad"],
+        vec!["--section=bad"],
+        vec!["--section", "activity", "--section", "bad"],
+        vec!["--activity-limit", "bad"],
+        vec!["--activity-limit=bad"],
+        vec!["--for=orient", "--token-budget=255"],
+        vec!["--for", "orient", "--token_budget", "255"],
+        vec!["--for", "orient", "--token_budget=255"],
+        vec!["--for", "handoff", "--token-budget", "0"],
+    ] {
+        for format in [vec![], vec!["--json"]] {
+            let mut args = vec!["context"];
+            args.extend(&controls);
+            args.extend(&format);
+            compare(
+                &oracle(&driver, root.path(), &args)?,
+                &native(root.path(), &args)?,
+                &args,
+            );
+            comparisons += 1;
+        }
+    }
+    for intent in ["orient", "handoff", " ORIENT "] {
+        for controls in [
+            vec![],
+            vec!["--limit", "0"],
+            vec!["--limit", "1"],
+            vec!["--limit", "50"],
+            vec!["--token-budget", "256"],
+            vec!["--token-budget", "1000"],
+            vec!["--token-budget", "1600"],
+            vec!["--token-budget", "2200"],
+            vec!["--token_budget", "5000"],
+            vec!["--token-budget", "0x400"],
+            vec!["--depth", "brief"],
+            vec!["--depth", "full"],
+            vec![
+                "--section",
+                "blockers",
+                "--section",
+                "activity",
+                "--activity-limit",
+                "1",
+            ],
+            vec!["--section", "recently_created", "--no-tags"],
+        ] {
+            for format in [vec![], vec!["--json"]] {
+                let mut args = vec!["context", "--for", intent];
+                args.extend(&controls);
+                args.extend(&format);
+                compare(
+                    &oracle(&driver, root.path(), &args)?,
+                    &native(root.path(), &args)?,
+                    &args,
+                );
+                comparisons += 1;
+            }
+        }
+        let mut cursor = None;
+        for _ in 0..4 {
+            let mut args = vec!["context", "--for", intent, "--limit", "1", "--json"];
+            if let Some(cursor) = cursor.as_deref() {
+                args.extend(["--after", cursor]);
+            }
+            let expected = oracle(&driver, root.path(), &args)?;
+            compare(&expected, &native(root.path(), &args)?, &args);
+            comparisons += 1;
+            cursor = serde_json::from_slice::<Value>(&expected.stdout)?["next_cursor"]
+                .as_str()
+                .map(ToString::to_string);
+            if cursor.is_none() {
+                break;
+            }
+        }
+    }
+    println!("current intent and section differentials (fixture {richness}): {comparisons}");
+    Ok(())
+}
+
+/// ECMAScript option whitespace accepts BOM while retaining NEL as significant input.
+#[test]
+fn context_control_whitespace_matches_current_oracle() -> TestResult {
+    let Some(published) = published_cli::published_cli_or_skip("context control whitespace") else {
+        return Ok(());
+    };
+    let scratch = tempfile::tempdir()?;
+    let Some(driver) = orientation_driver(scratch.path(), &published)? else {
+        return Ok(());
+    };
+    let root = tempfile::tempdir()?;
+    assert!(
+        oracle(&driver, root.path(), &["init", "sample-", "--defaults"])?
+            .status
+            .success()
+    );
+    for controls in [
+        vec!["--for", "\u{feff}ORIENT\u{2003}"],
+        vec!["--for", "orient", "--token-budget", "\u{feff}1000\u{feff}"],
+        vec!["--for", "handoff", "--limit", "\u{feff}1"],
+        vec!["--section", "\u{feff}activity"],
+        vec!["--depth", "\u{feff}deep"],
+        vec!["--activity-limit", "\u{feff}1"],
+        vec!["--for", "orient", "--token-budget", "\u{0085}1000"],
+        vec!["--for", "orient", "--limit", "\u{0085}1"],
+        vec!["--activity-limit", "\u{0085}1"],
+        vec!["--section", "\u{0085}activity"],
+    ] {
+        for encoding in [vec![], vec!["--json"]] {
+            let mut args = vec!["context"];
+            args.extend(&controls);
+            args.extend(&encoding);
+            compare(
+                &oracle(&driver, root.path(), &args)?,
+                &native(root.path(), &args)?,
+                &args,
+            );
+        }
+    }
+    Ok(())
+}
+
+/// Reviewed edge contracts remain oracle-exact, with unsupported native continuation explicit.
+#[test]
+#[allow(clippy::too_many_lines)]
+fn context_reviewed_contracts_match_current_oracle() -> TestResult {
+    let Some(published) = published_cli::published_cli_or_skip("reviewed context contracts") else {
+        return Ok(());
+    };
+    let scratch = tempfile::tempdir()?;
+    let Some(driver) = orientation_driver(scratch.path(), &published)? else {
+        return Ok(());
+    };
+    let root = tempfile::tempdir()?;
+    assert!(
+        oracle(&driver, root.path(), &["init", "sample-", "--defaults"])?
+            .status
+            .success()
+    );
+    rich_fixture(root.path())?;
+    let mut history = format!(
+        "{}\n{}\n{}\n",
+        json!({"ts":"not-a-time","op":"update","author":"fixture"}),
+        json!({"ts":"000-invalid","op":"update","author":"fixture"}),
+        json!({"ts":"","op":"empty_timestamp","author":"fixture"})
+    );
+    for index in 0..50 {
+        writeln!(
+            history,
+            "{}",
+            json!({"ts":format!("2026-08-21T10:00:{index:02}.000Z"),"op":"update","author":"fixture","message":"Retained review evidence"})
+        )?;
+    }
+    fs::write(
+        root.path().join(".agents/pm/history/sample-review.jsonl"),
+        history,
+    )?;
+    let mut comparisons = 0;
+    let mut omission_replayed = false;
+    for json in [false, true] {
+        let mut args = vec!["context"];
+        if json {
+            args.push("--json");
+        }
+        args.extend(["--section=bad", "--activity-limit", "--section"]);
+        let expected = oracle(&driver, root.path(), &args)?;
+        assert_eq!(expected.status.code(), Some(2));
+        compare(&expected, &native(root.path(), &args)?, &args);
+        comparisons += 1;
+    }
+    for suffix in ["--json", "--no-tags"] {
+        let args = [
+            "context",
+            "--section=bad",
+            "--activity-limit",
+            "--section",
+            suffix,
+        ];
+        let expected = oracle(&driver, root.path(), &args)?;
+        assert_eq!(expected.status.code(), Some(2));
+        compare(&expected, &native(root.path(), &args)?, &args);
+        comparisons += 1;
+    }
+    for controls in [
+        vec!["--for", "orient", "--token-budget", "1e2"],
+        vec!["--for", "handoff", "--limit", "1e2"],
+        vec!["--section", "hierarchy", "--section", "invalid"],
+        vec!["--section", "activity", "--activity-limit", "100"],
+        vec![
+            "--for",
+            "orient",
+            "--section",
+            "tests",
+            "--section",
+            "activity",
+            "--activity-limit",
+            "50",
+            "--token-budget",
+            "700",
+        ],
+        vec!["--for", "handoff", "--token-budget", "256"],
+    ] {
+        for encoding in [vec![], vec!["--json"]] {
+            let mut args = vec!["context"];
+            args.extend(&controls);
+            args.extend(&encoding);
+            let expected = oracle(&driver, root.path(), &args)?;
+            compare(&expected, &native(root.path(), &args)?, &args);
+            comparisons += 1;
+            if !encoding.is_empty() && !expected.stdout.is_empty() {
+                let result: Value = serde_json::from_slice(&expected.stdout)?;
+                if controls == vec!["--section", "activity", "--activity-limit", "100"] {
+                    // proof-behavior
+                    assert!(
+                        result["activity"]
+                            .as_array()
+                            .is_some_and(|rows| rows.iter().any(|row| row["ts"] == "000-invalid"))
+                    );
+                    // proof-behavior
+                    assert!(result["activity"].as_array().is_some_and(|rows| {
+                        rows.iter()
+                            .all(|row| row["ts"] != "not-a-time" && row["ts"] != "")
+                    }));
+                }
+                if let Some(command) = result["budget_exceeded"]["restore_with"].as_str() {
+                    let retry: Vec<_> = command.split_whitespace().skip(1).collect();
+                    // proof-behavior
+                    assert!(!retry.contains(&"--section"));
+                    let restored = oracle(&driver, root.path(), &retry)?;
+                    assert!(restored.status.success());
+                    compare(&restored, &native(root.path(), &retry)?, &retry);
+                    comparisons += 1;
+                    omission_replayed = true;
+                }
+            }
+        }
+    }
+    // proof-behavior
+    assert!(
+        omission_replayed,
+        "must exercise the oracle's receipt-only recovery"
+    );
+    let rows: Vec<_> = (0..30)
+        .map(|index| item(&format!("sample-review-{index}"), "Task", "open", 1))
+        .collect();
+    fixture(root.path(), &rows)?;
+    let mut handoff = false;
+    for budget in ["1200", "1600", "2200", "3000", "5000"] {
+        let args = [
+            "context",
+            "--depth",
+            "full",
+            "--limit",
+            "30",
+            "--token-budget",
+            budget,
+            "--json",
+        ];
+        let expected = oracle(&driver, root.path(), &args)?;
+        compare(&expected, &native(root.path(), &args)?, &args);
+        comparisons += 1;
+        if !expected.status.success() {
+            continue;
+        }
+        let result: Value = serde_json::from_slice(&expected.stdout)?;
+        if result["continuation_kind"] != "output_cursor" {
+            continue;
+        }
+        let cursor = result["output_budget_truncation"]["recovery"]["cursor"]
+            .as_str()
+            .ok_or("output cursor")?;
+        let mut retry = args.to_vec();
+        retry.extend(["--output-cursor", cursor]);
+        assert!(oracle(&driver, root.path(), &retry)?.status.success());
+        let refused = native(root.path(), &retry)?;
+        // proof-behavior
+        assert_eq!(refused.status.code(), Some(2));
+        let refusal: Value = serde_json::from_slice(&refused.stderr)?;
+        // proof-behavior
+        assert_eq!(refusal["code"], "unsupported_native_option");
+        // proof-behavior
+        assert!(
+            refusal["detail"]
+                .as_str()
+                .is_some_and(|detail| detail.contains("published pm CLI"))
+        );
+        handoff = true;
+        break;
+    }
+    // proof-behavior
+    assert!(
+        handoff,
+        "must replay a published output cursor and refuse it natively"
+    );
+    let wide = tempfile::tempdir()?;
+    assert!(
+        oracle(&driver, wide.path(), &["init", "sample-", "--defaults"])?
+            .status
+            .success()
+    );
+    let mut row = item("sample-wire-budget", "Task", "open", 2);
+    row["title"] = json!("Retained budget evidence ".repeat(8));
+    row["tags"] = json!((0..300).map(|i| format!("tag-{i:03}")).collect::<Vec<_>>());
+    fixture(wide.path(), &[row])?;
+    let item_path = wide.path().join(".agents/pm/tasks/sample-wire-budget.toon");
+    let before = fs::read(&item_path)?;
+    let mut dual_receipt = false;
+    for intent in ["orient", "handoff"] {
+        for budget in [
+            "256", "700", "1000", "1200", "1300", "1400", "1450", "1500", "1600", "2200", "3000",
+            "5000",
+        ] {
+            for encoding in [vec![], vec!["--json"]] {
+                let mut args = vec![
+                    "context",
+                    "--for",
+                    intent,
+                    "--limit",
+                    "1",
+                    "--token-budget",
+                    budget,
+                ];
+                args.extend(&encoding);
+                let expected = oracle(&driver, wide.path(), &args)?;
+                compare(&expected, &native(wide.path(), &args)?, &args);
+                comparisons += 1;
+                if !encoding.is_empty() && !expected.stdout.is_empty() {
+                    let value: Value = serde_json::from_slice(&expected.stdout)?;
+                    dual_receipt |=
+                        value["context_intent"].is_object() && value["read_output"].is_object();
+                    if value["context_intent"]["result_omitted"] == true {
+                        // proof-behavior
+                        assert_eq!(value["read_output"]["result_omitted"], true);
+                        // proof-behavior
+                        assert_eq!(value["read_output"]["within_budget"], false);
+                    }
+                }
+            }
+        }
+    }
+    // proof-behavior
+    assert!(dual_receipt, "must compare an intent with its wire receipt");
+    let settings_path = wide.path().join(".agents/pm/settings.json");
+    let original_settings: Value = serde_json::from_slice(&fs::read(&settings_path)?)?;
+    for context in [None, Some(json!({}))] {
+        let mut settings = original_settings.clone();
+        if let Some(context) = context {
+            settings["context"] = context;
+        } else {
+            settings
+                .as_object_mut()
+                .ok_or("settings object")?
+                .shift_remove("context");
+        }
+        let settings = settings.to_string();
+        fs::write(&settings_path, &settings)?;
+        for encoding in [vec![], vec!["--json"]] {
+            let mut args = vec!["context", "--section", "activity", "--activity-limit", "0"];
+            args.extend(encoding);
+            let expected = oracle(&driver, wide.path(), &args)?;
+            assert!(expected.status.success());
+            assert_eq!(
+                fs::read(&settings_path)?,
+                settings.as_bytes(),
+                "oracle read changed settings"
+            );
+            let actual = native(wide.path(), &args)?;
+            compare(&expected, &actual, &args);
+            // proof-behavior
+            assert_eq!(
+                fs::read(&settings_path)?,
+                settings.as_bytes(),
+                "native read changed settings"
+            );
+            comparisons += 1;
+        }
+    }
+    for context in [
+        Value::Null,
+        json!("legacy"),
+        json!([]),
+        json!(1),
+        json!(true),
+    ] {
+        let mut settings = original_settings.clone();
+        settings["context"] = context;
+        let settings = settings.to_string();
+        fs::write(&settings_path, &settings)?;
+        let args = ["context", "--for", "orient", "--json"];
+        let published = oracle(&driver, wide.path(), &args)?;
+        assert!(published.status.success());
+        assert!(
+            String::from_utf8_lossy(&published.stderr).contains("settings_read_invalid_schema")
+        );
+        let refused = native(wide.path(), &args)?;
+        // proof-behavior
+        assert_eq!(refused.status.code(), Some(2));
+        let payload: Value = serde_json::from_slice(&refused.stderr)?;
+        // proof-behavior
+        assert_eq!(payload["code"], "unsupported_native_context");
+        // proof-behavior
+        assert!(
+            payload["required"]
+                .as_str()
+                .is_some_and(|required| required.contains("object-valued context settings"))
+        );
+        // proof-behavior
+        assert_eq!(fs::read(&settings_path)?, settings.as_bytes());
+    }
+    // proof-behavior
+    assert_eq!(fs::read(item_path)?, before);
+    println!("reviewed context differentials: {comparisons}");
+    Ok(())
+}
+
+/// Unsupported declarations retain typed native refusals in both CLI spellings and encodings.
+#[test]
+fn context_unknown_intents_have_explicit_cli_boundaries() -> TestResult {
+    let Some(published) = published_cli::published_cli_or_skip("unknown intent boundaries") else {
+        return Ok(());
+    };
+    let scratch = tempfile::tempdir()?;
+    let Some(driver) = orientation_driver(scratch.path(), &published)? else {
+        return Ok(());
+    };
+    let root = tempfile::tempdir()?;
+    assert!(
+        oracle(&driver, root.path(), &["init", "sample-", "--defaults"])?
+            .status
+            .success()
+    );
+    for control in [vec!["--for", "unknown"], vec!["--for=unknown"]] {
+        for json in [false, true] {
+            let mut args = vec!["context"];
+            args.extend(&control);
+            if json {
+                args.push("--json");
+            }
+            let actual = native(root.path(), &args)?;
+            // proof-behavior
+            assert_eq!(actual.status.code(), Some(2));
+            // proof-behavior
+            assert!(actual.stdout.is_empty());
+            if json {
+                let payload: Value = serde_json::from_slice(&actual.stderr)?;
+                // proof-behavior
+                assert_eq!(payload["code"], "unsupported_native_context");
+                // proof-behavior
+                assert!(payload["required"].is_string());
+            }
+            // proof-behavior
+            assert!(
+                String::from_utf8_lossy(&actual.stderr)
+                    .contains("Native context supports only core orient and handoff intents")
+            );
+            let expected = oracle(&driver, root.path(), &args)?;
+            assert_eq!(expected.status.code(), Some(2));
+            assert!(String::from_utf8_lossy(&expected.stderr).contains("Unknown context intent"));
+            if json {
+                let payload: Value = serde_json::from_slice(&expected.stderr)?;
+                assert_eq!(payload["code"], "unknown_context_intent");
+                assert_eq!(payload["refusal"]["rejected_value"], "unknown");
+            }
+            assert!(
+                !String::from_utf8_lossy(&expected.stderr).contains("unsupported_native_context")
+            );
+        }
+    }
+    Ok(())
+}
+
+/// A missing current install skips only current reads; required runs fail and history still executes.
+#[test]
+fn orientation_oracles_are_gated_independently() -> TestResult {
+    let Some(published) = published_cli::published_cli_or_skip("independent history oracle") else {
+        return Ok(());
+    };
+    let scratch = tempfile::tempdir()?;
+    let absent = scratch.path().join("missing-current");
+    // proof-behavior
+    assert!(orientation_driver_at(scratch.path(), &published, &absent, false)?.is_none());
+    // proof-behavior
+    assert!(orientation_driver_at(scratch.path(), &published, &absent, true).is_err());
+    let driver = write_driver(scratch.path(), &published)?;
+    let root = tempfile::tempdir()?;
+    assert!(
+        oracle(&driver, root.path(), &["init", "sample-", "--defaults"])?
+            .status
+            .success()
+    );
+    fixture(root.path(), &[item("sample-a", "Task", "open", 1)])?;
+    let args = ["history", "sample-a", "--json"];
+    let expected = oracle(&driver, root.path(), &args)?;
+    assert!(expected.status.success());
+    compare(&expected, &native(root.path(), &args)?, &args);
+    Ok(())
+}
+
+/// Every successful native or oracle read preserves settings bytes before another invocation.
+#[test]
+fn context_successful_reads_preserve_settings_bytes() -> TestResult {
+    let Some(published) = published_cli::published_cli_or_skip("read-only context settings") else {
+        return Ok(());
+    };
+    let scratch = tempfile::tempdir()?;
+    let Some(driver) = orientation_driver(scratch.path(), &published)? else {
+        return Ok(());
+    };
+    let root = tempfile::tempdir()?;
+    assert!(
+        oracle(&driver, root.path(), &["init", "sample-", "--defaults"])?
+            .status
+            .success()
+    );
+    let path = root.path().join(".agents/pm/settings.json");
+    let original: Value = serde_json::from_slice(&fs::read(&path)?)?;
+    for context in [None, Some(json!({})), Some(json!({"activity_limit":1}))] {
+        let mut settings = original.clone();
+        if let Some(context) = context {
+            settings["context"] = context;
+        } else {
+            settings
+                .as_object_mut()
+                .ok_or("settings")?
+                .shift_remove("context");
+        }
+        let before = serde_json::to_vec_pretty(&settings)?;
+        fs::write(&path, &before)?;
+        assert!(!root.path().join(".git").exists());
+        for controls in [
+            vec!["--section", "activity", "--activity-limit", "0"],
+            vec!["--for", "orient"],
+            vec!["--for=handoff"],
+        ] {
+            for encoding in [vec![], vec!["--json"]] {
+                let mut args = vec!["context"];
+                args.extend(&controls);
+                args.extend(&encoding);
+                let expected = oracle(&driver, root.path(), &args)?;
+                assert!(expected.status.success());
+                assert_eq!(
+                    fs::read(&path)?,
+                    before,
+                    "oracle read changed settings: {args:?}"
+                );
+                let actual = native(root.path(), &args)?;
+                compare(&expected, &actual, &args);
+                // proof-behavior
+                assert_eq!(
+                    fs::read(&path)?,
+                    before,
+                    "native read changed settings: {args:?}"
+                );
+            }
+        }
+    }
+    Ok(())
+}
+
+/// Malformed item reads retain fallback diagnostics through the CLI boundary.
+#[test]
+fn context_item_faults_preserve_settings_warning_in_every_encoding() -> TestResult {
+    let Some(published) = published_cli::published_cli_or_skip("context item fault warnings")
+    else {
+        return Ok(());
+    };
+    let scratch = tempfile::tempdir()?;
+    let driver = write_driver(scratch.path(), &published)?;
+    let root = tempfile::tempdir()?;
+    assert!(
+        oracle(&driver, root.path(), &["init", "sample-", "--defaults"])?
+            .status
+            .success()
+    );
+    fixture(root.path(), &[item("sample-broken", "Task", "open", 1)])?;
+    let path = root.path().join(".agents/pm/settings.json");
+    let mut settings: Value = serde_json::from_slice(&fs::read(&path)?)?;
+    settings["context"] = json!({"activity_limit":0});
+    let before = serde_json::to_vec(&settings)?;
+    fs::write(&path, &before)?;
+    let broken = root.path().join(".agents/pm/tasks/sample-broken.toon");
+    for content in [
+        "<<<<<<< conflict\n=======\n>>>>>>> conflict\n",
+        "id: [broken\n",
+    ] {
+        fs::write(&broken, content)?;
+        for intent in [vec![], vec!["--for", "orient"], vec!["--for", "handoff"]] {
+            for encoding in [vec![], vec!["--json"]] {
+                let mut args = vec!["context"];
+                args.extend(&intent);
+                args.extend(&encoding);
+                let output = native(root.path(), &args)?;
+                // proof-behavior
+                assert!(output.status.success());
+                let stderr = String::from_utf8(output.stderr)?;
+                if encoding.is_empty() {
+                    // proof-behavior
+                    assert!(stderr.contains("settings_read_invalid_schema"), "{stderr}");
+                    // proof-behavior
+                    assert!(
+                        String::from_utf8_lossy(&output.stdout)
+                            .contains("item_list_item_read_failed:tasks/sample-broken.toon")
+                    );
+                } else {
+                    let warning: Value = serde_json::from_str(&stderr)?;
+                    // proof-behavior
+                    assert_eq!(warning["type"], "warning");
+                    // proof-behavior
+                    assert_eq!(warning["warnings"], json!(["settings_read_invalid_schema"]));
+                    let payload: Value = serde_json::from_slice(&output.stdout)?;
+                    // proof-behavior
+                    assert_eq!(
+                        payload["warnings"],
+                        json!(["item_list_item_read_failed:tasks/sample-broken.toon"])
+                    );
+                }
+                // proof-behavior
+                assert_eq!(fs::read(&path)?, before);
+                // proof-behavior
+                assert_eq!(fs::read_to_string(&broken)?, content);
+            }
+        }
+    }
+    assert!(!root.path().join(".git").exists());
+    Ok(())
+}
+
+/// Invalid stored limits fall back before explicit CLI overrides in non-git trackers.
+#[test]
+fn context_invalid_stored_activity_limits_match_current_oracle() -> TestResult {
+    let Some(published) = published_cli::published_cli_or_skip("stored context limit fallback")
+    else {
+        return Ok(());
+    };
+    let scratch = tempfile::tempdir()?;
+    let Some(driver) = orientation_driver(scratch.path(), &published)? else {
+        return Ok(());
+    };
+    let root = tempfile::tempdir()?;
+    assert!(
+        oracle(&driver, root.path(), &["init", "sample-", "--defaults"])?
+            .status
+            .success()
+    );
+    fixture(root.path(), &[item("sample-activity", "Task", "open", 1)])?;
+    fs::write(
+        root.path().join(".agents/pm/history/sample-activity.jsonl"),
+        format!(
+            "{}\n",
+            json!({"ts":"2026-08-21T10:00:00.000Z","op":"update","author":"fixture","patch":[]})
+        ),
+    )?;
+    let path = root.path().join(".agents/pm/settings.json");
+    let original: Value = serde_json::from_slice(&fs::read(&path)?)?;
+    for context in [
+        json!({"activity_limit":0}),
+        json!({"activity_limit":-1}),
+        json!({"activity_limit":1.5}),
+        json!({"activity_limit":"2"}),
+        json!({"activity_limit":null}),
+        json!({"activity_limit":1}),
+        json!({"stale_threshold_days":0}),
+        json!({"default_depth":"full"}),
+        json!({"next_ranking_policy":"unknown"}),
+        json!({"sections":{"activity":0}}),
+        json!({"sections":{"activity":false,"future_field":null}}),
+    ] {
+        let mut settings = original.clone();
+        settings["context"] = context;
+        let before = serde_json::to_vec_pretty(&settings)?;
+        fs::write(&path, &before)?;
+        for controls in [
+            vec![],
+            vec!["--activity-limit", "0"],
+            vec!["--activity-limit", "1"],
+            vec!["--activity-limit", "-1"],
+            vec!["--activity-limit", "bad"],
+            vec!["--token-budget", "bad"],
+        ] {
+            for encoding in [vec![], vec!["--json"]] {
+                let mut args = vec!["context", "--section", "activity"];
+                args.extend(&controls);
+                args.extend(&encoding);
+                let expected = oracle(&driver, root.path(), &args)?;
+
+                let actual = native(root.path(), &args)?;
+                compare(&expected, &actual, &args);
+                // proof-behavior
+                assert_eq!(fs::read(&path)?, before);
+                assert!(!root.path().join(".git").exists());
+            }
+        }
+    }
+    Ok(())
+}
+
+/// Extract the published settings diagnostic without normalizing refusal details.
+fn warning_line(text: &str) -> Option<&str> {
+    text.lines()
+        .find(|line| line.starts_with("[pm] warning: settings_read_invalid_schema"))
+}
+
+/// Parser refusals retain the stored settings warning exactly like the published CLI.
+#[test]
+#[allow(clippy::too_many_lines)]
+fn context_parser_refusals_preserve_settings_warnings() -> TestResult {
+    let Some(published) = published_cli::published_cli_or_skip("stored settings parser refusal")
+    else {
+        return Ok(());
+    };
+    let scratch = tempfile::tempdir()?;
+    let Some(driver) = orientation_driver(scratch.path(), &published)? else {
+        return Ok(());
+    };
+    let root = tempfile::tempdir()?;
+    assert!(
+        oracle(&driver, root.path(), &["init", "sample-", "--defaults"])?
+            .status
+            .success()
+    );
+    fixture(root.path(), &[item("sample-activity", "Task", "open", 1)])?;
+    let path = root.path().join(".agents/pm/settings.json");
+    let original: Value = serde_json::from_slice(&fs::read(&path)?)?;
+    let warning = "[pm] warning: settings_read_invalid_schema — settings.json could not be loaded and pm fell back to defaults; run pm health for remediation.";
+    for (context, warns) in [
+        (json!({"activity_limit": 0}), true),
+        (json!({"stale_threshold_days": "x"}), true),
+        (json!({"activity_limit": 2}), false),
+        (json!({}), false),
+    ] {
+        let mut settings = original.clone();
+        settings["context"] = context;
+        let before = serde_json::to_vec_pretty(&settings)?;
+        fs::write(&path, &before)?;
+        for encoding in [vec![], vec!["--json"]] {
+            let mut args = vec!["context", "--section", "activity", "--output-cursor", " "];
+            args.extend(&encoding);
+            let expected = oracle(&driver, root.path(), &args)?;
+            let actual = native(root.path(), &args)?;
+            // proof-behavior
+            assert_eq!(actual.status.code(), Some(2), "{args:?}");
+            // proof-behavior
+            assert_eq!(fs::read(&path)?, before);
+            if encoding.is_empty() {
+                let native_stderr = String::from_utf8_lossy(&actual.stderr).into_owned();
+                let oracle_stderr = String::from_utf8_lossy(&expected.stderr).into_owned();
+
+                // The warning bytes are the published contract; the refusal body is native.
+                // proof-behavior
+                assert_eq!(
+                    warning_line(&native_stderr),
+                    warning_line(&oracle_stderr),
+                    "warning line parity: {args:?}"
+                );
+                // proof-behavior
+                assert!(
+                    native_stderr.contains("does not support --output-cursor"),
+                    "{args:?}"
+                );
+                if warns {
+                    // proof-behavior
+                    assert_eq!(warning_line(&native_stderr), Some(warning), "{args:?}");
+                } else {
+                    // proof-behavior
+                    assert_eq!(warning_line(&native_stderr), None, "{args:?}");
+                }
+            } else {
+                let refusal: Value = serde_json::from_slice(&actual.stderr)?;
+                // proof-behavior
+                assert_eq!(refusal["code"], "unsupported_native_option", "{args:?}");
+                if warns {
+                    // proof-behavior
+                    assert_eq!(
+                        refusal["warnings"],
+                        json!(["settings_read_invalid_schema"]),
+                        "{args:?}"
+                    );
+                    // proof-behavior
+                    assert_eq!(
+                        refusal["warning_details"][0]["message"],
+                        json!(warning),
+                        "{args:?}"
+                    );
+                } else {
+                    // proof-behavior
+                    assert!(refusal.get("warnings").is_none(), "{args:?}");
+                }
+            }
+        }
+        // Other commands keep their published contract: no context settings warning.
+        let history = native(
+            root.path(),
+            &[
+                "history",
+                "sample-activity",
+                "--output-cursor",
+                " ",
+                "--json",
+            ],
+        )?;
+        let payload: Value = serde_json::from_slice(&history.stderr)?;
+        // proof-behavior
+        assert_eq!(payload["code"], "unsupported_native_option");
+        // proof-behavior
+        assert!(
+            payload.get("warnings").is_none(),
+            "{:?}",
+            settings["context"]
+        );
+    }
+    // A non-object context keeps the runtime hard-refusal boundary: the parser
+    // refusal carries no settings warning for a tracker the read pipeline would
+    // refuse with unsupported_native_context.
+    let mut settings = original.clone();
+    settings["context"] = json!(5);
+    fs::write(&path, serde_json::to_vec_pretty(&settings)?)?;
+    for encoding in [vec![], vec!["--json"]] {
+        let mut args = vec!["context", "--section", "activity", "--output-cursor", " "];
+        args.extend(&encoding);
+        let refused = native(root.path(), &args)?;
+        // proof-behavior
+        assert_eq!(refused.status.code(), Some(2), "{args:?}");
+        let text = String::from_utf8_lossy(&refused.stderr);
+        // proof-behavior
+        assert!(
+            !text.starts_with("[pm] warning:"),
+            "non-object context must not warn: {args:?}"
+        );
+        if encoding.is_empty() {
+            // proof-behavior
+            assert!(
+                text.contains("does not support --output-cursor"),
+                "{args:?}"
+            );
+        } else {
+            let payload: Value = serde_json::from_slice(&refused.stderr)?;
+            // proof-behavior
+            assert!(payload.get("warnings").is_none(), "{args:?}");
+        }
+    }
+    // The refusal loads settings from the argument-selected tracker: an invalid
+    // context warns through every workspace spelling, and a directory without a
+    // tracker refuses without a warning instead of crashing.
+    let mut settings = original.clone();
+    settings["context"] = json!({"activity_limit": 0});
+    fs::write(&path, serde_json::to_vec_pretty(&settings)?)?;
+    let root_text = root.path().to_string_lossy().into_owned();
+    let tracker_free = tempfile::tempdir()?;
+    for spelling in [
+        vec!["--workspace".to_owned(), root_text.clone()],
+        vec![format!("--path={root_text}")],
+        vec!["--pm-path".to_owned(), root_text.clone()],
+    ] {
+        let mut args: Vec<String> = spelling;
+        args.extend(
+            ["context", "--section", "activity", "--output-cursor", " "].map(str::to_owned),
+        );
+        let refused = native(
+            tracker_free.path(),
+            &args.iter().map(String::as_str).collect::<Vec<_>>(),
+        )?;
+        // proof-behavior
+        assert_eq!(refused.status.code(), Some(2), "{args:?}");
+        let text = String::from_utf8_lossy(&refused.stderr);
+        // proof-behavior
+        assert!(
+            text.starts_with("[pm] warning: settings_read_invalid_schema"),
+            "argument-selected tracker must warn: {args:?}"
+        );
+    }
+    // A directory without a tracker refuses without a warning; a trailing
+    // value-less --workspace keeps the refusal and falls back to the start path.
+    let bare = tempfile::tempdir()?;
+    let mut workspace_args: Vec<String> = ["context", "--section", "activity"]
+        .map(str::to_owned)
+        .to_vec();
+    workspace_args.extend(["--output-cursor", " "].map(str::to_owned));
+    // A trailing value-less --workspace falls back to the start path: the bare
+    // directory has no tracker, so the refusal carries no settings warning.
+    let valueless = workspace_args_with_flag(workspace_args.clone());
+    let refused = native(
+        bare.path(),
+        &valueless.iter().map(String::as_str).collect::<Vec<_>>(),
+    )?;
+    // proof-behavior
+    assert_eq!(refused.status.code(), Some(2));
+    let text = String::from_utf8_lossy(&refused.stderr);
+    // proof-behavior
+    assert!(
+        !text.contains("[pm] warning: settings_read_invalid_schema"),
+        "missing tracker must not warn"
+    );
+    // proof-behavior
+    assert!(text.contains("does not support --output-cursor"));
+    // The same invocation from the bare directory with the tracker selected by
+    // the workspace argument still warns: the settings belong to the
+    // argument-selected tracker, never to the process working directory.
+    let mut selected = vec!["--workspace".to_owned(), root_text.clone()];
+    selected.extend(workspace_args[..workspace_args.len() - 1].iter().cloned());
+    let refused = native(
+        bare.path(),
+        &selected.iter().map(String::as_str).collect::<Vec<_>>(),
+    )?;
+    // proof-behavior
+    assert_eq!(refused.status.code(), Some(2), "{selected:?}");
+    let text = String::from_utf8_lossy(&refused.stderr);
+    // proof-behavior
+    assert!(
+        text.starts_with("[pm] warning: settings_read_invalid_schema"),
+        "argument-selected tracker must warn: {selected:?}"
+    );
+    // Discovery still succeeds with unreadable settings. Parser refusals retain
+    // their own diagnostic instead of inventing a schema-fallback warning.
+    let malformed = b"{invalid settings";
+    fs::write(&path, malformed)?;
+    for encoding in [vec![], vec!["--json"]] {
+        let mut args = vec!["context", "--section", "activity", "--output-cursor", " "];
+        args.extend(&encoding);
+        let refused = native(root.path(), &args)?;
+        // proof-behavior
+        assert_eq!(refused.status.code(), Some(2), "{args:?}");
+        // proof-behavior
+        assert_eq!(fs::read(&path)?, malformed);
+        if encoding.is_empty() {
+            let text = String::from_utf8_lossy(&refused.stderr);
+            // proof-behavior
+            assert!(
+                text.contains("does not support --output-cursor"),
+                "{args:?}"
+            );
+            // proof-behavior
+            assert!(!text.contains("[pm] warning:"), "{args:?}");
+        } else {
+            let payload: Value = serde_json::from_slice(&refused.stderr)?;
+            // proof-behavior
+            assert_eq!(payload["code"], "unsupported_native_option", "{args:?}");
+            // proof-behavior
+            assert!(payload.get("warnings").is_none(), "{args:?}");
+        }
+    }
+    Ok(())
+}
+
+/// Appends one value-less --workspace flag to an argument list.
+fn workspace_args_with_flag(mut args: Vec<String>) -> Vec<String> {
+    args.push("--workspace".to_owned());
+    args
+}
+
+/// Growing wire-budget probes retain the published custom in-progress classification.
+#[test]
+fn context_growing_compaction_probes_match_current_oracle() -> TestResult {
+    let Some(published) = published_cli::published_cli_or_skip("growing custom focus probes")
+    else {
+        return Ok(());
+    };
+    let scratch = tempfile::tempdir()?;
+    let Some(driver) = orientation_driver(scratch.path(), &published)? else {
+        return Ok(());
+    };
+    let root = tempfile::tempdir()?;
+    assert!(
+        oracle(&driver, root.path(), &["init", "sample-", "--defaults"])?
+            .status
+            .success()
+    );
+    let pm = root.path().join(".agents/pm");
+    let path = pm.join("settings.json");
+    let mut settings: Value = serde_json::from_slice(&fs::read(&path)?)?;
+    settings["schema"]["workflow"]["in_progress_status"] = json!("working");
+    let statuses = json!([
+        {"id":"open","roles":["active","default_open"]},
+        {"id":"working","roles":["active"]},
+        {"id":"closed","roles":["terminal","terminal_done","default_close"]}
+    ]);
+    settings["schema"]["statuses"] = statuses.clone();
+    fs::write(&path, serde_json::to_vec(&settings)?)?;
+    fs::write(
+        pm.join("schema/statuses.json"),
+        json!({"statuses":statuses}).to_string(),
+    )?;
+    fs::write(
+        pm.join("schema/workflows.json"),
+        json!({"workflow":{"in_progress_status":"working","open_status":"open"}}).to_string(),
+    )?;
+    let mut compacted = false;
+    let rows: Vec<_> = (0..20)
+        .map(|index| {
+            let mut row = item(&format!("sample-probe-{index:02}"), "Task", "working", 1);
+            row["title"] = json!("Growing probe classification ".repeat(8));
+            row["tags"] = json!(
+                (0..9)
+                    .map(|i| format!("tag-{i:02}-{}", "x".repeat(180)))
+                    .collect::<Vec<_>>()
+            );
+            row
+        })
+        .collect();
+    fixture(root.path(), &rows)?;
+    for budget in ["8000", "12000"] {
+        for encoding in [vec![], vec!["--json"]] {
+            let mut args = vec!["context", "--limit", "20", "--token-budget", budget];
+            args.extend(&encoding);
+            let expected = oracle(&driver, root.path(), &args)?;
+            compare(&expected, &native(root.path(), &args)?, &args);
+            if !encoding.is_empty() {
+                let output: Value = serde_json::from_slice(&expected.stdout)?;
+                if !expected.status.success() {
+                    assert_eq!(expected.status.code(), Some(2));
+                    assert_eq!(output["budget_exceeded"]["omitted_result"], true);
+                }
+                if output["read_output"]["rows_compacted"] == true {
+                    let count = output["low_level"].as_array().map_or(0, Vec::len);
+                    let derived = 20;
+                    if count > 1 {
+                        assert!((derived / 2) < count as u64 && (count as u64) < derived);
+                        compacted = true;
+                        assert_eq!(output["summary"]["returned_focus"]["in_progress"], count);
+                        assert_eq!(output["summary"]["returned_focus"]["open"], 0);
+                    }
+                }
+            }
+        }
+    }
+    assert!(
+        compacted,
+        "must deliver multiple custom-status rows after wire compaction"
+    );
+    Ok(())
+}
+
+/// Invalid non-context settings cause warning-backed default activity limits before overrides.
+#[test]
+fn context_invalid_author_fallback_matches_current_oracle() -> TestResult {
+    let Some(published) = published_cli::published_cli_or_skip("whole settings fallback") else {
+        return Ok(());
+    };
+    let scratch = tempfile::tempdir()?;
+    let Some(driver) = orientation_driver(scratch.path(), &published)? else {
+        return Ok(());
+    };
+    let root = tempfile::tempdir()?;
+    assert!(
+        oracle(&driver, root.path(), &["init", "sample-", "--defaults"])?
+            .status
+            .success()
+    );
+    fixture(root.path(), &[item("sample-activity", "Task", "open", 1)])?;
+    let records: Vec<_> = (0..12).map(|i|json!({"ts":format!("2026-08-21T10:{i:02}:00.000Z"),"op":"update","author":"fixture","patch":[]})).collect();
+    fs::write(
+        root.path().join(".agents/pm/history/sample-activity.jsonl"),
+        json_lines(&records),
+    )?;
+    let path = root.path().join(".agents/pm/settings.json");
+    let original: Value = serde_json::from_slice(&fs::read(&path)?)?;
+    for author in [json!(42), Value::Null, json!("fixture"), json!("")] {
+        let invalid = !author.is_string();
+        let mut settings = original.clone();
+        settings["author_default"] = author;
+        settings["context"] = json!({"activity_limit":1});
+        let before = serde_json::to_vec_pretty(&settings)?;
+        fs::write(&path, &before)?;
+        for controls in [vec![], vec!["--activity-limit", "0"]] {
+            for encoding in [vec![], vec!["--json"]] {
+                let mut args = vec!["context", "--section", "activity"];
+                args.extend(&controls);
+                args.extend(&encoding);
+                let expected = oracle(&driver, root.path(), &args)?;
+                assert!(expected.status.success());
+                compare(&expected, &native(root.path(), &args)?, &args);
+                assert_eq!(fs::read(&path)?, before);
+                if !encoding.is_empty() {
+                    let output: Value = serde_json::from_slice(&expected.stdout)?;
+                    let count = if controls.is_empty() {
+                        if invalid { 10 } else { 1 }
+                    } else {
+                        0
+                    };
+                    assert_eq!(output["activity"].as_array().map(Vec::len), Some(count));
+                    assert_eq!(
+                        String::from_utf8_lossy(&expected.stderr)
+                            .contains("settings_read_invalid_schema"),
+                        invalid
+                    );
+                }
+            }
+        }
+    }
+    assert!(!root.path().join(".git").exists());
+    Ok(())
+}
+
+/// Invalid unrelated sections discard all context overrides before ordinary reads.
+#[test]
+fn context_invalid_document_discards_overrides_matches_oracle() -> TestResult {
+    let Some(published) = published_cli::published_cli_or_skip("whole settings document") else {
+        return Ok(());
+    };
+    let scratch = tempfile::tempdir()?;
+    let Some(driver) = orientation_driver(scratch.path(), &published)? else {
+        return Ok(());
+    };
+    let root = tempfile::tempdir()?;
+    assert!(
+        oracle(&driver, root.path(), &["init", "sample-", "--defaults"])?
+            .status
+            .success()
+    );
+    fixture(root.path(), &[item("sample-activity", "Task", "open", 1)])?;
+    let records: Vec<_> = (0..12).map(|i|json!({"ts":format!("2026-08-21T10:{i:02}:00.000Z"),"op":"update","author":"fixture","patch":[]})).collect();
+    fs::write(
+        root.path().join(".agents/pm/history/sample-activity.jsonl"),
+        json_lines(&records),
+    )?;
+    let path = root.path().join(".agents/pm/settings.json");
+    let original: Value = serde_json::from_slice(&fs::read(&path)?)?;
+    for (key, value, invalid) in [
+        ("extensions", json!(42), true),
+        ("extensions", json!({"enabled":[42],"disabled":[]}), true),
+        ("search", json!({"max_results":"bad"}), true),
+        ("providers", json!({"ollama":{"model":false}}), true),
+        ("locks", json!({"ttl_seconds":1.5}), true),
+        ("extensions", original["extensions"].clone(), false),
+        ("future_section", json!({"unknown":null}), false),
+    ] {
+        let mut settings = original.clone();
+        settings[key] = value;
+        settings["context"] = json!({"activity_limit":1});
+        let before = serde_json::to_vec_pretty(&settings)?;
+        fs::write(&path, &before)?;
+        for args in [
+            vec!["context", "--section", "activity"],
+            vec!["context", "--section", "activity", "--json"],
+            vec![
+                "context",
+                "--section",
+                "activity",
+                "--activity-limit",
+                "0",
+                "--json",
+            ],
+            vec!["context", "--activity-limit", "bad", "--json"],
+        ] {
+            let expected = oracle(&driver, root.path(), &args)?;
+            compare(&expected, &native(root.path(), &args)?, &args);
+            assert_eq!(fs::read(&path)?, before);
+            assert_eq!(
+                String::from_utf8_lossy(&expected.stderr).contains("settings_read_invalid_schema"),
+                invalid
+            );
+            if args.get(1) == Some(&"--section") && args.len() == 4 {
+                let output: Value = serde_json::from_slice(&expected.stdout)?;
+                assert_eq!(
+                    output["activity"].as_array().map(Vec::len),
+                    Some(if invalid { 10 } else { 1 })
+                );
+            }
+        }
+    }
+    assert!(!root.path().join(".git").exists());
+    Ok(())
+}
+
+/// Flag-shaped rejected values retain their argument role and JSON recovery bytes.
+#[test]
+fn context_refusal_value_roles_match_current_oracle() -> TestResult {
+    let Some(published) = published_cli::published_cli_or_skip("refusal argument roles") else {
+        return Ok(());
+    };
+    let scratch = tempfile::tempdir()?;
+    let Some(driver) = orientation_driver(scratch.path(), &published)? else {
+        return Ok(());
+    };
+    let root = tempfile::tempdir()?;
+    assert!(
+        oracle(&driver, root.path(), &["init", "sample-", "--defaults"])?
+            .status
+            .success()
+    );
+    for flag in [
+        "--activity-limit",
+        "--limit",
+        "--token-budget",
+        "--max-items",
+        "--token_budget",
+    ] {
+        for value in [
+            "--path",
+            "--workspace",
+            "--pm-path",
+            "--timestamp",
+            "--path=bad",
+        ] {
+            for encoding in [vec![], vec!["--json"]] {
+                let mut args = vec!["context", flag, value];
+                args.extend(encoding);
+                let expected = oracle(&driver, root.path(), &args)?;
+                assert_eq!(expected.status.code(), Some(2));
+                compare(&expected, &native(root.path(), &args)?, &args);
+            }
+        }
+    }
+    Ok(())
+}
+
+/// Pins both clocks so the oracle's 25 ms packing guard is independent of host scheduling.
+fn lifecycle_orientation_driver(
+    root: &Path,
+    published: &published_cli::PublishedCli,
+) -> Result<PathBuf, Box<dyn std::error::Error>> {
+    let path = write_driver(root, published)?;
+    let script = fs::read_to_string(&path)?;
+    fs::write(
+        &path,
+        format!(
+            "Object.defineProperty(performance, 'now', {{value:()=>0, configurable:true}});\n{script}"
+        ),
+    )?;
+    Ok(path)
+}
 /// Scoped string-only history recovery matches the published bootstrap path and JSON mode.
 #[test]
 fn scoped_history_retry_matches_published_bytes() -> TestResult {
@@ -2049,7 +3469,7 @@ fn scoped_history_retry_matches_published_bytes() -> TestResult {
         return Ok(());
     };
     let scratch = tempfile::tempdir()?;
-    let driver = orientation_driver(scratch.path(), &published)?;
+    let driver = lifecycle_orientation_driver(scratch.path(), &published)?;
     let root = tempfile::tempdir()?;
     assert!(
         oracle(&driver, root.path(), &["init", "sample-", "--defaults"])?
@@ -2083,7 +3503,7 @@ fn activity_mixed_fractional_precision_matches_published_bytes() -> TestResult {
         return Ok(());
     };
     let scratch = tempfile::tempdir()?;
-    let driver = orientation_driver(scratch.path(), &published)?;
+    let driver = lifecycle_orientation_driver(scratch.path(), &published)?;
     let root = tempfile::tempdir()?;
     let now = "2026-08-22T10:00:00.500Z";
     fs::write(
@@ -2155,7 +3575,7 @@ fn context_cutoff_validation_matches_published_clock_refusal() -> TestResult {
         return Ok(());
     };
     let scratch = tempfile::tempdir()?;
-    let driver = orientation_driver(scratch.path(), &published)?;
+    let driver = lifecycle_orientation_driver(scratch.path(), &published)?;
     let root = tempfile::tempdir()?;
     assert!(
         oracle(&driver, root.path(), &["init", "sample-", "--defaults"])?
@@ -2240,7 +3660,7 @@ fn round10_shortened_reference_receipt_matches_published_gap() -> TestResult {
     let scratch = tempfile::tempdir()?;
     let driver = published
         .as_ref()
-        .map(|cli| orientation_driver(scratch.path(), cli))
+        .map(|cli| lifecycle_orientation_driver(scratch.path(), cli))
         .transpose()?;
     let root = tempfile::tempdir()?;
     fs::create_dir_all(root.path().join(".agents/pm"))?;
@@ -2332,7 +3752,7 @@ fn round12_hyphen_value_json_refusal_contract() -> TestResult {
         return Ok(());
     };
     let scratch = tempfile::tempdir()?;
-    let driver = orientation_driver(scratch.path(), &published)?;
+    let driver = lifecycle_orientation_driver(scratch.path(), &published)?;
     let root = tempfile::tempdir()?;
     assert!(
         oracle(&driver, root.path(), &["init", "sample-", "--defaults"])?
@@ -2366,7 +3786,7 @@ fn round14_repeated_output_formats_match_oracle() -> TestResult {
         return Ok(());
     };
     let scratch = tempfile::tempdir()?;
-    let driver = orientation_driver(scratch.path(), &published)?;
+    let driver = lifecycle_orientation_driver(scratch.path(), &published)?;
     let root = tempfile::tempdir()?;
     assert!(
         oracle(&driver, root.path(), &["init", "sample-", "--defaults"])?

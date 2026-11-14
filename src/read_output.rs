@@ -3,6 +3,29 @@
 use crate::{ListOptions, ListOutput, PmRustError, list::bound, pagination};
 use serde_json::{Value, json};
 
+/// Estimates output tokens using the published UTF-8 byte heuristic.
+#[cfg(test)]
+pub(crate) fn estimate(value: &(impl serde::Serialize + ?Sized), pretty: bool) -> usize {
+    let bytes = if pretty {
+        crate::stringify_json(value, true).len() + 1
+    } else {
+        crate::stringify_json(value, false).len()
+    };
+    bytes.div_ceil(4)
+}
+
+/// Stabilizes a self-referential receipt estimate after changing output content.
+#[cfg(test)]
+pub(crate) fn update(result: &mut ListOutput, key: &str, pretty: bool) {
+    for _ in 0..8 {
+        let measured = estimate(result, pretty);
+        if result.value[key]["estimated_tokens"] == measured {
+            break;
+        }
+        result.value[key]["estimated_tokens"] = json!(measured);
+    }
+}
+
 /// Measures the exact selected list wire encoding, including its trailing newline.
 pub(crate) fn measure(result: &ListOutput, toon: bool) -> usize {
     if toon {
@@ -23,6 +46,82 @@ pub(crate) fn update_output(result: &mut ListOutput, toon: bool) {
     }
 }
 
+/// Stabilizes current wire receipts while preserving estimates for an omitted intent result.
+pub(crate) fn stabilize_orientation(result: &mut ListOutput, toon: bool) {
+    for _ in 0..8 {
+        let before = (
+            result["context_intent"]["estimated_tokens"].clone(),
+            result["read_output"]["estimated_tokens"].clone(),
+        );
+        stabilize_intent(result, toon);
+        update_output(result, toon);
+        if before
+            == (
+                result["context_intent"]["estimated_tokens"].clone(),
+                result["read_output"]["estimated_tokens"].clone(),
+            )
+        {
+            break;
+        }
+    }
+}
+
+/// Recomputes current context feasibility after projection changes, preserving omitted estimates.
+pub(crate) fn stabilize_intent(result: &mut ListOutput, toon: bool) {
+    if result["context_intent"]["result_omitted"] == true {
+        return;
+    }
+    for _ in 0..8 {
+        update_intent_estimate(result, toon);
+        let before = result["context_intent"].clone();
+        let measured = measure_intent(result, toon) as u64;
+        result.value["context_intent"]["within_budget"] = json!(
+            measured
+                <= result["context_intent"]["token_budget"]
+                    .as_u64()
+                    .unwrap_or_default()
+        );
+        result.value["context_intent"]["declaration_feasible"] = json!(
+            measured
+                <= result["context_intent"]["declared_token_budget"]
+                    .as_u64()
+                    .unwrap_or_default()
+        );
+        if before == result["context_intent"] {
+            break;
+        }
+    }
+}
+
+/// Measures intent delivery with the same suppressed row metadata as the wire.
+pub(crate) fn measure_intent(result: &ListOutput, toon: bool) -> usize {
+    let mut delivered = result.clone();
+    if let Some(fields) = delivered.value.as_object_mut() {
+        fields.shift_remove("row_contract");
+    }
+    measure(&delivered, toon)
+}
+
+/// Stabilizes the intent's self-referential estimate in its selected wire format.
+pub(crate) fn update_intent_estimate(result: &mut ListOutput, toon: bool) {
+    for _ in 0..8 {
+        let measured = measure_intent(result, toon);
+        if result["context_intent"]["estimated_tokens"] == measured {
+            break;
+        }
+        result.value["context_intent"]["estimated_tokens"] = json!(measured);
+    }
+}
+
+/// Stabilizes every receipt that can change the orientation delivery size before checking its ceiling.
+fn update_orientation_output(result: &mut ListOutput, toon: bool) {
+    if result["context_intent"].is_object() {
+        stabilize_orientation(result, toon);
+    } else {
+        update_output(result, toon);
+    }
+}
+
 /// Recursively compacts long strings using the published 240 UTF-16-unit ceiling.
 ///
 /// The cut preserves surrogate pairs: ending on a high surrogate steps back one
@@ -30,11 +129,16 @@ pub(crate) fn update_output(result: &mut ListOutput, toon: bool) {
 /// (published 2026.10.17+ contract, GH-1478). Already-malformed values keep the
 /// lossless overrides that [`crate::ListOutput`] serialization retains.
 pub(crate) fn compact_strings(value: &mut Value) -> bool {
-    compact_strings_at(value, true)
+    compact_strings_with_intent(value, false)
 }
 
-/// Protects only the root cursor envelope while compacting identically named item metadata.
-fn compact_strings_at(value: &mut Value, envelope: bool) -> bool {
+/// Compacts item values while preserving caller-owned declaration and cursor envelopes.
+pub(crate) fn compact_strings_with_intent(value: &mut Value, preserve_intent: bool) -> bool {
+    compact_strings_at(value, preserve_intent, true)
+}
+
+/// Protects only envelope metadata, including opaque producer and output cursors.
+fn compact_strings_at(value: &mut Value, preserve_intent: bool, envelope: bool) -> bool {
     match value {
         Value::String(text) if text.encode_utf16().count() > 240 => {
             let units = text.encode_utf16().take(240).collect::<Vec<_>>();
@@ -47,12 +151,14 @@ fn compact_strings_at(value: &mut Value, envelope: bool) -> bool {
             true
         }
         Value::Array(rows) => rows.iter_mut().fold(false, |changed, row| {
-            compact_strings_at(row, false) | changed
+            compact_strings_at(row, false, false) | changed
         }),
         Value::Object(map) => map.iter_mut().fold(false, |changed, (key, row)| {
             (!(key == "focus_row_states"
-                || (envelope && matches!(key.as_str(), "next_cursor" | "output_cursor")))
-                && compact_strings_at(row, false))
+                || (envelope
+                    && (matches!(key.as_str(), "next_cursor" | "output_cursor")
+                        || (preserve_intent && key == "context_intent"))))
+                && compact_strings_at(row, false, false))
                 | changed
         }),
         _ => false,
@@ -61,42 +167,59 @@ fn compact_strings_at(value: &mut Value, envelope: bool) -> bool {
 
 /// Lists arrays eligible for compaction, excluding immutable envelope metadata.
 fn collections(value: &Value, pointer: &str, candidates: &mut Vec<(String, usize)>) {
+    collections_with_policy(value, pointer, candidates, true);
+}
+
+/// Share collection discovery with the historical omitted-receipt measurement only.
+fn collections_with_policy(
+    value: &Value,
+    pointer: &str,
+    candidates: &mut Vec<(String, usize)>,
+    preserve_intent: bool,
+) {
     match value {
         Value::Array(rows) => {
             if rows.len() > 1 {
                 candidates.push((pointer.to_owned(), rows.len()));
             }
             for (index, row) in rows.iter().enumerate() {
-                collections(row, &format!("{pointer}/{index}"), candidates);
+                collections_with_policy(
+                    row,
+                    &format!("{pointer}/{index}"),
+                    candidates,
+                    preserve_intent,
+                );
             }
         }
         Value::Object(map) => {
             for (key, row) in map {
                 if pointer.is_empty()
-                    && matches!(
-                        key.as_str(),
-                        "applied_bound"
-                            | "completeness"
-                            | "budget_retention_policy"
-                            | "continuation_contract"
-                            | "continuation_kind"
-                            | "continuation_path"
-                            | "filters"
-                            | "omission_receipt"
-                            | "output_budget_truncation"
-                            | "projection"
-                            | "read_output"
-                            | "read_session"
-                            | "row_contract"
-                            | "sorting"
-                    )
+                    && ((preserve_intent && key == "context_intent")
+                        || matches!(
+                            key.as_str(),
+                            "applied_bound"
+                                | "completeness"
+                                | "budget_retention_policy"
+                                | "continuation_contract"
+                                | "continuation_kind"
+                                | "continuation_path"
+                                | "filters"
+                                | "omission_receipt"
+                                | "output_budget_truncation"
+                                | "projection"
+                                | "read_output"
+                                | "read_session"
+                                | "row_contract"
+                                | "sorting"
+                        ))
                 {
                     continue;
                 }
-                collections(
+                collections_with_policy(
                     row,
                     &format!("{pointer}/{}", key.replace('~', "~0").replace('/', "~1")),
                     candidates,
+                    preserve_intent,
                 );
             }
         }
@@ -227,6 +350,8 @@ fn receipt_for(options: &ListOptions, default_budget: bool, command: &str) -> Va
         dimensions.push("include");
         aliases.push(if options.full {
             "--full"
+        } else if command == "context" {
+            "--section"
         } else if command == "history" {
             "--compact"
         } else {
@@ -264,6 +389,7 @@ fn receipt_for(options: &ListOptions, default_budget: bool, command: &str) -> Va
                 "--full" => "--output-include full",
                 "--brief" => "--output-include brief",
                 "--compact" => "--output-include compact",
+                "--section" => "--output-include <csv>",
                 "--limit" => "--output-limit <n>",
                 "--token-budget" => "--output-budget <tokens>",
                 _ => "--output-limit unbounded",
@@ -329,6 +455,12 @@ pub(crate) fn apply_command(
         result.value["read_output"]["within_budget"] = json!(false);
         result.value["read_output"]["result_omitted"] = json!(true);
         update_output(&mut result, options.toon);
+        if let Some(budget) = budget.filter(|budget| measure(&result, options.toon) > *budget) {
+            let mut state = capture(&result, options, cursor.as_ref());
+            state.command = command;
+            result = compact_budget(result, options, &state, budget, default_budget);
+            update_output(&mut result, options.toon);
+        }
         return Ok(result);
     }
     let amount_binds = amount.is_some_and(|limit| {
@@ -452,6 +584,17 @@ fn compact_collections(
     result: &mut ListOutput,
     toon: bool,
     budget: usize,
+    finalize: impl FnMut(&mut Value),
+) {
+    compact_collections_with_policy(result, toon, budget, true, finalize);
+}
+
+/// Use the identical compactor for delivery and for the pinned historical omission measurement.
+fn compact_collections_with_policy(
+    result: &mut ListOutput,
+    toon: bool,
+    budget: usize,
+    preserve_intent: bool,
     mut finalize: impl FnMut(&mut Value),
 ) {
     for _ in 0..64 {
@@ -461,7 +604,11 @@ fn compact_collections(
             break;
         }
         let mut candidates = Vec::new();
-        collections(&result.value, "", &mut candidates);
+        if preserve_intent {
+            collections(&result.value, "", &mut candidates);
+        } else {
+            collections_with_policy(&result.value, "", &mut candidates, false);
+        }
         candidates.sort_by(|a, b| b.1.cmp(&a.1).then_with(|| a.0.cmp(&b.0)));
         let Some((pointer, length)) = candidates.first() else {
             break;
@@ -506,19 +653,29 @@ fn compact_collections(
     }
 }
 
+/// Versioned collection behavior and the source of the output ceiling.
+#[derive(Clone, Copy)]
+struct CompactionPolicy {
+    /// Receipt spelling of the effective ceiling.
+    source: &'static str,
+    /// Protect declarations for delivery; historical projections are measured only.
+    preserve_intent: bool,
+}
+
 /// Chooses the largest row collection and retains its largest feasible prefix.
 fn compact_rows(
     result: &mut ListOutput,
     state: &Continuation,
     budget: usize,
-    source: &str,
+    policy: CompactionPolicy,
     hints: &[String],
     measured: usize,
     options: &ListOptions,
 ) {
+    let source = policy.source;
     let unbounded_amount = options.output_limit.as_deref() == Some("unbounded");
     let toon = options.toon;
-    compact_collections(result, toon, budget, |value| {
+    let finalize_rows = |value: &mut Value| {
         finalize(
             value,
             state,
@@ -528,7 +685,12 @@ fn compact_rows(
             measured,
             unbounded_amount,
         );
-    });
+    };
+    if policy.preserve_intent {
+        compact_collections(result, toon, budget, finalize_rows);
+    } else {
+        compact_collections_with_policy(result, toon, budget, false, finalize_rows);
+    }
     finalize(
         &mut result.value,
         state,
@@ -557,7 +719,7 @@ fn compact_budget(
         .map(str::to_owned)
         .collect::<Vec<_>>();
     let measured = measure(&result, options.toon);
-    let strings_compacted = compact_strings(&mut result.value);
+    let strings_compacted = compact_strings_with_intent(&mut result.value, true);
     // The pair-preserving cut (GH-1478) can no longer introduce a lone-surrogate
     // override during compaction, so the entry validation already proved the
     // envelope encodable and this pass cannot fail.
@@ -567,17 +729,38 @@ fn compact_budget(
     } else {
         "canonical"
     };
+    let original = result["context_intent"].is_object().then(|| result.clone());
     compact_rows(
         &mut result,
         state,
         budget,
-        source,
+        CompactionPolicy {
+            source,
+            preserve_intent: true,
+        },
         &hints,
         measured,
         options,
     );
     if measure(&result, options.toon) > budget {
-        let omitted_estimate = measure(&result, options.toon);
+        let legacy_estimate = original
+            .map(|mut legacy| {
+                compact_rows(
+                    &mut legacy,
+                    state,
+                    budget,
+                    CompactionPolicy {
+                        source,
+                        preserve_intent: false,
+                    },
+                    &hints,
+                    measured,
+                    options,
+                );
+                measure(&legacy, options.toon)
+            })
+            .unwrap_or_default();
+        let omitted_estimate = measure(&result, options.toon).max(legacy_estimate);
         let mut minimal = receipt_for(options, default_budget, state.command);
         minimal["legacy_aliases_used"] = json!([]);
         minimal["migration_hints"] = json!([]);
@@ -617,7 +800,7 @@ fn finalize_orientation(
     measured: usize,
     command: &str,
 ) {
-    if command == "context" {
+    if command == "context" && result["summary"].is_object() {
         let mut states = json!({});
         let mut needs_states = false;
         let mut delivered = String::new();
@@ -717,19 +900,26 @@ pub(crate) fn apply_orientation(
     command: &'static str,
     row_keys: &[&str],
 ) -> Result<ListOutput, PmRustError> {
+    // The TOON table contract is selected once by command, never by declaration
+    // fields that arbitrary documents may carry.
+    let current_contract = matches!(command, "context" | "deps");
+    result.current_contract = current_contract;
     let explicit = options
         .token_budget
         .as_deref()
-        .filter(|raw| {
-            !raw.trim().is_empty() && raw.trim().bytes().all(|byte| byte.is_ascii_digit())
-        })
-        .and_then(|raw| raw.trim().parse::<usize>().ok())
+        .map(crate::orientation::trim_control)
+        .filter(|raw| !raw.is_empty() && raw.bytes().all(|byte| byte.is_ascii_digit()))
+        .and_then(|raw| raw.parse::<usize>().ok())
         .filter(|value| *value > 0);
     if options.full {
         return Ok(result);
     }
     let budget = explicit.unwrap_or(if options.toon { 4000 } else { 6000 });
-    if explicit.is_none() && measure(&result, options.toon) <= budget {
+    let covered_intent = result["context_intent"]["command"] == "context"
+        && result["context_intent"]["within_budget"] == true
+        && result["context_intent"]["token_budget"].as_u64()
+            == explicit.map(|budget| budget as u64);
+    if (explicit.is_none() || covered_intent) && measure(&result, options.toon) <= budget {
         return Ok(result);
     }
     let source = if explicit.is_some() {
@@ -751,6 +941,16 @@ pub(crate) fn apply_orientation(
             }
         }
         receipt = Value::Object(ordered);
+    }
+    if result["budget_exceeded"]["omitted_result"] == true {
+        receipt["within_budget"] = json!(false);
+        receipt["result_omitted"] = json!(true);
+    }
+    let refusal_receipt = receipt.clone();
+    if covered_intent {
+        for key in ["budget_source", "budget_tokens"] {
+            receipt.as_object_mut().map(|map| map.shift_remove(key));
+        }
     }
     let states: Vec<_> = row_keys
         .iter()
@@ -781,18 +981,42 @@ pub(crate) fn apply_orientation(
         .map(str::to_owned)
         .collect();
     result.value["read_output"] = receipt;
-    update_output(&mut result, options.toon);
+    update_orientation_output(&mut result, options.toon);
     let measured = measure(&result, options.toon);
     if measured > budget {
-        let changed = compact_strings(&mut result.value);
-        result.value["read_output"]["strings_compacted"] = json!(changed);
-        compact_collections(&mut result, options.toon, budget, |value| {
-            finalize_orientation(value, &states, budget, source, &hints, measured, command);
-        });
-        update_output(&mut result, options.toon);
+        let original = result["context_intent"].is_object().then(|| result.clone());
+        let focus_row_states = result["summary"]["focus_row_states"].clone();
+        // A compatibility projection is measured only after delivery is impossible;
+        // its compacted declaration is never returned to a caller.
+        let compact = |target: &mut ListOutput, preserve_intent: bool| {
+            let changed = compact_strings_with_intent(&mut target.value, preserve_intent);
+            target.value["read_output"]["strings_compacted"] = json!(changed);
+            compact_collections_with_policy(
+                target,
+                options.toon,
+                budget,
+                preserve_intent,
+                |value| {
+                    // Binary-search probes can grow after a fitting shorter prefix.
+                    // Always classify from the captured full response, never a prior probe.
+                    if focus_row_states.is_object() {
+                        value["summary"]["focus_row_states"] = focus_row_states.clone();
+                    }
+                    finalize_orientation(value, &states, budget, source, &hints, measured, command);
+                },
+            );
+            update_orientation_output(target, options.toon);
+        };
+        compact(&mut result, true);
         if measure(&result, options.toon) > budget {
-            let omitted = measure(&result, options.toon);
-            let mut minimal = result["read_output"].clone();
+            let legacy_estimate = original
+                .map(|mut legacy| {
+                    compact(&mut legacy, false);
+                    measure(&legacy, options.toon)
+                })
+                .unwrap_or_default();
+            let omitted = measure(&result, options.toon).max(legacy_estimate);
+            let mut minimal = refusal_receipt;
             minimal
                 .as_object_mut()
                 .map(|map| map.shift_remove("compacted_row_paths"));
@@ -807,9 +1031,10 @@ pub(crate) fn apply_orientation(
             result = ListOutput::from(
                 json!({"output_budget_exceeded":{"omitted_result":true,"reason":"requested_budget_infeasible","restore_with":"Unbounded","recovery":{"outputBudget":"unbounded"}},"read_output":minimal}),
             );
+            result.current_contract = current_contract;
         }
     }
-    update_output(&mut result, options.toon);
+    update_orientation_output(&mut result, options.toon);
     if options.toon {
         crate::toon_output::validate(&result)?;
     }

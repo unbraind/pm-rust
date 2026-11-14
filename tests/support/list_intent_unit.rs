@@ -178,6 +178,41 @@ fn cursor_intents_disclose_effective_infeasibility_without_losing_metadata() {
     assert_eq!(result["context_intent"]["result_omitted"], true);
 }
 
+/// List receipts follow main's current wire contract in each selected encoding.
+#[test]
+fn legacy_list_intent_feasibility_preserves_published_projection() {
+    for toon in [false, true] {
+        let options = ListOptions {
+            intent: Some("triage".into()),
+            token_budget: Some("50000".into()),
+            toon,
+            ..Default::default()
+        };
+        let mut feasible = 0;
+        let mut infeasible = 0;
+        for count in 60..110 {
+            let result = super::attach(
+                json!({"items":[],"payload":vec!["x".repeat(130);count]}),
+                &options,
+                50000,
+            );
+            let measured = crate::read_output::measure(&result, toon);
+            // proof-behavior
+            assert_eq!(
+                result["context_intent"]["estimated_tokens"], measured,
+                "review154: list intent estimate uses delivered encoding"
+            );
+            let expected = measured <= 3200;
+            // proof-behavior
+            assert_eq!(result["context_intent"]["declaration_feasible"], expected);
+            feasible += usize::from(expected);
+            infeasible += usize::from(!expected);
+        }
+        // proof-behavior
+        assert!(feasible > 0 && infeasible > 0);
+    }
+}
+
 /// Final dimensional clipping cannot turn an infeasible full declaration into a feasible one.
 #[test]
 fn round5_clipped_declaration_preserves_infeasibility() -> Result<(), Box<dyn std::error::Error>> {

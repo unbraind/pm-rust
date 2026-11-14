@@ -1,6 +1,20 @@
+import { spawnSync } from 'node:child_process';
 import { createHash } from 'node:crypto';
 import { readFileSync, readdirSync } from 'node:fs';
 import { join } from 'node:path';
+
+/** Timing is optional only for byte-identical, structured dependency budget refusals. */
+export function benchmarkPreflight(oracle: { bytes: Buffer; status: number | null }, native: { bytes: Buffer; status: number | null }, label: string, dependency = false): string | undefined {
+  if (oracle.status === null || native.status === null || oracle.status !== native.status || !oracle.bytes.equals(native.bytes)) throw new Error(`Benchmark parity failed: ${label}`);
+  if (oracle.status === 0) return undefined;
+  if (dependency && oracle.status === 2) {
+    try {
+      const payload: { code?: string; recovery?: { token_budget?: { requested_tokens?: number } } } = JSON.parse(oracle.bytes.toString().split('\0')[1]);
+      if (payload.code === 'invalid_argument_value' && payload.recovery?.token_budget?.requested_tokens === 5000) return 'dependency_token_budget_infeasible';
+    } catch { /* Non-budget failures remain hard failures. */ }
+  }
+  throw new Error(`Benchmark preflight failed: ${label}`);
+}
 
 /** Hash authoritative item and append-only history files without retaining their contents. */
 export function authoritative(directory: string, prefix = ''): Map<string, string> {
@@ -10,7 +24,7 @@ export function authoritative(directory: string, prefix = ''): Map<string, strin
     if (!prefix && ['runtime', 'locks', 'transactions', 'checkpoints', 'search'].includes(entry.name)) continue;
     if (entry.isDirectory()) {
       for (const [key, value] of authoritative(join(directory, entry.name), relative)) hashes.set(key, value);
-    } else if (entry.name.endsWith('.toon') || entry.name.endsWith('.jsonl')) {
+    } else if (entry.name.endsWith('.toon') || entry.name.endsWith('.jsonl') || entry.name.endsWith('.json')) {
       hashes.set(relative, createHash('sha256').update(readFileSync(join(directory, entry.name))).digest('hex'));
     }
   }
@@ -48,4 +62,16 @@ export function relationshipRoots(items: Record<string, unknown>[]): Set<string>
     if (selected) roots.add(String(selected.id));
   }
   return roots;
+}
+
+/** Verify the version through the exact driver used for every measured invocation. */
+export function verifiedOracleVersion(driver: string, root: string, environment: NodeJS.ProcessEnv): string {
+  const expected = '2026.11.11';
+  const result = spawnSync(process.execPath, [driver, '--version'], {
+    cwd: root, env: environment, encoding: 'utf8', timeout: 30_000, maxBuffer: 1024 * 1024,
+  });
+  if (result.error || result.status !== 0 || result.stderr.trim() || result.stdout.trim() !== expected) {
+    throw new Error('Real-copy driver must verify the pinned oracle version 2026.11.11');
+  }
+  return result.stdout.trim();
 }

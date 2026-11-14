@@ -38,20 +38,37 @@ export PM_TELEMETRY_SOURCE_CONTEXT := "test"
 export PM_NODE_CLI := env_var_or_default("PM_NODE_CLI", justfile_directory() / "tests/oracle/node_modules/@unbrained/pm-cli")
 
 # Install the shared local and CI parity oracle without resolving new versions.
-oracle-install:
+oracle-install: orientation-oracle-install
     npm ci --prefix tests/oracle --ignore-scripts --prefer-offline --maxsockets=2
+
+# Install the independent current orientation contract oracle.
+orientation-oracle-install:
+    npm ci --prefix tests/orientation-oracle --ignore-scripts
+
+# Run the focused current orientation contract.
+orientation-check: oracle-install
+    RUST_TEST_THREADS=2 PM_RUST_REQUIRE_PUBLISHED_CLI=1 cargo test -j 2 --locked --test orientation_differential
+
+# Prove the new intent tests reject the previous behavior in a disposable copy.
+orientation-revert-proof: oracle-install
+    node scripts/context-intents-revert.mts
 
 # Run the standalone typed crash-conformance CLI (Linux and strace required).
 [positional-arguments]
 crash *args:
     node scripts/crash-cli.mts "$@"
 
+# Prove the current review regressions with passing controls around each mutation.
+[positional-arguments]
+review154-revert-proof *args: oracle-install
+    node scripts/context-round154-revert.mts "$@"
+
 # Targeted TypeScript harness checks; Rust tests/build remain separate.
 crash-check: oracle-install
     npm ci --prefix tests/harness --ignore-scripts --prefer-offline --maxsockets=2
     tests/harness/node_modules/.bin/tsc -p tests/harness/tsconfig.json
-    tests/harness/node_modules/.bin/eslint -c tests/harness/eslint.config.mjs scripts/crash-*.mts scripts/native-adapter-*.mts scripts/perf-revert-proof.mts
-    node --test --test-concurrency=1 scripts/crash-*.test.mts scripts/native-adapter-*.test.mts
+    tests/harness/node_modules/.bin/eslint -c tests/harness/eslint.config.mjs scripts/crash-*.mts scripts/native-adapter-*.mts scripts/context-*.mts scripts/harness.test.mts scripts/perf-revert-proof.mts
+    node --test --test-concurrency=1 scripts/crash-*.test.mts scripts/native-adapter-*.test.mts scripts/context-*.test.mts
     node scripts/crash-history-prefix.mts
     node scripts/crash-evidence-commits.mts
 

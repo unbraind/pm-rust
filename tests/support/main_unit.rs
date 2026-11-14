@@ -1,6 +1,71 @@
 #[cfg(unix)]
 #[path = "advice_corpus.rs"]
 mod advice_corpus;
+
+/// Refusal recovery preserves all path bytes and replaces the rejected section occurrence.
+#[test]
+fn review154_lossless_retry_and_argument_roles() {
+    let command = pm_rust::render_pm_command([
+        "--pm-path",
+        "tracker\twith\r\ncharacters",
+        "context",
+        "--token-budget",
+        "1000",
+    ]);
+    let payload =
+        serde_json::json!({"recovery":{"normalized_args":["context"],"suggested_retry":command}});
+    let displayed = super::orientation_diagnostic_text(
+        &payload,
+        format!("diagnostic\ttext\n  suggested_retry: {command}\n"),
+    );
+    assert!(
+        displayed.contains(&command),
+        "review154: displayed retry must preserve exact path bytes"
+    );
+    assert!(
+        displayed.starts_with("diagnostic text"),
+        "review154: diagnostic text still sanitizes controls"
+    );
+    assert_eq!(
+        super::orientation_diagnostic_text(&payload, "diagnostic\r\ntext\r".into()),
+        "diagnostic\ntext "
+    );
+    for flag in ["--pm-path", "--path", "--workspace"] {
+        for separator in [" ", "="] {
+            let scoped = format!(
+                "pm {flag}{separator}{} context",
+                pm_rust::quote_command_arg("tracker\twith\r\ncharacters")
+            );
+            let payload = serde_json::json!({"recovery":{"normalized_args":["context"],"attempted_command":scoped}});
+            assert_eq!(
+                super::orientation_diagnostic_text(&payload, scoped.clone()),
+                scoped
+            );
+        }
+    }
+    let malformed = serde_json::json!({"recovery":{"normalized_args":["context"],"attempted_command":"pm 'unterminated"}});
+    assert_eq!(
+        super::orientation_diagnostic_text(&malformed, "diagnostic\ttext".into()),
+        "diagnostic text"
+    );
+    let rejected = pm_rust::render_pm_command(["context", "--token-budget", "\u{85}1000"]);
+    let numeric = serde_json::json!({"recovery":{"normalized_args":["context"],"attempted_command":rejected}});
+    assert_eq!(
+        super::orientation_diagnostic_text(&numeric, rejected.clone()),
+        rejected.replace('\u{85}', " "),
+        "review154: only explicit path values retain diagnostic control characters"
+    );
+    let raw = ["context", "--activity-limit", "--path", "--json"].map(str::to_owned);
+    assert_eq!(
+        super::published_read_arguments(&raw),
+        raw,
+        "review154: flag-shaped values retain argument roles"
+    );
+    assert!(
+        super::json_requested(&raw),
+        "review154: JSON option is independent of rejected value"
+    );
+}
 use serde_json::Map;
 use std::fs;
 use std::io;
@@ -8,29 +73,6 @@ use std::io;
 use pm_rust::{ItemDocument, ItemFilter, ItemMetadata, ListResult};
 
 use super::{Cli, Command, run, write_json_to};
-
-/// Bootstrap scope is explicit input, independent of incidental test-runner arguments.
-#[test]
-fn round6_bootstrap_scope_is_independent_of_harness_arguments() {
-    for (raw, expected) in [
-        (vec![], vec![]),
-        (vec!["--native"], vec![]),
-        (vec!["--native", "--", "--workspace=literal"], vec![]),
-        (vec!["--native", "close", "--workspace=literal"], vec![]),
-        (vec!["--native", "--workspace"], vec![]),
-        (
-            vec!["--native", "--workspace", "tracker with spaces", "claim"],
-            vec!["--pm-path", "tracker with spaces"],
-        ),
-        (
-            vec!["--native", "--workspace=tracker", "claim"],
-            vec!["--pm-path", "tracker"],
-        ),
-    ] {
-        let raw = raw.into_iter().map(str::to_owned).collect::<Vec<_>>();
-        assert_eq!(super::invocation_scope(&raw), expected, "{raw:?}");
-    }
-}
 
 /// Orientation dispatch preserves budget exits and opt-in strict history verification.
 #[test]
@@ -81,6 +123,36 @@ fn orientation_dispatch_boundaries() -> Result<(), Box<dyn std::error::Error>> {
 #[test]
 fn orientation_error_recovery_contract() {
     let strings = |args: &[&str]| args.iter().map(|arg| (*arg).to_owned()).collect::<Vec<_>>();
+    for suffix in [vec![], vec!["--json"], vec!["--no-tags"]] {
+        let mut dangling = strings(&["context", "--section=bad", "--activity-limit", "--section"]);
+        dangling.extend(strings(&suffix));
+        let recovery = super::orientation_error_json(
+            "Context --section must be one of hierarchy",
+            &serde_json::json!({"code":"invalid_argument_value","recovery":{"allowed_values":["hierarchy"]}}),
+            &dangling,
+            2,
+        );
+        // proof-behavior
+        assert_eq!(recovery["exit_code"], 2);
+        // proof-behavior
+        assert_eq!(recovery["refusal"]["rejected_value"], "bad");
+        // proof-behavior
+        assert_eq!(
+            recovery["examples"],
+            serde_json::json!([
+                "pm context --help",
+                "pm contracts --command <command> --flags-only --json"
+            ])
+        );
+    }
+    let retry = super::orientation_error_json(
+        "Context --section must be one of hierarchy",
+        &serde_json::json!({"code":"invalid_argument_value","recovery":{"allowed_values":["hierarchy"]}}),
+        &strings(&["context", "--section", "bad"]),
+        2,
+    );
+    // proof-behavior
+    assert_eq!(retry["examples"][0], "pm context --section hierarchy");
     for (args, detail, context) in [
         (
             vec!["context", "--limit", "bad"],
@@ -99,9 +171,12 @@ fn orientation_error_recovery_contract() {
         ),
     ] {
         let result = super::orientation_error_json(detail, &context, &strings(&args), 2);
+        // proof-behavior
         assert_eq!(result["exit_code"], 2);
+        // proof-behavior
         assert!(result["recovery"].is_object());
     }
+    // proof-behavior
     assert_eq!(
         super::published_read_arguments([
             "context",
@@ -1342,8 +1417,6 @@ fn canonical_packet_retry_arguments_are_accepted() -> Result<(), Box<dyn std::er
         vec!["pm-rust"],
         vec!["pm-rust", "--workspace"],
         vec!["pm-rust", "--workspace", "item", "deps", "root"],
-        // `item` only as an option value: the invocation has no command, so nothing is rewritten.
-        vec!["pm-rust", "--workspace", "item"],
         vec!["pm-rust", "item", "get", "root"],
         vec!["pm-rust", "deps", "item"],
     ] {
@@ -1675,10 +1748,13 @@ fn native_adapter_stdio_refusals() -> Result<(), Box<dyn std::error::Error>> {
         }
     }
     let directory = tempfile::tempdir()?;
+    // proof-behavior
     assert!(super::run_adapter_check(&mut ReadFailure, &mut Vec::new(), true).is_err());
     for json in [false, true] {
+        // proof-behavior
         assert!(super::run_adapter_check(&mut &b"{}"[..], &mut WriteFailure, json).is_err());
         let valid = br#"{"manifest":{"abi":"pm-native-adapter/1","capabilities":["get"],"max_frame_bytes":4096},"request":{"abi":"pm-native-adapter/1","request_id":"call-1","operation":{"action":"get","id":"demo-1"}}}"#;
+        // proof-behavior
         assert!(super::run_adapter_check(&mut &valid[..], &mut FlushFailure, json).is_err());
         for (input, ok) in [(&b"{}"[..], false), (&valid[..], true)] {
             let mut output = Vec::new();
@@ -1690,11 +1766,14 @@ fn native_adapter_stdio_refusals() -> Result<(), Box<dyn std::error::Error>> {
                 &mut &input[..],
                 &mut output,
             );
+            // proof-behavior
             assert_eq!(result.is_ok(), ok);
             if json {
                 let value: serde_json::Value = serde_json::from_slice(&output)?;
+                // proof-behavior
                 assert_eq!(value["ok"], ok);
             } else {
+                // proof-behavior
                 assert!(String::from_utf8(output)?.contains(if ok {
                     "ok: true"
                 } else {
@@ -1706,6 +1785,7 @@ fn native_adapter_stdio_refusals() -> Result<(), Box<dyn std::error::Error>> {
         // Fail only the trailing newline, after successful frame emission.
         let mut only_frame = vec![0u8; pm_rust::stringify_json(&output, false).len()];
         if json {
+            // proof-behavior
             assert!(
                 super::write_adapter_receipt_to(&mut only_frame.as_mut_slice(), &output, json)
                     .is_err()
@@ -1716,7 +1796,9 @@ fn native_adapter_stdio_refusals() -> Result<(), Box<dyn std::error::Error>> {
         serde_json::json!({"title":"cut"}),
         std::collections::BTreeMap::from([("/title".to_owned(), "\"\\ud83d\"".to_owned())]),
     );
+    // proof-behavior
     assert!(super::write_adapter_receipt_to(&mut Vec::new(), &cut, false).is_err());
+    // proof-behavior
     assert!(!directory.path().join(".agents").exists());
     Ok(())
 }
@@ -1821,7 +1903,7 @@ fn admission_stdio_refusals() -> Result<(), Box<dyn std::error::Error>> {
         "admission_input"
     );
     let input = serde_json::to_vec(
-        &serde_json::json!({"author":"fixture-agent","mutations":[{"op":"create","id":"demo-new","options":{"title":"Fixture","type":"Task","status":"open","priority":2,"createMode":"progressive","unset":["parent","assignee"],"allowDuplicate":true}}]}),
+        &serde_json::json!({"author":"fixture-agent","mutations":[{"op":"create","id":"demo-new","options":{"title":"Fixture","type":"Task","status":"open","priority":2,"createMode":"progressive","parent":"none","assignee":"none","allowDuplicate":true}}]}),
     )?;
     let error = super::run_with_io(cli(true), &mut input.as_slice(), &mut Vec::new())
         .err()
@@ -1866,6 +1948,7 @@ fn capabilities_writer_refusals() -> Result<(), Box<dyn std::error::Error>> {
         let error = super::write_discovery_to(&mut bytes, Err(refusal), json)
             .err()
             .ok_or("delivery must preserve producer refusal")?;
+        // proof-behavior
         assert_eq!(
             error
                 .downcast_ref::<pm_rust::discovery::DiscoveryRefusal>()
@@ -1873,6 +1956,7 @@ fn capabilities_writer_refusals() -> Result<(), Box<dyn std::error::Error>> {
                 .code,
             pm_rust::discovery::DiscoveryRefusalCode::InvalidRequest
         );
+        // proof-behavior
         assert!(bytes.is_empty());
         let cli = || Cli {
             workspace: directory.path().join("missing"),
@@ -1884,7 +1968,9 @@ fn capabilities_writer_refusals() -> Result<(), Box<dyn std::error::Error>> {
                 json,
             },
         };
+        // proof-behavior
         assert!(super::run_with_io(cli(), &mut &b""[..], &mut WriteFailure).is_err());
+        // proof-behavior
         assert!(super::run_with_io(cli(), &mut &b""[..], &mut FlushFailure).is_err());
     }
     let mut response = pm_rust::discovery::discover_capabilities(
@@ -1896,14 +1982,306 @@ fn capabilities_writer_refusals() -> Result<(), Box<dyn std::error::Error>> {
         let error = super::write_discovery_to(&mut bytes, Ok(response.clone()), json)
             .err()
             .ok_or("delivery must refuse an invalid response")?;
+        // proof-behavior
         assert!(
             error
                 .downcast_ref::<pm_rust::discovery::DiscoveryRefusal>()
                 .is_some()
         );
+        // proof-behavior
         assert!(bytes.is_empty());
     }
     Ok(())
+}
+/// Shared refusals suppress duplicate details while only orientation sanitizes controls.
+#[test]
+fn current_orientation_diagnostics_preserve_other_commands()
+-> Result<(), Box<dyn std::error::Error>> {
+    for (args, orientation) in [
+        (vec!["context"], true),
+        (vec!["item", "deps"], true),
+        (vec!["item", "test"], false),
+        (vec!["history"], false),
+        (vec!["claim"], false),
+    ] {
+        for duplicate in [true, false] {
+            let detail = if duplicate {
+                "Expected refusal"
+            } else {
+                "Independent\trefusal"
+            };
+            let payload = serde_json::json!({"title":"Expected refusal","detail":detail,"recovery":{"normalized_args":args}});
+            let mut output = Vec::new();
+            super::write_cursor_refusal_to(&mut output, &payload)?;
+            let text = String::from_utf8(output)?;
+            // proof-behavior
+            assert_eq!(
+                text.contains("What happened:"),
+                !duplicate,
+                "review154: main duplicate-detail compaction applies to every command"
+            );
+            // proof-behavior
+            assert_eq!(
+                text.contains("Independent\trefusal"),
+                !duplicate && !orientation,
+                "review154: orientation controls must not alter other command diagnostics"
+            );
+        }
+    }
+    Ok(())
+}
+
+/// Warning frames and refusal metadata retain their encoding and writer error contracts.
+#[test]
+fn context_warning_rendering_preserves_refusal_metadata() -> Result<(), Box<dyn std::error::Error>>
+{
+    let root = tempfile::tempdir()?;
+    let pm = root.path().join(".agents/pm");
+    fs::create_dir_all(pm.join("tasks"))?;
+    fs::create_dir(pm.join("history"))?;
+    for settings in ["{}", r#"{"context":{"activity_limit":0}}"#] {
+        fs::write(pm.join("settings.json"), settings)?;
+        let result = pm_rust::Workspace::discover(root.path())?.context(
+            &pm_rust::ContextOptions {
+                no_extension_health: true,
+                ..Default::default()
+            },
+            "2026-08-22T10:00:00.000Z",
+        )?;
+        for json in [false, true] {
+            let mut output = Vec::new();
+            let mut diagnostics = Vec::new();
+            super::write_context_to(&mut output, &mut diagnostics, &result, json)?;
+            assert!(!output.is_empty());
+            assert_eq!(diagnostics.is_empty(), settings == "{}");
+            assert!(
+                super::write_context_to(&mut WriteFailure, &mut Vec::new(), &result, json).is_err()
+            );
+            assert_eq!(
+                super::write_context_to(&mut Vec::new(), &mut WriteFailure, &result, json).is_err(),
+                settings != "{}"
+            );
+        }
+    }
+    let warning = "synthetic settings warning";
+    for json in [false, true] {
+        let mut bytes = Vec::new();
+        super::write_settings_warning_to(&mut bytes, warning, json)?;
+        if json {
+            let payload: serde_json::Value = serde_json::from_slice(&bytes)?;
+            assert_eq!(payload["type"], "warning");
+            assert_eq!(payload["warning_details"][0]["message"], warning);
+        } else {
+            assert_eq!(String::from_utf8(bytes)?, format!("{warning}\n"));
+        }
+        assert!(super::write_settings_warning_to(&mut WriteFailure, warning, json).is_err());
+    }
+    let mut refusal = serde_json::json!({"code":"invalid_argument_value"});
+    super::attach_settings_warning(&mut refusal, None);
+    assert!(refusal.get("warnings").is_none());
+    super::attach_settings_warning(&mut refusal, Some(warning));
+    assert_eq!(refusal["code"], "invalid_argument_value");
+    assert_eq!(
+        refusal["warnings"],
+        serde_json::json!(["settings_read_invalid_schema"])
+    );
+    assert_eq!(refusal["warning_details"][0]["message"], warning);
+    for detail in ["merge conflict markers", "invalid item", "item I/O failure"] {
+        for json in [false, true] {
+            for warning in [None, Some(warning)] {
+                let error = std::io::Error::other(detail);
+                let mut bytes = Vec::new();
+                super::write_runtime_error_to(&mut bytes, &error, warning, json)?;
+                if json && warning.is_some() {
+                    let payload: serde_json::Value = serde_json::from_slice(&bytes)?;
+                    assert_eq!(payload["error"], format!("pm-rust: {detail}"));
+                    assert_eq!(
+                        payload["warning_details"][0]["message"],
+                        warning.unwrap_or_default()
+                    );
+                } else {
+                    assert_eq!(bytes, format!("pm-rust: {detail}\n").as_bytes());
+                }
+                assert!(
+                    super::write_runtime_error_to(&mut WriteFailure, &error, warning, json)
+                        .is_err()
+                );
+            }
+        }
+    }
+    Ok(())
+}
+
+/// Raw refusal diagnostics use the parser's top-level workspace spelling only.
+#[test]
+fn parser_refusal_workspace_selection_matches_native_scope()
+-> Result<(), Box<dyn std::error::Error>> {
+    use clap::Parser as _;
+    use std::path::PathBuf;
+    for flag in ["--workspace", "--pm-path", "--path"] {
+        for folder in ["fixture space", "context", "nested/tracker"] {
+            for args in [
+                vec![flag.to_owned(), folder.to_owned()],
+                vec![format!("{flag}={folder}")],
+            ] {
+                let parsed = Cli::try_parse_from(
+                    std::iter::once("pm-rust".to_owned())
+                        .chain(args.clone())
+                        .chain(["context".to_owned()]),
+                )?;
+                // proof-behavior
+                assert_eq!(super::native_workspace_path(&args), parsed.workspace);
+                let mut refused = args;
+                refused.extend([
+                    "context".to_owned(),
+                    "--output-cursor".to_owned(),
+                    "--workspace=unrelated".to_owned(),
+                ]);
+                // proof-behavior
+                assert_eq!(
+                    super::native_workspace_path(&refused),
+                    PathBuf::from(folder)
+                );
+            }
+        }
+    }
+    for args in [
+        vec![],
+        vec!["context", "--path=unrelated"],
+        vec!["--", "--path=unrelated"],
+        vec!["--unknown"],
+        vec!["--workspace"],
+        vec!["--pm-path"],
+        vec!["--path"],
+    ] {
+        // proof-behavior
+        assert_eq!(super::native_workspace_path(args), PathBuf::from("."));
+    }
+    #[cfg(any(unix, windows))]
+    {
+        use std::ffi::OsString;
+        #[cfg(unix)]
+        use std::os::unix::ffi::OsStringExt as _;
+        #[cfg(windows)]
+        use std::os::windows::ffi::OsStringExt as _;
+        let mut path = OsString::from("tracker-");
+        #[cfg(unix)]
+        path.push(OsString::from_vec(vec![0xff]));
+        #[cfg(windows)]
+        path.push(OsString::from_wide(&[0xd800]));
+        for flag in ["--workspace", "--pm-path", "--path"] {
+            let mut inline = OsString::from(format!("{flag}="));
+            inline.push(&path);
+            for args in [vec![OsString::from(flag), path.clone()], vec![inline]] {
+                // proof-behavior
+                assert_eq!(super::native_workspace_path(args), PathBuf::from(&path));
+            }
+        }
+    }
+    Ok(())
+}
+
+/// Refusal normalization preserves rejected values and the published path-option parser roles.
+#[test]
+fn context_refusal_argument_roles() {
+    let strings = |args: &[&str]| args.iter().map(|arg| (*arg).to_owned()).collect::<Vec<_>>();
+    for args in [
+        vec![],
+        vec!["list"],
+        vec!["context"],
+        vec!["context", "--limit", "bad"],
+        vec!["context", "--activity-limit", "--workspace", "--json"],
+    ] {
+        assert!(super::context_path_usage(&strings(&args)).is_none());
+    }
+    for (args, json, surface) in [
+        (
+            vec!["context", "--activity-limit", "--path"],
+            false,
+            "--pm-path",
+        ),
+        (
+            vec!["context", "--activity-limit", "--path", "--json"],
+            false,
+            "--activity-limit",
+        ),
+        (
+            vec!["context", "--limit", "--pm-path", "tracker", "--json"],
+            true,
+            "--limit",
+        ),
+        (
+            vec!["context", "--token-budget", "--path=tracker", "--json"],
+            true,
+            "--token-budget",
+        ),
+    ] {
+        let Some((payload, actual_json)) = super::context_path_usage(&strings(&args)) else {
+            assert!(
+                super::context_path_usage(&strings(&args)).is_some(),
+                "missing parser refusal"
+            );
+            return;
+        };
+        assert_eq!(actual_json, json);
+        assert_eq!(payload["refusal"]["surface"], surface);
+        assert_eq!(payload["code"], "invalid_command_usage");
+        assert_eq!(payload.get("why").is_none(), json);
+    }
+    for (args, expected) in [
+        (
+            vec!["context", "--max-items", "--path", "--json"],
+            "--limit",
+        ),
+        (
+            vec!["context", "--token_budget", "--path=tracker", "--json"],
+            "--token-budget",
+        ),
+    ] {
+        let Some((payload, _)) = super::context_path_usage(&strings(&args)) else {
+            assert!(super::context_path_usage(&strings(&args)).is_some());
+            return;
+        };
+        assert_eq!(payload["refusal"]["surface"], expected);
+        assert_eq!(payload["recovery"]["normalized_args"][1], expected);
+    }
+    assert_eq!(
+        super::orientation_arguments(&strings(&["context", "--max-items=1", "--token_budget=2"])),
+        strings(&["context", "--limit=1", "--token-budget=2"])
+    );
+    for flag in [
+        "--activity-limit",
+        "--limit",
+        "--max-items",
+        "--token-budget",
+        "--token_budget",
+    ] {
+        let args = strings(&["context", flag, "--path", "--json"]);
+        assert_eq!(super::published_read_arguments(args.clone()), args);
+    }
+}
+
+/// Bootstrap scope is explicit input, independent of incidental test-runner arguments.
+#[test]
+fn round6_bootstrap_scope_is_independent_of_harness_arguments() {
+    for (raw, expected) in [
+        (vec![], vec![]),
+        (vec!["--native"], vec![]),
+        (vec!["--native", "--", "--workspace=literal"], vec![]),
+        (vec!["--native", "close", "--workspace=literal"], vec![]),
+        (vec!["--native", "--workspace"], vec![]),
+        (
+            vec!["--native", "--workspace", "tracker with spaces", "claim"],
+            vec!["--pm-path", "tracker with spaces"],
+        ),
+        (
+            vec!["--native", "--workspace=tracker", "claim"],
+            vec!["--pm-path", "tracker"],
+        ),
+    ] {
+        let raw = raw.into_iter().map(str::to_owned).collect::<Vec<_>>();
+        assert_eq!(super::invocation_scope(&raw), expected, "{raw:?}");
+    }
 }
 
 /// Scope comes only from bootstrap arguments, never positional or option-valued close text.
@@ -2626,4 +3004,22 @@ fn round19_unclosed_recovery_advice_is_not_executable() {
         valid,
         Some("pm --pm-path selected get sample-one".to_owned())
     );
+}
+
+/// Warning-bearing generic refusals preserve main's userinfo projection in every encoding.
+#[test]
+fn review154_generic_warning_refusals_redact_userinfo() -> Result<(), Box<dyn std::error::Error>> {
+    let error = std::io::Error::other(
+        "fixture failure https://fixture-user:fixture-secret@example.invalid/path",
+    );
+    for json in [false, true] {
+        let mut bytes = Vec::new();
+        super::write_runtime_error_to(&mut bytes, &error, Some("settings warning"), json)?;
+        let text = String::from_utf8(bytes)?;
+        assert!(
+            !text.contains("fixture-user") && !text.contains("fixture-secret"),
+            "review154: generic warning diagnostics retain main userinfo redaction"
+        );
+    }
+    Ok(())
 }
