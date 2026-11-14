@@ -11,7 +11,11 @@ fn harness_behavior() -> Result<(), Box<dyn std::error::Error>> {
     };
     let output = interpreter
         .test_command()
-        .arg("scripts/harness.test.mts")
+        .arg("--test-concurrency=2")
+        .args([
+            "scripts/harness.test.mts",
+            "scripts/crash-oracle-pin.test.mts",
+        ])
         .current_dir(env!("CARGO_MANIFEST_DIR"))
         .output()?;
     assert!(

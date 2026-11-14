@@ -1120,6 +1120,15 @@ impl Workspace {
         now: &str,
         global: Option<std::path::PathBuf>,
     ) -> Result<ListOutput, PmRustError> {
+        time::OffsetDateTime::parse(now, &time::format_description::well_known::Rfc3339).map_err(
+            |_| {
+                crate::collections::refusal(
+                    "Invalid time value",
+                    1,
+                    json!({"code":"unknown_error"}),
+                )
+            },
+        )?;
         let read = crate::ownership::runtime_settings(self.pm_root())?;
         let mut settings = read.value;
         if read.unsupported_context {
@@ -1259,6 +1268,8 @@ impl Workspace {
                 crate::read_projection::Projection::ContextSections
             })?
             .collect::<Result<Vec<_>, _>>()?;
+        #[cfg(test)]
+        crate::lifecycle_admission::before_path_read(self.pm_root());
         let lifecycle = if settings_fallback {
             Lifecycle::from_values(&settings, &Value::Null, &Value::Null)
         } else {

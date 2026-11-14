@@ -265,7 +265,7 @@ impl Intent {
         result.value["context_intent"] = receipt;
         read_output::update(&mut result, "context_intent", false);
         if read_output::estimate(&result, false) > *budget {
-            read_output::compact_strings(&mut result.value, true);
+            read_output::compact_strings_with_intent(&mut result.value, true);
             result.value["context_intent"]["degradation"] = json!("recursive_budget_compaction");
             read_output::update(&mut result, "context_intent", false);
         }

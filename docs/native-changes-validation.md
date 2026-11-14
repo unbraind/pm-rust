@@ -84,3 +84,31 @@ This covers both admission outcomes through the same dispatch used by the binary
 The process-level non-git contract separately executes missing-workspace and
 closed-output-pipe failures in both encodings, covering the executable's error
 propagation rather than relying on unit dispatch coverage alone.
+
+## Compact read-table restoration
+
+The pinned 2026.11.11 CLI emits `list_columns`, `null_columns` and
+`null_column_index` when the compact table is smaller. Keep those published bytes.
+Use the public `pm_rust::parse_toon` reader for read envelopes and single framed
+session pages. It restores list cells, nested JSON, absent fields, explicit nulls
+and column order before exposing the page. Generic TOON codecs parse the syntax
+and retain encoding metadata; they do not implement the pm table protocol.
+Restoration preserves the delivered projection and does not invent intentionally
+omitted brief fields.
+
+The maintained list-page decoder in `tests/pagination_differential.rs` and the
+read-command decoder in `tests/cli_dispatch.rs` use this reader. Session-page
+coverage exercises the same API, including the frame delimiter. Item files,
+change-stream pages, discovery receipts, mutation refusals and crash-review
+reports use their own ordinary TOON encodings and retain their existing codecs.
+Round-trip tests cover complete synthetic envelopes, real oracle-backed list
+rows with list/all-null columns, nested sparse tables and framed session pages.
+
+
+Restoration follows only object-member envelope paths from the page root, matching
+`toon_output::render`. Every array is an opaque boundary: expanded item records,
+restored records and decoded JSON cells retain all their user-defined fields.
+Envelope `<field>_encoding` siblings remain reserved for producer table controls;
+item fields such as `labels_encoding`, `list_columns`, `null_columns` and
+`x_encoding` are never interpreted as instructions. No escaping or published
+wire-byte change is needed.

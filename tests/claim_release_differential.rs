@@ -125,8 +125,8 @@ impl Fixture {
             for name in expected {
                 let artifact = format!("{relative}/{name}");
                 assert_eq!(
-                    fs::read_to_string(self.rust.path().join(&artifact))?,
-                    fs::read_to_string(self.node.path().join(&artifact))?,
+                    fs::read(self.rust.path().join(&artifact))?,
+                    fs::read(self.node.path().join(&artifact))?,
                     "{artifact}"
                 );
             }
@@ -843,6 +843,7 @@ fn failed_start_preserves_claim_and_published_recovery_receipt()
         "alpha",
         "--json",
     ])?;
+    fixture.step(&["claim", "sample-own", "--start", "--author", "alpha"])?;
     let history = fs::read_to_string(
         fixture
             .rust
@@ -987,6 +988,7 @@ fn sdk_release_bypass_matches_published_without_authorizing_pause()
     let options = pm_rust::OwnershipOptions {
         identity: None,
         release_bypass: true,
+        start: false,
     };
     let workspace = pm_rust::Workspace::discover(fixture.rust.path())?;
     assert!(workspace.pause_task(&request, &options).is_err());
@@ -1249,19 +1251,21 @@ fn stale_session_lock_refusal_matches_published_policy() -> Result<(), Box<dyn s
         )?;
         assert!(oracle.status.success());
         let refusal: serde_json::Value = serde_json::from_slice(&oracle.stdout)?;
-        assert_eq!(refusal["exit_code"], 4);
-        assert_eq!(
-            refusal["detail"],
-            "Item session-state lock is stale; rerun with --force when supported for this command"
-        );
-        let result = if action == "claim" {
-            workspace.claim_with_options(&request, &pm_rust::OwnershipOptions::default())
+        if action == "claim" {
+            assert_eq!(refusal, serde_json::json!({"ok":true}));
+            let receipt =
+                workspace.claim_with_options(&request, &pm_rust::OwnershipOptions::default())?;
+            assert_eq!(receipt.warnings, ["claim_semantic_attribution_unrecorded"]);
         } else {
-            workspace.release_with_options(&request, &pm_rust::OwnershipOptions::default())
-        };
-        assert!(
-            matches!(result, Err(pm_rust::PmRustError::CommandRefusal { detail, exit_code: 4, context }) if detail == refusal["detail"].as_str().unwrap_or_default() && context == refusal["context"])
-        );
+            assert_eq!(refusal["exit_code"], 4);
+            assert_eq!(
+                refusal["detail"],
+                "Item session-state lock is stale; rerun with --force when supported for this command"
+            );
+            assert!(
+                matches!(workspace.release_with_options(&request,&pm_rust::OwnershipOptions::default()),Err(pm_rust::PmRustError::CommandRefusal{detail,exit_code:4,context}) if detail == refusal["detail"].as_str().unwrap_or_default() && context == refusal["context"])
+            );
+        }
         for root in [fixture.node.path(), fixture.rust.path()] {
             assert_eq!(
                 fs::read(root.join(".agents/pm/locks/session-state.lock"))?,
@@ -1450,18 +1454,16 @@ fn ranking_comparison_rejects_exit_stderr_and_session_divergence()
     Ok(())
 }
 
-/// Semantic publication belongs to the claim step, before lifecycle recovery wrapping.
+/// Claim attribution failures remain warnings while composed starts finish durably.
 #[test]
-fn failed_start_semantic_recording_retains_oracle_claim_error()
+fn start_semantic_recording_warns_and_matches_published_state()
 -> Result<(), Box<dyn std::error::Error>> {
     let Some(fixture) = Fixture::new("none")? else {
         return Ok(());
     };
-    let lock = serde_json::to_vec(&serde_json::json!({
-        "id":"session-state", "pid":1, "owner":"session-state",
-        "created_at":"2000-01-01T00:00:00.000Z", "ttl_seconds":1800,
-        "token":"stale-session-fixture"
-    }))?;
+    let lock = serde_json::to_vec(
+        &serde_json::json!({"id":"session-state","pid":1,"owner":"session-state","created_at":"2000-01-01T00:00:00.000Z","ttl_seconds":1800,"token":"stale-session-fixture"}),
+    )?;
     for root in [fixture.node.path(), fixture.rust.path()] {
         fs::write(root.join(".agents/pm/locks/session-state.lock"), &lock)?;
     }
@@ -1472,7 +1474,7 @@ fn failed_start_semantic_recording_retains_oracle_claim_error()
     )?;
     assert!(oracle.status.success());
     assert_eq!(oracle.stderr, b"");
-    assert_eq!(oracle.stdout, b"{\"detail\":\"Item session-state lock is stale; rerun with --force when supported for this command\",\"exit_code\":4,\"context\":{}}\n");
+    assert_eq!(oracle.stdout, b"{\"ok\":true}\n");
     let workspace = pm_rust::Workspace::discover(fixture.rust.path())?;
     let request = pm_rust::OwnershipItem {
         id: "sample-own".to_owned(),
@@ -1483,40 +1485,32 @@ fn failed_start_semantic_recording_retains_oracle_claim_error()
         if_available: false,
         provenance_role: None,
     };
-    let cli = published_run(
-        &fixture.driver,
-        fixture.node.path(),
-        &[
-            "claim",
-            "sample-own",
-            "--start",
-            "--author",
-            "alpha",
-            "--json",
-        ],
-    )?;
-    assert_eq!(cli.status.code(), Some(4));
-    assert_eq!(cli.stdout, b"");
-    let envelope: serde_json::Value = serde_json::from_slice(&cli.stderr)?;
+    let result = workspace.start_task(&request, &pm_rust::OwnershipOptions::default())?;
+    assert_eq!(result["status"], "in_progress");
+    assert_eq!(result["changed_field_count"], 3);
     assert_eq!(
-        envelope["detail"],
-        "Item session-state lock is stale; rerun with --force when supported for this command"
+        result["claim"]["warnings"],
+        serde_json::json!(["claim_semantic_attribution_unrecorded"])
     );
-    assert_eq!(envelope["code"], "command_failed");
-    assert!(envelope.get("item_id").is_none());
-    assert!(!String::from_utf8(cli.stderr)?.contains("Inspect the persisted state"));
-    // Preserve the claim error instead of inventing lifecycle recovery context.
-    assert!(matches!(
-        workspace.start_task(&request, &pm_rust::OwnershipOptions::default()),
-        Err(pm_rust::PmRustError::CommandRefusal { detail, exit_code: 4, context }) if detail == envelope["detail"].as_str().unwrap_or_default() && context == serde_json::json!({})
-    ));
     fixture.compare_bytes()?;
+    fixture.step(&[
+        "claim",
+        "sample-own",
+        "--start",
+        "--author",
+        "alpha",
+        "--json",
+    ])?;
     let item = workspace.get("sample-own")?;
-    assert_eq!(item.metadata.status, "open");
+    assert_eq!(item.metadata.status, "in_progress");
     assert_eq!(item.metadata.extra["assignee"], "alpha");
     assert_eq!(item.metadata.extra["claim_principal"], "alpha");
-    let history = fs::read_to_string(workspace.pm_root().join("history/sample-own.jsonl"))?;
-    assert_eq!(history.lines().count(), 2);
+    assert_eq!(
+        fs::read_to_string(workspace.pm_root().join("history/sample-own.jsonl"))?
+            .lines()
+            .count(),
+        3
+    );
     for root in [fixture.node.path(), fixture.rust.path()] {
         assert_eq!(
             fs::read(root.join(".agents/pm/locks/session-state.lock"))?,
@@ -1759,5 +1753,1833 @@ fn unpublished_lock_payload_refusals_match_oracle() -> Result<(), Box<dyn std::e
         fixture.step(&args)?;
     }
     fs::File::unlock(&lease)?;
+    Ok(())
+}
+
+/// All ownership refusals preserve explicit scope and redact URL credentials centrally.
+#[test]
+fn scoped_refusals_redact_credentials_without_changing_durable_bytes()
+-> Result<(), Box<dyn std::error::Error>> {
+    let Some(fixture) = Fixture::new("strict")? else {
+        return Ok(());
+    };
+    fixture.step(&["claim", "sample-own", "--author", "alpha", "--json"])?;
+    for message in [
+        "ordinary message",
+        "contact@example.invalid",
+        "https://example.invalid/public",
+        "https://fixture:test-password@example.invalid/path",
+        "https://fixture:quoted$pass`word@example.invalid/path",
+    ] {
+        for action in ["claim", "release"] {
+            let args = [
+                "--pm-path",
+                ".agents/pm",
+                action,
+                "sample-own",
+                "--author",
+                "beta",
+                "--message",
+                message,
+                "--json",
+            ];
+            fixture.step(&args)?;
+            fixture.step(&args[..args.len() - 1])?;
+            let output = native_command(fixture.rust.path(), &args).output()?;
+            assert_eq!(output.status.code(), Some(4));
+            let envelope: serde_json::Value = serde_json::from_slice(&output.stderr)?;
+            assert_eq!(envelope["recovery"]["normalized_args"][0], "--pm-path");
+            assert_eq!(envelope["recovery"]["normalized_args"][1], ".agents/pm");
+            assert!(String::from_utf8(output.stderr)?.contains("--json"));
+        }
+    }
+    fixture.step(&[
+        "--pm-path",
+        ".agents/pm",
+        "close",
+        "--author",
+        "alpha",
+        "sample-own",
+        "--reason",
+        "Done",
+        "--validate-close",
+        "strict",
+        "--json",
+    ])?;
+    fixture.step(&[
+        "claim",
+        "sample-own",
+        "--author",
+        "https://fixture:stored-password@example.invalid",
+        "--force",
+        "--json",
+    ])?;
+    fixture.step(&["claim", "sample-own", "--author", "beta", "--json"])?;
+    fixture.verify()?;
+    Ok(())
+}
+
+/// Refusal provenance distinguishes an explicit assignment from unmatched stored ownership.
+#[test]
+fn claim_refusal_uses_matching_latest_ownership_evidence() -> Result<(), Box<dyn std::error::Error>>
+{
+    let Some(fixture) = Fixture::new("none")? else {
+        return Ok(());
+    };
+    prepare(
+        &fixture,
+        &[
+            "update",
+            "sample-own",
+            "--assignee",
+            "alpha",
+            "--author",
+            "alpha",
+            "--json",
+        ],
+    )?;
+    fixture.step(&["claim", "sample-own", "--author", "beta", "--json"])?;
+    for root in [fixture.node.path(), fixture.rust.path()] {
+        let path = root.join(".agents/pm/tasks/sample-own.toon");
+        let bytes = fs::read_to_string(&path)?;
+        let updated = bytes
+            .replace("assignee: alpha", "assignee: gamma")
+            .replace("assignee: \"alpha\"", "assignee: \"gamma\"");
+        assert_ne!(
+            updated, bytes,
+            "the unmatched-owner fixture must change the stored assignee"
+        );
+        fs::write(path, updated)?;
+    }
+    fixture.step(&["claim", "sample-own", "--author", "beta", "--json"])?;
+    Ok(())
+}
+
+/// Registry-defined terminal states refuse atomic starts under the claim lock without writes.
+#[test]
+fn atomic_start_rejects_configured_terminal_status_like_oracle()
+-> Result<(), Box<dyn std::error::Error>> {
+    let Some(fixture) = Fixture::new("none")? else {
+        return Ok(());
+    };
+    for root in [fixture.node.path(), fixture.rust.path()] {
+        let path = root.join(".agents/pm/settings.json");
+        let mut settings: serde_json::Value = serde_json::from_slice(&fs::read(&path)?)?;
+        settings["schema"]["workflow"]["close_status"] = serde_json::json!("done");
+        settings["schema"]["statuses"]
+            .as_array_mut()
+            .ok_or("statuses")?
+            .push(serde_json::json!({"id":"done","roles":["terminal_done","default_close"]}));
+        fs::write(&path, serde_json::to_vec_pretty(&settings)?)?;
+        fs::write(
+            root.join(".agents/pm/schema/statuses.json"),
+            serde_json::to_vec(&serde_json::json!({"statuses":settings["schema"]["statuses"]}))?,
+        )?;
+        fs::write(
+            root.join(".agents/pm/schema/workflows.json"),
+            serde_json::to_vec(&serde_json::json!({"workflow":settings["schema"]["workflow"]}))?,
+        )?;
+    }
+    prepare(
+        &fixture,
+        &[
+            "close",
+            "sample-own",
+            "--reason",
+            "Completed",
+            "--author",
+            "alpha",
+            "--validate-close",
+            "off",
+            "--json",
+        ],
+    )?;
+    let workspace = pm_rust::Workspace::discover(fixture.rust.path())?;
+    assert_eq!(workspace.get("sample-own")?.metadata.status, "done");
+    for force in [false, true] {
+        let output = published_run(
+            &fixture.driver,
+            fixture.node.path(),
+            &[
+                "__atomic_claim_error",
+                "sample-own",
+                if force { "true" } else { "false" },
+            ],
+        )?;
+        assert!(output.status.success());
+        let expected: serde_json::Value = serde_json::from_slice(&output.stdout)?;
+        let request = pm_rust::OwnershipItem {
+            id: "sample-own".to_owned(),
+            author: "alpha".to_owned(),
+            timestamp: Some(CLOCK.to_owned()),
+            message: None,
+            force,
+            if_available: false,
+            provenance_role: None,
+        };
+        let error = workspace
+            .claim_with_options(
+                &request,
+                &pm_rust::OwnershipOptions {
+                    start: true,
+                    ..Default::default()
+                },
+            )
+            .err()
+            .ok_or("terminal start admitted")?;
+        let pm_rust::PmRustError::OwnershipRefusal {
+            detail,
+            mut context,
+        } = error
+        else {
+            return Err(format!("unexpected error: {error}").into());
+        };
+        if let Some(steps) = context
+            .as_object_mut()
+            .and_then(|fields| fields.shift_remove("next_steps"))
+        {
+            context["nextSteps"] = steps;
+        }
+        assert_eq!(detail, expected["detail"]);
+        assert_eq!(context, expected["context"]);
+        assert_eq!(expected["exit_code"], 4);
+        fixture.compare_bytes()?;
+    }
+    fixture.verify()?;
+    Ok(())
+}
+
+/// Creates a real open prerequisite and a tagged target, preserving published history.
+fn blocked_start_fixture(mode: &str) -> Result<Option<Fixture>, Box<dyn std::error::Error>> {
+    let Some(fixture) = Fixture::new("strict")? else {
+        return Ok(None);
+    };
+    prepare(
+        &fixture,
+        &[
+            "create",
+            "--id",
+            "sample-gate",
+            "--title",
+            "Gate",
+            "--type",
+            "Task",
+            "--author",
+            "alpha",
+            "--json",
+        ],
+    )?;
+    prepare(
+        &fixture,
+        &[
+            "update",
+            "sample-own",
+            "--blocked-by",
+            "sample-gate",
+            "--tags",
+            "start-target",
+            "--author",
+            "alpha",
+            "--json",
+        ],
+    )?;
+    for root in [fixture.node.path(), fixture.rust.path()] {
+        let path = root.join(".agents/pm/settings.json");
+        let mut value: serde_json::Value = serde_json::from_slice(&fs::read(&path)?)?;
+        value["governance"]["start_blocker_enforcement"] = serde_json::json!(mode);
+        fs::write(path, serde_json::to_vec_pretty(&value)?)?;
+    }
+    Ok(Some(fixture))
+}
+/// Captures canonical files and session state independently of derived read caches and locks.
+fn start_snapshot(
+    root: &Path,
+) -> Result<std::collections::BTreeMap<PathBuf, Vec<u8>>, Box<dyn std::error::Error>> {
+    fn visit(
+        root: &Path,
+        path: &Path,
+        out: &mut std::collections::BTreeMap<PathBuf, Vec<u8>>,
+    ) -> Result<(), Box<dyn std::error::Error>> {
+        for entry in fs::read_dir(path)? {
+            let entry = entry?;
+            let path = entry.path();
+            let relative = path.strip_prefix(root)?;
+            if path.is_dir() {
+                if relative.components().count() == 1
+                    && [
+                        "runtime",
+                        "cache",
+                        "locks",
+                        "search",
+                        "checkpoints",
+                        "transactions",
+                    ]
+                    .contains(&entry.file_name().to_string_lossy().as_ref())
+                {
+                    continue;
+                }
+                visit(root, &path, out)?;
+            } else {
+                out.insert(relative.to_owned(), fs::read(path)?);
+            }
+        }
+        Ok(())
+    }
+    let root = root.join(".agents/pm");
+    let mut out = std::collections::BTreeMap::new();
+    visit(&root, &root, &mut out)?;
+    let session = root.join("runtime/session.json");
+    if session.is_file() {
+        out.insert(PathBuf::from("runtime/session.json"), fs::read(session)?);
+    }
+    Ok(out)
+}
+/// Exercises the actual atomic SDK transaction, including its no-write refusal boundary.
+fn assert_atomic_blocker_refusal(fixture: &Fixture) -> Result<(), Box<dyn std::error::Error>> {
+    let before = start_snapshot(fixture.node.path())?;
+    let output = published_run(
+        &fixture.driver,
+        fixture.node.path(),
+        &["__atomic_claim_error", "sample-own", "false"],
+    )?;
+    assert!(output.status.success());
+    let expected: serde_json::Value = serde_json::from_slice(&output.stdout)?;
+    assert_eq!(expected["exit_code"], 4);
+    let workspace = pm_rust::Workspace::discover(fixture.rust.path())?;
+    let request = pm_rust::OwnershipItem {
+        id: "sample-own".to_owned(),
+        author: "alpha".to_owned(),
+        timestamp: Some(CLOCK.to_owned()),
+        message: None,
+        force: false,
+        if_available: false,
+        provenance_role: None,
+    };
+    let error = workspace
+        .claim_with_options(
+            &request,
+            &pm_rust::OwnershipOptions {
+                start: true,
+                ..Default::default()
+            },
+        )
+        .err()
+        .ok_or("blocked atomic start admitted")?;
+    let pm_rust::PmRustError::OwnershipRefusal {
+        detail,
+        mut context,
+    } = error
+    else {
+        return Err(format!("unexpected refusal: {error}").into());
+    };
+    if let Some(steps) = context
+        .as_object_mut()
+        .and_then(|fields| fields.shift_remove("next_steps"))
+    {
+        context["nextSteps"] = steps;
+    }
+    assert_eq!(detail, expected["detail"]);
+    assert_eq!(context, expected["context"]);
+    assert_eq!(start_snapshot(fixture.node.path())?, before);
+    assert_eq!(start_snapshot(fixture.rust.path())?, before);
+    fixture.compare_bytes()?;
+    Ok(())
+}
+/// Explicit claim/start judges the blocker before publishing ownership or semantic attribution.
+#[test]
+fn explicit_start_blocker_refusal_matches_oracle_without_writes()
+-> Result<(), Box<dyn std::error::Error>> {
+    let Some(fixture) = blocked_start_fixture("strict")? else {
+        return Ok(());
+    };
+    let before = start_snapshot(fixture.node.path())?;
+    fixture.step(&[
+        "claim",
+        "sample-own",
+        "--start",
+        "--author",
+        "alpha",
+        "--json",
+    ])?;
+    assert_eq!(start_snapshot(fixture.node.path())?, before);
+    assert_eq!(start_snapshot(fixture.rust.path())?, before);
+    fixture.step(&["claim", "sample-own", "--start", "--author", "alpha"])?;
+    assert_eq!(start_snapshot(fixture.rust.path())?, before);
+    assert_atomic_blocker_refusal(&fixture)?;
+    Ok(())
+}
+/// Ranked starts exclude current blockers, and their atomic writer refuses a stale ready candidate.
+#[test]
+fn ranked_start_blocker_refusal_matches_oracle_without_writes()
+-> Result<(), Box<dyn std::error::Error>> {
+    let Some(fixture) = blocked_start_fixture("strict")? else {
+        return Ok(());
+    };
+    let before = start_snapshot(fixture.node.path())?;
+    fixture.step(&[
+        "claim",
+        "--next",
+        "--start",
+        "--tag",
+        "start-target",
+        "--author",
+        "alpha",
+        "--json",
+    ])?;
+    assert_eq!(start_snapshot(fixture.node.path())?, before);
+    assert_eq!(start_snapshot(fixture.rust.path())?, before);
+    assert_atomic_blocker_refusal(&fixture)?;
+    Ok(())
+}
+/// Configures coincident workflow statuses through both supported schema layers.
+fn progress_fallback_fixture() -> Result<Option<Fixture>, Box<dyn std::error::Error>> {
+    let Some(fixture) = Fixture::new("strict")? else {
+        return Ok(None);
+    };
+    for root in [fixture.node.path(), fixture.rust.path()] {
+        let path = root.join(".agents/pm/settings.json");
+        let mut value: serde_json::Value = serde_json::from_slice(&fs::read(&path)?)?;
+        value["schema"]["workflow"]["open_status"] = serde_json::json!("open");
+        value["schema"]["workflow"]["in_progress_status"] = serde_json::json!("open");
+        fs::write(&path, serde_json::to_vec_pretty(&value)?)?;
+        fs::write(
+            root.join(".agents/pm/schema/workflows.json"),
+            serde_json::to_vec(&serde_json::json!({"workflow":value["schema"]["workflow"]}))?,
+        )?;
+    }
+    Ok(Some(fixture))
+}
+/// Explicit compositions use the registered progress fallback rather than an open no-op.
+#[test]
+fn explicit_start_progress_fallback_matches_published_bytes()
+-> Result<(), Box<dyn std::error::Error>> {
+    let Some(fixture) = progress_fallback_fixture()? else {
+        return Ok(());
+    };
+    fixture.step(&[
+        "claim",
+        "sample-own",
+        "--start",
+        "--author",
+        "alpha",
+        "--json",
+    ])?;
+    assert_eq!(
+        pm_rust::Workspace::discover(fixture.rust.path())?
+            .get("sample-own")?
+            .metadata
+            .status,
+        "in_progress"
+    );
+    fixture.verify()?;
+    Ok(())
+}
+/// The selected atomic transition resolves the identical fallback in its single claim write.
+#[test]
+fn ranked_start_progress_fallback_matches_published_bytes() -> Result<(), Box<dyn std::error::Error>>
+{
+    let Some(fixture) = progress_fallback_fixture()? else {
+        return Ok(());
+    };
+    fixture.step(&["claim", "--next", "--start", "--author", "alpha", "--json"])?;
+    assert_eq!(
+        pm_rust::Workspace::discover(fixture.rust.path())?
+            .get("sample-own")?
+            .metadata
+            .status,
+        "in_progress"
+    );
+    fixture.verify()?;
+    Ok(())
+}
+/// Explicit and atomic starts share strict-force, warning and off policy without duplicate warnings.
+#[test]
+fn start_blocker_enforcement_modes_match_published_bytes() -> Result<(), Box<dyn std::error::Error>>
+{
+    for (mode, force) in [("warn", false), ("off", false), ("strict", true)] {
+        let Some(fixture) = blocked_start_fixture(mode)? else {
+            return Ok(());
+        };
+        let mut args = vec![
+            "claim",
+            "sample-own",
+            "--start",
+            "--author",
+            "alpha",
+            "--json",
+        ];
+        if force {
+            args.push("--force");
+        }
+        fixture.step(&args)?;
+        fixture.verify()?;
+    }
+    Ok(())
+}
+
+/// The pause composition also runs start admission when its open target is the progress fallback.
+#[test]
+fn pause_progress_fallback_admission_matches_published_no_write()
+-> Result<(), Box<dyn std::error::Error>> {
+    let Some(fixture) = blocked_start_fixture("strict")? else {
+        return Ok(());
+    };
+    prepare(
+        &fixture,
+        &[
+            "update",
+            "sample-own",
+            "--status",
+            "blocked",
+            "--author",
+            "alpha",
+            "--json",
+        ],
+    )?;
+    for root in [fixture.node.path(), fixture.rust.path()] {
+        let path = root.join(".agents/pm/settings.json");
+        let mut value: serde_json::Value = serde_json::from_slice(&fs::read(&path)?)?;
+        value["schema"]["workflow"]["in_progress_status"] = serde_json::json!("open");
+        value["schema"]["statuses"]
+            .as_array_mut()
+            .ok_or("statuses")?
+            .retain(|row| row["id"] != "in_progress");
+        fs::write(&path, serde_json::to_vec_pretty(&value)?)?;
+        fs::write(
+            root.join(".agents/pm/schema/statuses.json"),
+            serde_json::to_vec(&serde_json::json!({"statuses":value["schema"]["statuses"]}))?,
+        )?;
+        fs::write(
+            root.join(".agents/pm/schema/workflows.json"),
+            serde_json::to_vec(&serde_json::json!({"workflow":value["schema"]["workflow"]}))?,
+        )?;
+    }
+    let before = start_snapshot(fixture.node.path())?;
+    fixture.step(&[
+        "release",
+        "sample-own",
+        "--pause",
+        "--author",
+        "alpha",
+        "--json",
+    ])?;
+    fixture.step(&["pause-task", "sample-own", "--author", "alpha", "--json"])?;
+    assert_eq!(start_snapshot(fixture.node.path())?, before);
+    assert_eq!(start_snapshot(fixture.rust.path())?, before);
+    Ok(())
+}
+/// Restores a supported historical alias without a scalar or canonical edge masking it.
+fn historical_alias_only(fixture: &Fixture) -> Result<(), Box<dyn std::error::Error>> {
+    // Current writes canonicalize aliases; change only the persisted relationship kind.
+    let mut item = pm_rust::Workspace::discover(fixture.node.path())?.get("sample-own")?;
+    item.metadata.extra["dependencies"][0]["kind"] = serde_json::json!("depends_on");
+    for root in [fixture.node.path(), fixture.rust.path()] {
+        fs::write(
+            root.join(".agents/pm/tasks/sample-own.toon"),
+            toon_format::encode_default(&item)?,
+        )?;
+        let stored = pm_rust::Workspace::discover(root)?.get("sample-own")?;
+        assert!(stored.metadata.extra.get("blocked_by").is_none());
+        assert_eq!(
+            stored.metadata.extra["dependencies"],
+            serde_json::json!([{"id":"sample-gate","kind":"depends_on","created_at":CLOCK,"author":"alpha","source_kind":"cli:update:dep","author_source":"detected"}])
+        );
+    }
+    Ok(())
+}
+
+/// Blocker aliases, closed prerequisites and absent/external targets share one admission policy.
+#[test]
+fn start_declared_blocker_variants_match_published_bytes() -> Result<(), Box<dyn std::error::Error>>
+{
+    for variant in ["closed", "missing", "external", "alias"] {
+        let Some(fixture) = blocked_start_fixture("strict")? else {
+            return Ok(());
+        };
+        match variant {
+            "closed" => prepare(
+                &fixture,
+                &[
+                    "close",
+                    "sample-gate",
+                    "Done",
+                    "--validate-close",
+                    "off",
+                    "--author",
+                    "alpha",
+                    "--json",
+                ],
+            )?,
+            "missing" => prepare(
+                &fixture,
+                &[
+                    "update",
+                    "sample-own",
+                    "--blocked-by",
+                    "sample-missing",
+                    "--author",
+                    "alpha",
+                    "--json",
+                ],
+            )?,
+            "external" => prepare(
+                &fixture,
+                &[
+                    "update",
+                    "sample-own",
+                    "--unset",
+                    "blocked_by",
+                    "--dep",
+                    "id=github:fixture/issue,kind=blocked_by,source_kind=external",
+                    "--author",
+                    "alpha",
+                    "--json",
+                ],
+            )?,
+            _ => {
+                prepare(
+                    &fixture,
+                    &[
+                        "update",
+                        "sample-own",
+                        "--unset",
+                        "blocked_by",
+                        "--dep-remove",
+                        "id=sample-gate,kind=blocked_by",
+                        "--author",
+                        "alpha",
+                        "--json",
+                    ],
+                )?;
+                prepare(
+                    &fixture,
+                    &[
+                        "update",
+                        "sample-own",
+                        "--dep",
+                        "id=sample-gate,kind=depends_on",
+                        "--author",
+                        "alpha",
+                        "--json",
+                    ],
+                )?;
+            }
+        }
+        if variant == "alias" {
+            historical_alias_only(&fixture)?;
+        }
+        let unchanged = start_snapshot(fixture.node.path())?;
+        fixture.step(&[
+            "claim",
+            "sample-own",
+            "--start",
+            "--author",
+            "alpha",
+            "--json",
+        ])?;
+        if variant == "alias" {
+            assert_eq!(start_snapshot(fixture.node.path())?, unchanged);
+            assert_eq!(start_snapshot(fixture.rust.path())?, unchanged);
+        }
+        fixture.compare_bytes()?;
+    }
+    Ok(())
+}
+/// Removed and aliased workflow progress selectors use the same registered fallback for both paths.
+#[test]
+fn configured_progress_resolution_matches_published_registry()
+-> Result<(), Box<dyn std::error::Error>> {
+    for selector in ["missing-progress", "OPEN-ALIAS"] {
+        for ranked in [false, true] {
+            let Some(fixture) = progress_fallback_fixture()? else {
+                return Ok(());
+            };
+            for root in [fixture.node.path(), fixture.rust.path()] {
+                let path = root.join(".agents/pm/settings.json");
+                let mut value: serde_json::Value = serde_json::from_slice(&fs::read(&path)?)?;
+                value["schema"]["workflow"]["in_progress_status"] = serde_json::json!(selector);
+                for status in value["schema"]["statuses"]
+                    .as_array_mut()
+                    .ok_or("statuses")?
+                {
+                    if status["id"] == "open" {
+                        status["aliases"] = serde_json::json!(["open_alias"]);
+                    }
+                }
+                fs::write(&path, serde_json::to_vec_pretty(&value)?)?;
+                fs::write(
+                    root.join(".agents/pm/schema/statuses.json"),
+                    serde_json::to_vec(
+                        &serde_json::json!({"statuses":value["schema"]["statuses"]}),
+                    )?,
+                )?;
+                fs::write(
+                    root.join(".agents/pm/schema/workflows.json"),
+                    serde_json::to_vec(
+                        &serde_json::json!({"workflow":value["schema"]["workflow"]}),
+                    )?,
+                )?;
+            }
+            let target = if ranked { "--next" } else { "sample-own" };
+            fixture.step(&["claim", target, "--start", "--author", "alpha", "--json"])?;
+            assert_eq!(
+                pm_rust::Workspace::discover(fixture.rust.path())?
+                    .get("sample-own")?
+                    .metadata
+                    .status,
+                "in_progress"
+            );
+        }
+    }
+    Ok(())
+}
+
+/// Additive status files retain built-in progress and closed-blocker semantics.
+#[test]
+fn round5_additive_status_admission_matches_published_bytes()
+-> Result<(), Box<dyn std::error::Error>> {
+    let Some(fixture) = blocked_start_fixture("strict")? else {
+        return Ok(());
+    };
+    for root in [fixture.node.path(), fixture.rust.path()] {
+        fs::write(
+            root.join(".agents/pm/schema/statuses.json"),
+            r#"{"statuses":[{"id":"done","label":"Done","roles":["terminal","terminal_done"]}]}"#,
+        )?;
+    }
+    let before = start_snapshot(fixture.node.path())?;
+    fixture.step(&[
+        "claim",
+        "sample-own",
+        "--start",
+        "--author",
+        "alpha",
+        "--json",
+    ])?;
+    assert_eq!(start_snapshot(fixture.node.path())?, before);
+    assert_eq!(start_snapshot(fixture.rust.path())?, before);
+    assert_atomic_blocker_refusal(&fixture)?;
+    prepare(
+        &fixture,
+        &[
+            "close",
+            "sample-gate",
+            "Done",
+            "--validate-close",
+            "off",
+            "--author",
+            "alpha",
+            "--json",
+        ],
+    )?;
+    fixture.step(&[
+        "claim",
+        "sample-own",
+        "--start",
+        "--author",
+        "alpha",
+        "--json",
+    ])?;
+    assert_eq!(
+        pm_rust::Workspace::discover(fixture.rust.path())?
+            .get("sample-own")?
+            .metadata
+            .status,
+        "in_progress"
+    );
+    Ok(())
+}
+
+/// Compares physical item identities while retaining every other refusal context field.
+/// The SDK preserves caller spelling; native discovery resolves Windows short names and links.
+fn canonical_item_path_context(
+    context: &serde_json::Value,
+) -> Result<serde_json::Value, Box<dyn std::error::Error>> {
+    let path = context["item_path"]
+        .as_str()
+        .ok_or("refusal item_path must be a string")?;
+    let mut canonical = context.clone();
+    canonical["item_path"] = serde_json::json!(fs::canonicalize(path)?);
+    Ok(canonical)
+}
+
+/// Filesystem aliases compare equally without changing other fields or accepting unresolved paths.
+#[test]
+fn round6_item_path_comparison_preserves_other_refusal_fields()
+-> Result<(), Box<dyn std::error::Error>> {
+    let directory = tempfile::tempdir()?;
+    fs::create_dir(directory.path().join("nested"))?;
+    let item = directory.path().join("item.toon");
+    fs::write(&item, [0xff, 0xfe, 0x61])?;
+    let alias = directory.path().join("nested/../item.toon");
+    let original = serde_json::json!({"code":"item_document_encoding_invalid","item_id":"sample-gate","item_path":alias,"byte_length":3,"empty":false,"detail":alias});
+    let mut expected = original.clone();
+    expected["item_path"] = serde_json::json!(fs::canonicalize(&item)?);
+    assert_eq!(canonical_item_path_context(&original)?, expected);
+    assert_eq!(canonical_item_path_context(&expected)?, expected);
+    assert_eq!(expected["detail"], original["detail"]);
+    let other = directory.path().join("other.toon");
+    fs::write(&other, [0xff, 0xfe, 0x61])?;
+    let mut different_item = expected.clone();
+    different_item["item_path"] = serde_json::json!(other);
+    assert_ne!(
+        canonical_item_path_context(&original)?,
+        canonical_item_path_context(&different_item)?
+    );
+    for (key, value) in [
+        ("code", serde_json::json!("different_code")),
+        ("item_id", serde_json::json!("different-item")),
+        ("byte_length", serde_json::json!(4)),
+        ("empty", serde_json::json!(true)),
+        ("detail", serde_json::json!("different detail")),
+    ] {
+        let mut changed = expected.clone();
+        changed[key] = value;
+        assert_ne!(
+            canonical_item_path_context(&original)?,
+            canonical_item_path_context(&changed)?,
+            "{key} must remain exact"
+        );
+    }
+    for invalid in [
+        serde_json::json!({}),
+        serde_json::json!({"item_path":false}),
+        serde_json::json!({"item_path":directory.path().join("missing.toon")}),
+    ] {
+        assert!(canonical_item_path_context(&invalid).is_err());
+    }
+    assert_eq!(fs::read(item)?, [0xff, 0xfe, 0x61]);
+    Ok(())
+}
+
+/// Unverifiable UTF-8 uses strict refusal or the exact warning/force bypass without decoding bytes.
+#[test]
+fn round5_invalid_utf8_blocker_policy_matches_published_bytes()
+-> Result<(), Box<dyn std::error::Error>> {
+    for (mode, force) in [
+        ("strict", false),
+        ("warn", false),
+        ("strict", true),
+        ("off", false),
+    ] {
+        let Some(fixture) = blocked_start_fixture(mode)? else {
+            return Ok(());
+        };
+        for root in [fixture.node.path(), fixture.rust.path()] {
+            fs::write(
+                root.join(".agents/pm/tasks/sample-gate.toon"),
+                [0xff, 0xfe, 0x61],
+            )?;
+        }
+        if mode == "strict" && !force {
+            let before = start_snapshot(fixture.node.path())?;
+            let output = published_run(
+                &fixture.driver,
+                fixture.node.path(),
+                &["__ownership_error", "start", "sample-own"],
+            )?;
+            let expected: serde_json::Value = serde_json::from_slice(&output.stdout)?;
+            let workspace = pm_rust::Workspace::discover(fixture.node.path())?;
+            let request = pm_rust::OwnershipItem {
+                id: "sample-own".to_owned(),
+                author: "alpha".to_owned(),
+                timestamp: Some(CLOCK.to_owned()),
+                message: None,
+                force: false,
+                if_available: false,
+                provenance_role: None,
+            };
+            let error = workspace
+                .start_task(&request, &pm_rust::OwnershipOptions::default())
+                .err()
+                .ok_or("invalid blocker admitted")?;
+            let pm_rust::PmRustError::CommandRefusal {
+                detail,
+                exit_code,
+                context,
+            } = error
+            else {
+                return Err(format!("unexpected error {error}").into());
+            };
+            assert_eq!(expected["exit_code"], exit_code);
+            assert_eq!(expected["detail"], detail);
+            assert_eq!(
+                canonical_item_path_context(&expected["context"])?,
+                canonical_item_path_context(&context)?
+            );
+            assert_eq!(start_snapshot(fixture.node.path())?, before);
+            let args = [
+                "claim",
+                "sample-own",
+                "--start",
+                "--author",
+                "alpha",
+                "--json",
+            ];
+            let oracle = published_run(&fixture.driver, fixture.node.path(), &args)?;
+            let native = native_command(fixture.node.path(), &args).output()?;
+            assert_eq!(native.status.code(), oracle.status.code());
+            assert_eq!(native.stdout, oracle.stdout);
+            assert_eq!(native.stderr, oracle.stderr);
+            assert_eq!(start_snapshot(fixture.node.path())?, before);
+        } else {
+            let mut args = vec![
+                "claim",
+                "sample-own",
+                "--start",
+                "--author",
+                "alpha",
+                "--json",
+            ];
+            if force {
+                args.push("--force");
+            }
+            fixture.step(&args)?;
+            let item = pm_rust::Workspace::discover(fixture.rust.path())?.get("sample-own")?;
+            assert_eq!(item.metadata.status, "in_progress");
+            assert_eq!(
+                fs::read(
+                    fixture
+                        .rust
+                        .path()
+                        .join(".agents/pm/tasks/sample-gate.toon")
+                )?,
+                [0xff, 0xfe, 0x61]
+            );
+        }
+    }
+    Ok(())
+}
+
+/// A prefix change does not orphan an older complete blocker ID; shorthand still resolves.
+#[test]
+fn round5_complete_blocker_identity_matches_published_bytes()
+-> Result<(), Box<dyn std::error::Error>> {
+    let Some(fixture) = blocked_start_fixture("strict")? else {
+        return Ok(());
+    };
+    for root in [fixture.node.path(), fixture.rust.path()] {
+        let path = root.join(".agents/pm/settings.json");
+        let mut settings: serde_json::Value = serde_json::from_slice(&fs::read(&path)?)?;
+        settings["id_prefix"] = serde_json::json!("new-");
+        fs::write(path, serde_json::to_vec_pretty(&settings)?)?;
+    }
+    prepare(
+        &fixture,
+        &[
+            "close",
+            "sample-gate",
+            "Done",
+            "--validate-close",
+            "off",
+            "--author",
+            "alpha",
+            "--json",
+        ],
+    )?;
+    fixture.step(&[
+        "claim",
+        "sample-own",
+        "--start",
+        "--author",
+        "alpha",
+        "--json",
+    ])?;
+    assert_eq!(
+        pm_rust::Workspace::discover(fixture.rust.path())?
+            .get("sample-own")?
+            .metadata
+            .status,
+        "in_progress"
+    );
+    Ok(())
+}
+
+/// Mixed open and undecodable blockers preserve the published single unverifiable warning.
+#[test]
+fn round7_mixed_blocker_warnings_match_published() -> Result<(), Box<dyn std::error::Error>> {
+    for (mode, force) in [("warn", false), ("strict", true)] {
+        let Some(fixture) = blocked_start_fixture(mode)? else {
+            return Ok(());
+        };
+        for id in ["sample-zbad", "sample-zzlater"] {
+            prepare(
+                &fixture,
+                &[
+                    "create", "--id", id, "--title", id, "--type", "Task", "--author", "alpha",
+                    "--json",
+                ],
+            )?;
+        }
+        for root in [fixture.node.path(), fixture.rust.path()] {
+            fs::write(root.join(".agents/pm/tasks/sample-zbad.toon"), [0xff])?;
+            let path = root.join(".agents/pm/tasks/sample-own.toon");
+            let mut item: serde_json::Value =
+                toon_format::decode_default(&fs::read_to_string(&path)?)?;
+            item["dependencies"] = serde_json::json!([{"id":"sample-zbad","kind":"blocked_by"},{"id":"sample-zzlater","kind":"blocked_by"}]);
+            fs::write(path, toon_format::encode_default(&item)?)?;
+        }
+        let mut args = vec![
+            "claim",
+            "sample-own",
+            "--start",
+            "--author",
+            "alpha",
+            "--json",
+        ];
+        if force {
+            args.push("--force");
+        }
+        let expected = published_run(&fixture.driver, fixture.node.path(), &args)?;
+        let actual = native_command(fixture.rust.path(), &args).output()?;
+        assert_eq!(actual.status.code(), expected.status.code());
+        assert!(expected.status.success());
+        assert_eq!(actual.stdout, expected.stdout);
+        assert_eq!(actual.stderr, expected.stderr);
+        let receipt: serde_json::Value = serde_json::from_slice(&expected.stdout)?;
+        assert_eq!(
+            receipt["claim"]["warnings"],
+            serde_json::json!([
+                "start_blocker_unverifiable:sample-own:item_document_encoding_invalid"
+            ])
+        );
+        fixture.compare_bytes()?;
+    }
+    Ok(())
+}
+
+/// Persisted receipt indices are measured independently against the published comment CLI.
+#[test]
+fn round7_stored_comment_index_matches_published() -> Result<(), Box<dyn std::error::Error>> {
+    let Some(fixture) = Fixture::new("none")? else {
+        return Ok(());
+    };
+    for root in [fixture.node.path(), fixture.rust.path()] {
+        let path = root.join(".agents/pm/tasks/sample-own.toon");
+        let mut item: serde_json::Value = toon_format::decode_default(&fs::read_to_string(&path)?)?;
+        item["comments"] =
+            serde_json::json!([{"text":"Earlier","author":"alpha","created_at":CLOCK,"index":99}]);
+        fs::write(path, toon_format::encode_default(&item)?)?;
+    }
+    let args = ["comment", "sample-own", "Newer", "--author", "alpha"];
+    let mut oracle_args = args.to_vec();
+    oracle_args.extend(["--json", "--full-history"]);
+    let expected = published_run(&fixture.driver, fixture.node.path(), &oracle_args)?;
+    let actual = native_command(fixture.rust.path(), &args).output()?;
+    assert_eq!(
+        actual.status.code(),
+        expected.status.code(),
+        "native stderr {}",
+        String::from_utf8_lossy(&actual.stderr)
+    );
+    assert!(expected.status.success());
+    let v: serde_json::Value = serde_json::from_slice(&expected.stdout)?;
+    assert_eq!(v["comments"][0]["index"], 1);
+    assert_eq!(v["comments"][1]["index"], 2);
+    let actual_value: serde_json::Value = serde_json::from_slice(&actual.stdout)?;
+    assert_eq!(actual_value["item"]["comments"], v["comments"]);
+    assert_eq!(actual.stderr, expected.stderr);
+    fixture.compare_bytes()?;
+    let stored = pm_rust::Workspace::discover(fixture.rust.path())?.get("sample-own")?;
+    assert_eq!(stored.metadata.extra["comments"][0]["index"], 99);
+    Ok(())
+}
+
+/// Atomic starts use the same default-file registry as the preceding claim check.
+#[test]
+fn round7_terminal_source_contract() -> Result<(), Box<dyn std::error::Error>> {
+    let Some(fixture) = Fixture::new("none")? else {
+        return Ok(());
+    };
+    for root in [fixture.node.path(), fixture.rust.path()] {
+        let path = root.join(".agents/pm/settings.json");
+        let mut settings: serde_json::Value = serde_json::from_slice(&fs::read(&path)?)?;
+        settings["schema"]["files"]
+            .as_object_mut()
+            .ok_or("files")?
+            .shift_remove("statuses");
+        fs::write(&path, serde_json::to_vec_pretty(&settings)?)?;
+        fs::write(
+            root.join(".agents/pm/schema/statuses.json"),
+            br#"{"statuses":[{"id":"done","roles":["terminal_done"]}]}"#,
+        )?;
+        let item = root.join(".agents/pm/tasks/sample-own.toon");
+        fs::write(
+            &item,
+            fs::read_to_string(&item)?.replace("status: open", "status: done"),
+        )?;
+    }
+    for force in [false, true] {
+        let before = start_snapshot(fixture.node.path())?;
+        let expected = published_run(
+            &fixture.driver,
+            fixture.node.path(),
+            &[
+                "__atomic_claim_error",
+                "sample-own",
+                if force { "true" } else { "false" },
+            ],
+        )?;
+        let expected: serde_json::Value = serde_json::from_slice(&expected.stdout)?;
+        let request = pm_rust::OwnershipItem {
+            id: "sample-own".to_owned(),
+            author: "alpha".to_owned(),
+            timestamp: Some(CLOCK.to_owned()),
+            message: None,
+            force,
+            if_available: false,
+            provenance_role: None,
+        };
+        let actual = pm_rust::Workspace::discover(fixture.rust.path())?
+            .claim_with_options(
+                &request,
+                &pm_rust::OwnershipOptions {
+                    start: true,
+                    ..Default::default()
+                },
+            )
+            .err()
+            .ok_or("terminal start admitted")?;
+        let pm_rust::PmRustError::OwnershipRefusal {
+            detail,
+            mut context,
+        } = actual
+        else {
+            return Err(format!("unexpected refusal {actual}").into());
+        };
+        if let Some(steps) = context
+            .as_object_mut()
+            .and_then(|fields| fields.shift_remove("next_steps"))
+        {
+            context["nextSteps"] = steps;
+        }
+        assert_eq!(expected["exit_code"], 4);
+        assert_eq!(expected["detail"], detail);
+        assert_eq!(expected["context"], context);
+        assert_eq!(start_snapshot(fixture.node.path())?, before);
+        assert_eq!(start_snapshot(fixture.rust.path())?, before);
+    }
+    Ok(())
+}
+
+/// A configured close target without a terminal role remains startable in the published policy.
+#[test]
+fn round7_roleless_close_status_matches_published_policy() -> Result<(), Box<dyn std::error::Error>>
+{
+    for (legacy, force) in [(false, false), (false, true), (true, false), (true, true)] {
+        let Some(fixture) = Fixture::new("none")? else {
+            return Ok(());
+        };
+        for root in [fixture.node.path(), fixture.rust.path()] {
+            let path = root.join(".agents/pm/settings.json");
+            let mut settings: serde_json::Value = serde_json::from_slice(&fs::read(&path)?)?;
+            if legacy {
+                settings["workflow"]["close_status"] = serde_json::json!("done");
+            } else {
+                settings["schema"]["workflow"]["close_status"] = serde_json::json!("done");
+            }
+            settings["schema"]["statuses"]
+                .as_array_mut()
+                .ok_or("statuses")?
+                .push(serde_json::json!({"id":"done","roles":["active"]}));
+            fs::write(path, serde_json::to_vec_pretty(&settings)?)?;
+            fs::write(
+                root.join(".agents/pm/schema/statuses.json"),
+                serde_json::to_vec(
+                    &serde_json::json!({"statuses":settings["schema"]["statuses"]}),
+                )?,
+            )?;
+            fs::write(
+                root.join(".agents/pm/schema/workflows.json"),
+                serde_json::to_vec(
+                    &serde_json::json!({"workflow":settings["schema"]["workflow"]}),
+                )?,
+            )?;
+            let item = root.join(".agents/pm/tasks/sample-own.toon");
+            fs::write(
+                &item,
+                fs::read_to_string(&item)?.replace("status: open", "status: done"),
+            )?;
+        }
+        let expected = published_run(
+            &fixture.driver,
+            fixture.node.path(),
+            &[
+                "__atomic_claim_error",
+                "sample-own",
+                if force { "true" } else { "false" },
+            ],
+        )?;
+        assert_eq!(
+            serde_json::from_slice::<serde_json::Value>(&expected.stdout)?,
+            serde_json::json!({"ok":true})
+        );
+        assert_eq!(
+            pm_rust::Workspace::discover(fixture.node.path())?
+                .get("sample-own")?
+                .metadata
+                .status,
+            "in_progress"
+        );
+        let request = pm_rust::OwnershipItem {
+            id: "sample-own".to_owned(),
+            author: "alpha".to_owned(),
+            timestamp: Some(CLOCK.to_owned()),
+            message: None,
+            force,
+            if_available: false,
+            provenance_role: None,
+        };
+        let started = pm_rust::Workspace::discover(fixture.rust.path())?.claim_with_options(
+            &request,
+            &pm_rust::OwnershipOptions {
+                start: true,
+                ..Default::default()
+            },
+        )?;
+        assert_eq!(started.status, "in_progress");
+        fixture.compare_bytes()?;
+        assert_eq!(
+            pm_rust::Workspace::discover(fixture.rust.path())?
+                .get("sample-own")?
+                .metadata
+                .status,
+            "in_progress"
+        );
+    }
+    Ok(())
+}
+
+/// Default-file status aliases and workflow rules are configured in real non-git trackers.
+fn round8_workflow_fixture(
+    external_rules: bool,
+    allowed: bool,
+) -> Result<Option<Fixture>, Box<dyn std::error::Error>> {
+    let Some(fixture) = Fixture::new("strict")? else {
+        return Ok(None);
+    };
+    for root in [fixture.node.path(), fixture.rust.path()] {
+        let path = root.join(".agents/pm/settings.json");
+        let mut settings: serde_json::Value = serde_json::from_slice(&fs::read(&path)?)?;
+        let files = settings["schema"]["files"]
+            .as_object_mut()
+            .ok_or("schema files")?;
+        files.shift_remove("statuses");
+        files.shift_remove("workflows");
+        settings["governance"]["workflow_enforcement"] = serde_json::json!("strict");
+        settings["schema"]["statuses"] = serde_json::json!([{"id":"open","roles":["active"]}]);
+        let rules = serde_json::json!([{"type":"Task","allowed_transitions":if allowed {serde_json::json!([["open","in_progress"]])} else {serde_json::json!([["draft","in_progress"]])}}]);
+        settings["schema"]["type_workflows"] = if external_rules {
+            serde_json::json!([])
+        } else {
+            rules.clone()
+        };
+        fs::write(path, serde_json::to_vec_pretty(&settings)?)?;
+        fs::write(
+            root.join(".agents/pm/schema/statuses.json"),
+            serde_json::to_vec(
+                &serde_json::json!({"statuses":[{"id":"doing","roles":["active"],"aliases":["in_progress"]}]}),
+            )?,
+        )?;
+        let workflows = root.join(".agents/pm/schema/workflows.json");
+        if external_rules {
+            fs::write(
+                workflows,
+                serde_json::to_vec(&serde_json::json!({"type_workflows":rules}))?,
+            )?;
+        } else {
+            fs::remove_file(workflows)?;
+        }
+    }
+    Ok(Some(fixture))
+}
+
+/// Allowed explicit starts finish both commits using default-file aliases and workflow rules.
+#[test]
+fn round8_explicit_alias_start_matches_published() -> Result<(), Box<dyn std::error::Error>> {
+    for external in [false, true] {
+        let Some(fixture) = round8_workflow_fixture(external, true)? else {
+            return Ok(());
+        };
+        fixture.step(&[
+            "claim",
+            "sample-own",
+            "--start",
+            "--author",
+            "alpha",
+            "--json",
+        ])?;
+        let item = pm_rust::Workspace::discover(fixture.rust.path())?.get("sample-own")?;
+        assert_eq!(item.metadata.status, "doing");
+        let history = fs::read_to_string(
+            fixture
+                .rust
+                .path()
+                .join(".agents/pm/history/sample-own.jsonl"),
+        )?;
+        assert_eq!(history.lines().count(), 3);
+        fixture.verify()?;
+    }
+    Ok(())
+}
+
+/// Refusal streams preserve complete nested passwords and their legitimate public-URL twin.
+#[test]
+fn round8_nested_password_invocation_matches_published() -> Result<(), Box<dyn std::error::Error>> {
+    let Some(fixture) = Fixture::new("none")? else {
+        return Ok(());
+    };
+    prepare(
+        &fixture,
+        &["claim", "sample-own", "--author", "alpha", "--json"],
+    )?;
+    for message in [
+        "https://user:secret,value://tail@host.invalid",
+        "https://user:secret;value://tail@host.invalid",
+        "https://user:secret value://tail@host.invalid",
+        "https://public.invalid:443/p https://second.invalid/path",
+        "https://user.invalid:443/secret@host.invalid copied 443/secret",
+    ] {
+        for json in [false, true] {
+            let mut args = vec![
+                "claim",
+                "sample-own",
+                "--author",
+                "beta",
+                "--message",
+                message,
+            ];
+            if json {
+                args.push("--json");
+            }
+            fixture.step(&args)?;
+        }
+    }
+    Ok(())
+}
+
+/// Measures persisted-holder projection without invocation credentials enrolling its password.
+#[test]
+fn round8_stored_nested_password_projection() -> Result<(), Box<dyn std::error::Error>> {
+    for separator in [",", ";", " "] {
+        let Some(fixture) = Fixture::new("none")? else {
+            return Ok(());
+        };
+        let holder = format!("https://user:secret{separator}value://tail@host.invalid");
+        for root in [fixture.node.path(), fixture.rust.path()] {
+            let path = root.join(".agents/pm/tasks/sample-own.toon");
+            let mut item: serde_json::Value =
+                toon_format::decode_default(&fs::read_to_string(&path)?)?;
+            item["assignee"] = serde_json::json!(holder);
+            fs::write(path, toon_format::encode_default(&item)?)?;
+        }
+        let args = ["claim", "sample-own", "--author", "beta", "--json"];
+        let oracle = published_run(&fixture.driver, fixture.node.path(), &args)?;
+        let actual = native_command(fixture.rust.path(), &args).output()?;
+        assert_eq!(actual.status.code(), Some(4));
+        assert_eq!(actual.status.code(), oracle.status.code());
+        assert!(!String::from_utf8_lossy(&actual.stderr).contains("secret"));
+        assert_eq!(actual.stdout, oracle.stdout);
+        if separator == " " {
+            // Published 2026.11.11 misses stored outer userinfo without invocation enrollment.
+            let mut expected: serde_json::Value = serde_json::from_slice(&oracle.stderr)?;
+            assert_eq!(
+                expected["claimed_by"],
+                "https://user:secret value://[redacted]@host.invalid"
+            );
+            assert_eq!(
+                expected["detail"],
+                "Item sample-own is already assigned to https://user:secret value://[redacted]@host.invalid. Use --force to take over, or --if-available to skip without failing."
+            );
+            assert_eq!(
+                expected["title"],
+                "Item sample-own is already assigned to https://user:secret value://[redacted]@host.invalid. Use --force to take over,..."
+            );
+            expected["claimed_by"] = serde_json::json!("https://[redacted]@host.invalid");
+            expected["detail"] = serde_json::json!(
+                "Item sample-own is already assigned to https://[redacted]@host.invalid. Use --force to take over, or --if-available to skip without failing."
+            );
+            expected["title"] = serde_json::json!(
+                "Item sample-own is already assigned to https://[redacted]@host.invalid. Use --force to take over, or --if-available t..."
+            );
+            assert_eq!(
+                String::from_utf8(actual.stderr)?,
+                format!("{}\n", pm_rust::stringify_json(&expected, true))
+            );
+        } else {
+            assert_eq!(actual.stderr, oracle.stderr);
+        }
+        let native_text = native_command(
+            fixture.rust.path(),
+            &["claim", "sample-own", "--author", "beta"],
+        )
+        .output()?;
+        assert_eq!(native_text.status.code(), Some(4));
+        assert!(!String::from_utf8_lossy(&native_text.stderr).contains("secret"));
+        fixture.compare_bytes()?;
+    }
+    Ok(())
+}
+
+/// Atomic workflow admission compares the oracle and refuses before either item or history writes.
+#[test]
+fn round8_atomic_alias_workflow_matches_published() -> Result<(), Box<dyn std::error::Error>> {
+    for external in [false, true] {
+        for allowed in [false, true] {
+            let Some(fixture) = round8_workflow_fixture(external, allowed)? else {
+                return Ok(());
+            };
+            let before = start_snapshot(fixture.node.path())?;
+            let oracle = published_run(
+                &fixture.driver,
+                fixture.node.path(),
+                &["__atomic_claim_error", "sample-own", "false"],
+            )?;
+            let expected: serde_json::Value = serde_json::from_slice(&oracle.stdout)?;
+            let request = pm_rust::OwnershipItem {
+                id: "sample-own".to_owned(),
+                author: "alpha".to_owned(),
+                timestamp: Some(CLOCK.to_owned()),
+                message: None,
+                force: false,
+                if_available: false,
+                provenance_role: None,
+            };
+            let actual = pm_rust::Workspace::discover(fixture.rust.path())?.claim_with_options(
+                &request,
+                &pm_rust::OwnershipOptions {
+                    start: true,
+                    ..Default::default()
+                },
+            );
+            if allowed {
+                assert_eq!(expected, serde_json::json!({"ok":true}));
+                assert_eq!(actual?.status, "doing");
+                fixture.compare_bytes()?;
+            } else {
+                let Err(pm_rust::PmRustError::CommandRefusal {
+                    detail,
+                    exit_code,
+                    context,
+                }) = actual
+                else {
+                    return Err("workflow refusal required".into());
+                };
+                assert_eq!(expected["detail"], detail);
+                assert_eq!(expected["exit_code"], exit_code);
+                assert_eq!(expected["context"], context);
+                assert_eq!(start_snapshot(fixture.node.path())?, before);
+                assert_eq!(start_snapshot(fixture.rust.path())?, before);
+            }
+        }
+    }
+    Ok(())
+}
+
+/// Missing workflow sidecars retain inline progress settings, matching the published CLI.
+#[test]
+fn round10_missing_workflow_start_matches_oracle() -> Result<(), Box<dyn std::error::Error>> {
+    for (present, configured) in [(false, false), (false, true), (true, true)] {
+        let Some(fixture) = Fixture::new("none")? else {
+            return Ok(());
+        };
+        for root in [fixture.node.path(), fixture.rust.path()] {
+            let pm = root.join(".agents/pm");
+            let path = pm.join("settings.json");
+            let mut settings: serde_json::Value = serde_json::from_slice(&fs::read(&path)?)?;
+            settings["schema"]["workflow"]["in_progress_status"] = serde_json::json!("working");
+            settings["schema"]["statuses"]
+                .as_array_mut()
+                .ok_or("statuses")?
+                .push(serde_json::json!({"id":"working","roles":["active"]}));
+            if !configured {
+                settings["schema"]["files"]
+                    .as_object_mut()
+                    .ok_or("files")?
+                    .shift_remove("workflows");
+            }
+            fs::write(path, serde_json::to_vec(&settings)?)?;
+            fs::write(
+                pm.join("schema/statuses.json"),
+                serde_json::to_vec(
+                    &serde_json::json!({"statuses":settings["schema"]["statuses"]}),
+                )?,
+            )?;
+            if present {
+                fs::write(
+                    pm.join("schema/workflows.json"),
+                    serde_json::to_vec(
+                        &serde_json::json!({"workflow":settings["schema"]["workflow"]}),
+                    )?,
+                )?;
+            } else {
+                fs::remove_file(pm.join("schema/workflows.json"))?;
+            }
+        }
+        let args = [
+            "claim",
+            "sample-own",
+            "--start",
+            "--author",
+            "alpha",
+            "--json",
+        ];
+        let expected = published_run(&fixture.driver, fixture.node.path(), &args)?;
+        assert!(
+            expected.status.success(),
+            "{}",
+            String::from_utf8_lossy(&expected.stderr)
+        );
+        let oracle_status = pm_rust::Workspace::discover(fixture.node.path())?
+            .get("sample-own")?
+            .metadata
+            .status;
+        assert_eq!(oracle_status, "working");
+        let actual = native_command(fixture.rust.path(), &args).output()?;
+        assert_eq!(
+            actual.status.code(),
+            expected.status.code(),
+            "native: {}; oracle chose {oracle_status}",
+            String::from_utf8_lossy(&actual.stderr)
+        );
+        assert_eq!(actual.stdout, expected.stdout);
+        assert_eq!(actual.stderr, expected.stderr);
+        fixture.compare_bytes()?;
+        assert_eq!(
+            pm_rust::Workspace::discover(fixture.rust.path())?
+                .get("sample-own")?
+                .metadata
+                .status,
+            "working"
+        );
+    }
+    Ok(())
+}
+
+/// Ranked candidates and terminal prerequisites discover default status sidecars.
+#[test]
+fn round12_selection_default_status_sidecar_matches_oracle()
+-> Result<(), Box<dyn std::error::Error>> {
+    for (status, gate) in [
+        ("queued", None),
+        ("open", Some("done")),
+        ("open", Some("closed")),
+    ] {
+        let Some(fixture) = Fixture::new("none")? else {
+            return Ok(());
+        };
+        for root in [fixture.node.path(), fixture.rust.path()] {
+            let pm = root.join(".agents/pm");
+            let path = pm.join("settings.json");
+            let mut settings: serde_json::Value = serde_json::from_slice(&fs::read(&path)?)?;
+            settings["schema"]["files"]
+                .as_object_mut()
+                .ok_or("files")?
+                .shift_remove("statuses");
+            fs::write(path, serde_json::to_vec_pretty(&settings)?)?;
+            fs::write(
+                pm.join("schema/statuses.json"),
+                r#"{"statuses":[{"id":"queued","roles":["active"]},{"id":"done","roles":["terminal_done"]}]}"#,
+            )?;
+            let path = pm.join("tasks/sample-own.toon");
+            let mut item: serde_json::Value =
+                toon_format::decode_default(&fs::read_to_string(&path)?)?;
+            item["status"] = status.into();
+            if let Some(gate_status) = gate {
+                item["blocked_by"] = "sample-gate".into();
+                let mut blocker = item.clone();
+                blocker["id"] = "sample-gate".into();
+                blocker["status"] = gate_status.into();
+                blocker
+                    .as_object_mut()
+                    .ok_or("blocker")?
+                    .shift_remove("blocked_by");
+                fs::write(
+                    pm.join("tasks/sample-gate.toon"),
+                    toon_format::encode_default(&blocker)?,
+                )?;
+            }
+            fs::write(path, toon_format::encode_default(&item)?)?;
+        }
+        fixture.step(&["claim", "--next", "--author", "alpha", "--json"])?;
+        assert_eq!(
+            pm_rust::Workspace::discover(fixture.rust.path())?
+                .get("sample-own")?
+                .metadata
+                .extra["assignee"],
+            "alpha"
+        );
+    }
+    Ok(())
+}
+
+/// Compares explicit and default absence at each real lifecycle CLI boundary.
+fn round14_missing_workflow_case(action: &str) -> Result<(), Box<dyn std::error::Error>> {
+    for explicit in [false, true] {
+        let Some(fixture) = Fixture::new("none")? else {
+            return Ok(());
+        };
+        for root in [fixture.node.path(), fixture.rust.path()] {
+            let pm = root.join(".agents/pm");
+            let path = pm.join("settings.json");
+            let mut settings: serde_json::Value = serde_json::from_slice(&fs::read(&path)?)?;
+            if explicit {
+                settings["schema"]["files"]["workflows"] = "missing.json".into();
+            } else {
+                settings["schema"]["files"]
+                    .as_object_mut()
+                    .ok_or("files")?
+                    .shift_remove("workflows");
+            }
+            fs::write(path, serde_json::to_vec_pretty(&settings)?)?;
+            fs::remove_file(pm.join("schema/workflows.json"))?;
+        }
+        let args = match action {
+            "pause" => vec!["pause-task", "sample-own", "--author", "alpha", "--json"],
+            "start" => vec!["start-task", "sample-own", "--author", "alpha", "--json"],
+            "atomic" => vec![
+                "claim",
+                "sample-own",
+                "--start",
+                "--author",
+                "alpha",
+                "--json",
+            ],
+            "close" => vec![
+                "close",
+                "sample-own",
+                "Done",
+                "--author",
+                "alpha",
+                "--validate-close",
+                "off",
+                "--json",
+            ],
+            _ => return Err("unknown lifecycle action".into()),
+        };
+        fixture.step(&args)?;
+        let item = pm_rust::Workspace::discover(fixture.rust.path())?.get("sample-own")?;
+        assert_eq!(
+            item.metadata.status,
+            match action {
+                "pause" => "open",
+                "close" => "closed",
+                _ => "in_progress",
+            }
+        );
+    }
+    round14_minimal_workflow_case(action)
+}
+
+/// Checks the exact minimal settings through public SDK mutations and persisted bytes.
+fn round14_minimal_workflow_case(action: &str) -> Result<(), Box<dyn std::error::Error>> {
+    for explicit in [false, true] {
+        let Some(fixture) = Fixture::new("none")? else {
+            return Ok(());
+        };
+        for root in [fixture.node.path(), fixture.rust.path()] {
+            let pm = root.join(".agents/pm");
+            fs::write(
+                pm.join("settings.json"),
+                if explicit {
+                    r#"{"schema":{"files":{"workflows":"missing.json"}}}"#
+                } else {
+                    "{}"
+                },
+            )?;
+            fs::remove_file(pm.join("schema/workflows.json"))?;
+        }
+        let output = published_run(
+            &fixture.driver,
+            fixture.node.path(),
+            &["__workflow_receipt", action, "sample-own"],
+        )?;
+        assert!(
+            output.status.success(),
+            "{}",
+            String::from_utf8_lossy(&output.stderr)
+        );
+        assert_eq!(
+            serde_json::from_slice::<serde_json::Value>(&output.stdout)?,
+            serde_json::json!({"ok":true})
+        );
+        let workspace = pm_rust::Workspace::discover(fixture.rust.path())?;
+        let request = pm_rust::OwnershipItem {
+            id: "sample-own".to_owned(),
+            author: "alpha".to_owned(),
+            timestamp: Some(CLOCK.to_owned()),
+            message: None,
+            force: false,
+            if_available: false,
+            provenance_role: None,
+        };
+        match action {
+            "pause" => {
+                workspace.pause_task(&request, &pm_rust::OwnershipOptions::default())?;
+            }
+            "start" => {
+                workspace.start_task(&request, &pm_rust::OwnershipOptions::default())?;
+            }
+            "atomic" => {
+                workspace.claim_with_options(
+                    &request,
+                    &pm_rust::OwnershipOptions {
+                        start: true,
+                        ..Default::default()
+                    },
+                )?;
+            }
+            "close" => {
+                workspace.close(pm_rust::CloseItem {
+                    id: request.id.clone(),
+                    author: request.author.clone(),
+                    reason: "Done".to_owned(),
+                    timestamp: request.timestamp.clone(),
+                    provenance_role: Some("implementer".to_owned()),
+                    force_stale_lock: false,
+                    fields: pm_rust::CloseFields {
+                        validate_close: Some("off".to_owned()),
+                        ..Default::default()
+                    },
+                })?;
+            }
+            _ => return Err("unknown action".into()),
+        }
+        fixture.compare_bytes()?;
+        assert_eq!(
+            workspace.get("sample-own")?.metadata.status,
+            match action {
+                "pause" => "open",
+                "close" => "closed",
+                _ => "in_progress",
+            }
+        );
+    }
+    Ok(())
+}
+
+/// Published pause accepts both forms of absent workflow sidecar.
+#[test]
+fn round14_missing_workflow_pause_matches_oracle() -> Result<(), Box<dyn std::error::Error>> {
+    round14_missing_workflow_case("pause")
+}
+/// Published start accepts both forms of absent workflow sidecar.
+#[test]
+fn round14_missing_workflow_start_matches_oracle() -> Result<(), Box<dyn std::error::Error>> {
+    round14_missing_workflow_case("start")
+}
+/// Published atomic start accepts both forms of absent workflow sidecar.
+#[test]
+fn round14_missing_workflow_atomic_matches_oracle() -> Result<(), Box<dyn std::error::Error>> {
+    round14_missing_workflow_case("atomic")
+}
+/// Published close accepts both forms of absent workflow sidecar.
+#[test]
+fn round14_missing_workflow_close_matches_oracle() -> Result<(), Box<dyn std::error::Error>> {
+    round14_missing_workflow_case("close")
+}
+
+/// Published blocker advice quotes stored shell syntax, preserving all other bytes and writes.
+#[test]
+fn round15_blocker_advice_matches_published_bytes() -> Result<(), Box<dyn std::error::Error>> {
+    for blocked_by in [
+        "sample-missing",
+        "sample-missing;id",
+        "sample-$(printf injected)",
+        "sample-\"quote",
+    ] {
+        let Some(fixture) = Fixture::new("none")? else {
+            return Ok(());
+        };
+        for root in [fixture.node.path(), fixture.rust.path()] {
+            let path = root.join(".agents/pm/tasks/sample-own.toon");
+            let mut item: serde_json::Value =
+                toon_format::decode_default(&fs::read_to_string(&path)?)?;
+            item["blocked_by"] = serde_json::json!(blocked_by);
+            fs::write(path, toon_format::encode_default(&item)?)?;
+        }
+        let before = start_snapshot(fixture.rust.path())?;
+        fixture.step(&[
+            "claim",
+            "sample-own",
+            "--start",
+            "--author",
+            "alpha",
+            "--json",
+        ])?;
+        assert_eq!(start_snapshot(fixture.rust.path())?, before);
+    }
+    Ok(())
+}
+
+/// Published lifecycle admission still refuses stored absent-reference marker strings.
+#[test]
+fn round17_absent_blocker_starts_match_oracle() -> Result<(), Box<dyn std::error::Error>> {
+    for marker in ["none", "NULL", "n/a", "Na"] {
+        for atomic in [false, true] {
+            let Some(fixture) = Fixture::new("none")? else {
+                return Ok(());
+            };
+            for root in [fixture.node.path(), fixture.rust.path()] {
+                let path = root.join(".agents/pm/tasks/sample-own.toon");
+                let mut item: serde_json::Value =
+                    toon_format::decode_default(&fs::read_to_string(&path)?)?;
+                item["blocked_by"] = serde_json::json!(marker);
+                fs::write(path, toon_format::encode_default(&item)?)?;
+            }
+            let args = if atomic {
+                vec![
+                    "claim",
+                    "sample-own",
+                    "--start",
+                    "--author",
+                    "alpha",
+                    "--json",
+                ]
+            } else {
+                vec!["start-task", "sample-own", "--author", "alpha", "--json"]
+            };
+            let native_before = start_snapshot(fixture.rust.path())?;
+            let oracle_before = start_snapshot(fixture.node.path())?;
+            let published = published_run(&fixture.driver, fixture.node.path(), &args)?;
+            assert_eq!(published.status.code(), Some(4));
+            let payload: serde_json::Value = serde_json::from_slice(&published.stderr)?;
+            assert_eq!(payload["code"], "start_blocked_by_open_dependency");
+            fixture.step(&args)?;
+            assert_eq!(start_snapshot(fixture.rust.path())?, native_before);
+            assert_eq!(start_snapshot(fixture.node.path())?, oracle_before);
+        }
+    }
+    Ok(())
+}
+
+/// Ranked ownership uses the oracle's last-definition precedence for external status overlays.
+#[test]
+fn round17_external_duplicate_status_claim_next_matches_oracle()
+-> Result<(), Box<dyn std::error::Error>> {
+    for role in ["active", "terminal"] {
+        let Some(fixture) = Fixture::new("none")? else {
+            return Ok(());
+        };
+        for root in [fixture.node.path(), fixture.rust.path()] {
+            let pm = root.join(".agents/pm");
+            let path = pm.join("settings.json");
+            let mut settings: serde_json::Value = serde_json::from_slice(&fs::read(&path)?)?;
+            settings["schema"]["statuses"] = serde_json::json!([{"id":"open","roles":["active"]},{"id":"OPEN","roles":["terminal"]}]);
+            fs::write(path, serde_json::to_vec_pretty(&settings)?)?;
+            fs::write(
+                pm.join("schema/statuses.json"),
+                serde_json::json!({"statuses":[{"id":"open","roles":[role]}]}).to_string(),
+            )?;
+        }
+        let before = start_snapshot(fixture.rust.path())?;
+        fixture.step(&["claim", "--next", "--author", "alpha", "--json"])?;
+        let item = pm_rust::Workspace::discover(fixture.rust.path())?.get("sample-own")?;
+        if role == "active" {
+            assert_eq!(item.metadata.extra["assignee"], "alpha");
+        } else {
+            assert_eq!(start_snapshot(fixture.rust.path())?, before);
+        }
+    }
     Ok(())
 }

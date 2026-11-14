@@ -1,3 +1,6 @@
+#[cfg(unix)]
+#[path = "advice_corpus.rs"]
+mod advice_corpus;
 use serde_json::Map;
 use std::fs;
 use std::io;
@@ -1268,7 +1271,7 @@ fn lock_recovery_keeps_explicit_workspace_scope() {
     ] {
         let mut payload =
             serde_json::json!({"recovery":{"normalized_args":["comment","sample-one","note"]}});
-        super::preserve_lock_scope(
+        super::preserve_refusal_scope(
             &mut payload,
             &raw.iter().map(|arg| (*arg).to_owned()).collect::<Vec<_>>(),
         );
@@ -1290,7 +1293,7 @@ fn lock_recovery_keeps_explicit_workspace_scope() {
         vec!["--path"],
     ] {
         let mut payload = serde_json::json!({});
-        super::preserve_lock_scope(
+        super::preserve_refusal_scope(
             &mut payload,
             &raw.iter().map(|arg| (*arg).to_owned()).collect::<Vec<_>>(),
         );
@@ -2143,4 +2146,749 @@ fn context_refusal_argument_roles() {
         let args = strings(&["context", flag, "--path", "--json"]);
         assert_eq!(super::published_read_arguments(args.clone()), args);
     }
+}
+
+/// Bootstrap scope is explicit input, independent of incidental test-runner arguments.
+#[test]
+fn round6_bootstrap_scope_is_independent_of_harness_arguments() {
+    for (raw, expected) in [
+        (vec![], vec![]),
+        (vec!["--native"], vec![]),
+        (vec!["--native", "--", "--workspace=literal"], vec![]),
+        (vec!["--native", "close", "--workspace=literal"], vec![]),
+        (vec!["--native", "--workspace"], vec![]),
+        (
+            vec!["--native", "--workspace", "tracker with spaces", "claim"],
+            vec!["--pm-path", "tracker with spaces"],
+        ),
+        (
+            vec!["--native", "--workspace=tracker", "claim"],
+            vec!["--pm-path", "tracker"],
+        ),
+    ] {
+        let raw = raw.into_iter().map(str::to_owned).collect::<Vec<_>>();
+        assert_eq!(super::invocation_scope(&raw), expected, "{raw:?}");
+    }
+}
+
+/// Scope comes only from bootstrap arguments, never positional or option-valued close text.
+#[test]
+fn positional_close_text_cannot_select_recovery_workspace() {
+    for raw in [
+        vec!["close", "sample-one", "--json", "--", "--pm-path=other"],
+        vec!["close", "sample-one", "--reason", "--pm-path=other"],
+        vec!["close", "sample-one", "--reason", "--pm-path", "other"],
+    ] {
+        assert!(
+            super::invocation_scope(&raw.iter().map(|arg| (*arg).to_owned()).collect::<Vec<_>>())
+                .is_empty()
+        );
+    }
+}
+
+/// String-only producers retain their contract shape while inheriting the selected scope.
+#[test]
+fn string_only_recovery_retains_scope_without_inventing_arguments() {
+    let mut payload = serde_json::json!({"code":"command_failed","recovery":{"suggested_retry":"pm history sample-one --strict-exit --json --verify"}});
+    super::preserve_refusal_scope(
+        &mut payload,
+        &[
+            "--pm-path".to_owned(),
+            "other".to_owned(),
+            "history".to_owned(),
+        ],
+    );
+    assert_eq!(
+        payload["recovery"]["suggested_retry"],
+        "pm --pm-path other history sample-one --strict-exit --json --verify"
+    );
+    assert!(payload["recovery"].get("suggested_retry_args").is_none());
+}
+
+/// Long ownership provenance, structured details and pre-scoped retries retain human recovery.
+#[test]
+fn round5_human_and_scope_refusal_corpus() -> Result<(), Box<dyn std::error::Error>> {
+    let holder = "holder".repeat(30);
+    let payload = serde_json::json!({"code":"start_blocked_by_open_dependency","title":"Blocked","detail":"Blocked","required":"Close the gate","claimed_by":holder,"claimed_at":"2026-08-22T10:00:00.000Z","claim_source":"unknown","details":{"open_blockers":[{"id":"gate"}]},"examples":["pm get gate"],"recovery":{"normalized_args":["claim","own","--start"],"suggested_retry":"pm get gate"},"next_steps":["pm get gate"]});
+    let mut out = vec![];
+    super::write_cursor_refusal_to(&mut out, &payload)?;
+    let out = String::from_utf8(out)?;
+    assert!(out.contains(&format!(
+        "Held by: {}...",
+        holder.chars().take(120).collect::<String>()
+    )));
+    assert!(out.contains("Details:\n  {"));
+    assert!(out.contains("Examples:"));
+    let raw = [
+        "--pm-path".to_owned(),
+        "tracker".to_owned(),
+        "history".to_owned(),
+        "own".to_owned(),
+    ];
+    for retry in [
+        "pm --pm-path tracker get own",
+        "pm --path tracker get own",
+        "external get own",
+    ] {
+        let mut payload =
+            serde_json::json!({"code":"command_failed","recovery":{"suggested_retry":retry}});
+        super::preserve_refusal_scope(&mut payload, &raw);
+        assert_eq!(payload["recovery"]["suggested_retry"], retry);
+    }
+    let mut absent = serde_json::json!({"code":"command_failed"});
+    super::preserve_refusal_scope(&mut absent, &raw);
+    assert!(absent["recovery"].is_null());
+    Ok(())
+}
+
+/// Partial recovery producers retain usable scope and human guidance when optional arrays are absent.
+#[test]
+fn round5_partial_recovery_producer_shapes() -> Result<(), Box<dyn std::error::Error>> {
+    let raw = ["--pm-path", "tracker", "close", "sample-one"].map(str::to_owned);
+    let mut payload = serde_json::json!({"code":"close_validation_missing_fields","title":"Missing evidence","recovery":{"normalized_args":["--pm-path","tracker","close","sample-one"],"provided_fields":["--pm-path"],"next_best_command":"external update"}});
+    super::preserve_refusal_scope(&mut payload, &raw);
+    assert_eq!(
+        payload["recovery"]["provided_fields"],
+        serde_json::json!(["--pm-path"])
+    );
+    assert_eq!(payload["recovery"]["next_best_command"], "external update");
+    let mut bytes = vec![];
+    super::write_cursor_refusal_to(&mut bytes, &payload)?;
+    assert!(String::from_utf8(bytes)?.contains("Missing evidence"));
+    payload["recovery"]
+        .as_object_mut()
+        .ok_or("recovery")?
+        .shift_remove("next_best_command");
+    let mut bytes = vec![];
+    super::write_cursor_refusal_to(&mut bytes, &payload)?;
+    assert!(!String::from_utf8(bytes)?.contains("next_best_command:"));
+    payload["recovery"]["next_best_command"] = serde_json::json!("pm update sample-one");
+    payload["recovery"]["missing"] = serde_json::json!(["reason"]);
+    payload["claimed_by"] = serde_json::json!("short-holder");
+    super::preserve_refusal_scope(&mut payload, &raw);
+    let mut bytes = vec![];
+    super::write_cursor_refusal_to(&mut bytes, &payload)?;
+    let rendered = String::from_utf8(bytes)?;
+    assert!(rendered.contains("missing: reason"));
+    assert!(rendered.contains("Held by: short-holder (unknown)"));
+    assert!(rendered.contains("next_best_command: pm --pm-path tracker update sample-one"));
+    let mut receipt =
+        serde_json::json!({"follow_up":{"suggested_command_args":["update","sample-one"]}});
+    super::project_close_receipt_scope(&mut receipt, &raw);
+    assert_eq!(
+        receipt["follow_up"]["suggested_command_args"],
+        serde_json::json!(["--pm-path", "tracker", "update", "sample-one"])
+    );
+    let mut retry = serde_json::json!({"recovery":{"suggested_retry_args":["close","sample-one"]}});
+    super::apply_close_error_recovery(
+        &mut retry,
+        &serde_json::json!({}),
+        &["close".to_owned(), "sample-one".to_owned()],
+    );
+    assert_eq!(retry["recovery"]["suggested_retry"], "pm close sample-one");
+    retry["recovery"]["suggested_retry_args"] =
+        serde_json::json!(["--pm-path", "tracker", "close", "sample-one"]);
+    super::apply_close_error_recovery(
+        &mut retry,
+        &serde_json::json!({}),
+        &["close".to_owned(), "sample-one".to_owned()],
+    );
+    assert_eq!(retry["recovery"]["suggested_retry"], "pm close sample-one");
+    super::project_close_receipt_scope(&mut receipt, &raw);
+    assert_eq!(
+        receipt["follow_up"]["suggested_command_args"],
+        serde_json::json!(["--pm-path", "tracker", "update", "sample-one"])
+    );
+    let mut parts = vec![];
+    super::append_recovery_domains(
+        &mut parts,
+        &serde_json::json!({"allowed_values":(0..10).map(|i|format!("choice-{i}")).collect::<Vec<_>>()}),
+    );
+    assert!(
+        parts
+            .iter()
+            .any(|part| part.contains("allowed_values_omitted: 2"))
+    );
+    assert!(!parts[0].contains("choice-8"));
+    assert_eq!(
+        super::invocation_scope(&["--".to_owned(), "--pm-path=ignored".to_owned()]),
+        Vec::<String>::new()
+    );
+    Ok(())
+}
+
+/// Historical non-object comment entries remain intact when the CLI indexes a new comment receipt.
+#[test]
+fn round5_historical_comment_receipt_preserves_scalar_rows()
+-> Result<(), Box<dyn std::error::Error>> {
+    let temp = tempfile::tempdir()?;
+    let root = temp.path().join(".agents/pm");
+    fs::create_dir_all(root.join("tasks"))?;
+    fs::create_dir(root.join("history"))?;
+    fs::write(root.join("settings.json"), "{}")?;
+    let item = serde_json::json!({"id":"sample-a","title":"Comments","type":"Task","status":"open","priority":2,"created_at":"2026-08-22T10:00:00.000Z","updated_at":"2026-08-22T10:00:00.000Z","comments":[null,"legacy"]});
+    fs::write(
+        root.join("tasks/sample-a.toon"),
+        toon_format::encode_default(&item)?,
+    )?;
+    let workspace = pm_rust::Workspace::discover(temp.path())?;
+    let identity =
+        pm_rust::AuthorIdentity::resolve(Some("alpha"), None, &std::collections::BTreeMap::new());
+    let output = super::comment_payload(
+        &workspace,
+        &identity,
+        &pm_rust::CommentItem {
+            id: "sample-a".to_owned(),
+            text: "New comment".to_owned(),
+            author: "alpha".to_owned(),
+            timestamp: Some("2026-08-22T10:00:00.000Z".to_owned()),
+            message: None,
+            provenance_role: None,
+            force_stale_lock: false,
+        },
+    )?;
+    let comments = output["item"]["comments"]
+        .as_array()
+        .ok_or("comment rows")?;
+    assert!(comments.contains(&serde_json::Value::Null));
+    assert!(comments.contains(&serde_json::json!("legacy")));
+    assert!(
+        comments
+            .iter()
+            .any(|row| row["text"] == "New comment" && row["index"].is_number())
+    );
+    Ok(())
+}
+
+/// A real intervening claim contributes ownership fields to the two-step close receipt only once.
+#[test]
+fn round5_close_release_receipt_counts_an_intervening_claim()
+-> Result<(), Box<dyn std::error::Error>> {
+    use clap::Parser as _;
+    let temp = tempfile::tempdir()?;
+    let root = temp.path().join(".agents/pm");
+    fs::create_dir_all(root.join("tasks"))?;
+    fs::create_dir(root.join("history"))?;
+    fs::write(root.join("settings.json"), "{}")?;
+    run(Cli::try_parse_from([
+        "pm-rust",
+        "--workspace",
+        temp.path().to_str().ok_or("workspace")?,
+        "create",
+        "--id",
+        "sample-one",
+        "--title",
+        "Closure",
+        "--type",
+        "Task",
+        "--author",
+        "alpha",
+        "--timestamp",
+        "2026-08-22T10:00:00.000Z",
+    ])?)?;
+    let workspace = pm_rust::Workspace::discover(temp.path())?;
+    let closed = workspace.close(pm_rust::CloseItem {
+        id: "sample-one".to_owned(),
+        reason: "Done".to_owned(),
+        author: "alpha".to_owned(),
+        timestamp: Some("2026-08-22T10:00:01.000Z".to_owned()),
+        provenance_role: None,
+        fields: pm_rust::CloseFields {
+            validate_close: Some("off".to_owned()),
+            ..Default::default()
+        },
+        force_stale_lock: false,
+    })?;
+    let request = pm_rust::OwnershipItem {
+        id: "sample-one".to_owned(),
+        author: "alpha".to_owned(),
+        timestamp: Some("2026-08-22T10:00:02.000Z".to_owned()),
+        message: None,
+        force: true,
+        if_available: false,
+        provenance_role: None,
+    };
+    let release = workspace.release(&request)?;
+    assert_eq!(release.changed_field_count, 0);
+    assert_eq!(
+        super::close_release_changed_field_count(
+            &closed.close_changed_fields,
+            release.changed_field_count
+        ),
+        4
+    );
+    workspace.claim(&request)?;
+    let release = workspace.release(&request)?;
+    assert_eq!(release.changed_field_count, 2);
+    assert_eq!(
+        super::close_release_changed_field_count(
+            &closed.close_changed_fields,
+            release.changed_field_count
+        ),
+        6
+    );
+    let mut duplicate_fields = closed.close_changed_fields;
+    duplicate_fields.extend(["assignee".to_owned(), "claim_principal".to_owned()]);
+    assert_eq!(
+        super::close_release_changed_field_count(&duplicate_fields, release.changed_field_count),
+        6
+    );
+    Ok(())
+}
+
+/// Receipt conversion propagates serializer failure before attempting row indexing.
+#[test]
+fn round5_comment_receipt_serialization_failure_is_preserved() {
+    assert!(super::indexed_comment_receipt(serde_json::to_value(SerializationFailure)).is_err());
+}
+
+/// Delimited close retries and human fallback diagnostics preserve their distinct contracts.
+#[test]
+fn round5_delimited_recovery_and_human_fallback() -> Result<(), Box<dyn std::error::Error>> {
+    let mut delimited = serde_json::json!({"recovery":{"missing":["--reason"]}});
+    super::apply_close_error_recovery(
+        &mut delimited,
+        &serde_json::json!({"code":"close_validation_missing_fields"}),
+        &["close".to_owned(), "--".to_owned(), "sample-one".to_owned()],
+    );
+    assert!(
+        delimited["recovery"]["suggested_retry"]
+            .as_str()
+            .ok_or("retry")?
+            .contains("--reason \"<value>\" -- sample-one")
+    );
+    for (context, args, expected) in [
+        (
+            serde_json::json!({"code":"unknown_error"}),
+            vec!["claim".to_owned()],
+            "detail",
+        ),
+        (
+            serde_json::json!({"code":"partial_failure","why":"No rollback was performed."}),
+            vec!["claim".to_owned()],
+            "No rollback was performed.",
+        ),
+        (
+            serde_json::json!({"code":"close_validation_missing_fields"}),
+            vec!["close".to_owned()],
+            "What is required:",
+        ),
+    ] {
+        let mut bytes = vec![];
+        let source = serde_json::json!({"code":context["code"],"title":"Title","detail":"detail"});
+        super::write_command_refusal_to(&mut bytes, "detail", &context, &args, &source)?;
+        assert!(String::from_utf8(bytes)?.contains(expected));
+    }
+    Ok(())
+}
+
+/// A public port/path URL cannot absorb the next URL's credential span.
+#[test]
+fn round7_public_url_port_boundaries() {
+    for separator in [" ", ",", ";"] {
+        let source = format!(
+            "https://public.invalid:443/p{separator}https://u:secret-password@private.invalid"
+        );
+        let expected =
+            format!("https://public.invalid:443/p{separator}https://[redacted]@private.invalid");
+        let mut payload = serde_json::json!({"detail":source});
+        super::refusal::redact(&mut payload, &[]);
+        assert_eq!(payload["detail"], expected);
+    }
+    for source in [
+        "https://public.invalid:443/p",
+        "https://www.npmjs.com/package/@scope/x",
+    ] {
+        let mut payload = serde_json::json!({"detail":source});
+        super::refusal::redact(&mut payload, &[]);
+        assert_eq!(payload["detail"], source);
+    }
+    let mut nested =
+        serde_json::json!({"detail":"https://u:long-lived-secret://tail@private.invalid"});
+    super::refusal::redact(&mut nested, &[]);
+    assert_eq!(nested["detail"], "https://[redacted]@private.invalid");
+}
+
+/// Executable next steps inherit tracker scope even when no recovery bundle exists.
+#[test]
+fn round10_executable_steps_keep_tracker_scope() {
+    let raw = [
+        "--pm-path",
+        "other tracker",
+        "claim",
+        "sample-own",
+        "--start",
+    ]
+    .map(str::to_owned);
+    for recovery in [
+        serde_json::Value::Null,
+        serde_json::json!({"normalized_args":["claim","sample-own"]}),
+    ] {
+        let mut payload = serde_json::json!({"next_steps":["pm update sample-own --unset blocked_by","Read the blocker first.","pm --pm-path chosen get sample-own","external get sample-own"],"recovery":recovery});
+        super::preserve_refusal_scope(&mut payload, &raw);
+        assert_eq!(
+            payload["next_steps"],
+            serde_json::json!([
+                "pm --pm-path \"other tracker\" update sample-own --unset blocked_by",
+                "Read the blocker first.",
+                "pm --pm-path chosen get sample-own",
+                "external get sample-own"
+            ])
+        );
+    }
+    let mut payload = serde_json::json!({"next_steps":["pm update sample-own --unset blocked_by"]});
+    let original = payload.clone();
+    super::preserve_refusal_scope(&mut payload, &["claim".to_owned()]);
+    assert_eq!(payload, original);
+    let mut payload = serde_json::json!({"recovery":{"normalized_args":["claim","sample-own"]}});
+    super::preserve_refusal_scope(&mut payload, &raw);
+    assert!(payload.get("next_steps").is_none());
+    let mut payload = serde_json::json!({"next_steps":"Read the blocker","recovery":null});
+    super::preserve_refusal_scope(&mut payload, &raw);
+    assert_eq!(payload["next_steps"], "Read the blocker");
+}
+
+/// Positional close reasons remain lossless after the delimiter in same-command retries.
+#[test]
+fn round10_close_retry_preserves_delimited_reason() -> Result<(), Box<dyn std::error::Error>> {
+    for reason in [
+        "--timestamp=done",
+        "--workspace=literal",
+        "--expected",
+        "ordinary reason",
+    ] {
+        let raw = [
+            "close",
+            "sample-one",
+            "--validate-close",
+            "strict",
+            "--json",
+            "--",
+            reason,
+        ];
+        let args = super::published_read_arguments(raw);
+        assert_eq!(args.last().map(String::as_str), Some(reason));
+        let context = serde_json::json!({"code":"close_validation_missing_fields","recovery":{"missing":["--actual-result","--expected-result"]}});
+        let payload = super::ownership_error_json("Missing evidence", &context, &args);
+        if reason == "--expected" {
+            // The pinned CLI withdraws a retry when positional data spells a missing evidence flag.
+            assert!(payload["recovery"]["suggested_retry_args"].is_null());
+            assert_eq!(
+                payload["recovery"]["normalized_args"],
+                serde_json::json!(args)
+            );
+            continue;
+        }
+        let retry = payload["recovery"]["suggested_retry_args"]
+            .as_array()
+            .ok_or("retry")?;
+        let delimiter = retry
+            .iter()
+            .position(|arg| arg == "--")
+            .ok_or("delimiter")?;
+        assert_eq!(&retry[delimiter + 1..], &[serde_json::json!(reason)]);
+        assert!(
+            retry[..delimiter]
+                .iter()
+                .any(|arg| arg == "--actual-result")
+        );
+    }
+    Ok(())
+}
+
+/// Pre-scoped advice and delimiter ambiguity preserve every supported spelling.
+#[test]
+fn round10_recovery_scope_and_alias_controls() {
+    let raw = ["--pm-path", "selected", "claim"].map(str::to_owned);
+    for flag in ["--pm-path", "--path", "--workspace"] {
+        for separator in [" ", "="] {
+            let command = format!("pm {flag}{separator}chosen get sample-own");
+            let mut value = serde_json::json!({"next_steps":[command,7],"recovery":{"suggested_retry":command}});
+            super::preserve_refusal_scope(&mut value, &raw);
+            assert_eq!(value["next_steps"][0], command);
+            assert_eq!(value["next_steps"][1], 7);
+            assert_eq!(value["recovery"]["suggested_retry"], command);
+        }
+    }
+    let missing = ["--expected-result", "--actual-result", "--resolution"].map(str::to_owned);
+    for flag in [
+        "--expected",
+        "--expected_result",
+        "--expected-result",
+        "--actual",
+        "--actual_result",
+        "--actual-result",
+        "--resolution",
+    ] {
+        assert!(!super::close_retry_unambiguous(
+            &["close", "id", "--", flag].map(str::to_owned),
+            &missing
+        ));
+        assert!(super::close_retry_unambiguous(
+            &["close", "id", flag].map(str::to_owned),
+            &missing
+        ));
+    }
+    assert!(super::close_retry_unambiguous(
+        &["close", "id", "--", "ordinary reason"].map(str::to_owned),
+        &missing
+    ));
+}
+
+/// A delimited scope-shaped reason cannot override bootstrap scope or output controls.
+#[test]
+fn round11_bootstrap_scope_ignores_command_data() -> Result<(), Box<dyn std::error::Error>> {
+    for flag in ["--pm-path", "--path", "--workspace"] {
+        for reason in [
+            "--pm-path=literal",
+            "--workspace=literal",
+            "--json",
+            "--output-format=json",
+            "--author=literal",
+        ] {
+            let raw = [
+                flag,
+                "selected",
+                "close",
+                "sample-one",
+                "--validate-close",
+                "strict",
+                "--json",
+                "--",
+                reason,
+            ]
+            .map(str::to_owned);
+            let args = super::published_read_arguments(&raw);
+            let context = serde_json::json!({"code":"close_validation_missing_fields","recovery":{"missing":["--actual-result","--expected-result"]}});
+            let mut payload = super::ownership_error_json("Missing evidence", &context, &args);
+            super::preserve_refusal_scope(&mut payload, &raw);
+            for key in ["normalized_args", "suggested_retry_args"] {
+                let values = payload["recovery"][key]
+                    .as_array()
+                    .ok_or("recovery argv missing")?;
+                assert_eq!(
+                    &values[..2],
+                    &[
+                        serde_json::json!("--pm-path"),
+                        serde_json::json!("selected")
+                    ]
+                );
+                assert_eq!(values.last(), Some(&serde_json::json!(reason)));
+            }
+            for key in ["attempted_command", "suggested_retry"] {
+                assert!(
+                    payload["recovery"][key]
+                        .as_str()
+                        .unwrap_or_default()
+                        .starts_with("pm --pm-path selected close ")
+                );
+            }
+        }
+    }
+    Ok(())
+}
+
+/// Declared values and delimited positionals cannot supply format, author or workspace controls.
+#[test]
+fn round11_option_values_never_become_controls() {
+    for raw in [
+        vec!["close", "sample-one", "--", "--json"],
+        vec!["close", "sample-one", "--completed-at", "--json"],
+        vec!["deps", "sample-one", "--", "--output-format=json"],
+    ] {
+        assert!(!super::json_requested(
+            &raw.into_iter().map(str::to_owned).collect::<Vec<_>>()
+        ));
+    }
+    let raw = [
+        "close",
+        "sample-one",
+        "--message",
+        "literal --pm-path=wrong --json --author=wrong",
+        "--",
+        "--pm-path=reason",
+    ]
+    .map(str::to_owned);
+    assert!(super::invocation_scope(&raw).is_empty());
+    assert_eq!(super::published_read_arguments(&raw), raw);
+    for value in [
+        "--workspace=literal",
+        "--pm-path=literal",
+        "--timestamp=literal",
+        "--expected",
+        "--actual",
+        "--json",
+        "--output-format=json",
+        "--author=literal",
+    ] {
+        let raw = ["close", "sample-one", "--completed-at", value].map(str::to_owned);
+        assert_eq!(super::published_read_arguments(&raw), raw);
+        assert!(!super::json_requested(&raw));
+        assert!(super::invocation_scope(&raw).is_empty());
+    }
+
+    assert_eq!(
+        super::invocation_scope(&["--workspace", "-", "close"].map(str::to_owned)),
+        ["--pm-path", "-"]
+    );
+    let bare = ["pm-rust", "item"].map(std::ffi::OsString::from).to_vec();
+    assert_eq!(super::native_arguments(bare.clone()), bare);
+    assert!(!super::json_requested(&["search", "-"].map(str::to_owned)));
+    for control in ["--author", "--json", "--output-format"] {
+        let args = ["deps", "sample-one", "--bogus", control, "value"].map(str::to_owned);
+        let refusal = super::command_refusal_detail("--bogus requires a value", &args, 2);
+        assert!(refusal.get("rejected_value").is_none());
+    }
+    let args = ["context", "--limit", "--json"].map(str::to_owned);
+    assert_eq!(
+        super::command_refusal_detail("--limit must be a number", &args, 2)["rejected_value"],
+        "--json"
+    );
+
+    for command in [
+        "pm --pm-path - close sample-one",
+        "pm --workspace \"chosen tracker\" close sample-one",
+        "pm --path=chosen close sample-one",
+    ] {
+        assert!(
+            super::scope_recovery_command(
+                command,
+                &["--pm-path".to_owned(), "selected".to_owned()]
+            )
+            .is_none()
+        );
+    }
+
+    for path in ["--json", "--author=literal", "--"] {
+        let raw = [format!("--workspace={path}"), "close".to_owned()];
+        let scope = super::invocation_scope(&raw);
+        assert_eq!(scope, [format!("--pm-path={path}")]);
+        assert_eq!(super::Invocation::parse(&scope).scope(), Some(path));
+        assert!(!super::json_requested(&scope));
+    }
+}
+
+/// A hyphen-permitting value consumes the delimiter token before output controls.
+#[test]
+fn round12_hyphen_value_delimiter() {
+    let args: Vec<String> = ["context", "--limit", "--", "--json"]
+        .map(str::to_owned)
+        .to_vec();
+    let parsed = crate::invocation::Invocation::parse(&args);
+    assert_eq!(parsed.options[0].value, Some("--"));
+    assert!(super::json_requested(&args));
+    let positional: Vec<String> = ["close", "sample-one", "--", "--json"]
+        .map(str::to_owned)
+        .to_vec();
+    assert!(!super::json_requested(&positional));
+}
+
+/// Refusal output uses the effective final format, with aliases and values kept separate.
+#[test]
+fn round14_last_output_format_controls_refusal() {
+    for (formats, expected) in [(["toon", "json"], true), (["json", "toon"], false)] {
+        let args = [
+            "deps",
+            "sample-cli",
+            "--output-format",
+            formats[0],
+            "--output-format",
+            formats[1],
+            "--format",
+            "bogus",
+        ]
+        .map(str::to_owned);
+        assert_eq!(super::json_requested(&args), expected);
+    }
+}
+
+/// Scope and ambiguity advice preserve the same concrete argv through a real shell.
+#[cfg(unix)]
+#[test]
+fn round15_scoped_advice_shell_round_trip() -> Result<(), Box<dyn std::error::Error>> {
+    use advice_corpus as corpus;
+    for value in corpus::VALUES {
+        let scope = ["--pm-path".to_owned(), (*value).to_owned()];
+        let base = pm_rust::render_pm_command(["get", value]);
+        let scoped = super::scope_recovery_command(&base, &scope).ok_or("scope")?;
+        corpus::assert_shell_args(&scoped, &["pm", "--pm-path", value, "get", value])?;
+        let error = super::validate_claim_target(Some(value), true, false, false);
+        let Err(pm_rust::PmRustError::CommandRefusal { context, .. }) = error else {
+            return Err("claim refusal".into());
+        };
+        let command = context["next_steps"][0]
+            .as_str()
+            .ok_or("step")?
+            .strip_prefix("Retry as ")
+            .ok_or("prefix")?
+            .strip_suffix(" to claim that item, or drop the id to select with --next.")
+            .ok_or("suffix")?;
+        corpus::assert_shell_args(command, &["pm", "claim", value])?;
+    }
+    let scoped = super::scope_recovery_command(
+        "pm get sample-missing;id",
+        &["--pm-path".to_owned(), "selected".to_owned()],
+    )
+    .ok_or("legacy scope")?;
+    assert!(
+        !scoped.starts_with("pm "),
+        "unparsed shell syntax must withhold execution advice"
+    );
+    Ok(())
+}
+
+/// Placeholder-looking query text is data, never a second interpolation pass.
+#[cfg(unix)]
+#[test]
+fn round15_search_advice_does_not_reinterpolate() -> Result<(), Box<dyn std::error::Error>> {
+    use advice_corpus as corpus;
+    let query = "term\"<query>$(printf INJECTED)";
+    let domain = "Task;printf INJECTED";
+    let args = ["search", query, "--type", "bad"].map(str::to_owned);
+    let context =
+        serde_json::json!({"code":"invalid_argument_value","recovery":{"allowed_values":[domain]}});
+    let result = super::search_error_json("Invalid type", &context, &args, 2);
+    corpus::assert_shell_args(
+        result["examples"][0].as_str().ok_or("corrected example")?,
+        &["pm", "search", query, "--type", domain],
+    )?;
+    Ok(())
+}
+
+/// Unsafe or malformed generic examples are withheld; unrelated examples remain data.
+#[test]
+fn round15_search_template_boundaries() {
+    let args = ["search", "ordinary"].map(str::to_owned);
+    let mut payload =
+        serde_json::json!({"examples":[null,"keep this","pm search <query> --type \"unclosed"]});
+    super::instantiate_search_examples(&mut payload, &args);
+    assert_eq!(payload["examples"][0], serde_json::Value::Null);
+    assert_eq!(payload["examples"][1], "keep this");
+    assert!(
+        !payload["examples"][2]
+            .as_str()
+            .unwrap_or_default()
+            .starts_with("pm ")
+    );
+    let before = payload.clone();
+    super::instantiate_search_examples(&mut payload, &[]);
+    assert_eq!(payload, before);
+}
+
+/// Unclosed advice quotes withhold execution on Windows as well as Unix.
+#[test]
+fn round19_unclosed_recovery_advice_is_not_executable() {
+    let scope = ["--pm-path".to_owned(), "selected".to_owned()];
+    assert_eq!(
+        super::scope_recovery_command("pm get \"unclosed", &scope),
+        Some(
+            "Recovery advice could not be decoded safely; inspect command help before retrying."
+                .to_owned()
+        )
+    );
+    let valid = super::scope_recovery_command("pm get sample-one", &scope);
+    assert_eq!(
+        valid,
+        Some("pm --pm-path selected get sample-one".to_owned())
+    );
 }

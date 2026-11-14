@@ -171,18 +171,6 @@ fn activity(workspace: &Workspace, limit: usize, now: &str) -> Result<Value, PmR
     activity_entries(workspace, &mut entries, &path, limit, now)
 }
 
-/// Matches published timestamp comparison, including its lexical fallback for invalid values.
-fn activity_before(timestamp: &str, now: &str) -> bool {
-    let left = crate::list::timestamp_key(timestamp).0;
-    let right = crate::list::timestamp_key(now).0;
-    if let (Some(left), Some(right)) = (left, right)
-        && left != right
-    {
-        return left < right;
-    }
-    crate::collation::compare(timestamp, now).is_lt()
-}
-
 /// Traverses retained activity entries while preserving directory-iteration failures.
 fn activity_entries(
     workspace: &Workspace,
@@ -201,7 +189,9 @@ fn activity_entries(
         let name = name.to_string_lossy();
         if let Some(id) = name.strip_suffix(".jsonl") {
             for entry in records(workspace, id)? {
-                if text(&entry, "ts").is_empty() || !activity_before(text(&entry, "ts"), now) {
+                let stamp = crate::list::timestamp_key(text(&entry, "ts")).0;
+                let end = crate::list::timestamp_key(now).0;
+                if stamp.is_none() || stamp >= end {
                     continue;
                 }
                 let mut row = json!({"id":id,"op":entry["op"].as_str().unwrap_or("unknown"),"ts":text(&entry,"ts"),"author":entry["author"].as_str().unwrap_or("unknown")});
@@ -329,7 +319,7 @@ pub(super) fn build(
         result[name] = match *name {
             "hierarchy" => hierarchy(&parents,&tree,lifecycle,limit,None),
             "progress" => hierarchy(&parents,&progress_tree,lifecycle,limit,Some(blocked)),
-            "activity" => activity(workspace, settings["context"]["activity_limit"].as_u64().and_then(|n|usize::try_from(n).ok()).unwrap_or(10), now)?,
+            "activity" => activity(workspace, settings["context"]["activity_limit"].as_u64().and_then(|n|usize::try_from(n).ok()).unwrap_or(10),now)?,
             "recently_created" | "unparented" => {
                 let mut items = nonterminal.clone();
                 if *name == "recently_created" {
@@ -382,8 +372,8 @@ pub(super) fn build(
                 let mut with_runs = 0;
                 let mut totals = [0u64;3];
                 let mut failing = BTreeSet::new();
-                let matching: Vec<_> = corpus.iter().filter(|item| lifecycle.role(text(item, "status"), "active")).collect();
-                for item in &matching {
+                let matching_active: Vec<_> = corpus.iter().filter(|item|lifecycle.role(text(item,"status"),"active")).collect();
+                for item in &matching_active {
                     with_tests += usize::from(super::count(item,"tests") > 0);
                     with_runs += usize::from(super::count(item,"test_runs") > 0);
                     for run in item["test_runs"].as_array().into_iter().flatten() {
@@ -391,7 +381,7 @@ pub(super) fn build(
                         if run["failed"].as_u64().unwrap_or_default() > 0 { failing.insert(text(item,"id")); }
                     }
                 }
-                json!({"scope":"matching_active_items","total_items":matching.len(),"items_with_tests":with_tests,"items_with_recent_runs":with_runs,"recent_runs":{"passed":totals[0],"failed":totals[1],"skipped":totals[2]},"items_failing":failing})
+                json!({"scope":"matching_active_items","total_items":matching_active.len(),"items_with_tests":with_tests,"items_with_recent_runs":with_runs,"recent_runs":{"passed":totals[0],"failed":totals[1],"skipped":totals[2]},"items_failing":failing})
             }
         };
     }

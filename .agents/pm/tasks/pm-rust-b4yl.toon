@@ -6,17 +6,13 @@ status: open
 priority: 1
 tags[3]: conformance,follow-up,history
 created_at: "2026-10-17T11:01:24.761Z"
-updated_at: "2026-11-08T06:47:16.978Z"
+updated_at: "2026-11-14T04:01:12.429Z"
 author: codex-agent
 parent: pm-rust-u4al
-comments[4]{created_at,author,text}:
+comments[5]{created_at,author,text}:
   "2026-10-18T13:11:30.015Z",codex-agent,"PR #92 second-review check reconfirms the existing discontinuities: full health --strict-exit reports history_drift_chain_mismatch for pm-rust-bj7a and pm-rust-unih. A fresh no-local clone of prior head c511d607579d746e201a15e54a37b287c79b1195 reproduces both; those items and history streams remain unchanged by this review. The documented CI command health --check-only --require-merge-drivers --strict-exit passes and must not be reported as verification of these older chains. Preserve this existing follow-up open; no re-anchor, repair or rewrite performed."
   "2026-10-21T11:12:40.192Z",codex-agent,"PR 101 review-round supplementary full health with pinned pm-cli 2026.10.21 confirms the same two existing chain mismatches in pm-rust-bj7a and pm-rust-unih. Both item/history files are unchanged relative to origin/main and the review candidate. Full health checks 74 items and reports two chain mismatches, zero hash mismatches, zero workspace-state mismatches. No existing records were rewritten. This is independent of the release-check and default CI health gates, which do not establish full history integrity."
   "2026-10-23T19:09:49.301Z",codex-agent,PR 110 review round confirms the two already tracked chain mismatches for pm-rust-bj7a and pm-rust-unih. Both item/history pairs are unchanged from origin/main. Full local health authority remains ok but reports these historical advisories plus local extension and merge-driver configuration warnings. No append-only history was repaired or rewritten. Release and CI check-only health evidence is separate from verification of these older chains.
-  "2026-11-08T06:47:13.925Z",codex-agent,"PR 154 review audit reconfirmed the existing baseline defect with the repo-pinned CLI 2026.10.21: full health reports history_drift_chain_mismatch for pm-rust-bj7a and pm-rust-unih. A clean archive of origin/main reproduces the same two chain mismatches (95 baseline items); the candidate full scan checks 98 items and reports exactly those same two, with zero hash mismatches, version skews or workspace-state mismatches. Both affected item/history pairs are byte-identical to origin/main. The standard strict CI health gate passes because it omits the deeper history check; this is not history-integrity certification. Preserve all records unchanged; no history repair or re-anchoring was attempted. Existing follow-up reused instead of creating a duplicate."
-files[4]{path,scope}:
-  .agents/pm/features/pm-rust-bj7a.toon,project
-  .agents/pm/features/pm-rust-unih.toon,project
-  .agents/pm/history/pm-rust-bj7a.jsonl,project
-  .agents/pm/history/pm-rust-unih.jsonl,project
+  "2026-11-12T05:47:22.899Z",codex-agent,"PR #165 round-five supplementary full health with pinned pm-cli 2026.11.11 confirms the same two previously tracked history_drift_chain_mismatch findings for pm-rust-bj7a and pm-rust-unih. Both item/history pairs are byte-identical to HEAD and origin/main. node tests/oracle/launch.mts health --strict-exit --json exits one; the unchanged CI gate node tests/oracle/launch.mts health --check-only --require-merge-drivers --strict-exit exits zero. The check-only pass does not certify these historical chains. No records were repaired, rewritten or re-anchored. Existing follow-up remains open and unclaimed; evidence is also in docs/ORACLE_REVIEW_ROUND5_2026_11_12.md."
+  "2026-11-14T04:01:12.429Z",codex-agent,Main integration preserved the main item/history pair. Branch context-read evidence from the earlier review remains on pm-rust-context-intents and in docs/NATIVE_CONTEXT_REVIEW_154.md; no history records were spliced or rewritten. Reconciliation declined the generated receipt because the original merge-driver record no longer describes the restored main pair; that newly generated receipt was retained outside the active tracker.
 body: ""

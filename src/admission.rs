@@ -119,20 +119,27 @@ pub struct AdmissionOptions {
         skip_serializing_if = "Option::is_none"
     )]
     pub create_mode: Option<String>,
-    /// Creates explicitly assert no parent with the SDK sentinel `none`.
+    /// Supplied parent scope is outside canonical native admission.
     #[serde(
         default,
         deserialize_with = "present",
         skip_serializing_if = "Option::is_none"
     )]
     pub parent: Option<String>,
-    /// Creates explicitly assert no assignee with the SDK sentinel `none`.
+    /// Supplied assignee scope is outside canonical native admission.
     #[serde(
         default,
         deserialize_with = "present",
         skip_serializing_if = "Option::is_none"
     )]
     pub assignee: Option<String>,
+    /// Creates explicitly clear parent and assignee through supported SDK options.
+    #[serde(
+        default,
+        deserialize_with = "present",
+        skip_serializing_if = "Option::is_none"
+    )]
+    pub unset: Option<Vec<String>>,
     /// Creates explicitly bypass similarity advisory policy; must be true.
     #[serde(
         default,
@@ -560,7 +567,14 @@ impl Source {
             .iter()
             .any(|v| declares_contract(v));
         let mut statuses = crate::list_registry::default_schema("statuses");
+        // Start resolution retains inline settings when the sidecar is missing.
+        // Published bulk previews keep scaffold closure defaults in this case.
         let mut workflows = crate::list_registry::default_schema("workflows");
+        for key in ["open_status", "in_progress_status"] {
+            if let Some(inline) = settings["schema"]["workflow"].get(key) {
+                workflows["workflow"][key] = inline.clone();
+            }
+        }
         for (name, key) in [
             ("types", "definitions"),
             ("fields", "fields"),
@@ -638,7 +652,7 @@ fn required(field: &'static str) -> (&'static str, Option<&'static str>, &'stati
     (
         "required_field",
         Some(field),
-        "Supply missing fields. Preserve any supplied strict readiness, relationship, assignee or similarity constraint by using the published SDK; the native slice needs explicit progressive mode, empty scope and similarity bypass.",
+        "Supply missing canonical fields. Creates need progressive mode, unset: [\"parent\", \"assignee\"] and allowDuplicate: true; preserve supplied strict readiness, scope or similarity constraints through the published SDK.",
     )
 }
 
@@ -703,12 +717,11 @@ fn prepare_create(
         .ok_or_else(|| required("type"))?;
     let status = options.status.clone().ok_or_else(|| required("status"))?;
     let priority = options.priority.ok_or_else(|| required("priority"))?;
-    for (field, value, expected) in [
-        ("createMode", options.create_mode.as_deref(), "progressive"),
-        ("parent", options.parent.as_deref(), "none"),
-        ("assignee", options.assignee.as_deref(), "none"),
-    ] {
-        if value != Some(expected) {
+    if options.create_mode.as_deref() != Some("progressive") {
+        return Err(required("createMode"));
+    }
+    for (field, value) in [("parent", &options.parent), ("assignee", &options.assignee)] {
+        if value.is_some() {
             return Err(required(field));
         }
     }
@@ -759,6 +772,7 @@ fn prepare_update(
         || options.create_mode.is_some()
         || options.parent.is_some()
         || options.assignee.is_some()
+        || options.unset.is_some()
         || options.allow_duplicate.is_some()
     {
         return Err((
@@ -863,6 +877,19 @@ fn evaluate(
             diagnostic.required = Some(
                 "Repair the earlier refused intent on this target, then preview the complete batch again.",
             );
+        } else if matches!(intent.op, AdmissionKind::Create)
+            && intent.options.unset.as_ref().is_none_or(|unset| {
+                unset.len() != 2
+                    || !unset.iter().any(|field| field == "parent")
+                    || !unset.iter().any(|field| field == "assignee")
+            })
+        {
+            refused.insert(intent.id.clone());
+            diagnostic.state = "refused";
+            let (code, field, remedy) = required("unset");
+            diagnostic.code = code;
+            diagnostic.field = field;
+            diagnostic.required = Some(remedy);
         } else if matches!(intent.op, AdmissionKind::Create)
             && before.is_some_and(|item| {
                 item.metadata

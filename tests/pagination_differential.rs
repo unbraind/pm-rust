@@ -1907,3 +1907,432 @@ fn triage_stabilized_wire_budget_matches_published() -> TestResult {
     assert!((pm_rust::stringify_json(&output, true).len() + 1).div_ceil(4) <= 1401);
     Ok(())
 }
+
+/// Builds the same local fixture with an explicitly optional oracle driver.
+fn fixture_with_oracle(
+    count: usize,
+    title_size: usize,
+    oracle: Option<published_cli::PublishedCli>,
+) -> Result<tempfile::TempDir, Box<dyn std::error::Error>> {
+    let directory = tempfile::tempdir()?;
+    let root = directory.path().join(".agents/pm");
+    fs::create_dir_all(root.join("tasks"))?;
+    fs::create_dir_all(root.join("history"))?;
+    let mut settings: Value = serde_json::from_str(include_str!("fixtures/list-settings.json"))?;
+    settings["telemetry"]["enabled"] = Value::Bool(false);
+    fs::write(root.join("settings.json"), settings.to_string())?;
+    for index in 0..count {
+        let id = format!("demo-{index:04}");
+        fs::write(
+            root.join("tasks").join(format!("{id}.toon")),
+            format!(
+                "id: {id}\ntitle: \"{id}{}\"\ndescription: \"\"\ntype: Task\nstatus: open\npriority: {}\ntags: []\ncreated_at: \"2026-09-01T00:00:00.000Z\"\nupdated_at: \"2026-09-01T00:00:00.000Z\"\nbody: \"\"\n",
+                "x".repeat(title_size),
+                index % 5
+            ),
+        )?;
+    }
+    if let Some(published) = oracle {
+        let package: Value =
+            serde_json::from_slice(&fs::read(published.package_root.join("package.json"))?)?;
+        assert_eq!(
+            package["version"],
+            pm_rust::COMPATIBLE_PM_VERSION,
+            "pagination requires the pinned oracle"
+        );
+        fs::write(
+            directory.path().join("driver.mjs"),
+            format!(
+                "import {{pathToFileURL}} from 'node:url';\nconst fixed=Date.parse({});const OriginalDate=Date;globalThis.Date=class extends OriginalDate {{constructor(...args){{args.length?super(...args):super(fixed)}}static now(){{return fixed}}}};\nprocess.argv=[process.argv[0],'pm',...process.argv.slice(2)];await import(pathToFileURL({}));\n",
+                serde_json::to_string(CLOCK)?,
+                serde_json::to_string(&published.entry)?
+            ),
+        )?;
+    }
+    Ok(directory)
+}
+
+/// An unbounded legacy final page retains its exact suffix without rebasing from zero.
+#[test]
+fn legacy_after_without_after_index_retains_unbounded_final_triage_page() -> TestResult {
+    use base64::{Engine, engine::general_purpose::URL_SAFE_NO_PAD};
+    let directory = fixture(75, 400)?;
+    let first = compare(
+        directory.path(),
+        &[
+            "--for",
+            "triage",
+            "--token-budget",
+            "100000",
+            "--limit",
+            "69",
+            "--output-budget",
+            "unbounded",
+        ],
+        true,
+    )?;
+    let raw = first["next_cursor"]
+        .as_str()
+        .ok_or("missing final-page cursor")?;
+    let mut cursor: Value = serde_json::from_slice(&URL_SAFE_NO_PAD.decode(raw)?)?;
+    assert!(
+        cursor["after_index"]
+            .as_u64()
+            .is_some_and(|index| index > 0)
+    );
+    cursor
+        .as_object_mut()
+        .ok_or("cursor object")?
+        .shift_remove("after_index");
+    let legacy = URL_SAFE_NO_PAD.encode(cursor.to_string());
+    let flags = [
+        "--for",
+        "triage",
+        "--token-budget",
+        "800",
+        "--full",
+        "--after",
+        legacy.as_str(),
+        "--output-budget",
+        "unbounded",
+    ];
+    let native = Command::new(env!("CARGO_BIN_EXE_pm-rust"))
+        .args(["--workspace", ".", "list", "--timestamp", CLOCK, "--json"])
+        .args(flags)
+        .current_dir(directory.path())
+        .env_remove("PM_PATH")
+        .output()?;
+    assert!(
+        native.status.success(),
+        "native: {}",
+        String::from_utf8_lossy(&native.stderr)
+    );
+    let native_page: Value = serde_json::from_slice(&native.stdout)?;
+    assert_eq!(
+        native_page["items"]
+            .as_array()
+            .ok_or("missing final rows")?
+            .iter()
+            .map(|row| row["id"].clone())
+            .collect::<Vec<_>>(),
+        serde_json::json!([
+            "demo-0049",
+            "demo-0054",
+            "demo-0059",
+            "demo-0064",
+            "demo-0069",
+            "demo-0074"
+        ])
+        .as_array()
+        .ok_or("expected rows")?
+        .clone()
+    );
+    assert!(native_page["next_cursor"].is_null());
+    assert!(native_page.get("budget_exceeded").is_none());
+    assert_eq!(
+        native_page["continuation_contract"]["metadata"],
+        "reference"
+    );
+    if directory.path().join("driver.mjs").is_file() {
+        let published = published_cli::oracle_command(
+            std::env::var("PM_NODE_INTERPRETER").unwrap_or_else(|_| "node".to_owned()),
+        )
+        .arg(directory.path().join("driver.mjs"))
+        // Match the native-only workspace alias with its published bootstrap scope.
+        .args(["--pm-path", ".", "list", "--json"])
+        .args(flags)
+        .current_dir(directory.path())
+        .env_remove("PM_PATH")
+        .output()?;
+        assert_eq!(published.status.code(), native.status.code());
+        assert_bytes(&native, &published, &flags);
+    }
+    Ok(())
+}
+
+/// Numeric output budgets retain the oracle's precedence even over invalid legacy controls.
+#[test]
+fn dual_budget_validation_matches_published_precedence() -> TestResult {
+    let directory = fixture(3, 20)?;
+    for token in ["abc", "255", "256", "1000"] {
+        let args = [
+            "--for",
+            "triage",
+            "--token-budget",
+            token,
+            "--output-budget",
+            "3000",
+        ];
+        compare(directory.path(), &args, true)?;
+        compare_toon(directory.path(), &args, true)?;
+    }
+    Ok(())
+}
+
+/// Invalid output cursors take precedence over an infeasible intent omission.
+#[test]
+fn round5_omitted_intent_validates_output_cursor() -> TestResult {
+    let directory = fixture(8, 400)?;
+    let result = compare(
+        directory.path(),
+        &[
+            "--for",
+            "triage",
+            "--output-budget",
+            "1",
+            "--output-cursor",
+            "invalid",
+        ],
+        false,
+    )?;
+    assert_eq!(result["code"], "read_output_cursor_invalid");
+    Ok(())
+}
+
+/// Intent declaration feasibility uses the final receipt-stabilized measurement.
+#[test]
+fn round5_intent_feasibility_matches_final_measurement() -> TestResult {
+    let directory = fixture(24, 232)?;
+    for toon in [false, true] {
+        let page = if toon {
+            compare_toon(
+                directory.path(),
+                &["--for", "triage", "--output-budget", "4000"],
+                true,
+            )?
+        } else {
+            compare(
+                directory.path(),
+                &["--for", "triage", "--output-budget", "4000"],
+                true,
+            )?
+        };
+        let tokens = page["context_intent"]["estimated_tokens"]
+            .as_u64()
+            .ok_or("tokens")?;
+        if !toon {
+            assert!(tokens > 3200 && tokens <= 4000);
+        }
+        assert_eq!(
+            page["context_intent"]["declaration_feasible"],
+            tokens <= 3200
+        );
+    }
+    Ok(())
+}
+
+/// The oracle retains the pre-clipping intent verdict while stabilizing the delivered estimate.
+#[test]
+fn round9_clipped_intent_verdict_matches_published() -> TestResult {
+    for width in [20, 20_000] {
+        let directory = fixture(2, 20)?;
+        let path = directory.path().join(".agents/pm/tasks/demo-0001.toon");
+        fs::write(
+            &path,
+            fs::read_to_string(&path)?.replace(&"x".repeat(20), &"x".repeat(width)),
+        )?;
+        let flags = [
+            "--full",
+            "--for",
+            "triage",
+            "--output-budget",
+            "unbounded",
+            "--output-limit",
+            "1",
+        ];
+        for toon in [false, true] {
+            let page = if toon {
+                compare_toon(directory.path(), &flags, true)?
+            } else {
+                compare(directory.path(), &flags, true)?
+            };
+            assert_eq!(page["items"].as_array().ok_or("items")?.len(), 1);
+            assert!(
+                page["context_intent"]["estimated_tokens"]
+                    .as_u64()
+                    .ok_or("estimate")?
+                    < 3200
+            );
+            assert_eq!(page["context_intent"]["within_budget"], width == 20);
+            assert_eq!(page["context_intent"]["declaration_feasible"], width == 20);
+            assert_eq!(page["read_output"]["within_budget"], true);
+        }
+    }
+    Ok(())
+}
+
+/// Reads complete returned IDs without accepting null or non-array pages.
+fn returned_ids(value: &Value) -> Result<Vec<String>, Box<dyn std::error::Error>> {
+    value["items"]
+        .as_array()
+        .ok_or("items")?
+        .iter()
+        .map(|row| {
+            row["id"]
+                .as_str()
+                .map(str::to_owned)
+                .ok_or_else(|| "item id".into())
+        })
+        .collect()
+}
+
+/// Recursive intent compaction retains every producer continuation with or without an oracle.
+fn long_intent_cursor_case(directory: &Path) -> TestResult {
+    for index in 0..8 {
+        let old = format!("demo-{index:04}");
+        let id = format!("{old}{}", "a".repeat(170));
+        let path = directory.join(format!(".agents/pm/tasks/{old}.toon"));
+        let text =
+            fs::read_to_string(&path)?.replace(&format!("id: {old}\n"), &format!("id: {id}\n"));
+        fs::remove_file(&path)?;
+        fs::write(path.with_file_name(format!("{id}.toon")), text)?;
+    }
+    let flags = ["--for", "triage", "--output-budget", "2000", "--limit", "4"];
+    // Native continuation usability intentionally repairs the measured published bug.
+    // Every existing byte-exact comparator remains unchanged.
+    let native = |args: &[&str]| -> Result<Value, Box<dyn std::error::Error>> {
+        let output = Command::new(env!("CARGO_BIN_EXE_pm-rust"))
+            .args(["--workspace", ".", "list", "--json", "--timestamp", CLOCK])
+            .args(args)
+            .current_dir(directory)
+            .env_remove("PM_PATH")
+            .output()?;
+        assert!(
+            output.status.success(),
+            "{}",
+            String::from_utf8_lossy(&output.stderr)
+        );
+        Ok(serde_json::from_slice(&output.stdout)?)
+    };
+    let page = native(&flags)?;
+    let cursor = page["next_cursor"].as_str().ok_or("producer cursor")?;
+    assert!(cursor.len() > 240);
+    let mut resumed = flags.to_vec();
+    resumed.extend(["--after", cursor]);
+    let next = native(&resumed)?;
+    let expected =
+        [0, 5, 1, 6, 2, 7, 3, 4].map(|index| format!("demo-{index:04}{}", "a".repeat(170)));
+    let mut seen = returned_ids(&page)?;
+    assert!(!seen.is_empty());
+    assert_eq!(seen, expected[..seen.len()]);
+    let mut resumed_page = next;
+    for _ in 0..8 {
+        let suffix = returned_ids(&resumed_page)?;
+        assert!(
+            !suffix.is_empty(),
+            "a continuation must retain its remaining suffix"
+        );
+        assert!(
+            seen.len() + suffix.len() <= expected.len(),
+            "continuation duplicated or invented rows"
+        );
+        assert_eq!(suffix, expected[seen.len()..seen.len() + suffix.len()]);
+        seen.extend(suffix);
+        if resumed_page["has_more"] != true {
+            break;
+        }
+        let after = resumed_page["next_cursor"]
+            .as_str()
+            .ok_or("next producer cursor")?;
+        let mut flags = flags.to_vec();
+        flags.extend(["--after", after]);
+        resumed_page = native(&flags)?;
+    }
+    assert_eq!(seen, expected);
+    assert_eq!(
+        seen.iter().collect::<std::collections::BTreeSet<_>>().len(),
+        8
+    );
+    let broken_local = format!("{}…", cursor.chars().take(240).collect::<String>());
+    assert!(
+        Workspace::discover(directory)?
+            .list_page(
+                &ItemFilter::default(),
+                &ListOptions {
+                    intent: Some("triage".to_owned()),
+                    after: Some(broken_local),
+                    ..Default::default()
+                },
+                CLOCK
+            )
+            .is_err()
+    );
+    if !directory.join("driver.mjs").is_file() {
+        return Ok(());
+    }
+    published_long_cursor_case(directory, &flags)
+}
+
+/// Measures only the pinned oracle cursor bug after every native assertion has run.
+fn published_long_cursor_case(directory: &Path, flags: &[&str]) -> TestResult {
+    let published = published_cli::oracle_command(
+        std::env::var("PM_NODE_INTERPRETER").unwrap_or_else(|_| "node".to_owned()),
+    )
+    .arg(directory.join("driver.mjs"))
+    .args(["--pm-path", ".", "list", "--json"])
+    .args(flags)
+    .current_dir(directory)
+    .env_remove("PM_PATH")
+    .output()?;
+    assert!(published.status.success());
+    let published: Value = serde_json::from_slice(&published.stdout)?;
+    let broken = published["next_cursor"]
+        .as_str()
+        .ok_or("published cursor")?;
+    assert!(broken.ends_with('…'), "published cursor was not compacted");
+    assert!(
+        pm_rust::Workspace::discover(directory)?
+            .list_page(
+                &ItemFilter::default(),
+                &ListOptions {
+                    intent: Some("triage".to_owned()),
+                    after: Some(broken.to_owned()),
+                    ..Default::default()
+                },
+                CLOCK,
+            )
+            .is_err()
+    );
+    Ok(())
+}
+
+/// Every native continuation assertion runs even when no oracle driver is available.
+#[test]
+fn round7_native_long_cursor_without_oracle() -> TestResult {
+    let directory = fixture_with_oracle(8, 2000, None)?;
+    assert!(!directory.path().join("driver.mjs").exists());
+    long_intent_cursor_case(directory.path())
+}
+
+/// Long native cursors remain executable while the measured oracle-only bug stays documented.
+#[test]
+fn round5_long_intent_cursor_remains_executable() -> TestResult {
+    long_intent_cursor_case(fixture(8, 2000)?.path())
+}
+
+/// Oversized metadata cursor names are ordinary full-item strings, not envelope continuations.
+#[test]
+fn round7_full_item_cursor_metadata_matches_published_budget() -> TestResult {
+    let directory = fixture(1, 0)?;
+    let path = directory.path().join(".agents/pm/tasks/demo-0000.toon");
+    let mut item: Value = toon_format::decode_default(&fs::read_to_string(&path)?)?;
+    item["next_cursor"] = serde_json::json!("x".repeat(30_000));
+    item["output_cursor"] = serde_json::json!("y".repeat(30_000));
+    fs::write(path, toon_format::encode_default(&item)?)?;
+    let result = compare(
+        directory.path(),
+        &["--full", "--output-budget", "2000"],
+        true,
+    )?;
+    assert_eq!(
+        result["items"][0]["next_cursor"],
+        format!("{}…", "x".repeat(240))
+    );
+    assert_eq!(
+        result["items"][0]["output_cursor"],
+        format!("{}…", "y".repeat(240))
+    );
+    assert_eq!(result["count"], 1);
+    assert_eq!(result["read_output"]["within_budget"], true);
+    Ok(())
+}

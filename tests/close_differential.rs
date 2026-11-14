@@ -68,6 +68,11 @@ fn compare_artifacts(expected: &Path, actual: &Path) -> TestResult {
 
 /// Closes identical before-images at the same root so recovery paths compare exactly.
 fn compare_close(setup: &[Vec<&str>], fields: &[&str]) -> TestResult {
+    compare_close_bootstrap(setup, fields, false)
+}
+
+/// Exercises bootstrap scope at the same tracker path in both real CLIs.
+fn compare_close_bootstrap(setup: &[Vec<&str>], fields: &[&str], scoped: bool) -> TestResult {
     let Some(published) = published_cli::published_cli_or_skip("Close differential") else {
         return Ok(());
     };
@@ -110,7 +115,17 @@ fn compare_close(setup: &[Vec<&str>], fields: &[&str]) -> TestResult {
         &tracker.path().join(".agents"),
         &snapshot.path().join(".agents"),
     )?;
-    let mut args = vec!["close", "sample-close", "--author", "alpha"];
+    let scope = tracker
+        .path()
+        .join(".agents/pm")
+        .to_string_lossy()
+        .into_owned();
+    let mut args = if scoped {
+        vec!["--pm-path", scope.as_str()]
+    } else {
+        vec![]
+    };
+    args.extend(["close", "sample-close", "--author", "alpha"]);
     args.extend(fields);
     let expected = oracle(&driver, tracker.path(), &args)?;
     let artifacts = tempfile::tempdir()?;
@@ -125,12 +140,17 @@ fn compare_close(setup: &[Vec<&str>], fields: &[&str]) -> TestResult {
     )?;
     let mut command = Command::new(env!("CARGO_BIN_EXE_pm-rust"));
     mutation_differential::isolate_environment(&mut command);
+    let mut native_args = args.clone();
+    let delimiter = native_args
+        .iter()
+        .position(|arg| *arg == "--")
+        .unwrap_or(native_args.len());
+    native_args.splice(delimiter..delimiter, ["--timestamp", CLOCK]);
     let actual = command
         .current_dir(tracker.path())
         .env_remove("PM_PATH")
         .env("DO_NOT_TRACK", "1")
-        .args(&args)
-        .args(["--timestamp", CLOCK])
+        .args(&native_args)
         .output()?;
     assert_eq!(
         actual.status.code(),
@@ -491,4 +511,76 @@ fn close_assignment_release_boundaries_match_oracle() -> TestResult {
         &["Done", "--release-assignment", "--json"],
     )?;
     Ok(())
+}
+
+/// Missing evidence is inserted before the delimiter while preserving the positional close reason.
+#[test]
+fn delimited_close_recovery_matches_published_bytes() -> TestResult {
+    compare_close(&[], &["--validate-close", "strict", "--json", "--", "Done"])?;
+    compare_close(&[], &["--validate-close", "strict", "--", "Done"])?;
+    Ok(())
+}
+
+/// Composed close clears an existing claim and accounts for both ownership fields exactly.
+#[test]
+fn round5_claimed_close_release_matches_published_bytes() -> TestResult {
+    compare_close(
+        &[vec!["claim", "sample-close", "--author", "alpha", "--json"]],
+        &[
+            "Done",
+            "--validate-close",
+            "off",
+            "--release-assignment",
+            "--json",
+        ],
+    )
+}
+
+/// Option-shaped positional reasons survive unchanged in the published same-close retry.
+#[test]
+fn round10_delimited_option_reasons_match_oracle() -> TestResult {
+    for reason in ["--timestamp=done", "--expected"] {
+        for json in [false, true] {
+            let mut fields = vec!["--validate-close", "strict"];
+            if json {
+                fields.push("--json");
+            }
+            fields.extend(["--", reason]);
+            compare_close(&[], &fields)?;
+        }
+    }
+    Ok(())
+}
+
+/// Delimited scope-shaped reasons preserve the real scope in exact published refusal bytes.
+#[test]
+fn round11_scoped_close_reason_matches_oracle() -> TestResult {
+    compare_close_bootstrap(
+        &[],
+        &[
+            "--validate-close",
+            "strict",
+            "--json",
+            "--",
+            "--pm-path=literal",
+        ],
+        true,
+    )
+}
+
+/// The oracle withdraws a retry with blank evidence before a delimiter; retain exact policy.
+#[test]
+fn round14_blank_evidence_retry_matches_published_policy() -> TestResult {
+    compare_close(
+        &[],
+        &[
+            "--actual-result",
+            " ",
+            "--validate-close",
+            "strict",
+            "--json",
+            "--",
+            "Done",
+        ],
+    )
 }

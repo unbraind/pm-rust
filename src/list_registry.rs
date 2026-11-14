@@ -18,6 +18,8 @@ pub(crate) struct Lifecycle {
     close: String,
     /// Configured fallback active status when no definition carries an active role.
     open: String,
+    /// Type transition rules captured through the same workflow-file discovery as statuses.
+    pub(crate) type_workflows: Value,
     /// Hierarchy definitions captured by the same settings read as lifecycle roles.
     pub(crate) hierarchy: Hierarchy,
 }
@@ -64,12 +66,17 @@ impl Lifecycle {
                 }
             }
         }
+        let type_workflows = workflow
+            .get("type_workflows")
+            .unwrap_or(&schema["type_workflows"])
+            .clone();
         let workflow = workflow.get("workflow").unwrap_or(workflow);
         let progress = workflow["in_progress_status"]
             .as_str()
             .or_else(|| schema["workflow"]["in_progress_status"].as_str())
             .unwrap_or("in_progress");
         Self {
+            type_workflows,
             hierarchy: Hierarchy::new(&settings["schema"]["relationship_kinds"]),
             definitions,
             aliases,
@@ -93,6 +100,24 @@ impl Lifecycle {
     pub(crate) fn canonical(&self, status: &str) -> String {
         let normalized = token(status);
         self.aliases.get(&normalized).cloned().unwrap_or(normalized)
+    }
+
+    /// Resolves the published progress fallback when workflow statuses coincide or are removed.
+    pub(crate) fn start_status(&self) -> String {
+        let open = self.canonical(&self.open);
+        let progress = self.canonical(&self.progress);
+        if progress != open && self.known(&progress) {
+            progress
+        } else if self.known("in_progress") {
+            self.canonical("in_progress")
+        } else {
+            self.canonical(&self.open)
+        }
+    }
+
+    /// Returns the canonical configured open status for pause transitions.
+    pub(crate) fn open_status(&self) -> String {
+        self.canonical(&self.open)
     }
 
     /// Tests the configured close identity even when its roles are customized.
@@ -141,7 +166,7 @@ impl Lifecycle {
 }
 
 /// Returns the canonical built-in roles when no statuses are configured.
-fn defaults() -> Vec<Value> {
+pub(crate) fn defaults() -> Vec<Value> {
     [
         ("draft", vec!["draft"]),
         ("open", vec!["active", "default_open"]),
@@ -159,7 +184,7 @@ fn defaults() -> Vec<Value> {
 }
 
 /// Normalizes case, whitespace and hyphen runs as the published status registry does.
-fn token(value: &str) -> String {
+pub(crate) fn token(value: &str) -> String {
     value
         .trim()
         .to_lowercase()
@@ -169,22 +194,34 @@ fn token(value: &str) -> String {
         .join("_")
 }
 
-/// Supplies the same missing-file fallback to captured previews and native reads.
+/// Supplies the published preview scaffold defaults without changing observational reads.
 pub(crate) fn default_schema(name: &str) -> Value {
     if name == "statuses" {
-        json!({"statuses": defaults()})
+        json!({"statuses":defaults()})
     } else {
         json!({"workflow":{"draft_status":"draft","open_status":"open","in_progress_status":"in_progress","blocked_status":"blocked","close_status":"closed","canceled_status":"canceled"}})
     }
 }
 
+/// Discovers explicit schema locations or the published default sidecar path.
+pub(crate) fn schema_path(root: &Path, schema: &Value, name: &str) -> std::path::PathBuf {
+    root.join(
+        schema["files"][name]
+            .as_str()
+            .unwrap_or(&format!("schema/{name}.json")),
+    )
+}
+
 /// Loads optional runtime schema data without requiring the scaffold to exist.
-fn optional_schema(root: &Path, schema: &Value, name: &str) -> Result<Value, PmRustError> {
-    let fallback = format!("schema/{name}.json");
-    let path = root.join(schema["files"][name].as_str().unwrap_or(&fallback));
+pub(crate) fn optional_schema(
+    root: &Path,
+    schema: &Value,
+    name: &str,
+) -> Result<Value, PmRustError> {
+    let path = schema_path(root, schema, name);
     match fs::read(&path) {
         Ok(bytes) => Ok(crate::strict_json::from_slice(&bytes).unwrap_or(Value::Null)),
-        Err(error) if error.kind() == std::io::ErrorKind::NotFound => Ok(default_schema(name)),
+        Err(error) if error.kind() == std::io::ErrorKind::NotFound => Ok(Value::Null),
         Err(source) => Err(PmRustError::Io { path, source }),
     }
 }

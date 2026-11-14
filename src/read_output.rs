@@ -13,8 +13,19 @@ pub(crate) fn estimate(value: &(impl serde::Serialize + ?Sized), pretty: bool) -
     bytes.div_ceil(4)
 }
 
+/// Stabilizes a self-referential receipt estimate after changing output content.
+pub(crate) fn update(result: &mut ListOutput, key: &str, pretty: bool) {
+    for _ in 0..8 {
+        let measured = estimate(result, pretty);
+        if result.value[key]["estimated_tokens"] == measured {
+            break;
+        }
+        result.value[key]["estimated_tokens"] = json!(measured);
+    }
+}
+
 /// Measures the exact selected list wire encoding, including its trailing newline.
-fn measure(result: &ListOutput, toon: bool) -> usize {
+pub(crate) fn measure(result: &ListOutput, toon: bool) -> usize {
     if toon {
         crate::toon_output::render_output(result).len().div_ceil(4)
     } else {
@@ -23,7 +34,7 @@ fn measure(result: &ListOutput, toon: bool) -> usize {
 }
 
 /// Stabilizes a receipt in the requested wire encoding.
-fn update_output(result: &mut ListOutput, toon: bool) {
+pub(crate) fn update_output(result: &mut ListOutput, toon: bool) {
     for _ in 0..8 {
         let measured = measure(result, toon);
         if result.value["read_output"]["estimated_tokens"] == measured {
@@ -33,7 +44,7 @@ fn update_output(result: &mut ListOutput, toon: bool) {
     }
     // Intent estimates can grow a digit and change admission during compaction.
     if result["context_intent"]["command"] == "list" {
-        crate::list_intent::stabilize(result);
+        crate::list_intent::stabilize(result, toon);
     }
 }
 
@@ -93,28 +104,23 @@ fn update_orientation_output(result: &mut ListOutput, toon: bool) {
     }
 }
 
-/// Stabilizes a self-referential receipt estimate after changing output content.
-pub(crate) fn update(result: &mut ListOutput, key: &str, pretty: bool) {
-    for _ in 0..8 {
-        let measured = estimate(result, pretty);
-        if result.value[key]["estimated_tokens"] == measured {
-            break;
-        }
-        result.value[key]["estimated_tokens"] = json!(measured);
-    }
-}
-
 /// Recursively compacts long strings using the published 240 UTF-16-unit ceiling.
 ///
 /// The cut preserves surrogate pairs: ending on a high surrogate steps back one
 /// UTF-16 unit so an astral character never becomes a lone surrogate escape
 /// (published 2026.10.17+ contract, GH-1478). Already-malformed values keep the
 /// lossless overrides that [`crate::ListOutput`] serialization retains.
-///
-/// Only the top-level declaration is protected by `preserve_intent`; rows with
-/// identically named item metadata compact like any other long string so a
-/// fitting result is delivered instead of being omitted.
-pub(crate) fn compact_strings(value: &mut Value, preserve_intent: bool) -> bool {
+pub(crate) fn compact_strings(value: &mut Value) -> bool {
+    compact_strings_with_intent(value, false)
+}
+
+/// Compacts item values while preserving caller-owned declaration and cursor envelopes.
+pub(crate) fn compact_strings_with_intent(value: &mut Value, preserve_intent: bool) -> bool {
+    compact_strings_at(value, preserve_intent, true)
+}
+
+/// Protects only envelope metadata, including opaque producer and output cursors.
+fn compact_strings_at(value: &mut Value, preserve_intent: bool, envelope: bool) -> bool {
     match value {
         Value::String(text) if text.encode_utf16().count() > 240 => {
             let units = text.encode_utf16().take(240).collect::<Vec<_>>();
@@ -126,13 +132,15 @@ pub(crate) fn compact_strings(value: &mut Value, preserve_intent: bool) -> bool 
             *text = format!("{}…", String::from_utf16_lossy(&units[..end]));
             true
         }
-        Value::Array(rows) => rows
-            .iter_mut()
-            .fold(false, |changed, row| compact_strings(row, false) | changed),
+        Value::Array(rows) => rows.iter_mut().fold(false, |changed, row| {
+            compact_strings_at(row, false, false) | changed
+        }),
         Value::Object(map) => map.iter_mut().fold(false, |changed, (key, row)| {
-            (!(matches!(key.as_str(), "focus_row_states")
-                || (preserve_intent && key == "context_intent"))
-                && compact_strings(row, false))
+            (!(key == "focus_row_states"
+                || (envelope
+                    && (matches!(key.as_str(), "next_cursor" | "output_cursor")
+                        || (preserve_intent && key == "context_intent"))))
+                && compact_strings_at(row, false, false))
                 | changed
         }),
         _ => false,
@@ -424,6 +432,13 @@ pub(crate) fn apply_command(
         .as_deref()
         .map(|raw| pagination::output_command(raw, &original_rows, &snapshot, command))
         .transpose()?;
+    if result.get("budget_exceeded").is_some() || result.get("output_budget_exceeded").is_some() {
+        result.value["read_output"] = receipt_for(options, default_budget, command);
+        result.value["read_output"]["within_budget"] = json!(false);
+        result.value["read_output"]["result_omitted"] = json!(true);
+        update_output(&mut result, options.toon);
+        return Ok(result);
+    }
     let amount_binds = amount.is_some_and(|limit| {
         original_rows
             .as_array()
@@ -488,7 +503,7 @@ pub(crate) fn apply_command(
     }
     update_output(&mut result, options.toon);
     if result.get("context_intent").is_some() {
-        crate::list_intent::stabilize(&mut result);
+        crate::list_intent::stabilize(&mut result, options.toon);
     }
     Ok(result)
 }
@@ -680,7 +695,7 @@ fn compact_budget(
         .map(str::to_owned)
         .collect::<Vec<_>>();
     let measured = measure(&result, options.toon);
-    let strings_compacted = compact_strings(&mut result.value, true);
+    let strings_compacted = compact_strings_with_intent(&mut result.value, true);
     // The pair-preserving cut (GH-1478) can no longer introduce a lone-surrogate
     // override during compaction, so the entry validation already proved the
     // envelope encodable and this pass cannot fail.
@@ -946,7 +961,7 @@ pub(crate) fn apply_orientation(
         // A compatibility projection is measured only after delivery is impossible;
         // its compacted declaration is never returned to a caller.
         let compact = |target: &mut ListOutput, preserve_intent: bool| {
-            let changed = compact_strings(&mut target.value, preserve_intent);
+            let changed = compact_strings_with_intent(&mut target.value, preserve_intent);
             target.value["read_output"]["strings_compacted"] = json!(changed);
             compact_collections_with_policy(
                 target,

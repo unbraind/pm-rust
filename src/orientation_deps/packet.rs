@@ -742,7 +742,15 @@ pub(super) fn read(
         evidence(&serde_json::to_value(workspace.get(id)?.metadata).unwrap_or_default())
     };
     let traversal = Traversal::new(&graph, id, &query);
-    match render_packet(&graph, id, &query, &traversal, &evidence, options) {
+    match render_packet(
+        &graph,
+        id,
+        &query,
+        &traversal,
+        &evidence,
+        options,
+        &mut RenderMeasurements::default(),
+    ) {
         Err(error) if budget_floor(&error) => Err(budget_refusal(
             workspace, id, &graph, &query, &traversal, &evidence, options,
         )),
@@ -766,6 +774,47 @@ fn budget_floor(error: &PmRustError) -> bool {
         if detail.starts_with("Relationship context tokenBudget cannot fit "))
 }
 
+/// Exact rendered lengths cached independently of the two scalar token counters.
+#[derive(Default)]
+struct RenderMeasurements {
+    /// Encoding and structural envelope identity map to bytes excluding the counters.
+    fixed_bytes: BTreeMap<(bool, String), usize>,
+}
+
+impl RenderMeasurements {
+    /// Stabilizes the wire count while rendering each distinct packet shape only once.
+    fn settle(&mut self, result: &mut Value, toon: bool) -> usize {
+        let token_width = result["context"]["meta"]["tokenBudget"].to_string().len();
+        let mut shape = result.clone();
+        shape["context"]["meta"]["tokenBudget"] = json!(0);
+        shape["context"]["meta"]["usedTokens"] = json!(0);
+        let key = (toon, crate::stringify_json(&shape, false));
+        let fixed = if let Some(fixed) = self.fixed_bytes.get(&key) {
+            *fixed
+        } else {
+            let fixed = super::rendered_bytes(&shape, toon) - 2;
+            // Retaining only eight shapes bounds memory by the largest packet,
+            // including reference-prefix retries and canonical recovery probes.
+            if self.fixed_bytes.len() >= 8 {
+                self.fixed_bytes.clear();
+            }
+            self.fixed_bytes.insert(key, fixed);
+            fixed
+        };
+        let used_width = result["context"]["meta"]["usedTokens"].to_string().len();
+        let mut measured = (fixed + token_width + used_width).div_ceil(4);
+        loop {
+            let next = (fixed + token_width + measured.to_string().len()).div_ceil(4);
+            if next == measured {
+                break;
+            }
+            measured = next;
+        }
+        result["context"]["meta"]["usedTokens"] = json!(measured);
+        measured
+    }
+}
+
 /// Enforces the complete rendered ceiling without returning an earlier oversized packet.
 fn render_packet(
     graph: &Graph,
@@ -774,8 +823,9 @@ fn render_packet(
     traversal: &Traversal<'_>,
     evidence: &[String],
     options: &DepsOptions,
+    measurements: &mut RenderMeasurements,
 ) -> Result<ListOutput, PmRustError> {
-    render_cached(
+    let mut result = render_cached(
         graph,
         id,
         query,
@@ -783,7 +833,9 @@ fn render_packet(
         evidence,
         options,
         &mut RenderCache::default(),
-    )
+    )?;
+    measurements.settle(&mut result.value, options.toon);
+    Ok(result)
 }
 
 /// Query-local memoization; every cached producer uses the same graph and controls.
@@ -916,6 +968,7 @@ fn render_cached(
             .as_u64()
             .and_then(|n| usize::try_from(n).ok())
             .unwrap_or_default();
+
         if measured <= query.tokens {
             return Ok(result.into());
         }
@@ -953,13 +1006,7 @@ fn disclose(result: ListOutput, options: &DepsOptions) -> Result<ListOutput, PmR
 
 /// Renders an argument vector using the public command quoting contract.
 fn command(args: &[String]) -> String {
-    format!(
-        "pm {}",
-        args.iter()
-            .map(|arg| crate::quote_command_arg(arg))
-            .collect::<Vec<_>>()
-            .join(" ")
-    )
+    crate::render_pm_command(args)
 }
 
 /// Preserves validated query controls in a replayable canonical command.
@@ -1064,13 +1111,19 @@ fn budget_refusal(
                     .sum::<usize>(),
             ),
     );
-    let mut cache = RenderCache::default();
+    let mut measurements = RenderMeasurements::default();
     let bounds = budget_recovery::find(query.tokens, work, &mut |budget| {
         let mut candidate = query.clone();
         candidate.tokens = budget;
         probe_delivery(
-            render_cached(
-                graph, id, &candidate, traversal, evidence, options, &mut cache,
+            render_packet(
+                graph,
+                id,
+                &candidate,
+                traversal,
+                evidence,
+                options,
+                &mut measurements,
             )
             .and_then(|result| disclose(result, options)),
         )

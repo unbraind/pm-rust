@@ -374,9 +374,15 @@ fn packet_rendered_budget_removes_missing_references() -> Result<(), Box<dyn std
         for budget in 1..=1200 {
             query.tokens = budget;
             options.token_budget = Some(budget.to_string());
-            if let Ok(result) =
-                render_packet(&graph, "sample-root", &query, &traversal, &[], &options)
-                && result["missing_references"] == json!([])
+            if let Ok(result) = render_packet(
+                &graph,
+                "sample-root",
+                &query,
+                &traversal,
+                &[],
+                &options,
+                &mut RenderMeasurements::default(),
+            ) && result["missing_references"] == json!([])
             {
                 assert!(
                     result["context"]["meta"]["usedTokens"]
@@ -886,7 +892,15 @@ fn packet_render_cost_keys_are_bounded() -> Result<(), Box<dyn std::error::Error
         let mut cache = RenderCache::default();
         for budget in [10000, 12500] {
             query.tokens = budget;
-            let expected = render_packet(&graph, "sample-root", &query, &traversal, &[], &options)?;
+            let expected = render_packet(
+                &graph,
+                "sample-root",
+                &query,
+                &traversal,
+                &[],
+                &options,
+                &mut RenderMeasurements::default(),
+            )?;
             let result = render_cached(
                 &graph,
                 "sample-root",
@@ -1005,8 +1019,15 @@ fn packet_cached_rendering_preserves_budget_digit_widths() -> Result<(), Box<dyn
             let mut previous = 0;
             for budget in [999, 1000, 9999, 10000, 1000, 999] {
                 query.tokens = budget;
-                let expected =
-                    render_packet(&graph, "sample-root", &query, &traversal, &[], &options)?;
+                let expected = render_packet(
+                    &graph,
+                    "sample-root",
+                    &query,
+                    &traversal,
+                    &[],
+                    &options,
+                    &mut RenderMeasurements::default(),
+                )?;
                 let actual = render_cached(
                     &graph,
                     "sample-root",
@@ -1032,6 +1053,62 @@ fn packet_cached_rendering_preserves_budget_digit_widths() -> Result<(), Box<dyn
             witnessed_growth,
             "padding must expose usedTokens growth across a budget digit boundary, toon={toon}"
         );
+    }
+    Ok(())
+}
+
+/// Cached packet measurements equal full rendering across scalar-width and encoding boundaries.
+#[test]
+fn cached_render_measurements_match_exact_wire_bytes() {
+    let mut cache = RenderMeasurements::default();
+    for toon in [false, true] {
+        for tokens in [1, 9, 10, 99, 100, 999, 1000, 10000] {
+            for title in ["", "Unicode café 🚀", "different shape"] {
+                let mut result = json!({"context":{"root":{"id":"sample-a","title":title},"nodes":[{"id":"sample-b","role":"related"}],"meta":{"tokenBudget":tokens,"usedTokens":1}},"projection":{"mode":"full"}});
+                let measured = cache.settle(&mut result, toon);
+                assert_eq!(measured, super::tokens(&result, toon));
+            }
+        }
+    }
+    // At this width boundary, both 999 and 1000 are fixed points. Preserve
+    // the published stabilization's initial counter instead of choosing a minimum.
+    for toon in [false, true] {
+        let mut result = json!({"context":{"root":{"id":"sample-a","title":""},"meta":{"tokenBudget":1,"usedTokens":1000}}});
+        let padding = 3997 - super::super::rendered_bytes(&result, toon);
+        result["context"]["root"]["title"] = json!("x".repeat(padding));
+        assert_eq!(cache.settle(&mut result, toon), 1000);
+        assert_eq!(super::tokens(&result, toon), 1000);
+    }
+}
+
+/// Reference-prefix retries retain linear packet bytes instead of a quadratic sum.
+#[test]
+fn measurement_cache_retention_is_linear() -> Result<(), Box<dyn std::error::Error>> {
+    let mut cache = RenderMeasurements::default();
+    let references: Vec<_> = (0..512)
+        .map(|index| json!({"id":format!("sample-{index}"),"description":"x".repeat(128)}))
+        .collect();
+    let mut packet = json!({"context":{"root":{"id":"sample-root"},"meta":{"tokenBudget":120_000,"usedTokens":1}},"missing_references":references});
+    let largest = crate::stringify_json(&packet, false).len();
+    loop {
+        cache.settle(&mut packet, false);
+        assert!(
+            cache
+                .fixed_bytes
+                .keys()
+                .map(|(_, key)| key.len())
+                .sum::<usize>()
+                <= 8 * largest
+        );
+        assert!(cache.fixed_bytes.len() <= 8);
+        if packet["missing_references"]
+            .as_array_mut()
+            .ok_or("missing references")?
+            .pop()
+            .is_none()
+        {
+            break;
+        }
     }
     Ok(())
 }

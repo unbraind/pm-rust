@@ -1,0 +1,17 @@
+id: pm-rust-oracle-recovery-167
+title: Track deferred close recovery evidence compatibility
+description: "Follow-up to PR 165 review thread PRRT_kwDOTwgMRs63A9qa. The exact blank-evidence delimiter command withdraws suggested retries in both published 2026.11.11 and native output; its byte comparison is pinned. Separately, the emitted update advice uses --resolution, --expected-result and --actual-result: the published CLI accepts these flags but native update refuses them. Track that compatibility gap under issue 167 without changing the accepted refusal policy in this round. Evidence: https://github.com/unbraind/pm-rust/issues/167#issuecomment-6849115850. Add native execution coverage for the emitted advice when implementing the follow-up."
+type: Task
+status: open
+priority: 2
+tags[3]: "gh:unbraind/pm-rust#167",oracle,recovery
+created_at: "2026-11-13T09:57:53.544Z"
+updated_at: "2026-11-13T10:07:53.273Z"
+author: codex-agent
+acceptance_criteria: Execute emitted close recovery advice successfully against native and published trackers while preserving exact refusal envelopes.
+files[2]{path,scope,note}:
+  src/cli.rs,project,Update argument admission rejects emitted evidence flags
+  tests/close_differential.rs,project,Exact published refusal policy regression
+docs[1]{path,scope,note}:
+  docs/ORACLE_REVIEW_ROUND14_2026_11_13.md,project,Oracle evidence and deferred update advice
+body: ""

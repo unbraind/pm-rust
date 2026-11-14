@@ -9,7 +9,7 @@ import { counts, EXPECTED_CHECKS, LIVE_CHECKS, REAL_CHECKS } from './crash-proof
 import { exactState, phasePairs, transactionPhase } from './crash-oracle.mts';
 import type { TransactionPhase } from './crash-oracle.mts';
 import { CRASH_CLOCK_IMPORT, execute } from './crash-process.mts';
-import { compareRecovery, runCrashCorpus } from './crash-harness.mts';
+import { CRASH_ORACLE_VERSION, compareRecovery, runCrashCorpus } from './crash-harness.mts';
 import { snapshot } from './crash-storage.mts';
 import type { Snapshot } from './crash-storage.mts';
 
@@ -128,6 +128,7 @@ for (const stage of ['restart', 'return']) for (const mutation of ['delete-item'
     writeFileSync(wrapper, program); chmodSync(wrapper, 0o755);
     const report = runCrashCorpus({ native: wrapper, artifacts: join(root, 'evidence'), scenarios: ['update'],
       only: { implementation: 'native', scenario: 'update', syscall: 'fsync', ordinal: 1 } });
+    assert.equal(report.oracleVersion, CRASH_ORACLE_VERSION);
     const row = report.cases[0];
     assert.equal(row.restartStatus, 0);
     if (stage === 'return') { assert.equal(row.returnStatus, 0); assert.equal(row.restartExact, true); }
