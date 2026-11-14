@@ -78,6 +78,7 @@
 
 ### Other
 
+- Match current published claim and session-lock refusal envelopes ([pm-rust-oracle-1111](https://github.com/unbraind/pm-rust/blob/main/.agents/pm/tasks/pm-rust-oracle-1111.toon)) _type:Task; status:closed; P1_
 - Recover incomplete native lock initialization after process death ([pm-rust-crash-lock-restart](https://github.com/unbraind/pm-rust/blob/main/.agents/pm/tasks/pm-rust-crash-lock-restart.toon)) _type:Task; status:closed; P2_
 - Extend native list selection to configured lifecycle and hierarchy registries ([pm-rust-cbaq](https://github.com/unbraind/pm-rust/blob/main/.agents/pm/tasks/pm-rust-cbaq.toon)) _type:Task; status:closed; P3_
 - Give concurrent claim acceptance explicit writer wait budgets ([pm-rust-23ps](https://github.com/unbraind/pm-rust/blob/main/.agents/pm/chores/pm-rust-23ps.toon)) _type:Chore; status:closed; P3_
