@@ -2,13 +2,18 @@ id: pm-rust-long-intent-cursor
 title: Verify long producer cursors survive bounded intent compaction
 description: "Review thread PRRT_kwDOTwgMRs62QgiY on PR #165 reports that intent compaction may shorten a producer next_cursor beyond 240 UTF-16 units and make --after unusable. Separate from round-four atomic lifecycle admission: reproduce against the pinned oracle in a non-git fixture, preserve cursor validity through the delivery path, and add a behavioral revert test without weakening budget assertions."
 type: Task
-status: in_progress
+status: closed
 priority: 2
 tags[3]: conformance,follow-up,"gh:unbraind/pm-rust#165"
 created_at: "2026-11-11T17:58:30.355Z"
-updated_at: "2026-11-12T14:25:44.933Z"
+updated_at: "2026-11-16T20:36:44.461Z"
+closed_at: "2026-11-16T20:36:44.340Z"
+completed_at: "2026-11-16T20:36:44.340Z"
 author: codex-rust164-1111
 parent: pm-rust-oracle-1111
+resolution: Implemented and merged in #165 (e6a22e5).
+expected_result: The change described by this item is on main.
+actual_result: "Merged in #165 as e6a22e5; checks successful at head e5ec703: Analyze Rust, CodeQL, Native latency macos-latest, Native latency ubuntu-latest, Native latency windows-latest, Release gate aggregate, Release gate aggregate bun, Release gate aggregate macos-latest, Release gate aggregate windows-latest, Rust macos-latest, Rust ubuntu-latest, Rust windows-latest."
 comments[5]{created_at,author,text}:
   "2026-11-12T01:29:34.962Z",codex-agent,"Round 5 independently reproduced the long producer-cursor defect in the pinned published CLI. A bounded triage page truncates its base64 cursor with an ellipsis. Native recursive compaction now preserves producer/output cursor fields, with a real long-ID fixture proving the emitted native cursor resumes to a different page. This is an intentional continuation-safety divergence under the final-round instruction to repair every valid review finding; no existing differential assertion is changed. Keep the item in progress for orchestrator verification, never close it here."
   "2026-11-12T03:45:22.042Z",codex-agent,The full pagination target passes 30/30 with the required pinned oracle. Native long-ID continuation is executed successfully; the separate oracle observation retains the clipped cursor defect as evidence. The preservation rule protects both producer and output-snapshot cursors without weakening existing byte comparisons. Final-source reruns and the dedicated behavioral negative control are retained on the main oracle item.
@@ -26,4 +31,5 @@ tests[2]{command,scope,timeout_seconds,provenance{author,created_at,source_kind,
   PM_NODE_CLI=missing-oracle RUST_TEST_THREADS=2 timeout 1200 cargo test --locked -j2 --test pagination_differential round5_long_intent_cursor_remains_executable,project,1200,codex-agent,"2026-11-12T13:49:00.660Z",local_mutation,oracle-pm-cli-2026-11-11
 docs[1]{path,scope}:
   docs/ORACLE_REVIEW_ROUND7_2026_11_12.md,project
+close_reason: "Delivered by #165 \"Match pm-cli 2026.11.11 refusals and atomic lifecycle admission natively\" (merged as e6a22e5). Checks successful at the PR head e5ec703: Analyze Rust, CodeQL, Native latency macos-latest, Native latency ubuntu-latest, Native latency windows-latest, Release gate aggregate, Release gate aggregate bun, Release gate aggregate macos-latest, Release gate aggregate windows-latest, Rust macos-latest, Rust ubuntu-latest, Rust windows-latest."
 body: ""

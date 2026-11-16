@@ -5,6 +5,7 @@
 ### Features
 
 - Read canonical pm workspaces without a JavaScript runtime ([pm-rust-o2yr](https://github.com/unbraind/pm-rust/blob/main/.agents/pm/features/pm-rust-o2yr.toon)) _type:Feature; status:closed; P1; release:0.1.0-alpha.1_
+- Discover exact native command and SDK contracts in one bounded call ([pm-rust-native-capabilities](https://github.com/unbraind/pm-rust/blob/main/.agents/pm/features/pm-rust-native-capabilities.toon)) _type:Feature; status:closed; P2_
 - Preview canonical item admission without native tracker writes ([pm-rust-admission-previews](https://github.com/unbraind/pm-rust/blob/main/.agents/pm/features/pm-rust-admission-previews.toon)) _type:Feature; status:closed; P2_
 - Resume native agents from bounded incremental mutation cursors ([pm-rust-native-changes](https://github.com/unbraind/pm-rust/blob/main/.agents/pm/features/pm-rust-native-changes.toon)) _type:Feature; status:closed; P2_
 - Explain native list query work before materializing context ([pm-rust-query-cost](https://github.com/unbraind/pm-rust/blob/main/.agents/pm/features/pm-rust-query-cost.toon)) _type:Feature; status:closed; P2_
@@ -31,6 +32,7 @@
 
 ### Bug Fixes
 
+- Support explicit unset scope in published admission oracle comparisons ([pm-rust-oracle-unset](https://github.com/unbraind/pm-rust/blob/main/.agents/pm/issues/pm-rust-oracle-unset.toon)) _type:Issue; status:closed; P1_
 - Ignore managed extension files so the scheduled issue sync can commit ([pm-rust-z74f](https://github.com/unbraind/pm-rust/blob/main/.agents/pm/issues/pm-rust-z74f.toon)) _type:Issue; status:closed; P1_
 - Windows release gate covers the history-directory link refusal ([pm-rust-2g7c](https://github.com/unbraind/pm-rust/blob/main/.agents/pm/issues/pm-rust-2g7c.toon)) _type:Issue; status:closed; P1_
 - Certify only observed crash-oracle checks and durable evidence commits ([pm-rust-crash-oracle-recorder](https://github.com/unbraind/pm-rust/blob/main/.agents/pm/tasks/pm-rust-crash-oracle-recorder.toon)) _type:Task; status:closed; P2_
@@ -78,6 +80,7 @@
 
 ### Other
 
+- Verify long producer cursors survive bounded intent compaction ([pm-rust-long-intent-cursor](https://github.com/unbraind/pm-rust/blob/main/.agents/pm/tasks/pm-rust-long-intent-cursor.toon)) _type:Task; status:closed; P2_
 - Match current published claim and session-lock refusal envelopes ([pm-rust-oracle-1111](https://github.com/unbraind/pm-rust/blob/main/.agents/pm/tasks/pm-rust-oracle-1111.toon)) _type:Task; status:closed; P1_
 - Recover incomplete native lock initialization after process death ([pm-rust-crash-lock-restart](https://github.com/unbraind/pm-rust/blob/main/.agents/pm/tasks/pm-rust-crash-lock-restart.toon)) _type:Task; status:closed; P2_
 - Extend native list selection to configured lifecycle and hierarchy registries ([pm-rust-cbaq](https://github.com/unbraind/pm-rust/blob/main/.agents/pm/tasks/pm-rust-cbaq.toon)) _type:Task; status:closed; P3_
