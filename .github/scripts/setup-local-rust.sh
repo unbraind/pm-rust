@@ -4,9 +4,6 @@ set -euo pipefail
 export RUSTUP_HOME=/home/runner/_work/_tool/rustup
 export CARGO_HOME=/home/runner/_work/_tool/cargo
 export PATH="$CARGO_HOME/bin:$PATH"
-printf '%s\n' "RUSTUP_HOME=$RUSTUP_HOME" "CARGO_HOME=$CARGO_HOME" >> "$GITHUB_ENV"
-printf '%s\n' "$CARGO_HOME/bin" >> "$GITHUB_PATH"
-export PATH="$CARGO_HOME/bin:$PATH"
 export CARGO_TARGET_DIR="$GITHUB_WORKSPACE/target"
 printf '%s\n' "RUSTUP_HOME=$RUSTUP_HOME" "CARGO_HOME=$CARGO_HOME" "CARGO_TARGET_DIR=$CARGO_TARGET_DIR" >> "$GITHUB_ENV"
 printf '%s\n' "$CARGO_HOME/bin" >> "$GITHUB_PATH"

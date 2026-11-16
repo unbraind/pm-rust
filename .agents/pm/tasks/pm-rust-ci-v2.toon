@@ -4,31 +4,47 @@ description: "Companion pm-cli-website-dyhg. Preserve required Rust platform che
 type: Task
 status: in_progress
 priority: 2
-tags[2]: ci,performance
+tags[3]: ci,"gh:unbraind/pm-rust#173",performance
 created_at: "2026-11-16T05:26:56.154Z"
-updated_at: "2026-11-16T05:42:59.281Z"
+updated_at: "2026-11-16T06:10:05.221Z"
 assignee: codex-sol
 claim_principal: codex-sol
 author: codex-sol
 acceptance_criteria: Preserve all required contexts and original checks; prove deterministic quick depth and bounded jobs; record measured CI and release claim.
-comments[3]{created_at,author,text}:
+comments[9]{created_at,author,text}:
   "2026-11-16T05:26:58.811Z",codex-sol,"Initial audit: required contexts verified as Rust ubuntu-latest, Rust macos-latest, Rust windows-latest and Release gate aggregate; CodeQL is not required. No existing open CI v2 item found. Plan: quick deterministic corpora and property counts; parallel Linux release components with an always-running strict aggregate; full npm/Bun and OS gates in deep. Preserve release workflows and verifier scripts."
   "2026-11-16T05:35:40.449Z",codex-sol,"Baseline run 43729555388: Rust execution Linux 790s, macOS 863s, Windows 1364s; full aggregates Linux npm 1610s, Bun 2376s, macOS 2073s, Windows 3236s. Slow Linux targets: claim/release 180.71s, orientation 138.80s, pagination 108.38s, search/collections 83.77s. Implemented two disjoint platform target shards, fail-closed required aggregates, parallel Linux quick release components, unchanged full-scope 100% LLVM coverage, deterministic quick property prefixes and kind-preserving focused crash replays. Deep keeps complete original gates and unscaled latency budgets. Local setup is user-space and locked; cold WAN tool bootstrap and ptrace still need runner evidence."
   "2026-11-16T05:42:58.787Z",codex-sol,"Initial local validation passed: cargo check and clippy on all targets/features; fmt; typed harness typecheck/lint; two partition/identity fixtures; 12 documentation contracts; unchanged changelog; strict YAML with duplicate-key rejection; shell parsing. Strict health passes with a clean HOME and installed merge drivers: the inherited-home extension skew was local configuration, not a repository defect. Touched quick-depth Rust suites are still running; no full local suite or coverage claim. Publishing early for hosted validation."
-files[9]{path,scope}:
+  "2026-11-16T05:45:07.142Z",codex-sol,"Opened PR https://github.com/unbraind/pm-rust/pull/173 at d204834. ci-deep branch dispatch was attempted and refused HTTP 404 because the workflow is absent on main; no workaround attempted. Initial push completed 05:43:05 UTC; CI observation is bounded to 30 minutes after the last push. Strict health passes with clean HOME after merge-driver installation; inherited-home extension skew was local configuration."
+  "2026-11-16T05:51:41.002Z",codex-sol,"Hosted first-run policy passed in 30s created-to-completed, quality in 70s, crash harness in 147s. Rust shards and coverage are still running. Follow-up preserves deep watchdog scale only in parent/child crash tests, with finite-positive/integer timer validation; product timeout option bounds remain unchanged. Added physical cleanup-fsync cases for both mutation operations (2/2 local pass, 109.67s) to retain cleanup phase coverage when quick omits the exhaustive ordinal sweep. Sampled capability-subset matrices retain each capability granted and absent."
+  "2026-11-16T05:55:17.868Z",codex-sol,"Local crash tests at quick depth and watchdog scale 3 passed 37 with one intentional exhaustive-corpus skip in 514.651s; the two added cleanup-fsync cases independently passed in 109.670s. Harness typecheck/lint, shell parsing and diff whitespace checks pass after watchdog edits. Hosted Linux shards and both macOS shards have passed on d204834; Windows and unchanged-threshold coverage remain in progress. Broad local touched-target run is progressing under contention; no full suite was started."
+  "2026-11-16T05:56:17.391Z",codex-sol,"Stopped the broad local touched-target run after roughly 20 minutes of shared-host contention. Admission 12/12, capability 6/6, depth fixture 1/1 and adapter 13/13 passed; pagination completed 32/33, including its modified property test, without failure before termination. The remaining unchanged mixed-status cross-product was still running. This is incomplete local evidence, not a pass. Running only the changed test functions plus workflow contracts next; hosted Linux quick target shards already passed."
+  "2026-11-16T06:08:20.637Z",codex-sol,"First PR run 43812108627 at d204834 completed successfully, including all required checks and unchanged 100% coverage thresholds. The unsharded coverage exceeded the 15-minute target, so coverage now uses two disjoint target shards and native LLVM raw-profile union behind the required aggregate. Both real merge fixtures passed: native per-file counter equality and the actual Cargo separate-target/mapping-rebuild flow, including corruption/identity refusals. No percentage averaging, source exclusion or threshold changes. Full release recipe is preserved; its harness lint now also checks the new CI helpers."
+  "2026-11-16T06:10:05.221Z",codex-sol,"First PR run 43812108627 at d204834 passed all required checks and unchanged 100% coverage. Per-job created-to-completed seconds: policy 30; changes 8; quality 70; crash 147; Linux Rust shards 422/500; macOS 607/390; Windows 854/711; unsharded coverage 1101; required Rust Linux/macOS/Windows aggregates 10/102/16; release aggregate 134. Aggregate creation follows dependencies, so these exclude predecessor time. Quick target ranking: orientation 194.12s, claims 175.61s, search 120.87s, pagination 107.09s, close 75.90s, library 31.17s. Coverage sharding addresses the measured target miss; 2/2 native/Cargo union fixtures and 25/25 depth/workflow contracts passed through pm, with final clippy/fmt and harness typecheck/lint passing."
+files[16]{path,scope}:
   .github/actions/rust-setup/action.yml,project
   .github/scripts/setup-local-rust.sh,project
   .github/scripts/setup-local-strace.sh,project
   .github/workflows/ci-deep.yml,project
   .github/workflows/ci.yml,project
   .github/workflows/codeql.yml,project
+  scripts/ci-coverage-profiles.mts,project
   scripts/ci-identity.mts,project
   scripts/ci-targets.mts,project
   scripts/crash-ci-contract.test.mts,project
-tests[3]{command,scope,timeout_seconds,provenance{author,created_at,source_kind,source_ref}}:
+  scripts/crash-coverage-union.test.mts,project
+  scripts/crash-review.test.mts,project
+  scripts/crash-test-depth.mts,project
+  tests/ci_depth_contract.rs,project
+  tests/release_pipeline_contract.rs,project
+  tests/support/depth.rs,project
+tests[6]{command,scope,timeout_seconds,provenance{author,created_at,source_kind,source_ref}}:
   PM_TEST_DEPTH=quick PROPTEST_CASES=50 PROPTEST_RNG_SEED=20261116 PM_RUST_REQUIRE_PUBLISHED_CLI=1 cargo test --locked --test ci_depth_contract --test release_pipeline_contract --test native_adapter_contract --test query_cost_contract --test admission_contract --test capability_contract --test read_contract --test pagination_differential,project,1200,codex-sol,"2026-11-16T05:40:18.076Z",local_mutation,ci/quick-pr-tier-deep-local-tier
   "PM_TEST_DEPTH=quick PROPTEST_CASES=50 PROPTEST_RNG_SEED=20261116 cargo test --locked --lib admission::tests:: && PM_TEST_DEPTH=quick PROPTEST_CASES=50 PROPTEST_RNG_SEED=20261116 cargo test --locked --lib changes::tests::seeded_500 && PM_TEST_DEPTH=quick PROPTEST_CASES=50 PROPTEST_RNG_SEED=20261116 cargo test --locked --lib discovery::tests:: && PM_TEST_DEPTH=quick PROPTEST_CASES=50 PROPTEST_RNG_SEED=20261116 cargo test --locked --lib query_cost::tests:: && PM_TEST_DEPTH=quick PROPTEST_CASES=50 PROPTEST_RNG_SEED=20261116 cargo test --locked --lib mutation::tests::canonical_create_toon",project,1200,codex-sol,"2026-11-16T05:40:23.449Z",local_mutation,ci/quick-pr-tier-deep-local-tier
   cargo check --locked --all-targets --all-features && cargo clippy --locked --all-targets --all-features -- -D warnings && cargo fmt --all -- --check,project,900,codex-sol,"2026-11-16T05:41:51.992Z",local_mutation,ci/quick-pr-tier-deep-local-tier
+  PM_TEST_DEPTH=quick PM_TEST_TIME_SCALE=3 node --test --test-concurrency=1 scripts/crash-ci-contract.test.mts scripts/crash-harness.test.mts scripts/crash-review.test.mts,project,1200,codex-sol,"2026-11-16T05:47:11.960Z",local_mutation,ci/quick-pr-tier-deep-local-tier
+  "PM_TEST_DEPTH=quick PROPTEST_CASES=50 RUST_TEST_THREADS=2 cargo test --locked --lib discovery::tests:: && cargo clippy --locked --all-targets --all-features -- -D warnings && cargo fmt --all -- --check",project,600,codex-sol,"2026-11-16T05:57:01.050Z",local_mutation,ci/quick-pr-tier-deep-local-tier
+  PM_TEST_COVERAGE_MERGE=required node --test scripts/crash-coverage-union.test.mts && PM_TEST_DEPTH=quick PROPTEST_CASES=50 cargo test --locked --test ci_depth_contract --test release_pipeline_contract && cargo clippy --locked --all-targets --all-features -- -D warnings && cargo fmt --all -- --check,project,600,codex-sol,"2026-11-16T06:08:26.748Z",local_mutation,ci/quick-pr-tier-deep-local-tier
 docs[1]{path,scope}:
   docs/ci-tiers.md,project
 body: ""

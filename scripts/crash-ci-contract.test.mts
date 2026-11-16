@@ -38,3 +38,17 @@ test('docs identity gate inspects unreachable authors and committers', () => {
     assert.throws(() => auditIdentities(root), /Unapproved (author|committer)/);
   } finally { rmSync(root, { recursive: true, force: true }); }
 });
+
+
+test('harness watchdogs validate scales before launching and preserve integer milliseconds', () => {
+  const module = new URL('./crash-test-depth.mts', import.meta.url).href;
+  for (const [scale, expected] of [['1', '101'], ['3', '303'], ['1.25', '127']]) {
+    const result = execFileSync(process.execPath, ['--input-type=module', '-e', `import {testTime} from '${module}'; console.log(testTime(101));`],
+      { encoding: 'utf8', env: { ...process.env, PM_TEST_TIME_SCALE: scale } });
+    assert.equal(result.trim(), expected);
+  }
+  for (const scale of ['0', '-1', 'NaN', 'Infinity']) {
+    assert.throws(() => execFileSync(process.execPath, ['--input-type=module', '-e', `import '${module}';`],
+      { stdio: 'pipe', env: { ...process.env, PM_TEST_TIME_SCALE: scale } }));
+  }
+});

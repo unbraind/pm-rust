@@ -1,3 +1,4 @@
+import { testTime } from './crash-test-depth.mts';
 import assert from 'node:assert/strict';
 import { spawnSync } from 'node:child_process';
 import { chmodSync, existsSync, mkdtempSync, mkdirSync, readdirSync, readFileSync, rmSync, symlinkSync, writeFileSync } from 'node:fs';
@@ -158,7 +159,7 @@ test('malformed source settings retain the typed source refusal without writes',
 }));
 
 test('malformed mutation acknowledgements retain the typed baseline refusal',
-  { skip: process.platform !== 'linux', timeout: 180000 }, () => temporary(root => {
+  { skip: process.platform !== 'linux', timeout: testTime(180000) }, () => temporary(root => {
     const native = join(root, 'incompatible-native');
     writeFileSync(native, '#!/bin/sh\nprintf "%s\\n" "synthetic invalid JSON"\n');
     chmodSync(native, 0o755);
@@ -252,7 +253,7 @@ test('live syscall injection kills a real writing child and restart preserves ea
   }));
 
 test('real pm corpus preserves acknowledged history and independently replays retained failures without git',
-  { skip: process.platform !== 'linux' || process.env.PM_TEST_DEPTH === 'quick', timeout: 120000 }, () => temporary(root => {
+  { skip: process.platform !== 'linux' || process.env.PM_TEST_DEPTH === 'quick', timeout: testTime(120000) }, () => temporary(root => {
     const tools = join(root, 'tools');
     mkdirSync(tools);
     symlinkSync(process.execPath, join(tools, 'node'));
@@ -289,7 +290,7 @@ test('real pm corpus preserves acknowledged history and independently replays re
 
 for (const scenario of ['update', 'comment'] as const) {
   test(`retained ${scenario} first-fsync reproduction recovers before TTL with exact bytes and receipt`,
-    { skip: process.platform !== 'linux', timeout: 120000 }, () => temporary(root => {
+    { skip: process.platform !== 'linux', timeout: testTime(120000) }, () => temporary(root => {
       const evidence = resolve(`tests/fixtures/crash-restart/${scenario}.json`);
       const before = snapshot(resolve('tests/fixtures/crash-restart'));
       const report = replayCrashFailure({ native: resolve('target/debug/pm-rust'), artifacts: join(root, 'evidence') }, evidence);
@@ -308,5 +309,17 @@ for (const scenario of ['update', 'comment'] as const) {
       assert.equal(report.sourceUnchanged, true);
       assert.equal(report.failuresRetained, 0);
       assert.equal(sameBytes(before, snapshot(resolve('tests/fixtures/crash-restart'))), true);
+    }));
+}
+
+for (const scenario of ['update', 'comment'] as const) {
+  test(`focused ${scenario} cleanup-fsync crash retains the cleanup phase in quick CI`,
+    { skip: process.platform !== 'linux', timeout: testTime(120000) }, () => temporary(root => {
+      const report = runCrashCorpus({ native: resolve('target/debug/pm-rust'), artifacts: join(root, 'evidence'),
+        scenarios: [scenario], only: { scenario, implementation: 'native', syscall: 'fsync', ordinal: 6 } });
+      assert.equal(report.killed, 1);
+      assert.equal(report.cases[0].phase, 'during-cleanup');
+      assert.equal(report.ok, true, JSON.stringify(report.cases));
+      assert.ok(report.cases[0].acknowledged && report.cases[0].historyPreserved);
     }));
 }

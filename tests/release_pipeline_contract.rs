@@ -1425,6 +1425,14 @@ fn quick_required_checks_aggregate_all_components() -> Result<(), BoxError> {
                 .is_some_and(|minutes| minutes <= 22)
         );
     }
+    let coverage_job = map_get(jobs, "coverage").ok_or("coverage job")?;
+    assert!(
+        map_get(coverage_job, "needs")
+            .and_then(Value::as_sequence)
+            .ok_or("coverage needs")?
+            .iter()
+            .any(|need| need.as_str() == Some("coverage-shard"))
+    );
     let coverage = step_run(
         &job_steps(&workflow, "coverage")?,
         "Quick coverage at unchanged four-dimension thresholds",

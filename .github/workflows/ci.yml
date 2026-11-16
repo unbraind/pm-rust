@@ -226,7 +226,7 @@ jobs:
       run: cargo audit
       if: needs.changes.outputs.code == 'true'
     name: Quick release quality
-  coverage:
+  coverage-shard:
     needs: changes
     runs-on: ubuntu-latest
     timeout-minutes: 22
@@ -273,15 +273,107 @@ jobs:
         oracle_root=$(node -p "require('node:path').resolve('tests/oracle/node_modules/@unbrained/pm-cli')")
         echo "PM_NODE_CLI=$oracle_root" >> "$GITHUB_ENV"
       if: needs.changes.outputs.code == 'true'
+    - name: Quick instrumented target shard
+      if: needs.changes.outputs.code == 'true'
+      run: node scripts/ci-targets.mts ${{ matrix.shard }} --coverage
+      env:
+        PM_RUST_REQUIRE_PUBLISHED_CLI: '1'
+    - name: Collect original per-process hits
+      if: needs.changes.outputs.code == 'true'
+      run: node scripts/ci-coverage-profiles.mts collect ${{ matrix.shard }}
+    - name: Upload original profiles
+      if: needs.changes.outputs.code == 'true'
+      uses: actions/upload-artifact@b7c566a772e6b6bfb58ed0dc250532a479d7789f
+      with:
+        name: rust-coverage-${{ matrix.shard }}
+        path: target/ci-coverage/${{ matrix.shard }}
+        if-no-files-found: error
+        retention-days: 1
+        compression-level: 1
+    name: Quick coverage shard ${{ matrix.shard }}
+    strategy:
+      fail-fast: false
+      matrix:
+        shard:
+        - 1
+        - 2
+  coverage:
+    needs:
+    - changes
+    - coverage-shard
+    runs-on: ubuntu-latest
+    timeout-minutes: 22
+    steps:
+    - name: Checkout
+      uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1
+      with:
+        fetch-depth: 0
+        fetch-tags: true
+        persist-credentials: false
+    - name: Setup Node.js
+      uses: actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1
+      with:
+        node-version: 26
+        cache: ${{ runner.environment == 'github-hosted' && 'npm' || '' }}
+        cache-dependency-path: tests/oracle/package-lock.json
+      if: needs.changes.outputs.code == 'true'
+    - name: Set up pinned Rust tools
+      uses: ./.github/actions/rust-setup
+      with:
+        coverage: 'true'
+      if: needs.changes.outputs.code == 'true'
+    - name: Cache Rust build outputs
+      if: needs.changes.outputs.code == 'true'
+      uses: Swatinem/rust-cache@e9d7b9f1e587218970671bac74e5511ed9506e6a
+      with:
+        shared-key: ${{ runner.os }}-ci-v2
+        cache-on-failure: true
+    - name: Install coverage tool
+      uses: taiki-e/install-action@cfdb7ed4ccc7c7dce37759eae89dc5674b469b39
+      with:
+        tool: cargo-llvm-cov
+      if: needs.changes.outputs.code == 'true'
+    - name: Install just for recipe contracts
+      uses: taiki-e/install-action@cfdb7ed4ccc7c7dce37759eae89dc5674b469b39
+      with:
+        tool: just
+      if: needs.changes.outputs.code == 'true'
+    - name: Resolve the published CLI package root
+      shell: bash
+      run: |
+        set -euo pipefail
+        npm ci --prefix tests/oracle --ignore-scripts
+        oracle_root=$(node -p "require('node:path').resolve('tests/oracle/node_modules/@unbrained/pm-cli')")
+        echo "PM_NODE_CLI=$oracle_root" >> "$GITHUB_ENV"
+      if: needs.changes.outputs.code == 'true'
+    - name: Download both original-profile artifacts
+      if: needs.changes.outputs.code == 'true'
+      uses: actions/download-artifact@37930b1c2abaa49bbe596cd826c3c89aef350131
+      with:
+        pattern: rust-coverage-*
+        path: target/coverage-download
+    - name: Rebuild complete instrumented mapping without running tests
+      if: needs.changes.outputs.code == 'true'
+      run: |-
+        cargo +nightly-2026-08-06 llvm-cov --no-report --locked --branch --all-targets --all-features -- --list > "$RUNNER_TEMP/coverage-target-list"
+        cargo +nightly-2026-08-06 llvm-cov clean --profraw-only
+    - name: Prove exact union and unchanged thresholds with native fixtures
+      if: needs.changes.outputs.code == 'true'
+      env:
+        PM_TEST_COVERAGE_MERGE: required
+      run: node --test scripts/crash-coverage-union.test.mts
+    - name: Restore verified shard hits only
+      if: needs.changes.outputs.code == 'true'
+      run: node scripts/ci-coverage-profiles.mts restore
     - name: Quick coverage at unchanged four-dimension thresholds
       run: |-
-        cargo +nightly-2026-08-06 llvm-cov --locked --branch --all-targets --all-features --json --output-path coverage-branch.json
+        cargo +nightly-2026-08-06 llvm-cov report --json --failure-mode=any --output-path coverage-branch.json
         jq '.data[0].totals' coverage-branch.json
         jq -e '.data[0].totals.lines.percent == 100 and .data[0].totals.functions.percent == 100 and .data[0].totals.regions.percent == 100 and .data[0].totals.branches.percent == 100' coverage-branch.json
       env:
         PM_RUST_REQUIRE_PUBLISHED_CLI: '1'
       if: needs.changes.outputs.code == 'true'
-    name: Quick complete coverage
+    name: Quick exact coverage union
   crash-check:
     needs: changes
     runs-on: ubuntu-latest

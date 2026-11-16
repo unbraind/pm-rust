@@ -18,11 +18,22 @@ result deliberately requires success across all three platforms.
 quality, coverage and crash jobs to succeed. It cannot pass on a cancelled,
 failed or skipped dependency. This follows GitHub's documented
 [dependency and always-run job behavior](https://docs.github.com/en/actions/reference/workflows-and-actions/workflow-syntax#jobsjob_idneeds).
-Coverage currently fits one dedicated job: it runs the complete quick suite,
-with the original source scope and unchanged **100% lines, functions, regions
-and branches** thresholds. It does not combine percentages or sample files.
-If hosted measurements exceed the cap, coverage must be sharded with an exact
-hit union and a fixture proving the merge before this rollout can be certified.
+Coverage runs in two non-required `Quick coverage shard <n>` jobs using the
+same disjoint Cargo target partition. Each uploads every original per-process
+LLVM raw profile plus a digest inventory and commit/toolchain identity. The
+merge job rebuilds all instrumented targets with `-- --list` (no tests execute),
+removes only its compilation-generated profiles, restores the two verified
+profile multisets, then lets native LLVM merge counters and generate the report.
+This computes the exact union of per-file hits; percentages are never averaged.
+The source scope and **100% lines, functions, regions and branches** thresholds
+are unchanged. Missing shards, digest/identity mismatches or corrupt profiles fail.
+
+Two required merge fixtures prove the result: complementary Rust branch runs
+match a combined run for every file/segment/branch/counter, and a tiny Cargo
+crate repeats the actual separate-target build, artifact restore and mapping
+rebuild flow at all four 100% thresholds. They also reject corrupt profiles and
+wrong build identities. Ordinary crash jobs skip these two LLVM-only fixtures;
+the coverage merge job explicitly requires and executes them.
 
 | Original check | PR quick tier | Deep tier / runner |
 | --- | --- | --- |
@@ -30,7 +41,7 @@ hit union and a fixture proving the merge before this rollout can be certified.
 | Rustfmt and clippy, deny warnings | Linux quality job | All four complete aggregates |
 | Complete private-source documentation, deny missing docs | Linux quality job | All four complete aggregates |
 | Locked published CLI differential oracle | Every Cargo shard and coverage; missing oracle fails | Every full Cargo gate; missing oracle fails |
-| LLVM nightly branch coverage, all four dimensions at 100% | Dedicated Linux coverage job, full source scope | All four complete aggregates |
+| LLVM nightly branch coverage, all four dimensions at 100% | Two Linux coverage shards and exact LLVM union, full source scope | All four complete aggregates |
 | Typed crash/adapter harness typecheck, lint and tests | Linux crash job, focused syscall cases | Full harness in every aggregate; live syscall corpus on Linux |
 | Real SIGKILL rename/fsync/history-open recovery | Focused retained cases on Linux | Exhaustive ordinal corpus on Linux |
 | Tracker history-prefix and retained evidence commit gates | Policy job on every PR | Complete aggregate crash-check |
@@ -80,10 +91,12 @@ refusal counts derive from generated cases and the independent verdict model.
 
 This covers admission replay/governance/schema/filename models, query costs,
 discovery, mutation serialization, pagination and read filtering, and the native
-adapter frame corpus. Large fixed capacity, memory, row-count, pagination and
+adapter frame corpus. The two 32-combination capability matrices keep a 25-case prefix, covering
+every capability both granted and absent. Large fixed capacity, memory, row-count, pagination and
 product-budget fixtures are unchanged. Small boundary-kind matrices remain
 exhaustive. Quick omits the single exhaustive syscall-ordinal corpus test;
-retained physical fsync, rename and history-open injections, both mutation
+retained physical fsync, rename and history-open injections, focused
+cleanup-fsync crashes, both mutation
 operations, restart/return recovery and the known published-oracle divergence
 remain tested. Full keeps every original ordinal and assertion.
 
@@ -118,7 +131,10 @@ the job visibly rather than skipping the crash corpus.
 Latency budgets remain unscaled: get/list/context p95 ceilings are 50/150/250 ms,
 and the authoritative item-open budget is unchanged. Local hardware has not yet
 been measured for these contracts, so its ability to hold them is unproven.
-`PM_TEST_TIME_SCALE=3` is set in deep but does not alter product deadlines.
+`PM_TEST_TIME_SCALE=3` scales only crash-test parent/child watchdogs in deep.
+The helper validates a finite positive scale before launch, rounds to integer
+milliseconds and rejects unsafe timer values. Crash CLI timeout option bounds,
+product deadlines and latency assertions remain unscaled.
 
 ## Measurements and validation
 
@@ -139,12 +155,39 @@ All values below are completed hosted measurements, in seconds.
 The slow Linux test targets were claim/release (180.71s), orientation (138.80s),
 pagination (108.38s), search/collections (83.77s), close (55.06s), and library
 unit tests (48.30s). The old Linux aggregate spent about 12 minutes in its
-coverage pass after repeating the full suite separately. Quick timing and
-unchanged-threshold coverage require the PR's own hosted run; no new successful
-coverage percentage or 15-minute timing is claimed before it finishes.
+coverage pass after repeating the full suite separately. The first PR run at
+`d204834` passed all required checks and all four 100% coverage thresholds, but
+its unsharded coverage exceeded the 15-minute target. That measured result
+triggered the exact raw-profile sharding above. The new shard/merge execution
+times require its own hosted run; the first run is not proof of the new wiring.
 Local proof is limited to cargo check, clippy, fmt and touched tests at quick
 depth, plus strict YAML and shell parsing and the docs/identity fixtures.
 Full depth runs only in deep CI.
 
 Tracking: [pm-rust-ci-v2](https://github.com/unbraind/pm-rust/blob/main/.agents/pm/tasks/pm-rust-ci-v2.toon),
 companion `pm-cli-website-dyhg`.
+
+First PR run [43812108627](https://github.com/unbraind/pm-rust/actions/runs/43812108627)
+at `d204834` completed successfully. These seconds are measured from each job's
+API timestamps; aggregate jobs are created after their dependencies, so their
+own wall times do not include the predecessor jobs.
+
+| Job | Execution seconds | Created-to-completed seconds |
+| --- | ---: | ---: |
+| Policy | 28 | 30 |
+| Changes | 6 | 8 |
+| Quick quality | 69 | 70 |
+| Quick crash | 145 | 147 |
+| Linux Rust shards 1 / 2 | 420 / 499 | 422 / 500 |
+| macOS Rust shards 1 / 2 | 605 / 388 | 607 / 390 |
+| Windows Rust shards 1 / 2 | 852 / 709 | 854 / 711 |
+| Unsharded coverage, replaced after measurement | 1100 | 1101 |
+| Required Rust Linux / macOS / Windows aggregates | 3 / 5 / 4 | 10 / 102 / 16 |
+| Required release aggregate | 5 | 134 |
+
+The quick Linux target ranking was orientation 194.12s, claim/release 175.61s,
+search/collections 120.87s, pagination 107.09s, close 75.90s and library 31.17s.
+These are target-level timings from the first PR's logs. The slow differential
+fixtures retain their semantic cases; the two-shard partition keeps each
+platform job below the 15-minute target. Coverage's 18m20s execution caused the
+raw-profile split; its new wiring needs a fresh hosted result.

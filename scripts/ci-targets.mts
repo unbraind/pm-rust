@@ -22,7 +22,8 @@ function main(): void {
   if (!targetsInCrate) throw new Error('Cargo metadata omitted pm-rust');
   const names = targetsInCrate.filter(target => target.kind.includes('test')).map(target => target.name);
   const targets = targetShards(names)[shard - 1];
-  const args = ['test', '--locked', '--all-features', ...(shard === 1 ? ['--lib', '--bins', '--examples', '--benches'] : []),
+  const coverage = process.argv[3] === '--coverage';
+  const args = [...(coverage ? ['+nightly-2026-08-06', 'llvm-cov', '--no-report', '--branch'] : ['test']), '--locked', '--all-features', ...(shard === 1 ? ['--lib', '--bins', '--examples', '--benches'] : []),
     ...targets.flatMap(name => ['--test', name])];
   console.log(`cargo ${args.join(' ')}`);
   const result = spawnSync('cargo', args, { stdio: 'inherit', env: process.env });
