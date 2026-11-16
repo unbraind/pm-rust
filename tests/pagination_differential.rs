@@ -1,5 +1,9 @@
 //! Byte-exact pagination and budgeting against the real published TypeScript CLI.
 
+#[allow(dead_code)]
+#[path = "support/depth.rs"]
+mod test_depth;
+
 use pm_rust::{ItemFilter, ListOptions, Workspace};
 use proptest::prelude::*;
 use serde_json::Value;
@@ -588,7 +592,7 @@ fn snapshot_continuations_match_and_refuse_stale_rows() -> TestResult {
 }
 
 proptest! {
-    #![proptest_config(ProptestConfig::with_cases(96))]
+    #![proptest_config(ProptestConfig::with_cases(test_depth::property_cases(96)))]
     /// Randomized producer page walks preserve each selected ID exactly once.
     #[test]
     fn all_pages_have_no_loss_or_duplicates(size in 0usize..100, limit in 1usize..35) {

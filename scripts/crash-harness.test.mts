@@ -252,7 +252,7 @@ test('live syscall injection kills a real writing child and restart preserves ea
   }));
 
 test('real pm corpus preserves acknowledged history and independently replays retained failures without git',
-  { skip: process.platform !== 'linux', timeout: 120000 }, () => temporary(root => {
+  { skip: process.platform !== 'linux' || process.env.PM_TEST_DEPTH === 'quick', timeout: 120000 }, () => temporary(root => {
     const tools = join(root, 'tools');
     mkdirSync(tools);
     symlinkSync(process.execPath, join(tools, 'node'));

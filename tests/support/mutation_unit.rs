@@ -1153,7 +1153,7 @@ fn parent_directory_sync_reports_real_path_and_sync_failures()
 }
 
 proptest! {
-    #![proptest_config(ProptestConfig::with_cases(64))]
+    #![proptest_config(ProptestConfig::with_cases(crate::test_depth::property_cases(64)))]
 
     #[test]
     fn canonical_create_toon_round_trips_supported_strings(

@@ -1,4 +1,8 @@
 //! Native-only admission, published oracle parity and seeded state-preservation evidence.
+#[allow(dead_code)]
+#[path = "support/depth.rs"]
+mod test_depth;
+
 use pm_rust::{
     Workspace,
     admission::{ADMISSION_LIMITS, AdmissionBatch},
@@ -248,7 +252,7 @@ fn admission_seeded_model_preserves_sdk_state_and_all_relationships() -> TestRes
         2..6,
     );
     let mut runner = TestRunner::new(Config {
-        cases: 500,
+        cases: test_depth::property_cases(500),
         rng_seed: RngSeed::Fixed(20_261_029),
         failure_persistence: None,
         ..Config::default()

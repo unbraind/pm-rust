@@ -60,7 +60,7 @@ fn seeded_500_sequences_preserve_physical_events_and_foreign_data() -> TestResul
         ..ChangeRequest::default()
     };
     let mut saved = Vec::new();
-    for sequence in 0..500 {
+    for sequence in 0..crate::test_depth::depth(500) {
         for _ in 0..=((seed >> 8) % 4) {
             seed = seed.wrapping_mul(6_364_136_223_846_793_005).wrapping_add(1);
             let id = format!("demo-{}", seed % 4);

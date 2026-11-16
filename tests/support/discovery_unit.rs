@@ -700,7 +700,7 @@ fn seeded_numeric_boundary_fuzz() -> TestResult {
         test_runner::{Config, RngSeed, TestRunner},
     };
     let mut runner = TestRunner::new(Config {
-        cases: 500,
+        cases: crate::test_depth::property_cases(500),
         rng_seed: RngSeed::Fixed(20_261_105),
         failure_persistence: None,
         ..Config::default()

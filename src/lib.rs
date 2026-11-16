@@ -87,3 +87,7 @@ mod published_cli;
 #[cfg(test)]
 #[path = "../tests/support/advice_corpus.rs"]
 mod test_advice_corpus;
+
+#[cfg(test)]
+#[path = "../tests/support/depth.rs"]
+mod test_depth;

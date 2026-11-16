@@ -1,4 +1,8 @@
 //! SDK/CLI acceptance on a real initialized non-git tracker, including seeded replay.
+#[allow(dead_code)]
+#[path = "support/depth.rs"]
+mod test_depth;
+
 use pm_rust::{ItemDocument, QueryCostRequest, QueryProjection, Workspace};
 use proptest::{
     prelude::*,
@@ -163,7 +167,7 @@ fn seeded_model_preserves_every_field_and_relationship_across_explanations() -> 
         3..10,
     );
     let mut runner = TestRunner::new(Config {
-        cases: 500,
+        cases: test_depth::property_cases(500),
         rng_seed: RngSeed::Fixed(20_261_026),
         failure_persistence: None,
         ..Config::default()

@@ -204,7 +204,7 @@ fn seeded_extreme_request_output_domains() -> TestResult {
         any::<bool>(),
     );
     let mut runner = TestRunner::new(Config {
-        cases: 500,
+        cases: crate::test_depth::property_cases(500),
         rng_seed: RngSeed::Fixed(20_261_027),
         failure_persistence: None,
         ..Config::default()

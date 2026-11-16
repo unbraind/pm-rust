@@ -1,5 +1,9 @@
 //! Black-box acceptance tests for the first read-only compatibility slice.
 
+#[allow(dead_code)]
+#[path = "support/depth.rs"]
+mod test_depth;
+
 use std::fs;
 use std::path::{Path, PathBuf};
 use std::process::Stdio;
@@ -368,6 +372,7 @@ fn defaults_an_omitted_description_and_preserves_literal_array_text()
 }
 
 proptest! {
+    #![proptest_config(ProptestConfig::with_cases(test_depth::property_cases(256)))]
     #[test]
     fn exact_id_filter_never_returns_a_different_item(candidate in "[a-z0-9-]{1,24}") {
         let (directory, _) = tracker().map_err(|error| TestCaseError::fail(error.to_string()))?;

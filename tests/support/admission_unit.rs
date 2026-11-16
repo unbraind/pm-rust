@@ -673,7 +673,7 @@ fn admission_seeded_preview_equals_native_apply() -> TestResult {
     stored(&workspace)?;
     let strategy = prop::collection::vec(("[ a-zA-Z0-9]{0,16}", 0_u8..7, any::<bool>()), 2..5);
     let mut runner = TestRunner::new(Config {
-        cases: 500,
+        cases: crate::test_depth::property_cases(500),
         rng_seed: RngSeed::Fixed(20_261_030),
         failure_persistence: None,
         ..Config::default()
@@ -815,7 +815,7 @@ fn admission_boundary_fuzz_and_output_limits() -> TestResult {
         test_runner::{Config, RngSeed, TestRunner},
     };
     let mut runner = TestRunner::new(Config {
-        cases: 500,
+        cases: crate::test_depth::property_cases(500),
         rng_seed: RngSeed::Fixed(20_261_031),
         failure_persistence: None,
         ..Config::default()
@@ -1213,7 +1213,7 @@ fn admission_governance_matches_apply_for_every_scalar_field() -> TestResult {
     let base: Value = serde_json::from_slice(&fs::read(&settings_path)?)?;
     let path = workspace.pm_root().join("tasks/demo-existing.toon");
     let mut seed = 0x0132_2026_1029_u64;
-    for index in 0..500 {
+    for index in 0..crate::test_depth::depth(500) {
         seed = seed.wrapping_mul(6_364_136_223_846_793_005).wrapping_add(1);
         let preset = ["strict", "minimal", "custom", "default"][index % 4];
         let strict = preset == "strict" || preset == "custom";
@@ -1442,7 +1442,7 @@ fn admission_snapshot_aliases_freeze_every_derived_view() -> TestResult {
     let (_directory, workspace) = fixture()?;
     fs::create_dir_all(workspace.pm_root().join("schema"))?;
     let relative = Path::new("schema/shared.json");
-    for sequence in 0..500 {
+    for sequence in 0..crate::test_depth::depth(500) {
         let initial = json!({"statuses":[{"id":format!("stage_{sequence}"),"roles":[if sequence % 2 == 0 {"active"} else {"draft"}]}],"workflow":{"close_status":"closed"},"definitions":[],"fields":[],"type_workflows":[]});
         let first = serde_json::to_vec(&initial)?;
         fs::write(workspace.pm_root().join(relative), &first)?;
@@ -1543,7 +1543,7 @@ fn admission_filename_identity_matches_sdk_for_500_paths() -> TestResult {
     fs::remove_file(&canonical)?;
     let request =
         batch(&json!([{"op":"update","id":"demo-existing","options":{"title":"Changed"}}]))?;
-    for sequence in 0..500 {
+    for sequence in 0..crate::test_depth::depth(500) {
         let directory = if sequence % 7 == 0 {
             workspace.pm_root().join("tasks")
         } else {
