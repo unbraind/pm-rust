@@ -19,12 +19,20 @@ pub fn cases_for(full: usize, quick: bool) -> usize {
 
 /// Preserve each suite's original full count while honoring an explicit property case cap.
 pub fn property_cases(full: u32) -> u32 {
-    let requested = std::env::var("PROPTEST_CASES")
-        .ok()
+    property_cases_for(
+        full,
+        std::env::var("PM_TEST_DEPTH").as_deref() == Ok("quick"),
+        std::env::var("PROPTEST_CASES").ok().as_deref(),
+    )
+}
+
+/// Pure property-case policy with explicit depth and optional environment text.
+pub fn property_cases_for(full: u32, quick: bool, cap: Option<&str>) -> u32 {
+    let requested = cap
         .and_then(|value| value.parse::<u32>().ok())
         .filter(|count| *count > 0)
         .unwrap_or(full);
-    u32::try_from(depth(full as usize))
+    u32::try_from(cases_for(full as usize, quick))
         .unwrap_or(full)
         .min(requested)
 }

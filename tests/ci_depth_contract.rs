@@ -18,8 +18,31 @@ fn seed_prefix_counts_preserve_full_and_small_boundary_matrices() {
         assert_eq!(test_depth::cases_for(full, true), quick);
         assert_eq!(test_depth::cases_for(full, false), full);
     }
+}
+
+/// Explicit inputs keep the policy contract independent of ambient property caps.
+#[test]
+fn property_caps_preserve_depth_and_honor_smaller_positive_limits() {
+    for (quick, uncapped) in [(false, 500), (true, 50)] {
+        for cap in [
+            None,
+            Some("0"),
+            Some("invalid"),
+            Some("-1"),
+            Some("4294967296"),
+        ] {
+            assert_eq!(test_depth::property_cases_for(500, quick, cap), uncapped);
+        }
+        assert_eq!(test_depth::property_cases_for(500, quick, Some("10")), 10);
+        assert_eq!(
+            test_depth::property_cases_for(500, quick, Some("1000")),
+            uncapped
+        );
+    }
+    let cap = std::env::var("PROPTEST_CASES").ok();
+    let quick = std::env::var("PM_TEST_DEPTH").as_deref() == Ok("quick");
     assert_eq!(
         test_depth::property_cases(500),
-        u32::try_from(test_depth::depth(500)).unwrap_or(0)
+        test_depth::property_cases_for(500, quick, cap.as_deref())
     );
 }
