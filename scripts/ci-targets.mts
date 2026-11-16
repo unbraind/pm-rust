@@ -7,7 +7,7 @@ export function targetShards(names: readonly string[]): string[][] {
   const shards: string[][] = [[], []];
   const owners: Record<string, number> = { claim_release_differential: 0, pagination_differential: 0,
     orientation_differential: 1, search_collections_differential: 1, close_differential: 1 };
-  [...names].sort().forEach((name, index) => shards[owners[name] ?? index % 2].push(name));
+  [...names].sort().forEach((name, index) => shards[Object.hasOwn(owners, name) ? owners[name] : index % 2].push(name));
   return shards;
 }
 

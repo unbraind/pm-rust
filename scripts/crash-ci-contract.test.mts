@@ -9,7 +9,7 @@ import { targetShards } from './ci-targets.mts';
 
 test('target partition retains every Cargo integration target once, including new targets', () => {
   const names = ['claim_release_differential', 'orientation_differential', 'pagination_differential',
-    'search_collections_differential', 'close_differential', 'future_contract', 'read_contract'];
+    'search_collections_differential', 'close_differential', 'future_contract', 'read_contract', 'constructor', '__proto__'];
   const shards = targetShards(names);
   assert.deepEqual(shards.flat().sort(), [...names].sort());
   assert.deepEqual(shards, targetShards([...names].reverse()));

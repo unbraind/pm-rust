@@ -1152,39 +1152,49 @@ fn parent_directory_sync_reports_real_path_and_sync_failures()
     Ok(())
 }
 
-proptest! {
-    #![proptest_config(ProptestConfig::with_cases(crate::test_depth::property_cases(64)))]
-
-    #[test]
-    fn canonical_create_toon_round_trips_supported_strings(
-        description in "[ -~]{0,40}",
-        body in "[ -~]{0,80}",
-        tags in prop::collection::vec("[A-Za-z0-9._/-]{1,12}", 0..5),
-    ) {
-        let mut extra = Map::new();
-        extra.insert("author".to_owned(), Value::String("property-agent".to_owned()));
-        let document = ItemDocument {
-            metadata: ItemMetadata {
-                id: "sample-property".to_owned(),
-                title: "Property create".to_owned(),
-                description,
-                item_type: "Task".to_owned(),
-                status: "open".to_owned(),
-                priority: 2,
-                tags,
-                created_at: TS.to_owned(),
-                updated_at: TS.to_owned(),
-                parent: None,
-                extra,
-            },
-            body,
-        };
-        let decoded = decode_item(
-            Path::new("property.toon"),
-            &canonical_item_bytes(&document)?
-        )?;
-        prop_assert_eq!(decoded, document);
-    }
+#[test]
+fn canonical_create_toon_round_trips_supported_strings() -> Result<(), Box<dyn std::error::Error>> {
+    let mut runner = crate::test_depth::property_runner(64, file!());
+    let executed = std::cell::Cell::new(0u32);
+    runner.run(
+        &(
+            "[ -~]{0,40}",
+            "[ -~]{0,80}",
+            prop::collection::vec("[A-Za-z0-9._/-]{1,12}", 0..5),
+        ),
+        |(description, body, tags)| {
+            executed.set(executed.get() + 1);
+            let mut extra = Map::new();
+            extra.insert(
+                "author".to_owned(),
+                Value::String("property-agent".to_owned()),
+            );
+            let document = ItemDocument {
+                metadata: ItemMetadata {
+                    id: "sample-property".to_owned(),
+                    title: "Property create".to_owned(),
+                    description,
+                    item_type: "Task".to_owned(),
+                    status: "open".to_owned(),
+                    priority: 2,
+                    tags,
+                    created_at: TS.to_owned(),
+                    updated_at: TS.to_owned(),
+                    parent: None,
+                    extra,
+                },
+                body,
+            };
+            let decoded = decode_item(
+                Path::new("property.toon"),
+                &canonical_item_bytes(&document)?,
+            )?;
+            prop_assert_eq!(decoded, document);
+            Ok(())
+        },
+    )?;
+    eprintln!("{} property cases executed", executed.get());
+    Ok(())
 }
 
 #[test]

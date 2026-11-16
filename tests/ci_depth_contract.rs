@@ -46,3 +46,19 @@ fn property_caps_preserve_depth_and_honor_smaller_positive_limits() {
         test_depth::property_cases_for(500, quick, cap.as_deref())
     );
 }
+
+/// A real runner must retain the normalized cap after loading `PROPTEST_CASES`.
+#[test]
+fn property_runner_executes_the_normalized_count() -> Result<(), Box<dyn std::error::Error>> {
+    let mut runner = test_depth::property_runner(96, file!());
+    let expected = test_depth::property_cases(96);
+    assert_eq!(runner.config().cases, expected);
+    let executed = std::cell::Cell::new(0u32);
+    runner.run(&proptest::strategy::Just(()), |()| {
+        executed.set(executed.get() + 1);
+        Ok(())
+    })?;
+    assert_eq!(executed.get(), expected);
+    eprintln!("{} property cases executed", executed.get());
+    Ok(())
+}

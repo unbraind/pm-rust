@@ -2,14 +2,15 @@ id: pm-rust-ci-v2
 title: Apply Fleet CI v2 quick PR and full deep tiers
 description: "Companion pm-cli-website-dyhg. Preserve required Rust platform checks and the release aggregate, split quick PR work from full deep gates, retain complete coverage thresholds, and certify routing and depth controls."
 type: Task
+pm_format_version: 2
 status: in_progress
 priority: 2
 tags[3]: ci,"gh:unbraind/pm-rust#173",performance
 created_at: "2026-11-16T05:26:56.154Z"
-updated_at: "2026-11-16T07:30:35.274Z"
+updated_at: "2026-11-16T08:46:13.633Z"
 author: codex-sol
 acceptance_criteria: Preserve all required contexts and original checks; prove deterministic quick depth and bounded jobs; record measured CI and release claim.
-comments[12]{created_at,author,text}:
+comments[16]{created_at,author,text}:
   "2026-11-16T05:26:58.811Z",codex-sol,"Initial audit: required contexts verified as Rust ubuntu-latest, Rust macos-latest, Rust windows-latest and Release gate aggregate; CodeQL is not required. No existing open CI v2 item found. Plan: quick deterministic corpora and property counts; parallel Linux release components with an always-running strict aggregate; full npm/Bun and OS gates in deep. Preserve release workflows and verifier scripts."
   "2026-11-16T05:35:40.449Z",codex-sol,"Baseline run 43729555388: Rust execution Linux 790s, macOS 863s, Windows 1364s; full aggregates Linux npm 1610s, Bun 2376s, macOS 2073s, Windows 3236s. Slow Linux targets: claim/release 180.71s, orientation 138.80s, pagination 108.38s, search/collections 83.77s. Implemented two disjoint platform target shards, fail-closed required aggregates, parallel Linux quick release components, unchanged full-scope 100% LLVM coverage, deterministic quick property prefixes and kind-preserving focused crash replays. Deep keeps complete original gates and unscaled latency budgets. Local setup is user-space and locked; cold WAN tool bootstrap and ptrace still need runner evidence."
   "2026-11-16T05:42:58.787Z",codex-sol,"Initial local validation passed: cargo check and clippy on all targets/features; fmt; typed harness typecheck/lint; two partition/identity fixtures; 12 documentation contracts; unchanged changelog; strict YAML with duplicate-key rejection; shell parsing. Strict health passes with a clean HOME and installed merge drivers: the inherited-home extension skew was local configuration, not a repository defect. Touched quick-depth Rust suites are still running; no full local suite or coverage claim. Publishing early for hosted validation."
@@ -22,7 +23,11 @@ comments[12]{created_at,author,text}:
   "2026-11-16T06:27:51.681Z",codex-sol,"Final implementation cce2f8f, run 43814943607: all CI jobs and all four required checks passed; CodeQL passed. Created-to-completed seconds: Tracker, identity and documentation 28; changes 7; Quick release quality 55; Quick crash harness 200; Quick Rust ubuntu-latest shard 1 426; Quick Rust windows-latest shard 1 846; Quick coverage shard 2 480; Quick Rust windows-latest shard 2 644; Quick Rust macos-latest shard 2 339; Quick Rust ubuntu-latest shard 2 373; Quick Rust macos-latest shard 1 450; Quick coverage shard 1 615; Quick exact coverage union 91; Release gate aggregate 6; Rust windows-latest 6; Rust ubuntu-latest 7; Rust macos-latest 5. Exact union restored 4226 original profiles; both required merge fixtures passed and lines/functions/regions/branches stayed 100%. Every quick job was below 15 minutes. Deep remains unverified: dispatch 404; cold user-space bootstrap, ptrace and local latency need the first deep run. No local full-depth suite ran. Broad local pagination was incomplete at 32/33 after roughly 20 minutes, with its changed property test passed separately. Claims will be released without closing."
   "2026-11-16T07:22:40.546Z",codex-sol,"Review round K: verify the requested coverage portability and independent-oracle findings, binding inventory, or property cap contract as applicable; add focused regressions and run the required package gates. Keep this item in progress and release the claim after recording results. No review-thread mutations or merges."
   "2026-11-16T07:30:28.910Z",codex-sol,"Round K: PRRT_kwDOTwgMRs63y74W verified and fixed. Extracted property_cases_for with explicit full count, depth and cap text; runtime behavior still honors positive caps, ignores invalid/zero caps, and preserves full/quick defaults. The contract now tests explicit no-cap, cap 10, larger cap, invalid, zero, negative and overflow inputs without changing the environment. Required pm test gate passed: cargo fmt --all -- --check; cargo check --locked; cargo clippy --locked --all-targets --all-features -- -D warnings; env -u PROPTEST_CASES cargo test --locked --test ci_depth_contract; PROPTEST_CASES=10 cargo test --locked --test ci_depth_contract (2 tests passed in each configuration); node --test scripts/crash-ci-contract.test.mts scripts/crash-coverage-union.test.mts; git diff --check. The first Node invocation has 3 passed and 2 opt-in skips; a separate PM_TEST_COVERAGE_MERGE=required node --test scripts/crash-coverage-union.test.mts passed both real LLVM union contracts, and cargo test --locked --test release_pipeline_contract passed all 24. No required merge evidence remains skipped. Project test-result tracking is disabled; this comment retains results. No thread mutations. Releasing in progress for orchestrator verification."
-files[16]{path,scope}:
+  "2026-11-16T08:24:19.895Z",codex-sol,"Review round L: verify supplied findings against code, apply scoped fixes, run local gates and linked regression evidence, then release without closing. No review-thread replies or resolution."
+  "2026-11-16T08:26:21.370Z",codex-sol,Both round L findings are valid. Use own-property target lookup and constructor/__proto__ fixtures. Replace all three property_cases proptest macros with explicit runners whose Config defaults load before cases are set; other property_cases call sites already construct explicit runners. Quick depth plus PROPTEST_CASES=50 executed 25 cases in the new real-runner regression.
+  "2026-11-16T08:31:54.431Z",codex-sol,"Regression proof: the previous targetShards throws TypeError for constructor/__proto__; the fixed lookup assigns both exactly once. With PM_TEST_DEPTH=quick PROPTEST_CASES=50 the actual pagination property emitted 25 property cases executed and passed. Cargo check passed; addressed clippy feedback by propagating property-runner errors with Result and formatting the environment name as code in the regression documentation. Restarting the complete linked gate on the corrected code."
+  "2026-11-16T08:46:12.276Z",codex-sol,"Round L complete. PRRT_kwDOTwgMRs630179: own-property target ownership fixes constructor/__proto__ partitioning; fixture passes and the prior code throws TypeError. PRRT_kwDOTwgMRs63018D: all three affected proptest macros now use explicit TestRunner configs with cases applied after environment defaults, retaining source-file failure persistence. The other property_cases sites already use explicit runners. PM_TEST_DEPTH=quick PROPTEST_CASES=50 executed exactly 25 cases in the actual pagination property and runner regression; the mutation property also reported 25. Final pm test --run --only-index 9 --progress passed cargo check, clippy -D warnings, fmt, harness tsc/eslint, CI harness fixtures, ci_depth_contract, read_contract, pagination_differential, the mutation property, all 24 release_pipeline_contract tests, changelog and diff checks. Direct npm run changelog:check passed. Tracking is disabled, so this comment records the successful receipt. Initial clippy findings were corrected before this final pass. Releasing in progress; no thread mutations, closes or merges."
+files[19]{path,scope}:
   .github/actions/rust-setup/action.yml,project
   .github/scripts/setup-local-rust.sh,project
   .github/scripts/setup-local-strace.sh,project
@@ -37,9 +42,12 @@ files[16]{path,scope}:
   scripts/crash-review.test.mts,project
   scripts/crash-test-depth.mts,project
   tests/ci_depth_contract.rs,project
+  tests/pagination_differential.rs,project
+  tests/read_contract.rs,project
   tests/release_pipeline_contract.rs,project
   tests/support/depth.rs,project
-tests[8]:
+  tests/support/mutation_unit.rs,project
+tests[9]:
   - command: PM_TEST_DEPTH=quick PROPTEST_CASES=50 PROPTEST_RNG_SEED=20261116 PM_RUST_REQUIRE_PUBLISHED_CLI=1 cargo test --locked --test ci_depth_contract --test release_pipeline_contract --test native_adapter_contract --test query_cost_contract --test admission_contract --test capability_contract --test read_contract --test pagination_differential
     scope: project
     timeout_seconds: 1200
@@ -102,7 +110,20 @@ tests[8]:
       created_at: "2026-11-16T07:28:31.475Z"
       source_kind: local_mutation
       source_ref: ci/quick-pr-tier-deep-local-tier
-docs[2]{path,scope}:
+  - command: cargo check --locked --all-targets --all-features && cargo clippy --locked --all-targets --all-features -- -D warnings && cargo fmt --all -- --check && tests/harness/node_modules/.bin/tsc -p tests/harness/tsconfig.json && tests/harness/node_modules/.bin/eslint -c tests/harness/eslint.config.mjs scripts/ci-*.mts scripts/crash-*.mts scripts/native-adapter-*.mts scripts/perf-revert-proof.mts && node --test scripts/crash-ci-contract.test.mts && PM_TEST_DEPTH=quick PROPTEST_CASES=50 cargo test --locked --test ci_depth_contract --test read_contract --test pagination_differential -- --nocapture && PM_TEST_DEPTH=quick PROPTEST_CASES=50 cargo test --locked --lib canonical_create_toon_round_trips_supported_strings -- --nocapture && cargo test --locked --test release_pipeline_contract && node scripts/changelog.mts full --check && git diff --check
+    scope: project
+    timeout_seconds: 1200
+    pm_context_mode: schema
+    workspace_context_mode: source
+    provenance:
+      author: codex-sol
+      created_at: "2026-11-16T08:26:24.922Z"
+      source_kind: local_mutation
+      source_ref: ci/quick-pr-tier-deep-local-tier
+    updated_by: codex-sol
+    updated_at: "2026-11-16T08:28:10.723Z"
+docs[3]{path,scope}:
   .github/workflows/ci.yml,project
   docs/ci-tiers.md,project
+  README.md,project
 body: ""
