@@ -1,14 +1,15 @@
 #!/usr/bin/env bash
 # All mutations stay in the runner-owned persistent tool volume, under one host lock.
 set -euo pipefail
-export RUSTUP_HOME=/home/runner/_work/_tool/rustup
-export CARGO_HOME=/home/runner/_work/_tool/cargo
+source "$(dirname "${BASH_SOURCE[0]}")/setup-local-tool-root.sh"
+export RUSTUP_HOME="$tool_root/rustup"
+export CARGO_HOME="$tool_root/cargo"
 export PATH="$CARGO_HOME/bin:$PATH"
 export CARGO_TARGET_DIR="$GITHUB_WORKSPACE/target"
 printf '%s\n' "RUSTUP_HOME=$RUSTUP_HOME" "CARGO_HOME=$CARGO_HOME" "CARGO_TARGET_DIR=$CARGO_TARGET_DIR" >> "$GITHUB_ENV"
 printf '%s\n' "$CARGO_HOME/bin" >> "$GITHUB_PATH"
 (
-  flock 9
+  lock_runner_tools
   if [[ ! -x "$CARGO_HOME/bin/rustup" ]]; then
     bootstrap=$(mktemp)
     curl --fail --show-error --location --retry 5 https://sh.rustup.rs --output "$bootstrap"
@@ -32,9 +33,9 @@ printf '%s\n' "$CARGO_HOME/bin" >> "$GITHUB_PATH"
       cargo +1.90.0 install --locked cargo-audit --version 0.21.2
     fi
   fi
-  if ! command -v just >/dev/null; then
+  if ! just --version 2>/dev/null | grep -qx 'just 1.43.0'; then
     cargo +1.90.0 install --locked just --version 1.43.0
   fi
-) 9>/home/runner/_work/_tool/rust.lock
+) 9>"$tool_root/rust.lock"
 rustc -V
 cargo -V

@@ -1,5 +1,5 @@
 /** Scale only harness watchdogs, validating before any child can launch. */
-const scale = Number(process.env.PM_TEST_TIME_SCALE ?? '1');
+const scale = Number(process.env.PM_TEST_TIME_SCALE || '1');
 if (!Number.isFinite(scale) || scale <= 0) throw new Error('PM_TEST_TIME_SCALE must be finite and positive');
 
 /** Return integer milliseconds suitable for Node timers and child-process watchdogs. */

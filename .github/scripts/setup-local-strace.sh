@@ -1,9 +1,10 @@
 #!/usr/bin/env bash
 # No sudo or system package changes: extract the distro's signed-index packages into tool storage.
 set -euo pipefail
-prefix="${RUNNER_TOOL_CACHE:?}/syscall-tools"
+source "$(dirname "${BASH_SOURCE[0]}")/setup-local-tool-root.sh"
+prefix="$tool_root/syscall-tools"
 (
-  flock 9
+  lock_runner_tools
   if [[ ! -x "$prefix/usr/bin/strace" ]]; then
     mkdir -p "$prefix/apt/lists/partial" "$prefix/apt/cache/archives/partial" "$prefix/downloads"
     apt_options=(-o "Dir::State::lists=$prefix/apt/lists" -o "Dir::Cache=$prefix/apt/cache" -o Debug::NoLocking=true)
@@ -19,7 +20,7 @@ prefix="${RUNNER_TOOL_CACHE:?}/syscall-tools"
     printf '#!/bin/sh\nLD_LIBRARY_PATH=%s exec %s "$@"\n' "$library_path" "$prefix/usr/bin/strace" > "$prefix/bin/strace"
     chmod +x "$prefix/bin/strace"
   fi
-) 9>"$RUNNER_TOOL_CACHE/rust.lock"
+) 9>"$tool_root/rust.lock"
 "$prefix/bin/strace" -V
 # Match the crash harness flags, including its required child-lifetime protection.
 # The unreachable injection ordinal checks parsing without killing the probe.

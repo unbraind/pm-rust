@@ -114,11 +114,6 @@ jobs:
     - name: Set up pinned Rust tools
       uses: ./.github/actions/rust-setup
       if: needs.changes.outputs.code == 'true'
-    - name: Install just for the oracle recipe contract
-      uses: taiki-e/install-action@cfdb7ed4ccc7c7dce37759eae89dc5674b469b39
-      with:
-        tool: just
-      if: needs.changes.outputs.code == 'true'
     - name: Resolve the published CLI package root
       shell: bash
       run: |
@@ -186,11 +181,6 @@ jobs:
       with:
         quality: 'true'
       if: needs.changes.outputs.code == 'true'
-    - name: Install quality tools
-      uses: taiki-e/install-action@cfdb7ed4ccc7c7dce37759eae89dc5674b469b39
-      with:
-        tool: cargo-audit,just
-      if: needs.changes.outputs.code == 'true'
     - name: Resolve the published CLI package root
       shell: bash
       run: |
@@ -236,16 +226,6 @@ jobs:
       uses: ./.github/actions/rust-setup
       with:
         coverage: 'true'
-      if: needs.changes.outputs.code == 'true'
-    - name: Install coverage tool
-      uses: taiki-e/install-action@cfdb7ed4ccc7c7dce37759eae89dc5674b469b39
-      with:
-        tool: cargo-llvm-cov
-      if: needs.changes.outputs.code == 'true'
-    - name: Install just for recipe contracts
-      uses: taiki-e/install-action@cfdb7ed4ccc7c7dce37759eae89dc5674b469b39
-      with:
-        tool: just
       if: needs.changes.outputs.code == 'true'
     - name: Resolve the published CLI package root
       shell: bash
@@ -304,16 +284,6 @@ jobs:
       with:
         coverage: 'true'
       if: needs.changes.outputs.code == 'true'
-    - name: Install coverage tool
-      uses: taiki-e/install-action@cfdb7ed4ccc7c7dce37759eae89dc5674b469b39
-      with:
-        tool: cargo-llvm-cov
-      if: needs.changes.outputs.code == 'true'
-    - name: Install just for recipe contracts
-      uses: taiki-e/install-action@cfdb7ed4ccc7c7dce37759eae89dc5674b469b39
-      with:
-        tool: just
-      if: needs.changes.outputs.code == 'true'
     - name: Resolve the published CLI package root
       shell: bash
       run: |
@@ -370,11 +340,6 @@ jobs:
       if: needs.changes.outputs.code == 'true'
     - name: Set up pinned Rust tools
       uses: ./.github/actions/rust-setup
-      if: needs.changes.outputs.code == 'true'
-    - name: Install just
-      uses: taiki-e/install-action@cfdb7ed4ccc7c7dce37759eae89dc5674b469b39
-      with:
-        tool: just
       if: needs.changes.outputs.code == 'true'
     - name: Resolve the published CLI package root
       shell: bash

@@ -67,7 +67,7 @@ for (const scenario of ['update', 'comment'] as const) {
       const calls = join(root, 'native-calls.jsonl');
       writeFileSync(wrapper, `#!${process.execPath}\nconst fs=require('node:fs');const cp=require('node:child_process');fs.appendFileSync(${JSON.stringify(calls)},JSON.stringify(process.argv.slice(2))+'\\n');const r=cp.spawnSync(${JSON.stringify(resolve('target/debug/pm-rust'))},process.argv.slice(2),{stdio:'inherit'});process.exit(r.status??1);\n`);
       chmodSync(wrapper, 0o755);
-      const report = replayCrashFailure({ native: wrapper, artifacts: join(root, 'evidence') }, join(source, `${scenario}.json`));
+      const report = replayCrashFailure({ native: wrapper, artifacts: join(root, 'evidence'), timeoutMs: Math.min(testTime(15000), 120000) }, join(source, `${scenario}.json`));
       assert.equal(report.ok, true, JSON.stringify(report.cases));
       assert.equal(report.killed, 1);
       const row = report.cases[0];
@@ -88,7 +88,7 @@ for (const scenario of ['update', 'comment'] as const) {
 
 test('published history-open injection detects post-publication history loss despite exit-zero restart',
   { skip: process.platform !== 'linux', timeout: testTime(180000) }, () => temporary(root => {
-    const report = replayCrashFailure({ native: resolve('target/debug/pm-rust'), artifacts: join(root, 'evidence') },
+    const report = replayCrashFailure({ native: resolve('target/debug/pm-rust'), artifacts: join(root, 'evidence'), timeoutMs: Math.min(testTime(15000), 120000) },
       resolve('tests/fixtures/crash-review/published-history.json'));
     assert.equal(report.ok, false);
     const row = report.cases[0];

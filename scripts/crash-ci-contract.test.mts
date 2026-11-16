@@ -17,32 +17,30 @@ test('target partition retains every Cargo integration target once, including ne
   assert.ok(shards.every(shard => shard.length > 0));
 });
 
-test('docs identity gate inspects unreachable authors and committers', () => {
-  const root = mkdtempSync(join(tmpdir(), 'ci-identity-'));
-  const env = { ...process.env, GIT_CONFIG_NOSYSTEM: '1', GIT_CONFIG_GLOBAL: process.platform === 'win32' ? 'NUL' : '/dev/null' };
-  const git = (args: string[], input?: string) => execFileSync('git', args, { cwd: root, env, input, encoding: 'utf8' }).trim();
-  try {
-    git(['init', '--quiet']);
-    mkdirSync(join(root, '.github'));
-    writeFileSync(join(root, '.github/approved-git-identities.txt'), 'fixture@example.invalid\n');
-    const tree = git(['hash-object', '-t', 'tree', '-w', '--stdin'], '');
-    const allowed = 'Fixture <fixture@example.invalid> 1 +0000';
-    const foreign = 'Fixture <foreign@example.invalid> 1 +0000';
-    const commit = (author: string, committer: string) => git(['hash-object', '-t', 'commit', '-w', '--stdin'],
-      `tree ${tree}\nauthor ${author}\ncommitter ${committer}\n\nSynthetic identity fixture\n`);
-    commit(allowed, allowed);
-    assert.equal(auditIdentities(root), 1);
-    commit(allowed, foreign);
-    assert.throws(() => auditIdentities(root), /Unapproved committer/);
-    commit(foreign, allowed);
-    assert.throws(() => auditIdentities(root), /Unapproved (author|committer)/);
-  } finally { rmSync(root, { recursive: true, force: true }); }
-});
+for (const role of ['allowed', 'committer', 'author'] as const) {
+  test(`docs identity gate independently inspects unreachable ${role} identities`, () => {
+    const root = mkdtempSync(join(tmpdir(), 'ci-identity-'));
+    const env = { ...process.env, GIT_CONFIG_NOSYSTEM: '1', GIT_CONFIG_GLOBAL: process.platform === 'win32' ? 'NUL' : '/dev/null' };
+    const git = (args: string[], input?: string) => execFileSync('git', args, { cwd: root, env, input, encoding: 'utf8' }).trim();
+    try {
+      git(['init', '--quiet']);
+      mkdirSync(join(root, '.github'));
+      writeFileSync(join(root, '.github/approved-git-identities.txt'), 'fixture@example.invalid\n');
+      const tree = git(['hash-object', '-t', 'tree', '-w', '--stdin'], '');
+      const allowed = 'Fixture <fixture@example.invalid> 1 +0000';
+      const foreign = 'Fixture <foreign@example.invalid> 1 +0000';
+      git(['hash-object', '-t', 'commit', '-w', '--stdin'],
+        `tree ${tree}\nauthor ${role === 'author' ? foreign : allowed}\ncommitter ${role === 'committer' ? foreign : allowed}\n\nSynthetic identity fixture\n`);
+      if (role === 'allowed') assert.equal(auditIdentities(root), 1);
+      else assert.throws(() => auditIdentities(root), role === 'author' ? /Unapproved author/ : /Unapproved committer/);
+    } finally { rmSync(root, { recursive: true, force: true }); }
+  });
+}
 
 
 test('harness watchdogs validate scales before launching and preserve integer milliseconds', () => {
   const module = new URL('./crash-test-depth.mts', import.meta.url).href;
-  for (const [scale, expected] of [['1', '101'], ['3', '303'], ['1.25', '127']]) {
+  for (const [scale, expected] of [['', '101'], ['1', '101'], ['3', '303'], ['1.25', '127']]) {
     const result = execFileSync(process.execPath, ['--input-type=module', '-e', `import {testTime} from '${module}'; console.log(testTime(101));`],
       { encoding: 'utf8', env: { ...process.env, PM_TEST_TIME_SCALE: scale } });
     assert.equal(result.trim(), expected);
@@ -91,5 +89,40 @@ esac
     assert.ok(args.includes('trace=rename,fsync,link,linkat,write,writev,unlink,unlinkat'));
     assert.ok(args.includes('inject=rename:signal=SIGKILL:when=65535'));
     assert.deepEqual(args.slice(-2), ['--', 'true']);
+  } finally { rmSync(root, { recursive: true, force: true }); }
+});
+
+test('hosted tools match local pins and quick jobs only install through rust-setup', () => {
+  const action = readFileSync('.github/actions/rust-setup/action.yml', 'utf8');
+  const local = readFileSync('.github/scripts/setup-local-rust.sh', 'utf8');
+  for (const [tool, version] of [['just', '1.43.0'], ['cargo-audit', '0.21.2'], ['cargo-llvm-cov', '0.8.7']]) {
+    assert.ok(action.includes(`tool: ${tool}@${version}\n`), `${tool} hosted pin`);
+    assert.ok(local.includes(`install --locked ${tool} --version ${version}`), `${tool} local pin`);
+  }
+  const ci = readFileSync('.github/workflows/ci.yml', 'utf8');
+  assert.ok(ci.includes('uses: ./.github/actions/rust-setup'));
+  assert.ok(!ci.includes('uses: taiki-e/install-action'), 'quick jobs must not overwrite tools outside rust-setup');
+});
+
+test('local installers create a cold tool root and share a bounded lock with clear refusal', { skip: process.platform !== 'linux' }, () => {
+  const root = mkdtempSync(join(tmpdir(), 'ci-tool-lock-'));
+  const toolRoot = join(root, 'cold-tools');
+  const helper = join(process.cwd(), '.github/scripts/setup-local-tool-root.sh');
+  const env = { ...process.env, RUNNER_TOOL_CACHE: toolRoot, RUNNER_TOOL_LOCK_TIMEOUT_SECONDS: '0' };
+  const script = 'source "$1"; (lock_runner_tools; printf "%s" "$tool_root") 9>"$tool_root/rust.lock"';
+  try {
+    const cold = spawnSync('bash', ['-euc', script, 'fixture', helper], { encoding: 'utf8', env });
+    assert.equal(cold.status, 0, cold.stderr);
+    assert.equal(cold.stdout, toolRoot);
+    const held = spawnSync('flock', [join(toolRoot, 'rust.lock'), 'bash', '-euc', script, 'fixture', helper],
+      { encoding: 'utf8', env, timeout: 5000 });
+    assert.equal(held.status, 1, held.stderr);
+    assert.match(held.stderr, /Timed out waiting for the shared runner tool installation lock/);
+    for (const installer of ['rust', 'strace']) {
+      const source = readFileSync(`.github/scripts/setup-local-${installer}.sh`, 'utf8');
+      assert.ok(source.includes('/setup-local-tool-root.sh"'));
+      assert.ok(source.includes('  lock_runner_tools\n'));
+      assert.ok(source.includes(') 9>"$tool_root/rust.lock"'));
+    }
   } finally { rmSync(root, { recursive: true, force: true }); }
 });

@@ -590,7 +590,12 @@ fn release_job_installs_every_gate_tool_ci_installs() -> Result<(), BoxError> {
                     format!("install-action step '{}' declares no tool list", step.label)
                 })?;
             for name in tool.split(',') {
-                tools.insert(name.trim().to_owned());
+                // This contract compares required tools; their version pins are checked separately.
+                let name = name
+                    .trim()
+                    .split_once('@')
+                    .map_or(name.trim(), |(name, _)| name);
+                tools.insert(name.to_owned());
             }
         }
         Ok(tools)
@@ -608,6 +613,36 @@ fn release_job_installs_every_gate_tool_ci_installs() -> Result<(), BoxError> {
         );
     }
 
+    Ok(())
+}
+
+/// Check every quick/local nightly reference, including shell and JavaScript tokens.
+fn assert_ci_nightly_pins(nightly: &str) -> Result<(), BoxError> {
+    // Scan all tokens, including quoted shell/JS arguments and bare YAML values.
+    let nightly_tokens = |source: &str| -> Vec<String> {
+        source
+            .split(|c: char| !c.is_ascii_alphanumeric() && c != '-')
+            .filter(|token| token.starts_with("nightly-"))
+            .map(str::to_owned)
+            .collect()
+    };
+    assert_eq!(
+        nightly_tokens("+nightly-2026-08-06 'nightly-2026-08-06'\nnightly-2026-08-06"),
+        vec!["nightly-2026-08-06"; 3]
+    );
+    for path in [
+        ".github/workflows/ci.yml",
+        "scripts/ci-targets.mts",
+        ".github/scripts/setup-local-rust.sh",
+        ".github/actions/rust-setup/action.yml",
+    ] {
+        let source = read_repo_file(path)?;
+        let tokens = nightly_tokens(&source);
+        assert!(!tokens.is_empty(), "{path} must retain a nightly pin");
+        for token in tokens {
+            assert_eq!(token, nightly, "{path} nightly must match the justfile");
+        }
+    }
     Ok(())
 }
 
@@ -654,6 +689,8 @@ fn workflow_toolchains_match_the_repository_pins() -> Result<(), BoxError> {
         .copied()
         .ok_or("the justfile pins no nightly")?;
 
+    assert_ci_nightly_pins(nightly)?;
+
     let toolchains_of = |steps: &[Step]| -> Result<Vec<(String, Vec<String>)>, BoxError> {
         let mut installed = Vec::new();
         for step in steps {
@@ -682,7 +719,7 @@ fn workflow_toolchains_match_the_repository_pins() -> Result<(), BoxError> {
         }
         Ok(installed)
     };
-    for (workflow_name, steps) in [("ci.yml", &ci_steps), ("release.yml", &release_steps)] {
+    for (workflow_name, steps) in [("ci-deep.yml", &ci_steps), ("release.yml", &release_steps)] {
         let installed = toolchains_of(steps)?;
         assert!(
             installed.iter().any(|(toolchain, components)| {
@@ -700,7 +737,7 @@ fn workflow_toolchains_match_the_repository_pins() -> Result<(), BoxError> {
         .ok_or("rust-toolchain.toml declares no channel")?
         .trim()
         .trim_matches('"');
-    for (workflow_name, steps) in [("ci.yml", &ci_steps), ("release.yml", &release_steps)] {
+    for (workflow_name, steps) in [("ci-deep.yml", &ci_steps), ("release.yml", &release_steps)] {
         let installed = toolchains_of(steps)?;
         assert!(
             installed.iter().any(|(toolchain, components)| {
