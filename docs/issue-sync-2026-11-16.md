@@ -29,3 +29,7 @@ A passing plan proves completeness and identity planning, not successful writes 
 ## Validation
 
 Cargo check, formatting and clippy pass. The package test sequence is still running at the initial draft. The pinned tracker validation returns `ok: true` with existing advisories, and seeded validation passes through `pm test --run --progress`. Remaining results are recorded in the linked sync repair item. CI is not dispatched manually, and no successful scheduled rerun is claimed.
+
+## Final bounded verification receipt
+
+Final bounded verification: cargo check --locked --all-targets --all-features, cargo fmt --all -- --check, cargo clippy --locked --all-targets --all-features -- -D warnings and changelog:check passed using toolchain 1.90.0. The all-target package test run was stopped before completion and is excluded from passing evidence. Strict synthetic creation still reproduces the importer missing-options error. Tracker governance remains strict and the importer fix remains upstream. The new item history verifies with strict exit.
