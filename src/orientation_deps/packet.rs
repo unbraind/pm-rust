@@ -389,8 +389,16 @@ impl Query {
     }
 }
 
+#[cfg(test)]
+thread_local! {
+    /// Counts row measurements on this test thread without affecting production behavior.
+    static COST_CALLS: std::cell::Cell<usize> = const { std::cell::Cell::new(0) };
+}
+
 /// Estimates compact row tokens using UTF-8 JSON bytes.
 fn cost(value: &Value) -> usize {
+    #[cfg(test)]
+    COST_CALLS.with(|calls| calls.set(calls.get() + 1));
     crate::stringify_json(value, false).len().div_ceil(4).max(1)
 }
 
@@ -439,6 +447,10 @@ struct Traversal<'a> {
     discovered: Vec<(&'a str, usize, &'a str, &'static str)>,
     /// Incident root edges reused for roles and direct counts.
     direct: Vec<(&'a str, &'a Value)>,
+    /// Root-incident edge costs indexed by endpoint, counting each self-loop once.
+    reservations: BTreeMap<&'a str, usize>,
+    /// Direct semantic reasons indexed by neighboring node.
+    reasons: BTreeMap<&'a str, BTreeSet<&'static str>>,
     /// Direct edge counts in published role order.
     direct_counts: Value,
     /// Cursor contract digest, computed once per query.
@@ -479,11 +491,11 @@ impl<'a> Traversal<'a> {
                 }
             }
         }
-        let required: BTreeSet<_> = graph
-            .neighbors(root, query)
-            .into_iter()
+        let direct = graph.neighbors(root, query);
+        let required: BTreeSet<_> = direct
+            .iter()
             .filter(|(id, edge)| matches!(role(edge, id), "prerequisite" | "ancestor"))
-            .map(|(id, _)| id)
+            .map(|(id, _)| *id)
             .collect();
         discovered.sort_by(|a, b| {
             required
@@ -492,10 +504,19 @@ impl<'a> Traversal<'a> {
                 .then_with(|| a.1.cmp(&b.1))
                 .then_with(|| crate::collation::compare(a.0, b.0))
         });
-        let direct = graph.neighbors(root, query);
         let mut direct_counts = json!({"prerequisite":0,"dependent":0,"ancestor":0,"descendant":0,"provenance":0,"related":0});
+        let mut reservations = BTreeMap::new();
+        let mut reasons: BTreeMap<_, BTreeSet<_>> = BTreeMap::new();
         for (id, edge) in &direct {
+            let edge_cost = cost(edge);
+            let source = text(edge, "source");
+            let target = text(edge, "target");
+            *reservations.entry(source).or_default() += edge_cost;
+            if source != target {
+                *reservations.entry(target).or_default() += edge_cost;
+            }
             let name = role(edge, id);
+            reasons.entry(*id).or_default().insert(name);
             direct_counts[name] = json!(direct_counts[name].as_u64().unwrap_or_default() + 1);
         }
         let contract = json!({"rootId":root,"direction":query.direction,"kinds":query.kinds,"maxDepth":query.depth,"ordering":"required-root-evidence-first-v1"});
@@ -520,6 +541,8 @@ impl<'a> Traversal<'a> {
             discovered,
             direct,
             direct_counts,
+            reservations,
+            reasons,
             fingerprint,
             visited: queue.len(),
             inspected,
@@ -578,11 +601,7 @@ fn packet(
     let mut nodes = Vec::new();
     let mut reserved = 0;
     for (id, distance, via, initial_role) in discovered.iter().skip(start).take(query.nodes) {
-        let reasons: BTreeSet<_> = direct
-            .iter()
-            .filter(|(next, _)| next == id)
-            .map(|(next, edge)| role(edge, next))
-            .collect();
+        let reasons = traversal.reasons.get(id).cloned().unwrap_or_default();
         let role = if *distance == 1 {
             ROLES
                 .iter()
@@ -606,11 +625,7 @@ fn packet(
         if used + tokens > budget {
             break;
         }
-        let edge_cost: usize = direct
-            .iter()
-            .filter(|(next, _)| next == id)
-            .map(|(_, edge)| cost(edge))
-            .sum();
+        let edge_cost = traversal.reservations.get(id).copied().unwrap_or_default();
         if used + reserved + tokens + edge_cost > budget {
             if !nodes.is_empty() {
                 break;
@@ -646,9 +661,7 @@ fn packet(
                 && query.matches(text(edge, "kind"))
         })
         .collect();
-    candidates.sort_by_key(|edge| {
-        std::cmp::Reverse(text(edge, "source") == root || text(edge, "target") == root)
-    });
+    candidates.sort_by_key(|edge| !(text(edge, "source") == root || text(edge, "target") == root));
     let mut edges = Vec::new();
     for edge in &candidates {
         if edges.len() >= query.edges {
@@ -766,6 +779,8 @@ fn budget_floor(error: &PmRustError) -> bool {
 struct RenderMeasurements {
     /// Encoding and structural envelope identity map to bytes excluding the counters.
     fixed_bytes: BTreeMap<(bool, String), usize>,
+    /// One preserved query shares bounded producer work across canonical budget probes.
+    producers: RenderCache,
 }
 
 impl RenderMeasurements {
@@ -812,11 +827,83 @@ fn render_packet(
     options: &DepsOptions,
     measurements: &mut RenderMeasurements,
 ) -> Result<ListOutput, PmRustError> {
+    let mut result = render_cached(
+        graph,
+        id,
+        query,
+        traversal,
+        evidence,
+        options,
+        &mut measurements.producers,
+    )?;
+    if !options.summary {
+        measurements.settle(&mut result.value, options.toon);
+    }
+    Ok(result)
+}
+
+/// Query-local memoization; every cached producer uses the same graph and controls.
+#[derive(Default)]
+struct RenderCache {
+    /// Stabilized wire costs keyed by complete projection shape.
+    costs: BTreeMap<String, usize>,
+    /// Serialized shape-key bytes retained by cost memoization, capped at two MiB.
+    cost_bytes: usize,
+    /// Producer packets keyed by their exact packing budget.
+    packets: BTreeMap<usize, Value>,
+    /// Serialized bytes retained by producer memoization, capped at two MiB.
+    packet_bytes: usize,
+    /// Counts real producer work for deterministic resource assertions.
+    #[cfg(test)]
+    builds: usize,
+}
+
+impl RenderCache {
+    /// Reuses exact producer results while preserving a strict retained-byte ceiling.
+    #[allow(clippy::too_many_arguments)]
+    fn produce(
+        &mut self,
+        graph: &Graph,
+        id: &str,
+        query: &Query,
+        traversal: &Traversal<'_>,
+        evidence: &[String],
+        cursor: Option<&str>,
+        budget: usize,
+    ) -> Result<Value, PmRustError> {
+        if let Some(packet) = self.packets.get(&budget) {
+            return Ok(packet.clone());
+        }
+        #[cfg(test)]
+        {
+            self.builds += 1;
+        }
+        let packet = packet(graph, id, query, traversal, evidence, cursor, budget)?;
+        let bytes = crate::stringify_json(&packet, false).len();
+        if bytes <= (2 * 1024 * 1024usize).saturating_sub(self.packet_bytes) {
+            self.packet_bytes += bytes;
+            self.packets.insert(budget, packet.clone());
+        }
+        Ok(packet)
+    }
+}
+
+/// Reuses exact rendered costs across canonical recovery probes and producer retries.
+#[allow(clippy::too_many_arguments, clippy::too_many_lines)]
+fn render_cached(
+    graph: &Graph,
+    id: &str,
+    query: &Query,
+    traversal: &Traversal<'_>,
+    evidence: &[String],
+    options: &DepsOptions,
+    cache: &mut RenderCache,
+) -> Result<ListOutput, PmRustError> {
     let mut budget = query.tokens;
     // Larger limits render the same rows; skip retries that cannot remove a reference.
     let mut reference_limit = query.edges.min(traversal.missing.len());
     loop {
-        let mut packet = packet(
+        let mut packet = cache.produce(
             graph,
             id,
             query,
@@ -861,7 +948,31 @@ fn render_packet(
             }
             return Ok(result.into());
         }
-        let measured = measurements.settle(&mut result, options.toon);
+        // Only this decimal scalar varies between otherwise identical recovery
+        // probes. Equal digit widths produce equal bytes in JSON and TOON.
+        let mut shape = result.clone();
+        shape["context"]["meta"]["tokenBudget"] = json!(query.tokens.to_string().len());
+        let shape = shape.to_string();
+        if let Some(measured) = cache.costs.get(&shape) {
+            result["context"]["meta"]["usedTokens"] = json!(measured);
+        } else {
+            let measured = loop {
+                let measured = tokens(&result, options.toon);
+                if result["context"]["meta"]["usedTokens"] == measured {
+                    break measured;
+                }
+                result["context"]["meta"]["usedTokens"] = json!(measured);
+            };
+            if shape.len() <= (2 * 1024 * 1024usize).saturating_sub(cache.cost_bytes) {
+                cache.cost_bytes += shape.len();
+                cache.costs.insert(shape, measured);
+            }
+        }
+        let measured = result["context"]["meta"]["usedTokens"]
+            .as_u64()
+            .and_then(|n| usize::try_from(n).ok())
+            .unwrap_or_default();
+
         if measured <= query.tokens {
             return Ok(result.into());
         }

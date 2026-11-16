@@ -23,19 +23,6 @@ fn fixture(
     count: usize,
     title_size: usize,
 ) -> Result<tempfile::TempDir, Box<dyn std::error::Error>> {
-    fixture_with_oracle(
-        count,
-        title_size,
-        published_cli::published_cli_or_skip("pagination differential"),
-    )
-}
-
-/// Builds the same local fixture with an explicitly optional oracle driver.
-fn fixture_with_oracle(
-    count: usize,
-    title_size: usize,
-    oracle: Option<published_cli::PublishedCli>,
-) -> Result<tempfile::TempDir, Box<dyn std::error::Error>> {
     let directory = tempfile::tempdir()?;
     let root = directory.path().join(".agents/pm");
     fs::create_dir_all(root.join("tasks"))?;
@@ -54,7 +41,7 @@ fn fixture_with_oracle(
             ),
         )?;
     }
-    if let Some(published) = oracle {
+    if let Some(published) = published_cli::published_cli_or_skip("pagination differential") {
         let package: Value =
             serde_json::from_slice(&fs::read(published.package_root.join("package.json"))?)?;
         assert_eq!(
@@ -113,9 +100,9 @@ fn compare_outputs(
 ) -> Result<Output, Box<dyn std::error::Error>> {
     let mut native = Command::new(env!("CARGO_BIN_EXE_pm-rust"));
     if equals_controls {
-        native.args(["--workspace=.", "list", &format!("--timestamp={CLOCK}")]);
+        native.args(["list", &format!("--timestamp={CLOCK}")]);
     } else {
-        native.args(["--workspace", ".", "list", "--timestamp", CLOCK]);
+        native.args(["list", "--timestamp", CLOCK]);
     }
     let native = native
         .arg("--json")
@@ -134,8 +121,7 @@ fn compare_outputs(
             std::env::var("PM_NODE_INTERPRETER").unwrap_or_else(|_| "node".to_owned()),
         )
         .arg(directory.join("driver.mjs"))
-        // Match the native-only workspace alias with its published bootstrap scope.
-        .args(["--pm-path", ".", "list", "--json"])
+        .args(["list", "--json"])
         .args(flags)
         .current_dir(directory)
         .env_remove("PM_PATH")
@@ -143,13 +129,46 @@ fn compare_outputs(
         assert_eq!(
             published.status.code(),
             native.status.code(),
-            "exit status {flags:?}: native {}, oracle {}",
-            String::from_utf8_lossy(&native.stderr),
-            String::from_utf8_lossy(&published.stderr)
+            "exit status {flags:?}"
         );
         assert_bytes(&native, &published, flags);
     }
     Ok(native)
+}
+
+/// Legacy list omissions preserve the pinned terminal receipt in both encodings.
+#[test]
+fn triage_omitted_intent_receipts_match_published() -> TestResult {
+    let directory = fixture(2, 80)?;
+    for budget in ["1", "256"] {
+        let flags = [
+            "--for",
+            "triage",
+            "--token-budget",
+            "100000",
+            "--output-budget",
+            budget,
+        ];
+        for receipt in [
+            compare(directory.path(), &flags, false)?,
+            compare_toon(directory.path(), &flags, false)?,
+        ] {
+            // proof-behavior
+            assert_eq!(
+                receipt["output_budget_exceeded"]["omitted_result"], true,
+                "review154: terminal omission must be explicit"
+            );
+            // proof-behavior
+            assert_eq!(
+                receipt["read_output"]["result_omitted"], true,
+                "review154: terminal receipt survives without an oracle"
+            );
+            // proof-behavior
+            assert_eq!(receipt["read_output"]["within_budget"], false);
+        }
+    }
+    assert!(!directory.path().join(".git").exists());
+    Ok(())
 }
 
 /// Combined ceilings bind the uncapped snapshot and accept an unchanged replay.
@@ -771,9 +790,9 @@ fn triage_continuation_compaction_matches_the_published_cli() -> TestResult {
     Ok(())
 }
 
-/// An unbounded legacy final page retains its exact suffix without rebasing from zero.
+/// A legacy final-page cursor without `after_index` must omit, not rebase from zero.
 #[test]
-fn legacy_after_without_after_index_retains_unbounded_final_triage_page() -> TestResult {
+fn legacy_after_without_after_index_omits_final_triage_page() -> TestResult {
     use base64::{Engine, engine::general_purpose::URL_SAFE_NO_PAD};
     let directory = fixture(75, 400)?;
     let first = compare(
@@ -812,58 +831,48 @@ fn legacy_after_without_after_index_retains_unbounded_final_triage_page() -> Tes
         "--full",
         "--after",
         legacy.as_str(),
-        "--output-budget",
-        "unbounded",
     ];
     let native = Command::new(env!("CARGO_BIN_EXE_pm-rust"))
-        .args(["--workspace", ".", "list", "--timestamp", CLOCK, "--json"])
+        .args(["list", "--timestamp", CLOCK, "--json"])
         .args(flags)
         .current_dir(directory.path())
         .env_remove("PM_PATH")
         .output()?;
     assert!(
-        native.status.success(),
+        native.status.code() == Some(2),
         "native: {}",
         String::from_utf8_lossy(&native.stderr)
     );
     let native_page: Value = serde_json::from_slice(&native.stdout)?;
-    assert_eq!(
-        native_page["items"]
-            .as_array()
-            .ok_or("missing final rows")?
-            .iter()
-            .map(|row| row["id"].clone())
-            .collect::<Vec<_>>(),
-        serde_json::json!([
-            "demo-0049",
-            "demo-0054",
-            "demo-0059",
-            "demo-0064",
-            "demo-0069",
-            "demo-0074"
-        ])
-        .as_array()
-        .ok_or("expected rows")?
-        .clone()
-    );
+    // Reverting the after_index requirement emits compacted rows and a cursor
+    // whose after_index equals the retained count. The reference omits instead.
+    assert!(native_page.get("items").is_none());
     assert!(native_page["next_cursor"].is_null());
-    assert!(native_page.get("budget_exceeded").is_none());
+    assert_eq!(native_page["budget_exceeded"]["omitted_result"], true);
     assert_eq!(
-        native_page["continuation_contract"]["metadata"],
-        "reference"
+        native_page["budget_exceeded"]["reason"],
+        "effective_budget_infeasible"
     );
     if directory.path().join("driver.mjs").is_file() {
         let published = published_cli::oracle_command(
             std::env::var("PM_NODE_INTERPRETER").unwrap_or_else(|_| "node".to_owned()),
         )
         .arg(directory.path().join("driver.mjs"))
-        // Match the native-only workspace alias with its published bootstrap scope.
-        .args(["--pm-path", ".", "list", "--json"])
+        .args(["list", "--json"])
         .args(flags)
         .current_dir(directory.path())
         .env_remove("PM_PATH")
         .output()?;
         assert_eq!(published.status.code(), native.status.code());
+        let published_page: Value = serde_json::from_slice(&published.stdout)?;
+        assert_eq!(
+            published_page["budget_exceeded"],
+            native_page["budget_exceeded"]
+        );
+        assert!(published_page.get("items").is_none());
+        assert!(published_page["next_cursor"].is_null());
+        assert!(published_page.get("continuation_contract").is_none());
+        assert!(native_page.get("continuation_contract").is_none());
         assert_bytes(&native, &published, &flags);
     }
     Ok(())
@@ -1113,9 +1122,23 @@ fn compare_toon(directory: &Path, flags: &[&str], success: bool) -> TestResultVa
         assert_bytes(&native, &published, flags);
     }
     if !success {
-        return Ok(Value::Null);
+        let bytes = if native.stdout.is_empty() {
+            &native.stderr
+        } else {
+            &native.stdout
+        };
+        return Ok(serde_json::from_slice(bytes)
+            .ok()
+            .or_else(|| {
+                std::str::from_utf8(bytes)
+                    .ok()
+                    .and_then(|text| toon_format::decode_default(text).ok())
+            })
+            .unwrap_or(Value::Null));
     }
-    Ok(pm_rust::parse_toon(std::str::from_utf8(&native.stdout)?)?)
+    Ok(toon_format::decode_default(std::str::from_utf8(
+        &native.stdout,
+    )?)?)
 }
 
 /// Decoded differential output with an owned error channel.
@@ -1272,14 +1295,8 @@ fn toon_budget_envelopes_and_snapshot_walks_match() -> TestResult {
         vec!["--output-limit", "3", "--output-budget", "unbounded"],
         vec!["--full", "--limit", "3", "--output-budget", "2000"],
         vec!["--for", "triage", "--token-budget", "1000"],
-        vec!["--for", "triage", "--token-budget", "256"],
     ] {
-        compare_toon(
-            directory.path(),
-            &flags,
-            flags != ["--output-budget", "1"]
-                && flags != ["--for", "triage", "--token-budget", "256"],
-        )?;
+        compare_toon(directory.path(), &flags, flags != ["--output-budget", "1"])?;
     }
     let verbose = fixture(270, 400)?;
     for flags in [
@@ -1865,6 +1882,202 @@ fn configured_no_active_role_blockers_match_oracle() -> TestResult {
     let page = compare(directory.path(), &flags, true)?;
     assert_eq!(page["items"][0]["id"], "demo-0000");
     compare_toon(directory.path(), &flags, true)?;
+    Ok(())
+}
+
+/// A one-digit estimate increase cannot push the admitted list packet over its wire ceiling.
+#[test]
+fn triage_stabilized_wire_budget_matches_published() -> TestResult {
+    let directory = fixture(12, 1)?;
+    let tasks = directory.path().join(".agents/pm/tasks");
+    for index in 0..12 {
+        let id = format!("demo-{index:04}");
+        let width = match index {
+            0 => 500,
+            10 => 59,
+            _ => 51,
+        };
+        fs::write(
+            tasks.join(format!("{id}.toon")),
+            format!(
+                "id: {id}\ntitle: {}\ndescription: \"\"\ntype: Task\nstatus: open\npriority: 0\ntags: []\ncreated_at: \"2026-09-01T00:00:00.000Z\"\nupdated_at: \"2026-09-01T00:00:00.000Z\"\nbody: \"\"\n",
+                "x".repeat(width)
+            ),
+        )?;
+    }
+    let flags = [
+        "--for",
+        "triage",
+        "--output-limit",
+        "11",
+        "--output-budget",
+        "1403",
+    ];
+    let output = compare(directory.path(), &flags, true)?;
+    assert_eq!(output["read_output"]["estimated_tokens"], 1402);
+    assert_eq!(
+        (pm_rust::stringify_json(&output, true).len() + 1).div_ceil(4),
+        1402
+    );
+
+    let output = compare(
+        directory.path(),
+        &[
+            "--for",
+            "triage",
+            "--output-limit",
+            "11",
+            "--output-budget",
+            "1401",
+        ],
+        true,
+    )?;
+    assert_eq!(output["read_output"]["within_budget"], true);
+    assert_eq!(output["read_output"]["estimated_tokens"], 1340);
+    assert_eq!(output["count"], 6);
+    assert!((pm_rust::stringify_json(&output, true).len() + 1).div_ceil(4) <= 1401);
+    Ok(())
+}
+
+/// Builds the same local fixture with an explicitly optional oracle driver.
+fn fixture_with_oracle(
+    count: usize,
+    title_size: usize,
+    oracle: Option<published_cli::PublishedCli>,
+) -> Result<tempfile::TempDir, Box<dyn std::error::Error>> {
+    let directory = tempfile::tempdir()?;
+    let root = directory.path().join(".agents/pm");
+    fs::create_dir_all(root.join("tasks"))?;
+    fs::create_dir_all(root.join("history"))?;
+    let mut settings: Value = serde_json::from_str(include_str!("fixtures/list-settings.json"))?;
+    settings["telemetry"]["enabled"] = Value::Bool(false);
+    fs::write(root.join("settings.json"), settings.to_string())?;
+    for index in 0..count {
+        let id = format!("demo-{index:04}");
+        fs::write(
+            root.join("tasks").join(format!("{id}.toon")),
+            format!(
+                "id: {id}\ntitle: \"{id}{}\"\ndescription: \"\"\ntype: Task\nstatus: open\npriority: {}\ntags: []\ncreated_at: \"2026-09-01T00:00:00.000Z\"\nupdated_at: \"2026-09-01T00:00:00.000Z\"\nbody: \"\"\n",
+                "x".repeat(title_size),
+                index % 5
+            ),
+        )?;
+    }
+    if let Some(published) = oracle {
+        let package: Value =
+            serde_json::from_slice(&fs::read(published.package_root.join("package.json"))?)?;
+        assert_eq!(
+            package["version"],
+            pm_rust::COMPATIBLE_PM_VERSION,
+            "pagination requires the pinned oracle"
+        );
+        fs::write(
+            directory.path().join("driver.mjs"),
+            format!(
+                "import {{pathToFileURL}} from 'node:url';\nconst fixed=Date.parse({});const OriginalDate=Date;globalThis.Date=class extends OriginalDate {{constructor(...args){{args.length?super(...args):super(fixed)}}static now(){{return fixed}}}};\nprocess.argv=[process.argv[0],'pm',...process.argv.slice(2)];await import(pathToFileURL({}));\n",
+                serde_json::to_string(CLOCK)?,
+                serde_json::to_string(&published.entry)?
+            ),
+        )?;
+    }
+    Ok(directory)
+}
+
+/// An unbounded legacy final page retains its exact suffix without rebasing from zero.
+#[test]
+fn legacy_after_without_after_index_retains_unbounded_final_triage_page() -> TestResult {
+    use base64::{Engine, engine::general_purpose::URL_SAFE_NO_PAD};
+    let directory = fixture(75, 400)?;
+    let first = compare(
+        directory.path(),
+        &[
+            "--for",
+            "triage",
+            "--token-budget",
+            "100000",
+            "--limit",
+            "69",
+            "--output-budget",
+            "unbounded",
+        ],
+        true,
+    )?;
+    let raw = first["next_cursor"]
+        .as_str()
+        .ok_or("missing final-page cursor")?;
+    let mut cursor: Value = serde_json::from_slice(&URL_SAFE_NO_PAD.decode(raw)?)?;
+    assert!(
+        cursor["after_index"]
+            .as_u64()
+            .is_some_and(|index| index > 0)
+    );
+    cursor
+        .as_object_mut()
+        .ok_or("cursor object")?
+        .shift_remove("after_index");
+    let legacy = URL_SAFE_NO_PAD.encode(cursor.to_string());
+    let flags = [
+        "--for",
+        "triage",
+        "--token-budget",
+        "800",
+        "--full",
+        "--after",
+        legacy.as_str(),
+        "--output-budget",
+        "unbounded",
+    ];
+    let native = Command::new(env!("CARGO_BIN_EXE_pm-rust"))
+        .args(["--workspace", ".", "list", "--timestamp", CLOCK, "--json"])
+        .args(flags)
+        .current_dir(directory.path())
+        .env_remove("PM_PATH")
+        .output()?;
+    assert!(
+        native.status.success(),
+        "native: {}",
+        String::from_utf8_lossy(&native.stderr)
+    );
+    let native_page: Value = serde_json::from_slice(&native.stdout)?;
+    assert_eq!(
+        native_page["items"]
+            .as_array()
+            .ok_or("missing final rows")?
+            .iter()
+            .map(|row| row["id"].clone())
+            .collect::<Vec<_>>(),
+        serde_json::json!([
+            "demo-0049",
+            "demo-0054",
+            "demo-0059",
+            "demo-0064",
+            "demo-0069",
+            "demo-0074"
+        ])
+        .as_array()
+        .ok_or("expected rows")?
+        .clone()
+    );
+    assert!(native_page["next_cursor"].is_null());
+    assert!(native_page.get("budget_exceeded").is_none());
+    assert_eq!(
+        native_page["continuation_contract"]["metadata"],
+        "reference"
+    );
+    if directory.path().join("driver.mjs").is_file() {
+        let published = published_cli::oracle_command(
+            std::env::var("PM_NODE_INTERPRETER").unwrap_or_else(|_| "node".to_owned()),
+        )
+        .arg(directory.path().join("driver.mjs"))
+        // Match the native-only workspace alias with its published bootstrap scope.
+        .args(["--pm-path", ".", "list", "--json"])
+        .args(flags)
+        .current_dir(directory.path())
+        .env_remove("PM_PATH")
+        .output()?;
+        assert_eq!(published.status.code(), native.status.code());
+        assert_bytes(&native, &published, &flags);
+    }
     Ok(())
 }
 

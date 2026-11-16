@@ -39,6 +39,7 @@ mod read_projection;
 mod read_session;
 mod search;
 mod selection;
+mod settings;
 pub mod strict_json;
 mod toon_input;
 mod toon_output;

@@ -67,6 +67,31 @@ pub(super) fn selected(depth: &str, settings: &Value) -> Vec<&'static str> {
         .collect()
 }
 
+/// Discard invalid stored context settings before request-specific controls are applied.
+/// The published settings reader falls back as a whole, rather than repairing one field.
+#[cfg(test)]
+pub(super) fn settings_fallback(settings: &mut Value) -> bool {
+    let invalid = !crate::settings::valid(settings);
+    if invalid {
+        *settings = json!({});
+    } else {
+        normalize_settings(settings);
+    }
+    invalid
+}
+
+/// Normalize validated stored integer controls without validating merged external schemas.
+pub(super) fn normalize_settings(settings: &mut Value) {
+    for key in ["activity_limit", "stale_threshold_days"] {
+        if let Some(value) = settings["context"][key].as_f64() {
+            // The validator above proves a positive, exact JavaScript-safe integer.
+            #[allow(clippy::cast_possible_truncation, clippy::cast_sign_loss)]
+            let integer = value as u64;
+            settings["context"][key] = json!(integer);
+        }
+    }
+}
+
 /// Compares structural criticality for hierarchy children and unparented rows.
 fn critical(a: &Value, b: &Value, lifecycle: &Lifecycle) -> std::cmp::Ordering {
     status_rank(a, lifecycle)
@@ -152,6 +177,17 @@ fn activity(workspace: &Workspace, limit: usize, now: &str) -> Result<Value, PmR
     activity_entries(workspace, &mut entries, &path, limit, now)
 }
 
+/// Compares valid instants and retains the published lexical fallback for historical stamps.
+fn activity_before(timestamp: &str, now: &str) -> bool {
+    if let (Some(left), Some(right)) = (
+        crate::list::timestamp_key(timestamp).0,
+        crate::list::timestamp_key(now).0,
+    ) {
+        return left < right;
+    }
+    crate::collation::compare(timestamp, now).is_lt()
+}
+
 /// Traverses retained activity entries while preserving directory-iteration failures.
 fn activity_entries(
     workspace: &Workspace,
@@ -170,9 +206,7 @@ fn activity_entries(
         let name = name.to_string_lossy();
         if let Some(id) = name.strip_suffix(".jsonl") {
             for entry in records(workspace, id)? {
-                let stamp = crate::list::timestamp_key(text(&entry, "ts")).0;
-                let end = crate::list::timestamp_key(now).0;
-                if stamp.is_none() || stamp >= end {
+                if text(&entry, "ts").is_empty() || !activity_before(text(&entry, "ts"), now) {
                     continue;
                 }
                 let mut row = json!({"id":id,"op":entry["op"].as_str().unwrap_or("unknown"),"ts":text(&entry,"ts"),"author":entry["author"].as_str().unwrap_or("unknown")});

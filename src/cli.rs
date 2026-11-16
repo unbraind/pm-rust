@@ -133,6 +133,15 @@ pub enum Command {
     /// Render the default brief agent orientation snapshot.
     #[command(args_override_self = true)]
     Context {
+        /// Core context intent: orient or handoff.
+        #[arg(long = "for")]
+        intent: Option<String>,
+        /// Include an optional section (repeatable).
+        #[arg(long = "section", action = clap::ArgAction::Append)]
+        sections: Vec<String>,
+        /// Maximum retained activity entries.
+        #[arg(long, allow_hyphen_values = true)]
+        activity_limit: Option<String>,
         /// Maximum ranked focus rows.
         #[arg(long, alias = "max-items", allow_hyphen_values = true)]
         limit: Option<String>,

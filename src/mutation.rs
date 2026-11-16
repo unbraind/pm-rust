@@ -528,10 +528,19 @@ fn read_settings(pm_root: &Path) -> Result<MutationSettings, PmRustError> {
             });
         }
     };
-    match crate::strict_json::from_str(&raw) {
+    match parse_settings(raw.as_bytes()) {
         Ok(settings) => Ok(settings),
         Err(error) => Err(invalid(format!("invalid settings.json: {error}"))),
     }
+}
+
+/// Validates the whole captured document before decoding a mutation projection.
+fn parse_settings(bytes: &[u8]) -> Result<MutationSettings, serde_json::Error> {
+    let value = crate::strict_json::from_slice::<Value>(bytes)?;
+    if !crate::settings::valid(&value) {
+        return Err(serde::de::Error::custom("invalid settings document"));
+    }
+    serde_json::from_value(value)
 }
 
 /// Checks captured settings through the same typed native schema as writers.
@@ -1967,7 +1976,7 @@ pub(crate) fn prepare_create_preview(
     lifecycle: &crate::list_registry::Lifecycle,
     mut request: CreateItem,
 ) -> Result<ItemDocument, PmRustError> {
-    let settings = crate::strict_json::from_slice(settings_bytes)
+    let settings = parse_settings(settings_bytes)
         .map_err(|error| invalid(format!("invalid settings.json: {error}")))?;
     let (_, _, document) = prepare_create_document(&mut request, &settings, lifecycle)?;
     canonical_item_bytes(&document).map(|_| document)
@@ -2130,7 +2139,7 @@ pub(crate) fn prepare_update_preview(
     mut request: UpdateItem,
 ) -> Result<ItemDocument, PmRustError> {
     let timestamp = validate_mutation_request(&request.author, request.timestamp.as_deref())?;
-    let settings = crate::strict_json::from_slice(settings_bytes)
+    let settings = parse_settings(settings_bytes)
         .map_err(|error| invalid(format!("invalid settings.json: {error}")))?;
     // Previews never inherit an ambient session: the batch author is the caller.
     let principal = request.author.trim().to_owned();
@@ -2622,7 +2631,7 @@ pub(crate) fn close_item(
 ) -> Result<MutationResult, PmRustError> {
     let mut settings = read_settings(pm_root)?;
     let timestamp = validate_mutation_request(&request.author, request.timestamp.as_deref())?;
-    let value = crate::ownership::runtime_settings(pm_root)?;
+    let value = crate::ownership::runtime_settings(pm_root)?.value;
     let duplicate = close_duplicate(pm_root, &request.id, request.fields.duplicate_of.as_deref())?;
     let duplicate_reason = duplicate.as_ref().map(|id| format!("Duplicate of {id}"));
     let reason = [

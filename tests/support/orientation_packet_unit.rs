@@ -687,6 +687,407 @@ fn packet_probe_classification_respects_refusal_boundaries() {
     assert!(probe_delivery(Ok(json!({"output_budget_exceeded":{"reason":"requested_budget_infeasible","omitted_result":true}}).into())) == Probe::OutputConstraints);
 }
 
+/// Retry memoization bounds producer work and retained bytes without changing packet contents.
+#[test]
+fn packet_retry_cache_bounds_work_and_storage() -> Result<(), Box<dyn std::error::Error>> {
+    let (_root, workspace) = workspace()?;
+    let mut row = item("sample-root");
+    row["dependencies"] = json!([{"id":"sample-missing","kind":"related"}]);
+    let graph = Graph::new(&[row], &Lifecycle::load(workspace.pm_root())?);
+    let query = Query::new(&DepsOptions::default(), None)?;
+    let traversal = Traversal::new(&graph, "sample-root", &query);
+    let mut cache = RenderCache::default();
+    let expected = super::packet(&graph, "sample-root", &query, &traversal, &[], None, 600)?;
+    for _ in 0..128 {
+        // proof-behavior
+        assert_eq!(
+            cache.produce(&graph, "sample-root", &query, &traversal, &[], None, 600)?,
+            expected
+        );
+    }
+    // proof-behavior
+    assert_eq!(
+        cache.builds, 1,
+        "a repeated producer budget must not repeat graph packing"
+    );
+    // proof-behavior
+    assert!(cache.packet_bytes > 0 && cache.packet_bytes < 2 * 1024 * 1024);
+    let mut full = RenderCache {
+        packet_bytes: 2 * 1024 * 1024,
+        ..Default::default()
+    };
+    // proof-behavior
+    assert_eq!(
+        full.produce(&graph, "sample-root", &query, &traversal, &[], None, 600)?,
+        expected
+    );
+    // proof-behavior
+    assert_eq!(full.packet_bytes, 2 * 1024 * 1024);
+    // proof-behavior
+    assert!(full.packets.is_empty());
+    // proof-behavior
+    assert!(
+        cache
+            .produce(&graph, "sample-root", &query, &traversal, &[], None, 1)
+            .is_err()
+    );
+    Ok(())
+}
+
+/// Reservations retain source/target matching and measure each root edge only once per query.
+#[test]
+fn packet_direct_reservations_are_reused() -> Result<(), Box<dyn std::error::Error>> {
+    let (_directory, workspace) = workspace()?;
+    let mut root = item("sample-root");
+    root["dependencies"] = json!([
+        {"id":"sample-root","kind":"related"},
+        {"id":"sample-a","kind":"parent"},
+        {"id":"sample-a","kind":"blocks"},
+        {"id":"sample-b","kind":"related"}
+    ]);
+    let mut other = item("sample-b");
+    other["dependencies"] = json!([{"id":"sample-root","kind":"blocked_by"}]);
+    let graph = Graph::new(
+        &[root, item("sample-a"), other],
+        &Lifecycle::load(workspace.pm_root())?,
+    );
+    let query = Query::new(&DepsOptions::default(), None)?;
+    COST_CALLS.with(|calls| calls.set(0));
+    let traversal = Traversal::new(&graph, "sample-root", &query);
+    // proof-behavior
+    assert_eq!(
+        COST_CALLS.with(std::cell::Cell::get),
+        traversal.direct.len()
+    );
+    for id in graph.details.keys() {
+        let expected: usize = traversal
+            .direct
+            .iter()
+            .filter(|(_, edge)| text(edge, "source") == id || text(edge, "target") == id)
+            .map(|(_, edge)| cost(edge))
+            .sum();
+        // proof-behavior
+        assert_eq!(
+            traversal
+                .reservations
+                .get(id.as_str())
+                .copied()
+                .unwrap_or_default(),
+            expected
+        );
+        let reasons: BTreeSet<_> = traversal
+            .direct
+            .iter()
+            .filter(|(next, _)| next == id)
+            .map(|(next, edge)| role(edge, next))
+            .collect();
+        // proof-behavior
+        assert_eq!(
+            traversal
+                .reasons
+                .get(id.as_str())
+                .cloned()
+                .unwrap_or_default(),
+            reasons
+        );
+    }
+    // proof-behavior
+    assert_eq!(
+        traversal.reservations["sample-root"],
+        traversal
+            .direct
+            .iter()
+            .map(|(_, edge)| cost(edge))
+            .sum::<usize>()
+    );
+    let mut previous = None;
+    for budget in [10000, 9999, 9998] {
+        COST_CALLS.with(|calls| calls.set(0));
+        let packet = super::packet(&graph, "sample-root", &query, &traversal, &[], None, budget)?;
+        let measurements = COST_CALLS.with(std::cell::Cell::get);
+        // proof-behavior
+        assert_eq!(
+            measurements,
+            2 + packet["nodes"].as_array().ok_or("nodes")?.len()
+                + packet["edges"].as_array().ok_or("edges")?.len(),
+            "packing retries must not remeasure direct-edge reservations"
+        );
+        let mut comparable = packet;
+        comparable["meta"]["tokenBudget"] = json!(0);
+        if let Some(previous) = previous {
+            // proof-behavior
+            assert_eq!(comparable, previous);
+        }
+        previous = Some(comparable);
+    }
+    assert_tight_node_admission(&workspace, &query)?;
+    Ok(())
+}
+
+/// A cheap additional node cannot consume reservations for direct root evidence.
+fn assert_tight_node_admission(
+    workspace: &Workspace,
+    query: &Query,
+) -> Result<(), Box<dyn std::error::Error>> {
+    // Reserve several root edges so a cheaper second node could otherwise displace them.
+    let mut root = item("sample-root");
+    root["dependencies"] = json!([
+        {"id":"sample-a","kind":"parent"},
+        {"id":"sample-a","kind":"blocks"},
+        {"id":"sample-a","kind":"related"},
+        {"id":"sample-a","kind":"implements"},
+        {"id":"sample-b","kind":"related"}
+    ]);
+    let graph = Graph::new(
+        &[root, item("sample-a"), item("sample-b")],
+        &Lifecycle::load(workspace.pm_root())?,
+    );
+    let traversal = Traversal::new(&graph, "sample-root", query);
+    let generous = super::packet(&graph, "sample-root", query, &traversal, &[], None, 10000)?;
+    let first = &generous["nodes"][0];
+    assert_eq!(first["id"], "sample-a");
+    let tight = cost(&graph.details["sample-root"])
+        + cost(&json!([]))
+        + cost(first)
+        + traversal.reservations["sample-a"];
+    for budget in tight..tight + 4 {
+        let packed = super::packet(&graph, "sample-root", query, &traversal, &[], None, budget)?;
+        assert_eq!(
+            packed["nodes"]
+                .as_array()
+                .ok_or("nodes")?
+                .iter()
+                .map(|node| text(node, "id"))
+                .collect::<Vec<_>>(),
+            vec!["sample-a"]
+        );
+        assert_eq!(
+            *packed["edges"].as_array().ok_or("packed edges")?,
+            generous["edges"]
+                .as_array()
+                .ok_or("edges")?
+                .iter()
+                .filter(
+                    |edge| text(edge, "source") == "sample-a" || text(edge, "target") == "sample-a"
+                )
+                .cloned()
+                .collect::<Vec<_>>()
+        );
+        assert_eq!(packed["meta"]["omittedNodes"], 1);
+    }
+    Ok(())
+}
+
+/// Distinct reference projections share a bounded key cache without changing delivery.
+#[test]
+fn packet_render_cost_keys_are_bounded() -> Result<(), Box<dyn std::error::Error>> {
+    const CAP: usize = 2 * 1024 * 1024;
+    let (_directory, workspace) = workspace()?;
+    let mut root = item("sample-root");
+    root["status"] = json!("x".repeat(8192));
+    root["dependencies"] = json!(
+        (0..32)
+            .map(|index| json!({
+                "id":format!("sample-missing-{index:02}"), "kind":"related"
+            }))
+            .collect::<Vec<_>>()
+    );
+    let graph = Graph::new(&[root], &Lifecycle::load(workspace.pm_root())?);
+    for toon in [false, true] {
+        let options = DepsOptions {
+            toon,
+            ..Default::default()
+        };
+        let mut query = Query::new(&options, None)?;
+        query.tokens = 1_000_000;
+        query.nodes = 1;
+        let traversal = Traversal::new(&graph, "sample-root", &query);
+        let mut cache = RenderCache::default();
+        for budget in [10000, 12500] {
+            query.tokens = budget;
+            let expected = render_packet(
+                &graph,
+                "sample-root",
+                &query,
+                &traversal,
+                &[],
+                &options,
+                &mut RenderMeasurements::default(),
+            )?;
+            let result = render_cached(
+                &graph,
+                "sample-root",
+                &query,
+                &traversal,
+                &[],
+                &options,
+                &mut cache,
+            )?;
+            // proof-behavior
+            assert!(result.value == expected.value, "cached delivery changed");
+            let retained: usize = cache.costs.keys().map(String::len).sum();
+            // proof-behavior
+            assert!(
+                retained <= CAP,
+                "retained serialized shape keys exceeded two MiB: {retained}"
+            );
+            // proof-behavior
+            assert_eq!(cache.cost_bytes, retained);
+        }
+        // proof-behavior
+        assert!(cache.cost_bytes > CAP / 2);
+        // proof-behavior
+        assert!(
+            cache.costs.len() < 32,
+            "the corpus must exercise a cache-cap refusal"
+        );
+        let retained = cache.cost_bytes;
+        let entries = cache.costs.len();
+        render_cached(
+            &graph,
+            "sample-root",
+            &query,
+            &traversal,
+            &[],
+            &options,
+            &mut cache,
+        )?;
+        // proof-behavior
+        assert_eq!((cache.cost_bytes, cache.costs.len()), (retained, entries));
+        query.tokens = 10000;
+        render_cached(
+            &graph,
+            "sample-root",
+            &query,
+            &traversal,
+            &[],
+            &options,
+            &mut cache,
+        )?;
+        // proof-behavior
+        assert_eq!((cache.cost_bytes, cache.costs.len()), (retained, entries));
+    }
+    Ok(())
+}
+
+/// Cumulative admission retains only complete producer entries within the shared byte ceiling.
+#[test]
+fn packet_producer_cache_cumulative_admission() -> Result<(), Box<dyn std::error::Error>> {
+    const CAP: usize = 2 * 1024 * 1024;
+    let (_root, workspace) = workspace()?;
+    let mut root = item("sample-root");
+    root["status"] = json!("x".repeat(384 * 1024));
+    let graph = Graph::new(&[root], &Lifecycle::load(workspace.pm_root())?);
+    let query = Query::new(&DepsOptions::default(), None)?;
+    let traversal = Traversal::new(&graph, "sample-root", &query);
+    let mut cache = RenderCache::default();
+    let mut retained = 0;
+    for budget in [1_000_000, 999_999, 999_998, 999_997] {
+        let expected = super::packet(&graph, "sample-root", &query, &traversal, &[], None, budget)?;
+        let bytes = crate::stringify_json(&expected, false).len();
+        // proof-behavior
+        assert!(
+            bytes < CAP && bytes > CAP / 3,
+            "each packet fits but three exceed the cap"
+        );
+        // proof-behavior
+        assert_eq!(
+            cache.produce(&graph, "sample-root", &query, &traversal, &[], None, budget)?,
+            expected
+        );
+        if retained + bytes <= CAP {
+            retained += bytes;
+            // proof-behavior
+            assert!(cache.packets.contains_key(&budget));
+        } else {
+            // proof-behavior
+            assert!(
+                !cache.packets.contains_key(&budget),
+                "cumulative cache admission overflowed"
+            );
+        }
+        // proof-behavior
+        assert_eq!(cache.packet_bytes, retained);
+        // proof-behavior
+        assert_eq!(
+            cache.packet_bytes,
+            cache
+                .packets
+                .values()
+                .map(|value| crate::stringify_json(value, false).len())
+                .sum::<usize>()
+        );
+        // proof-behavior
+        assert!(cache.packet_bytes <= CAP);
+    }
+    // proof-behavior
+    assert_eq!(cache.packets.len(), 2);
+    Ok(())
+}
+
+/// Shared rendering matches a fresh cache across decimal budget widths and byte alignments.
+#[test]
+fn packet_cached_rendering_preserves_budget_digit_widths() -> Result<(), Box<dyn std::error::Error>>
+{
+    let (_root, workspace) = workspace()?;
+    for toon in [false, true] {
+        let mut witnessed_growth = false;
+        for padding in 0..8 {
+            let mut root = item("sample-root");
+            root["status"] = json!("x".repeat(32));
+            root["title"] = json!("x".repeat(32 + padding));
+            let graph = Graph::new(&[root], &Lifecycle::load(workspace.pm_root())?);
+            let options = DepsOptions {
+                toon,
+                ..Default::default()
+            };
+            let mut query = Query::new(&options, None)?;
+            let traversal = Traversal::new(&graph, "sample-root", &query);
+            let mut cache = RenderCache::default();
+            let mut previous = 0;
+            for budget in [999, 1000, 9999, 10000, 1000, 999] {
+                query.tokens = budget;
+                let expected = render_packet(
+                    &graph,
+                    "sample-root",
+                    &query,
+                    &traversal,
+                    &[],
+                    &options,
+                    &mut RenderMeasurements::default(),
+                )?;
+                let actual = render_cached(
+                    &graph,
+                    "sample-root",
+                    &query,
+                    &traversal,
+                    &[],
+                    &options,
+                    &mut cache,
+                )?;
+                // proof-behavior
+                assert_eq!(
+                    actual.value, expected.value,
+                    "toon={toon}, padding={padding}, budget={budget}"
+                );
+                let measured = tokens(&actual.value, toon);
+                // proof-behavior
+                assert_eq!(actual["context"]["meta"]["usedTokens"], measured);
+                if budget == 1000 && previous > 0 {
+                    witnessed_growth |= measured > previous;
+                }
+                previous = measured;
+            }
+        }
+        // proof-behavior
+        assert!(
+            witnessed_growth,
+            "padding must expose usedTokens growth across a budget digit boundary, toon={toon}"
+        );
+    }
+    Ok(())
+}
+
 /// Cached packet measurements equal full rendering across scalar-width and encoding boundaries.
 #[test]
 fn cached_render_measurements_match_exact_wire_bytes() {
@@ -739,6 +1140,74 @@ fn measurement_cache_retention_is_linear() -> Result<(), Box<dyn std::error::Err
         {
             break;
         }
+    }
+    Ok(())
+}
+
+/// Canonical probes reuse bounded producer work without changing decimal-width or wire semantics.
+#[test]
+fn review154_canonical_recovery_reuses_bounded_producers() -> Result<(), Box<dyn std::error::Error>>
+{
+    let (_directory, workspace) = workspace()?;
+    let mut row = item("sample-root");
+    row["dependencies"] = json!([{"id":"sample-missing","kind":"related"}]);
+    let graph = Graph::new(&[row], &Lifecycle::load(workspace.pm_root())?);
+    for toon in [false, true] {
+        let options = DepsOptions {
+            toon,
+            ..Default::default()
+        };
+        let mut query = Query::new(&options, None)?;
+        let traversal = Traversal::new(&graph, "sample-root", &query);
+        let mut measurements = RenderMeasurements::default();
+        for budget in [999, 1000, 9999, 10000] {
+            query.tokens = budget;
+            let actual = render_packet(
+                &graph,
+                "sample-root",
+                &query,
+                &traversal,
+                &[],
+                &options,
+                &mut measurements,
+            )?;
+            let expected = render_packet(
+                &graph,
+                "sample-root",
+                &query,
+                &traversal,
+                &[],
+                &options,
+                &mut RenderMeasurements::default(),
+            )?;
+            assert_eq!(
+                actual.value, expected.value,
+                "review154: cached canonical probes preserve exact delivery"
+            );
+        }
+        let builds = measurements.producers.builds;
+        assert!(
+            builds > 0,
+            "review154: canonical probes must retain their bounded producer cache"
+        );
+        for budget in [10000, 9999, 1000, 999] {
+            query.tokens = budget;
+            render_packet(
+                &graph,
+                "sample-root",
+                &query,
+                &traversal,
+                &[],
+                &options,
+                &mut measurements,
+            )?;
+        }
+        assert_eq!(
+            measurements.producers.builds, builds,
+            "review154: repeated canonical probes must not rebuild producers"
+        );
+        assert!(measurements.producers.packet_bytes <= 2 * 1024 * 1024);
+        assert!(measurements.producers.cost_bytes <= 2 * 1024 * 1024);
     }
     Ok(())
 }

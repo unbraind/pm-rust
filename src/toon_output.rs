@@ -14,10 +14,17 @@ pub fn stringify_toon(output: &ListOutput) -> Result<String, crate::PmRustError>
 }
 
 /// Renders an envelope whose encoding has already been validated by the read pipeline.
+///
+/// The table contract is the caller's selected command contract, stored on
+/// [`crate::ListOutput`]; it is never inferred from declaration fields that
+/// arbitrary documents (for example assurance declarations) may contain.
 pub(crate) fn render_output(output: &ListOutput) -> String {
     let value = complete_search(&complete_brief(&output.value));
     let compacted = compact(&value).unwrap_or_else(|| json!({}));
-    format!("{}\n", render(&compacted, 0))
+    format!(
+        "{}\n",
+        render_contract(&compacted, 0, output.current_contract)
+    )
 }
 
 /// Recognizes published row projections with a nonempty declared field list.
@@ -286,8 +293,14 @@ fn encode(value: &Value, depth: usize) -> String {
         .join("\n")
 }
 
-/// Renders object scalars with quoted strings and arrays with the TOON codec.
+/// Render the current default contract for direct renderer tests.
+#[cfg(test)]
 fn render(value: &Value, depth: usize) -> String {
+    render_contract(value, depth, false)
+}
+
+/// Renders object scalars with quoted strings and arrays with the TOON codec.
+fn render_contract(value: &Value, depth: usize, current_context: bool) -> String {
     if let Some(fields) = value.as_object() {
         if fields.is_empty() {
             return "{}".to_owned();
@@ -305,13 +318,29 @@ fn render(value: &Value, depth: usize) -> String {
                     if fields.contains_key(&format!("{key}_encoding")) {
                         expanded
                     } else {
-                        [false, true].into_iter().filter_map(|compact| table(value, compact)).fold(expanded, |smallest, (rows, encoding)| {
-                            let candidate = encode(&json!({key:rows,format!("{key}_encoding"):encoding}),depth);
-                            if candidate.len() < smallest.len() { candidate } else { smallest }
+                        let mut smallest = expanded;
+                        for (rows, encoding) in (if current_context {
+                            table_contract(value, false)
+                        } else {
+                            table(value, false)
                         })
+                        .into_iter()
+                        .chain(table_contract(value, true)) {
+                            let candidate = encode(
+                                &json!({key:rows, format!("{key}_encoding"):encoding}),
+                                depth,
+                            );
+                            if candidate.len() < smallest.len() {
+                                smallest = candidate;
+                            }
+                        }
+                        smallest
                     }
                 } else if value.as_object().is_some_and(|fields| !fields.is_empty()) {
-                    format!("{indent}{key}:\n{}", render(value, depth + 1))
+                    format!(
+                        "{indent}{key}:\n{}",
+                        render_contract(value, depth + 1, current_context)
+                    )
                 } else {
                     format!("{indent}{key}: {}", read_json(value))
                 }
@@ -325,8 +354,41 @@ fn render(value: &Value, depth: usize) -> String {
     }
 }
 
+/// Orders object keys exactly like JavaScript `Object.keys` for table rows.
+///
+/// Integer-like keys (canonical array indices) come first in ascending
+/// numeric order; every other key keeps its insertion order, matching the
+/// pinned SDK encoder and decoder on the same rows.
+fn javascript_keys(map: &Map<String, Value>) -> Vec<&str> {
+    // JavaScript treats exactly the canonical array-index strings as integer keys.
+    let array_index = |key: &str| -> Option<u32> {
+        let index = key.parse::<u32>().ok()?;
+        (index != u32::MAX && index.to_string() == key).then_some(index)
+    };
+    let mut indices: Vec<(&str, u32)> = map
+        .keys()
+        .filter_map(|key| array_index(key).map(|index| (key.as_str(), index)))
+        .collect();
+    indices.sort_unstable_by_key(|&(_, index)| index);
+    indices
+        .into_iter()
+        .map(|(key, _)| key)
+        .chain(
+            map.keys()
+                .map(String::as_str)
+                .filter(|key| array_index(key).is_none()),
+        )
+        .collect()
+}
+
 /// Builds a bounded union-column table for nested or sparse object rows.
 fn table(value: &Value, compact: bool) -> Option<(Value, Value)> {
+    table_contract(value, compact)
+}
+
+/// Builds current compact list/null columns only for the newer context contract.
+#[allow(clippy::too_many_lines)]
+fn table_contract(value: &Value, current: bool) -> Option<(Value, Value)> {
     let rows = value.as_array()?;
     if rows.is_empty() || !rows.iter().all(Value::is_object) {
         return None;
@@ -334,10 +396,12 @@ fn table(value: &Value, compact: bool) -> Option<(Value, Value)> {
     let mut columns = Vec::<String>::new();
     let mut present = 0;
     for row in rows {
-        for key in row.as_object().into_iter().flat_map(Map::keys) {
+        // The SDK rebuilds its column union from JavaScript Object.keys order;
+        // integer-like keys ascend first, then insertion-order string keys.
+        for key in row.as_object().into_iter().flat_map(javascript_keys) {
             present += 1;
-            if !columns.contains(key) {
-                columns.push(key.clone());
+            if !columns.iter().any(|column| column == key) {
+                columns.push(key.to_owned());
             }
         }
     }
@@ -346,20 +410,25 @@ fn table(value: &Value, compact: bool) -> Option<(Value, Value)> {
     }
     let nulls: Vec<_> = columns
         .iter()
-        .filter(|key| compact && rows.iter().all(|row| row.get(*key) == Some(&Value::Null)))
+        .filter(|key| {
+            current
+                && rows
+                    .iter()
+                    .all(|row| row.get(*key).is_some_and(Value::is_null))
+        })
         .cloned()
         .collect();
     let lists: Vec<_> = columns
         .iter()
         .filter(|key| {
-            compact
+            current
                 && rows.iter().all(|row| {
-                    row.get(*key).is_none_or(|value| {
-                        value.as_array().is_some_and(|values| {
+                    row.get(*key).is_none_or(|cell| {
+                        cell.as_array().is_some_and(|values| {
                             values.iter().all(|value| {
                                 value
                                     .as_str()
-                                    .is_some_and(|text| !text.is_empty() && !text.contains(';'))
+                                    .is_some_and(|value| !value.is_empty() && !value.contains(';'))
                             })
                         })
                     })
@@ -409,14 +478,16 @@ fn table(value: &Value, compact: bool) -> Option<(Value, Value)> {
     let mut encoding = json!({"json_columns":nested,"absent":absent});
     if !lists.is_empty() {
         encoding["list_columns"] =
-            Value::Object(lists.iter().map(|key| (key.clone(), json!(";"))).collect());
+            Value::Object(lists.into_iter().map(|key| (key, json!(";"))).collect());
     }
     if !nulls.is_empty() {
         encoding["null_columns"] = json!(nulls);
         encoding["null_column_index"] = json!(
-            nulls
+            columns
                 .iter()
-                .filter_map(|key| columns.iter().position(|column| column == key))
+                .enumerate()
+                .filter(|(_, key)| nulls.contains(key))
+                .map(|(i, _)| i)
                 .collect::<Vec<_>>()
         );
     }

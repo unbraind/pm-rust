@@ -214,8 +214,11 @@ fn nonempty(value: Option<&str>) -> Option<&str> {
 }
 
 /// Loads the configured status and workflow schema files over embedded defaults.
-pub(crate) fn runtime_settings(pm_root: &Path) -> Result<Value, PmRustError> {
-    let mut settings = read_json(&pm_root.join("settings.json"))?;
+pub(crate) fn runtime_settings(
+    pm_root: &Path,
+) -> Result<crate::settings::SettingsRead, PmRustError> {
+    let mut read = crate::settings::read(pm_root)?;
+    let settings = &mut read.value;
     let mut schema = settings["schema"].as_object().cloned().unwrap_or_default();
     for (name, keys) in [
         ("statuses", &["statuses"][..]),
@@ -306,7 +309,7 @@ pub(crate) fn runtime_settings(pm_root: &Path) -> Result<Value, PmRustError> {
         }
     }
     settings["schema"] = Value::Object(schema);
-    Ok(settings)
+    Ok(read)
 }
 
 /// Reads one schema object with errors attributed to its actual file.

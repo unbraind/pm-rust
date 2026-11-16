@@ -1,0 +1,18 @@
+id: pm-rust-context-history-output
+title: Native richer history and canonical orientation continuations
+description: "Complete history provenance, summaries and filters, diffs and fields; canonical orientation output include, budgets, sessions and cursors; remaining context filters, aliases and runtime intent declarations."
+type: Feature
+status: open
+priority: 3
+tags[3]: follow-up,"gh:unbraind/pm-rust#154",orientation
+created_at: "2026-11-06T09:16:11.304Z"
+updated_at: "2026-11-14T10:46:59.069Z"
+author: codex-astra
+acceptance_criteria: "Every projection and cursor matches a pinned oracle byte-exact in JSON and TOON; cover history integrity, missing streams, stale cursor replay, custom intent precedence and filters; preserve append-only history and work without git; retain typed refusals for unfinished contracts."
+parent: pm-rust-s6j4
+comments[4]{created_at,author,text}:
+  "2026-11-06T10:08:51.572Z",codex-astra,The November oracle changes default history to newest-first rows and adds total/order metadata. This slice keeps the independently pinned October history contract and does not claim current history parity; the follow-up must port default and richer projections together with exact current-oracle differentials.
+  "2026-11-06T13:11:07.970Z",codex-astra,"Current-oracle review cases confirm three published recovery UX limitations retained for byte compatibility: receipt-only intent omission returns success status; its retry drops explicit sections and output controls; canonical context output cursors require the published CLI because native continuation remains unsupported. The generated reviewed-contract test executes the emitted intent retry and published output cursor, checks exact supported packets, and verifies the native typed refusal. Follow-up acceptance must preserve the requested projection while coordinating any changed receipt contract with the selected oracle version. No upstream issue was filed."
+  "2026-11-06T17:13:38.304Z",codex-astra,"Additional acceptance criterion for settings-diagnostic parity: compare valid current settings, historical partial settings, and invalid context shapes against the pinned oracle in non-git trackers; preserve its settings_read_invalid_schema warning packets without writes. Until that warning contract is certified, native context must explicitly refuse invalid context-setting shapes while normal item reads and export remain available."
+  "2026-11-14T04:36:23.649Z",codex-agent,"Review 154 verified two pinned-oracle limitations: repeated context sections report the first value even when a later one is invalid; relationship packet summaries omit traversal bounds. The same behavior exists in the current main oracle. Preserve current byte contracts in PR 154 and coordinate these changes with a future oracle contract rather than introducing native-only fields or retry semantics. Follow-up must include repeated sections and truncated summary receipts in both encodings."
+body: ""

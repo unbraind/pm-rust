@@ -412,11 +412,13 @@ fn validation_rejects_every_unsupported_request_shape() -> Result<(), Box<dyn st
             Err(PmRustError::InvalidCreateRequest { .. })
         ));
     }
-    let (_directory, markdown_root) = root(&settings("sample-", "markdown", 1_800))?;
-    assert!(matches!(
-        create_item(&markdown_root, request()),
-        Err(PmRustError::InvalidCreateRequest { .. })
-    ));
+    for item_format in ["markdown", "json_markdown"] {
+        let (_directory, markdown_root) = root(&settings("sample-", item_format, 1_800))?;
+        assert!(matches!(
+            create_item(&markdown_root, request()),
+            Err(PmRustError::InvalidCreateRequest { .. })
+        ));
+    }
     let (_directory, no_prefix_root) = root("{}")?;
     let mut no_prefix = request();
     no_prefix.id = "independent1".to_owned();

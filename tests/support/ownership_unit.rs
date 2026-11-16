@@ -539,7 +539,7 @@ fn external_runtime_schema_precedence_and_errors() -> Result<(), Box<dyn std::er
         root.join("workflows.json"),
         r#"{"workflow":{"open_status":"ready"},"type_workflows":[]}"#,
     )?;
-    let settings = runtime_settings(root)?;
+    let settings = runtime_settings(root)?.value;
     assert_eq!(settings["schema"]["workflow"]["open_status"], "ready");
     assert_eq!(settings["schema"]["statuses"][0]["id"], "draft");
     assert_eq!(
@@ -552,7 +552,7 @@ fn external_runtime_schema_precedence_and_errors() -> Result<(), Box<dyn std::er
     );
     fs::write(root.join("workflows.json"), "{}")?;
     assert_eq!(
-        runtime_settings(root)?["schema"]["workflow"]["open_status"],
+        runtime_settings(root)?.value["schema"]["workflow"]["open_status"],
         "open"
     );
     for invalid in ["[]", "invalid"] {
@@ -564,7 +564,7 @@ fn external_runtime_schema_precedence_and_errors() -> Result<(), Box<dyn std::er
     }
     fs::remove_file(root.join("workflows.json"))?;
     assert_eq!(
-        runtime_settings(root)?["schema"]["workflow"]["open_status"],
+        runtime_settings(root)?.value["schema"]["workflow"]["open_status"],
         "open"
     );
     fs::create_dir(root.join("workflows.json"))?;
@@ -775,7 +775,7 @@ fn round12_runtime_default_schema_discovery() -> Result<(), Box<dyn std::error::
         root.join("schema/workflows.json"),
         r#"{"workflow":{"in_progress_status":"queued"}}"#,
     )?;
-    let settings = runtime_settings(root)?;
+    let settings = runtime_settings(root)?.value;
     let captured =
         crate::list_registry::Lifecycle::from_values(&settings, &Value::Null, &Value::Null);
     let loaded = crate::list_registry::Lifecycle::load(root)?;
@@ -796,7 +796,7 @@ fn round12_runtime_default_schema_discovery() -> Result<(), Box<dyn std::error::
     ] {
         fs::write(root.join("schema/statuses.json"), external.to_string())?;
         let captured = crate::list_registry::Lifecycle::from_values(
-            &runtime_settings(root)?,
+            &runtime_settings(root)?.value,
             &Value::Null,
             &Value::Null,
         );
@@ -808,7 +808,7 @@ fn round12_runtime_default_schema_discovery() -> Result<(), Box<dyn std::error::
     )?;
     assert_eq!(
         crate::list_registry::Lifecycle::from_values(
-            &runtime_settings(root)?,
+            &runtime_settings(root)?.value,
             &Value::Null,
             &Value::Null
         )
@@ -820,7 +820,7 @@ fn round12_runtime_default_schema_discovery() -> Result<(), Box<dyn std::error::
     fs::remove_file(root.join("schema/statuses.json"))?;
     assert!(
         crate::list_registry::Lifecycle::from_values(
-            &runtime_settings(root)?,
+            &runtime_settings(root)?.value,
             &Value::Null,
             &Value::Null
         )
@@ -872,7 +872,7 @@ fn round17_runtime_duplicate_status_precedence() -> Result<(), Box<dyn std::erro
             json!({"statuses":[{"id":"open","roles":[role]}]}).to_string(),
         )?;
         let captured = crate::list_registry::Lifecycle::from_values(
-            &runtime_settings(root)?,
+            &runtime_settings(root)?.value,
             &Value::Null,
             &Value::Null,
         );

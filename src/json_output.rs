@@ -10,6 +10,9 @@ use serde_json::ser::Formatter;
 use std::io;
 use std::{collections::BTreeMap, ops::Deref};
 
+/// Shared warning text for successful reads and refusal causes.
+pub(crate) const SETTINGS_FALLBACK_WARNING: &str = "[pm] warning: settings_read_invalid_schema — settings.json could not be loaded and pm fell back to defaults; run pm health for remediation.";
+
 /// Bounded list envelope with lossless JSON serialization of UTF-16 cuts.
 ///
 /// Rust strings cannot contain an unpaired surrogate. The immutable `Value`
@@ -22,9 +25,22 @@ pub struct ListOutput {
     pub(crate) value: Value,
     /// Raw JSON strings for split surrogate pairs, indexed by JSON pointer.
     pub(crate) cuts: BTreeMap<String, String>,
+    /// Settings-reader warning retained outside the serialized query envelope.
+    pub(crate) settings_warning: bool,
+    /// Whether this command's wire uses the current context table contract.
+    ///
+    /// Selected once from the executed command, never inferred from
+    /// declaration fields inside the rendered value.
+    pub(crate) current_contract: bool,
 }
 
 impl ListOutput {
+    /// Returns the published settings fallback diagnostic for a successful context read.
+    #[must_use]
+    pub fn settings_warning(&self) -> Option<&'static str> {
+        self.settings_warning.then_some(SETTINGS_FALLBACK_WARNING)
+    }
+
     /// Reports whether the published renderer selects compact brief-list JSON.
     fn brief_json(&self) -> bool {
         self.value["projection"]["mode"] == "brief" && self.value["items"].is_array()
@@ -62,6 +78,8 @@ impl ListOutput {
         Self {
             value,
             cuts: overrides,
+            settings_warning: false,
+            current_contract: false,
         }
     }
 
@@ -115,6 +133,8 @@ impl From<Value> for ListOutput {
         Self {
             value,
             cuts: BTreeMap::new(),
+            settings_warning: false,
+            current_contract: false,
         }
     }
 }

@@ -545,7 +545,7 @@ impl Workspace {
             ));
         }
         let tokens: Vec<_> = normalized.split(' ').collect();
-        let settings = crate::ownership::read_json(&self.pm_root().join("settings.json"))?;
+        let settings = crate::settings::read(self.pm_root())?.value;
         let lifecycle = crate::list_registry::Lifecycle::load(self.pm_root())?;
         let type_filter = types(options.item_type.as_deref(), &settings)?;
         if options

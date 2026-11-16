@@ -274,6 +274,7 @@ fn discovery_rejects_positional_struct_arrays() -> TestResult {
         "0",
         "\"request\"",
     ] {
+        // proof-behavior
         assert_eq!(
             DiscoveryRequest::from_json(input.as_bytes())
                 .err()
@@ -287,6 +288,7 @@ fn discovery_rejects_positional_struct_arrays() -> TestResult {
     let input = format!(
         r#"{{"protocol":"pm-rust/capabilities/v1","output_bytes":131072,"adapter":{adapter}}}"#
     );
+    // proof-behavior
     assert_eq!(
         DiscoveryRequest::from_json(input.as_bytes())
             .err()
@@ -295,6 +297,7 @@ fn discovery_rejects_positional_struct_arrays() -> TestResult {
         DiscoveryRefusalCode::InvalidAdapter
     );
     let base = DiscoveryRequest::default();
+    // proof-behavior
     assert_eq!(
         DiscoveryRequest::from_cli(
             base.protocol.clone(),
@@ -339,7 +342,9 @@ fn nested_adapter_refusal_codes_match_cli() -> TestResult {
         )
         .err()
         .ok_or("CLI refusal")?;
+        // proof-behavior
         assert_eq!(sdk.code, DiscoveryRefusalCode::InvalidAdapter, "{adapter}");
+        // proof-behavior
         assert_eq!(serde_json::to_value(sdk)?, serde_json::to_value(cli)?);
     }
     Ok(())
@@ -359,6 +364,7 @@ fn parser_conflicts_are_reciprocal() -> TestResult {
                         .iter()
                         .find(|value| value.id == left.get_id().as_str())
                         .ok_or("argument")?;
+                    // proof-behavior
                     assert!(
                         contract.conflicts.contains(&right.get_id().to_string()),
                         "{}: {} conflicts with {}",
@@ -386,6 +392,7 @@ fn parser_conflicts_are_reciprocal() -> TestResult {
         if right == "offset" {
             args.push("1");
         }
+        // proof-behavior
         assert_eq!(
             crate::cli::Cli::try_parse_from(args)
                 .err()
@@ -419,6 +426,7 @@ fn missing_defaults_match_bare_parser_execution() -> TestResult {
                 .flatten()
                 .map(|value| value.to_string_lossy().into_owned())
                 .collect();
+            // proof-behavior
             assert_eq!(
                 contract.missing_defaults,
                 values,
@@ -462,6 +470,7 @@ fn ownership_sdk_mappings_include_public_entry_points() -> TestResult {
             .iter()
             .find(|op| op.name == name)
             .ok_or("operation")?;
+        // proof-behavior
         assert_eq!(&operation.sdk[..entry_points.len()], entry_points);
     }
     Ok(())
@@ -503,7 +512,9 @@ fn selected_operation_filters_every_backend() -> TestResult {
             } else {
                 vec![op.name.clone()]
             };
+            // proof-behavior
             assert_eq!(selected.backends[0].operations, local);
+            // proof-behavior
             assert_eq!(
                 selected.backends[1].operations,
                 if granted {

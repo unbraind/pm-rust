@@ -1,7 +1,8 @@
 //! Context ranking, focus packing, optional sections and omission receipts.
+mod intent;
 mod sections;
 use crate::list_registry::Lifecycle;
-use crate::orientation::{invalid, numeric, records};
+use crate::orientation::{invalid, numeric, records, trim_control};
 use crate::{ContextOptions, ListOutput, PmRustError, Workspace};
 use serde_json::{Value, json};
 use std::collections::{BTreeMap, BTreeSet};
@@ -1106,7 +1107,7 @@ impl Workspace {
     /// Renders ranked focus, selected context sections and the oracle's omission receipt.
     ///
     /// # Errors
-    /// Returns clock, numeric, unsupported-depth, item or history read errors.
+    /// Returns invalid controls, unsupported runtime or settings contracts, and storage errors.
     pub fn context(&self, options: &ContextOptions, now: &str) -> Result<ListOutput, PmRustError> {
         self.context_with_global(options, now, extension_health_global())
     }
@@ -1128,18 +1129,71 @@ impl Workspace {
                 )
             },
         )?;
-        let settings = crate::ownership::runtime_settings(self.pm_root())?;
-        let depth = options
-            .depth
-            .as_deref()
-            .filter(|s| !s.is_empty())
-            .unwrap_or_else(|| {
-                settings["context"]["default_depth"]
-                    .as_str()
-                    .unwrap_or("brief")
+        let read = crate::ownership::runtime_settings(self.pm_root())?;
+        let mut settings = read.value;
+        if read.unsupported_context {
+            return Err(crate::collections::refusal(
+                "Native context does not certify invalid context settings diagnostics; use the published pm CLI.",
+                2,
+                json!({"code":"unsupported_native_context","field":"settings.context","required":"Use object-valued context settings or the published pm CLI for schema-warning fallback."}),
+            ));
+        }
+        let settings_fallback = read.fallback;
+        sections::normalize_settings(&mut settings);
+        self.context_with_settings(options, now, global, settings, settings_fallback)
+            .map_err(|mut error| {
+                if settings_fallback
+                    && let PmRustError::CommandRefusal { context, .. } = &mut error {
+                        context["warnings"] = json!(["settings_read_invalid_schema"]);
+                        context["warning_details"] = json!([{"code":"settings_read_invalid_schema","message":crate::json_output::SETTINGS_FALLBACK_WARNING}]);
+                }
+                error
             })
-            .trim()
-            .to_lowercase();
+    }
+
+    /// Reports the stored settings fallback warning for paths that refuse before execution.
+    ///
+    /// A parser refusal cannot run the settings-aware read pipeline, but the
+    /// published CLI still reports the settings warning before refusing, so the
+    /// same stored-context validation produces the warning here. A missing or
+    /// unreadable tracker produces no warning: the runtime path owns that error.
+    #[must_use]
+    pub fn context_settings_warning(&self) -> Option<&'static str> {
+        let read = crate::ownership::runtime_settings(self.pm_root()).ok()?;
+        if read.unsupported_context {
+            // The hard non-object refusal boundary matches the runtime path.
+            return None;
+        }
+        read.fallback
+            .then_some(crate::json_output::SETTINGS_FALLBACK_WARNING)
+    }
+
+    /// Evaluate one context request using the captured settings and warning policy.
+    #[allow(clippy::too_many_lines)]
+    fn context_with_settings(
+        &self,
+        options: &ContextOptions,
+        now: &str,
+        global: Option<std::path::PathBuf>,
+        mut settings: Value,
+        settings_fallback: bool,
+    ) -> Result<ListOutput, PmRustError> {
+        let original = options;
+        let mut prepared = options.clone();
+        let intent = intent::prepare(self, &mut prepared, global.as_deref())?;
+        let options = &prepared;
+        let depth = trim_control(
+            options
+                .depth
+                .as_deref()
+                .filter(|s| !s.is_empty())
+                .unwrap_or_else(|| {
+                    settings["context"]["default_depth"]
+                        .as_str()
+                        .unwrap_or("brief")
+                }),
+        )
+        .to_lowercase();
         if !["brief", "standard", "deep", "full"].contains(&depth.as_str()) {
             return Err(invalid(
                 "Context --depth must be one of brief|standard|deep|full",
@@ -1162,7 +1216,40 @@ impl Workspace {
             } else {
                 10
             });
-        let names = sections::selected(&depth, &settings);
+        let mut names = sections::selected(&depth, &settings);
+        if !options.sections.is_empty() {
+            names.clear();
+            for requested in &options.sections {
+                let normalized = trim_control(requested).to_lowercase();
+                let Some(name) = sections::NAMES.iter().find(|name| **name == normalized) else {
+                    let domain = sections::selected("full", &settings);
+                    return Err(crate::collections::refusal(
+                        format!("Context --section must be one of {}", domain.join("|")),
+                        2,
+                        json!({"code":"invalid_argument_value","next_steps":[format!("Allowed values: {}",domain.join("|")),"Run \"pm context --help\" to confirm command-specific constraints."],"examples":["pm context --section hierarchy","pm context --help"],"recovery":{"allowed_values":domain}}),
+                    ));
+                };
+                if !names.contains(name) {
+                    names.push(*name);
+                }
+            }
+        }
+        if let Some(raw) = options
+            .activity_limit
+            .as_deref()
+            .filter(|raw| !raw.is_empty())
+        {
+            if trim_control(raw).is_empty() {
+                return Err(invalid("--activity-limit must be a non-negative integer"));
+            }
+            let value = numeric(
+                raw,
+                true,
+                0,
+                "--activity-limit must be a non-negative integer".to_owned(),
+            )?;
+            settings["context"]["activity_limit"] = json!(value);
+        }
         let budget = options
             .token_budget
             .as_ref()
@@ -1176,16 +1263,36 @@ impl Workspace {
             })
             .transpose()?
             .unwrap_or_else(|| limit.saturating_mul(160).max(256));
-        let mut documents = self
-            .stream_items(if names.is_empty() {
-                crate::read_projection::Projection::Context
-            } else {
-                crate::read_projection::Projection::ContextSections
-            })?
-            .collect::<Result<Vec<_>, _>>()?;
+        let mut documents = Vec::new();
+        let mut item_warnings = Vec::new();
+        for document in self.stream_items(if names.is_empty() {
+            crate::read_projection::Projection::Context
+        } else {
+            crate::read_projection::Projection::ContextSections
+        })? {
+            match document {
+                Ok(document) => documents.push(document),
+                Err(
+                    PmRustError::InvalidItemDocument { path, .. } | PmRustError::Io { path, .. },
+                ) => {
+                    item_warnings.push(format!(
+                        "item_list_item_read_failed:{}",
+                        path.strip_prefix(self.pm_root())
+                            .unwrap_or(&path)
+                            .to_string_lossy()
+                            .replace('\\', "/")
+                    ));
+                }
+                Err(error) => return Err(error),
+            }
+        }
         #[cfg(test)]
         crate::lifecycle_admission::before_path_read(self.pm_root());
-        let lifecycle = Lifecycle::load(self.pm_root())?;
+        let lifecycle = if settings_fallback {
+            Lifecycle::from_values(&settings, &Value::Null, &Value::Null)
+        } else {
+            Lifecycle::load(self.pm_root())?
+        };
         let blocked = crate::selection::dependency_blocked_ids(&documents, &lifecycle);
         // Keep the list's default source order while projecting this one captured corpus.
         documents.sort_by_cached_key(|document| {
@@ -1282,6 +1389,9 @@ impl Workspace {
         }
         if let Some(budget) = &options.token_budget {
             semantic["tokenBudget"] = json!(budget);
+        }
+        if let Some(intent) = &options.intent {
+            semantic["for"] = json!(intent);
         }
         let contract = json!({"pmRoot":crate::pagination::query_root(&self.query_pm_root().to_string_lossy()),"options":semantic});
         let hash = crate::history::sha256_digest(
@@ -1500,9 +1610,23 @@ impl Workspace {
             .map(|name| json!({"name":name,"restore_with":format!("--section {name}")}))
             .collect();
         result["omission_receipt"] = json!({"has_omissions":!groups.is_empty(),"omitted_field_group_count":groups.len(),"omitted_field_groups":groups,"summary_scope":"matching_items"});
+        if let Some(intent) = &intent {
+            result = intent.attach(result.into(), original).value;
+        }
+        if !item_warnings.is_empty() {
+            let mut warnings = result["warnings"].as_array().cloned().unwrap_or_default();
+            warnings.extend(item_warnings.into_iter().map(Value::String));
+            result["warnings"] = json!(warnings);
+            let mut delivery: ListOutput = result.into();
+            if delivery.get("context_intent").is_some() {
+                crate::read_output::stabilize_intent(&mut delivery, original.toon);
+            }
+            result = delivery.value;
+        }
         if options.after.is_some() {
             for key in [
                 "applied_limit",
+                "context_intent",
                 "filters",
                 "has_more",
                 "now",
@@ -1516,14 +1640,22 @@ impl Workspace {
         crate::read_output::apply_orientation(
             result.into(),
             &crate::ListOptions {
-                limit: options.limit.clone(),
-                token_budget: options.token_budget.clone(),
+                limit: original.limit.clone(),
+                token_budget: original.token_budget.clone(),
+                brief: !original.sections.is_empty(),
                 toon: options.toon,
                 ..Default::default()
             },
             "context",
             &["high_level", "low_level"],
         )
+        .map(|mut result| {
+            result.settings_warning = settings_fallback;
+            if result.get("context_intent").is_some() && result.get("read_output").is_some() {
+                crate::read_output::stabilize_orientation(&mut result, options.toon);
+            }
+            result
+        })
     }
 }
 

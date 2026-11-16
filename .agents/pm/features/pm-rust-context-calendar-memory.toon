@@ -1,0 +1,13 @@
+id: pm-rust-context-calendar-memory
+title: Native calendar and workspace memory orientation contracts
+description: "Complete nonweekly recurrence, non-UTC timezones, workspace-memory rollups and derived snapshot recovery. Retain typed refusals until each contract is implemented."
+type: Feature
+status: open
+priority: 3
+tags[2]: follow-up,orientation
+created_at: "2026-11-06T09:16:07.332Z"
+updated_at: "2026-11-06T09:16:07.332Z"
+author: codex-astra
+acceptance_criteria: "Exact oracle differentials cover recurrence boundaries, DST transitions, rollups at and above 10000 items and stale snapshot recovery; preserve authoritative bytes in non-git fixtures; include must-refuse and must-allow cases; measure resource bounds."
+parent: pm-rust-s6j4
+body: ""

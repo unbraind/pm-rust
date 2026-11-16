@@ -859,15 +859,6 @@ fn sdk_streaming_preserves_invalid_utf8_refusals() -> Result<(), Box<dyn std::er
             )
             .map(|_| ()),
         workspace
-            .context(
-                &pm_rust::ContextOptions {
-                    no_extension_health: true,
-                    ..Default::default()
-                },
-                "2026-08-22T10:00:00.000Z",
-            )
-            .map(|_| ()),
-        workspace
             .search("needle", &pm_rust::SearchOptions::default())
             .map(|_| ()),
     ] {
@@ -875,6 +866,18 @@ fn sdk_streaming_preserves_invalid_utf8_refusals() -> Result<(), Box<dyn std::er
             matches!(result, Err(PmRustError::Io { source, .. }) if source.kind() == std::io::ErrorKind::InvalidData)
         );
     }
+    let partial = workspace.context(
+        &pm_rust::ContextOptions {
+            no_extension_health: true,
+            ..Default::default()
+        },
+        "2026-08-22T10:00:00.000Z",
+    )?;
+    assert_eq!(
+        partial["warnings"],
+        serde_json::json!(["item_list_item_read_failed:tasks/demo-a.toon"]),
+        "review154: context retains a partial packet for unreadable UTF-8"
+    );
     write(root.join("tasks/demo-a.toon"), "<<<<<<< damaged\n")?;
     assert!(matches!(
         workspace.list_page(

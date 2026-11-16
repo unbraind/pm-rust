@@ -67,7 +67,7 @@ pub(crate) fn admit_with_registry(
     phase: Phase,
     registry: &Lifecycle,
 ) -> Result<Admission, PmRustError> {
-    let settings = crate::ownership::runtime_settings(root)?;
+    let settings = crate::ownership::runtime_settings(root)?.value;
     let progress = registry.start_status();
     let status = if phase == Phase::Pause {
         registry.open_status()

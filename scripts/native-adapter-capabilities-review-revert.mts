@@ -1,7 +1,11 @@
+import { assertionFailureDiagnostic } from './context-proof-diagnostics.mts';
+import { proofCopyFilter, registerCargoConfiguration } from './context-revert-helpers.mts';
+import { absentLink } from './context-revert-helpers.mts';
+import { ProofProcesses, verifyAsyncMutation } from './context-proof-process.mts';
 /** Prove review regressions with independent behavior reverts in an isolated non-git copy. */
 import assert from 'node:assert/strict';
-import { spawnSync } from 'node:child_process';
-import { cpSync, mkdirSync, mkdtempSync, readFileSync, rmSync, symlinkSync, writeFileSync } from 'node:fs';
+import { assertNamedTests } from './context-revert-helpers.mts';
+import { cpSync, mkdirSync, mkdtempSync, readFileSync, symlinkSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join, resolve } from 'node:path';
 
@@ -15,9 +19,11 @@ function replace(source: string, before: string, after: string): string {
   return source.replace(before, after);
 }
 
+registerCargoConfiguration(root, scratch);
+const processes = new ProofProcesses();
 try {
   for (const name of ['Cargo.toml', 'Cargo.lock', 'build.rs', 'src', 'tests', 'scripts', 'examples']) {
-    cpSync(join(root, name), join(scratch, name), { recursive: true, filter: path => !path.split(/[\\/]/).includes('node_modules') });
+    cpSync(join(root, name), join(scratch, name), { recursive: true, dereference: true, filter: path => !path.split(/[\\/]/).includes('node_modules') && !absentLink(path) && proofCopyFilter(path) });
   }
   // Only the already installed, pinned test oracle is shared; no build artifacts are shared.
   symlinkSync(join(root, 'tests/oracle/node_modules'), join(scratch, 'tests/oracle/node_modules'), 'dir');
@@ -26,11 +32,14 @@ try {
   const originalMain = readFileSync(mainPath, 'utf8');
   const runner = join(scratch, 'scripts/native-adapter-capabilities-revert.mts');
   const runnerSource = readFileSync(runner, 'utf8');
+  const nodeTests = join(scratch, 'scripts/native-adapter-capabilities-revert.test.mts');
+  const baseline = await processes.run(process.execPath, ['--test', '--test-reporter=tap', '--test-concurrency=2', nodeTests], { cwd: scratch, timeout: 60000 });
+  assertNamedTests(baseline, ['capability revert isolates checkout artifacts: existing'], false, true, assertionFailureDiagnostic(scratch, ['capability revert isolates checkout artifacts: existing'], true));
   writeFileSync(runner, runnerSource.replaceAll("CARGO_TARGET_DIR: join(scratch, 'target')", "CARGO_TARGET_DIR: join(root, 'target')"));
-  const isolation = spawnSync(process.execPath, ['--test', '--test-concurrency=2', join(scratch, 'scripts/native-adapter-capabilities-revert.test.mts')], {
-    encoding: 'utf8', env: { PATH: process.env.PATH, HOME: process.env.HOME }, timeout: 60000,
+  const isolation = await processes.run(process.execPath, ['--test', '--test-reporter=tap', '--test-concurrency=2', nodeTests], {
+    cwd: scratch, env: { PATH: process.env.PATH, HOME: process.env.HOME }, timeout: 60000,
   });
-  assert.equal(isolation.status, 1);
+  assertNamedTests(isolation, ['capability revert isolates checkout artifacts: existing'], true, true, assertionFailureDiagnostic(scratch, ['capability revert isolates checkout artifacts: existing'], true));
   assert.match(isolation.stdout, /sabotaged executable/);
   console.log(JSON.stringify({ behavior: 'checkout binary isolation', failed_as_required: true }));
   writeFileSync(runner, runnerSource);
@@ -40,10 +49,10 @@ try {
     const path = join(scratch, 'scripts', name);
     const fixed = readFileSync(path, 'utf8');
     writeFileSync(path, replace(fixed, "path.split(/[\\\\/]/)", "path.split('/')"));
-    const result = spawnSync(process.execPath, ['--test', '--test-concurrency=2', '--test-name-pattern=capability copy filters', join(scratch, 'scripts/native-adapter-capabilities-revert.test.mts')], {
-      encoding: 'utf8', env: { PATH: process.env.PATH, HOME: process.env.HOME }, timeout: 60000,
+    const result = await processes.run(process.execPath, ['--test', '--test-reporter=tap', '--test-concurrency=2', '--test-name-pattern=capability copy filters', join(scratch, 'scripts/native-adapter-capabilities-revert.test.mts')], {
+      cwd: scratch, env: { PATH: process.env.PATH, HOME: process.env.HOME }, timeout: 60000,
     });
-    assert.equal(result.status, 1, result.stderr);
+    assertNamedTests(result, [`capability copy filters both path separators: ${name}`], true, true, assertionFailureDiagnostic(scratch, [`capability copy filters both path separators: ${name}`], true));
     assert.match(result.stdout, /tests 2/);
     assert.match(result.stdout, /pass 1/);
     assert.match(result.stdout, /fail 1/);
@@ -93,24 +102,30 @@ try {
   for (const proof of cases) {
     writeFileSync(library, original);
     writeFileSync(mainPath, originalMain);
-    if (proof.main) writeFileSync(mainPath, proof.mutate(originalMain));
-    else writeFileSync(library, proof.mutate(original));
-    const result = spawnSync('cargo', ['+1.90.0', 'test', '--locked', ...proof.target, proof.test, '--', '--exact', '--test-threads=2'], {
-      cwd: scratch, env: childEnv, encoding: 'utf8', timeout: 900000, maxBuffer: 4 * 1024 * 1024,
-    });
-    assert.equal(result.status, 101, `${proof.name}: ${result.stderr}`);
-    assert.doesNotMatch(result.stderr, /could not compile/);
-    assert.match(result.stdout, /test result: FAILED\. 0 passed; 1 failed/, result.stderr);
+    await verifyAsyncMutation(async reverted => {
+      const result = await processes.run('cargo', ['+1.90.0', 'test', '-j', '2', '--locked', ...proof.target, proof.test, '--', '--exact', '--test-threads=2'], {
+        cwd: scratch, env: childEnv, timeout: 900000, maxBuffer: 4 * 1024 * 1024,
+      });
+      assertNamedTests(result, [proof.test], reverted, false, assertionFailureDiagnostic(scratch, [proof.test]));
+    }, () => {
+      if (proof.main) writeFileSync(mainPath, proof.mutate(originalMain));
+      else writeFileSync(library, proof.mutate(original));
+    }, () => {
+      writeFileSync(library, original);
+      writeFileSync(mainPath, originalMain);
+    }, processes);
     console.log(JSON.stringify({ behavior: proof.name, test: proof.test, passed: 0, failed: 1, compile_succeeded: true }));
   }
   writeFileSync(library, original);
   writeFileSync(mainPath, originalMain);
   // Rerun every affected Rust regression after restoring the implementation.
   for (const target of [['--lib', 'discovery::'], ['--test', 'capability_contract'], ['--bin', 'pm-rust', 'tests::capabilities_writer_refusals']]) {
-    const result = spawnSync('cargo', ['+1.90.0', 'test', '--locked', ...target, '--', '--test-threads=2'], {
-      cwd: scratch, env: childEnv, encoding: 'utf8', timeout: 900000, maxBuffer: 4 * 1024 * 1024,
+    const result = await processes.run('cargo', ['+1.90.0', 'test', '--locked', ...target, '--', '--test-threads=2'], {
+      cwd: scratch, env: childEnv, timeout: 900000, maxBuffer: 4 * 1024 * 1024,
     });
     assert.equal(result.status, 0, result.stderr);
     console.log(result.stdout.match(/test result: ok\..*/)?.[0]);
   }
-} finally { rmSync(scratch, { recursive: true, force: true }); }
+} catch (error) {
+  if (!processes.wasInterrupted) throw error;
+} finally { await processes.cleanup(scratch); }
