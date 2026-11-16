@@ -38,10 +38,16 @@ pub fn property_cases_for(full: u32, quick: bool, cap: Option<&str>) -> u32 {
 }
 
 /// Apply the depth cap after proptest has loaded its environment defaults.
-pub fn property_runner(full: u32, source_file: &'static str) -> proptest::test_runner::TestRunner {
+/// The caller supplies its fully qualified test name so fork and timeout modes can rerun it.
+pub fn property_runner(
+    full: u32,
+    source_file: &'static str,
+    test_name: &'static str,
+) -> proptest::test_runner::TestRunner {
     let config = proptest::test_runner::Config {
         cases: property_cases(full),
         source_file: Some(source_file),
+        test_name: Some(test_name),
         ..proptest::test_runner::Config::default()
     };
     proptest::test_runner::TestRunner::new(config)

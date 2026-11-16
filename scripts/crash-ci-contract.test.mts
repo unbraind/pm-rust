@@ -1,6 +1,6 @@
 import assert from 'node:assert/strict';
-import { execFileSync } from 'node:child_process';
-import { mkdirSync, mkdtempSync, rmSync, writeFileSync } from 'node:fs';
+import { execFileSync, spawnSync } from 'node:child_process';
+import { mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { test } from 'node:test';
@@ -51,4 +51,45 @@ test('harness watchdogs validate scales before launching and preserve integer mi
     assert.throws(() => execFileSync(process.execPath, ['--input-type=module', '-e', `import '${module}';`],
       { stdio: 'pipe', env: { ...process.env, PM_TEST_TIME_SCALE: scale } }));
   }
+});
+
+test('local strace setup rejects incompatible flags and denied ptrace before publishing PATH', { skip: process.platform !== 'linux' }, () => {
+  const root = mkdtempSync(join(tmpdir(), 'ci-strace-'));
+  const prefix = join(root, 'syscall-tools');
+  const githubPath = join(root, 'github-path');
+  const argsPath = join(root, 'probe-args');
+  try {
+    mkdirSync(join(prefix, 'usr/bin'), { recursive: true });
+    mkdirSync(join(prefix, 'bin'));
+    const stub = `#!/bin/sh
+if [ "$1" = -V ]; then exit 0; fi
+printf '%s\\n' "$@" > "$STRACE_PROBE_ARGS"
+case "$STRACE_PROBE_MODE" in
+  old) for flag do if [ "$flag" = --kill-on-exit ]; then echo 'unrecognized option --kill-on-exit' >&2; exit 1; fi; done ;;
+  denied) echo 'ptrace denied' >&2; exit 1 ;;
+esac
+`;
+    for (const target of ['usr/bin/strace', 'bin/strace']) writeFileSync(join(prefix, target), stub, { mode: 0o755 });
+    for (const mode of ['old', 'denied', 'supported']) {
+      writeFileSync(githubPath, '');
+      const result = spawnSync('bash', ['.github/scripts/setup-local-strace.sh'], {
+        encoding: 'utf8', env: { ...process.env, RUNNER_TOOL_CACHE: root, RUNNER_TEMP: root, GITHUB_PATH: githubPath,
+          STRACE_PROBE_ARGS: argsPath, STRACE_PROBE_MODE: mode },
+      });
+      assert.equal(result.status, mode === 'supported' ? 0 : 1, result.stderr);
+      if (mode === 'supported') assert.equal(readFileSync(githubPath, 'utf8').trim(), join(prefix, 'bin'));
+      else {
+        assert.match(result.stderr, /strace.*--kill-on-exit.*syscall injection.*ptrace/s);
+        assert.equal(readFileSync(githubPath, 'utf8'), '');
+      }
+    }
+    const args = readFileSync(argsPath, 'utf8').trim().split('\n');
+    const processSource = readFileSync(new URL('./crash-process.mts', import.meta.url), 'utf8');
+    const harnessFlags = ['-f', '--kill-on-exit', '-qq', '-yy', '-s', '4096'];
+    assert.ok(processSource.includes(harnessFlags.map(flag => `'${flag}'`).join(', ')));
+    assert.deepEqual(args.slice(0, 6), harnessFlags);
+    assert.ok(args.includes('trace=rename,fsync,link,linkat,write,writev,unlink,unlinkat'));
+    assert.ok(args.includes('inject=rename:signal=SIGKILL:when=65535'));
+    assert.deepEqual(args.slice(-2), ['--', 'true']);
+  } finally { rmSync(root, { recursive: true, force: true }); }
 });

@@ -1443,3 +1443,113 @@ fn quick_required_checks_aggregate_all_components() -> Result<(), BoxError> {
     }
     Ok(())
 }
+
+/// Expanded jobs must use one hosted cache with coverage-separated keys.
+#[test]
+fn ci_jobs_have_one_coverage_aware_rust_cache() -> Result<(), BoxError> {
+    for path in [".github/workflows/ci.yml", ".github/workflows/ci-deep.yml"] {
+        for (job, steps) in workflow_jobs(&parse_workflow(path)?)? {
+            let caches: Vec<_> = steps
+                .iter()
+                .filter(|step| {
+                    step.uses
+                        .as_deref()
+                        .is_some_and(|uses| uses.starts_with("Swatinem/rust-cache@"))
+                })
+                .collect();
+            let has_rust = steps.iter().any(|step| {
+                step.uses
+                    .as_deref()
+                    .is_some_and(|uses| uses.starts_with("dtolnay/rust-toolchain@"))
+            });
+            assert_eq!(
+                caches.len(),
+                usize::from(has_rust),
+                "{path} {job}: duplicate or missing Rust cache"
+            );
+            for cache in caches {
+                let key = cache
+                    .with
+                    .as_ref()
+                    .and_then(|with| map_get(with, "shared-key"))
+                    .and_then(Value::as_str)
+                    .unwrap_or_default();
+                assert!(
+                    key.contains("runner.os") && key.contains("inputs.coverage"),
+                    "{job}: coverage must have a separate shared key"
+                );
+            }
+        }
+    }
+    let action = parse_workflow(".github/actions/rust-setup/action.yml")?;
+    let steps = map_get(&action, "runs")
+        .and_then(|runs| map_get(runs, "steps"))
+        .and_then(Value::as_sequence)
+        .ok_or("missing steps")?;
+    let cache = steps
+        .iter()
+        .find(|step| {
+            map_get(step, "uses")
+                .and_then(Value::as_str)
+                .is_some_and(|uses| uses.starts_with("Swatinem/rust-cache@"))
+        })
+        .ok_or("missing cache")?;
+    assert_eq!(
+        map_get(cache, "if").and_then(Value::as_str),
+        Some("runner.environment == 'github-hosted'")
+    );
+    Ok(())
+}
+
+/// Bun is required only by Bun matrix jobs and stays outside shared local tools.
+#[test]
+fn deep_bun_setup_and_version_report_match_runtime() -> Result<(), BoxError> {
+    let workflow = parse_workflow(".github/workflows/ci-deep.yml")?;
+    let steps = map_get(&workflow, "jobs")
+        .and_then(|jobs| map_get(jobs, "release-check"))
+        .and_then(|job| map_get(job, "steps"))
+        .and_then(Value::as_sequence)
+        .ok_or("missing release steps")?;
+    for name in [
+        "Install hosted Bun",
+        "Install local job Bun",
+        "Report Bun version",
+    ] {
+        let step = steps
+            .iter()
+            .find(|step| map_get(step, "name").and_then(Value::as_str) == Some(name))
+            .ok_or_else(|| format!("missing {name}"))?;
+        let condition = map_get(step, "if")
+            .and_then(Value::as_str)
+            .unwrap_or_default();
+        assert!(
+            condition.contains("matrix.runtime == 'bun'"),
+            "{name} must be Bun-only"
+        );
+        if name == "Install local job Bun" {
+            assert!(condition.contains("runner.environment == 'self-hosted'"));
+            let install = map_get(step, "env")
+                .and_then(|env| map_get(env, "BUN_INSTALL"))
+                .and_then(Value::as_str)
+                .ok_or("missing job-local Bun directory")?;
+            assert_eq!(install, "${{ runner.temp }}/bun");
+            assert_eq!(
+                map_get(step, "env")
+                    .and_then(|env| map_get(env, "SHELL"))
+                    .and_then(Value::as_str),
+                Some("sh"),
+                "installer must avoid changing shared shell profiles"
+            );
+            let run = map_get(step, "run")
+                .and_then(Value::as_str)
+                .ok_or("missing Bun installer")?;
+            assert!(
+                run.contains("https://bun.sh/install")
+                    && run.contains("$BUN_INSTALL/bin")
+                    && run.contains("GITHUB_PATH")
+            );
+            assert!(!run.contains("RUNNER_TOOL_CACHE") && !run.contains("_tool"));
+        }
+    }
+    Ok(())
+}

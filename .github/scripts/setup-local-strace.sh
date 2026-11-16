@@ -1,7 +1,7 @@
 #!/usr/bin/env bash
 # No sudo or system package changes: extract the distro's signed-index packages into tool storage.
 set -euo pipefail
-prefix=/home/runner/_work/_tool/syscall-tools
+prefix="${RUNNER_TOOL_CACHE:?}/syscall-tools"
 (
   flock 9
   if [[ ! -x "$prefix/usr/bin/strace" ]]; then
@@ -19,8 +19,15 @@ prefix=/home/runner/_work/_tool/syscall-tools
     printf '#!/bin/sh\nLD_LIBRARY_PATH=%s exec %s "$@"\n' "$library_path" "$prefix/usr/bin/strace" > "$prefix/bin/strace"
     chmod +x "$prefix/bin/strace"
   fi
-) 9>/home/runner/_work/_tool/rust.lock
-printf '%s\n' "$prefix/bin" >> "$GITHUB_PATH"
+) 9>"$RUNNER_TOOL_CACHE/rust.lock"
 "$prefix/bin/strace" -V
-# Fail visibly if the container's existing policy denies tracing its own child.
-"$prefix/bin/strace" -o "$RUNNER_TEMP/ptrace-probe" true
+# Match the crash harness flags, including its required child-lifetime protection.
+# The unreachable injection ordinal checks parsing without killing the probe.
+if ! "$prefix/bin/strace" -f --kill-on-exit -qq -yy -s 4096 \
+  -o "$RUNNER_TEMP/ptrace-probe" \
+  -e trace=rename,fsync,link,linkat,write,writev,unlink,unlinkat \
+  -e inject=rename:signal=SIGKILL:when=65535 -- true; then
+  echo 'strace setup requires --kill-on-exit, syscall injection and permission to ptrace a child; install a compatible strace and allow child tracing.' >&2
+  exit 1
+fi
+printf '%s\n' "$prefix/bin" >> "$GITHUB_PATH"

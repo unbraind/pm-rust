@@ -114,12 +114,6 @@ jobs:
     - name: Set up pinned Rust tools
       uses: ./.github/actions/rust-setup
       if: needs.changes.outputs.code == 'true'
-    - name: Cache Rust build outputs
-      if: needs.changes.outputs.code == 'true'
-      uses: Swatinem/rust-cache@e9d7b9f1e587218970671bac74e5511ed9506e6a
-      with:
-        shared-key: ${{ runner.os }}-ci-v2
-        cache-on-failure: true
     - name: Install just for the oracle recipe contract
       uses: taiki-e/install-action@cfdb7ed4ccc7c7dce37759eae89dc5674b469b39
       with:
@@ -192,12 +186,6 @@ jobs:
       with:
         quality: 'true'
       if: needs.changes.outputs.code == 'true'
-    - name: Cache Rust build outputs
-      if: needs.changes.outputs.code == 'true'
-      uses: Swatinem/rust-cache@e9d7b9f1e587218970671bac74e5511ed9506e6a
-      with:
-        shared-key: ${{ runner.os }}-ci-v2
-        cache-on-failure: true
     - name: Install quality tools
       uses: taiki-e/install-action@cfdb7ed4ccc7c7dce37759eae89dc5674b469b39
       with:
@@ -249,12 +237,6 @@ jobs:
       with:
         coverage: 'true'
       if: needs.changes.outputs.code == 'true'
-    - name: Cache Rust build outputs
-      if: needs.changes.outputs.code == 'true'
-      uses: Swatinem/rust-cache@e9d7b9f1e587218970671bac74e5511ed9506e6a
-      with:
-        shared-key: ${{ runner.os }}-ci-v2
-        cache-on-failure: true
     - name: Install coverage tool
       uses: taiki-e/install-action@cfdb7ed4ccc7c7dce37759eae89dc5674b469b39
       with:
@@ -322,12 +304,6 @@ jobs:
       with:
         coverage: 'true'
       if: needs.changes.outputs.code == 'true'
-    - name: Cache Rust build outputs
-      if: needs.changes.outputs.code == 'true'
-      uses: Swatinem/rust-cache@e9d7b9f1e587218970671bac74e5511ed9506e6a
-      with:
-        shared-key: ${{ runner.os }}-ci-v2
-        cache-on-failure: true
     - name: Install coverage tool
       uses: taiki-e/install-action@cfdb7ed4ccc7c7dce37759eae89dc5674b469b39
       with:
@@ -395,12 +371,6 @@ jobs:
     - name: Set up pinned Rust tools
       uses: ./.github/actions/rust-setup
       if: needs.changes.outputs.code == 'true'
-    - name: Cache Rust build outputs
-      if: needs.changes.outputs.code == 'true'
-      uses: Swatinem/rust-cache@e9d7b9f1e587218970671bac74e5511ed9506e6a
-      with:
-        shared-key: ${{ runner.os }}-ci-v2
-        cache-on-failure: true
     - name: Install just
       uses: taiki-e/install-action@cfdb7ed4ccc7c7dce37759eae89dc5674b469b39
       with:

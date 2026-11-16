@@ -50,15 +50,34 @@ fn property_caps_preserve_depth_and_honor_smaller_positive_limits() {
 /// A real runner must retain the normalized cap after loading `PROPTEST_CASES`.
 #[test]
 fn property_runner_executes_the_normalized_count() -> Result<(), Box<dyn std::error::Error>> {
-    let mut runner = test_depth::property_runner(96, file!());
+    let mut runner = test_depth::property_runner(
+        96,
+        file!(),
+        concat!(
+            module_path!(),
+            "::",
+            "property_runner_executes_the_normalized_count"
+        ),
+    );
     let expected = test_depth::property_cases(96);
     assert_eq!(runner.config().cases, expected);
+    assert_eq!(
+        runner.config().test_name,
+        Some(concat!(
+            module_path!(),
+            "::",
+            "property_runner_executes_the_normalized_count"
+        ))
+    );
     let executed = std::cell::Cell::new(0u32);
     runner.run(&proptest::strategy::Just(()), |()| {
         executed.set(executed.get() + 1);
         Ok(())
     })?;
-    assert_eq!(executed.get(), expected);
+    // A forked runner executes the closure in child processes; this Cell is local.
+    if !runner.config().fork() {
+        assert_eq!(executed.get(), expected);
+    }
     eprintln!("{} property cases executed", executed.get());
     Ok(())
 }

@@ -594,7 +594,11 @@ fn snapshot_continuations_match_and_refuse_stale_rows() -> TestResult {
 /// Randomized producer page walks preserve each selected ID exactly once.
 #[test]
 fn all_pages_have_no_loss_or_duplicates() -> Result<(), Box<dyn std::error::Error>> {
-    let mut runner = test_depth::property_runner(96, file!());
+    let mut runner = test_depth::property_runner(
+        96,
+        file!(),
+        concat!(module_path!(), "::", "all_pages_have_no_loss_or_duplicates"),
+    );
     let executed = std::cell::Cell::new(0u32);
     runner.run(&(0usize..100, 1usize..35), |(size, limit)| {
         executed.set(executed.get() + 1);

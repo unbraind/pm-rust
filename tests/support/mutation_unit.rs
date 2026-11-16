@@ -1154,7 +1154,15 @@ fn parent_directory_sync_reports_real_path_and_sync_failures()
 
 #[test]
 fn canonical_create_toon_round_trips_supported_strings() -> Result<(), Box<dyn std::error::Error>> {
-    let mut runner = crate::test_depth::property_runner(64, file!());
+    let mut runner = crate::test_depth::property_runner(
+        64,
+        file!(),
+        concat!(
+            module_path!(),
+            "::",
+            "canonical_create_toon_round_trips_supported_strings"
+        ),
+    );
     let executed = std::cell::Cell::new(0u32);
     runner.run(
         &(

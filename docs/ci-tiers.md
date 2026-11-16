@@ -116,14 +116,18 @@ nightly-2026-08-06 with LLVM tools when needed, cargo-llvm-cov 0.8.7,
 cargo-audit 0.21.2 and just 1.43.0. Existing installs are reused. These tools'
 declared minimum Rust versions fit 1.90.0. Build targets stay in the job workspace.
 Every local setup logs rustc/cargo versions. Hosted setup retains the pinned
-Rust actions and uses SHA-pinned rust-cache. Node's npm cache action is hosted
-only; local npm storage persists. Bun installs only on hosted jobs; every full
-aggregate reports `bun --version`.
+Rust actions and uses one SHA-pinned rust-cache per job, with separate shared
+keys for coverage and ordinary builds. Node's npm cache action is hosted only;
+local npm storage persists. Only Bun matrix jobs install and report Bun. Local
+Bun installs under the job's temporary directory, avoids shell profile edits, and
+never uses shared tool storage.
 
 The image has no Rust or strace and cannot use sudo. The syscall setup extracts
 strace and libunwind from the distro's signed package indexes into tool storage,
-under the same lock, and probes tracing a child. A wrapper supplies its private
-library path even when the harness clears the child environment. It never edits
+under the same lock, and probes tracing a child with the crash harness flags,
+including `--kill-on-exit` and syscall injection. Incompatible versions fail setup
+with a clear capability error before the wrapper is published on PATH. A wrapper
+supplies its private library path even when the harness clears the child environment. It never edits
 the image, controller or system packages. Cold downloads, tool compilation and
 container ptrace remain unverified until a deep job runs. A ptrace refusal fails
 the job visibly rather than skipping the crash corpus.

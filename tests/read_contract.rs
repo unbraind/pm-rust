@@ -373,7 +373,15 @@ fn defaults_an_omitted_description_and_preserves_literal_array_text()
 
 #[test]
 fn exact_id_filter_never_returns_a_different_item() -> Result<(), Box<dyn std::error::Error>> {
-    let mut runner = test_depth::property_runner(256, file!());
+    let mut runner = test_depth::property_runner(
+        256,
+        file!(),
+        concat!(
+            module_path!(),
+            "::",
+            "exact_id_filter_never_returns_a_different_item"
+        ),
+    );
     let executed = std::cell::Cell::new(0u32);
     runner.run(&"[a-z0-9-]{1,24}", |candidate| {
         executed.set(executed.get() + 1);
