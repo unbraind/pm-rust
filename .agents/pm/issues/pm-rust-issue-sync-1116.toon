@@ -1,0 +1,24 @@
+id: pm-rust-issue-sync-1116
+title: Repair scheduled GitHub issue sync failure
+description: "Investigate the failing scheduled issue sync on current main, retain existing work and prove the applicable fix."
+type: Issue
+pm_format_version: 2
+status: in_progress
+priority: 1
+tags[2]: ci,issue-sync
+created_at: "2026-11-16T10:42:24.595Z"
+updated_at: "2026-11-16T11:06:07.155Z"
+deadline: "2026-11-17T00:00:00.000Z"
+author: codex-sol
+estimated_minutes: 90
+acceptance_criteria: Record the exact failed command and verify the current fix or upstream blocker without weakening tracker governance.
+comments[2]{created_at,author,text}:
+  "2026-11-16T11:02:04.515Z",codex-sol,"Initial review receipt: the failed workflow log and current pin are documented in docs/issue-sync-2026-11-16.md. Seeded tracker validation passes through pm test --run --progress. Rust cargo check and fmt pass; clippy and package tests remain running. The strict-create synthetic reproduction fails as expected; importer repair remains upstream.   Publish review evidence with pending gates explicit; no scheduled success is claimed."
+  "2026-11-16T11:05:23.158Z",codex-sol,"Run 43828004648 fails strict-create admission: Missing required options --acceptance-criteria/--ac, --assignee, --comment, --deadline, --dep, --doc, --estimate/--estimated-minutes, --file, --learning, --note, --priority, --test for type Issue. Reproduced exit 2 with the locked 2026.11.11 oracle in a synthetic strict tracker. pm-github 2026.11.15 buildAtomicImportMutations omits those fields and empty-collection assertions; import exposes no caller create-mode, template or default-field options. Fix belongs upstream in pm-github. Strict tracker governance is preserved; no importer patch or GitHub issue mutation is applied."
+files[1]{path,scope}:
+  docs/issue-sync-2026-11-16.md,project
+tests[1]{command,scope,timeout_seconds,pm_context_mode,provenance{author,created_at,source_kind,source_ref},updated_by,updated_at}:
+  pm validate,project,600,tracker,codex-sol,"2026-11-16T10:50:08.068Z",local_mutation,fix/issue-sync-import-preset,codex-sol,"2026-11-16T10:54:28.543Z"
+docs[1]{path,scope}:
+  docs/issue-sync-2026-11-16.md,project
+body: ""
