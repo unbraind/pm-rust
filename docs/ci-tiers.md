@@ -191,3 +191,43 @@ These are target-level timings from the first PR's logs. The slow differential
 fixtures retain their semantic cases; the two-shard partition keeps each
 platform job below the 15-minute target. Coverage's 18m20s execution caused the
 raw-profile split; its new wiring needs a fresh hosted result.
+
+
+Final implementation run [43814943607](https://github.com/unbraind/pm-rust/actions/runs/43814943607)
+at `cce2f8f774ac03d6145655058dd098792fb805fd` passed every CI job and all four required
+checks. Every quick work job finished below 15 minutes. The merge restored
+4,226 original profiles, passed both required fixtures and retained the four
+unchanged 100% thresholds. CodeQL also passed. Aggregate job wall times begin
+when the job is created after its dependencies.
+
+| Job | Execution seconds | Created-to-completed seconds |
+| --- | ---: | ---: |
+| Tracker, identity and documentation | 25 | 28 |
+| changes | 5 | 7 |
+| Quick release quality | 53 | 55 |
+| Quick crash harness | 198 | 200 |
+| Quick Rust ubuntu-latest shard 1 | 424 | 426 |
+| Quick Rust windows-latest shard 1 | 844 | 846 |
+| Quick coverage shard 2 | 478 | 480 |
+| Quick Rust windows-latest shard 2 | 642 | 644 |
+| Quick Rust macos-latest shard 2 | 337 | 339 |
+| Quick Rust ubuntu-latest shard 2 | 370 | 373 |
+| Quick Rust macos-latest shard 1 | 447 | 450 |
+| Quick coverage shard 1 | 613 | 615 |
+| Quick exact coverage union | 88 | 91 |
+| Release gate aggregate | 4 | 6 |
+| Rust windows-latest | 4 | 6 |
+| Rust ubuntu-latest | 5 | 7 |
+| Rust macos-latest | 2 | 5 |
+
+Local final proof: cargo check/clippy/fmt; 25 depth/workflow contracts; changed
+property/model tests; 13 discovery tests; 37 crash tests plus two focused cleanup
+cases, with one intentional full-corpus skip; four install/identity/depth helper
+fixtures; two real LLVM/Cargo merge fixtures; harness typecheck/lint; strict YAML
+and shell parsing; changelog and isolated strict tracker health. The broad local
+pagination attempt was stopped after roughly 20 minutes with 32/33 passing;
+its changed property test passed separately. No local full-depth suite ran.
+
+Remaining proof: deep dispatch returned 404 before the workflow exists on main.
+Cold persistent tool bootstrap, container ptrace and local latency remain
+unverified; the original product time contracts are unscaled.
