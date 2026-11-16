@@ -7,11 +7,11 @@ status: in_progress
 priority: 2
 tags[4]: "gh:unbraind/pm-rust#154",native,oracle,orientation
 created_at: "2026-11-06T09:15:56.754Z"
-updated_at: "2026-11-14T10:47:04.002Z"
+updated_at: "2026-11-16T20:43:06.185Z"
 author: codex-astra
 acceptance_criteria: "JSON and TOON bytes, status and stderr match the oracle on generated non-git trackers and public tracker copies; retain typed calendar and memory refusals; focused tests fail on behavioral revert; record latency and differential counts."
 parent: pm-rust-s6j4
-comments[113]{created_at,author,text}:
+comments[116]{created_at,author,text}:
   "2026-11-06T09:28:14.771Z",codex-astra,"Implemented core intent preparation, section selection, activity bounds and intent receipts. Current-oracle exploration identified three inherited context drifts: bounded activity excludes timestamps at or after the read clock; test health covers all matching active items and declares its scope; TOON auto-tables choose compact list/null columns only when shorter. Bringing these paths to the requested November contract before running the public-copy corpus."
   "2026-11-06T09:44:02.034Z",codex-astra,"Public-copy packet differential exposed the newer required-root-evidence-first-v1 ordering, reserved root-edge budget, root-edge priority and bounded-relationship omission receipt. Porting those native packet semantics as part of this slice, including updated producer fingerprints. No legacy packet result is being counted as current-oracle evidence."
   "2026-11-06T10:08:53.263Z",codex-astra,"Generated intent comparisons passed before the final expanded matrix. Public-copy exploration exposed the distinction between compact intent estimates and complete JSON wire ceilings, now handled by the shared output-budget path. Current dependency packets also require root-evidence-first ordering and revised refusal text; preserving the existing bounded retry test while eliminating repeated rendering of identical packets."
@@ -125,7 +125,10 @@ comments[113]{created_at,author,text}:
   "2026-11-14T10:45:02.480Z",codex-agent,"Continuation follows targeted-only verification and CI certification. Fresh Linux checks pass 18 Rust tests across 14 commands with -j 2 and two test workers; selected context, dependency, pagination and TOON oracle regressions pass. Affected Node files have 100 unique passes plus two Windows-only skips; four readiness timeouts passed alone at unchanged limits. Linux clippy passes with denied warnings. The earlier full run reported 960 passes and no failures before interruption and is not complete evidence. No new full suite or coverage run is being started. Full suite, four 100-percent coverage metrics and every platform gate remain CI obligations. Review evidence lists exact commands and all 33 thread decisions."
   "2026-11-14T10:45:04.734Z",codex-agent,"Final proof guard explicitly marks behavior assertions and checks precise source line/column spans, including declared comparison helpers. Inline/setup assertions and same-line/prefix lookalikes are rejected. All 101 audited legacy selections have diagnostics. Initial complete runner certified 37 cases/111 states through pinned PM; final Node-only rerun certified all 22 Node cases/66 states, including inline-fixture-diagnostic and same-line-fixture-diagnostic. Combined unchanged 17 native cases and final 22 Node cases give 39 Linux cases/117 verified states: 78 passes, 17 expected Rust failures, 22 expected Node failures. Every case restored and passed. Exact final Node command: node scripts/context-round154-revert.mts same-line-fixture-diagnostic,inline-fixture-diagnostic,legacy-mutation-diagnostic,registration,preload-registration,bounded-stop,runner-cause,kernel-job,stale-windows-registration,ps-search,version-snapshot,signal-status,mutation-diagnostic,link-errors,directory-cycle,dangling-kind,interpreter,oracle-preflight,cargo-configuration,compiler-diagnostic,historical-receipt,managed-definitions. Windows argv proof remains CI-only. CI run and all 10 baseline comparisons will be recorded at https://github.com/unbraind/pm-rust/pull/154#review-round-2026-11-14 so tracker writes finish before final-head certification."
   "2026-11-14T10:47:01.336Z",codex-agent,"Final targeted static gates pass: cargo fmt --check, Linux clippy -j 2 with denied warnings, TypeScript typecheck and lint. Clean-profile pinned tracker health passes with installed merge drivers; all changed histories preserve main prefixes. The two pinned-contract findings remain on pm-rust-context-history-output: repeated-section rejected-value/retry semantics and dependency summary bounds. No review thread was replied to, resolved or reacted to. PM UX notes: linked timeout_seconds metadata used the 120-second default until an explicit --timeout was supplied; merge reconcile rejected the generated unindexed receipt on its single permitted attempt. Normal-profile extension version skew is separate from the passing clean-profile health check. Changelog generation/check follows this final tracker update and claim release."
-files[74]:
+  "2026-11-16T20:23:29.071Z",codex-sol,"Continuation for PR 154: read linked tracker records and review evidence; fast-forward pull was current, then merged main 77c2ff2 without conflicts in 7ac2477. PR 173 remains open, so no Fleet CI v2 layout is available to adopt. Verifying all six named unresolved review findings against current code and reproducing five failing jobs against latest main CI run 43729555388 before changing implementation or latency limits. Required local gates precede a normal push; full release certification remains CI-owned. Review threads stay untouched and tracker items remain open."
+  "2026-11-16T20:28:03.249Z",codex-sol,"Failure audit: latest main CI 43729555388 at 77c2ff2 passes all ten product jobs and all four release coverage dimensions. PR jobs 132506468672 and 132506468729 fail exact coverage (2 regions, 5 branches); Windows 132506468682 adds one region/line and one branch. Added feasibility-transition, non-object measurement, unsupported settings, empty activity timestamp and cross-platform malformed-command/CRLF regressions. macOS 132506468773 fails because ESM canonicalizes the temporary source alias; normalized only the test expectation and added an explicit directory alias reproduction. Windows latency job 132506468684 fails list p95 160.3372 ms versus 150 ms; window p95 160.3372/221.1699/134.6614, main 108.6863/110.1272/104.6220. Get and context remain within budget. No latency budget changed; Windows-specific causality is not yet certified."
+  "2026-11-16T20:43:04.451Z",codex-sol,"Continuation validation complete before changelog finalization: the six named threads are checked against current code; five already-fixed findings retain a53dd5f and pass current fault-injection regressions, while the requested CLI JSON divergence is refused by 50 passing pinned-oracle comparisons. Coverage-gap tests and the directory-alias regression are in the continuation. Required focused library review tests (6), activity regression (1), all CLI unit tests (89), both targeted orientation differentials and affected Node files (100 pass, 2 Windows-only skips) pass. Formatting, denied-warning clippy, typecheck, lint, isolated-profile check-only health, history prefixes and retained evidence checks pass. The supplementary full-library attempt is not clean evidence: 488 pass and one untouched child-respawn test returned ENOENT after overlapping Cargo runs replaced its executable; its isolated direct and Cargo reruns pass. Paired alternating Linux release p95 PR/main ms: get 7.521/7.736, list 111.187/118.780, context 182.597/184.605; outputs match. Windows causality and final full release coverage remain CI obligations, with all thresholds unchanged. Details and exact commands: docs/NATIVE_CONTEXT_REVIEW_154_2026_11_16.md. Releasing the claim and then regenerating/checking changelog before a normal push; items and review threads remain open."
+files[75]:
   - path: .github/workflows/ci.yml
     scope: project
   - path: justfile
@@ -161,6 +164,8 @@ files[74]:
   - path: scripts/context-review-safety.test.mts
     scope: project
     note: Review safety and behavioral proof boundary
+  - path: scripts/context-round154.test.mts
+    scope: project
   - path: scripts/context-safety-revert.mts
     scope: project
     note: Review safety and behavioral proof boundary
@@ -288,7 +293,7 @@ files[74]:
     scope: project
   - path: tests/support/toon_output_unit.rs
     scope: project
-tests[46]:
+tests[51]:
   - command: just orientation-check
     scope: project
     timeout_seconds: 3600
@@ -642,12 +647,54 @@ tests[46]:
       created_at: "2026-11-14T08:14:21.463Z"
       source_kind: local_mutation
       source_ref: native-context-intents-and-relationship-packets
-docs[4]:
+  - command: node --test --test-concurrency=1 scripts/context-round154.test.mts
+    scope: project
+    timeout_seconds: 180
+    provenance:
+      author: codex-sol
+      created_at: "2026-11-16T20:28:25.676Z"
+      source_kind: local_mutation
+      source_ref: native-context-intents-and-relationship-packets
+  - command: CARGO_BUILD_JOBS=2 RUST_TEST_THREADS=2 cargo test -j 2 --locked --lib review154 -- --test-threads=2
+    scope: project
+    timeout_seconds: 300
+    provenance:
+      author: codex-sol
+      created_at: "2026-11-16T20:31:00.729Z"
+      source_kind: local_mutation
+      source_ref: native-context-intents-and-relationship-packets
+  - command: CARGO_BUILD_JOBS=2 RUST_TEST_THREADS=2 cargo test -j 2 --locked --lib --bin pm-rust -- --test-threads=2
+    scope: project
+    timeout_seconds: 1800
+    provenance:
+      author: codex-sol
+      created_at: "2026-11-16T20:32:19.774Z"
+      source_kind: local_mutation
+      source_ref: native-context-intents-and-relationship-packets
+  - command: PM_RUST_REQUIRE_PUBLISHED_CLI=1 CARGO_BUILD_JOBS=2 RUST_TEST_THREADS=2 cargo test -j 2 --locked --test orientation_differential context_refusal_value_roles_match_current_oracle -- --test-threads=2
+    scope: project
+    timeout_seconds: 600
+    provenance:
+      author: codex-sol
+      created_at: "2026-11-16T20:32:27.537Z"
+      source_kind: local_mutation
+      source_ref: native-context-intents-and-relationship-packets
+  - command: CARGO_BUILD_JOBS=2 RUST_TEST_THREADS=2 cargo test -j 2 --locked --bin pm-rust -- --test-threads=2
+    scope: project
+    timeout_seconds: 300
+    provenance:
+      author: codex-sol
+      created_at: "2026-11-16T20:41:28.030Z"
+      source_kind: local_mutation
+      source_ref: native-context-intents-and-relationship-packets
+docs[5]:
   - path: docs/benchmarks/native-context-intents-2026-11-06.json
     scope: project
   - path: docs/NATIVE_CONTEXT_INTENTS.md
     scope: project
   - path: docs/NATIVE_CONTEXT_REVIEW_154_2026_11_14.md
+    scope: project
+  - path: docs/NATIVE_CONTEXT_REVIEW_154_2026_11_16.md
     scope: project
   - path: docs/NATIVE_CONTEXT_REVIEW_154.md
     scope: project

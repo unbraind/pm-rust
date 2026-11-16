@@ -16,14 +16,14 @@ fn review154_lossless_retry_and_argument_roles() {
         serde_json::json!({"recovery":{"normalized_args":["context"],"suggested_retry":command}});
     let displayed = super::orientation_diagnostic_text(
         &payload,
-        format!("diagnostic\ttext\n  suggested_retry: {command}\n"),
+        format!("diagnostic\ttext\r\n  suggested_retry: {command}\n"),
     );
     assert!(
         displayed.contains(&command),
         "review154: displayed retry must preserve exact path bytes"
     );
     assert!(
-        displayed.starts_with("diagnostic text"),
+        displayed.starts_with("diagnostic text\n"),
         "review154: diagnostic text still sanitizes controls"
     );
     assert_eq!(
@@ -43,7 +43,7 @@ fn review154_lossless_retry_and_argument_roles() {
             );
         }
     }
-    let malformed = serde_json::json!({"recovery":{"normalized_args":["context"],"attempted_command":"pm 'unterminated"}});
+    let malformed = serde_json::json!({"recovery":{"normalized_args":["context"],"attempted_command":"pm \"unterminated"}});
     assert_eq!(
         super::orientation_diagnostic_text(&malformed, "diagnostic\ttext".into()),
         "diagnostic text"

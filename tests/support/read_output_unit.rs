@@ -1077,3 +1077,43 @@ fn review154_list_wire_receipt() -> Result<(), Box<dyn std::error::Error>> {
     }
     Ok(())
 }
+
+/// Recomputed feasibility must reflect changed intent limits in either wire encoding.
+#[test]
+fn review154_intent_measurement_and_feasibility_transitions() {
+    for toon in [false, true] {
+        let scalar: crate::ListOutput = json!(null).into();
+        assert_eq!(
+            super::measure_intent(&scalar, toon),
+            super::measure(&scalar, toon)
+        );
+        let mut output: crate::ListOutput = json!({
+            "items": [{"id":"sample-intent"}],
+            "row_contract": {"hidden":true},
+            "context_intent": {
+                "estimated_tokens": 0,
+                "token_budget": 10000,
+                "declared_token_budget": 10000,
+                "within_budget": false,
+                "declaration_feasible": false
+            }
+        })
+        .into();
+        super::stabilize_intent(&mut output, toon);
+        assert_eq!(output["context_intent"]["within_budget"], true);
+        assert_eq!(output["context_intent"]["declaration_feasible"], true);
+        assert_eq!(
+            output["context_intent"]["estimated_tokens"],
+            super::measure_intent(&output, toon)
+        );
+        output.value["context_intent"]["token_budget"] = json!(1);
+        output.value["context_intent"]["declared_token_budget"] = json!(1);
+        super::stabilize_intent(&mut output, toon);
+        assert_eq!(output["context_intent"]["within_budget"], false);
+        assert_eq!(output["context_intent"]["declaration_feasible"], false);
+        assert_eq!(
+            output["context_intent"]["estimated_tokens"],
+            super::measure_intent(&output, toon)
+        );
+    }
+}

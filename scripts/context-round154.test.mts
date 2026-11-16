@@ -2,7 +2,7 @@
 import assert from 'node:assert/strict';
 import { assertionFailureDiagnostic } from './context-proof-diagnostics.mts';
 import { spawnSync } from 'node:child_process';
-import { mkdirSync, mkdtempSync, readFileSync, rmSync, symlinkSync, writeFileSync } from 'node:fs';
+import { mkdirSync, mkdtempSync, readFileSync, realpathSync, rmSync, symlinkSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { test } from 'node:test';
@@ -186,10 +186,13 @@ test('review154 Unix cleanup finds ps without PATH entries', { skip: process.pla
 test('review154 Cargo options reach every independent proof runner', () => {
   const root = mkdtempSync(join(tmpdir(), 'pm-review154-cargo-runners-'));
   try {
-    const source = join(root, 'source');
-    copyWorkingTree(fileURLToPath(packageRoot), source);
+    const physicalSource = join(root, 'source');
+    copyWorkingTree(fileURLToPath(packageRoot), physicalSource);
+    // Exercise the same alias canonicalization that macOS applies to its temp root.
+    const source = process.platform === 'win32' ? physicalSource : join(root, 'source-alias');
+    if (source !== physicalSource) symlinkSync(physicalSource, source, 'dir');
     mkdirSync(join(source, '.cargo'), { recursive: true });
-    const config = join(source, '.cargo/config.toml');
+    const config = join(realpathSync(join(source, '.cargo')), 'config.toml');
     writeFileSync(config, '[env]\nREVIEW154_LOCATION = { value = "toolchain-assets", relative = true }\n');
     for (const oracle of ['oracle', 'orientation-oracle']) symlinkSync(fileURLToPath(new URL('tests/' + oracle + '/node_modules', packageRoot)), join(source, 'tests', oracle, 'node_modules'), 'junction');
     const shim = join(root, 'shim.mjs');

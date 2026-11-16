@@ -278,7 +278,11 @@ fn section_activity_storage_and_ordering() -> Result<(), Box<dyn std::error::Err
         ),
         (
             "sample-b",
-            vec![json!({"ts":NOW}), json!({"ts":"2026-08-01T00:00:00.000Z"})],
+            vec![
+                json!({"ts":NOW}),
+                json!({"ts":"2026-08-01T00:00:00.000Z"}),
+                json!({"ts":""}),
+            ],
         ),
     ] {
         fs::write(
@@ -290,6 +294,11 @@ fn section_activity_storage_and_ordering() -> Result<(), Box<dyn std::error::Err
         )?;
     }
     let rows = activity(&workspace, 10, "9999-12-31T00:00:00.000Z")?;
+    assert_eq!(
+        rows.as_array().map(Vec::len),
+        Some(4),
+        "empty activity timestamps must be omitted"
+    );
     // proof-behavior
     assert_eq!(rows[0]["op"], "create");
     // proof-behavior

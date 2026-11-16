@@ -2160,3 +2160,19 @@ fn review154_each_intent_retains_receipt() -> Result<(), Box<dyn std::error::Err
     }
     Ok(())
 }
+
+/// Unsupported context shapes retain the runtime refusal instead of a fallback warning.
+#[test]
+fn review154_unsupported_settings_warning_boundary() -> Result<(), Box<dyn std::error::Error>> {
+    let (_root, workspace, _) = workspace()?;
+    fs::write(
+        workspace.pm_root().join("settings.json"),
+        r#"{"context":[]}"#,
+    )?;
+    assert!(workspace.context_settings_warning().is_none());
+    let result = workspace.context_with_global(&ContextOptions::default(), NOW, None);
+    assert!(
+        matches!(result, Err(PmRustError::CommandRefusal { context, .. }) if context["code"] == "unsupported_native_context")
+    );
+    Ok(())
+}
