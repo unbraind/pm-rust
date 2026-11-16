@@ -263,7 +263,7 @@ test('real pm corpus preserves acknowledged history and independently replays re
     const savedPath = process.env.PATH;
     process.env.PATH = tools;
     try {
-      const options = { native: resolve('target/debug/pm-rust'), artifacts: join(root, 'evidence') };
+      const options = { native: resolve('target/debug/pm-rust'), artifacts: join(root, 'evidence'), timeoutMs: Math.min(testTime(15000), 120000) };
       const report = runCrashCorpus(options);
       assert.equal(report.killed, report.boundaries.reduce((count, row) => count + row.count, 0));
       assert.ok(report.killed > 0);
@@ -293,7 +293,7 @@ for (const scenario of ['update', 'comment'] as const) {
     { skip: process.platform !== 'linux', timeout: testTime(120000) }, () => temporary(root => {
       const evidence = resolve(`tests/fixtures/crash-restart/${scenario}.json`);
       const before = snapshot(resolve('tests/fixtures/crash-restart'));
-      const report = replayCrashFailure({ native: resolve('target/debug/pm-rust'), artifacts: join(root, 'evidence') }, evidence);
+      const report = replayCrashFailure({ native: resolve('target/debug/pm-rust'), artifacts: join(root, 'evidence'), timeoutMs: Math.min(testTime(15000), 120000) }, evidence);
       assert.equal(report.ok, true, JSON.stringify(report.cases));
       assert.equal(report.killed, 1);
       assert.equal(report.cases.length, 1);
@@ -316,7 +316,7 @@ for (const scenario of ['update', 'comment'] as const) {
   test(`focused ${scenario} cleanup-fsync crash retains the cleanup phase in quick CI`,
     { skip: process.platform !== 'linux', timeout: testTime(120000) }, () => temporary(root => {
       const report = runCrashCorpus({ native: resolve('target/debug/pm-rust'), artifacts: join(root, 'evidence'),
-        scenarios: [scenario], only: { scenario, implementation: 'native', syscall: 'fsync', ordinal: 6 } });
+        timeoutMs: Math.min(testTime(15000), 120000), scenarios: [scenario], only: { scenario, implementation: 'native', syscall: 'fsync', ordinal: 6 } });
       assert.equal(report.killed, 1);
       assert.equal(report.cases[0].phase, 'during-cleanup');
       assert.equal(report.ok, true, JSON.stringify(report.cases));
