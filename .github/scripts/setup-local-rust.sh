@@ -29,8 +29,8 @@ printf '%s\n' "$CARGO_HOME/bin" >> "$GITHUB_PATH"
     fi
   fi
   if [[ "${QUALITY:-false}" == true ]]; then
-    if ! cargo audit --version | grep -q '0.21.2'; then
-      cargo +1.90.0 install --locked cargo-audit --version 0.21.2
+    if ! cargo audit --version | grep -q '0.23.0'; then
+      cargo +1.90.0 install --locked cargo-audit --version 0.23.0
     fi
   fi
   if ! just --version 2>/dev/null | grep -qx 'just 1.43.0'; then

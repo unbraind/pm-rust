@@ -95,7 +95,7 @@ esac
 test('hosted tools match local pins and quick jobs only install through rust-setup', () => {
   const action = readFileSync('.github/actions/rust-setup/action.yml', 'utf8');
   const local = readFileSync('.github/scripts/setup-local-rust.sh', 'utf8');
-  for (const [tool, version] of [['just', '1.43.0'], ['cargo-audit', '0.21.2'], ['cargo-llvm-cov', '0.8.7']]) {
+  for (const [tool, version] of [['just', '1.43.0'], ['cargo-audit', '0.23.0'], ['cargo-llvm-cov', '0.8.7']]) {
     assert.ok(action.includes(`tool: ${tool}@${version}\n`), `${tool} hosted pin`);
     assert.ok(local.includes(`install --locked ${tool} --version ${version}`), `${tool} local pin`);
   }

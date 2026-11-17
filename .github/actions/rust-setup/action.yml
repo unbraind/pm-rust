@@ -44,7 +44,7 @@ runs:
       if: runner.environment == 'github-hosted' && inputs.quality == 'true'
       uses: taiki-e/install-action@cfdb7ed4ccc7c7dce37759eae89dc5674b469b39
       with:
-        tool: cargo-audit@0.21.2
+        tool: cargo-audit@0.23.0
     - name: Install branch-coverage tool
       if: runner.environment == 'github-hosted' && inputs.coverage == 'true'
       uses: taiki-e/install-action@cfdb7ed4ccc7c7dce37759eae89dc5674b469b39
