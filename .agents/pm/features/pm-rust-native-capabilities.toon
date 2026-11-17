@@ -2,14 +2,19 @@ id: pm-rust-native-capabilities
 title: Discover exact native command and SDK contracts in one bounded call
 description: "Versioned native flags, output dimensions, backend operations and typed recovery schemas with explicit oracle slices and native-only evidence."
 type: Feature
-status: in_progress
+status: closed
 priority: 2
 tags[4]: contracts,discovery,"gh:unbraind/pm-rust#148",native
 created_at: "2026-11-04T22:32:15.530Z"
-updated_at: "2026-11-05T11:21:05.036Z"
+updated_at: "2026-11-16T20:36:29.666Z"
+closed_at: "2026-11-16T20:36:29.625Z"
+completed_at: "2026-11-16T20:36:29.625Z"
 author: codex-agent
 acceptance_criteria: Every advertised operation has a real invocation or parity receipt; unsupported methods cannot appear available; one bounded discovery call replaces multi-command help reads; no Git or Node runtime; typed SDK and compact TOON/JSON CLI with remedies; read-only public-copy validation; exact-head npm/Bun release gates.
 parent: pm-rust-u4al
+resolution: Implemented and merged in #148 (c648aba).
+expected_result: The change described by this item is on main.
+actual_result: "Merged in #148 as c648aba; checks successful at head e51ac52: Analyze Rust, CodeQL, Native latency macos-latest, Native latency ubuntu-latest, Native latency windows-latest, Release gate aggregate, Release gate aggregate bun, Release gate aggregate macos-latest, Release gate aggregate windows-latest, Rust macos-latest, Rust ubuntu-latest, Rust windows-latest."
 comments[23]{created_at,author,text}:
   "2026-11-04T22:32:58.236Z",codex-agent,"Overlap checked against current pm 2026.11.4 contracts output, the pinned 2026.10.21 public SDK capability/flag contracts, pm-web contract-explorer.ts, native-adapter ABI and bounded read sessions. Upstream describes the host command/runtime surface; pm-web projects provider availability; the ABI grants transport operations; sessions bound results. None inventories the compiled native product. This feature will derive exact flags from the real Clap parser, declare only evidenced native operation slices, and report injected backends as unavailable unless explicitly supplied and validated. No import/export/sync, tracker mutation, journal, shared lease or status interpretation is added. Existing SDK readers/codecs and adapter validators remain authoritative. Unsupported native options and methods default to unavailable; the oracle version labels evidence, never inferred compatibility."
   "2026-11-04T22:45:14.204Z",codex-agent,"Implemented shared parser-derived discovery plus typed request/refusal/response contracts and complete bounded native TOON/JSON encodings. Initial targeted validation passes 8 tests: 5 schema/parser/backend/output units and 3 native integration tests, including every advertised command invoked on a genuine non-git tracker, 500 seeded randomized request/replay sequences comparing unchanged SDK-read item state, and 500 numeric-boundary fuzz cases. All 32 adapter grant subsets are checked without opening a transport. The read-only feature adds no imports/exports/sync, journaled plans, retry keys, status-role decisions or shared mutable state; those existing paths are unchanged. A round-trip regression caught list-specific TOON table projection, so discovery uses the native codec directly and both producers now round-trip the same typed response."
@@ -105,4 +110,5 @@ docs[3]{path,scope}:
   docs/benchmarks/native-capability-discovery.json,project
   docs/native-capability-discovery.md,project
   README.md,project
+close_reason: "Delivered by #148 \"Discover native command and SDK contracts in one bounded call\" (merged as c648aba). Checks successful at the PR head e51ac52: Analyze Rust, CodeQL, Native latency macos-latest, Native latency ubuntu-latest, Native latency windows-latest, Release gate aggregate, Release gate aggregate bun, Release gate aggregate macos-latest, Release gate aggregate windows-latest, Rust macos-latest, Rust ubuntu-latest, Rust windows-latest."
 body: ""
