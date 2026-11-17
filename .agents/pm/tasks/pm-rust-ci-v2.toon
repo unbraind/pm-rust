@@ -7,9 +7,7 @@ status: in_progress
 priority: 2
 tags[3]: ci,"gh:unbraind/pm-rust#173",performance
 created_at: "2026-11-16T05:26:56.154Z"
-updated_at: "2026-11-17T07:26:57.254Z"
-assignee: pi-glm
-claim_principal: pi-glm
+updated_at: "2026-11-17T07:49:45.754Z"
 author: codex-sol
 acceptance_criteria: Preserve all required contexts and original checks; prove deterministic quick depth and bounded jobs; record measured CI and release claim.
 comments[39]{created_at,author,text}:
