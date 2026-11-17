@@ -106,7 +106,8 @@ test('synthetic reduction refusal preserves measured failure and CLI exit one',
     writeFileSync(wrapper, '#!/bin/sh\nparent="${PWD%/*}"\nsaved="${0}.root"\nif [ -f "$saved" ]; then\n read -r previous < "$saved"\n if [ "$previous" != "$parent" ]; then exit 79; fi\nelse\n printf "%s\\n" "$parent" > "$saved"\nfi\nexec strace "$@"\n');
     chmodSync(wrapper, 0o755);
     const result = spawnSync(process.execPath, [resolve('scripts/crash-cli.mts'), '--native', resolve('target/debug/pm-rust'),
-      '--artifacts', join(root, 'evidence'), '--replay', resolve('tests/fixtures/crash-review/published-history.json'), '--strace', wrapper, '--json', '--full'],
+      '--artifacts', join(root, 'evidence'), '--replay', resolve('tests/fixtures/crash-review/published-history.json'), '--strace', wrapper, '--json', '--full',
+      '--timeout', String(Math.min(testTime(15000), 120000))],
     { encoding: 'utf8', timeout: testTime(120000) });
     assert.equal(result.status, 1, result.stderr + result.stdout);
     const report = JSON.parse(result.stdout);
@@ -167,7 +168,7 @@ test('empty replay options refuse before normal corpus admission', () => tempora
 
 test('default crash output explains parity and case failure remedies',
   { skip: process.platform !== 'linux', timeout: testTime(180000) }, () => temporary(root => {
-    const result = spawnSync(process.execPath, [resolve('scripts/crash-cli.mts'), '--native', resolve('target/debug/pm-rust'), '--artifacts', join(root, 'evidence'), '--replay', resolve('tests/fixtures/crash-review/published-history.json')], { encoding: 'utf8', timeout: testTime(120000) });
+    const result = spawnSync(process.execPath, [resolve('scripts/crash-cli.mts'), '--native', resolve('target/debug/pm-rust'), '--artifacts', join(root, 'evidence'), '--replay', resolve('tests/fixtures/crash-review/published-history.json'), '--timeout', String(Math.min(testTime(15000), 120000))], { encoding: 'utf8', timeout: testTime(120000) });
     assert.equal(result.status, 1, result.stderr + result.stdout);
     assert.match(result.stdout, /parity\[1\]\{scenario,bytes,acknowledgement\}/);
     assert.match(result.stdout, /failures\[1\]\{scenario,implementation,syscall,boundary,code,remedy\}/);
@@ -180,7 +181,8 @@ test('completed case workspaces are removed before later process admission',
     const wrapper = join(root, 'bounded-native');
     writeFileSync(wrapper, `#!${process.execPath}\nconst fs=require('node:fs');const path=require('node:path');const cp=require('node:child_process');const cases=fs.readdirSync(path.dirname(process.cwd()),{withFileTypes:true}).filter(e=>e.isDirectory()&&/^case-[0-9]+$/.test(e.name));if(cases.length>2)process.exit(79);const r=cp.spawnSync(${JSON.stringify(resolve('target/debug/pm-rust'))},process.argv.slice(2),{stdio:'inherit'});process.exit(r.status??1);\n`);
     chmodSync(wrapper, 0o755);
-    const report = runCrashCorpus({ native: wrapper, artifacts: join(root, 'evidence'), scenarios: ['update'] });
+    const report = runCrashCorpus({ native: wrapper, artifacts: join(root, 'evidence'), scenarios: ['update'],
+      timeoutMs: Math.min(testTime(15000), 120000) });
     assert.ok(report.cases.filter(row => row.implementation === 'native').every(row => row.ok), JSON.stringify(report.cases));
     assert.ok(report.killed > 1);
 }));

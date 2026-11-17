@@ -17,7 +17,14 @@ prefix="$tool_root/syscall-tools"
   if [[ ! -x "$prefix/bin/strace" ]]; then
     mkdir -p "$prefix/bin"
     library_path="$prefix/usr/lib/$(gcc -dumpmachine)"
-    printf '#!/usr/bin/env bash\nLD_LIBRARY_PATH=%q exec %q "$@"\n' "$library_path" "$prefix/usr/bin/strace" > "$prefix/bin/strace"
+    # The crash tests run this wrapper with a PATH that holds no bash, so its shebang
+    # needs bash's absolute path; a shebang cannot quote a path containing whitespace.
+    bash_path="$(type -P bash)" || true
+    if [[ -z "$bash_path" || "$bash_path" != /* || "$bash_path" =~ [[:space:]] ]]; then
+      echo "strace wrapper requires a whitespace-free absolute bash path for its shebang; resolved: '$bash_path'" >&2
+      exit 1
+    fi
+    printf '#!%s\nLD_LIBRARY_PATH=%q exec %q "$@"\n' "$bash_path" "$library_path" "$prefix/usr/bin/strace" > "$prefix/bin/strace"
     chmod +x "$prefix/bin/strace"
   fi
 ) 9>"$tool_root/rust.lock"

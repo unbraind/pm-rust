@@ -7,10 +7,12 @@ status: in_progress
 priority: 2
 tags[3]: ci,"gh:unbraind/pm-rust#173",performance
 created_at: "2026-11-16T05:26:56.154Z"
-updated_at: "2026-11-17T05:24:05.599Z"
+updated_at: "2026-11-17T07:26:57.254Z"
+assignee: pi-glm
+claim_principal: pi-glm
 author: codex-sol
 acceptance_criteria: Preserve all required contexts and original checks; prove deterministic quick depth and bounded jobs; record measured CI and release claim.
-comments[38]{created_at,author,text}:
+comments[39]{created_at,author,text}:
   "2026-11-16T05:26:58.811Z",codex-sol,"Initial audit: required contexts verified as Rust ubuntu-latest, Rust macos-latest, Rust windows-latest and Release gate aggregate; CodeQL is not required. No existing open CI v2 item found. Plan: quick deterministic corpora and property counts; parallel Linux release components with an always-running strict aggregate; full npm/Bun and OS gates in deep. Preserve release workflows and verifier scripts."
   "2026-11-16T05:35:40.449Z",codex-sol,"Baseline run 43729555388: Rust execution Linux 790s, macOS 863s, Windows 1364s; full aggregates Linux npm 1610s, Bun 2376s, macOS 2073s, Windows 3236s. Slow Linux targets: claim/release 180.71s, orientation 138.80s, pagination 108.38s, search/collections 83.77s. Implemented two disjoint platform target shards, fail-closed required aggregates, parallel Linux quick release components, unchanged full-scope 100% LLVM coverage, deterministic quick property prefixes and kind-preserving focused crash replays. Deep keeps complete original gates and unscaled latency budgets. Local setup is user-space and locked; cold WAN tool bootstrap and ptrace still need runner evidence."
   "2026-11-16T05:42:58.787Z",codex-sol,"Initial local validation passed: cargo check and clippy on all targets/features; fmt; typed harness typecheck/lint; two partition/identity fixtures; 12 documentation contracts; unchanged changelog; strict YAML with duplicate-key rejection; shell parsing. Strict health passes with a clean HOME and installed merge drivers: the inherited-home extension skew was local configuration, not a repository defect. Touched quick-depth Rust suites are still running; no full local suite or coverage claim. Publishing early for hosted validation."
@@ -49,29 +51,55 @@ comments[38]{created_at,author,text}:
   "2026-11-17T03:08:48.028Z",codex-sol,The allowed RUSTSEC-2024-0449 maintenance warning is now tracked separately in follow-up pm-rust-unsafe-libyaml-maintenance after checking existing tracker references; no dependency or warning-policy change is included in this pin repair.
   "2026-11-17T05:21:59.885Z",codex-sol,"Review round AI: confirmed the generated strace wrapper interpolates unquoted paths and CI Deep redundantly installs cargo-audit/cargo-llvm-cov without versions. Will shell-escape both paths, add a spaced-cache fixture, and forbid unversioned tool installs in the pin contract."
   "2026-11-17T05:24:04.257Z",codex-sol,"Validated PRRT_kwDOTwgMRs64QijK and PRRT_kwDOTwgMRs64QijP: wrapper uses bash printf %q for both embedded paths; fixture generates the wrapper under a spaced cache and checks library path and ptrace refusals. Deep duplicate installs removed; quick/deep contract retains cargo-audit 0.23.0. Gates passed: cargo fmt --check; 8 contract tests; harness tsc; focused eslint; npm run changelog:check. An initial unfiltered linked-test invocation was stopped; no full-suite result claimed."
-files[21]{path,scope}:
-  .github/actions/rust-setup/action.yml,project
-  .github/scripts/setup-local-rust.sh,project
-  .github/scripts/setup-local-strace.sh,project
-  .github/scripts/setup-local-tool-root.sh,project
-  .github/workflows/ci-deep.yml,project
-  .github/workflows/ci.yml,project
-  .github/workflows/codeql.yml,project
-  scripts/ci-coverage-profiles.mts,project
-  scripts/ci-identity.mts,project
-  scripts/ci-targets.mts,project
-  scripts/crash-ci-contract.test.mts,project
-  scripts/crash-coverage-union.test.mts,project
-  scripts/crash-harness.test.mts,project
-  scripts/crash-review.test.mts,project
-  scripts/crash-test-depth.mts,project
-  tests/ci_depth_contract.rs,project
-  tests/pagination_differential.rs,project
-  tests/read_contract.rs,project
-  tests/release_pipeline_contract.rs,project
-  tests/support/depth.rs,project
-  tests/support/mutation_unit.rs,project
-tests[16]:
+  "2026-11-17T07:26:54.069Z",pi-glm,"Review round fixes on the CI v2 PR branch: (1) strace wrapper shebang now embeds the absolute bash path resolved at generation time, with a loud refusal when the path is empty, non-absolute or contains whitespace (a shebang cannot quote it); printf %q escaping kept. Contract test now asserts the shebang matches the resolved bash and runs the generated wrapper with PATH limited to the wrapper's directory, matching the crash tests' tools dir. (2) docs/ci-tiers.md deep-tier pin updated to the enforced cargo-audit 0.23.0, matching setup-local-rust.sh and rust-setup action; historical receipts untouched. (3) crash-review CLI-spawning tests now pass --timeout Math.min(testTime(15000),120000) so the child watchdog follows PM_TEST_TIME_SCALE instead of the fixed 15000ms default, and the workspace-cleanup test gets the matching timeoutMs on runCrashCorpus. Gates: cargo fmt --check clean, node --test scripts/crash-ci-contract.test.mts 8/8, node --test scripts/crash-review.test.mts 13/13, changelog:check clean."
+files[22]:
+  - path: .github/actions/rust-setup/action.yml
+    scope: project
+  - path: .github/scripts/setup-local-rust.sh
+    scope: project
+  - path: .github/scripts/setup-local-strace.sh
+    scope: project
+    note: Wrapper shebang embeds absolute bash path
+  - path: .github/scripts/setup-local-tool-root.sh
+    scope: project
+  - path: .github/workflows/ci-deep.yml
+    scope: project
+  - path: .github/workflows/ci.yml
+    scope: project
+  - path: .github/workflows/codeql.yml
+    scope: project
+  - path: docs/ci-tiers.md
+    scope: project
+    note: Deep-tier cargo-audit pin matches enforced 0.23.0
+  - path: scripts/ci-coverage-profiles.mts
+    scope: project
+  - path: scripts/ci-identity.mts
+    scope: project
+  - path: scripts/ci-targets.mts
+    scope: project
+  - path: scripts/crash-ci-contract.test.mts
+    scope: project
+  - path: scripts/crash-coverage-union.test.mts
+    scope: project
+  - path: scripts/crash-harness.test.mts
+    scope: project
+  - path: scripts/crash-review.test.mts
+    scope: project
+  - path: scripts/crash-test-depth.mts
+    scope: project
+  - path: tests/ci_depth_contract.rs
+    scope: project
+  - path: tests/pagination_differential.rs
+    scope: project
+  - path: tests/read_contract.rs
+    scope: project
+  - path: tests/release_pipeline_contract.rs
+    scope: project
+  - path: tests/support/depth.rs
+    scope: project
+  - path: tests/support/mutation_unit.rs
+    scope: project
+tests[17]:
   - command: PM_TEST_DEPTH=quick PROPTEST_CASES=50 PROPTEST_RNG_SEED=20261116 PM_RUST_REQUIRE_PUBLISHED_CLI=1 cargo test --locked --test ci_depth_contract --test release_pipeline_contract --test native_adapter_contract --test query_cost_contract --test admission_contract --test capability_contract --test read_contract --test pagination_differential
     scope: project
     timeout_seconds: 1200
@@ -198,6 +226,13 @@ tests[16]:
     provenance:
       author: codex-sol
       created_at: "2026-11-17T02:56:38.209Z"
+      source_kind: local_mutation
+      source_ref: ci/quick-pr-tier-deep-local-tier
+  - command: node --test scripts/crash-review.test.mts
+    scope: project
+    provenance:
+      author: pi-glm
+      created_at: "2026-11-17T07:26:57.212Z"
       source_kind: local_mutation
       source_ref: ci/quick-pr-tier-deep-local-tier
 docs[3]{path,scope}:

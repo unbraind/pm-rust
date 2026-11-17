@@ -113,7 +113,7 @@ to `ubuntu-latest` only when `PM_LOCAL_DEEP=off`; macOS and Windows stay hosted.
 Self-hosted Rust uses persistent runner tool storage. Under one host `flock`,
 bootstrap installs rustup only if absent, stable 1.90.0 with clippy/rustfmt,
 nightly-2026-08-06 with LLVM tools when needed, cargo-llvm-cov 0.8.7,
-cargo-audit 0.21.2 and just 1.43.0. Existing installs are reused. These tools'
+cargo-audit 0.23.0 and just 1.43.0. Existing installs are reused. These tools'
 declared minimum Rust versions fit 1.90.0. Build targets stay in the job workspace.
 Every local setup logs rustc/cargo versions. Hosted setup retains the pinned
 Rust actions and uses one SHA-pinned rust-cache per job, with separate shared

@@ -68,13 +68,14 @@ case "$STRACE_PROBE_MODE" in
   denied) echo 'ptrace denied' >&2; exit 1 ;;
 esac
 `;
+    const expectedLibraryPath = join(prefix, 'usr/lib', execFileSync('gcc', ['-dumpmachine'], { encoding: 'utf8' }).trim());
     writeFileSync(join(prefix, 'usr/bin/strace'), stub, { mode: 0o755 });
     for (const mode of ['old', 'denied', 'supported']) {
       writeFileSync(githubPath, '');
       const result = spawnSync('bash', ['.github/scripts/setup-local-strace.sh'], {
         encoding: 'utf8', env: { ...process.env, RUNNER_TOOL_CACHE: root, RUNNER_TEMP: root, GITHUB_PATH: githubPath,
           STRACE_PROBE_ARGS: argsPath, STRACE_PROBE_MODE: mode,
-          STRACE_EXPECTED_LIBRARY_PATH: join(prefix, 'usr/lib', execFileSync('gcc', ['-dumpmachine'], { encoding: 'utf8' }).trim()) },
+          STRACE_EXPECTED_LIBRARY_PATH: expectedLibraryPath },
       });
       assert.equal(result.status, mode === 'supported' ? 0 : 1, result.stderr);
       if (mode === 'supported') assert.equal(readFileSync(githubPath, 'utf8').trim(), join(prefix, 'bin'));
@@ -91,6 +92,18 @@ esac
     assert.ok(args.includes('trace=rename,fsync,link,linkat,write,writev,unlink,unlinkat'));
     assert.ok(args.includes('inject=rename:signal=SIGKILL:when=65535'));
     assert.deepEqual(args.slice(-2), ['--', 'true']);
+    // The generated wrapper embeds bash's absolute path in its shebang, so it must keep
+    // working when PATH only points at the wrapper's own directory (the crash tests' tools dir).
+    const [shebang] = readFileSync(join(prefix, 'bin/strace'), 'utf8').split('\n');
+    const bashPath = execFileSync('bash', ['-c', 'command -v bash'], { encoding: 'utf8' }).trim();
+    assert.equal(shebang, `#!${bashPath}`);
+    assert.ok(!shebang.includes('env bash'));
+    const isolated = spawnSync(join(prefix, 'bin/strace'), ['probe'], {
+      encoding: 'utf8', env: { ...process.env, PATH: join(prefix, 'bin'),
+        STRACE_PROBE_ARGS: argsPath, STRACE_EXPECTED_LIBRARY_PATH: expectedLibraryPath },
+    });
+    assert.equal(isolated.status, 0, isolated.stderr);
+    assert.equal(readFileSync(argsPath, 'utf8').trim().split('\n').pop(), 'probe');
   } finally { rmSync(root, { recursive: true, force: true }); }
 });
 
