@@ -17,7 +17,7 @@ prefix="$tool_root/syscall-tools"
   if [[ ! -x "$prefix/bin/strace" ]]; then
     mkdir -p "$prefix/bin"
     library_path="$prefix/usr/lib/$(gcc -dumpmachine)"
-    printf '#!/bin/sh\nLD_LIBRARY_PATH=%s exec %s "$@"\n' "$library_path" "$prefix/usr/bin/strace" > "$prefix/bin/strace"
+    printf '#!/usr/bin/env bash\nLD_LIBRARY_PATH=%q exec %q "$@"\n' "$library_path" "$prefix/usr/bin/strace" > "$prefix/bin/strace"
     chmod +x "$prefix/bin/strace"
   fi
 ) 9>"$tool_root/rust.lock"

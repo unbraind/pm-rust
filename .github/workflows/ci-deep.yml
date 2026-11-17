@@ -59,11 +59,6 @@ jobs:
       with:
         coverage: 'true'
         quality: 'true'
-    - name: Install Rust quality tools and just
-      if: runner.environment == 'github-hosted'
-      uses: taiki-e/install-action@cfdb7ed4ccc7c7dce37759eae89dc5674b469b39
-      with:
-        tool: cargo-audit,cargo-llvm-cov,just
     - name: Install hosted Bun
       if: matrix.runtime == 'bun' && runner.environment == 'github-hosted'
       uses: oven-sh/setup-bun@0c5077e51419868618aeaa5fe8019c62421857d6
@@ -121,11 +116,6 @@ jobs:
         cache-dependency-path: tests/oracle/package-lock.json
     - name: Set up pinned Rust tools
       uses: ./.github/actions/rust-setup
-    - name: Install hosted just
-      if: runner.environment == 'github-hosted'
-      uses: taiki-e/install-action@cfdb7ed4ccc7c7dce37759eae89dc5674b469b39
-      with:
-        tool: just
     - name: Resolve the published CLI package root
       shell: bash
       run: |

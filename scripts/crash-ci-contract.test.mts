@@ -52,7 +52,7 @@ test('harness watchdogs validate scales before launching and preserve integer mi
 });
 
 test('local strace setup rejects incompatible flags and denied ptrace before publishing PATH', { skip: process.platform !== 'linux' }, () => {
-  const root = mkdtempSync(join(tmpdir(), 'ci-strace-'));
+  const root = mkdtempSync(join(tmpdir(), 'ci strace-'));
   const prefix = join(root, 'syscall-tools');
   const githubPath = join(root, 'github-path');
   const argsPath = join(root, 'probe-args');
@@ -62,17 +62,19 @@ test('local strace setup rejects incompatible flags and denied ptrace before pub
     const stub = `#!/bin/sh
 if [ "$1" = -V ]; then exit 0; fi
 printf '%s\\n' "$@" > "$STRACE_PROBE_ARGS"
+[ "$LD_LIBRARY_PATH" = "$STRACE_EXPECTED_LIBRARY_PATH" ] || exit 2
 case "$STRACE_PROBE_MODE" in
   old) for flag do if [ "$flag" = --kill-on-exit ]; then echo 'unrecognized option --kill-on-exit' >&2; exit 1; fi; done ;;
   denied) echo 'ptrace denied' >&2; exit 1 ;;
 esac
 `;
-    for (const target of ['usr/bin/strace', 'bin/strace']) writeFileSync(join(prefix, target), stub, { mode: 0o755 });
+    writeFileSync(join(prefix, 'usr/bin/strace'), stub, { mode: 0o755 });
     for (const mode of ['old', 'denied', 'supported']) {
       writeFileSync(githubPath, '');
       const result = spawnSync('bash', ['.github/scripts/setup-local-strace.sh'], {
         encoding: 'utf8', env: { ...process.env, RUNNER_TOOL_CACHE: root, RUNNER_TEMP: root, GITHUB_PATH: githubPath,
-          STRACE_PROBE_ARGS: argsPath, STRACE_PROBE_MODE: mode },
+          STRACE_PROBE_ARGS: argsPath, STRACE_PROBE_MODE: mode,
+          STRACE_EXPECTED_LIBRARY_PATH: join(prefix, 'usr/lib', execFileSync('gcc', ['-dumpmachine'], { encoding: 'utf8' }).trim()) },
       });
       assert.equal(result.status, mode === 'supported' ? 0 : 1, result.stderr);
       if (mode === 'supported') assert.equal(readFileSync(githubPath, 'utf8').trim(), join(prefix, 'bin'));
@@ -92,16 +94,18 @@ esac
   } finally { rmSync(root, { recursive: true, force: true }); }
 });
 
-test('hosted tools match local pins and quick jobs only install through rust-setup', () => {
+test('hosted tools match local pins and quick/deep jobs only install through rust-setup', () => {
   const action = readFileSync('.github/actions/rust-setup/action.yml', 'utf8');
   const local = readFileSync('.github/scripts/setup-local-rust.sh', 'utf8');
   for (const [tool, version] of [['just', '1.43.0'], ['cargo-audit', '0.23.0'], ['cargo-llvm-cov', '0.8.7']]) {
     assert.ok(action.includes(`tool: ${tool}@${version}\n`), `${tool} hosted pin`);
     assert.ok(local.includes(`install --locked ${tool} --version ${version}`), `${tool} local pin`);
   }
-  const ci = readFileSync('.github/workflows/ci.yml', 'utf8');
-  assert.ok(ci.includes('uses: ./.github/actions/rust-setup'));
-  assert.ok(!ci.includes('uses: taiki-e/install-action'), 'quick jobs must not overwrite tools outside rust-setup');
+  for (const workflow of ['ci.yml', 'ci-deep.yml']) {
+    const ci = readFileSync(`.github/workflows/${workflow}`, 'utf8');
+    assert.ok(ci.includes('uses: ./.github/actions/rust-setup'));
+    assert.ok(!ci.includes('uses: taiki-e/install-action'), `${workflow} must not overwrite tools outside rust-setup`);
+  }
 });
 
 test('local installers create a cold tool root and share a bounded lock with clear refusal', { skip: process.platform !== 'linux' }, () => {
