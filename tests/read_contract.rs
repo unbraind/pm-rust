@@ -1,5 +1,9 @@
 //! Black-box acceptance tests for the first read-only compatibility slice.
 
+#[allow(dead_code)]
+#[path = "support/depth.rs"]
+mod test_depth;
+
 use std::fs;
 use std::path::{Path, PathBuf};
 use std::process::Stdio;
@@ -367,18 +371,34 @@ fn defaults_an_omitted_description_and_preserves_literal_array_text()
     Ok(())
 }
 
-proptest! {
-    #[test]
-    fn exact_id_filter_never_returns_a_different_item(candidate in "[a-z0-9-]{1,24}") {
+#[test]
+fn exact_id_filter_never_returns_a_different_item() -> Result<(), Box<dyn std::error::Error>> {
+    let mut runner = test_depth::property_runner(
+        256,
+        file!(),
+        concat!(
+            module_path!(),
+            "::",
+            "exact_id_filter_never_returns_a_different_item"
+        ),
+    );
+    let executed = std::cell::Cell::new(0u32);
+    runner.run(&"[a-z0-9-]{1,24}", |candidate| {
+        executed.set(executed.get() + 1);
         let (directory, _) = tracker().map_err(|error| TestCaseError::fail(error.to_string()))?;
         let workspace = Workspace::discover(directory.path())
             .map_err(|error| TestCaseError::fail(error.to_string()))?;
-        let result = workspace.list(ItemFilter {
-            id: Some(candidate.clone()),
-            ..ItemFilter::default()
-        }).map_err(|error| TestCaseError::fail(error.to_string()))?;
+        let result = workspace
+            .list(ItemFilter {
+                id: Some(candidate.clone()),
+                ..ItemFilter::default()
+            })
+            .map_err(|error| TestCaseError::fail(error.to_string()))?;
         prop_assert!(result.items.iter().all(|item| item.id == candidate));
-    }
+        Ok(())
+    })?;
+    eprintln!("{} property cases executed", executed.get());
+    Ok(())
 }
 
 #[test]

@@ -472,7 +472,7 @@ fn ownership_sdk_mappings_include_public_entry_points() -> TestResult {
 fn selected_operation_filters_every_backend() -> TestResult {
     let all = discover_capabilities(&DiscoveryRequest::default())?;
     for op in all.operations {
-        for subset in 0..32 {
+        for subset in 0..crate::test_depth::depth(32) {
             let adapter = AdapterManifest {
                 abi: crate::native_adapter::NATIVE_ADAPTER_ABI.into(),
                 capabilities: [
@@ -531,7 +531,7 @@ fn backend_inventory_never_invents_availability() -> TestResult {
         AdapterCapability::Claim,
         AdapterCapability::Release,
     ];
-    for subset in 0..32 {
+    for subset in 0..crate::test_depth::depth(32) {
         let selected: Vec<_> = capabilities
             .iter()
             .enumerate()
@@ -700,7 +700,7 @@ fn seeded_numeric_boundary_fuzz() -> TestResult {
         test_runner::{Config, RngSeed, TestRunner},
     };
     let mut runner = TestRunner::new(Config {
-        cases: 500,
+        cases: crate::test_depth::property_cases(500),
         rng_seed: RngSeed::Fixed(20_261_105),
         failure_persistence: None,
         ..Config::default()

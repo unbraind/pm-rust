@@ -1,3 +1,4 @@
+import { testTime } from './crash-test-depth.mts';
 import assert from 'node:assert/strict';
 import { spawnSync } from 'node:child_process';
 import { createHash } from 'node:crypto';
@@ -59,14 +60,14 @@ test('clock disclosure matches frozen Date.now and live performance elapsed time
 
 for (const scenario of ['update', 'comment'] as const) {
   test(`independent ${scenario} cross-operation replay recovers journals before return`,
-    { skip: process.platform !== 'linux', timeout: 180000 }, () => temporary(root => {
+    { skip: process.platform !== 'linux', timeout: testTime(180000) }, () => temporary(root => {
       const source = resolve('tests/fixtures/crash-review');
       const before = snapshot(source);
       const wrapper = join(root, 'native');
       const calls = join(root, 'native-calls.jsonl');
       writeFileSync(wrapper, `#!${process.execPath}\nconst fs=require('node:fs');const cp=require('node:child_process');fs.appendFileSync(${JSON.stringify(calls)},JSON.stringify(process.argv.slice(2))+'\\n');const r=cp.spawnSync(${JSON.stringify(resolve('target/debug/pm-rust'))},process.argv.slice(2),{stdio:'inherit'});process.exit(r.status??1);\n`);
       chmodSync(wrapper, 0o755);
-      const report = replayCrashFailure({ native: wrapper, artifacts: join(root, 'evidence') }, join(source, `${scenario}.json`));
+      const report = replayCrashFailure({ native: wrapper, artifacts: join(root, 'evidence'), timeoutMs: Math.min(testTime(15000), 120000) }, join(source, `${scenario}.json`));
       assert.equal(report.ok, true, JSON.stringify(report.cases));
       assert.equal(report.killed, 1);
       const row = report.cases[0];
@@ -86,8 +87,8 @@ for (const scenario of ['update', 'comment'] as const) {
 }
 
 test('published history-open injection detects post-publication history loss despite exit-zero restart',
-  { skip: process.platform !== 'linux', timeout: 180000 }, () => temporary(root => {
-    const report = replayCrashFailure({ native: resolve('target/debug/pm-rust'), artifacts: join(root, 'evidence') },
+  { skip: process.platform !== 'linux', timeout: testTime(180000) }, () => temporary(root => {
+    const report = replayCrashFailure({ native: resolve('target/debug/pm-rust'), artifacts: join(root, 'evidence'), timeoutMs: Math.min(testTime(15000), 120000) },
       resolve('tests/fixtures/crash-review/published-history.json'));
     assert.equal(report.ok, false);
     const row = report.cases[0];
@@ -100,13 +101,14 @@ test('published history-open injection detects post-publication history loss des
   }));
 
 test('synthetic reduction refusal preserves measured failure and CLI exit one',
-  { skip: process.platform !== 'linux', timeout: 180000 }, () => temporary(root => {
+  { skip: process.platform !== 'linux', timeout: testTime(180000) }, () => temporary(root => {
     const wrapper = join(root, 'trace-controller');
     writeFileSync(wrapper, '#!/bin/sh\nparent="${PWD%/*}"\nsaved="${0}.root"\nif [ -f "$saved" ]; then\n read -r previous < "$saved"\n if [ "$previous" != "$parent" ]; then exit 79; fi\nelse\n printf "%s\\n" "$parent" > "$saved"\nfi\nexec strace "$@"\n');
     chmodSync(wrapper, 0o755);
     const result = spawnSync(process.execPath, [resolve('scripts/crash-cli.mts'), '--native', resolve('target/debug/pm-rust'),
-      '--artifacts', join(root, 'evidence'), '--replay', resolve('tests/fixtures/crash-review/published-history.json'), '--strace', wrapper, '--json', '--full'],
-    { encoding: 'utf8', timeout: 120000 });
+      '--artifacts', join(root, 'evidence'), '--replay', resolve('tests/fixtures/crash-review/published-history.json'), '--strace', wrapper, '--json', '--full',
+      '--timeout', String(Math.min(testTime(15000), 120000))],
+    { encoding: 'utf8', timeout: testTime(120000) });
     assert.equal(result.status, 1, result.stderr + result.stdout);
     const report = JSON.parse(result.stdout);
     assert.equal(report.killed, 1);
@@ -165,8 +167,8 @@ test('empty replay options refuse before normal corpus admission', () => tempora
 }));
 
 test('default crash output explains parity and case failure remedies',
-  { skip: process.platform !== 'linux', timeout: 180000 }, () => temporary(root => {
-    const result = spawnSync(process.execPath, [resolve('scripts/crash-cli.mts'), '--native', resolve('target/debug/pm-rust'), '--artifacts', join(root, 'evidence'), '--replay', resolve('tests/fixtures/crash-review/published-history.json')], { encoding: 'utf8', timeout: 120000 });
+  { skip: process.platform !== 'linux', timeout: testTime(180000) }, () => temporary(root => {
+    const result = spawnSync(process.execPath, [resolve('scripts/crash-cli.mts'), '--native', resolve('target/debug/pm-rust'), '--artifacts', join(root, 'evidence'), '--replay', resolve('tests/fixtures/crash-review/published-history.json'), '--timeout', String(Math.min(testTime(15000), 120000))], { encoding: 'utf8', timeout: testTime(120000) });
     assert.equal(result.status, 1, result.stderr + result.stdout);
     assert.match(result.stdout, /parity\[1\]\{scenario,bytes,acknowledgement\}/);
     assert.match(result.stdout, /failures\[1\]\{scenario,implementation,syscall,boundary,code,remedy\}/);
@@ -175,11 +177,12 @@ test('default crash output explains parity and case failure remedies',
 }));
 
 test('completed case workspaces are removed before later process admission',
-  { skip: process.platform !== 'linux', timeout: 180000 }, () => temporary(root => {
+  { skip: process.platform !== 'linux', timeout: testTime(180000) }, () => temporary(root => {
     const wrapper = join(root, 'bounded-native');
     writeFileSync(wrapper, `#!${process.execPath}\nconst fs=require('node:fs');const path=require('node:path');const cp=require('node:child_process');const cases=fs.readdirSync(path.dirname(process.cwd()),{withFileTypes:true}).filter(e=>e.isDirectory()&&/^case-[0-9]+$/.test(e.name));if(cases.length>2)process.exit(79);const r=cp.spawnSync(${JSON.stringify(resolve('target/debug/pm-rust'))},process.argv.slice(2),{stdio:'inherit'});process.exit(r.status??1);\n`);
     chmodSync(wrapper, 0o755);
-    const report = runCrashCorpus({ native: wrapper, artifacts: join(root, 'evidence'), scenarios: ['update'] });
+    const report = runCrashCorpus({ native: wrapper, artifacts: join(root, 'evidence'), scenarios: ['update'],
+      timeoutMs: Math.min(testTime(15000), 120000) });
     assert.ok(report.cases.filter(row => row.implementation === 'native').every(row => row.ok), JSON.stringify(report.cases));
     assert.ok(report.killed > 1);
 }));

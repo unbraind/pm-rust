@@ -1,4 +1,8 @@
 //! ABI conformance, pre-write admission and real non-git SDK interleavings.
+#[allow(dead_code)]
+#[path = "support/depth.rs"]
+mod test_depth;
+
 use pm_rust::native_adapter::{
     AdapterCapability as Capability, AdapterManifest, AdapterOperation as Operation,
     AdapterOutcome, AdapterRefusalCode as Code, AdapterReply, AdapterRequest,
@@ -442,7 +446,6 @@ fn corpus_word(state: &mut u64) -> String {
 fn raw_frame_seeded_corpus_matches_live_client() -> TestResult {
     const SEED: u64 = 0x05ee_d113;
     const LIMIT: usize = 4096;
-    const COUNT: usize = 768;
     let declaration = AdapterManifest {
         max_frame_bytes: LIMIT,
         ..manifest()
@@ -451,8 +454,9 @@ fn raw_frame_seeded_corpus_matches_live_client() -> TestResult {
         id: "demo-1".into(),
     });
     let mut state = SEED;
-    let mut accepted = 0;
-    for index in 0..COUNT {
+    let (mut accepted, mut expected_accepted) = (0, 0);
+    let generated = test_depth::depth(768);
+    for index in 0..generated {
         let word = corpus_word(&mut state);
         let base = bytes(&reply(AdapterOutcome::Success {
             output: json!({"word":word}),
@@ -520,6 +524,7 @@ fn raw_frame_seeded_corpus_matches_live_client() -> TestResult {
             calls: calls.clone(),
         })?;
         let live = client.call(&call);
+        expected_accepted += usize::from(expected.is_ok());
         let offline_verdict = offline.as_ref().map(|_| ()).map_err(|error| error.code);
         let live_verdict = live.as_ref().map(|_| ()).map_err(|error| error.code);
         assert_eq!(
@@ -537,7 +542,8 @@ fn raw_frame_seeded_corpus_matches_live_client() -> TestResult {
             assert!(live.err().ok_or("live refusal")?.dispatched);
         }
     }
-    assert_eq!(accepted, 240);
+    assert_eq!(accepted, expected_accepted);
+    assert!(accepted > 0 && accepted < generated);
     Ok(())
 }
 

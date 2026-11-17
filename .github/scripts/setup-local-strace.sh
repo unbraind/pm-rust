@@ -1,0 +1,41 @@
+#!/usr/bin/env bash
+# No sudo or system package changes: extract the distro's signed-index packages into tool storage.
+set -euo pipefail
+source "$(dirname "${BASH_SOURCE[0]}")/setup-local-tool-root.sh"
+prefix="$tool_root/syscall-tools"
+(
+  lock_runner_tools
+  if [[ ! -x "$prefix/usr/bin/strace" ]]; then
+    mkdir -p "$prefix/apt/lists/partial" "$prefix/apt/cache/archives/partial" "$prefix/downloads"
+    apt_options=(-o "Dir::State::lists=$prefix/apt/lists" -o "Dir::Cache=$prefix/apt/cache" -o Debug::NoLocking=true)
+    apt-get "${apt_options[@]}" update
+    ( cd "$prefix/downloads"
+      apt-get "${apt_options[@]}" download strace libunwind8
+      for package in ./*.deb; do dpkg-deb --extract "$package" "$prefix"; done
+    )
+  fi
+  if [[ ! -x "$prefix/bin/strace" ]]; then
+    mkdir -p "$prefix/bin"
+    library_path="$prefix/usr/lib/$(gcc -dumpmachine)"
+    # The crash tests run this wrapper with a PATH that holds no bash, so its shebang
+    # needs bash's absolute path; a shebang cannot quote a path containing whitespace.
+    bash_path="$(type -P bash)" || true
+    if [[ -z "$bash_path" || "$bash_path" != /* || "$bash_path" =~ [[:space:]] ]]; then
+      echo "strace wrapper requires a whitespace-free absolute bash path for its shebang; resolved: '$bash_path'" >&2
+      exit 1
+    fi
+    printf '#!%s\nLD_LIBRARY_PATH=%q exec %q "$@"\n' "$bash_path" "$library_path" "$prefix/usr/bin/strace" > "$prefix/bin/strace"
+    chmod +x "$prefix/bin/strace"
+  fi
+) 9>"$tool_root/rust.lock"
+"$prefix/bin/strace" -V
+# Match the crash harness flags, including its required child-lifetime protection.
+# The unreachable injection ordinal checks parsing without killing the probe.
+if ! "$prefix/bin/strace" -f --kill-on-exit -qq -yy -s 4096 \
+  -o "$RUNNER_TEMP/ptrace-probe" \
+  -e trace=rename,fsync,link,linkat,write,writev,unlink,unlinkat \
+  -e inject=rename:signal=SIGKILL:when=65535 -- true; then
+  echo 'strace setup requires --kill-on-exit, syscall injection and permission to ptrace a child; install a compatible strace and allow child tracing.' >&2
+  exit 1
+fi
+printf '%s\n' "$prefix/bin" >> "$GITHUB_PATH"

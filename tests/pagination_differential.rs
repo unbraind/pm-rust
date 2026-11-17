@@ -1,5 +1,9 @@
 //! Byte-exact pagination and budgeting against the real published TypeScript CLI.
 
+#[allow(dead_code)]
+#[path = "support/depth.rs"]
+mod test_depth;
+
 use pm_rust::{ItemFilter, ListOptions, Workspace};
 use proptest::prelude::*;
 use serde_json::Value;
@@ -587,29 +591,53 @@ fn snapshot_continuations_match_and_refuse_stale_rows() -> TestResult {
     Ok(())
 }
 
-proptest! {
-    #![proptest_config(ProptestConfig::with_cases(96))]
-    /// Randomized producer page walks preserve each selected ID exactly once.
-    #[test]
-    fn all_pages_have_no_loss_or_duplicates(size in 0usize..100, limit in 1usize..35) {
-        let directory = fixture(size,0).map_err(|e|TestCaseError::fail(e.to_string()))?;
-        let workspace = Workspace::discover(directory.path()).map_err(|e|TestCaseError::fail(e.to_string()))?;
-        let mut options = ListOptions {limit:Some(limit.to_string()),output_budget:Some("unbounded".to_owned()),..ListOptions::default()};
+/// Randomized producer page walks preserve each selected ID exactly once.
+#[test]
+fn all_pages_have_no_loss_or_duplicates() -> Result<(), Box<dyn std::error::Error>> {
+    let mut runner = test_depth::property_runner(
+        96,
+        file!(),
+        concat!(module_path!(), "::", "all_pages_have_no_loss_or_duplicates"),
+    );
+    let executed = std::cell::Cell::new(0u32);
+    runner.run(&(0usize..100, 1usize..35), |(size, limit)| {
+        executed.set(executed.get() + 1);
+        let directory = fixture(size, 0).map_err(|e| TestCaseError::fail(e.to_string()))?;
+        let workspace = Workspace::discover(directory.path())
+            .map_err(|e| TestCaseError::fail(e.to_string()))?;
+        let mut options = ListOptions {
+            limit: Some(limit.to_string()),
+            output_budget: Some("unbounded".to_owned()),
+            ..ListOptions::default()
+        };
         let mut seen = std::collections::BTreeSet::new();
         for _ in 0..=size {
-            let page = workspace.list_page(&ItemFilter::default(),&options,CLOCK).map_err(|e|TestCaseError::fail(e.to_string()))?;
-            let rows = page["items"].as_array().ok_or_else(||TestCaseError::fail("missing items"))?;
+            let page = workspace
+                .list_page(&ItemFilter::default(), &options, CLOCK)
+                .map_err(|e| TestCaseError::fail(e.to_string()))?;
+            let rows = page["items"]
+                .as_array()
+                .ok_or_else(|| TestCaseError::fail("missing items"))?;
             for row in rows {
-                let id = row["id"].as_str().ok_or_else(||TestCaseError::fail("missing ID"))?;
-                prop_assert!(seen.insert(id.to_owned()),"duplicate {id}");
+                let id = row["id"]
+                    .as_str()
+                    .ok_or_else(|| TestCaseError::fail("missing ID"))?;
+                prop_assert!(seen.insert(id.to_owned()), "duplicate {id}");
             }
-            options.after=page["next_cursor"].as_str().map(str::to_owned);
-            if options.after.is_none() { break; }
+            options.after = page["next_cursor"].as_str().map(str::to_owned);
+            if options.after.is_none() {
+                break;
+            }
             prop_assert!(!rows.is_empty());
         }
-        let expected=(0..size).map(|i|format!("demo-{i:04}")).collect::<std::collections::BTreeSet<_>>();
-        prop_assert_eq!(seen,expected);
-    }
+        let expected = (0..size)
+            .map(|i| format!("demo-{i:04}"))
+            .collect::<std::collections::BTreeSet<_>>();
+        prop_assert_eq!(seen, expected);
+        Ok(())
+    })?;
+    eprintln!("{} property cases executed", executed.get());
+    Ok(())
 }
 
 /// Every advertised amount-only producer cursor preserves the full ordered list.

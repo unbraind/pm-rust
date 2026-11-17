@@ -89,7 +89,21 @@ fn workflow_jobs(workflow: &Value) -> Result<Vec<(String, Vec<Step>)>, BoxError>
             .as_sequence()
             .ok_or_else(|| format!("job {job_name} steps is not a sequence"))?;
         let mut steps = Vec::new();
+        let mut expanded = Vec::new();
         for step in steps_yaml {
+            if map_get(step, "uses").and_then(Value::as_str) == Some("./.github/actions/rust-setup")
+            {
+                let action = parse_workflow(".github/actions/rust-setup/action.yml")?;
+                let nested = map_get(&action, "runs")
+                    .and_then(|runs| map_get(runs, "steps"))
+                    .and_then(Value::as_sequence)
+                    .ok_or("Rust setup composite declares no steps")?;
+                expanded.extend(nested.iter().cloned());
+            } else {
+                expanded.push(step.clone());
+            }
+        }
+        for step in &expanded {
             let uses = map_get(step, "uses")
                 .and_then(Value::as_str)
                 .map(str::to_owned);
@@ -553,7 +567,7 @@ fn workflow_awk_strips_padding_the_way_cargo_requires() -> Result<(), BoxError> 
 /// gate rather than before it — the exact failure this item records.
 #[test]
 fn release_job_installs_every_gate_tool_ci_installs() -> Result<(), BoxError> {
-    let ci = parse_workflow(".github/workflows/ci.yml")?;
+    let ci = parse_workflow(".github/workflows/ci-deep.yml")?;
     let release = parse_workflow(".github/workflows/release.yml")?;
     let ci_steps = job_steps(&ci, "release-check")?;
     let release_steps = job_steps(&release, "release")?;
@@ -576,7 +590,12 @@ fn release_job_installs_every_gate_tool_ci_installs() -> Result<(), BoxError> {
                     format!("install-action step '{}' declares no tool list", step.label)
                 })?;
             for name in tool.split(',') {
-                tools.insert(name.trim().to_owned());
+                // This contract compares required tools; their version pins are checked separately.
+                let name = name
+                    .trim()
+                    .split_once('@')
+                    .map_or(name.trim(), |(name, _)| name);
+                tools.insert(name.to_owned());
             }
         }
         Ok(tools)
@@ -597,6 +616,36 @@ fn release_job_installs_every_gate_tool_ci_installs() -> Result<(), BoxError> {
     Ok(())
 }
 
+/// Check every quick/local nightly reference, including shell and JavaScript tokens.
+fn assert_ci_nightly_pins(nightly: &str) -> Result<(), BoxError> {
+    // Scan all tokens, including quoted shell/JS arguments and bare YAML values.
+    let nightly_tokens = |source: &str| -> Vec<String> {
+        source
+            .split(|c: char| !c.is_ascii_alphanumeric() && c != '-')
+            .filter(|token| token.starts_with("nightly-"))
+            .map(str::to_owned)
+            .collect()
+    };
+    assert_eq!(
+        nightly_tokens("+nightly-2026-08-06 'nightly-2026-08-06'\nnightly-2026-08-06"),
+        vec!["nightly-2026-08-06"; 3]
+    );
+    for path in [
+        ".github/workflows/ci.yml",
+        "scripts/ci-targets.mts",
+        ".github/scripts/setup-local-rust.sh",
+        ".github/actions/rust-setup/action.yml",
+    ] {
+        let source = read_repo_file(path)?;
+        let tokens = nightly_tokens(&source);
+        assert!(!tokens.is_empty(), "{path} must retain a nightly pin");
+        for token in tokens {
+            assert_eq!(token, nightly, "{path} nightly must match the justfile");
+        }
+    }
+    Ok(())
+}
+
 /// pm-rust-wbvn (toolchain half, pins): the toolchains both gate jobs install
 /// must match the ones the repository itself pins.
 ///
@@ -607,7 +656,7 @@ fn release_job_installs_every_gate_tool_ci_installs() -> Result<(), BoxError> {
 /// inside a release job.
 #[test]
 fn workflow_toolchains_match_the_repository_pins() -> Result<(), BoxError> {
-    let ci = parse_workflow(".github/workflows/ci.yml")?;
+    let ci = parse_workflow(".github/workflows/ci-deep.yml")?;
     let release = parse_workflow(".github/workflows/release.yml")?;
     let ci_steps = job_steps(&ci, "release-check")?;
     let release_steps = job_steps(&release, "release")?;
@@ -640,6 +689,8 @@ fn workflow_toolchains_match_the_repository_pins() -> Result<(), BoxError> {
         .copied()
         .ok_or("the justfile pins no nightly")?;
 
+    assert_ci_nightly_pins(nightly)?;
+
     let toolchains_of = |steps: &[Step]| -> Result<Vec<(String, Vec<String>)>, BoxError> {
         let mut installed = Vec::new();
         for step in steps {
@@ -668,7 +719,7 @@ fn workflow_toolchains_match_the_repository_pins() -> Result<(), BoxError> {
         }
         Ok(installed)
     };
-    for (workflow_name, steps) in [("ci.yml", &ci_steps), ("release.yml", &release_steps)] {
+    for (workflow_name, steps) in [("ci-deep.yml", &ci_steps), ("release.yml", &release_steps)] {
         let installed = toolchains_of(steps)?;
         assert!(
             installed.iter().any(|(toolchain, components)| {
@@ -686,7 +737,7 @@ fn workflow_toolchains_match_the_repository_pins() -> Result<(), BoxError> {
         .ok_or("rust-toolchain.toml declares no channel")?
         .trim()
         .trim_matches('"');
-    for (workflow_name, steps) in [("ci.yml", &ci_steps), ("release.yml", &release_steps)] {
+    for (workflow_name, steps) in [("ci-deep.yml", &ci_steps), ("release.yml", &release_steps)] {
         let installed = toolchains_of(steps)?;
         assert!(
             installed.iter().any(|(toolchain, components)| {
@@ -707,7 +758,11 @@ fn workflow_toolchains_match_the_repository_pins() -> Result<(), BoxError> {
 /// `pm-changelog --all-release-tags` fail with `E_MISSING_TAG_HISTORY`.
 #[test]
 fn auditing_and_changelog_jobs_checkout_full_history() -> Result<(), BoxError> {
-    let workflow_names = [".github/workflows/ci.yml", ".github/workflows/release.yml"];
+    let workflow_names = [
+        ".github/workflows/ci.yml",
+        ".github/workflows/ci-deep.yml",
+        ".github/workflows/release.yml",
+    ];
     for workflow_name in workflow_names {
         let workflow = parse_workflow(workflow_name)?;
         for (job_name, steps) in workflow_jobs(&workflow)? {
@@ -1116,6 +1171,17 @@ fn ci_pm_cli_pin_is_single_and_current() -> Result<(), BoxError> {
     );
     let workflow = parse_workflow(".github/workflows/ci.yml")?;
     for (job_name, steps) in workflow_jobs(&workflow)? {
+        if !steps
+            .iter()
+            .any(|step| step.label == "Resolve the published CLI package root")
+        {
+            assert!(!steps.iter().any(|step| {
+                step.run
+                    .as_deref()
+                    .is_some_and(|run| run.contains("cargo test") || run.contains("ci-targets.mts"))
+            }));
+            continue;
+        }
         let install = step_run(&steps, "Resolve the published CLI package root")?;
         assert!(
             install.contains("npm ci --prefix tests/oracle --ignore-scripts"),
@@ -1138,7 +1204,7 @@ fn ci_pm_cli_pin_is_single_and_current() -> Result<(), BoxError> {
                 );
             }
         }
-        if job_name == "release-check" {
+        if job_name == "policy" {
             for label in [
                 "Install clone-local pm merge drivers",
                 "Verify tracked pm project health",
@@ -1167,7 +1233,7 @@ fn ci_pm_cli_pin_is_single_and_current() -> Result<(), BoxError> {
 fn npm_and_bun_share_the_full_native_aggregate() -> Result<(), BoxError> {
     let package: serde_json::Value = serde_json::from_str(&read_repo_file("package.json")?)?;
     assert_eq!(package["scripts"]["release:check"], "just release-check");
-    let workflow = parse_workflow(".github/workflows/ci.yml")?;
+    let workflow = parse_workflow(".github/workflows/ci-deep.yml")?;
     let jobs = map_get(&workflow, "jobs").ok_or("missing jobs")?;
     let release = map_get(jobs, "release-check").ok_or("missing release job")?;
     let matrix = map_get(
@@ -1340,5 +1406,187 @@ fn round14_host_build_script_discovery() -> Result<(), Box<dyn std::error::Error
         build_scripts_for_executable(&root.join("triple/custom-check/deps/test"))?.len(),
         1
     );
+    Ok(())
+}
+
+/// Required contexts fail closed when any shard or policy component fails or skips.
+#[test]
+fn quick_required_checks_aggregate_all_components() -> Result<(), BoxError> {
+    let workflow = parse_workflow(".github/workflows/ci.yml")?;
+    let events = map_get(&workflow, "on").ok_or("events")?;
+    assert!(map_get(events, "pull_request").is_some());
+    assert!(map_get(events, "workflow_dispatch").is_some());
+    assert!(map_get(events, "push").is_none());
+    let jobs = map_get(&workflow, "jobs").ok_or("jobs")?;
+    for (job, name, dependencies) in [
+        (
+            "test",
+            "Rust ${{ matrix.os }}",
+            vec!["rust-shard", "policy"],
+        ),
+        (
+            "release-aggregate",
+            "Release gate aggregate",
+            vec![
+                "policy",
+                "release-check",
+                "coverage",
+                "crash-check",
+                "rust-shard",
+            ],
+        ),
+    ] {
+        let value = map_get(jobs, job).ok_or("required job")?;
+        assert_eq!(map_get(value, "name").and_then(Value::as_str), Some(name));
+        assert_eq!(
+            map_get(value, "if").and_then(Value::as_str),
+            Some("always()")
+        );
+        let needs = map_get(value, "needs")
+            .and_then(Value::as_sequence)
+            .ok_or("aggregate dependencies")?;
+        assert_eq!(
+            needs.iter().filter_map(Value::as_str).collect::<Vec<_>>(),
+            dependencies
+        );
+        assert!(job_steps(&workflow, job)?.iter().any(|step| {
+            step.run
+                .as_deref()
+                .is_some_and(|run| run.contains("success"))
+        }));
+    }
+    for job in jobs.as_mapping().ok_or("jobs mapping")?.values() {
+        assert!(
+            map_get(job, "timeout-minutes")
+                .and_then(Value::as_u64)
+                .is_some_and(|minutes| minutes <= 22)
+        );
+    }
+    let coverage_job = map_get(jobs, "coverage").ok_or("coverage job")?;
+    assert!(
+        map_get(coverage_job, "needs")
+            .and_then(Value::as_sequence)
+            .ok_or("coverage needs")?
+            .iter()
+            .any(|need| need.as_str() == Some("coverage-shard"))
+    );
+    let coverage = step_run(
+        &job_steps(&workflow, "coverage")?,
+        "Quick coverage at unchanged four-dimension thresholds",
+    )?
+    .to_owned();
+    for dimension in ["lines", "functions", "regions", "branches"] {
+        assert!(coverage.contains(&format!("totals.{dimension}.percent == 100")));
+    }
+    Ok(())
+}
+
+/// Expanded jobs must use one hosted cache with coverage-separated keys.
+#[test]
+fn ci_jobs_have_one_coverage_aware_rust_cache() -> Result<(), BoxError> {
+    for path in [".github/workflows/ci.yml", ".github/workflows/ci-deep.yml"] {
+        for (job, steps) in workflow_jobs(&parse_workflow(path)?)? {
+            let caches: Vec<_> = steps
+                .iter()
+                .filter(|step| {
+                    step.uses
+                        .as_deref()
+                        .is_some_and(|uses| uses.starts_with("Swatinem/rust-cache@"))
+                })
+                .collect();
+            let has_rust = steps.iter().any(|step| {
+                step.uses
+                    .as_deref()
+                    .is_some_and(|uses| uses.starts_with("dtolnay/rust-toolchain@"))
+            });
+            assert_eq!(
+                caches.len(),
+                usize::from(has_rust),
+                "{path} {job}: duplicate or missing Rust cache"
+            );
+            for cache in caches {
+                let key = cache
+                    .with
+                    .as_ref()
+                    .and_then(|with| map_get(with, "shared-key"))
+                    .and_then(Value::as_str)
+                    .unwrap_or_default();
+                assert!(
+                    key.contains("runner.os") && key.contains("inputs.coverage"),
+                    "{job}: coverage must have a separate shared key"
+                );
+            }
+        }
+    }
+    let action = parse_workflow(".github/actions/rust-setup/action.yml")?;
+    let steps = map_get(&action, "runs")
+        .and_then(|runs| map_get(runs, "steps"))
+        .and_then(Value::as_sequence)
+        .ok_or("missing steps")?;
+    let cache = steps
+        .iter()
+        .find(|step| {
+            map_get(step, "uses")
+                .and_then(Value::as_str)
+                .is_some_and(|uses| uses.starts_with("Swatinem/rust-cache@"))
+        })
+        .ok_or("missing cache")?;
+    assert_eq!(
+        map_get(cache, "if").and_then(Value::as_str),
+        Some("runner.environment == 'github-hosted'")
+    );
+    Ok(())
+}
+
+/// Bun is required only by Bun matrix jobs and stays outside shared local tools.
+#[test]
+fn deep_bun_setup_and_version_report_match_runtime() -> Result<(), BoxError> {
+    let workflow = parse_workflow(".github/workflows/ci-deep.yml")?;
+    let steps = map_get(&workflow, "jobs")
+        .and_then(|jobs| map_get(jobs, "release-check"))
+        .and_then(|job| map_get(job, "steps"))
+        .and_then(Value::as_sequence)
+        .ok_or("missing release steps")?;
+    for name in [
+        "Install hosted Bun",
+        "Install local job Bun",
+        "Report Bun version",
+    ] {
+        let step = steps
+            .iter()
+            .find(|step| map_get(step, "name").and_then(Value::as_str) == Some(name))
+            .ok_or_else(|| format!("missing {name}"))?;
+        let condition = map_get(step, "if")
+            .and_then(Value::as_str)
+            .unwrap_or_default();
+        assert!(
+            condition.contains("matrix.runtime == 'bun'"),
+            "{name} must be Bun-only"
+        );
+        if name == "Install local job Bun" {
+            assert!(condition.contains("runner.environment == 'self-hosted'"));
+            let install = map_get(step, "env")
+                .and_then(|env| map_get(env, "BUN_INSTALL"))
+                .and_then(Value::as_str)
+                .ok_or("missing job-local Bun directory")?;
+            assert_eq!(install, "${{ runner.temp }}/bun");
+            assert_eq!(
+                map_get(step, "env")
+                    .and_then(|env| map_get(env, "SHELL"))
+                    .and_then(Value::as_str),
+                Some("sh"),
+                "installer must avoid changing shared shell profiles"
+            );
+            let run = map_get(step, "run")
+                .and_then(Value::as_str)
+                .ok_or("missing Bun installer")?;
+            assert!(
+                run.contains("https://bun.sh/install")
+                    && run.contains("$BUN_INSTALL/bin")
+                    && run.contains("GITHUB_PATH")
+            );
+            assert!(!run.contains("RUNNER_TOOL_CACHE") && !run.contains("_tool"));
+        }
+    }
     Ok(())
 }

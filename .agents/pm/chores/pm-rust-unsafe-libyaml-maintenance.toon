@@ -1,0 +1,15 @@
+id: pm-rust-unsafe-libyaml-maintenance
+title: Assess the allowed unsafe-libyaml maintenance warning
+description: "Fresh cargo audit 0.23.0 succeeds but reports unsafe-libyaml 0.2.11 as unmaintained under RUSTSEC-2024-0449, with no fixed upgrade available. Existing tracker mentions are validation receipts rather than an owned dependency-maintenance task. Assess a maintained dependency path or document an explicit disposition separately from the CI audit-tool pin repair."
+type: Chore
+status: open
+priority: 3
+tags[3]: dependencies,follow-up,maintenance
+created_at: "2026-11-17T03:08:22.945Z"
+updated_at: "2026-11-17T03:08:38.320Z"
+author: codex-sol
+acceptance_criteria: "Document an evidence-backed maintained dependency path or an explicit disposition for the maintenance warning, while keeping cargo audit passing."
+files[2]{path,scope}:
+  Cargo.lock,project
+  Cargo.toml,project
+body: ""

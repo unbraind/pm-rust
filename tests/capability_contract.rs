@@ -1,4 +1,8 @@
 //! Real native invocations, no-runtime discovery and seeded SDK state preservation.
+#[allow(dead_code)]
+#[path = "support/depth.rs"]
+mod test_depth;
+
 use pm_rust::{
     Workspace,
     discovery::{DISCOVERY_MAX_BYTES, DiscoveryRequest, DiscoveryResponse, discover_capabilities},
@@ -503,7 +507,7 @@ fn seeded_discovery_model_replays_inputs_without_touching_native_state() -> Test
         2..7,
     );
     let mut runner = TestRunner::new(Config {
-        cases: 500,
+        cases: test_depth::property_cases(500),
         rng_seed: RngSeed::Fixed(20_261_104),
         failure_persistence: None,
         ..Config::default()
