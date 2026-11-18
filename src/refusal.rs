@@ -468,9 +468,12 @@ pub(super) fn redact(payload: &mut Value, raw: &[String]) {
     let original = payload.clone();
     credentials.value(payload, false, false, true);
     // A stored holder can be redacted without making a clean invocation unreplayable.
-    if original["claimed_by"]
-        .as_str()
-        .is_some_and(|holder| !userinfos(holder).is_empty())
+    if original["code"] == "already_claimed_by"
+        && original["claimed_by"]
+            .as_str()
+            .is_some_and(|holder| !userinfos(holder).is_empty())
+        && original["recovery"].get("suggested_retry").is_none()
+        && original["recovery"].get("suggested_retry_args").is_none()
         && original["recovery"] == payload["recovery"]
         && raw.iter().all(|token| userinfos(token).is_empty())
     {

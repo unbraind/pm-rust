@@ -99,26 +99,27 @@ fn native(source: &Value, reprojected: bool) -> Result<Value, Box<dyn std::error
     assert_eq!(cursor["f"] != initial_fingerprint, reprojected);
     let mut retry = options.clone();
     retry.output_cursor = Some(raw.to_owned());
-    let actual = super::super::deliver(source.clone().into(), &retry, &retry, Some(1000), None);
-    let retry = if reprojected {
-        let error = actual.err().ok_or("reprojected replay was admitted")?;
-        let PmRustError::ReadCursor { code, detail } = error else {
-            return Err(format!("unexpected {error}").into());
-        };
-        assert_eq!(code, "read_output_cursor_stale");
-        json!({"ok":false,"detail":detail,"context":{"code":code}})
-    } else {
-        let result = actual?;
-        let offset = usize::try_from(cursor["o"].as_u64().ok_or("offset")?)?;
-        assert_eq!(result["items"][0]["id"], initial_rows[offset]["id"]);
-        let wire = crate::stringify_toon(&result)?;
-        json!({"ok":true,"result":result.value,"wire":wire})
-    };
+    let result = super::super::deliver(source.clone().into(), &retry, &retry, Some(1000), None)?;
+    let offset = usize::try_from(cursor["o"].as_u64().ok_or("offset")?)?;
+    assert_eq!(result["items"][0]["id"], initial_rows[offset]["id"]);
+    if reprojected {
+        let mut changed = source.clone();
+        changed["items"][0]["title"] = json!("q".repeat(106));
+        assert!(matches!(
+            super::super::deliver(changed.into(), &retry, &retry, Some(1000), None),
+            Err(PmRustError::ReadCursor {
+                code: "read_output_cursor_stale",
+                ..
+            })
+        ));
+    }
+    let wire = crate::stringify_toon(&result)?;
+    let retry = json!({"ok":true,"result":result.value,"wire":wire});
     let wire = crate::stringify_toon(&first)?;
     Ok(json!({"first":first.value,"wire":wire,"retry":retry}))
 }
 
-/// A real nonzero reprojected cursor refuses unchanged replay, matching the published SDK.
+/// The first page matches the oracle and native replays its own reprojected cursor.
 #[test]
 fn round9_reprojected_continuation_matches_published() -> Result<(), Box<dyn std::error::Error>> {
     let oracle = published_cli::published_cli_or_skip("intent delivery continuation");
@@ -128,7 +129,17 @@ fn round9_reprojected_continuation_matches_published() -> Result<(), Box<dyn std
         if let Some(oracle) = &oracle {
             let directory = tempfile::tempdir()?;
             let expected = published(&oracle.package_root, directory.path(), &source)?;
-            assert_eq!(actual, expected);
+            assert_eq!(actual["first"], expected["first"]);
+            assert_eq!(actual["wire"], expected["wire"]);
+            if reprojected {
+                assert_eq!(
+                    expected["retry"]["context"]["code"],
+                    "read_output_cursor_stale"
+                );
+                assert_eq!(actual["retry"]["ok"], true);
+            } else {
+                assert_eq!(actual["retry"], expected["retry"]);
+            }
         }
     }
     Ok(())

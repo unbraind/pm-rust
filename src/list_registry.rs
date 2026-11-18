@@ -115,6 +115,11 @@ impl Lifecycle {
         }
     }
 
+    /// Resolves the progress alias for activity advisories independent of list buckets.
+    pub(crate) fn activity_progress_status(&self) -> String {
+        self.canonical(&self.progress)
+    }
+
     /// Returns the canonical configured open status for pause transitions.
     pub(crate) fn open_status(&self) -> String {
         self.canonical(&self.open)

@@ -1119,11 +1119,12 @@ fn append_in_progress_counts(
         .unwrap_or(72)
         .max(1);
     let now = parse(now);
+    let progress = lifecycle.activity_progress_status();
     let mut unowned = 0;
     let mut idle = 0;
     for item in items
         .iter()
-        .filter(|item| lifecycle.matches(text(item, "status"), "in_progress"))
+        .filter(|item| lifecycle.canonical(text(item, "status")) == progress)
     {
         unowned += usize::from(text(item, "assignee").trim().is_empty());
         let history = records(workspace, text(item, "id")).unwrap_or_default();

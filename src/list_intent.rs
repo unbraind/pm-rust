@@ -375,22 +375,31 @@ pub(crate) fn deliver(
     let Some(budget) = budget else {
         return finalize(source, requested, continuation);
     };
-    let project = |overhead| -> Result<(ListOutput, Value), PmRustError> {
+    let project = |overhead, delivery: &ListOptions| -> Result<(ListOutput, Value), PmRustError> {
         let projected = if overhead == 0 {
             attach(source.clone(), options, budget)
         } else {
             attach_with_overhead(source.clone(), options, budget, overhead)
         };
         let receipt = projected["context_intent"].clone();
-        Ok((finalize(projected, requested, continuation)?, receipt))
+        Ok((finalize(projected, delivery, continuation)?, receipt))
     };
-    let (first, receipt) = project(0)?;
+    let (first, receipt) = match project(0, requested) {
+        Ok(result) => result,
+        Err(
+            error @ PmRustError::ReadCursor {
+                code: "read_output_cursor_stale",
+                ..
+            },
+        ) if requested.output_cursor.is_some() => {
+            return resume_reprojected(requested, project, error);
+        }
+        Err(error) => return Err(error),
+    };
     let Some((_, estimated)) = settled(&first, &receipt, requested) else {
         return Ok(first);
     };
-    let initial =
-        usize::try_from(receipt["estimated_tokens"].as_u64().unwrap_or(0)).unwrap_or(usize::MAX);
-    let (second, receipt) = project(estimated.saturating_sub(initial))?;
+    let (second, receipt) = project(overshoot(&receipt, estimated), requested)?;
     let Some((receipt, estimated)) = settled(&second, &receipt, requested) else {
         return Ok(second);
     };
@@ -399,4 +408,33 @@ pub(crate) fn deliver(
         requested,
         continuation,
     )
+}
+
+/// Recreates the unpaged second projection before validating an output cursor against it.
+fn resume_reprojected(
+    requested: &ListOptions,
+    project: impl Fn(usize, &ListOptions) -> Result<(ListOutput, Value), PmRustError>,
+    stale: PmRustError,
+) -> Result<ListOutput, PmRustError> {
+    let mut unpaged = requested.clone();
+    unpaged.output_cursor = None;
+    let (first, receipt) = project(0, &unpaged)?;
+    let Some((_, estimated)) = settled(&first, &receipt, &unpaged) else {
+        return Err(stale);
+    };
+    let overhead = overshoot(&receipt, estimated);
+    let (second, receipt) = project(overhead, &unpaged)?;
+    if settled(&second, &receipt, &unpaged).is_some()
+        || !second["output_budget_truncation"]["continuations"].is_array()
+    {
+        return Err(stale);
+    }
+    project(overhead, requested).map(|(page, _)| page)
+}
+
+/// Measures the extra final envelope cost beyond the intent's initial estimate.
+fn overshoot(receipt: &Value, estimated: usize) -> usize {
+    let initial =
+        usize::try_from(receipt["estimated_tokens"].as_u64().unwrap_or(0)).unwrap_or(usize::MAX);
+    estimated.saturating_sub(initial)
 }

@@ -188,10 +188,12 @@ fn ownership_session_faults_and_contention_preserve_durable_steps()
         Err(PmRustError::OwnershipRefusal { .. })
     ));
     mutation.author = "unit-agent".to_owned();
-    assert!(matches!(
-        workspace.release_with_options(&mutation, &options),
-        Err(PmRustError::Io { .. })
-    ));
+    let release = workspace.release_with_options(&mutation, &options)?;
+    assert_eq!(
+        release.warnings,
+        ["release_semantic_attribution_unrecorded"]
+    );
+    assert!(release.suggestions[0].contains("nothing needs a retry"));
     assert!(
         !workspace
             .get("sample-unit")?
