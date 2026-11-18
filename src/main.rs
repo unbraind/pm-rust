@@ -1748,7 +1748,10 @@ fn collection_error_json(
     }
     if context["code"] == "unknown_option" {
         result.as_object_mut().map(|map| map.shift_remove("why"));
-        result["refusal"] = serde_json::json!({"surface":"--remove-index","rejected_value":"--remove-index","exit_code":exit_code});
+        if let Some(flag) = context["flag"].as_str() {
+            result["refusal"] =
+                serde_json::json!({"surface":flag,"rejected_value":flag,"exit_code":exit_code});
+        }
     }
     result
 }

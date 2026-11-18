@@ -6,10 +6,10 @@ status: in_progress
 priority: 1
 tags[2]: "gh:unbraind/pm-rust#176",oracle
 created_at: "2026-11-18T09:41:09.150Z"
-updated_at: "2026-11-18T10:53:51.282Z"
+updated_at: "2026-11-18T11:08:40.373Z"
 author: codex-sol
 parent: pm-rust-u4al
-comments[8]{created_at,author,text}:
+comments[12]{created_at,author,text}:
   "2026-11-18T09:41:20.010Z",codex-sol,Started from the Dependabot head. npm latest is 2026.11.18. Reviewing the failed matrix and reproducing against the current pin.
   "2026-11-18T09:57:01.888Z",codex-sol,"All seven failed jobs in run 44015087729 report two cases. GH-1707 in 2026.11.13 introduces credential-bearing identity admission and stored-holder redaction. Direct 2026.11.18 probes confirm stored holders are redacted without requiring credential restoration from a clean invocation. The full Linux run also confirms GH-1684 and GH-1703 in 2026.11.14 change TOON receipts and budgeted row counts, and GH-1336 in 2026.11.16 adds claim activity evidence. Implementing these wire changes while the remaining suites run."
   "2026-11-18T10:10:24.585Z",codex-sol,"Published 2026.11.18 accepts the unchanged replay at the old TOON overhead boundary. The same stale-output-cursor defect remains at an adjacent second-projection boundary, with successful replay on either side. Saved an upstream draft after checking related issues. Native already had this stale replay behavior. Kept the existing reprojected-snapshot test and tracked the separate GH-1336 takeover and next write/read work under pm-rust-stale-claim-takeover."
@@ -18,7 +18,11 @@ comments[8]{created_at,author,text}:
   "2026-11-18T10:26:43.095Z",codex-sol,"Opened draft PR 181 at 9ac32be. Its first CI run passed tracker policy, release quality and quick crash checks. Quick Rust identified the outdated release-I/O assertion and context advisory alias mismatch. Both are corrected. The published claim/holder/session lease focused cases passed 3 of 3, the advisory alias oracle test passed, and all 20 refusal unit tests passed. The native list now reconstructs its second projection to replay the emitted cursor; the regression test verifies that changing the source still refuses."
   "2026-11-18T10:50:00.886Z",codex-sol,"At 6920d21, the local Linux unit suites passed all 458 library and 83 CLI tests. The next CI run exposed a context budget mismatch and one optional usage-feedback warning in the ownership fixture. The documented 2026.11.14 UTF-16 compaction suffix now matches the published context output at budgets 100, 1000 and 1200, and the real-copy oracle test passed. The mutation fixture disables unrelated usage feedback. The 2026.11.12 GH-1700 and 2026.11.14 GH-1716 linked-test and artifact receipts and note policy are implemented, with six direct published file comparisons and four focused unit and oracle regressions passing."
   "2026-11-18T10:53:45.626Z",codex-sol,"The native linked-test removal receipt now matches the published CLI byte for byte. The focused SDK linked-note refusal test verifies both authoritative files stay byte-identical and confirms explicit append returns only the edited link. Formatting, Clippy and the focused context and list cursor checks pass. The all-target Linux and broad collection runs remain in progress. PR 154 depends on these overlapping changes landing first."
-files[8]{path,scope}:
+  "2026-11-18T10:59:34.155Z",codex-sol,"Exact ac3ab0c CI exposed one stale bare-ellipsis assertion in the surrogate-preservation unit. Updated the assertion for the published UTF-16 count. All 59 ownership differential tests passed locally. The published 2026.11.18 linked-note append treats a requested phrase already present across adjacent semicolon-delimited parts as unchanged, which the native SDK now preserves on retries."
+  "2026-11-18T11:02:16.069Z",codex-sol,"The same CI run passed all 38 orientation oracle tests. Its ownership acceptance test still expected release to exit after committing the item, so updated it to verify the documented 2026.11.14 success receipt, its warning and its retry advice with the on-disk state assertions preserved."
+  "2026-11-18T11:04:49.166Z",codex-sol,"Locally, all 11 ownership SDK acceptance cases passed with the updated release assertion. The ac3ab0c linked collection oracle completed with zero differences across its fixtures. A further probe verified the published test command rejects the artifact-only note-conflict flag before mutating linked tests. Native now rejects it too, and the full collection oracle includes that command in both renderers."
+  "2026-11-18T11:08:37.045Z",codex-sol,All 459 library tests passed after updating the compaction expectation and linked-note retry case. The linked ownership acceptance command passed under pm test with progress. Formatting and all-target Clippy passed. The unsupported linked-test flag now matches the published refusal byte for byte in text and JSON and leaves the item and journal unchanged.
+files[11]{path,scope}:
   src/collections.rs,project
   src/mutation/claim_activity.rs,project
   src/ownership.rs,project
@@ -26,11 +30,15 @@ files[8]{path,scope}:
   src/toon_output.rs,project
   tests/claim_release_differential.rs,project
   tests/oracle/package-lock.json,project
+  tests/ownership_contract.rs,project
+  tests/search_collections_differential.rs,project
+  tests/support/json_output_unit.rs,project
   tests/support/mutation_differential.rs,project
-tests[3]{command,scope,provenance{author,created_at,source_kind,source_ref}}:
+tests[4]{command,scope,provenance{author,created_at,source_kind,source_ref}}:
   PM_RUST_REQUIRE_PUBLISHED_CLI=1 cargo test --locked --all-targets --all-features --no-fail-fast,project,codex-sol,"2026-11-18T09:58:16.490Z",local_mutation,fix/oracle-pm-cli-1118
   cargo fmt --all -- --check,project,codex-sol,"2026-11-18T09:58:23.289Z",local_mutation,fix/oracle-pm-cli-1118
   cargo clippy --locked --all-targets --all-features -- -D warnings,project,codex-sol,"2026-11-18T10:10:28.550Z",local_mutation,fix/oracle-pm-cli-1118
+  cargo test --locked --test ownership_contract,project,codex-sol,"2026-11-18T11:04:44.802Z",local_mutation,fix/oracle-pm-cli-1118
 docs[1]{path,scope}:
   README.md,project
 body: ""

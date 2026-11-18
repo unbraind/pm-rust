@@ -317,6 +317,14 @@ fn collection_commands_match_oracle() -> TestResult {
             vec!["files", "sample-item", "--add", "x", "--remove", "./x"],
             vec!["test", "sample-item", "--remove", "wrong=x"],
             vec!["test", "sample-item", "--add", "path=tests/a.rs"],
+            vec![
+                "test",
+                "sample-item",
+                "--add",
+                "command=cargo fmt",
+                "--note-conflict",
+                "append",
+            ],
         ]
         .into_iter()
         .rev()

@@ -488,6 +488,15 @@ fn artifact_note_conflicts_preserve_storage_and_report_explicit_append() -> Test
         result["mutation_receipt"]["link_outcomes"][0]["outcome"],
         "note_appended"
     );
+    options.add = vec!["path=a.rs,note=Next".to_owned()];
+    workspace.collection("sample-one", "files", &options, root)?;
+    options.add = vec!["path=a.rs,note=Stored; Incoming".to_owned()];
+    let replay = workspace.collection("sample-one", "files", &options, root)?;
+    assert_eq!(replay["changed"], false);
+    assert_eq!(
+        replay["mutation_receipt"]["link_outcomes"][0]["outcome"],
+        "unchanged"
+    );
     Ok(())
 }
 

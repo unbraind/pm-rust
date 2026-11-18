@@ -882,15 +882,15 @@ fn note_conflict_refusal(
     } else {
         String::new()
     };
-    let existing = &first["existing_note"];
-    let requested = &first["requested_note"];
+    let existing = first["existing_note"].as_str().unwrap_or_default();
+    let requested = first["requested_note"].as_str().unwrap_or_default();
     let detail = if first["source"] == "stored" {
         format!(
-            "{id} already links {noun} {path} with the note {existing}{more}; the add was refused so that note is kept"
+            "{id} already links {noun} {path} with the note \"{existing}\"{more}; the add was refused so that note is kept"
         )
     } else {
         format!(
-            "The add names {noun} {path} on {id} with two notes, {existing} and then {requested}{more}; the add was refused because they disagree"
+            "The add names {noun} {path} on {id} with two notes, \"{existing}\" and then \"{requested}\"{more}; the add was refused because they disagree"
         )
     };
     let retry = |mode: &str| {
@@ -970,7 +970,7 @@ pub(crate) fn reconcile_artifact_notes(
         let revised = match (existing, mode) {
             (None, _) | (_, "replace") => requested.to_owned(),
             (Some(existing), "append") => {
-                if existing.split("; ").any(|note| note == requested) {
+                if format!("; {existing}; ").contains(&format!("; {requested}; ")) {
                     existing.to_owned()
                 } else {
                     format!("{existing}; {requested}")
@@ -1131,6 +1131,26 @@ pub(crate) fn merge(
     (rows, removed)
 }
 
+fn refuse_collection_option(command: &str, flag: &str, candidates: &[&str]) -> PmRustError {
+    refusal(
+        format!("Commander does not recognize option {flag} for this command path."),
+        2,
+        json!({
+            "code":"unknown_option",
+            "required":"Use an option declared on this path, or move the declared option to one of its accepting command paths.",
+            "recovery":{"candidate_commands":candidates,"candidate_commands_total":candidates.len(),"option_scope":"declared_elsewhere"},
+            "next_steps":[
+                "Run command help to confirm the exact option contracts for this command path.",
+                format!("{flag} is accepted by {}. Inspect those command contracts only if you intended a different operation.", candidates.join(", "))
+            ],
+            "title":format!("Unknown option {flag}"),
+            "examples":[crate::render_pm_command(["item",command,"--help"])],
+            "flag":flag,
+            "value":flag
+        }),
+    )
+}
+
 impl Workspace {
     /// Lists or atomically edits files, docs or tests using the published receipts.
     ///
@@ -1149,10 +1169,17 @@ impl Workspace {
             });
         }
         if key != "tests" && !options.remove_index.is_empty() {
-            return Err(refusal(
-                "Commander does not recognize option --remove-index for this command path.",
-                2,
-                json!({"code":"unknown_option","required":"Use an option declared on this path, or move the declared option to one of its accepting command paths.","recovery":{"candidate_commands":["item test"],"candidate_commands_total":1,"option_scope":"declared_elsewhere"},"next_steps":["Run command help to confirm the exact option contracts for this command path.","--remove-index is accepted by item test. Inspect those command contracts only if you intended a different operation."],"title":"Unknown option --remove-index","examples":[crate::render_pm_command(["item",key,"--help"])],"flag":"--remove-index","value":"--remove-index"}),
+            return Err(refuse_collection_option(
+                key,
+                "--remove-index",
+                &["item test"],
+            ));
+        }
+        if key == "tests" && options.note_conflict.is_some() {
+            return Err(refuse_collection_option(
+                "test",
+                "--note-conflict",
+                &["item docs", "item files"],
             ));
         }
         let root = self

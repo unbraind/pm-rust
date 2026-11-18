@@ -68,10 +68,12 @@ fn session_publication_faults_preserve_completed_ownership() -> TestResult {
         workspace.get("sample-one")?.metadata.extra["assignee"],
         "alpha"
     );
-    assert!(matches!(
-        workspace.release(&alpha),
-        Err(PmRustError::Io { .. })
-    ));
+    let release = workspace.release(&alpha)?;
+    assert_eq!(
+        release.warnings,
+        ["release_semantic_attribution_unrecorded"]
+    );
+    assert!(release.suggestions[0].contains("nothing needs a retry"));
     assert!(
         !workspace
             .get("sample-one")?
