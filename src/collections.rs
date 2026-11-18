@@ -1246,31 +1246,29 @@ impl Workspace {
         };
         let count = rows.len();
         let changed = mutation.changed;
-        let attach_receipts = |result: &mut Value| {
-            let pm_root = self.pm_root().strip_prefix(cwd).unwrap_or(self.pm_root());
-            attach_collection_receipts(result, key, id, pm_root, &mutation, count < total);
-        };
-        if key == "tests" {
+        let mut result = if key == "tests" {
             let mut result = json!({"ok":true,"id":document.metadata.id,"tests":rows,"run_results":[],"changed":changed,"count":count});
             if mutation.removed > 0 {
                 result["removed"] = json!(mutation.removed);
             }
-            if write {
-                attach_collection_counts(&mut result, total, count);
-                attach_receipts(&mut result);
-            }
-            return Ok(result);
-        }
-        let mut result =
-            json!({"id":document.metadata.id,key:rows,"changed":changed,"count":count});
+            result
+        } else {
+            json!({"id":document.metadata.id,key:rows,"changed":changed,"count":count})
+        };
         if write {
             attach_collection_counts(&mut result, total, count);
-        }
-        if changed && count > 0 {
-            result["validation"] = validate_link_paths(root, rows);
-        }
-        if write {
-            attach_receipts(&mut result);
+            if key != "tests" && changed && count > 0 {
+                result["validation"] = validate_link_paths(root, rows);
+            }
+            attach_collection_receipts(
+                &mut result,
+                key,
+                id,
+                self.pm_root(),
+                cwd,
+                &mutation,
+                count < total,
+            );
         }
         Ok(result)
     }
@@ -1289,6 +1287,7 @@ fn attach_collection_receipts(
     key: &str,
     id: &str,
     pm_root: &Path,
+    cwd: &Path,
     changed: &CollectionChange,
     withheld: bool,
 ) {
@@ -1299,9 +1298,17 @@ fn attach_collection_receipts(
     result["mutation_receipt"] = receipt;
     let groups = if withheld {
         let command = if key == "tests" { "test" } else { key };
-        let root = pm_root.to_string_lossy();
-        let scope = if root.is_empty() { "." } else { &root };
-        json!([{"name":format!("{key}_history"),"restore_with":crate::render_pm_command(["--pm-path", scope, command, id])}])
+        // Discovery canonicalizes the tracker. Resolve the invocation directory on the same
+        // basis so symlinked temporary roots and Windows short paths retain relative recovery.
+        let canonical = cwd.canonicalize();
+        let scope = match pm_root.strip_prefix(canonical.as_deref().unwrap_or(cwd)) {
+            Ok(relative) if relative.as_os_str().is_empty() => ".".to_owned(),
+            Ok(relative) => relative
+                .to_string_lossy()
+                .replace(std::path::MAIN_SEPARATOR, "/"),
+            Err(_) => pm_root.to_string_lossy().into_owned(),
+        };
+        json!([{"name":format!("{key}_history"),"restore_with":crate::render_pm_command(["--pm-path", &scope, command, id])}])
     } else {
         json!([])
     };

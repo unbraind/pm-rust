@@ -2063,15 +2063,12 @@ fn collection_restore_after_removal_is_read_only() -> Result<(), Box<dyn std::er
         .as_str()
         .ok_or("read command")?;
     let args = pm_rust::parse_command_args(hint).ok_or("read arguments")?;
+    assert_eq!(args.len(), 5);
+    assert_eq!(args[..2], ["pm", "--pm-path"]);
+    assert_eq!(args[3..], ["test", "sample-cli"]);
     assert_eq!(
-        args,
-        [
-            "pm",
-            "--pm-path",
-            root.to_str().ok_or("scope")?,
-            "test",
-            "sample-cli"
-        ]
+        fs::canonicalize(elsewhere.path().join(&args[2]))?,
+        fs::canonicalize(&root)?
     );
     let snapshot = || -> std::io::Result<_> {
         Ok((

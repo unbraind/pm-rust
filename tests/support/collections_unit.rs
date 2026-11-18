@@ -1182,5 +1182,19 @@ fn omitted_rows_retain_tracker_root_as_invocation_directory() -> TestResult {
         result["omission_receipt"]["omitted_field_groups"][0]["restore_with"],
         "pm --pm-path . files sample-one"
     );
+    let project = workspace
+        .pm_root()
+        .parent()
+        .and_then(Path::parent)
+        .ok_or("project")?;
+    let alias = project.join("scratch").join("..");
+    std::fs::create_dir(project.join("scratch"))?;
+    options.remove.clear();
+    options.add.push("c.rs".into());
+    let result = workspace.collection("sample-one", "files", &options, &alias)?;
+    assert_eq!(
+        result["omission_receipt"]["omitted_field_groups"][0]["restore_with"],
+        "pm --pm-path .agents/pm files sample-one"
+    );
     Ok(())
 }

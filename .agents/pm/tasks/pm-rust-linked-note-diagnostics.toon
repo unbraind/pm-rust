@@ -6,10 +6,12 @@ status: in_progress
 priority: 3
 tags[3]: collections,follow-up,oracle
 created_at: "2026-11-18T13:06:06.143Z"
-updated_at: "2026-11-18T18:09:39.510Z"
+updated_at: "2026-11-18T18:27:00.929Z"
+assignee: codex-sol
+claim_principal: codex-sol
 author: codex-sol
 parent: pm-rust-oracle-1118
-comments[7]{created_at,author,text}:
+comments[8]{created_at,author,text}:
   "2026-11-18T16:39:36.360Z",codex-sol,Reviewing the assigned PR 181 findings against native behavior and the pinned oracle. Regression tests and gate results will be linked here.
   "2026-11-18T16:52:17.841Z",codex-sol,PRRT_kwDOTwgMRs65CD8K - Retained oracle parity. Published 2026.11.18 files with --note-conflict append and no addition returns missing_required_argument and explicitly names --add or --add-glob in detail and required.
   "2026-11-18T17:12:53.852Z",codex-sol,PRRT_kwDOTwgMRs65CD8U - 34d1ea82c7af. Both note-repair commands preserve an explicit timestamp. The append/replace regression also checks omission of an unspecified time.
@@ -17,13 +19,16 @@ comments[7]{created_at,author,text}:
   "2026-11-18T17:13:00.223Z",codex-sol,PRRT_kwDOTwgMRs65CD8y - 34d1ea82c7af. Omission receipts return a scoped collection read. The replay regression verifies the remaining test and identical item/history bytes.
   "2026-11-18T17:13:12.306Z",codex-sol,PRRT_kwDOTwgMRs65CD9S - 34d1ea82c7af. Collection reads bypass mutation identity resolution. A legacy credential-bearing default permits a read and refuses the subsequent write.
   "2026-11-18T18:09:25.822Z",codex-sol,"Verified append and replace retry flags, strict detected-session replay, and the read-only omission command. The linked-note and collection differential cases passed on pm-cli 2026.11.18."
-files[4]{path,scope}:
+  "2026-11-18T18:24:53.496Z",codex-sol,"The hosted cross-platform tests exposed canonical versus caller-spelled tracker roots. The repair will compare canonical directories, render portable relative selectors and check an absolute selector by filesystem identity before replay."
+files[5]{path,scope}:
   src/collections.rs,project
   src/main.rs,project
+  tests/cli_dispatch.rs,project
   tests/search_collections_differential.rs,project
   tests/support/collections_unit.rs,project
-tests[1]{command,scope,provenance{author,created_at,source_kind,source_ref}}:
+tests[2]{command,scope,provenance{author,created_at,source_kind,source_ref}}:
   PM_RUST_REQUIRE_PUBLISHED_CLI=1 cargo test --locked --test search_collections_differential linked_note_recovery_matches_published_semantics,project,codex-sol,"2026-11-18T16:55:30.069Z",local_mutation,fix/oracle-pm-cli-1118
+  cargo test --locked --test cli_dispatch collection_restore_after_removal_is_read_only,project,codex-sol,"2026-11-18T18:26:53.415Z",local_mutation,fix/oracle-pm-cli-1118
 docs[1]{path,scope}:
   docs/NATIVE_SEARCH_COLLECTIONS.md,project
 body: ""
