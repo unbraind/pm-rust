@@ -33,17 +33,35 @@ pub(crate) fn compact_strings(value: &mut Value) -> bool {
     compact_strings_at(value, true)
 }
 
+/// Recognizes the published suffix so repeated budgeting preserves the original omitted count.
+fn already_compacted(text: &str) -> bool {
+    let Some((prefix, omitted)) = text.rsplit_once("…[+") else {
+        return false;
+    };
+    let Some(digits) = omitted.strip_suffix(" chars]") else {
+        return false;
+    };
+    !digits.is_empty()
+        && !digits.starts_with('0')
+        && digits.bytes().all(|byte| byte.is_ascii_digit())
+        && prefix.encode_utf16().count() <= 240
+}
+
 /// Protects only the root cursor envelope while compacting identically named item metadata.
 fn compact_strings_at(value: &mut Value, envelope: bool) -> bool {
     match value {
-        Value::String(text) if text.encode_utf16().count() > 240 => {
+        Value::String(text) if text.encode_utf16().count() > 240 && !already_compacted(text) => {
             let units = text.encode_utf16().take(240).collect::<Vec<_>>();
             let end = if (0xd800..=0xdbff).contains(&units[239]) {
                 239
             } else {
                 240
             };
-            *text = format!("{}…", String::from_utf16_lossy(&units[..end]));
+            let omitted = text.encode_utf16().count() - end;
+            *text = format!(
+                "{}…[+{omitted} chars]",
+                String::from_utf16_lossy(&units[..end])
+            );
             true
         }
         Value::Array(rows) => rows.iter_mut().fold(false, |changed, row| {

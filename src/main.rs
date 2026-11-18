@@ -757,6 +757,8 @@ fn run_collection_with_cwd(
             force: args.force,
             append_stable: args.append_stable,
             note: args.note,
+            full_history: args.full_history,
+            note_conflict: args.note_conflict,
         },
         &cwd?,
     )?;

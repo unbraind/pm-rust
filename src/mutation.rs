@@ -3049,7 +3049,7 @@ pub(crate) fn collection_item(
     key: &str,
     options: &crate::CollectionOptions,
     mut edit: crate::collections::Edit,
-) -> Result<(ItemDocument, bool, usize), PmRustError> {
+) -> Result<(ItemDocument, crate::collections::CollectionChange), PmRustError> {
     let mut settings = read_settings(pm_root)?;
     let timestamp = validate_mutation_request(&options.author, options.timestamp.as_deref())?;
     settings.locks.use_created_at = true;
@@ -3166,6 +3166,11 @@ pub(crate) fn collection_item(
         .and_then(Value::as_array)
         .cloned()
         .unwrap_or_default();
+    let outcomes = if key == "tests" {
+        Vec::new()
+    } else {
+        crate::collections::reconcile_artifact_notes(id, key, &current, &mut edit, options)?
+    };
     let (rows, removed) = crate::collections::merge(
         key,
         &current,
@@ -3179,8 +3184,10 @@ pub(crate) fn collection_item(
             serde_json::json!({"code":"linked_test_remove_no_match","unmatched":edit.removes.iter().map(|(kind,value)|format!("{kind}={value}")).chain(edit.indices.iter().map(|i|format!("index={i}"))).collect::<Vec<_>>(),"required":"List linked tests and retry with an exact command/path or a current 1-based --remove-index.","examples":[crate::render_pm_command(["test",id,"--list"]),crate::render_pm_command(["test",id,"--remove-index","1"])]}),
         ));
     }
-    if current == rows {
-        return Ok((before, false, removed));
+    let mutation =
+        crate::collections::CollectionChange::between(&current, &rows, removed, outcomes);
+    if !mutation.changed {
+        return Ok((before, mutation));
     }
     let mut document = before.clone();
     if rows.is_empty() {
@@ -3204,7 +3211,7 @@ pub(crate) fn collection_item(
         &item_path,
         &history_path,
     )?;
-    Ok((result.item, true, removed))
+    Ok((result.item, mutation))
 }
 
 /// Executes asserted ownership transactions for the SDK contract tests.

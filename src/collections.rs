@@ -27,6 +27,10 @@ pub struct CollectionOptions {
     pub append_stable: bool,
     /// Standalone note applied to added artifacts.
     pub note: Option<String>,
+    /// Include stored history alongside the entries written by this mutation.
+    pub full_history: bool,
+    /// Artifact note conflict policy, defaulting to refusal.
+    pub note_conflict: Option<String>,
 }
 
 #[cfg(test)]
@@ -832,6 +836,224 @@ pub(crate) fn prepare(
     })
 }
 
+/// Files and docs share one canonical path and scope identity.
+fn same_artifact(a: &Value, b: &Value) -> bool {
+    a["path"] == b["path"] && a["scope"] == b["scope"]
+}
+
+/// Validates the explicit repair policy before opening an item for mutation.
+fn note_policy(options: &CollectionOptions, has_adds: bool) -> Result<&str, PmRustError> {
+    let Some(raw) = options.note_conflict.as_deref() else {
+        return Ok("refuse");
+    };
+    let mode = raw.trim();
+    let Some(mode) = ["refuse", "replace", "append"]
+        .into_iter()
+        .find(|value| mode.eq_ignore_ascii_case(value))
+    else {
+        return Err(refusal(
+            format!("--note-conflict must be one of refuse, replace, append; got \"{raw}\""),
+            2,
+            json!({"code":"invalid_argument_value","flag":"--note-conflict","value":raw,"required":"Pass --note-conflict refuse|replace|append."}),
+        ));
+    };
+    if !has_adds {
+        return Err(refusal(
+            "--note-conflict requires --add or --add-glob in the same invocation (it decides how those links treat an existing note)",
+            2,
+            json!({"code":"missing_required_argument","flag":"--note-conflict","required":"Pass --add or --add-glob with --note-conflict."}),
+        ));
+    }
+    Ok(mode)
+}
+
+/// Builds retry guidance from the original linked-artifact arguments.
+fn note_conflict_refusal(
+    id: &str,
+    key: &str,
+    options: &CollectionOptions,
+    conflicts: &[Value],
+) -> PmRustError {
+    let first = &conflicts[0];
+    let path = first["path"].as_str().unwrap_or_default();
+    let noun = if key == "files" { "file" } else { "doc" };
+    let more = if conflicts.len() > 1 {
+        format!(" and {} more", conflicts.len() - 1)
+    } else {
+        String::new()
+    };
+    let existing = &first["existing_note"];
+    let requested = &first["requested_note"];
+    let detail = if first["source"] == "stored" {
+        format!(
+            "{id} already links {noun} {path} with the note {existing}{more}; the add was refused so that note is kept"
+        )
+    } else {
+        format!(
+            "The add names {noun} {path} on {id} with two notes, {existing} and then {requested}{more}; the add was refused because they disagree"
+        )
+    };
+    let retry = |mode: &str| {
+        let mut args = vec![key.to_owned(), id.to_owned()];
+        for add in &options.add {
+            args.extend(["--add".to_owned(), add.clone()]);
+        }
+        for remove in &options.remove {
+            args.extend(["--remove".to_owned(), remove.clone()]);
+        }
+        if let Some(note) = &options.note {
+            args.extend(["--note".to_owned(), note.clone()]);
+        }
+        args.extend(["--note-conflict".to_owned(), mode.to_owned()]);
+        if options.force {
+            args.push("--force".to_owned());
+        }
+        if options.append_stable {
+            args.push("--append-stable".to_owned());
+        }
+        if options.full_history {
+            args.push("--full-history".to_owned());
+        }
+        if let Some(message) = &options.message {
+            args.extend(["--message".to_owned(), message.clone()]);
+        }
+        args.extend(["--author".to_owned(), options.author.clone()]);
+        args
+    };
+    let append = retry("append");
+    let append_command = crate::render_pm_command(&append);
+    refusal(
+        detail,
+        4,
+        json!({
+            "code":"linked_artifact_note_conflict",
+            "why":"A different stored note is usually another agent's rationale, so --add never overwrites it silently.",
+            "required":"Re-run with --note-conflict append to keep both notes, or --note-conflict replace to overwrite the stored note.",
+            "next_steps":[append_command,crate::render_pm_command(retry("replace"))],
+            "recovery":{"suggested_retry":append_command,"suggested_retry_args":append},
+            "details":{"conflicts":conflicts}
+        }),
+    )
+}
+
+/// Resolves note edits in request order and refuses the whole write on a conflict.
+pub(crate) fn reconcile_artifact_notes(
+    id: &str,
+    key: &str,
+    current: &[Value],
+    edit: &mut Edit,
+    options: &CollectionOptions,
+) -> Result<Vec<Value>, PmRustError> {
+    let mode = note_policy(options, !edit.adds.is_empty())?;
+    let mut working: Vec<(Value, bool)> = current
+        .iter()
+        .cloned()
+        .map(|entry| (entry, false))
+        .collect();
+    let mut conflicts = Vec::new();
+    for add in &mut edit.adds {
+        let Some((entry, edited)) = working
+            .iter_mut()
+            .rev()
+            .find(|(entry, _)| same_artifact(entry, add))
+        else {
+            working.push((add.clone(), add.get("note").is_some()));
+            continue;
+        };
+        let Some(requested) = add.get("note").and_then(Value::as_str) else {
+            continue;
+        };
+        let existing = entry["note"].as_str();
+        if existing == Some(requested) {
+            continue;
+        }
+        let revised = match (existing, mode) {
+            (None, _) | (_, "replace") => requested.to_owned(),
+            (Some(existing), "append") => {
+                if existing.split("; ").any(|note| note == requested) {
+                    existing.to_owned()
+                } else {
+                    format!("{existing}; {requested}")
+                }
+            }
+            (Some(existing), _) => {
+                conflicts.push(json!({"path":add["path"],"scope":add["scope"],"existing_note":existing,"requested_note":requested,"source":if *edited {"this_write"} else {"stored"}}));
+                continue;
+            }
+        };
+        *edited |= existing != Some(revised.as_str());
+        add["note"] = json!(revised);
+        entry["note"] = add["note"].clone();
+    }
+    if !conflicts.is_empty() {
+        return Err(note_conflict_refusal(id, key, options, &conflicts));
+    }
+    let mut outcomes = Vec::<Value>::new();
+    for add in &edit.adds {
+        if outcomes.iter().any(|outcome| same_artifact(outcome, add)) {
+            continue;
+        }
+        let before = current.iter().rev().find(|entry| same_artifact(entry, add));
+        let after = working
+            .iter()
+            .rev()
+            .find(|(entry, _)| same_artifact(entry, add))
+            .map(|(entry, _)| &entry["note"]);
+        let outcome = match before {
+            None => "added",
+            Some(entry) if after == Some(&entry["note"]) => "unchanged",
+            Some(entry) if entry["note"].is_null() => "note_added",
+            Some(_) if mode == "append" => "note_appended",
+            Some(_) => "note_replaced",
+        };
+        outcomes.push(json!({"path":add["path"],"scope":add["scope"],"outcome":outcome}));
+    }
+    Ok(outcomes)
+}
+
+/// Entries and receipts produced from the snapshot held by a collection mutation.
+#[derive(Default)]
+pub(crate) struct CollectionChange {
+    /// Whether the persisted collection changed at all.
+    pub(crate) changed: bool,
+    /// Count of exact selectors that removed a row.
+    pub(crate) removed: usize,
+    /// Entries added or rewritten, in stored order.
+    pub(crate) written: Vec<Value>,
+    /// Per-argument linked artifact outcomes.
+    pub(crate) outcomes: Vec<Value>,
+}
+
+impl CollectionChange {
+    /// Captures changed entries using multiset equality against the previous snapshot.
+    pub(crate) fn between(
+        current: &[Value],
+        rows: &[Value],
+        removed: usize,
+        outcomes: Vec<Value>,
+    ) -> Self {
+        let mut unmatched: Vec<_> = current.iter().collect();
+        let written = rows
+            .iter()
+            .filter(|row| {
+                if let Some(index) = unmatched.iter().position(|previous| *previous == *row) {
+                    unmatched.remove(index);
+                    false
+                } else {
+                    true
+                }
+            })
+            .cloned()
+            .collect();
+        Self {
+            changed: current != rows,
+            removed,
+            written,
+            outcomes,
+        }
+    }
+}
+
 /// Applies additions and removals to the latest locked collection.
 pub(crate) fn merge(
     key: &str,
@@ -946,64 +1168,116 @@ impl Workspace {
                 json!({}),
             ));
         }
-        let (document, changed, removed) =
-            if edit.adds.is_empty() && edit.removes.is_empty() && edit.indices.is_empty() {
-                (
-                    self.get(id).map_err(|error| match error {
-                        PmRustError::ItemNotFound { .. } => {
-                            refusal(format!("Item {id} not found"), 3, json!({}))
-                        }
-                        error => error,
-                    })?,
-                    false,
-                    0,
-                )
-            } else {
-                crate::ownership::with_identity(
-                    self.pm_root(),
-                    &crate::OwnershipOptions {
-                        identity: options.identity.clone(),
-                        ..crate::OwnershipOptions::default()
-                    },
-                    || crate::mutation::collection_item(self.pm_root(), id, key, options, edit),
-                )?
-            };
-        let rows = document
+        if options.note_conflict.is_some() {
+            note_policy(options, !edit.adds.is_empty())?;
+        }
+        let write = !edit.adds.is_empty() || !edit.removes.is_empty() || !edit.indices.is_empty();
+        let (document, mutation) = if write {
+            crate::ownership::with_identity(
+                self.pm_root(),
+                &crate::OwnershipOptions {
+                    identity: options.identity.clone(),
+                    ..crate::OwnershipOptions::default()
+                },
+                || crate::mutation::collection_item(self.pm_root(), id, key, options, edit),
+            )?
+        } else {
+            (
+                self.get(id).map_err(|error| match error {
+                    PmRustError::ItemNotFound { .. } => {
+                        refusal(format!("Item {id} not found"), 3, json!({}))
+                    }
+                    error => error,
+                })?,
+                CollectionChange::default(),
+            )
+        };
+        let full = document
             .metadata
             .extra
             .get(key)
-            .cloned()
-            .unwrap_or_else(|| json!([]));
+            .and_then(Value::as_array)
+            .map_or(&[][..], Vec::as_slice);
+        let total = full.len();
+        let rows = if write && !options.full_history {
+            &mutation.written[..]
+        } else {
+            full
+        };
+        let count = rows.len();
+        let changed = mutation.changed;
         if key == "tests" {
-            return Ok(json!({"ok":true,"id":document.metadata.id,"tests":rows,"run_results":[],"failure_categories":{"infra_collision":0,"trust_refusal":0,"config_refusal":0,"assertion_failure":0,"empty_run":0,"timeout":0,"max_buffer":0,"spawn_error":0,"signal":0},"changed":changed,"count":rows.as_array().map_or(0,Vec::len)}).as_object().map(|map|{let mut map=map.clone();if removed>0 {map.insert("removed".to_owned(),json!(removed));}Value::Object(map)}).unwrap_or_default());
-        }
-        let mut result = json!({"id":document.metadata.id,key:rows,"changed":changed,"count":rows.as_array().map_or(0,Vec::len)});
-        if changed {
-            let mut paths: Vec<_> = rows
-                .as_array()
-                .into_iter()
-                .flatten()
-                .filter_map(|r| r["path"].as_str())
-                .collect();
-            paths.sort_by(|a, b| crate::collation::compare(a, b));
-            paths.dedup();
-            let mut existing = Vec::new();
-            let mut missing = Vec::new();
-            let mut nonfile = Vec::new();
-            let mut remote = Vec::new();
-            for path in &paths {
-                if path.contains("://") {
-                    remote.push(*path);
-                } else {
-                    match std::fs::metadata(root.join(path)) {
-                        Ok(m) if m.is_file() => existing.push(*path),
-                        Err(e) if e.kind() == std::io::ErrorKind::NotFound => missing.push(*path),
-                        Ok(_) | Err(_) => nonfile.push(*path),
-                    }
-                }
+            let mut result = json!({"ok":true,"id":document.metadata.id,"tests":rows,"run_results":[],"changed":changed,"count":count});
+            if mutation.removed > 0 {
+                result["removed"] = json!(mutation.removed);
             }
-            result["validation"] = json!({"checked":paths.len(),"existing_files":existing,"missing_paths":missing,"non_file_paths":nonfile,"remote_references":remote});
+            if write {
+                attach_collection_counts(&mut result, total, count);
+                attach_collection_receipts(&mut result, key, &mutation, count < total);
+            }
+            return Ok(result);
+        }
+        let mut result =
+            json!({"id":document.metadata.id,key:rows,"changed":changed,"count":count});
+        if write {
+            attach_collection_counts(&mut result, total, count);
+        }
+        if changed && count > 0 {
+            result["validation"] = validate_link_paths(root, rows);
+        }
+        if write {
+            attach_collection_receipts(&mut result, key, &mutation, count < total);
         }
         Ok(result)
     }
+}
+
+/// Attaches delivered and stored counts before validation details.
+fn attach_collection_counts(result: &mut Value, total: usize, count: usize) {
+    result["total_count"] = json!(total);
+    result["returned_count"] = json!(count);
+    result["has_more"] = json!(count < total);
+}
+
+/// Reports the exact mutation and how to expand an incomplete response.
+fn attach_collection_receipts(
+    result: &mut Value,
+    key: &str,
+    changed: &CollectionChange,
+    withheld: bool,
+) {
+    let mut receipt = json!({"changed_count":changed.written.len(),"removed_count":changed.removed,"full_history_included":!withheld});
+    if !changed.outcomes.is_empty() {
+        receipt["link_outcomes"] = json!(changed.outcomes);
+    }
+    result["mutation_receipt"] = receipt;
+    let groups = if withheld {
+        json!([{"name":format!("{key}_history"),"restore_with":{"selector":"full_history","cli_flag":"--full-history","sdk_option":"fullHistory","mcp_option":"full"}}])
+    } else {
+        json!([])
+    };
+    result["omission_receipt"] = json!({"has_omissions":withheld,"omitted_field_group_count":usize::from(withheld),"omitted_field_groups":groups});
+}
+
+/// Checks only the links returned by the current response.
+fn validate_link_paths(root: &Path, rows: &[Value]) -> Value {
+    let mut paths: Vec<_> = rows.iter().filter_map(|r| r["path"].as_str()).collect();
+    paths.sort_by(|a, b| crate::collation::compare(a, b));
+    paths.dedup();
+    let mut existing = Vec::new();
+    let mut missing = Vec::new();
+    let mut nonfile = Vec::new();
+    let mut remote = Vec::new();
+    for path in &paths {
+        if path.contains("://") {
+            remote.push(*path);
+        } else {
+            match std::fs::metadata(root.join(path)) {
+                Ok(m) if m.is_file() => existing.push(*path),
+                Err(e) if e.kind() == std::io::ErrorKind::NotFound => missing.push(*path),
+                Ok(_) | Err(_) => nonfile.push(*path),
+            }
+        }
+    }
+    json!({"checked":paths.len(),"existing_files":existing,"missing_paths":missing,"non_file_paths":nonfile,"remote_references":remote})
 }

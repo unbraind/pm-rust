@@ -526,6 +526,12 @@ pub struct CollectionArgs {
     /// Annotate added artifacts.
     #[arg(long)]
     pub note: Option<String>,
+    /// Preserve the full stored collection in a mutation receipt.
+    #[arg(long)]
+    pub full_history: bool,
+    /// How an add handles an existing artifact note.
+    #[arg(long, allow_hyphen_values = true)]
+    pub note_conflict: Option<String>,
     /// Emit JSON instead of TOON.
     #[arg(long)]
     pub json: bool,

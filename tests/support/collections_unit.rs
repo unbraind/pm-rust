@@ -450,6 +450,47 @@ fn tracker() -> Result<(tempfile::TempDir, Workspace), Box<dyn std::error::Error
     Ok((root, workspace))
 }
 
+/// Refusing a conflicting note preserves storage and explicit append projects only the edited link.
+#[test]
+fn artifact_note_conflicts_preserve_storage_and_report_explicit_append() -> TestResult {
+    let (directory, workspace) = tracker()?;
+    let root = directory.path();
+    let mut options = CollectionOptions {
+        author: "fixture".to_owned(),
+        timestamp: Some("2026-08-22T10:00:00.000Z".to_owned()),
+        add: vec!["path=a.rs,note=Stored".to_owned(), "b.rs".to_owned()],
+        ..CollectionOptions::default()
+    };
+    workspace.collection("sample-one", "files", &options, root)?;
+    let item = workspace.pm_root().join("tasks/sample-one.toon");
+    let history = workspace.pm_root().join("history/sample-one.jsonl");
+    let item_bytes = std::fs::read(&item)?;
+    let history_bytes = std::fs::read(&history)?;
+
+    options.add = vec!["path=a.rs,note=Incoming".to_owned()];
+    let Err(PmRustError::CommandRefusal { context, .. }) =
+        workspace.collection("sample-one", "files", &options, root)
+    else {
+        return Err("expected a linked artifact note conflict".into());
+    };
+    assert_eq!(context["code"], "linked_artifact_note_conflict");
+    assert_eq!(std::fs::read(item)?, item_bytes);
+    assert_eq!(std::fs::read(history)?, history_bytes);
+
+    options.note_conflict = Some("append".to_owned());
+    let result = workspace.collection("sample-one", "files", &options, root)?;
+    assert_eq!(
+        result["files"],
+        json!([{"path":"a.rs","scope":"project","note":"Stored; Incoming"}])
+    );
+    assert_eq!(result["total_count"], 2);
+    assert_eq!(
+        result["mutation_receipt"]["link_outcomes"][0]["outcome"],
+        "note_appended"
+    );
+    Ok(())
+}
+
 /// Read-only lists, no-op edits, missing entries and I/O failures preserve authoritative state.
 #[test]
 #[allow(clippy::too_many_lines)]
@@ -760,7 +801,7 @@ fn linked_test_sdk_transactions_preserve_authoritative_bytes() -> TestResult {
     options.add.clear();
     options.remove_index = vec!["1".to_owned()];
     let result = workspace.collection("sample-one", "tests", &options, root)?;
-    assert_eq!(result["removed"], 1);
+    assert_eq!(result["mutation_receipt"]["removed_count"], 1);
     assert_eq!(result["count"], 0);
     assert!(
         !workspace
@@ -778,7 +819,7 @@ fn linked_test_sdk_transactions_preserve_authoritative_bytes() -> TestResult {
     options.add.clear();
     options.remove = vec!["command=one".to_owned()];
     assert_eq!(
-        workspace.collection("sample-one", "tests", &options, root)?["removed"],
+        workspace.collection("sample-one", "tests", &options, root)?["mutation_receipt"]["removed_count"],
         1
     );
     options.remove.clear();

@@ -422,8 +422,12 @@ fn producer_rebasing_and_disclosure_keep_indices_and_snapshot() {
 fn estimates_and_string_compaction_handle_nested_unicode() {
     let mut value = json!({"rows":["😀".repeat(130),"x".repeat(240),null,3]});
     assert!(compact_strings(&mut value));
-    assert_eq!(value["rows"][0], format!("{}…", "😀".repeat(120)));
+    assert_eq!(
+        value["rows"][0],
+        format!("{}…[+20 chars]", "😀".repeat(120))
+    );
     assert_eq!(value["rows"][1], "x".repeat(240));
+    assert!(!compact_strings(&mut value));
     assert!(!compact_strings(&mut json!([true, null, "short"])));
     let mut measured = crate::ListOutput::from(json!({"read_output":{"estimated_tokens":0}}));
     super::update_output(&mut measured, false);
@@ -635,7 +639,10 @@ fn round7_cursor_metadata_compacts_below_the_envelope() -> Result<(), Box<dyn st
     assert!(compact_strings(&mut source));
     for field in ["next_cursor", "output_cursor"] {
         assert_eq!(source[field], long);
-        assert_eq!(source["items"][0][field], format!("{}…", "a".repeat(240)));
+        assert_eq!(
+            source["items"][0][field],
+            format!("{}…[+29760 chars]", "a".repeat(240))
+        );
     }
     let payload = json!({"items":[{"id":"sample-one","next_cursor":long,"output_cursor":long}],"count":1,"total":1,"has_more":false,"next_cursor":null});
     let result = apply(
