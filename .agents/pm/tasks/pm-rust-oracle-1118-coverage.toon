@@ -1,0 +1,14 @@
+id: pm-rust-oracle-1118-coverage
+title: Restore complete Rust coverage for the published oracle refresh
+description: "PR 181 at 1caff0a passes both Rust shards on Ubuntu, macOS and Windows. CI run 44297971605 merged both coverage shards and found 108 uncovered lines, 7 functions, 206 regions and 92 branches. Reproduce the merged report, identify the uncovered paths introduced or moved by this refresh, and add targeted tests to meet the existing 100 percent thresholds."
+type: Task
+status: open
+priority: 1
+tags[3]: coverage,follow-up,oracle
+created_at: "2026-11-18T12:11:43.150Z"
+updated_at: "2026-11-18T12:11:47.337Z"
+author: codex-sol
+parent: pm-rust-oracle-1118
+docs[1]{path,scope}:
+  .github/workflows/ci.yml,project
+body: ""
