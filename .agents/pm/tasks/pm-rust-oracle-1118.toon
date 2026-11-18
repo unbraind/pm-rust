@@ -6,12 +6,12 @@ status: in_progress
 priority: 1
 tags[3]: "gh:unbraind/pm-rust#176","gh:unbraind/pm-rust#181",oracle
 created_at: "2026-11-18T09:41:09.150Z"
-updated_at: "2026-11-18T17:29:44.994Z"
+updated_at: "2026-11-18T18:06:57.845Z"
 assignee: codex-sol
 claim_principal: codex-sol
 author: codex-sol
 parent: pm-rust-u4al
-comments[35]{created_at,author,text}:
+comments[36]{created_at,author,text}:
   "2026-11-18T09:41:20.010Z",codex-sol,Started from the Dependabot head. npm latest is 2026.11.18. Reviewing the failed matrix and reproducing against the current pin.
   "2026-11-18T09:57:01.888Z",codex-sol,"All seven failed jobs in run 44015087729 report two cases. GH-1707 in 2026.11.13 introduces credential-bearing identity admission and stored-holder redaction. Direct 2026.11.18 probes confirm stored holders are redacted without requiring credential restoration from a clean invocation. The full Linux run also confirms GH-1684 and GH-1703 in 2026.11.14 change TOON receipts and budgeted row counts, and GH-1336 in 2026.11.16 adds claim activity evidence. Implementing these wire changes while the remaining suites run."
   "2026-11-18T10:10:24.585Z",codex-sol,"Published 2026.11.18 accepts the unchanged replay at the old TOON overhead boundary. The same stale-output-cursor defect remains at an adjacent second-projection boundary, with successful replay on either side. Saved an upstream draft after checking related issues. Native already had this stale replay behavior. Kept the existing reprojected-snapshot test and tracked the separate GH-1336 takeover and next write/read work under pm-rust-stale-claim-takeover."
@@ -47,6 +47,7 @@ comments[35]{created_at,author,text}:
   "2026-11-18T17:13:57.545Z",codex-sol,PRRT_kwDOTwgMRs65CD_7 - 34d1ea82c7af. Assert the literal restore template and each expected group independently of the TOON projection helper.
   "2026-11-18T17:14:03.103Z",codex-sol,"PRRT_kwDOTwgMRs65CEAO - 34d1ea82c7af. Require the null padding key to exist, retain the explicit-null control and verify the restored rows."
   "2026-11-18T17:29:44.993Z",codex-sol,The timestamp regression also includes an older operation-free history record. It must remain ineligible for idle evidence while the compact-baseline timestamp is parsed.
+  "2026-11-18T18:06:57.845Z",codex-sol,Extended the recovered-page regression to cover the explicit output budget as well as the intent budget. Both over-budget paths discard the rows and return the corresponding recovery receipt.
 files[19]{path,scope}:
   src/collections.rs,project
   src/list_intent.rs,project

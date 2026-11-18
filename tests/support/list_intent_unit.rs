@@ -423,6 +423,15 @@ fn oversized_final_projection_returns_a_recovery_receipt() -> Result<(), Box<dyn
     assert!(super::settled(&delivered, &receipt, &options).is_some());
     let mut recovery = options.clone();
     recovery.output_cursor = Some("cursor-for-original-rows".into());
+    let mut capped = recovery.clone();
+    capped.output_budget = Some(budget.to_string());
+    let outcome =
+        super::verify_projection(delivered.clone(), &receipt, &capped, &capped, budget, None)?;
+    assert_eq!(
+        outcome["output_budget_exceeded"]["reason"],
+        "requested_budget_infeasible"
+    );
+    assert!(outcome.get("items").is_none());
     let outcome = super::verify_projection(delivered, &receipt, &options, &recovery, budget, None)?;
     assert_eq!(
         outcome["budget_exceeded"]["reason"],
