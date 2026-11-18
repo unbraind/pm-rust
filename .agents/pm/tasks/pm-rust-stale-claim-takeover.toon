@@ -6,20 +6,24 @@ status: in_progress
 priority: 2
 tags[2]: follow-up,oracle
 created_at: "2026-11-18T10:07:09.256Z"
-updated_at: "2026-11-18T16:55:20.173Z"
+updated_at: "2026-11-18T17:19:31.013Z"
 assignee: codex-sol
 claim_principal: codex-sol
 author: codex-sol
 parent: pm-rust-u4al
-comments[3]{created_at,author,text}:
+comments[6]{created_at,author,text}:
   "2026-11-18T16:39:33.335Z",codex-sol,Reviewing the assigned PR 181 findings against native behavior and the pinned oracle. Regression tests and gate results will be linked here.
   "2026-11-18T16:52:22.441Z",codex-sol,PRRT_kwDOTwgMRs65CD93 - Retained oracle parity. The 2026.11.18 lifecycle/claim.js stale branch emits Re-run with --takeover-stale. stale_foreign_claim_refusal_matches_published compares both rendered encodings exactly. Native takeover support remains tracked here.
   "2026-11-18T16:52:28.631Z",codex-sol,PRRT_kwDOTwgMRs65CD-B - Retained oracle parity. The pinned resolveItemOwnershipActivity returns its initial judgment before workspaceRestoredSince when stale_policy.stale is false. The differential now measures the 71-hour case alongside the past-threshold restore.
+  "2026-11-18T17:13:15.542Z",codex-sol,PRRT_kwDOTwgMRs65CD9n - 34d1ea82c7af. Force advice now requires the corresponding policy and an unforced request. A held cleanup gate tests ordinary contention with automatic recovery.
+  "2026-11-18T17:13:41.677Z",codex-sol,PRRT_kwDOTwgMRs65CD_E - 34d1ea82c7af. Stage session bytes then check the lease generation and expiry under the reclamation gate before publication. A paused native writer cannot replace its successor's attribution.
+  "2026-11-18T17:19:31.013Z",codex-sol,Added a separate contention regression for a busy gate at publication. It checks the original session bytes and the removal of staged temporary data.
 files[2]{path,scope}:
   src/mutation.rs,project
   tests/support/claim_activity_differential.rs,project
-tests[1]{command,scope,provenance{author,created_at,source_kind,source_ref}}:
+tests[2]{command,scope,provenance{author,created_at,source_kind,source_ref}}:
   PM_RUST_REQUIRE_PUBLISHED_CLI=1 cargo test --locked --lib workspace_restore_evidence_matches_published,project,codex-sol,"2026-11-18T16:55:20.079Z",local_mutation,fix/oracle-pm-cli-1118
+  cargo test --locked --lib busy_session_publication_gate_preserves_snapshot,project,codex-sol,"2026-11-18T17:19:23.746Z",local_mutation,fix/oracle-pm-cli-1118
 docs[1]{path,scope}:
   docs/NATIVE_SELECTION_LIFECYCLE_2026_10_13.md,project
 body: ""

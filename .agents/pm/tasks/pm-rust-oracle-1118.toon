@@ -6,12 +6,12 @@ status: in_progress
 priority: 1
 tags[3]: "gh:unbraind/pm-rust#176","gh:unbraind/pm-rust#181",oracle
 created_at: "2026-11-18T09:41:09.150Z"
-updated_at: "2026-11-18T17:12:16.668Z"
+updated_at: "2026-11-18T17:14:03.103Z"
 assignee: codex-sol
 claim_principal: codex-sol
 author: codex-sol
 parent: pm-rust-u4al
-comments[24]{created_at,author,text}:
+comments[34]{created_at,author,text}:
   "2026-11-18T09:41:20.010Z",codex-sol,Started from the Dependabot head. npm latest is 2026.11.18. Reviewing the failed matrix and reproducing against the current pin.
   "2026-11-18T09:57:01.888Z",codex-sol,"All seven failed jobs in run 44015087729 report two cases. GH-1707 in 2026.11.13 introduces credential-bearing identity admission and stored-holder redaction. Direct 2026.11.18 probes confirm stored holders are redacted without requiring credential restoration from a clean invocation. The full Linux run also confirms GH-1684 and GH-1703 in 2026.11.14 change TOON receipts and budgeted row counts, and GH-1336 in 2026.11.16 adds claim activity evidence. Implementing these wire changes while the remaining suites run."
   "2026-11-18T10:10:24.585Z",codex-sol,"Published 2026.11.18 accepts the unchanged replay at the old TOON overhead boundary. The same stale-output-cursor defect remains at an adjacent second-projection boundary, with successful replay on either side. Saved an upstream draft after checking related issues. Native already had this stale replay behavior. Kept the existing reprojected-snapshot test and tracked the separate GH-1336 takeover and next write/read work under pm-rust-stale-claim-takeover."
@@ -36,6 +36,16 @@ comments[24]{created_at,author,text}:
   "2026-11-18T16:39:25.325Z",codex-sol,Reviewing the assigned PR 181 findings against native behavior and the pinned oracle. Regression tests and gate results will be linked here.
   "2026-11-18T16:52:35.107Z",codex-sol,"PRRT_kwDOTwgMRs65CD-P - Retained oracle parity. In 2026.11.18 buildContextSummaryExtras counts progress among activeItems, while the two advisory counts come from inProgressWork. The native custom progress fixture exercises that distinction."
   "2026-11-18T16:52:46.341Z",codex-sol,PRRT_kwDOTwgMRs65CD9f - Retained oracle parity. The pinned real CLI returned invalid_argument_value for explicit --author and PM_AUTHOR credentials. In both cases next_steps includes restore before replay followed by the plain-name replacement instruction.
+  "2026-11-18T17:13:04.054Z",codex-sol,PRRT_kwDOTwgMRs65CD89 - 34d1ea82c7af. Verify the finalized projection on stale-cursor recovery. Reprojected cursor replay checks the wire budget and the over-budget test requires an omission receipt.
+  "2026-11-18T17:13:08.789Z",codex-sol,PRRT_kwDOTwgMRs65CD9H - 34d1ea82c7af. Compose the aggregate status from release. The test reopens between steps and checks both snapshots and the aggregate.
+  "2026-11-18T17:13:22.451Z",codex-sol,PRRT_kwDOTwgMRs65CD-L - 34d1ea82c7af. Compute ranking recency and advisory activity from one per-item history read. Read counters exercise ordinary and terminal progress cases.
+  "2026-11-18T17:13:31.427Z",codex-sol,"PRRT_kwDOTwgMRs65CD-u - 34d1ea82c7af. Reject impossible omission prefixes, counts and arithmetic overflow. The unit corpus includes canonical forms and a 30000-digit count."
+  "2026-11-18T17:13:37.183Z",codex-sol,"PRRT_kwDOTwgMRs65CD-4 - 34d1ea82c7af. Require a present null placeholder in each grouped absent_rows coordinate. The invalid table regression rejects populated, missing and out-of-bounds cells."
+  "2026-11-18T17:13:45.673Z",codex-sol,"PRRT_kwDOTwgMRs65CD_S - 34d1ea82c7af. Capture each implementation's item, history and session before refusal. Stale claim and credential differentials compare against their own snapshots."
+  "2026-11-18T17:13:49.428Z",codex-sol,PRRT_kwDOTwgMRs65CD_e - 34d1ea82c7af. Give the malformed history timestamp a qualifying compact-baseline operation and assert the resulting advisory counts.
+  "2026-11-18T17:13:53.808Z",codex-sol,"PRRT_kwDOTwgMRs65CD_q - 34d1ea82c7af. Assert the unknown and idle items independently, including their separate ownership counts."
+  "2026-11-18T17:13:57.545Z",codex-sol,PRRT_kwDOTwgMRs65CD_7 - 34d1ea82c7af. Assert the literal restore template and each expected group independently of the TOON projection helper.
+  "2026-11-18T17:14:03.103Z",codex-sol,"PRRT_kwDOTwgMRs65CEAO - 34d1ea82c7af. Require the null padding key to exist, retain the explicit-null control and verify the restored rows."
 files[19]{path,scope}:
   src/collections.rs,project
   src/list_intent.rs,project

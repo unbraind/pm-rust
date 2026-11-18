@@ -6018,3 +6018,33 @@ fn expired_session_lease_refuses_its_own_staged_write() -> Result<(), Box<dyn st
     assert!(!path.exists());
     Ok(())
 }
+
+/// Losing access to the publication gate discards the staged snapshot and preserves prior bytes.
+#[test]
+fn busy_session_publication_gate_preserves_snapshot() -> Result<(), Box<dyn std::error::Error>> {
+    let (_temp, pm_root) = root("{}")?;
+    let runtime = pm_root.join("runtime");
+    fs::create_dir_all(&runtime)?;
+    let session = runtime.join("session.json");
+    let original = r#"{"value":"original"}"#;
+    fs::write(&session, original)?;
+    let mut held = None;
+    let result = mutate_session_state(&pm_root, |state| {
+        state.insert("value".into(), serde_json::json!("replacement"));
+        held = Some(acquire_cleanup_gate(
+            &pm_root.join("locks"),
+            "session-state",
+            30,
+        ));
+    });
+    let _gate = held.ok_or("mutation did not reach publication")??;
+    assert!(matches!(result, Err(PmRustError::LockConflict { .. })));
+    assert_eq!(fs::read_to_string(&session)?, original);
+    assert!(
+        fs::read_dir(&runtime)?
+            .collect::<Result<Vec<_>, _>>()?
+            .iter()
+            .all(|entry| !entry.file_name().to_string_lossy().ends_with(".tmp"))
+    );
+    Ok(())
+}
