@@ -83,6 +83,9 @@ fn round12_invalid_table_read_refuses() -> Result<(), Box<dyn std::error::Error>
     );
     for value in [
         json!({"items":[],"items_encoding":{"absent_rows":{"id":"bad"}}}),
+        json!({"items":[{"id":"one"}],"items_encoding":{"absent_rows":{"id":[0]}}}),
+        json!({"items":[{"id":null}],"items_encoding":{"absent_rows":{"id":[1]}}}),
+        json!({"items":[{"id":null}],"items_encoding":{"absent_rows":{"missing":[0]}}}),
         json!({"items":[1],"items_encoding":{"json_columns":[],"absent":[]}}),
         json!({"items":[{"a":1}],"items_encoding":{"json_columns":[],"absent":[],"list_columns":{"a":";"}}}),
         json!({"items":[{"a":"x"}],"items_encoding":{"json_columns":[],"absent":[],"list_columns":{"a":""}}}),

@@ -100,6 +100,7 @@ fn native(source: &Value, reprojected: bool) -> Result<Value, Box<dyn std::error
     let mut retry = options.clone();
     retry.output_cursor = Some(raw.to_owned());
     let result = super::super::deliver(source.clone().into(), &retry, &retry, Some(1000), None)?;
+    assert!(crate::read_output::measure(&result, true) <= 1000);
     let offset = usize::try_from(cursor["o"].as_u64().ok_or("offset")?)?;
     assert_eq!(result["items"][0]["id"], initial_rows[offset]["id"]);
     let mut changed = source.clone();

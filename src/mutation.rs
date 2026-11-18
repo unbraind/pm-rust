@@ -749,6 +749,15 @@ fn commit_temporary(
 
 /// Publishes replacement bytes over an existing durable target.
 fn atomic_replace(path: &Path, contents: &str) -> Result<(), PmRustError> {
+    replace_with(path, contents, publish_replacement)
+}
+
+/// Stages and flushes bytes before the caller enters its publication critical section.
+fn replace_with(
+    path: &Path,
+    contents: &str,
+    publish: impl FnOnce(&Path, &Path) -> Result<(), PmRustError>,
+) -> Result<(), PmRustError> {
     // `let..else`/`if let` instead of `.ok_or_else(..)`/`.map_err(..)` avoid
     // per-instantiation closure functions the coverage gate counts separately.
     let Some(parent) = path.parent() else {
@@ -772,8 +781,8 @@ fn atomic_replace(path: &Path, contents: &str) -> Result<(), PmRustError> {
             path: temporary.clone(),
             source,
         })?;
-    let result = stage_temporary(file, &temporary, contents)
-        .and_then(|()| publish_replacement(&temporary, path));
+    let result =
+        stage_temporary(file, &temporary, contents).and_then(|()| publish(&temporary, path));
     if result.is_err() {
         // A failed stage or publish must not leave the private temporary
         // behind: repeated failures would accumulate `.<name>.<token>.tmp`
@@ -946,6 +955,38 @@ fn acquire_lock_attempt(
         // This concrete structure has no fallible custom serializers.
         serde_json::to_string_pretty(&payload).unwrap_or_default()
     );
+    let _gate = acquire_cleanup_gate(&locks, id, ttl_seconds)?;
+    create_or_reclaim_lock(
+        &path,
+        &raw,
+        id,
+        ttl_seconds,
+        force_stale,
+        timestamp,
+        use_created_at,
+    )
+}
+
+/// Serializes native lock reclamation and session snapshot publication.
+struct CleanupGate {
+    path: PathBuf,
+    _lease: GateLease,
+}
+
+impl Drop for CleanupGate {
+    fn drop(&mut self) {
+        let _ = fs::remove_dir(&self.path);
+    }
+}
+
+/// Acquires the same per-item publication gate used by stale-lock reclamation.
+fn acquire_cleanup_gate(
+    locks: &Path,
+    id: &str,
+    ttl_seconds: u64,
+) -> Result<CleanupGate, PmRustError> {
+    #[cfg(target_os = "linux")]
+    let path = locks.join(format!("{id}.lock"));
     // Initialization and stale reclamation share one gate, so an unpublished
     // payload can never be mistaken for an expired incumbent.
     let gate = locks.join(format!("{id}.lock.stale-cleanup"));
@@ -970,7 +1011,7 @@ fn acquire_lock_attempt(
     if let Err(error) = lease.try_lock() {
         return Err(gate_lease_error(error, lease_path, id));
     }
-    let _lease = GateLease(lease);
+    let lease = GateLease(lease);
     if let Err(source) = fs::create_dir(&gate) {
         if !lock_contention_error(&source) {
             return Err(PmRustError::Io { path: gate, source });
@@ -1001,17 +1042,10 @@ fn acquire_lock_attempt(
             return Err(PmRustError::LockConflict { id: id.to_owned() });
         }
     }
-    let result = create_or_reclaim_lock(
-        &path,
-        &raw,
-        id,
-        ttl_seconds,
-        force_stale,
-        timestamp,
-        use_created_at,
-    );
-    let _ = fs::remove_dir(&gate);
-    result
+    Ok(CleanupGate {
+        path: gate,
+        _lease: lease,
+    })
 }
 
 /// Preserves gate-lease filesystem failures while classifying only a busy lease as contention.
@@ -1939,11 +1973,12 @@ fn validate_scalar_owner(
         && principal != caller_principal
         && settings.governance.policy() == "strict"
     {
-        return Err(ownership_refusal(
+        return Err(owner_conflict(
+            Some(&owner),
             format!(
                 "Item {} is assigned to {}. Use the owning principal or the published SDK with an intentional force override.",
                 before.metadata.id,
-                owner.trim()
+                crate::AuthorIdentity::redact_credentials(owner.trim())
             ),
             serde_json::json!({"code":"ownership_conflict","required":"Use the owning principal or the published SDK with an intentional force override."}),
         ));
@@ -2280,11 +2315,7 @@ fn close_refusal(detail: String, exit_code: u8, context: Value) -> PmRustError {
     } else {
         context
     };
-    PmRustError::CommandRefusal {
-        detail,
-        exit_code,
-        context,
-    }
+    crate::collections::refusal(detail, exit_code, context)
 }
 
 /// Resolves explicit evidence validation, including the oracle's disabled aliases.
@@ -2708,11 +2739,12 @@ pub(crate) fn close_item(
         && !request.fields.force
     {
         if settings.governance.policy() == "strict" {
-            return Err(ownership_refusal(
+            return Err(owner_conflict(
+                Some(&owner),
                 format!(
                     "Item {} is assigned to {}. Use --force to override.",
                     request.id,
-                    owner.trim()
+                    crate::AuthorIdentity::redact_credentials(owner.trim())
                 ),
                 serde_json::json!({"code":"ownership_conflict"}),
             ));
@@ -2721,7 +2753,7 @@ pub(crate) fn close_item(
             warnings.push(format!(
                 "ownership_warning:assignee_conflict:{}:{}",
                 request.id,
-                owner.trim()
+                crate::AuthorIdentity::redact_credentials(owner.trim())
             ));
         }
     }
@@ -2960,7 +2992,13 @@ fn ownership_text(document: &ItemDocument, field: &str) -> String {
 }
 
 /// Builds a typed published refusal with its structured guidance.
-fn ownership_refusal(detail: String, context: Value) -> PmRustError {
+pub(crate) fn ownership_refusal(detail: String, context: Value) -> PmRustError {
+    owner_conflict(None, detail, context)
+}
+
+/// Registers any legacy holder before projecting every public field of its refusal.
+fn owner_conflict(holder: Option<&str>, detail: String, context: Value) -> PmRustError {
+    let (detail, context) = crate::refusal::sdk_fields(detail, context, holder);
     PmRustError::OwnershipRefusal { detail, context }
 }
 
@@ -3003,7 +3041,11 @@ fn ownership_lock_refusal(
         Ok(raw) => raw.unwrap_or_default(),
         Err(error) => return error,
     };
-    if !raw.trim().is_empty() && ownership_lock_stale(&raw, timestamp, settings.locks.ttl_seconds) {
+    if !request.force
+        && settings.governance.stale_requires_force()
+        && !raw.trim().is_empty()
+        && ownership_lock_stale(&raw, timestamp, settings.locks.ttl_seconds)
+    {
         let id = &request.id;
         let path = format!("locks/{id}.lock");
         return ownership_refusal(
@@ -3024,7 +3066,10 @@ fn ownership_lock_refusal(
     let owner_suffix = if owner.is_empty() {
         String::new()
     } else {
-        format!(" (owner {owner})")
+        format!(
+            " (owner {})",
+            crate::AuthorIdentity::redact_credentials(owner)
+        )
     };
     let waited = if waited_ms == 0 {
         String::new()
@@ -3032,7 +3077,8 @@ fn ownership_lock_refusal(
         format!(" after waiting {waited_ms}ms")
     };
     let owner_state = crate::lock_owner::inspect(&value);
-    ownership_refusal(
+    owner_conflict(
+        Some(owner),
         format!(
             "Item {} is locked{owner_suffix} (owner process {owner_state}){waited}",
             request.id
@@ -3127,10 +3173,11 @@ pub(crate) fn collection_item(
         && !options.force
         && settings.governance.policy() == "strict"
     {
-        return Err(ownership_refusal(
+        return Err(owner_conflict(
+            Some(&owner),
             format!(
                 "Item {id} is assigned to {}. Use --force to override.",
-                owner.trim()
+                crate::AuthorIdentity::redact_credentials(owner.trim())
             ),
             serde_json::json!({"code":"ownership_conflict"}),
         ));
@@ -3249,6 +3296,11 @@ pub(crate) fn ownership_item_with_options(
     {
         return Err(invalid_mutation("timestamp must not be in the future"));
     }
+    let caller_principal = options.identity.as_ref().map_or_else(
+        || crate::ownership::caller_principal(&request.author),
+        |identity| identity.principal.clone(),
+    );
+    crate::AuthorIdentity::validate_credentials(&caller_principal, "claim_principal")?;
     let operation = if claim { "claim" } else { "release" };
     let wait_ms = lock_wait_budget(
         std::env::var("PM_LOCK_WAIT_MS").ok().as_deref(),
@@ -3294,10 +3346,6 @@ pub(crate) fn ownership_item_with_options(
     } else {
         Some(public_assignee.to_string())
     };
-    let caller_principal = options.identity.as_ref().map_or_else(
-        || crate::ownership::caller_principal(&request.author),
-        |identity| identity.principal.clone(),
-    );
     let foreign = previous_assignee.is_some() && principal != caller_principal;
     let mut document = before.clone();
     let mut warnings = Vec::new();
@@ -3331,7 +3379,7 @@ pub(crate) fn ownership_item_with_options(
                     &timestamp,
                     settings.mutation_guard.stale_in_progress_hours,
                 );
-                let phrase = ownership_phrase(&evidence, &assignee);
+                let phrase = ownership_phrase(&evidence, &public_assignee);
                 let activity = &evidence["claim_activity"];
                 let policy = &activity["stale_policy"];
                 let mut steps = vec![
@@ -3349,7 +3397,8 @@ pub(crate) fn ownership_item_with_options(
                 steps.push(
                     "Re-run with --force only when taking over the item is coordinated.".to_owned(),
                 );
-                return Err(ownership_refusal(
+                return Err(owner_conflict(
+                    Some(&assignee),
                     format!(
                         "Item {} is already {phrase}. Use --force to take over, or --if-available to skip without failing.",
                         request.id
@@ -3357,7 +3406,7 @@ pub(crate) fn ownership_item_with_options(
                     serde_json::json!({
                         "code":"already_claimed_by",
                         "item_id":request.id,
-                        "claimed_by":evidence["claimed_by"],
+                        "claimed_by":public_assignee,
                         "claimed_at":evidence["claimed_at"],
                         "claim_source":evidence["claim_source"],
                         "claim_activity":evidence["claim_activity"],
@@ -3394,7 +3443,7 @@ pub(crate) fn ownership_item_with_options(
             warnings.push(format!(
                 "ownership_warning:assignee_conflict:{}:{}",
                 request.id,
-                assignee.trim()
+                public_assignee.trim()
             ));
         }
         if foreign
@@ -3402,11 +3451,12 @@ pub(crate) fn ownership_item_with_options(
             && !options.release_bypass
             && settings.governance.policy() == "strict"
         {
-            return Err(ownership_refusal(
+            return Err(owner_conflict(
+                Some(&assignee),
                 format!(
                     "Item {} is assigned to {}. Use --force to override.",
                     request.id,
-                    assignee.trim()
+                    public_assignee.trim()
                 ),
                 serde_json::json!({
                     "code":"ownership_conflict",
@@ -3570,11 +3620,11 @@ pub(crate) fn validate_lifecycle_transition(
         before.metadata.item_type, from
     );
     if value["governance"]["workflow_enforcement"] == "strict" {
-        Err(PmRustError::CommandRefusal {
+        Err(crate::collections::refusal(
             detail,
-            exit_code: 2,
-            context: serde_json::json!({}),
-        })
+            2,
+            serde_json::json!({}),
+        ))
     } else {
         Ok(vec![format!("workflow_transition_not_allowed: {detail}")])
     }
@@ -3632,11 +3682,12 @@ pub(crate) fn lifecycle_status(
         && !request.force
         && settings.governance.policy() == "strict"
     {
-        return Err(ownership_refusal(
+        return Err(owner_conflict(
+            Some(&owner),
             format!(
                 "Item {} is assigned to {}. Use --force to override.",
                 request.id,
-                owner.trim()
+                crate::AuthorIdentity::redact_credentials(owner.trim())
             ),
             serde_json::json!({"code":"ownership_conflict"}),
         ));
@@ -3649,7 +3700,7 @@ pub(crate) fn lifecycle_status(
         Some(format!(
             "ownership_warning:assignee_conflict:{}:{}",
             request.id,
-            owner.trim()
+            crate::AuthorIdentity::redact_credentials(owner.trim())
         ))
     } else {
         None
@@ -3780,7 +3831,7 @@ pub(crate) fn mutate_session_state(
         ..LockSettings::default()
     };
     let timestamp = now_iso();
-    let _lock = match acquire_lock(
+    let lock = match acquire_lock(
         pm_root,
         "session-state",
         "session-state",
@@ -3808,7 +3859,32 @@ pub(crate) fn mutate_session_state(
         .and_then(|text| crate::strict_json::from_str::<serde_json::Map<String, Value>>(&text).ok())
         .unwrap_or_default();
     update(&mut state);
-    atomic_replace(&path, &crate::stringify_json(&Value::Object(state), false))
+    let contents = crate::stringify_json(&Value::Object(state), false);
+    replace_with(&path, &contents, |temporary, path| {
+        publish_session_state(pm_root, lock, settings.ttl_seconds, temporary, path)
+    })
+}
+
+/// Fences a prepared snapshot with the same gate used to replace stale session leases.
+fn publish_session_state(
+    pm_root: &Path,
+    lock: ItemLock,
+    ttl: u64,
+    temporary: &Path,
+    path: &Path,
+) -> Result<(), PmRustError> {
+    let _gate = acquire_cleanup_gate(&pm_root.join("locks"), "session-state", ttl)?;
+    let result = if ownership_lock_stale(&lock.raw, &now_iso(), ttl)
+        || fs::read_to_string(&lock.path).as_deref().ok() != Some(lock.raw.as_str())
+    {
+        Err(invalid_mutation(
+            "session-state lease expired or was replaced before publication",
+        ))
+    } else {
+        publish_replacement(temporary, path)
+    };
+    drop(lock);
+    result
 }
 
 /// Journals, writes, and records one completed in-place mutation.

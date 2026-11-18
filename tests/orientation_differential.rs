@@ -280,6 +280,7 @@ fn context_non_active_progress_matches_oracle() -> TestResult {
                 let result: Value = serde_json::from_slice(&expected.stdout)?;
                 assert_eq!(result["summary"]["open"], active_count);
                 assert_eq!(result["summary"]["in_progress"], 0);
+                assert_eq!(result["summary"]["in_progress_unowned"], 2);
             }
             compare(&expected, &native(root.path(), &args)?, &args);
         }

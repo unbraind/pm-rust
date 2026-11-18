@@ -1951,3 +1951,209 @@ fn email_boundary_refusals(json: bool, stored: bool) -> Result<(), Box<dyn std::
     }
     Ok(())
 }
+
+/// Listing a collection ignores a private configured writer; edits still refuse before persistence.
+#[test]
+fn legacy_default_author_does_not_block_collection_reads() -> Result<(), Box<dyn std::error::Error>>
+{
+    let tracker = workspace()?;
+    seed_item(&tracker)?;
+    let root = tracker.path().join(".agents/pm");
+    let path = root.join("settings.json");
+    let mut settings: serde_json::Value = serde_json::from_slice(&fs::read(&path)?)?;
+    settings["author_default"] =
+        serde_json::json!("https://fixture:synthetic-secret@example.invalid");
+    fs::write(path, settings.to_string())?;
+    for args in [
+        vec!["files", "sample-cli", "--json"],
+        vec!["files", "sample-cli", "--add", "file.rs", "--json"],
+        vec!["files", "sample-cli", "--remove", "file.rs", "--json"],
+    ] {
+        let out = Command::new(env!("CARGO_BIN_EXE_pm-rust"))
+            .current_dir(tracker.path())
+            .env_remove("PM_AUTHOR")
+            .args(&args)
+            .output()?;
+        assert_eq!(out.status.code(), Some(if args.len() == 3 { 0 } else { 2 }));
+        assert!(!String::from_utf8_lossy(&out.stderr).contains("synthetic-secret"));
+    }
+    Ok(())
+}
+
+/// CLI projection retains the private holder long enough to scrub copied command arguments.
+#[test]
+fn stored_holder_scrubs_copies_in_recovery() -> Result<(), Box<dyn std::error::Error>> {
+    let tracker = workspace()?;
+    seed_item(&tracker)?;
+    for (holder, projected) in [
+        (
+            "https://fixture:synthetic-secret@example.invalid",
+            "https://[redacted]@example.invalid",
+        ),
+        (
+            "custom:fixture:synthetic-secret%40example.invalid",
+            "custom:[redacted]%40example.invalid",
+        ),
+    ] {
+        set_legacy_holder(
+            &tracker.path().join(".agents/pm/tasks/sample-cli.toon"),
+            holder,
+        )?;
+        let output = pm_rust(
+            &tracker,
+            &[
+                "claim",
+                "sample-cli",
+                "--author",
+                "beta",
+                "--message",
+                "copied synthetic-secret",
+                "--json",
+            ],
+        )?;
+        assert_eq!(output.status.code(), Some(4));
+        let receipt: serde_json::Value = serde_json::from_slice(&output.stderr)?;
+        assert_eq!(receipt["claimed_by"], projected);
+        assert!(!receipt.to_string().contains("synthetic-secret"));
+    }
+    Ok(())
+}
+
+/// Replaying the scoped restore command after an indexed removal only lists the remaining rows.
+#[test]
+fn collection_restore_after_removal_is_read_only() -> Result<(), Box<dyn std::error::Error>> {
+    let tracker = workspace()?;
+    let elsewhere = workspace()?;
+    seed_item(&tracker)?;
+    let root = tracker.path().join(".agents/pm");
+    expect_ok(
+        &tracker,
+        &[
+            "test",
+            "sample-cli",
+            "--add",
+            "command=first",
+            "--add",
+            "command=second",
+            "--author",
+            "fixture",
+        ],
+    )?;
+    let result = Command::new(env!("CARGO_BIN_EXE_pm-rust"))
+        .current_dir(elsewhere.path())
+        .arg("--pm-path")
+        .arg(&root)
+        .args([
+            "test",
+            "sample-cli",
+            "--remove-index",
+            "1",
+            "--author",
+            "fixture",
+            "--json",
+        ])
+        .output()?;
+    assert!(
+        result.status.success(),
+        "{}",
+        String::from_utf8_lossy(&result.stderr)
+    );
+    let receipt: serde_json::Value = serde_json::from_slice(&result.stdout)?;
+    let hint = receipt["omission_receipt"]["omitted_field_groups"][0]["restore_with"]
+        .as_str()
+        .ok_or("read command")?;
+    let args = pm_rust::parse_command_args(hint).ok_or("read arguments")?;
+    assert_eq!(
+        args,
+        [
+            "pm",
+            "--pm-path",
+            root.to_str().ok_or("scope")?,
+            "test",
+            "sample-cli"
+        ]
+    );
+    let snapshot = || -> std::io::Result<_> {
+        Ok((
+            fs::read(root.join("tasks/sample-cli.toon"))?,
+            fs::read(root.join("history/sample-cli.jsonl"))?,
+        ))
+    };
+    let before = snapshot()?;
+    let read = Command::new(env!("CARGO_BIN_EXE_pm-rust"))
+        .current_dir(elsewhere.path())
+        .args(&args[1..])
+        .arg("--json")
+        .output()?;
+    assert!(read.status.success());
+    let listed: serde_json::Value = serde_json::from_slice(&read.stdout)?;
+    assert_eq!(listed["count"], 1);
+    assert_eq!(listed["tests"][0]["command"], "second");
+    assert_eq!(snapshot()?, before);
+    Ok(())
+}
+
+/// A detected session can execute both the refused write and its repair as the same principal.
+#[test]
+fn detected_session_can_replay_note_repair_under_strict_ownership()
+-> Result<(), Box<dyn std::error::Error>> {
+    let tracker = workspace()?;
+    seed_item(&tracker)?;
+    let root = tracker.path().join(".agents/pm");
+    let mut settings: serde_json::Value =
+        serde_json::from_slice(&fs::read(root.join("settings.json"))?)?;
+    settings["governance"] = serde_json::json!({"preset":"strict"});
+    fs::write(root.join("settings.json"), settings.to_string())?;
+    let session = |args: &[&str]| {
+        Command::new(env!("CARGO_BIN_EXE_pm-rust"))
+            .current_dir(tracker.path())
+            .env_remove("PM_AUTHOR")
+            .env("CODEX_THREAD_ID", "test-note-session")
+            .args(args)
+            .output()
+    };
+    for args in [
+        vec!["claim", "sample-cli", "--json"],
+        vec![
+            "files",
+            "sample-cli",
+            "--add",
+            "path=x.rs,note=first",
+            "--json",
+        ],
+    ] {
+        let out = session(&args)?;
+        assert!(
+            out.status.success(),
+            "{}",
+            String::from_utf8_lossy(&out.stderr)
+        );
+    }
+    let out = session(&[
+        "files",
+        "sample-cli",
+        "--add",
+        "path=x.rs,note=second",
+        "--json",
+    ])?;
+    let error: serde_json::Value = serde_json::from_slice(&out.stderr)?;
+    assert_eq!(error["code"], "linked_artifact_note_conflict");
+    let args = error["recovery"]["suggested_retry_args"]
+        .as_array()
+        .ok_or("repair args")?;
+    let args = args
+        .iter()
+        .filter_map(serde_json::Value::as_str)
+        .collect::<Vec<_>>();
+    assert!(!args.contains(&"--author"));
+    let repair = session(&args)?;
+    assert!(
+        repair.status.success(),
+        "{}",
+        String::from_utf8_lossy(&repair.stderr)
+    );
+    let after = session(&["files", "sample-cli", "--json"])?;
+    let listed: serde_json::Value = serde_json::from_slice(&after.stdout)?;
+    assert_eq!(listed["files"][0]["note"], "first; second");
+    Ok(())
+}

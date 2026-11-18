@@ -384,14 +384,17 @@ pub(crate) fn deliver(
         let receipt = projected["context_intent"].clone();
         Ok((finalize(projected, delivery, continuation)?, receipt))
     };
+    let verified = |overhead, delivery: &ListOptions| {
+        let (page, receipt) = project(overhead, delivery)?;
+        verify_projection(page, &receipt, options, delivery, budget, continuation)
+    };
     // Use the same projection and stopping rule for first pages and cursor recovery.
     let settle = |(first, receipt): (ListOutput, Value), delivery: &ListOptions| {
         let Some((_, estimated)) = settled(&first, &receipt, delivery) else {
             return Ok((first, None));
         };
         let overhead = overshoot(&receipt, estimated);
-        let (second, receipt) = project(overhead, delivery)?;
-        verify_projection(second, &receipt, options, delivery, budget, continuation).map(|page| {
+        verified(overhead, delivery).map(|page| {
             let resumable = page["output_budget_truncation"]["continuations"].is_array();
             (page, resumable.then_some(overhead))
         })
@@ -409,11 +412,7 @@ pub(crate) fn deliver(
             unpaged.output_cursor = None;
             project(0, &unpaged)
                 .and_then(|first| settle(first, &unpaged))
-                .and_then(|(_, overhead)| {
-                    overhead
-                        .ok_or(stale)
-                        .and_then(|overhead| project(overhead, requested).map(|(page, _)| page))
-                })
+                .and_then(|(_, overhead)| verified(overhead.ok_or(stale)?, requested))
         }
         Err(error) => Err(error),
     }
@@ -431,7 +430,10 @@ fn verify_projection(
     if let Some((receipt, estimated)) = settled(&page, receipt, delivery) {
         return finalize(
             omitted(receipt, options, budget, estimated),
-            delivery,
+            &ListOptions {
+                output_cursor: None,
+                ..delivery.clone()
+            },
             continuation,
         );
     }

@@ -37,6 +37,8 @@ mod query_cost;
 mod read_output;
 mod read_projection;
 mod read_session;
+#[doc(hidden)]
+pub mod refusal;
 mod search;
 mod selection;
 pub mod strict_json;

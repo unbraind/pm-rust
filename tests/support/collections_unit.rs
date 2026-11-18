@@ -474,6 +474,36 @@ fn artifact_note_conflicts_preserve_storage_and_report_explicit_append() -> Test
         return Err("expected a linked artifact note conflict".into());
     };
     assert_eq!(context["code"], "linked_artifact_note_conflict");
+    for command in context["next_steps"].as_array().ok_or("repairs")? {
+        let args =
+            crate::parse_command_args(command.as_str().ok_or("command")?).ok_or("arguments")?;
+        assert!(
+            args.windows(2)
+                .any(|pair| pair == ["--timestamp", "2026-08-22T10:00:00.000Z"])
+        );
+        assert!(args.windows(2).any(|pair| pair == ["--author", "fixture"]));
+    }
+    let mut detected = options.clone();
+    detected.timestamp = None;
+    detected.identity = Some(crate::AuthorIdentity::resolve(
+        None,
+        None,
+        &std::collections::BTreeMap::from([("CODEX_THREAD_ID".into(), "sample-session".into())]),
+    ));
+    let Err(PmRustError::CommandRefusal { context, .. }) =
+        workspace.collection("sample-one", "files", &detected, root)
+    else {
+        return Err("expected detected session conflict".into());
+    };
+    for repair in context["next_steps"].as_array().ok_or("repairs")? {
+        let args =
+            crate::parse_command_args(repair.as_str().ok_or("command")?).ok_or("arguments")?;
+        assert!(
+            !args
+                .iter()
+                .any(|token| token == "--timestamp" || token == "--author")
+        );
+    }
     assert_eq!(std::fs::read(item)?, item_bytes);
     assert_eq!(std::fs::read(history)?, history_bytes);
 
@@ -1132,5 +1162,25 @@ fn sdk_note_conflict_retry_preserves_the_request() -> TestResult {
         assert_eq!(retry.contains(&json!("--append-stable")), append_stable);
     }
     assert_eq!((std::fs::read(item)?, std::fs::read(history)?), before);
+    Ok(())
+}
+
+/// SDK callers operating inside the tracker restore omitted rows relative to that same tracker.
+#[test]
+fn omitted_rows_retain_tracker_root_as_invocation_directory() -> TestResult {
+    let (_directory, workspace) = tracker()?;
+    let mut options = CollectionOptions {
+        author: "fixture".into(),
+        add: vec!["a.rs".into(), "b.rs".into()],
+        ..Default::default()
+    };
+    workspace.collection("sample-one", "files", &options, workspace.pm_root())?;
+    options.add.clear();
+    options.remove.push("a.rs".into());
+    let result = workspace.collection("sample-one", "files", &options, workspace.pm_root())?;
+    assert_eq!(
+        result["omission_receipt"]["omitted_field_groups"][0]["restore_with"],
+        "pm --pm-path . files sample-one"
+    );
     Ok(())
 }

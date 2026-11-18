@@ -116,6 +116,49 @@ fn artifacts(expected: &Path, actual: &Path) -> TestResult {
     Ok(())
 }
 
+/// Preserve the oracle wire comparison except for the known destructive expansion hint.
+/// Both renderings must round-trip exactly before projecting the native read command.
+fn scoped_collection_restore(
+    mut oracle: Output,
+    args: &[&str],
+) -> Result<Output, Box<dyn std::error::Error>> {
+    if !oracle.status.success() || !String::from_utf8_lossy(&oracle.stdout).contains("full_history")
+    {
+        return Ok(oracle);
+    }
+    let json_output = args.contains(&"--json");
+    let mut receipt: Value = if json_output {
+        serde_json::from_slice(&oracle.stdout)?
+    } else {
+        pm_rust::parse_toon(std::str::from_utf8(&oracle.stdout)?)?
+    };
+    let pointer = "/omission_receipt/omitted_field_groups/0/restore_with";
+    if receipt.pointer(pointer).is_none() {
+        return Ok(oracle);
+    }
+    let render = |receipt: &Value| -> Result<Vec<u8>, Box<dyn std::error::Error>> {
+        Ok(if json_output {
+            format!("{}\n", pm_rust::stringify_json(receipt, true)).into_bytes()
+        } else {
+            pm_rust::stringify_toon(&receipt.clone().into())?.into_bytes()
+        })
+    };
+    assert_eq!(render(&receipt)?, oracle.stdout);
+    let hint = receipt.pointer_mut(pointer).ok_or("restore hint")?;
+    assert_eq!(
+        *hint,
+        json!({"selector":"full_history","cli_flag":"--full-history","sdk_option":"fullHistory","mcp_option":"full"})
+    );
+    *hint = json!(pm_rust::render_pm_command([
+        "--pm-path",
+        ".agents/pm",
+        args[0],
+        args[1]
+    ]));
+    oracle.stdout = render(&receipt)?;
+    Ok(oracle)
+}
+
 /// Builds a real tracker and verifies each collection branch with exact durable artifacts.
 #[test]
 #[allow(clippy::too_many_lines)]
@@ -359,7 +402,9 @@ fn collection_commands_match_oracle() -> TestResult {
                 &snapshot.path().join(".agents"),
                 &tracker.path().join(".agents"),
             )?;
-            let actual = native(tracker.path(), &args, true)?;
+            // Native --timestamp has no published counterpart. Do not inject it into refusal retries.
+            let actual = native(tracker.path(), &args, expected.status.success())?;
+            let expected = scoped_collection_restore(expected, &args)?;
             let comparison = std::panic::catch_unwind(|| {
                 output(&expected, &actual, &args);
                 artifacts(

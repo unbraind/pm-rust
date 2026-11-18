@@ -432,6 +432,9 @@ fn omission_receipts_preserve_distinct_and_explicit_restore_hints() {
     ]});
     let rows = super::render(&shared, 1);
     let named = super::render(&super::project_omission(&shared).unwrap_or_default(), 1);
+    for expected in ["progress", "dependencies", "activity", "--section <name>"] {
+        assert!(named.contains(expected), "{named}");
+    }
     assert!(named.len() < rows.len(), "{rows}\n{named}");
     assert_eq!(
         super::render(&json!({"omission_receipt": shared}), 0),
@@ -484,8 +487,16 @@ fn sparse_table_groups_repeated_missing_cells_in_wire_order()
         {"id":"three","a":null}
     ]);
     let (rows, receipt) = super::table(&source, false).ok_or("sparse table")?;
-    assert_eq!(rows[0]["b"], serde_json::Value::Null);
-    assert_eq!(rows[2]["a"], serde_json::Value::Null);
+    assert_eq!(rows[0].get("b"), Some(&serde_json::Value::Null));
+    assert_eq!(rows[2].get("a"), Some(&serde_json::Value::Null));
+    let wire = toon_format::encode_default(&json!({"items":rows,"items_encoding":receipt}))?;
+    let restored = crate::parse_toon(&wire)?;
+    assert_eq!(restored["items"], source);
+    assert!(restored["items"][0].get("b").is_none());
+    assert_eq!(
+        restored["items"][2].get("a"),
+        Some(&serde_json::Value::Null)
+    );
     assert_eq!(receipt["absent_rows"].to_string(), r#"{"b":[0,2],"a":[1]}"#);
     Ok(())
 }

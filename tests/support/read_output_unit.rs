@@ -662,6 +662,18 @@ fn round7_cursor_metadata_compacts_below_the_envelope() -> Result<(), Box<dyn st
 /// Only canonical omission markers can suppress another pass of string compaction.
 #[test]
 fn malformed_omission_markers_still_compact() {
+    for (prefix, count, valid) in [
+        (238, "999".to_owned(), false),
+        (239, "1".to_owned(), false),
+        (239, "2".to_owned(), true),
+        (240, "1".to_owned(), true),
+        (241, "2".to_owned(), false),
+        (240, "9".repeat(30_000), false),
+        (240, usize::MAX.to_string(), false),
+    ] {
+        let mut value = json!(format!("{}…[+{count} chars]", "x".repeat(prefix)));
+        assert_eq!(compact_strings(&mut value), !valid);
+    }
     for suffix in ["…[+bad", "…[+ chars]", "…[+01 chars]", "…[+1x chars]"] {
         let prefix = "x".repeat(240);
         let mut value = json!(format!("{prefix}{suffix}"));

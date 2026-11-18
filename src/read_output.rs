@@ -41,10 +41,14 @@ fn already_compacted(text: &str) -> bool {
     let Some(digits) = omitted.strip_suffix(" chars]") else {
         return false;
     };
-    !digits.is_empty()
-        && !digits.starts_with('0')
-        && digits.bytes().all(|byte| byte.is_ascii_digit())
-        && prefix.encode_utf16().count() <= 240
+    let units = prefix.encode_utf16().count();
+    matches!(units, 239 | 240)
+        && digits.starts_with(['1', '2', '3', '4', '5', '6', '7', '8', '9'])
+        && digits
+            .parse::<usize>()
+            .ok()
+            .and_then(|n| units.checked_add(n))
+            .is_some_and(|total| total > 240)
 }
 
 /// Protects root continuation tokens while compacting item metadata (unbraind/pm-cli#1754).

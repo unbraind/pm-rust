@@ -39,8 +39,9 @@ mod tests;
 
 /// Produces a published command failure with optional contract guidance.
 pub(crate) fn refusal(detail: impl Into<String>, exit_code: u8, context: Value) -> PmRustError {
+    let (detail, context) = crate::refusal::sdk_fields(detail.into(), context, None);
     PmRustError::CommandRefusal {
-        detail: detail.into(),
+        detail,
         exit_code,
         context,
     }
@@ -922,7 +923,16 @@ fn note_conflict_refusal(
         if let Some(message) = &options.message {
             args.extend(["--message".to_owned(), message.clone()]);
         }
-        args.extend(["--author".to_owned(), options.author.clone()]);
+        if let Some(timestamp) = &options.timestamp {
+            args.extend(["--timestamp".to_owned(), timestamp.clone()]);
+        }
+        if options
+            .identity
+            .as_ref()
+            .is_none_or(|identity| identity.source != "detected")
+        {
+            args.extend(["--author".to_owned(), options.author.clone()]);
+        }
         args
     };
     let append = retry("append");
@@ -1236,6 +1246,10 @@ impl Workspace {
         };
         let count = rows.len();
         let changed = mutation.changed;
+        let attach_receipts = |result: &mut Value| {
+            let pm_root = self.pm_root().strip_prefix(cwd).unwrap_or(self.pm_root());
+            attach_collection_receipts(result, key, id, pm_root, &mutation, count < total);
+        };
         if key == "tests" {
             let mut result = json!({"ok":true,"id":document.metadata.id,"tests":rows,"run_results":[],"changed":changed,"count":count});
             if mutation.removed > 0 {
@@ -1243,7 +1257,7 @@ impl Workspace {
             }
             if write {
                 attach_collection_counts(&mut result, total, count);
-                attach_collection_receipts(&mut result, key, &mutation, count < total);
+                attach_receipts(&mut result);
             }
             return Ok(result);
         }
@@ -1256,7 +1270,7 @@ impl Workspace {
             result["validation"] = validate_link_paths(root, rows);
         }
         if write {
-            attach_collection_receipts(&mut result, key, &mutation, count < total);
+            attach_receipts(&mut result);
         }
         Ok(result)
     }
@@ -1273,6 +1287,8 @@ fn attach_collection_counts(result: &mut Value, total: usize, count: usize) {
 fn attach_collection_receipts(
     result: &mut Value,
     key: &str,
+    id: &str,
+    pm_root: &Path,
     changed: &CollectionChange,
     withheld: bool,
 ) {
@@ -1282,7 +1298,10 @@ fn attach_collection_receipts(
     }
     result["mutation_receipt"] = receipt;
     let groups = if withheld {
-        json!([{"name":format!("{key}_history"),"restore_with":{"selector":"full_history","cli_flag":"--full-history","sdk_option":"fullHistory","mcp_option":"full"}}])
+        let command = if key == "tests" { "test" } else { key };
+        let root = pm_root.to_string_lossy();
+        let scope = if root.is_empty() { "." } else { &root };
+        json!([{"name":format!("{key}_history"),"restore_with":crate::render_pm_command(["--pm-path", scope, command, id])}])
     } else {
         json!([])
     };

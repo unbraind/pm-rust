@@ -5750,6 +5750,33 @@ fn skipped_claim_redacts_legacy_result_without_writing() -> Result<(), Box<dyn s
     let bytes = canonical_item_bytes(&document)?;
     fs::write(&path, &bytes)?;
     let history_before = fs::read(&history)?;
+    let workspace = crate::Workspace::discover(&pm_root)?;
+    fs::write(
+        pm_root.join("settings.json"),
+        r#"{"governance":{"preset":"strict"}}"#,
+    )?;
+    let conflicting = OwnershipItem {
+        id: "sample-unit".into(),
+        author: "other".into(),
+        timestamp: Some(TS.into()),
+        message: None,
+        force: false,
+        if_available: false,
+        provenance_role: None,
+    };
+    for error in [
+        workspace.claim(&conflicting),
+        workspace.release(&conflicting),
+    ] {
+        let Err(PmRustError::OwnershipRefusal { detail, context }) = error else {
+            return Err("expected a foreign owner refusal".into());
+        };
+        assert!(detail.contains("https://[redacted]@example.invalid"));
+        assert!(!format!("{detail} {context}").contains("synthetic-secret"));
+        if context["code"] == "already_claimed_by" {
+            assert_eq!(context["claimed_by"], "https://[redacted]@example.invalid");
+        }
+    }
     let result = ownership_item(
         &pm_root,
         &OwnershipItem {
@@ -5844,5 +5871,150 @@ fn stale_claim_refusal_suggests_explicit_takeover() -> Result<(), Box<dyn std::e
             .contains("--takeover-stale")
     );
     assert_eq!((fs::read(item)?, fs::read(history)?), before);
+    Ok(())
+}
+
+/// Neither explicit nor scoped SDK principals may reach lock, item, session or history.
+#[test]
+fn private_sdk_principals_refuse_before_storage() -> Result<(), Box<dyn std::error::Error>> {
+    let (_temp, pm_root) = root(&settings("sample-", "toon", 1800))?;
+    create_item(&pm_root, request())?;
+    let workspace = crate::Workspace::discover(&pm_root)?;
+    let claim = OwnershipItem {
+        id: "sample-unit".into(),
+        author: "fixture".into(),
+        timestamp: Some(TS.into()),
+        message: None,
+        force: false,
+        if_available: false,
+        provenance_role: None,
+    };
+    let item = pm_root.join("tasks/sample-unit.toon");
+    let history = pm_root.join("history/sample-unit.jsonl");
+    let before = (fs::read(&item)?, fs::read(&history)?);
+    let mut identity =
+        crate::AuthorIdentity::resolve(Some("fixture"), None, &std::collections::BTreeMap::new());
+    for principal in [
+        "https://fixture:synthetic-secret@example.invalid",
+        "custom:fixture%40sample.invalid",
+    ] {
+        identity.principal = principal.to_owned();
+        let options = crate::OwnershipOptions {
+            identity: Some(identity.clone()),
+            ..Default::default()
+        };
+        for result in [
+            workspace.claim_with_options(&claim, &options),
+            identity.with(|| workspace.claim(&claim)),
+        ] {
+            assert!(matches!(
+                result,
+                Err(PmRustError::IdentityCredentials {
+                    identity_source: "claim_principal"
+                })
+            ));
+        }
+        assert_eq!((fs::read(&item)?, fs::read(&history)?), before);
+        assert!(!pm_root.join("runtime/session.json").exists());
+        assert!(!pm_root.join("locks/sample-unit.lock").exists());
+    }
+    Ok(())
+}
+
+/// A successor can publish after reclamation; a paused writer's old snapshot must be discarded.
+#[test]
+fn reclaimed_session_writer_cannot_replace_new_attribution()
+-> Result<(), Box<dyn std::error::Error>> {
+    let (_temp, pm_root) = root("{}")?;
+    let (ready, paused) = std::sync::mpsc::channel();
+    let (resume, resumed) = std::sync::mpsc::channel();
+    std::thread::scope(|scope| -> Result<(), Box<dyn std::error::Error>> {
+        let root = &pm_root;
+        let old = scope.spawn(move || {
+            mutate_session_state(root, |state| {
+                state.insert("old".into(), Value::Bool(true));
+                assert!(ready.send(()).is_ok());
+                assert!(resumed.recv().is_ok());
+            })
+        });
+        paused.recv()?;
+        let lock = pm_root.join("locks/session-state.lock");
+        let mut receipt: Value = serde_json::from_slice(&fs::read(&lock)?)?;
+        receipt["created_at"] = serde_json::json!("2000-01-01T00:00:00Z");
+        fs::write(lock, receipt.to_string())?;
+        let new = mutate_session_state(&pm_root, |state| {
+            state.insert("new".into(), Value::Bool(true));
+        });
+        resume.send(())?;
+        new?;
+        let error = old
+            .join()
+            .map_err(|_| "paused writer panicked")?
+            .err()
+            .ok_or("expired writer published")?;
+        assert!(error.to_string().contains("lease expired or was replaced"));
+        Ok(())
+    })?;
+    let state: Value = serde_json::from_slice(&fs::read(pm_root.join("runtime/session.json"))?)?;
+    assert_eq!(state, serde_json::json!({"new":true}));
+    Ok(())
+}
+
+/// An expired receipt behind a busy reclamation gate reports contention under automatic recovery.
+#[test]
+fn stale_lock_diagnostic_tracks_recovery_policy() -> Result<(), Box<dyn std::error::Error>> {
+    let (_temp, pm_root) = root("{}")?;
+    fs::create_dir_all(pm_root.join("locks"))?;
+    fs::write(
+        pm_root.join("locks/sample-unit.lock"),
+        r#"{"owner":"test","created_at":"2000-01-01T00:00:00Z"}"#,
+    )?;
+    let mut settings = read_settings(&pm_root)?;
+    for (preset, force, code) in [
+        ("minimal", false, "lock_conflict"),
+        ("strict", true, "lock_conflict"),
+        ("strict", false, "stale_lock_requires_override"),
+    ] {
+        settings.governance.preset = preset.into();
+        let request = OwnershipItem {
+            id: "sample-unit".into(),
+            author: "test".into(),
+            timestamp: Some(TS.into()),
+            message: None,
+            force,
+            if_available: false,
+            provenance_role: None,
+        };
+        let PmRustError::OwnershipRefusal { context, .. } =
+            ownership_lock_refusal(&pm_root, &request, &settings, TS, 0)
+        else {
+            return Err("expected lock refusal".into());
+        };
+        assert_eq!(context["code"], code);
+    }
+    Ok(())
+}
+
+/// Even an unreclaimed session lease cannot authorize publication beyond its TTL.
+#[test]
+fn expired_session_lease_refuses_its_own_staged_write() -> Result<(), Box<dyn std::error::Error>> {
+    let (_temp, pm_root) = root("{}")?;
+    let lock = acquire_lock_attempt(
+        &pm_root,
+        "session-state",
+        "session-state",
+        1,
+        true,
+        TS,
+        true,
+    )?;
+    let staged = pm_root.join("prepared");
+    let path = pm_root.join("runtime/session.json");
+    fs::write(&staged, "expired")?;
+    let result = publish_session_state(&pm_root, lock, 1, &staged, &path);
+    assert!(
+        matches!(result,Err(PmRustError::InvalidMutationRequest{reason}) if reason.contains("lease expired"))
+    );
+    assert!(!path.exists());
     Ok(())
 }

@@ -19,7 +19,17 @@ struct Fixture {
     scratch: tempfile::TempDir,
     driver: PathBuf,
 }
+type TrackerSnapshot = std::collections::BTreeMap<PathBuf, Vec<u8>>;
+
 impl Fixture {
+    /// Captures both trackers independently, including missing items and session state.
+    fn snapshots(&self) -> Result<[TrackerSnapshot; 2], Box<dyn std::error::Error>> {
+        Ok([
+            start_snapshot(self.node.path())?,
+            start_snapshot(self.rust.path())?,
+        ])
+    }
+
     /// Initializes a numeric-looking title with a published record and chosen policy.
     fn new(policy: &str) -> Result<Option<Self>, Box<dyn std::error::Error>> {
         let Some(published) = published_cli_or_skip("Ownership differential") else {
@@ -1850,13 +1860,19 @@ fn stale_foreign_claim_refusal_matches_published() -> Result<(), Box<dyn std::er
         }
     }
     let args = ["claim", "sample-own", "--author", "beta"];
+    let before = fixture.snapshots()?;
     fixture.step(&args)?;
+    assert_eq!(fixture.snapshots()?, before);
     let human = native_command(fixture.rust.path(), &args).output()?;
+    assert_eq!(fixture.snapshots()?, before);
     assert_eq!(human.status.code(), Some(4));
     assert!(String::from_utf8(human.stderr)?.contains("idle 96h, stale"));
     let args = ["claim", "sample-own", "--author", "beta", "--json"];
+    let before = fixture.snapshots()?;
     fixture.step(&args)?;
+    assert_eq!(fixture.snapshots()?, before);
     let output = native_command(fixture.rust.path(), &args).output()?;
+    assert_eq!(fixture.snapshots()?, before);
     let receipt: serde_json::Value = serde_json::from_slice(&output.stderr)?;
     assert_eq!(receipt["claim_activity"]["stale_policy"]["stale"], true);
     assert_eq!(
@@ -1895,6 +1911,7 @@ fn credential_author_sources_refuse_without_writes() -> Result<(), Box<dyn std::
         ],
         vec!["update", "sample-own", "--title", "Changed", &attached],
     ] {
+        let before = fixture.snapshots()?;
         let expected = published_run(&fixture.driver, fixture.node.path(), &args)?;
         let actual = native_command(fixture.rust.path(), &args).output()?;
         for output in [&expected, &actual] {
@@ -1908,9 +1925,11 @@ fn credential_author_sources_refuse_without_writes() -> Result<(), Box<dyn std::
             let refusal: serde_json::Value = serde_json::from_slice(&actual.stderr)?;
             assert_eq!(refusal["code"], "invalid_argument_value");
         }
+        assert_eq!(fixture.snapshots()?, before);
         fixture.compare_bytes()?;
     }
     let args = ["claim", "sample-own", "--json"];
+    let before = fixture.snapshots()?;
     let actual = native_command(fixture.rust.path(), &args)
         .env("PM_AUTHOR", credential)
         .output()?;
@@ -1919,6 +1938,7 @@ fn credential_author_sources_refuse_without_writes() -> Result<(), Box<dyn std::
     assert!(!stderr.contains("synthetic-secret"));
     let refusal: serde_json::Value = serde_json::from_str(&stderr)?;
     assert_eq!(refusal["refusal"]["surface"], "claim");
+    assert_eq!(fixture.snapshots()?, before);
     fixture.compare_bytes()
 }
 

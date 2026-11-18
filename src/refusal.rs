@@ -10,7 +10,24 @@ mod corpus;
 /// Published replacement token and replay instruction.
 const REDACTED: &str = "[redacted]";
 /// Recovery advice is withheld until the caller restores its own credentials.
-pub(super) const RESTORE: &str = "URL credentials in this invocation were replaced with [redacted]; restore them before replaying any command shown here.";
+pub const RESTORE: &str = "URL credentials in this invocation were replaced with [redacted]; restore them before replaying any command shown here.";
+
+thread_local! {
+    /// Private credential spans retained only for the current CLI invocation.
+    static CLI_USERINFO: std::cell::RefCell<Option<Vec<String>>> = const { std::cell::RefCell::new(None) };
+}
+
+/// Runs the CLI renderer with private enrollment for copies in command recovery.
+pub fn with_cli_projection<T>(run: impl FnOnce() -> T) -> T {
+    struct Restore(Option<Vec<String>>);
+    impl Drop for Restore {
+        fn drop(&mut self) {
+            CLI_USERINFO.replace(self.0.take());
+        }
+    }
+    let _restore = Restore(CLI_USERINFO.replace(Some(Vec::new())));
+    run()
+}
 
 /// Finds every explicit URL scheme without consuming neighboring URLs or their separators.
 fn url_schemes(text: &str) -> Vec<(usize, usize)> {
@@ -241,47 +258,66 @@ struct Credentials {
 impl Credentials {
     /// Registers credentials supplied by the invocation and persisted refusal provenance.
     fn new(args: &[String]) -> Self {
-        let mut spellings = HashSet::new();
-        let mut carried = false;
+        let spans = Self::spans(args);
+        CLI_USERINFO
+            .with_borrow(|scope| Self::from_spans(spans.iter().chain(scope.iter().flatten())))
+    }
+
+    /// Collects userinfo without interpreting public recovery text as an asserted identity.
+    fn spans(args: &[String]) -> Vec<String> {
+        let mut spans = Vec::new();
         for token in args {
             for (start, end) in userinfos(token) {
-                carried = true;
-                let span = &token[start..end];
-                let (username, password) = span
-                    .split_once(':')
-                    .map_or((span, None), |(username, password)| {
-                        (username, Some(password))
-                    });
-                let mut secrets = Vec::new();
-                if !username.is_empty() {
-                    secrets.push((username, true));
-                }
-                if let Some(password) = password.filter(|password| !password.is_empty()) {
-                    secrets.push((password, false));
-                }
-                if span.chars().any(whitespace) {
-                    secrets.push((span, false));
-                }
-                for (secret, username) in secrets {
-                    let escaped: String = secret
-                        .chars()
-                        .flat_map(|ch| {
-                            if matches!(ch, '"' | '\\' | '$' | '`') {
-                                vec!['\\', ch]
-                            } else {
-                                vec![ch]
-                            }
-                        })
-                        .collect();
-                    let json = pm_rust::stringify_json(&Value::String(secret.to_owned()), false);
-                    for spelling in [
-                        secret.to_owned(),
-                        escaped,
-                        windows_spelling(secret),
-                        json[1..json.len() - 1].to_owned(),
-                    ] {
-                        spellings.insert((lower(&spelling), username));
-                    }
+                spans.push(token[start..end].to_owned());
+            }
+        }
+        spans
+    }
+
+    /// Indexes only the already identified sensitive spans.
+    fn from_spans<'a>(spans: impl Iterator<Item = &'a String>) -> Self {
+        let mut spellings = HashSet::new();
+        let mut carried = false;
+        for span in spans {
+            carried = true;
+            let span = span.as_str();
+            if span == REDACTED {
+                continue;
+            }
+            let (username, password) = span
+                .split_once(':')
+                .map_or((span, None), |(username, password)| {
+                    (username, Some(password))
+                });
+            let mut secrets = Vec::new();
+            if !username.is_empty() {
+                secrets.push((username, true));
+            }
+            if let Some(password) = password.filter(|password| !password.is_empty()) {
+                secrets.push((password, false));
+            }
+            if span.chars().any(whitespace) {
+                secrets.push((span, false));
+            }
+            for (secret, username) in secrets {
+                let escaped: String = secret
+                    .chars()
+                    .flat_map(|ch| {
+                        if matches!(ch, '"' | '\\' | '$' | '`') {
+                            vec!['\\', ch]
+                        } else {
+                            vec![ch]
+                        }
+                    })
+                    .collect();
+                let json = crate::stringify_json(&Value::String(secret.to_owned()), false);
+                for spelling in [
+                    secret.to_owned(),
+                    escaped,
+                    windows_spelling(secret),
+                    json[1..json.len() - 1].to_owned(),
+                ] {
+                    spellings.insert((lower(&spelling), username));
                 }
             }
         }
@@ -429,10 +465,41 @@ impl Credentials {
 }
 
 /// Redacts fallback parser and runtime diagnostics with the same credential registry.
-pub(super) fn diagnostic(text: &str, raw: &[String]) -> String {
+#[must_use]
+pub fn diagnostic(text: &str, raw: &[String]) -> String {
     let mut sources = raw.to_vec();
     collect_credential_sources(&Value::String(text.to_owned()), &mut sources);
     Credentials::new(&sources).text(text, false)
+}
+
+/// Projects the public SDK fields before constructing a structured refusal.
+pub(crate) fn sdk_fields(
+    detail: String,
+    mut context: Value,
+    holder: Option<&str>,
+) -> (String, Value) {
+    let mut sources = Vec::new();
+    collect_credential_sources(&context, &mut sources);
+    if !userinfos(&detail).is_empty() {
+        sources.push(detail.clone());
+    }
+    let mut spans = Credentials::spans(&sources);
+    if let Some(holder) = holder
+        && let Some((start, end)) = crate::ownership::identity_userinfo(holder)
+    {
+        spans.push(holder[start..end].to_owned());
+    }
+    if spans.is_empty() {
+        return (detail, context);
+    }
+    let credentials = Credentials::from_spans(spans.iter());
+    CLI_USERINFO.with_borrow_mut(|scope| {
+        if let Some(enrolled) = scope {
+            enrolled.extend(spans);
+        }
+    });
+    credentials.value(&mut context, false, false, true);
+    (credentials.text(&detail, false), context)
 }
 
 /// Registers credential-bearing producer strings before any copied fragment is projected.
@@ -461,7 +528,7 @@ fn collect_credential_sources(value: &Value, sources: &mut Vec<String>) {
 }
 
 /// Redacts every refusal field once, before either JSON or human rendering.
-pub(super) fn redact(payload: &mut Value, raw: &[String]) {
+pub fn redact(payload: &mut Value, raw: &[String]) {
     let mut sources = raw.to_vec();
     collect_credential_sources(payload, &mut sources);
     let credentials = Credentials::new(&sources);
@@ -470,7 +537,7 @@ pub(super) fn redact(payload: &mut Value, raw: &[String]) {
         .then(|| original["claimed_by"].as_str())
         .flatten();
     if let Some(holder) = stored_holder
-        && let std::borrow::Cow::Owned(safe) = pm_rust::AuthorIdentity::redact_credentials(holder)
+        && let std::borrow::Cow::Owned(safe) = crate::AuthorIdentity::redact_credentials(holder)
     {
         payload["claimed_by"] = Value::String(safe.clone());
         for field in ["title", "detail"] {
@@ -499,7 +566,7 @@ pub(super) fn redact(payload: &mut Value, raw: &[String]) {
                 .filter_map(Value::as_str)
                 .map(str::to_owned)
                 .collect::<Vec<_>>();
-            let command = super::render_recovery(&args);
+            let command = crate::render_pm_command(&args);
             payload["recovery"]["attempted_command"] = Value::String(command.clone());
             if let Some(examples) = payload["examples"].as_array_mut() {
                 for (before, after) in original["examples"]
@@ -606,7 +673,7 @@ mod tests {
                     .collect::<Vec<_>>();
                 assert_eq!(
                     payload["recovery"]["attempted_command"],
-                    super::super::render_recovery(&expected_args)
+                    crate::render_pm_command(&expected_args)
                 );
             }
         }
@@ -770,7 +837,7 @@ mod tests {
                 assert_eq!(value["recovery"]["normalized_args"][4], "safe");
                 assert_eq!(
                     value["recovery"]["attempted_command"],
-                    super::super::render_recovery(&[
+                    crate::render_pm_command(&[
                         "claim".to_owned(),
                         "sample-own".to_owned(),
                         "--message".to_owned(),
@@ -836,7 +903,7 @@ mod tests {
                 assert_eq!(value["details"][expected], REDACTED);
                 assert!(value["recovery"].get("suggested_retry").is_none());
                 assert_eq!(diagnostic(&input, std::slice::from_ref(&input)), expected);
-                assert!(!pm_rust::stringify_json(&value, false).contains("secret"));
+                assert!(!crate::stringify_json(&value, false).contains("secret"));
             }
         }
     }
@@ -944,9 +1011,9 @@ mod tests {
                 ],
             );
             assert_eq!(payload["claimed_by"], "https://[redacted]@example.invalid");
-            assert!(!pm_rust::stringify_json(&payload, false).contains(
-                &pm_rust::stringify_json(&json!(secret), false)
-                    [1..pm_rust::stringify_json(&json!(secret), false).len() - 1]
+            assert!(!crate::stringify_json(&payload, false).contains(
+                &crate::stringify_json(&json!(secret), false)
+                    [1..crate::stringify_json(&json!(secret), false).len() - 1]
             ));
             assert_eq!(
                 payload["title"],
@@ -1019,7 +1086,7 @@ mod tests {
                 "--message".to_owned(),
                 input.to_owned(),
             ];
-            let mut payload = json!({"title":input,"detail":input,"why":input,"required":input,"examples":[input],"next_steps":[input],"claimed_by":input,"details":{input:input},"recovery":{"normalized_args":raw,"attempted_command":super::super::render_recovery(&raw),"suggested_retry":"pm claim sample"}});
+            let mut payload = json!({"title":input,"detail":input,"why":input,"required":input,"examples":[input],"next_steps":[input],"claimed_by":input,"details":{input:input},"recovery":{"normalized_args":raw,"attempted_command":crate::render_pm_command(&raw),"suggested_retry":"pm claim sample"}});
             redact(&mut payload, &raw);
             for key in ["title", "detail", "why", "required", "claimed_by"] {
                 assert_eq!(payload[key], expected, "{key}: {input}");
@@ -1062,7 +1129,7 @@ mod tests {
             "claim".to_owned(),
             "https://u:long-secret@host.invalid".to_owned(),
         ];
-        let command = super::super::render_recovery(&raw);
+        let command = crate::render_pm_command(&raw);
         for exit in [false, true] {
             let mut payload = json!({"title":"Refused","examples":[command,"independent"],"recovery":{"normalized_args":raw,"attempted_command":command,"suggested_retry":"retry","suggested_retry_args":["retry"]}});
             if exit {
@@ -1146,7 +1213,7 @@ mod tests {
         for secret in ["ab🚀cdefgh", "a\\b\"c$d`efgh", "a b", "İabcdef"] {
             let credentials =
                 Credentials::new(&[format!("https://fixture:{secret}@example.invalid")]);
-            let encoded = pm_rust::stringify_json(&json!(secret), false);
+            let encoded = crate::stringify_json(&json!(secret), false);
             assert_eq!(credentials.text(secret, false), REDACTED);
             assert_eq!(
                 credentials.text(&encoded[1..encoded.len() - 1], false),

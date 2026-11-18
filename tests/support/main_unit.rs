@@ -1,6 +1,7 @@
 #[cfg(unix)]
 #[path = "advice_corpus.rs"]
 mod advice_corpus;
+use clap::Parser as _;
 use serde_json::Map;
 use std::fs;
 use std::io;
@@ -2099,7 +2100,6 @@ fn round5_historical_comment_receipt_preserves_scalar_rows()
 #[test]
 fn round5_close_release_receipt_counts_an_intervening_claim()
 -> Result<(), Box<dyn std::error::Error>> {
-    use clap::Parser as _;
     let temp = tempfile::tempdir()?;
     let root = temp.path().join(".agents/pm");
     fs::create_dir_all(&root)?;
@@ -2192,12 +2192,34 @@ fn round5_close_release_receipt_counts_an_intervening_claim()
     );
     assert_eq!(before.0.metadata.status, "closed");
     assert_eq!((workspace.get("sample-one")?, fs::read(&path)?), before);
+    assert_reopened_close_receipt(&workspace, &foreign, &closed)?;
     let mut duplicate_fields = closed.close_changed_fields;
     duplicate_fields.extend(["assignee".to_owned(), "claim_principal".to_owned()]);
     assert_eq!(
         super::close_release_changed_field_count(&duplicate_fields, release.changed_field_count),
         6
     );
+    Ok(())
+}
+
+/// Reopening between close and release preserves the earlier snapshot in the nested receipt.
+fn assert_reopened_close_receipt(
+    workspace: &pm_rust::Workspace,
+    foreign: &pm_rust::OwnershipItem,
+    closed: &pm_rust::MutationResult,
+) -> Result<(), Box<dyn std::error::Error>> {
+    workspace.update(serde_json::from_value(serde_json::json!({
+        "id":"sample-one", "status":"open", "author":"beta"
+    }))?)?;
+    let reopened = workspace.release(foreign)?;
+    let composed = super::close_release_receipt(
+        &closed.close_changed_fields,
+        closed.close_receipt.as_ref().ok_or("close receipt")?,
+        &reopened,
+    );
+    assert_eq!(composed["status"], "open");
+    assert_eq!(composed["release"]["status"], "open");
+    assert_eq!(composed["close"]["status"], "closed");
     Ok(())
 }
 
@@ -2686,6 +2708,7 @@ fn identity_refusal_keeps_explicit_and_environment_sources_distinct()
         super::CollectionArgs {
             id: "sample-one".to_owned(),
             author: Some(identity.to_owned()),
+            add: vec!["example.rs".into()],
             ..super::CollectionArgs::default()
         },
         Ok(directory.path().to_owned()),

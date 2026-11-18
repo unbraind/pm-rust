@@ -76,13 +76,13 @@ pub(crate) fn admit_with_registry(
     };
     let terminal = registry.terminal(&before.metadata.status);
     if phase == Phase::AtomicStart && terminal {
-        return Err(PmRustError::OwnershipRefusal {
-            detail: format!(
+        return Err(crate::mutation::ownership_refusal(
+            format!(
                 "Cannot start terminal item {}; reopen it with pm item reopen before starting it",
                 request.id
             ),
-            context: json!({"code":"terminal_state_conflict","item_id":request.id,"why":"Starting work moves an active item into progress; a terminal item must be reopened so its recurrence evidence is recorded.","next_steps":[format!("Run {}, then {}.",crate::render_pm_command(["item","reopen",&request.id,"<reason>"]),crate::render_pm_command(["claim",&request.id,"--start"]))]}),
-        });
+            json!({"code":"terminal_state_conflict","item_id":request.id,"why":"Starting work moves an active item into progress; a terminal item must be reopened so its recurrence evidence is recorded.","next_steps":[format!("Run {}, then {}.",crate::render_pm_command(["item","reopen",&request.id,"<reason>"]),crate::render_pm_command(["claim",&request.id,"--start"]))]}),
+        ));
     }
     let mut warnings = if phase == Phase::Claim {
         vec![]
@@ -265,11 +265,11 @@ fn read_blocker(path: &Path, canonical: &str) -> Result<ItemDocument, PmRustErro
         path: path.to_path_buf(),
         source,
     })?;
-    let raw = std::str::from_utf8(&bytes).map_err(|_| PmRustError::CommandRefusal {
-        detail: "Item contains invalid UTF-8; preserve a binary backup before recovering it.".to_owned(),
-        exit_code: 4,
-        context: json!({"code":"item_document_encoding_invalid","item_id":canonical,"item_path":path,"byte_length":bytes.len(),"empty":false}),
-    })?;
+    let raw = std::str::from_utf8(&bytes).map_err(|_| crate::collections::refusal(
+        "Item contains invalid UTF-8; preserve a binary backup before recovering it.",
+        4,
+        json!({"code":"item_document_encoding_invalid","item_id":canonical,"item_path":path,"byte_length":bytes.len(),"empty":false}),
+    ))?;
     let item = crate::item::decode_item(path, raw)?;
     crate::item::validate_file_identity(path, &item)?;
     Ok(item)
@@ -438,13 +438,13 @@ fn admit_blockers(
     } else {
         format!("{} of its blockers", open.len())
     };
-    Err(PmRustError::OwnershipRefusal {
-        detail: format!(
+    Err(crate::mutation::ownership_refusal(
+        format!(
             "Cannot start {id}: {plural} {ids} {} still open.",
             if open.len() == 1 { "is" } else { "are" }
         ),
-        context: json!({"code":"start_blocked_by_open_dependency","item_id":id,"required":format!("Finish or close the open blocker{} first, remove the blocked_by edge if it no longer applies, or start anyway with --force.",if open.len()==1{""}else{"s"}),"why":"Starting work that a declared blocker still gates would leave an in-progress item that validate reports as non_blocked_status_has_blocked_by. governance.start_blocker_enforcement (strict by default) governs this check.","next_steps":steps,"details":{"enforcement":enforcement,"open_blockers":open}}),
-    })
+        json!({"code":"start_blocked_by_open_dependency","item_id":id,"required":format!("Finish or close the open blocker{} first, remove the blocked_by edge if it no longer applies, or start anyway with --force.",if open.len()==1{""}else{"s"}),"why":"Starting work that a declared blocker still gates would leave an in-progress item that validate reports as non_blocked_status_has_blocked_by. governance.start_blocker_enforcement (strict by default) governs this check.","next_steps":steps,"details":{"enforcement":enforcement,"open_blockers":open}}),
+    ))
 }
 
 /// Keeps warning/force policy limited to the published unverifiable-document failures.

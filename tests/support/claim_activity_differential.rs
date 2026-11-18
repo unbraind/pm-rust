@@ -357,6 +357,15 @@ fn workspace_restore_evidence_matches_published() -> TestResult {
         write_stream(&history, &[claim()])?;
         let workspace = root.join("history/_workspace.jsonl");
         write_stream(&workspace, &[entry])?;
+        // The pinned oracle checks workspace recovery only once inactivity reaches the threshold.
+        let soon = "2026-08-05T09:00:00.000Z";
+        let pending = super::evidence(&history, &item, HOLDER, soon, 72);
+        assert_eq!(
+            pending["claim_activity"]["stale_policy"]["eligible_at"],
+            "2026-08-05T10:00:00.000Z"
+        );
+        inputs.push(json!({"label":format!("{label}-pending"),"root":root,"id":"demo-claim","holder":HOLDER,"updated_at":CLAIMED,"threshold_hours":72,"now":soon}));
+        native.push(pending);
         let evidence = super::evidence(&history, &item, HOLDER, NOW, 72);
         let activity = &evidence["claim_activity"];
         assert_eq!(

@@ -149,6 +149,8 @@ fn history_filename(id: &str) -> Result<(), PmRustError> {
 /// Reads raw JSONL without changing or auto-creating a stream.
 pub(crate) fn records(workspace: &Workspace, id: &str) -> Result<Vec<Value>, PmRustError> {
     history_filename(id)?;
+    #[cfg(test)]
+    crate::orientation_context::tests::HISTORY_READS.with(|count| count.set(count.get() + 1));
     let path = workspace
         .pm_root()
         .join("history")

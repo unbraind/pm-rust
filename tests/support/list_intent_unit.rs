@@ -421,7 +421,9 @@ fn oversized_final_projection_returns_a_recovery_receipt() -> Result<(), Box<dyn
     let receipt = first["context_intent"].clone();
     let delivered = super::finalize(first, &options, None)?;
     assert!(super::settled(&delivered, &receipt, &options).is_some());
-    let outcome = super::verify_projection(delivered, &receipt, &options, &options, budget, None)?;
+    let mut recovery = options.clone();
+    recovery.output_cursor = Some("cursor-for-original-rows".into());
+    let outcome = super::verify_projection(delivered, &receipt, &options, &recovery, budget, None)?;
     assert_eq!(
         outcome["budget_exceeded"]["reason"],
         "effective_budget_infeasible"

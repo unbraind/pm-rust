@@ -6,10 +6,12 @@ status: in_progress
 priority: 1
 tags[3]: "gh:unbraind/pm-rust#176","gh:unbraind/pm-rust#181",oracle
 created_at: "2026-11-18T09:41:09.150Z"
-updated_at: "2026-11-18T14:32:11.297Z"
+updated_at: "2026-11-18T17:12:16.668Z"
+assignee: codex-sol
+claim_principal: codex-sol
 author: codex-sol
 parent: pm-rust-u4al
-comments[21]{created_at,author,text}:
+comments[24]{created_at,author,text}:
   "2026-11-18T09:41:20.010Z",codex-sol,Started from the Dependabot head. npm latest is 2026.11.18. Reviewing the failed matrix and reproducing against the current pin.
   "2026-11-18T09:57:01.888Z",codex-sol,"All seven failed jobs in run 44015087729 report two cases. GH-1707 in 2026.11.13 introduces credential-bearing identity admission and stored-holder redaction. Direct 2026.11.18 probes confirm stored holders are redacted without requiring credential restoration from a clean invocation. The full Linux run also confirms GH-1684 and GH-1703 in 2026.11.14 change TOON receipts and budgeted row counts, and GH-1336 in 2026.11.16 adds claim activity evidence. Implementing these wire changes while the remaining suites run."
   "2026-11-18T10:10:24.585Z",codex-sol,"Published 2026.11.18 accepts the unchanged replay at the old TOON overhead boundary. The same stale-output-cursor defect remains at an adjacent second-projection boundary, with successful replay on either side. Saved an upstream draft after checking related issues. Native already had this stale replay behavior. Kept the existing reprojected-snapshot test and tracked the separate GH-1336 takeover and next write/read work under pm-rust-stale-claim-takeover."
@@ -31,13 +33,18 @@ comments[21]{created_at,author,text}:
   "2026-11-18T12:11:57.309Z",codex-sol,"At 1caff0a all six Rust jobs passed. Both coverage shards passed, and CI run 44297971605 computed 99.4681 percent lines, 99.6641 functions, 99.3810 regions and 98.0291 branches. The aggregate requires 100 percent in each dimension. Tracked under pm-rust-oracle-1118-coverage. The local Linux all-target run passed the first unit suites, all 59 ownership oracle cases and all 41 CLI dispatch cases. PR 154 still awaits the overlapping changes on main."
   "2026-11-18T12:24:10.308Z",codex-sol,PR 181 supersedes the earlier refresh PR. Linked the existing native guards to upstream pm-cli issues 1753 and 1754 after checking both reports.
   "2026-11-18T14:32:08.366Z",codex-sol,"Round CE verified the published pm-cli 2026.11.18 behavior for claims, history recovery, linked notes, and refusals. The local strict merged coverage gate passes at 100% across all four dimensions. Native tests and source comments reference unbraind/pm-cli#1753 and #1754 for the published regressions. Linked-note diagnostic wording and flag admission differences are tracked separately in pm-rust-linked-note-diagnostics."
-files[17]{path,scope}:
+  "2026-11-18T16:39:25.325Z",codex-sol,Reviewing the assigned PR 181 findings against native behavior and the pinned oracle. Regression tests and gate results will be linked here.
+  "2026-11-18T16:52:35.107Z",codex-sol,"PRRT_kwDOTwgMRs65CD-P - Retained oracle parity. In 2026.11.18 buildContextSummaryExtras counts progress among activeItems, while the two advisory counts come from inProgressWork. The native custom progress fixture exercises that distinction."
+  "2026-11-18T16:52:46.341Z",codex-sol,PRRT_kwDOTwgMRs65CD9f - Retained oracle parity. The pinned real CLI returned invalid_argument_value for explicit --author and PM_AUTHOR credentials. In both cases next_steps includes restore before replay followed by the plain-name replacement instruction.
+files[19]{path,scope}:
   src/collections.rs,project
   src/list_intent.rs,project
   src/mutation/claim_activity.rs,project
+  src/orientation_context.rs,project
   src/ownership.rs,project
   src/read_output.rs,project
   src/refusal.rs,project
+  src/toon_input.rs,project
   src/toon_output.rs,project
   tests/claim_release_differential.rs,project
   tests/cli_dispatch.rs,project
@@ -49,12 +56,16 @@ files[17]{path,scope}:
   tests/support/json_output_unit.rs,project
   tests/support/list_intent_delivery_differential.rs,project
   tests/support/mutation_differential.rs,project
-tests[5]{command,scope,provenance{author,created_at,source_kind,source_ref}}:
+tests[8]{command,scope,provenance{author,created_at,source_kind,source_ref}}:
   PM_RUST_REQUIRE_PUBLISHED_CLI=1 cargo test --locked --all-targets --all-features --no-fail-fast,project,codex-sol,"2026-11-18T09:58:16.490Z",local_mutation,fix/oracle-pm-cli-1118
   cargo fmt --all -- --check,project,codex-sol,"2026-11-18T09:58:23.289Z",local_mutation,fix/oracle-pm-cli-1118
   cargo clippy --locked --all-targets --all-features -- -D warnings,project,codex-sol,"2026-11-18T10:10:28.550Z",local_mutation,fix/oracle-pm-cli-1118
   cargo test --locked --test ownership_contract,project,codex-sol,"2026-11-18T11:04:44.802Z",local_mutation,fix/oracle-pm-cli-1118
   cargo test --locked --test cli_dispatch,project,codex-sol,"2026-11-18T11:26:41.613Z",local_mutation,fix/oracle-pm-cli-1118
-docs[1]{path,scope}:
+  PM_RUST_REQUIRE_PUBLISHED_CLI=1 cargo +nightly-2026-08-06 llvm-cov --no-report --branch --locked --all-targets --all-features --no-fail-fast,project,codex-sol,"2026-11-18T16:54:51.209Z",local_mutation,fix/oracle-pm-cli-1118
+  cargo +nightly-2026-08-06 llvm-cov report --json --failure-mode=any,project,codex-sol,"2026-11-18T17:12:11.915Z",local_mutation,fix/oracle-pm-cli-1118
+  "npm run changelog:check",project,codex-sol,"2026-11-18T17:12:16.534Z",local_mutation,fix/oracle-pm-cli-1118
+docs[2]{path,scope}:
+  docs/EVIDENCE.md,project
   README.md,project
 body: ""

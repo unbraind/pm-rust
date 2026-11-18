@@ -5,8 +5,8 @@ use std::path::PathBuf;
 use std::process::ExitCode;
 
 mod invocation;
-mod refusal;
 use invocation::Invocation;
+use pm_rust::refusal;
 
 use clap::Parser;
 use pm_rust::cli::{Cli, CollectionArgs, Command, OwnershipArgs};
@@ -710,12 +710,8 @@ fn run_with_io(
                     )
                 });
                 return release.map_err(Into::into).and_then(|release| {
-                    // Another writer can claim between the separate close and release steps.
-                    let changed_count = close_release_changed_field_count(
-                        &result.close_changed_fields,
-                        release.changed_field_count,
-                    );
-                    let reply = serde_json::json!({"id":result.item.metadata.id,"action":"close_task","close":receipt,"release":release,"status":result.item.metadata.status,"changed_field_count":changed_count});
+                    let reply =
+                        close_release_receipt(&result.close_changed_fields, &receipt, &release);
                     write_close_receipt(&reply, fields.json)
                 });
             }
@@ -723,6 +719,17 @@ fn run_with_io(
         }
     }
     Ok(())
+}
+
+/// Composes two committed snapshots using the status observed by the last operation.
+fn close_release_receipt(
+    close_fields: &[String],
+    close: &serde_json::Value,
+    release: &pm_rust::OwnershipResult,
+) -> serde_json::Value {
+    let changed_count =
+        close_release_changed_field_count(close_fields, release.changed_field_count);
+    serde_json::json!({"id":release.id,"action":"close_task","close":close,"release":release,"status":release.status,"changed_field_count":changed_count})
 }
 
 /// Releases the assignment after close and reports the durable close if release fails.
@@ -754,7 +761,15 @@ fn run_collection_with_cwd(
     let settings: serde_json::Value = pm_rust::strict_json::from_str(&std::fs::read_to_string(
         workspace.pm_root().join("settings.json"),
     )?)?;
-    let identity = mutation_identity(args.author.as_deref(), settings["author_default"].as_str())?;
+    let identity = if args.add.is_empty() && args.remove.is_empty() && args.remove_index.is_empty()
+    {
+        None
+    } else {
+        Some(mutation_identity(
+            args.author.as_deref(),
+            settings["author_default"].as_str(),
+        )?)
+    };
     let result = workspace.collection(
         &args.id,
         key,
@@ -762,8 +777,11 @@ fn run_collection_with_cwd(
             add: args.add,
             remove: args.remove,
             remove_index: args.remove_index,
-            author: identity.author.clone(),
-            identity: Some(identity),
+            author: identity
+                .as_ref()
+                .map(|identity| identity.author.clone())
+                .unwrap_or_default(),
+            identity,
             timestamp: args.timestamp,
             message: args.message,
             force: args.force,
@@ -1080,6 +1098,12 @@ fn json_requested(args: &[String]) -> bool {
 /// Parses the command line and maps success or failure to the process exit code.
 #[allow(clippy::too_many_lines)]
 fn main() -> ExitCode {
+    refusal::with_cli_projection(run_cli)
+}
+
+/// Parses and executes one invocation with isolated refusal credentials.
+#[allow(clippy::too_many_lines)]
+fn run_cli() -> ExitCode {
     let cli = match Cli::try_parse_from(native_arguments(std::env::args_os().collect())) {
         Ok(cli) => cli,
         Err(error) => {

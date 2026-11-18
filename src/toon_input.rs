@@ -69,9 +69,13 @@ fn restore(value: &mut Value) -> Result<(), crate::PmRustError> {
     for (name, metadata) in tables {
         let mut encoding: Encoding = serde_json::from_value(metadata).map_err(invalid)?;
         for (column, indexes) in std::mem::take(&mut encoding.absent_rows) {
-            encoding
-                .absent
-                .extend(indexes.into_iter().map(|row| (row, column.clone())));
+            for row in indexes {
+                if fields[&name].get(row).and_then(|cells| cells.get(&column)) != Some(&Value::Null)
+                {
+                    return Err(invalid("grouped absence requires a null placeholder"));
+                }
+                encoding.absent.insert((row, column.clone()));
+            }
         }
         fields.shift_remove(&format!("{name}_encoding"));
         for (index, row) in fields[&name]

@@ -69,8 +69,7 @@ fn optional(a: &Value, b: &Value, date: bool) -> std::cmp::Ordering {
     }
 }
 /// Returns recency from substantive history, release cohort or creation time.
-fn recency(workspace: &Workspace, item: &Value) -> Result<String, PmRustError> {
-    let mut entries = records(workspace, text(item, "id"))?;
+fn recency(entries: &mut [Value], item: &Value) -> String {
     entries.sort_by(|a, b| crate::collation::compare(text(a, "ts"), text(b, "ts")));
     for entry in entries.iter().rev() {
         let patch: Vec<_> = entry["patch"]
@@ -93,7 +92,7 @@ fn recency(workspace: &Workspace, item: &Value) -> Result<String, PmRustError> {
             }
         };
         if substantive && !text(entry, "ts").is_empty() {
-            return Ok(text(entry, "ts").to_owned());
+            return text(entry, "ts").to_owned();
         }
     }
     let release = text(item, "release").trim_start_matches('v');
@@ -102,10 +101,10 @@ fn recency(workspace: &Workspace, item: &Value) -> Result<String, PmRustError> {
         let day = parts[2].split(['-', '+']).next().unwrap_or_default();
         let candidate = format!("{}-{:0>2}-{:0>2}T00:00:00.000Z", parts[0], parts[1], day);
         if crate::validate_timestamp(&candidate).is_ok() {
-            return Ok(candidate);
+            return candidate;
         }
     }
-    Ok(text(item, "created_at").to_owned())
+    text(item, "created_at").to_owned()
 }
 /// Validated semantic and usage affinity resolved for one context reader.
 #[derive(Default)]
@@ -275,31 +274,13 @@ fn affinity(workspace: &Workspace, identity: &crate::AuthorIdentity, now: &str) 
 /// Scores candidates using the published default weighted signal model.
 #[allow(clippy::too_many_lines)]
 fn ranked(
-    workspace: &Workspace,
+    recency: &BTreeMap<&str, usize>,
     items: &[Value],
     now: &str,
     lifecycle: &Lifecycle,
     author: &str,
     affinity: &Affinity,
-) -> Result<Vec<(Value, f64)>, PmRustError> {
-    let mut recent: Vec<_> = items
-        .iter()
-        .map(|item| {
-            Ok((
-                text(item, "id"),
-                crate::list::timestamp_key(&recency(workspace, item)?),
-            ))
-        })
-        .collect::<Result<_, PmRustError>>()?;
-    recent.sort_by(|a, b| {
-        b.1.cmp(&a.1)
-            .then_with(|| crate::collation::compare(a.0, b.0))
-    });
-    let recency: BTreeMap<_, _> = recent
-        .iter()
-        .enumerate()
-        .map(|(i, (id, _))| (*id, i))
-        .collect();
+) -> Vec<(Value, f64)> {
     let mut degrees: BTreeMap<String, usize> = BTreeMap::new();
     for item in items {
         let id = text(item, "id");
@@ -421,7 +402,7 @@ fn ranked(
         scored.push((item.clone(), score));
     }
     scored.sort_by(|a, b| b.1.total_cmp(&a.1));
-    Ok(scored)
+    scored
 }
 /// Selects identities by marginal score density with the context redundancy penalty.
 fn pack(candidates: &[(Value, f64)], budget: usize, required: &BTreeSet<String>) -> Vec<Value> {
@@ -1102,14 +1083,21 @@ fn project_tags(result: &mut Value, omit: bool) {
         }
     }
 }
-/// Counts ownership and inactivity for the matching in-progress items.
-fn in_progress_counts(
+/// Ranking and advisory counts computed from the same per-item history snapshot.
+struct ContextHistory<'a> {
+    ranks: BTreeMap<&'a str, usize>,
+    unowned: usize,
+    idle: usize,
+}
+
+/// Loads each relevant stream once while preserving the independent activity rules.
+fn context_history<'a>(
     workspace: &Workspace,
-    items: &[Value],
+    items: &'a [Value],
     lifecycle: &Lifecycle,
     settings: &Value,
     now: time::OffsetDateTime,
-) -> [(&'static str, usize); 2] {
+) -> Result<ContextHistory<'a>, PmRustError> {
     use time::OffsetDateTime;
     use time::format_description::well_known::Rfc3339;
     let parse = |stamp: &str| OffsetDateTime::parse(stamp, &Rfc3339).ok();
@@ -1118,14 +1106,27 @@ fn in_progress_counts(
         .unwrap_or(72)
         .max(1);
     let progress = lifecycle.activity_progress_status();
+    let mut recent = Vec::new();
     let mut unowned = 0;
     let mut idle = 0;
-    for item in items
-        .iter()
-        .filter(|item| lifecycle.canonical(text(item, "status")) == progress)
-    {
+    for item in items {
+        let id = text(item, "id");
+        let status = text(item, "status");
+        let advisory = lifecycle.canonical(status) == progress;
+        let history = if lifecycle.terminal(status) {
+            if !advisory {
+                continue;
+            }
+            records(workspace, id).unwrap_or_default()
+        } else {
+            let mut history = records(workspace, id)?;
+            recent.push((id, crate::list::timestamp_key(&recency(&mut history, item))));
+            history
+        };
+        if !advisory {
+            continue;
+        }
         unowned += usize::from(text(item, "assignee").trim().is_empty());
-        let history = records(workspace, text(item, "id")).unwrap_or_default();
         let activity = std::iter::once(text(item, "updated_at"))
             .chain(
                 history
@@ -1140,7 +1141,20 @@ fn in_progress_counts(
             idle += 1;
         }
     }
-    [("in_progress_unowned", unowned), ("in_progress_idle", idle)]
+    recent.sort_by(|a, b| {
+        b.1.cmp(&a.1)
+            .then_with(|| crate::collation::compare(a.0, b.0))
+    });
+    let ranks = recent
+        .into_iter()
+        .enumerate()
+        .map(|(index, (id, _))| (id, index))
+        .collect();
+    Ok(ContextHistory {
+        ranks,
+        unowned,
+        idle,
+    })
 }
 
 impl Workspace {
@@ -1310,7 +1324,15 @@ impl Workspace {
             crate::AuthorIdentity::resolve(None, settings["author_default"].as_str(), &env);
         context_state_boundary(self, &items, global.clone())?;
         let affinity = affinity(self, &identity, now);
-        let ranking = ranked(self, &items, now, &lifecycle, &identity.author, &affinity)?;
+        let history = context_history(self, &corpus, &lifecycle, &settings, now_instant)?;
+        let ranking = ranked(
+            &history.ranks,
+            &items,
+            now,
+            &lifecycle,
+            &identity.author,
+            &affinity,
+        );
         let active: Vec<_> = ranking
             .iter()
             .filter(|(item, _)| lifecycle.role(text(item, "status"), "active"))
@@ -1474,8 +1496,10 @@ impl Workspace {
             ("open", json!(all_active - all_progress)),
             ("in_progress", json!(all_progress)),
         ].into_iter().map(|(key, value)| (key.to_owned(), value)).collect();
-        for (field, count) in in_progress_counts(self, &corpus, &lifecycle, &settings, now_instant)
-        {
+        for (field, count) in [
+            ("in_progress_unowned", history.unowned),
+            ("in_progress_idle", history.idle),
+        ] {
             if count > 0 {
                 summary.insert(field.to_owned(), json!(count));
             }
@@ -1611,4 +1635,4 @@ impl Workspace {
 
 #[cfg(test)]
 #[path = "../tests/support/orientation_context_unit.rs"]
-mod tests;
+pub(crate) mod tests;

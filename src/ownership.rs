@@ -234,7 +234,7 @@ impl Drop for RestoreAttribution {
 }
 
 /// Locates possible userinfo in an identity using the published whole-value rule.
-fn identity_userinfo(identity: &str) -> Option<(usize, usize)> {
+pub(crate) fn identity_userinfo(identity: &str) -> Option<(usize, usize)> {
     let colon = identity.find(':')?;
     let at = identity
         .rfind('@')
@@ -569,13 +569,11 @@ impl Workspace {
     ) -> Result<Value, PmRustError> {
         // The published SDK refuses this option before the claim step.
         if request.if_available {
-            return Err(PmRustError::CommandRefusal {
-                detail:
-                    "--start cannot be combined with --next or --if-available for an explicit item"
-                        .to_owned(),
-                exit_code: 2,
-                context: json!({"code":"invalid_argument_value","required":"Remove --next and --if-available when starting an explicit item.","next_steps":["Remove --next and --if-available, keep the explicit item ID and other supplied arguments, then retry."]}),
-            });
+            return Err(crate::collections::refusal(
+                "--start cannot be combined with --next or --if-available for an explicit item",
+                2,
+                json!({"code":"invalid_argument_value","required":"Remove --next and --if-available when starting an explicit item.","next_steps":["Remove --next and --if-available, keep the explicit item ID and other supplied arguments, then retry."]}),
+            ));
         }
         crate::lifecycle_admission::with_explicit_start(|| {
             let mut claim_options = options.clone();
@@ -807,11 +805,7 @@ pub fn partial_failure(error: PmRustError, id: &str, completed: &str) -> PmRustE
         "{completed} completed for {id} before the following step failed. No rollback was performed.{original_why}"
     ));
     context["next_steps"] = json!(steps);
-    PmRustError::CommandRefusal {
-        detail,
-        exit_code,
-        context,
-    }
+    crate::collections::refusal(detail, exit_code, context)
 }
 
 #[cfg(test)]
