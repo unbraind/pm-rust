@@ -3873,7 +3873,7 @@ fn publish_session_state(
     temporary: &Path,
     path: &Path,
 ) -> Result<(), PmRustError> {
-    let _gate = acquire_cleanup_gate(&pm_root.join("locks"), "session-state", ttl)?;
+    let gate = acquire_cleanup_gate(&pm_root.join("locks"), "session-state", ttl)?;
     let result = if ownership_lock_stale(&lock.raw, &now_iso(), ttl)
         || fs::read_to_string(&lock.path).as_deref().ok() != Some(lock.raw.as_str())
     {
@@ -3883,6 +3883,9 @@ fn publish_session_state(
     } else {
         publish_replacement(temporary, path)
     };
+    // Keep the owner receipt until the gate is gone so a crash leaves a
+    // receipt that the next writer can reclaim through dead-owner recovery.
+    drop(gate);
     drop(lock);
     result
 }
