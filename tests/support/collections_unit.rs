@@ -1196,5 +1196,19 @@ fn omitted_rows_retain_tracker_root_as_invocation_directory() -> TestResult {
         result["omission_receipt"]["omitted_field_groups"][0]["restore_with"],
         "pm --pm-path .agents/pm files sample-one"
     );
+    let other = tempfile::tempdir()?;
+    options.add.clear();
+    options.remove.push("c.rs".into());
+    let result = workspace.collection("sample-one", "files", &options, other.path())?;
+    let hint = result["omission_receipt"]["omitted_field_groups"][0]["restore_with"]
+        .as_str()
+        .ok_or("scope")?;
+    let args = crate::parse_command_args(hint).ok_or("read command")?;
+    assert_eq!(args.len(), 5);
+    assert_eq!(args[3..], ["files", "sample-one"]);
+    assert_eq!(
+        other.path().join(&args[2]).canonicalize()?,
+        workspace.pm_root().canonicalize()?
+    );
     Ok(())
 }
