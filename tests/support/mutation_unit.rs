@@ -3849,37 +3849,38 @@ fn ownership_provenance_and_legacy_metadata_are_preserved() -> Result<(), Box<dy
         if_available: false,
         provenance_role: None,
     };
+    let evidence = |document: &ItemDocument| {
+        claim_activity::evidence(&history_path, document, "other", TS, 72)
+    };
     assert_eq!(
-        ownership_phrase(&ownership_evidence(&history_path, "other")?, "other"),
+        ownership_phrase(&evidence(&document), "other"),
         "assigned to other"
     );
-    for (raw, expected) in [
-        (
-            "invalid\n{}\n{\"patch\":[{\"path\":\"/metadata/title\"}]}\n",
-            "assigned to other",
-        ),
-        (
-            "{\"op\":\"update\",\"patch\":[{\"path\":\"/metadata/assignee\",\"value\":\"other\"}]}\n",
-            "assigned to other",
-        ),
-        (
-            "{\"op\":\"claim\",\"patch\":[{\"path\":\"/metadata/assignee\",\"value\":\"other\"}]}\n",
-            "claimed by other",
-        ),
+    for (op, expected) in [
+        ("update", "assigned to other"),
+        ("claim", "claimed by other"),
     ] {
-        fs::write(&history_path, raw)?;
-        assert_eq!(
-            ownership_phrase(&ownership_evidence(&history_path, "other")?, "other"),
-            expected
-        );
+        fs::write(
+            &history_path,
+            serde_json::to_string(&serde_json::json!({
+                "ts": TS, "op": op, "patch": [{"path":"/metadata/assignee","value":"other"}]
+            }))?,
+        )?;
+        let result = evidence(&document);
+        assert_eq!(ownership_phrase(&result, "other"), expected);
+        assert_eq!(result["claim_activity"]["claim_age_hours"], 0);
+        assert_eq!(result["claim_activity"]["stale_policy"]["stale"], false);
     }
     fs::remove_file(&history_path)?;
     assert_eq!(
-        ownership_phrase(&ownership_evidence(&history_path, "other")?, "other"),
-        "assigned to other"
+        evidence(&document)["claim_activity"]["unproven_activity"],
+        "claim_record_unavailable"
     );
     fs::create_dir(&history_path)?;
-    assert!(ownership_evidence(&history_path, "other").is_err());
+    assert_eq!(
+        evidence(&document)["claim_activity"]["history_unreadable"],
+        true
+    );
     fs::remove_dir(&history_path)?;
     // A legacy assignment lacks claim_principal. Reclaim adds only that field.
     document
@@ -4288,7 +4289,8 @@ fn ownership_refusals_and_interrupted_history_append_remain_recoverable()
     fs::create_dir(&history_path)?;
     assert!(matches!(
         ownership_item(&pm_root, &mutation, true),
-        Err(PmRustError::Io { .. })
+        Err(PmRustError::OwnershipRefusal { context, .. })
+            if context["claim_activity"]["history_unreadable"] == true
     ));
     mutation.author = "unit-agent".to_owned();
     assert!(matches!(
@@ -5224,7 +5226,7 @@ fn unpublished_lock_payloads_are_not_stale() -> Result<(), Box<dyn std::error::E
             assert_eq!(context["reason"], "lock_owner_unknown");
             assert_eq!(context["recovery"]["retry_after_ms"], 250);
         } else {
-            assert!(detail.contains("lock is stale"));
+            assert!(detail.contains("is stale"));
         }
     }
     Ok(())
@@ -5621,42 +5623,29 @@ fn admission_recovery_identity_revalidates_planned_and_current_images()
     Ok(())
 }
 
-/// Older assignee patches without an operation retain unknown provenance instead of inventing a claim.
+/// Legacy rows with no operation cannot establish when a claim began.
 #[test]
 fn round5_legacy_assignment_evidence_without_operation() -> Result<(), Box<dyn std::error::Error>> {
     let (_temp, root) = root("{}")?;
+    let document = create_item(&root, request())?.item;
     let path = root.join("history/legacy.jsonl");
-    fs::create_dir_all(path.parent().ok_or("history directory")?)?;
     fs::write(
         &path,
-        format!(
-            "{}\ninvalid\n",
-            serde_json::json!({"ts":TS,"patch":[{"path":"/metadata/assignee","value":"alpha"}]})
-        ),
+        serde_json::to_string(&serde_json::json!({
+            "ts":TS,"patch":[{"path":"/metadata/assignee","value":"alpha"}]
+        }))?,
     )?;
-    assert_eq!(
-        ownership_evidence(&path, "alpha")?,
-        serde_json::json!({"claimed_by":"alpha","claimed_at":TS,"claim_source":"unknown"})
-    );
-    assert_eq!(
-        ownership_evidence(&path, "beta")?,
-        serde_json::json!({"claimed_by":"beta","claimed_at":null,"claim_source":"unknown"})
-    );
-    fs::write(&path, "{}\ninvalid\n")?;
-    assert_eq!(
-        ownership_evidence(&path, "alpha")?["claim_source"],
-        "unknown"
-    );
-    fs::remove_file(&path)?;
-    assert_eq!(
-        ownership_evidence(&path, "alpha")?["claimed_at"],
-        serde_json::Value::Null
-    );
-    fs::create_dir(&path)?;
-    assert!(matches!(
-        ownership_evidence(&path, "alpha"),
-        Err(PmRustError::Io { .. })
-    ));
+    for holder in ["alpha", "beta"] {
+        let evidence = claim_activity::evidence(&path, &document, holder, TS, 72);
+        assert_eq!(evidence["claimed_by"], holder);
+        assert_eq!(evidence["claimed_at"], Value::Null);
+        assert_eq!(evidence["claim_source"], "unknown");
+        assert_eq!(evidence["claim_activity"]["history_unreadable"], true);
+        assert_eq!(
+            evidence["claim_activity"]["stale_policy"]["eligible_at"],
+            Value::Null
+        );
+    }
     Ok(())
 }
 

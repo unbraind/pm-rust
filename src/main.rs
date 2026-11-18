@@ -742,7 +742,7 @@ fn run_collection_with_cwd(
     let settings: serde_json::Value = pm_rust::strict_json::from_str(&std::fs::read_to_string(
         workspace.pm_root().join("settings.json"),
     )?)?;
-    let identity = mutation_identity(args.author.as_deref(), settings["author_default"].as_str());
+    let identity = mutation_identity(args.author.as_deref(), settings["author_default"].as_str())?;
     let result = workspace.collection(
         &args.id,
         key,
@@ -867,7 +867,10 @@ fn write_close_toon(
 }
 
 /// Resolves bounded provenance once at the CLI mutation boundary.
-fn mutation_identity(author: Option<&str>, configured: Option<&str>) -> AuthorIdentity {
+fn mutation_identity(
+    author: Option<&str>,
+    configured: Option<&str>,
+) -> Result<AuthorIdentity, pm_rust::PmRustError> {
     let environment = std::env::vars_os()
         .map(|(key, value)| {
             (
@@ -876,7 +879,14 @@ fn mutation_identity(author: Option<&str>, configured: Option<&str>) -> AuthorId
             )
         })
         .collect();
-    AuthorIdentity::resolve(author, configured, &environment).for_collections(&environment)
+    let identity = AuthorIdentity::resolve(author, configured, &environment);
+    let source = match (author, identity.source) {
+        (Some(_), _) => "--author",
+        (None, "asserted") => "PM_AUTHOR",
+        _ => "default_author",
+    };
+    AuthorIdentity::validate_credentials(&identity.author, source)?;
+    Ok(identity.for_collections(&environment))
 }
 
 /// Stamps explicit ownership requests with the published implementer role.
@@ -895,7 +905,7 @@ fn ownership_request(
     let settings: serde_json::Value = pm_rust::strict_json::from_slice(&std::fs::read(
         workspace.pm_root().join("settings.json"),
     )?)?;
-    let identity = mutation_identity(args.author.as_deref(), settings["author_default"].as_str());
+    let identity = mutation_identity(args.author.as_deref(), settings["author_default"].as_str())?;
     let request = OwnershipItem {
         id: args.id.unwrap_or_default(),
         author: identity.author.clone(),
@@ -926,7 +936,7 @@ fn scalar_identity(
     Ok(mutation_identity(
         author,
         settings["author_default"].as_str(),
-    ))
+    )?)
 }
 
 /// Creates one item, stamping the argv-derived implementer role.
@@ -935,7 +945,7 @@ fn create_payload(
     mut request: CreateItem,
 ) -> Result<CreateResult, Box<dyn std::error::Error>> {
     request.provenance_role = Some("implementer".to_owned());
-    mutation_identity(Some(&request.author), None)
+    mutation_identity(Some(&request.author), None)?
         .with(|| workspace.create(request))
         .map_err(Into::into)
 }
@@ -1148,6 +1158,18 @@ fn main() -> ExitCode {
     match run(cli) {
         Ok(()) => ExitCode::SUCCESS,
         Err(error) => {
+            if let Some(pm_rust::PmRustError::IdentityCredentials { identity_source }) =
+                error.downcast_ref::<pm_rust::PmRustError>()
+            {
+                let args = published_read_arguments(std::env::args_os().skip(1));
+                let _ = write_identity_refusal(
+                    &mut std::io::stderr().lock(),
+                    identity_source,
+                    &error.to_string(),
+                    &args,
+                );
+                return ExitCode::from(2);
+            }
             if let Some(refusal) = error.downcast_ref::<pm_rust::discovery::DiscoveryRefusal>() {
                 let payload = serde_json::json!({"ok":false,"refusal":refusal,"exit_code":2});
                 let _ = write_json_to(&mut std::io::stderr().lock(), &payload);
@@ -1284,6 +1306,54 @@ fn complete_refusal(payload: &serde_json::Value, raw: &[String]) -> serde_json::
         ));
     }
     payload
+}
+
+/// Renders identity admission failures without exposing a rejected identity value.
+fn write_identity_refusal(
+    writer: &mut dyn Write,
+    source: &str,
+    detail: &str,
+    args: &[String],
+) -> Result<(), Box<dyn std::error::Error>> {
+    let mut safe_args = args.to_vec();
+    for option in Invocation::parse(args).options {
+        if option.name == "author"
+            && let Some(value) = option.value
+        {
+            let safe = AuthorIdentity::redact_credentials(value);
+            if option.end == option.start + 1 {
+                safe_args[option.start] = format!("--author={safe}");
+            } else {
+                safe_args[option.start + 1] = safe.into_owned();
+            }
+        }
+    }
+    let flag = source.starts_with("--");
+    let mut context = serde_json::json!({
+        "code": "invalid_argument_value",
+        "required": format!("Set {source} to a plain name such as agent-a, without user:[redacted]@ or token@ userinfo."),
+        "next_steps": [refusal::RESTORE, format!("Rerun with {source} set to a plain name.")]
+    });
+    if flag {
+        context["flag"] = serde_json::json!(source);
+    }
+    let mut payload = ownership_error_json(detail, &context, &safe_args);
+    payload["exit_code"] = serde_json::json!(2);
+    let surface = if flag {
+        source
+    } else {
+        args.first().map_or("command", String::as_str)
+    };
+    payload["refusal"] = serde_json::json!({"surface":surface,"exit_code":2});
+    let mut payload = complete_refusal(&payload, &raw_invocation());
+    if json_requested(args) {
+        write_json_to(writer, &payload)
+    } else {
+        payload["why"] = serde_json::json!(
+            "pm enforces explicit, deterministic contracts for data and command semantics."
+        );
+        write_cursor_refusal_to(writer, &payload)
+    }
 }
 
 /// Writes a command refusal using its requested encoding and published human fallback.
@@ -1934,7 +2004,14 @@ fn ownership_error_json(
         },
         4,
     );
-    for key in ["flag", "value", "claimed_by", "claimed_at", "claim_source"] {
+    for key in [
+        "flag",
+        "value",
+        "claimed_by",
+        "claimed_at",
+        "claim_source",
+        "claim_activity",
+    ] {
         if let Some(value) = context.get(key) {
             payload[key] = value.clone();
         }
@@ -2199,21 +2276,7 @@ fn write_cursor_refusal_to(
             payload["detail"].as_str().unwrap_or_default()
         ));
     }
-    if let Some(holder) = payload["claimed_by"].as_str() {
-        let holder = if holder.chars().count() > 120 {
-            format!("{}...", holder.chars().take(120).collect::<String>())
-        } else {
-            holder.to_owned()
-        };
-        let since = payload["claimed_at"]
-            .as_str()
-            .filter(|value| !value.is_empty())
-            .map_or_else(String::new, |value| format!(" since {value}"));
-        parts.push(format!(
-            "\nHeld by: {holder} ({}{since})",
-            payload["claim_source"].as_str().unwrap_or("unknown")
-        ));
-    }
+    append_claim_holder(&mut parts, payload);
     append_refusal_why(&mut parts, payload);
     if !close_evidence && let Some(examples) = payload["examples"].as_array() {
         parts.push("\nExamples:".to_owned());
@@ -2266,6 +2329,41 @@ fn write_cursor_refusal_to(
     writer.write_all(format!("{}\n", parts.join("\n")).as_bytes())?;
     writer.flush()?;
     Ok(())
+}
+
+/// Renders the holder and the published stale-policy suffix when available.
+fn append_claim_holder(parts: &mut Vec<String>, payload: &serde_json::Value) {
+    if let Some(holder) = payload["claimed_by"].as_str() {
+        let holder = if holder.chars().count() > 120 {
+            format!("{}...", holder.chars().take(120).collect::<String>())
+        } else {
+            holder.to_owned()
+        };
+        let since = payload["claimed_at"]
+            .as_str()
+            .filter(|value| !value.is_empty())
+            .map_or_else(String::new, |value| format!(" since {value}"));
+        let activity = &payload["claim_activity"];
+        let idle = activity["idle_hours"]
+            .as_i64()
+            .map_or_else(String::new, |hours| {
+                let policy = &activity["stale_policy"];
+                let verdict = if policy["stale"] == true {
+                    "stale"
+                } else {
+                    "active"
+                };
+                format!(
+                    "; idle {hours}h, {verdict} under {}={}",
+                    policy["setting"].as_str().unwrap_or_default(),
+                    policy["threshold_hours"]
+                )
+            });
+        parts.push(format!(
+            "\nHeld by: {holder} ({}{since}){idle}",
+            payload["claim_source"].as_str().unwrap_or("unknown")
+        ));
+    }
 }
 
 /// Appends structured refusal details in the published human indentation.

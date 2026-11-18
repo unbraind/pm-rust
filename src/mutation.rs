@@ -18,6 +18,8 @@ use crate::error::PmRustError;
 use crate::history::{self, EMPTY_DOCUMENT_HASH, OrderedDocument};
 use crate::item::{ItemDocument, ItemMetadata};
 
+pub(crate) mod claim_activity;
+
 static TEMP_COUNTER: AtomicU64 = AtomicU64::new(0);
 
 /// Input accepted by the first native mutation surface.
@@ -291,6 +293,8 @@ struct MutationSettings {
     workflow: WorkflowSettings,
     #[serde(default)]
     governance: OwnershipGovernance,
+    #[serde(default)]
+    mutation_guard: claim_activity::MutationGuard,
 }
 
 #[derive(Debug, Default, Deserialize)]
@@ -592,6 +596,7 @@ fn validate_request(
             return Err(invalid(format!("{field} must not be empty")));
         }
     }
+    crate::AuthorIdentity::validate_credentials(&request.author, "--author")?;
     if request.priority > 4 {
         return Err(invalid("priority must be between 0 and 4"));
     }
@@ -609,7 +614,11 @@ fn validate_request(
 /// Formats the current UTC instant in canonical millisecond RFC 3339 form.
 #[must_use]
 pub fn now_iso() -> String {
-    let value = OffsetDateTime::now_utc();
+    format_timestamp(OffsetDateTime::now_utc())
+}
+
+/// Formats a UTC time as the published ISO timestamp with millisecond precision.
+fn format_timestamp(value: OffsetDateTime) -> String {
     format!(
         "{:04}-{:02}-{:02}T{:02}:{:02}:{:02}.{:03}Z",
         value.year(),
@@ -1844,6 +1853,7 @@ fn validate_mutation_request(author: &str, timestamp: Option<&str>) -> Result<St
     if author.trim().is_empty() {
         return Err(invalid_mutation("author must not be empty"));
     }
+    crate::AuthorIdentity::validate_credentials(author, "--author")?;
     match timestamp {
         // Caller-supplied timestamps must be validated in full. A malformed
         // timestamp on an in-place mutation must report the mutation variant,
@@ -2954,34 +2964,6 @@ fn ownership_refusal(detail: String, context: Value) -> PmRustError {
     PmRustError::OwnershipRefusal { detail, context }
 }
 
-/// Resolves the latest assignee patch without trusting stale or unrelated evidence.
-fn ownership_evidence(history_path: &Path, assignee: &str) -> Result<Value, PmRustError> {
-    let raw = read_optional(history_path)?.unwrap_or_default();
-    for line in raw.lines().rev() {
-        let Ok(entry) = crate::strict_json::from_str::<Value>(line) else {
-            continue;
-        };
-        if let Some(patch) = entry["patch"].as_array().and_then(|patches| {
-            patches
-                .iter()
-                .find(|patch| patch["path"] == "/metadata/assignee")
-        }) {
-            if patch["value"]
-                .as_str()
-                .is_some_and(|value| value.trim() == assignee.trim())
-            {
-                return Ok(serde_json::json!({
-                    "claimed_by":assignee,
-                    "claimed_at":entry["ts"],
-                    "claim_source":if entry["op"].is_null() { "unknown" } else if entry["op"] == "claim" { "claim" } else { "assignment" }
-                }));
-            }
-            break;
-        }
-    }
-    Ok(serde_json::json!({"claimed_by":assignee,"claimed_at":null,"claim_source":"unknown"}))
-}
-
 /// Describes assignment provenance from the same evidence used by the refusal.
 fn ownership_phrase(evidence: &Value, assignee: &str) -> String {
     format!(
@@ -3022,12 +3004,19 @@ fn ownership_lock_refusal(
         Err(error) => return error,
     };
     if !raw.trim().is_empty() && ownership_lock_stale(&raw, timestamp, settings.locks.ttl_seconds) {
+        let id = &request.id;
+        let path = format!("locks/{id}.lock");
         return ownership_refusal(
             format!(
-                "Item {} lock is stale; rerun with --force when supported for this command",
-                request.id
+                "Lock {id} is stale; remove the expired lease, or rerun with --force where this command accepts it"
             ),
-            serde_json::json!({}),
+            serde_json::json!({
+                "code": "stale_lock_requires_override",
+                "required": "Remove the expired lease, then retry the same command.",
+                "next_steps": ["Run pm gc --scope locks (add --dry-run to preview), then retry the same command."],
+                "why": format!("The lease in {path} is past its TTL, and force_required_for_stale_lock keeps an expired lease until it is removed explicitly."),
+                "details": {"lock_id":id,"lock_path":path}
+            }),
         );
     }
     let value: Value = crate::strict_json::from_str(&raw).unwrap_or(Value::Null);
@@ -3287,6 +3276,7 @@ pub(crate) fn ownership_item_with_options(
     let (item_path, history_path, before) = recover_and_locate(pm_root, operation, &request.id)?;
     let assignee = ownership_text(&before, "assignee");
     let principal = ownership_text(&before, "claim_principal");
+    let public_assignee = crate::AuthorIdentity::redact_credentials(&assignee);
     let principal = if principal.trim().is_empty() {
         assignee.as_str()
     } else {
@@ -3295,7 +3285,7 @@ pub(crate) fn ownership_item_with_options(
     let previous_assignee = if assignee.trim().is_empty() {
         None
     } else {
-        Some(assignee.clone())
+        Some(public_assignee.to_string())
     };
     let caller_principal = options.identity.as_ref().map_or_else(
         || crate::ownership::caller_principal(&request.author),
@@ -3325,10 +3315,33 @@ pub(crate) fn ownership_item_with_options(
         if foreign {
             if request.if_available {
                 skipped = Some(true);
-                warnings.push(format!("claim_skipped_held_by:{assignee}"));
+                warnings.push(format!("claim_skipped_held_by:{public_assignee}"));
             } else if !request.force {
-                let evidence = ownership_evidence(&history_path, &assignee)?;
+                let evidence = claim_activity::evidence(
+                    &history_path,
+                    &before,
+                    &assignee,
+                    &timestamp,
+                    settings.mutation_guard.stale_in_progress_hours,
+                );
                 let phrase = ownership_phrase(&evidence, &assignee);
+                let activity = &evidence["claim_activity"];
+                let policy = &activity["stale_policy"];
+                let mut steps = vec![
+                    "Run pm next to pick a different unclaimed item.".to_owned(),
+                    "Re-run with --if-available to treat a held item as a no-op skip.".to_owned(),
+                ];
+                if policy["stale"] == true {
+                    steps.push(format!(
+                        "Re-run with --takeover-stale: the claim has been idle {}h, past {}={}.",
+                        activity["idle_hours"],
+                        policy["setting"].as_str().unwrap_or_default(),
+                        policy["threshold_hours"]
+                    ));
+                }
+                steps.push(
+                    "Re-run with --force only when taking over the item is coordinated.".to_owned(),
+                );
                 return Err(ownership_refusal(
                     format!(
                         "Item {} is already {phrase}. Use --force to take over, or --if-available to skip without failing.",
@@ -3340,12 +3353,16 @@ pub(crate) fn ownership_item_with_options(
                         "claimed_by":evidence["claimed_by"],
                         "claimed_at":evidence["claimed_at"],
                         "claim_source":evidence["claim_source"],
+                        "claim_activity":evidence["claim_activity"],
                         "why":"Claim is an atomic test-and-set so parallel agents never proceed believing they own the same item.",
-                        "next_steps":["Run pm next to pick a different unclaimed item.","Re-run with --if-available to treat a held item as a no-op skip.","Re-run with --force only when taking over the item is coordinated."]
+                        "next_steps":steps
                     }),
                 ));
             } else {
-                warnings.push(format!("claim_takeover:{assignee}->{}", request.author));
+                warnings.push(format!(
+                    "claim_takeover:{public_assignee}->{}",
+                    request.author
+                ));
             }
         }
         if skipped.is_none() {
@@ -3449,7 +3466,7 @@ pub(crate) fn ownership_item_with_options(
     }
     let claimed_by = if claim {
         Some(if skipped.is_some() {
-            assignee
+            public_assignee.into_owned()
         } else {
             request.author.clone()
         })
@@ -3465,6 +3482,14 @@ pub(crate) fn ownership_item_with_options(
         Some(Value::String(reason)) => Some(reason.clone()),
         _ => None,
     };
+    for field in ["author", "assignee", "claim_principal"] {
+        if let Some(Value::String(value)) = document.metadata.extra.get_mut(field) {
+            let safe = crate::AuthorIdentity::redact_credentials(value);
+            if let std::borrow::Cow::Owned(safe) = safe {
+                *value = safe;
+            }
+        }
+    }
     Ok(OwnershipResult {
         id: document.metadata.id.clone(),
         status: document.metadata.status.clone(),
@@ -3753,7 +3778,7 @@ pub(crate) fn mutate_session_state(
         "session-state",
         "session-state",
         &settings,
-        false,
+        true,
         &timestamp,
         lock_wait_budget(
             std::env::var("PM_LOCK_WAIT_MS").ok().as_deref(),

@@ -10,7 +10,7 @@ mod corpus;
 /// Published replacement token and replay instruction.
 const REDACTED: &str = "[redacted]";
 /// Recovery advice is withheld until the caller restores its own credentials.
-const RESTORE: &str = "URL credentials in this invocation were replaced with [redacted]; restore them before replaying any command shown here.";
+pub(super) const RESTORE: &str = "URL credentials in this invocation were replaced with [redacted]; restore them before replaying any command shown here.";
 
 /// Finds every explicit URL scheme without consuming neighboring URLs or their separators.
 fn url_schemes(text: &str) -> Vec<(usize, usize)> {
@@ -467,7 +467,15 @@ pub(super) fn redact(payload: &mut Value, raw: &[String]) {
     let credentials = Credentials::new(&sources);
     let original = payload.clone();
     credentials.value(payload, false, false, true);
-    // Every credential-bearing producer was registered before projection.
+    // A stored holder can be redacted without making a clean invocation unreplayable.
+    if original["claimed_by"]
+        .as_str()
+        .is_some_and(|holder| !userinfos(holder).is_empty())
+        && original["recovery"] == payload["recovery"]
+        && raw.iter().all(|token| userinfos(token).is_empty())
+    {
+        return;
+    }
     if credentials.carried {
         if payload["recovery"].get("attempted_command").is_some()
             && let Some(values) = payload["recovery"]["normalized_args"].as_array()

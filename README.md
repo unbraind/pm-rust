@@ -6,7 +6,7 @@ native applications.
 
 The project is pre-release. Its current delivery slice reads workspaces and
 creates, updates, comments on, closes, claims, and releases canonical items
-against the published `pm` 2026.11.11 on-disk contract. Production code, tests, benchmarks,
+against the published `pm` 2026.11.18 on-disk contract. Production code, tests, benchmarks,
 and build tooling use Rust and typed test harnesses; the distributed binary does not require Node.js,
 Bun, JavaScript, or TypeScript.
 
@@ -111,7 +111,7 @@ schemas, metadata requirements and type workflows also return an explicit
 `unsupported_schema` row. Unknown fields, JSON null options, duplicate keys,
 noninteger numbers and unsupported operation kinds refuse the request before
 source access; there is no import-format inference. The conformance oracle is
-the repository-pinned published pm CLI 2026.11.11, independently of the current
+the repository-pinned published pm CLI 2026.11.18, independently of the current
 registry release.
 
 `diagnostics` reports `index`, `id`, `op`, `state`, `code`, `field` and `required`.
@@ -280,7 +280,7 @@ and a reachable origin; the crash corpus itself still runs in plain trackers.
 ## Crash-consistency differential corpus
 
 The TypeScript SDK in [`scripts/crash-harness.mts`](scripts/crash-harness.mts)
-and `just crash` compare real native processes with the locked pm-cli 2026.11.11
+and `just crash` compare real native processes with the locked pm-cli 2026.11.18
 oracle. On Linux, strace injects SIGKILL at every declared per-task `rename` and
 `fsync` entry ordinal observed in uninterrupted update/comment reference runs.
 Each case starts after an acknowledged synthetic create, restarts through a
@@ -342,7 +342,7 @@ cargo run -- release pm-example --author agent --json
 cargo run -- --workspace /path/to/project close pm-example --reason "Done: shipped" --author agent --resolution "Fixed" --expected-result "Expected" --actual-result "Observed" --validate-close strict --json
 ```
 
-List pagination uses the pinned 2026.11.11 oracle in both JSON and default TOON.
+List pagination uses the pinned 2026.11.18 oracle in both JSON and default TOON.
 Configured lifecycle roles and declarative custom hierarchy kinds are resolved
 before selection; see [configured list registries](docs/CONFIGURED_LIST_REGISTRIES.md).
 Parent and tag filters and all six published sort fields run before slicing;
@@ -439,7 +439,7 @@ Work is managed in this repository with the latest `pm` CLI under
 
 ## Development
 
-The published parity oracle is pinned to exactly 2026.11.11 in
+The published parity oracle is pinned to exactly 2026.11.18 in
 `tests/oracle/package.json` and installed from its committed `package-lock.json`.
 Both local runs and every CI matrix job use `npm ci`; the lock records the
 registry tarball and integrity, including the bundled runtime closure. This

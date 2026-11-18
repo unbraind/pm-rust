@@ -30,9 +30,14 @@ fn invalid(error: impl std::fmt::Display) -> crate::PmRustError {
 #[derive(Deserialize)]
 struct Encoding {
     /// Columns whose cells contain serialized nested JSON.
+    #[serde(default)]
     json_columns: BTreeSet<String>,
     /// Row/column coordinates that were absent in the original object.
+    #[serde(default)]
     absent: BTreeSet<(usize, String)>,
+    /// Missing indexes grouped by column in current TOON.
+    #[serde(default)]
+    absent_rows: BTreeMap<String, BTreeSet<usize>>,
     /// Delimiter for each compact string-list column.
     #[serde(default)]
     list_columns: BTreeMap<String, String>,
@@ -62,7 +67,12 @@ fn restore(value: &mut Value) -> Result<(), crate::PmRustError> {
         })
         .collect();
     for (name, metadata) in tables {
-        let encoding: Encoding = serde_json::from_value(metadata).map_err(invalid)?;
+        let mut encoding: Encoding = serde_json::from_value(metadata).map_err(invalid)?;
+        for (column, indexes) in std::mem::take(&mut encoding.absent_rows) {
+            encoding
+                .absent
+                .extend(indexes.into_iter().map(|row| (row, column.clone())));
+        }
         fields.shift_remove(&format!("{name}_encoding"));
         for (index, row) in fields[&name]
             .as_array_mut()

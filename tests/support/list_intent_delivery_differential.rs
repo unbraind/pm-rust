@@ -6,13 +6,13 @@ use serde_json::{Value, json};
 use std::{fs, path::Path};
 
 /// Uses identical producer snapshots at the native and published delivery boundaries.
-fn source(padding: bool) -> Value {
+fn source(padding: usize) -> Value {
     let mut source = super::final_receipt_boundary_source();
     for row in source["items"].as_array_mut().into_iter().flatten() {
         row["title"] = json!("x".repeat(106));
     }
-    if padding {
-        source["filters"]["padding"] = json!("z".repeat(104));
+    if padding > 0 {
+        source["filters"]["padding"] = json!("z".repeat(padding));
     }
     source["total"] = json!(75);
     source["has_more"] = json!(true);
@@ -70,7 +70,7 @@ console.log(JSON.stringify({{first,wire:formatBuiltInOutput(first,'toon'),retry}
 }
 
 /// Exercises every native assertion even when the optional published installation is absent.
-fn native(source: &Value, padding: bool) -> Result<Value, Box<dyn std::error::Error>> {
+fn native(source: &Value, reprojected: bool) -> Result<Value, Box<dyn std::error::Error>> {
     let options = ListOptions {
         intent: Some("triage".to_owned()),
         output_budget: Some("1000".to_owned()),
@@ -87,7 +87,7 @@ fn native(source: &Value, padding: bool) -> Result<Value, Box<dyn std::error::Er
     let first_pass = super::super::finalize(initial, &options, None)?;
     assert_eq!(
         super::super::settled(&first_pass, &initial_receipt, &options).is_some(),
-        padding
+        reprojected
     );
     let first = super::super::deliver(source.clone().into(), &options, &options, Some(1000), None)?;
     let raw = first["output_budget_truncation"]["continuations"][0]["cursor"]
@@ -96,11 +96,11 @@ fn native(source: &Value, padding: bool) -> Result<Value, Box<dyn std::error::Er
     let cursor: Value =
         serde_json::from_slice(&base64::engine::general_purpose::URL_SAFE_NO_PAD.decode(raw)?)?;
     assert!(cursor["o"].as_u64().is_some_and(|offset| offset > 0));
-    assert_eq!(cursor["f"] != initial_fingerprint, padding);
+    assert_eq!(cursor["f"] != initial_fingerprint, reprojected);
     let mut retry = options.clone();
     retry.output_cursor = Some(raw.to_owned());
     let actual = super::super::deliver(source.clone().into(), &retry, &retry, Some(1000), None);
-    let retry = if padding {
+    let retry = if reprojected {
         let error = actual.err().ok_or("reprojected replay was admitted")?;
         let PmRustError::ReadCursor { code, detail } = error else {
             return Err(format!("unexpected {error}").into());
@@ -122,9 +122,9 @@ fn native(source: &Value, padding: bool) -> Result<Value, Box<dyn std::error::Er
 #[test]
 fn round9_reprojected_continuation_matches_published() -> Result<(), Box<dyn std::error::Error>> {
     let oracle = published_cli::published_cli_or_skip("intent delivery continuation");
-    for padding in [false, true] {
+    for (padding, reprojected) in [(0, false), (104, false), (136, true)] {
         let source = source(padding);
-        let actual = native(&source, padding)?;
+        let actual = native(&source, reprojected)?;
         if let Some(oracle) = &oracle {
             let directory = tempfile::tempdir()?;
             let expected = published(&oracle.package_root, directory.path(), &source)?;

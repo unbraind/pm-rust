@@ -341,7 +341,7 @@ fn final_receipt_boundary_source() -> serde_json::Value {
 #[test]
 fn round5_finalized_receipt_floor_and_adjacent_allow() -> Result<(), Box<dyn std::error::Error>> {
     let source = final_receipt_boundary_source();
-    for (budget, omitted) in [(3236, true), (3237, false)] {
+    for (budget, omitted) in [(3228, true), (3229, false)] {
         let options = ListOptions {
             intent: Some("triage".to_owned()),
             token_budget: Some(budget.to_string()),

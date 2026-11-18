@@ -58,7 +58,7 @@ fn toon_wire_shapes_preserve_values_and_disclose_sparse_cells()
     );
     assert_eq!(
         encoding,
-        json!({"json_columns":["tags"],"absent":[[0,"parent"]]})
+        json!({"json_columns":["tags"],"absent_rows":{"parent":[0]}})
     );
     let brief = json!({"items":[],"count":0,"total":0,"has_more":false,"truncated":false,"projection":{"mode":"brief","fields":["id","status","type","title"]},"completeness":{"status":"complete","unreadable_item_count":0,"unreadable_directory_count":0},"sorting":{"sort":"default"},"omission_receipt":{"has_omissions":true,"omitted_field_group_count":1,"omitted_field_groups":[{"name":"full_item_fields","restore_with":"--full"}]}});
     assert_eq!(
@@ -154,10 +154,7 @@ fn raw_overrides_refuse_toon_without_panicking() {
 /// Verifies scalar and nested read coercion without changing numeric strings.
 fn assert_read_number_domain() -> Result<(), Box<dyn std::error::Error>> {
     use super::{render, table};
-    assert_eq!(
-        table(&json!([{}]), false),
-        Some((json!([{}]), json!({"json_columns":[],"absent":[]})))
-    );
+    assert_eq!(table(&json!([{}]), false), Some((json!([{}]), json!({}))));
     let (rows, _) = table(
         &json!([{"nested":[9_007_199_254_740_993_u64]},{"nested":[9_007_199_254_740_992_u64]}]),
         false,

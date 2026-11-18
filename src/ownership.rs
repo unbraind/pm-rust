@@ -36,6 +36,31 @@ pub struct AuthorIdentity {
 }
 
 impl AuthorIdentity {
+    /// Refuses URL userinfo in an identity before a mutation can persist it.
+    ///
+    /// # Errors
+    /// Returns [`PmRustError::IdentityCredentials`] for a credential-bearing identity.
+    pub fn validate_credentials(
+        identity: &str,
+        identity_source: &'static str,
+    ) -> Result<(), PmRustError> {
+        if identity_userinfo(identity.trim()).is_some() {
+            return Err(PmRustError::IdentityCredentials { identity_source });
+        }
+        Ok(())
+    }
+
+    /// Redacts possible URL userinfo in a single asserted or historic identity.
+    #[must_use]
+    pub fn redact_credentials(identity: &str) -> std::borrow::Cow<'_, str> {
+        match identity_userinfo(identity) {
+            Some((start, end)) => {
+                format!("{}[redacted]{}", &identity[..start], &identity[end..]).into()
+            }
+            None => identity.into(),
+        }
+    }
+
     /// Resolves explicit author, environment author, configured author, then harness.
     #[must_use]
     #[allow(clippy::too_many_lines)]
@@ -206,6 +231,57 @@ impl Drop for RestoreAttribution {
             slot.replace(self.0.take());
         });
     }
+}
+
+/// Locates possible userinfo in an identity using the published whole-value rule.
+fn identity_userinfo(identity: &str) -> Option<(usize, usize)> {
+    let colon = identity.find(':')?;
+    let at = identity
+        .rfind('@')
+        .into_iter()
+        .chain(identity.rfind("%40"))
+        .max()?;
+    if colon >= at {
+        return None;
+    }
+    let tail = &identity[colon + 1..at];
+    let slashes = tail
+        .bytes()
+        .take_while(|byte| matches!(byte, b'/' | b'\\'))
+        .count();
+    let start = colon + 1 + slashes.min(2);
+    if start == at || public_identity_url(identity, colon) {
+        return None;
+    }
+    Some((start, at))
+}
+
+/// Recognizes public scoped-package and blob URLs whose path contains an at sign.
+fn public_identity_url(identity: &str, colon: usize) -> bool {
+    let scheme = identity[..colon]
+        .rsplit(|ch: char| !ch.is_ascii_alphanumeric() && !matches!(ch, '+' | '.' | '-'))
+        .next()
+        .unwrap_or_default();
+    if !["http", "https", "ws", "wss", "ftp"]
+        .iter()
+        .any(|known| scheme.eq_ignore_ascii_case(known))
+        || identity.contains(['\t', '\n', '\r'])
+    {
+        return false;
+    }
+    let Some((authority, path)) = identity[colon + 1..]
+        .trim_start_matches(['/', '\\'])
+        .split_once('/')
+    else {
+        return false;
+    };
+    !authority.contains([':', '@', '%'])
+        && !path.starts_with(['/', '\\'])
+        && !path.contains([':', '%'])
+        && !path
+            .as_bytes()
+            .windows(2)
+            .any(|pair| pair.iter().all(|byte| matches!(byte, b'/' | b'\\')))
 }
 
 /// Returns a trimmed nonempty identity signal.
@@ -447,11 +523,9 @@ impl Workspace {
             )
         })?;
         if receipt.skipped.is_none()
-            && record_semantics(self, request, options, true, &parents).is_err()
+            && let Err(error) = record_semantics(self, request, options, true, &parents)
         {
-            receipt
-                .warnings
-                .push("claim_semantic_attribution_unrecorded".to_owned());
+            append_attribution_warning(&mut receipt, "claim", &error);
         }
         Ok(receipt)
     }
@@ -466,7 +540,7 @@ impl Workspace {
         options: &OwnershipOptions,
     ) -> Result<OwnershipResult, PmRustError> {
         let mut parents = BTreeMap::new();
-        let receipt = with_identity(self.pm_root(), options, || {
+        let mut receipt = with_identity(self.pm_root(), options, || {
             crate::mutation::ownership_item_with_options(
                 self.pm_root(),
                 request,
@@ -478,7 +552,9 @@ impl Workspace {
                 },
             )
         })?;
-        record_semantics(self, request, options, false, &parents)?;
+        if let Err(error) = record_semantics(self, request, options, false, &parents) {
+            append_attribution_warning(&mut receipt, "release", &error);
+        }
         Ok(receipt)
     }
 
@@ -562,6 +638,24 @@ fn ownership_parents(
         });
     }
     Ok(parents)
+}
+
+/// Reports a derived-state failure after the ownership mutation has already committed.
+fn append_attribution_warning(receipt: &mut OwnershipResult, action: &str, error: &PmRustError) {
+    let cause = match error {
+        PmRustError::CommandRefusal { context, .. } => {
+            context["code"].as_str().unwrap_or("unexpected_error")
+        }
+        PmRustError::LockConflict { .. } => "lock_conflict",
+        _ => "unexpected_error",
+    };
+    receipt
+        .warnings
+        .push(format!("{action}_semantic_attribution_unrecorded"));
+    receipt.suggestions.push(format!(
+        "The {action} of {} is saved, but the session attribution that names this agent's active work was not updated ({cause}); nothing needs a retry. If pm health reports a stale lock, remove it with pm gc --scope locks.",
+        receipt.id,
+    ));
 }
 
 /// Stores ownership-derived role and topic for later attribution resolution.

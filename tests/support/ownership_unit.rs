@@ -20,6 +20,42 @@ impl Workspace {
     }
 }
 
+/// A whole-value identity guard accepts plain names and redacts rejected URL userinfo.
+#[test]
+fn identity_credentials_distinguish_public_paths_and_userinfo() {
+    for identity in [
+        "agent-a",
+        "contact@example.invalid",
+        "https://example.invalid/@scope/pkg",
+    ] {
+        assert!(AuthorIdentity::validate_credentials(identity, "--author").is_ok());
+        assert_eq!(AuthorIdentity::redact_credentials(identity), identity);
+    }
+    for (identity, projected) in [
+        (
+            "https://fixture:fake-value@example.invalid",
+            "https://[redacted]@example.invalid",
+        ),
+        (
+            "https://fixture:fake value://tail@example.invalid",
+            "https://[redacted]@example.invalid",
+        ),
+        (
+            "https:fixture%40example.invalid",
+            "https:[redacted]%40example.invalid",
+        ),
+    ] {
+        let failure = AuthorIdentity::validate_credentials(identity, "PM_AUTHOR");
+        assert!(matches!(
+            failure,
+            Err(PmRustError::IdentityCredentials {
+                identity_source: "PM_AUTHOR"
+            })
+        ));
+        assert_eq!(AuthorIdentity::redact_credentials(identity), projected);
+    }
+}
+
 /// Native SDK composition supports explicit identity, default identity and idempotent start.
 #[test]
 fn sdk_lifecycle_succeeds_with_explicit_and_default_identity()

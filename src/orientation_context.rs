@@ -1102,6 +1102,56 @@ fn project_tags(result: &mut Value, omit: bool) {
         }
     }
 }
+/// Adds the published nonzero ownership and inactivity counts for the matching corpus.
+fn append_in_progress_counts(
+    summary: &mut Value,
+    workspace: &Workspace,
+    items: &[Value],
+    lifecycle: &Lifecycle,
+    settings: &Value,
+    now: &str,
+) {
+    use time::OffsetDateTime;
+    use time::format_description::well_known::Rfc3339;
+    let parse = |stamp: &str| OffsetDateTime::parse(stamp, &Rfc3339).ok();
+    let threshold = settings["mutation_guard"]["stale_in_progress_hours"]
+        .as_i64()
+        .unwrap_or(72)
+        .max(1);
+    let now = parse(now);
+    let mut unowned = 0;
+    let mut idle = 0;
+    for item in items
+        .iter()
+        .filter(|item| lifecycle.matches(text(item, "status"), "in_progress"))
+    {
+        unowned += usize::from(text(item, "assignee").trim().is_empty());
+        let history = records(workspace, text(item, "id")).unwrap_or_default();
+        let activity = std::iter::once(text(item, "updated_at"))
+            .chain(
+                history
+                    .iter()
+                    .filter_map(crate::mutation::claim_activity::activity),
+            )
+            .filter_map(parse)
+            .max();
+        if let Some((now, activity)) = now.zip(activity)
+            && (now - activity).whole_hours() >= threshold
+        {
+            idle += 1;
+        }
+    }
+    if let Some(summary) = summary.as_object_mut() {
+        for (field, count) in [("in_progress_idle", idle), ("in_progress_unowned", unowned)] {
+            if count > 0
+                && let Some(index) = summary.keys().position(|key| key == "in_progress")
+            {
+                summary.shift_insert(index + 1, field.to_owned(), json!(count));
+            }
+        }
+    }
+}
+
 impl Workspace {
     /// Renders ranked focus, selected context sections and the oracle's omission receipt.
     ///
@@ -1423,6 +1473,14 @@ impl Workspace {
             .filter(|item| lifecycle.matches(text(item, "status"), "in_progress"))
             .count();
         let mut result = json!({"output_default":"toon","now":now,"depth":depth,"sections_included":names,"window":{"anchor":now,"start":now,"end":null,"past":false,"from":null,"to":null},"filters":{"type":null,"tag":null,"priority":null,"assignee":null,"assignee_filter":null,"sprint":null,"release":null,"limit":options.limit,"parent":null,"token_budget":number(budget),"runtime_filters":{}},"summary":{"returned_focus":{"active_items":high.len()+low.len()+fallback.len(),"in_progress":in_progress,"open":high.len()+low.len()+fallback.len()-in_progress,"blocked":high.iter().chain(&low).chain(&fallback).filter(|row|row["blocked"]==true).count()},"blocked_fallback_used":active.is_empty(),"high_level":high.len(),"low_level":low.len(),"agenda_events":events.len(),"scope":"matching_items","active_items":all_active,"open":all_active-all_progress,"in_progress":all_progress,"blocked":blocked.len(),"total_items":corpus.len(),"closed":corpus.iter().filter(|item|lifecycle.canonical(text(item,"status"))==lifecycle.canonical("closed")).count(),"canceled":corpus.iter().filter(|item|lifecycle.canonical(text(item,"status"))==lifecycle.canonical("canceled")).count()},"high_level":high,"low_level":low,"blocked_fallback":fallback,"agenda":{"summary":agenda_summary,"events":events}});
+        append_in_progress_counts(
+            &mut result["summary"],
+            self,
+            &corpus,
+            &lifecycle,
+            &settings,
+            now,
+        );
         let mut row_states = json!({});
         let mut needs_states = false;
         for name in ["high_level", "low_level", "blocked_fallback"] {

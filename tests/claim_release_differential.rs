@@ -1219,9 +1219,10 @@ fn non_unicode_environment_matches_published_identity() -> Result<(), Box<dyn st
     Ok(())
 }
 
-/// The oracle requires force for expired session locks, even under minimal policy.
+/// Claim and release reclaim expired attribution locks in normal operation.
 #[test]
-fn stale_session_lock_refusal_matches_published_policy() -> Result<(), Box<dyn std::error::Error>> {
+fn stale_session_lock_reclamation_matches_published_policy()
+-> Result<(), Box<dyn std::error::Error>> {
     let Some(fixture) = Fixture::new("none")? else {
         return Ok(());
     };
@@ -1230,49 +1231,15 @@ fn stale_session_lock_refusal_matches_published_policy() -> Result<(), Box<dyn s
         "created_at":"2000-01-01T00:00:00.000Z", "ttl_seconds":1800,
         "token":"stale-session-fixture"
     }))?;
-    for root in [fixture.node.path(), fixture.rust.path()] {
-        fs::write(root.join(".agents/pm/locks/session-state.lock"), &lock)?;
-    }
-    let workspace = pm_rust::Workspace::discover(fixture.rust.path())?;
-    let request = pm_rust::OwnershipItem {
-        id: "sample-own".to_owned(),
-        author: "alpha".to_owned(),
-        timestamp: Some(CLOCK.to_owned()),
-        message: None,
-        force: false,
-        if_available: false,
-        provenance_role: Some("implementer".to_owned()),
-    };
     for action in ["claim", "release"] {
-        let oracle = published_run(
-            &fixture.driver,
-            fixture.node.path(),
-            &["__ownership_error", action, "sample-own"],
-        )?;
-        assert!(oracle.status.success());
-        let refusal: serde_json::Value = serde_json::from_slice(&oracle.stdout)?;
-        if action == "claim" {
-            assert_eq!(refusal, serde_json::json!({"ok":true}));
-            let receipt =
-                workspace.claim_with_options(&request, &pm_rust::OwnershipOptions::default())?;
-            assert_eq!(receipt.warnings, ["claim_semantic_attribution_unrecorded"]);
-        } else {
-            assert_eq!(refusal["exit_code"], 4);
-            assert_eq!(
-                refusal["detail"],
-                "Item session-state lock is stale; rerun with --force when supported for this command"
-            );
-            assert!(
-                matches!(workspace.release_with_options(&request,&pm_rust::OwnershipOptions::default()),Err(pm_rust::PmRustError::CommandRefusal{detail,exit_code:4,context}) if detail == refusal["detail"].as_str().unwrap_or_default() && context == refusal["context"])
-            );
-        }
         for root in [fixture.node.path(), fixture.rust.path()] {
-            assert_eq!(
-                fs::read(root.join(".agents/pm/locks/session-state.lock"))?,
-                lock
-            );
+            fs::write(root.join(".agents/pm/locks/session-state.lock"), &lock)?;
         }
-        fixture.compare_bytes()?;
+        fixture.step(&[action, "sample-own", "--author", "alpha", "--json"])?;
+        for root in [fixture.node.path(), fixture.rust.path()] {
+            assert!(!root.join(".agents/pm/locks/session-state.lock").exists());
+            assert!(root.join(".agents/pm/runtime/session.json").exists());
+        }
     }
     fixture.verify()?;
     Ok(())
@@ -1462,7 +1429,7 @@ fn start_semantic_recording_warns_and_matches_published_state()
         return Ok(());
     };
     let lock = serde_json::to_vec(
-        &serde_json::json!({"id":"session-state","pid":1,"owner":"session-state","created_at":"2000-01-01T00:00:00.000Z","ttl_seconds":1800,"token":"stale-session-fixture"}),
+        &serde_json::json!({"id":"session-state","pid":1,"owner":"session-state","created_at":"2126-01-01T00:00:00.000Z","ttl_seconds":1800,"token":"active-session-fixture"}),
     )?;
     for root in [fixture.node.path(), fixture.rust.path()] {
         fs::write(root.join(".agents/pm/locks/session-state.lock"), &lock)?;
@@ -1522,9 +1489,10 @@ fn start_semantic_recording_warns_and_matches_published_state()
     Ok(())
 }
 
-/// Expired derived-state locks retain exact CLI diagnostics after durable writes.
+/// Composed and explicit lifecycle commands reclaim expired derived-state locks.
 #[test]
-fn stale_session_lock_json_matches_published_bytes() -> Result<(), Box<dyn std::error::Error>> {
+fn stale_session_lock_lifecycle_matches_published_bytes() -> Result<(), Box<dyn std::error::Error>>
+{
     for action in ["claim", "release", "start-task", "pause-task"] {
         let Some(fixture) = Fixture::new("none")? else {
             return Ok(());
@@ -1806,15 +1774,22 @@ fn scoped_refusals_redact_credentials_without_changing_durable_bytes()
         "strict",
         "--json",
     ])?;
-    fixture.step(&[
-        "claim",
-        "sample-own",
-        "--author",
-        "https://fixture:stored-password@example.invalid",
-        "--force",
-        "--json",
-    ])?;
-    fixture.step(&["claim", "sample-own", "--author", "beta", "--json"])?;
+    let asserted = "https://fixture:stored-password@example.invalid";
+    for action in ["claim", "release"] {
+        let args = [
+            action,
+            "sample-own",
+            "--author",
+            asserted,
+            "--force",
+            "--json",
+        ];
+        fixture.step(&args)?;
+        fixture.step(&args[..args.len() - 1])?;
+        let output = native_command(fixture.rust.path(), &args).output()?;
+        assert_eq!(output.status.code(), Some(2));
+        assert!(!String::from_utf8_lossy(&output.stderr).contains("stored-password"));
+    }
     fixture.verify()?;
     Ok(())
 }
@@ -3080,35 +3055,9 @@ fn round8_stored_nested_password_projection() -> Result<(), Box<dyn std::error::
         assert_eq!(actual.status.code(), oracle.status.code());
         assert!(!String::from_utf8_lossy(&actual.stderr).contains("secret"));
         assert_eq!(actual.stdout, oracle.stdout);
-        if separator == " " {
-            // Published 2026.11.11 misses stored outer userinfo without invocation enrollment.
-            let mut expected: serde_json::Value = serde_json::from_slice(&oracle.stderr)?;
-            assert_eq!(
-                expected["claimed_by"],
-                "https://user:secret value://[redacted]@host.invalid"
-            );
-            assert_eq!(
-                expected["detail"],
-                "Item sample-own is already assigned to https://user:secret value://[redacted]@host.invalid. Use --force to take over, or --if-available to skip without failing."
-            );
-            assert_eq!(
-                expected["title"],
-                "Item sample-own is already assigned to https://user:secret value://[redacted]@host.invalid. Use --force to take over,..."
-            );
-            expected["claimed_by"] = serde_json::json!("https://[redacted]@host.invalid");
-            expected["detail"] = serde_json::json!(
-                "Item sample-own is already assigned to https://[redacted]@host.invalid. Use --force to take over, or --if-available to skip without failing."
-            );
-            expected["title"] = serde_json::json!(
-                "Item sample-own is already assigned to https://[redacted]@host.invalid. Use --force to take over, or --if-available t..."
-            );
-            assert_eq!(
-                String::from_utf8(actual.stderr)?,
-                format!("{}\n", pm_rust::stringify_json(&expected, true))
-            );
-        } else {
-            assert_eq!(actual.stderr, oracle.stderr);
-        }
+        assert_eq!(actual.stderr, oracle.stderr, "separator {separator:?}");
+        let envelope: serde_json::Value = serde_json::from_slice(&actual.stderr)?;
+        assert_eq!(envelope["claimed_by"], "https://[redacted]@host.invalid");
         let native_text = native_command(
             fixture.rust.path(),
             &["claim", "sample-own", "--author", "beta"],

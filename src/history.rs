@@ -175,6 +175,14 @@ pub(crate) struct HistoryEntry<'a> {
 
 /// Classifies the published operation and patch contract without hiding unknown work.
 pub(crate) fn classify_history_event(operation: &str, patch: &[HistoryPatch]) -> &'static str {
+    classify_history_paths(operation, patch.iter().map(|change| change.path.as_str()))
+}
+
+/// Classifies decoded history paths without constructing a new patch.
+pub(crate) fn classify_history_paths<'a>(
+    operation: &str,
+    patch: impl Iterator<Item = &'a str>,
+) -> &'static str {
     /// Published operations whose semantics are always maintenance.
     const MAINTENANCE_OPERATIONS: &[&str] = &[
         "docs_add",
@@ -185,11 +193,13 @@ pub(crate) fn classify_history_event(operation: &str, patch: &[HistoryPatch]) ->
         "history_compact_baseline",
         "history_redact",
         "history_repair",
+        "history_salvage",
         "normalize",
         "release",
         "test_run_track",
         "tests_add",
         "tests_remove",
+        "tests_update",
         "update_audit",
         "update_ownership_bypass",
     ];
@@ -233,13 +243,14 @@ pub(crate) fn classify_history_event(operation: &str, patch: &[HistoryPatch]) ->
         "value",
         "why_now",
     ];
+    let mut patch = patch.peekable();
     if MAINTENANCE_OPERATIONS.contains(&operation) {
         return "maintenance";
     }
     if operation == "update"
-        && !patch.is_empty()
-        && patch.iter().all(|change| {
-            let mut segments = change.path.split('/').filter(|part| !part.is_empty());
+        && patch.peek().is_some()
+        && patch.all(|path| {
+            let mut segments = path.split('/').filter(|part| !part.is_empty());
             matches!(segments.next(), Some("metadata" | "front_matter"))
                 && segments
                     .next()
