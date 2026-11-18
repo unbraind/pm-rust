@@ -920,22 +920,10 @@ fn persisted_holder_credentials_never_reach_refusal_streams()
         let workspace = workspace()?;
         seed_item(&workspace)?;
         let holder = format!("https://fixture:{secret}@example.invalid");
-        let claimed = Command::new(env!("CARGO_BIN_EXE_pm-rust"))
-            .current_dir(workspace.path())
-            .args([
-                "claim",
-                "sample-cli",
-                "--author",
-                &holder,
-                "--force",
-                "--json",
-            ])
-            .output()?;
-        assert!(
-            claimed.status.success(),
-            "{}",
-            String::from_utf8_lossy(&claimed.stderr)
-        );
+        set_legacy_holder(
+            &workspace.path().join(".agents/pm/tasks/sample-cli.toon"),
+            &holder,
+        )?;
         for format in [vec!["--json"], vec![]] {
             let output = Command::new(env!("CARGO_BIN_EXE_pm-rust"))
                 .current_dir(workspace.path())
@@ -956,6 +944,17 @@ fn persisted_holder_credentials_never_reach_refusal_streams()
             }
         }
     }
+    Ok(())
+}
+
+/// Places a pre-admission holder in the canonical fixture without using a modern write API.
+fn set_legacy_holder(
+    path: &std::path::Path,
+    holder: &str,
+) -> Result<(), Box<dyn std::error::Error>> {
+    let mut item: serde_json::Value = toon_format::decode_default(&fs::read_to_string(path)?)?;
+    item["assignee"] = serde_json::json!(holder);
+    fs::write(path, toon_format::encode_default(&item)?)?;
     Ok(())
 }
 
@@ -1500,93 +1499,123 @@ fn round11_scoped_close_retry_executes_only_selected_tracker()
 #[path = "support/refusal_corpus.rs"]
 mod refusal_corpus;
 
-/// Stored holders and close retries mirror the shared authority corpus in both refusal formats.
+/// Validates whole-value identity admission and projection of older stored holders.
 #[test]
 fn round11_stored_holder_and_public_retry_boundaries() -> Result<(), Box<dyn std::error::Error>> {
-    exercise_round11_holder_boundaries(None)
+    for (holder, expected) in [
+        (
+            "https://stored and private-token@host.invalid",
+            "https://[redacted]@host.invalid",
+        ),
+        (
+            "https://host.invalid or user@example.invalid",
+            "https://[redacted]@example.invalid",
+        ),
+        (
+            "Context: https://host.invalid/path@ref",
+            "Context:[redacted]@ref",
+        ),
+        (
+            "https://host.invalid/path@ref",
+            "https://host.invalid/path@ref",
+        ),
+        (
+            "https://host.invalid/path user@example.invalid",
+            "https://host.invalid/path user@example.invalid",
+        ),
+    ] {
+        let tracker = workspace()?;
+        seed_item(&tracker)?;
+        let root = tracker.path().join(".agents/pm");
+        let item = root.join("tasks/sample-cli.toon");
+        let history = root.join("history/sample-cli.jsonl");
+        if holder == expected {
+            expect_ok(&tracker, &["claim", "sample-cli", "--author", holder])?;
+        } else {
+            let before = (fs::read(&item)?, fs::read(&history)?);
+            let output = pm_rust(
+                &tracker,
+                &[
+                    "claim",
+                    "sample-cli",
+                    "--author",
+                    holder,
+                    "--force",
+                    "--json",
+                ],
+            )?;
+            assert_eq!(output.status.code(), Some(2));
+            let refusal: serde_json::Value = serde_json::from_slice(&output.stderr)?;
+            assert_eq!(refusal["code"], "invalid_argument_value");
+            assert_eq!((fs::read(&item)?, fs::read(&history)?), before);
+            set_legacy_holder(&item, holder)?;
+        }
+        let before = (fs::read(&item)?, fs::read(&history)?);
+        for json in [false, true] {
+            let mut args = vec!["claim", "sample-cli", "--author", "beta"];
+            if json {
+                args.push("--json");
+            }
+            let output = pm_rust(&tracker, &args)?;
+            assert_eq!(output.status.code(), Some(4));
+            assert!(output.stdout.is_empty());
+            if json {
+                let refusal: serde_json::Value = serde_json::from_slice(&output.stderr)?;
+                assert_eq!(refusal["claimed_by"], expected, "{holder}");
+            } else {
+                let text = String::from_utf8(output.stderr)?;
+                assert!(text.contains(&format!("Held by: {expected}")), "{text}");
+            }
+            assert_eq!((fs::read(&item)?, fs::read(&history)?), before);
+        }
+    }
+    Ok(())
 }
 
-/// Public URL prose keeps the stored display and the same-close retry advice.
+/// The same-close retry preserves public URL prose in positional closing reasons.
 #[test]
 fn round11_public_prose_process_keeps_retry() -> Result<(), Box<dyn std::error::Error>> {
-    exercise_round11_holder_boundaries(Some(false))
-}
-
-/// Runs the shared corpus against real persisted holders without Git or SDK mocks.
-fn exercise_round11_holder_boundaries(
-    private_only: Option<bool>,
-) -> Result<(), Box<dyn std::error::Error>> {
+    let tracker = workspace()?;
+    expect_ok(
+        &tracker,
+        &[
+            "create",
+            "--id",
+            "sample-holder",
+            "--title",
+            "Closing fixture",
+            "--type",
+            "Issue",
+            "--author",
+            "alpha",
+        ],
+    )?;
+    let root = tracker.path().join(".agents/pm");
+    let item = root.join("issues/sample-holder.toon");
+    let history = root.join("history/sample-holder.jsonl");
+    let before = (fs::read(&item)?, fs::read(&history)?);
     let mut mismatches = Vec::new();
     for &(input, expected) in refusal_corpus::AUTHORITIES
         .iter()
         .chain(refusal_corpus::COPIED_PASSWORDS)
     {
         for &prefix in refusal_corpus::DECORATIONS {
-            let tracker = workspace()?;
-            expect_ok(
-                &tracker,
-                &[
-                    "create",
-                    "--id",
-                    "sample-holder",
-                    "--title",
-                    "Stored holder fixture",
-                    "--type",
-                    "Issue",
-                    "--author",
-                    "fixture",
-                ],
-            )?;
-            let holder = format!("{prefix}{input}");
+            let reason = format!("{prefix}{input}");
             let expected = format!("{prefix}{expected}");
-            let private = holder != expected;
-            if private_only.is_some_and(|wanted| wanted != private) {
-                continue;
-            }
-
-            expect_ok(
-                &tracker,
-                &[
-                    "claim",
-                    "sample-holder",
-                    "--author",
-                    &holder,
-                    "--force",
-                    "--json",
-                ],
-            )?;
-            let root = tracker.path().join(".agents/pm");
-            let item = root.join("issues/sample-holder.toon");
-            let history = root.join("history/sample-holder.jsonl");
-            let before = (fs::read(&item)?, fs::read(&history)?);
+            let private = reason != expected;
             for json in [false, true] {
-                let mut claim = vec!["claim", "sample-holder", "--author", "beta"];
-                if json {
-                    claim.push("--json");
-                }
-                let output = pm_rust(&tracker, &claim)?;
-                assert_eq!(output.status.code(), Some(4));
-                assert!(output.stdout.is_empty());
-                let text = String::from_utf8(output.stderr)?;
-                if json {
-                    if serde_json::from_str::<serde_json::Value>(&text)?["claimed_by"] != expected {
-                        mismatches.push(format!("JSON holder: {holder}"));
-                    }
-                } else if !text.contains(&format!("Held by: {expected}")) {
-                    mismatches.push(format!("human holder: {holder}"));
-                }
                 let mut close = vec![
                     "close",
                     "sample-holder",
                     "--author",
-                    holder.as_str(),
+                    "alpha",
                     "--validate-close",
                     "strict",
                 ];
                 if json {
                     close.push("--json");
                 }
-                close.extend(["--", "Closing reason"]);
+                close.extend(["--", &reason]);
                 let output = pm_rust(&tracker, &close)?;
                 assert_eq!(output.status.code(), Some(2));
                 assert!(output.stdout.is_empty());
@@ -1597,15 +1626,15 @@ fn exercise_round11_holder_boundaries(
                     pm_rust::quote_command_arg(&expected)
                 };
                 if !text.contains(&expected) && !text.contains(&encoded) {
-                    mismatches.push(format!("close projection json={json}: {holder}"));
+                    mismatches.push(format!("close projection json={json}: {reason}"));
                 }
                 if json {
                     let payload: serde_json::Value = serde_json::from_str(&text)?;
                     if payload["recovery"].get("suggested_retry").is_none() != private {
-                        mismatches.push(format!("JSON retry: {holder}"));
+                        mismatches.push(format!("JSON retry: {reason}"));
                     }
                 } else if text.contains("Run: pm ") == private {
-                    mismatches.push(format!("human retry: {holder}"));
+                    mismatches.push(format!("human retry: {reason}"));
                 }
                 assert_eq!((fs::read(&item)?, fs::read(&history)?), before);
             }

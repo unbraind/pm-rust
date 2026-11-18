@@ -1,0 +1,11 @@
+id: pm-rust-sdk-holder-projection
+title: Project legacy holder identity in direct SDK claim refusals
+description: Match the GH-1707 legacy holder projection in direct SDK ownership errors. Preserve enrollment of stored credentials for CLI recovery while keeping raw holder data outside the public refusal. Cover item and journal byte stability and compare both CLI formats with the published oracle.
+type: Task
+status: open
+priority: 2
+tags[3]: follow-up,"gh:unbraind/pm-cli#1707",oracle
+created_at: "2026-11-18T11:23:58.521Z"
+updated_at: "2026-11-18T11:23:58.521Z"
+author: codex-sol
+body: ""

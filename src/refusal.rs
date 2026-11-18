@@ -466,12 +466,23 @@ pub(super) fn redact(payload: &mut Value, raw: &[String]) {
     collect_credential_sources(payload, &mut sources);
     let credentials = Credentials::new(&sources);
     let original = payload.clone();
+    let stored_holder = (original["code"] == "already_claimed_by")
+        .then(|| original["claimed_by"].as_str())
+        .flatten();
+    if let Some(holder) = stored_holder
+        && let std::borrow::Cow::Owned(safe) = pm_rust::AuthorIdentity::redact_credentials(holder)
+    {
+        payload["claimed_by"] = Value::String(safe.clone());
+        for field in ["title", "detail"] {
+            if let Some(text) = original[field].as_str() {
+                payload[field] = Value::String(text.replace(holder, &safe));
+            }
+        }
+    }
     credentials.value(payload, false, false, true);
     // A stored holder can be redacted without making a clean invocation unreplayable.
     if original["code"] == "already_claimed_by"
-        && original["claimed_by"]
-            .as_str()
-            .is_some_and(|holder| !userinfos(holder).is_empty())
+        && stored_holder.is_some_and(|holder| !userinfos(holder).is_empty())
         && original["recovery"].get("suggested_retry").is_none()
         && original["recovery"].get("suggested_retry_args").is_none()
         && original["recovery"] == payload["recovery"]

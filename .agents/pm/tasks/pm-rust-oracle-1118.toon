@@ -6,10 +6,10 @@ status: in_progress
 priority: 1
 tags[2]: "gh:unbraind/pm-rust#176",oracle
 created_at: "2026-11-18T09:41:09.150Z"
-updated_at: "2026-11-18T11:08:40.373Z"
+updated_at: "2026-11-18T11:26:49.687Z"
 author: codex-sol
 parent: pm-rust-u4al
-comments[12]{created_at,author,text}:
+comments[15]{created_at,author,text}:
   "2026-11-18T09:41:20.010Z",codex-sol,Started from the Dependabot head. npm latest is 2026.11.18. Reviewing the failed matrix and reproducing against the current pin.
   "2026-11-18T09:57:01.888Z",codex-sol,"All seven failed jobs in run 44015087729 report two cases. GH-1707 in 2026.11.13 introduces credential-bearing identity admission and stored-holder redaction. Direct 2026.11.18 probes confirm stored holders are redacted without requiring credential restoration from a clean invocation. The full Linux run also confirms GH-1684 and GH-1703 in 2026.11.14 change TOON receipts and budgeted row counts, and GH-1336 in 2026.11.16 adds claim activity evidence. Implementing these wire changes while the remaining suites run."
   "2026-11-18T10:10:24.585Z",codex-sol,"Published 2026.11.18 accepts the unchanged replay at the old TOON overhead boundary. The same stale-output-cursor defect remains at an adjacent second-projection boundary, with successful replay on either side. Saved an upstream draft after checking related issues. Native already had this stale replay behavior. Kept the existing reprojected-snapshot test and tracked the separate GH-1336 takeover and next write/read work under pm-rust-stale-claim-takeover."
@@ -22,23 +22,29 @@ comments[12]{created_at,author,text}:
   "2026-11-18T11:02:16.069Z",codex-sol,"The same CI run passed all 38 orientation oracle tests. Its ownership acceptance test still expected release to exit after committing the item, so updated it to verify the documented 2026.11.14 success receipt, its warning and its retry advice with the on-disk state assertions preserved."
   "2026-11-18T11:04:49.166Z",codex-sol,"Locally, all 11 ownership SDK acceptance cases passed with the updated release assertion. The ac3ab0c linked collection oracle completed with zero differences across its fixtures. A further probe verified the published test command rejects the artifact-only note-conflict flag before mutating linked tests. Native now rejects it too, and the full collection oracle includes that command in both renderers."
   "2026-11-18T11:08:37.045Z",codex-sol,All 459 library tests passed after updating the compaction expectation and linked-note retry case. The linked ownership acceptance command passed under pm test with progress. Formatting and all-target Clippy passed. The unsupported linked-test flag now matches the published refusal byte for byte in text and JSON and leaves the item and journal unchanged.
-files[11]{path,scope}:
+  "2026-11-18T11:22:50.277Z",codex-sol,At cd70569 all three platform shard-two Rust jobs and coverage shard two passed. Shard one found three legacy CLI fixtures attempting to create forbidden identities via the modern claim path. Direct comparisons with 2026.11.18 confirmed broader whole-value masking for some previously stored holders. The CLI refusal now masks the holder and detail with that rule while retaining the existing protection for copied sensitive text. Legacy fixtures seed older durable data directly.
+  "2026-11-18T11:24:02.658Z",codex-sol,Tracked the remaining raw direct-SDK error projection under pm-rust-sdk-holder-projection. The CLI applies whole-value masking before rendering while supporting its existing copied-text protections.
+  "2026-11-18T11:26:45.144Z",codex-sol,"The whole-value legacy holder refusal now matches published JSON byte for byte. Both focused legacy holder CLI cases pass, and the complete public prose close-recovery corpus passed with the updated fixtures. Formatting and all-target Clippy passed. The full published collection comparison passed, and the isolated session-attribution differential passed after its concurrent Linux failure."
+files[13]{path,scope}:
   src/collections.rs,project
   src/mutation/claim_activity.rs,project
   src/ownership.rs,project
   src/read_output.rs,project
+  src/refusal.rs,project
   src/toon_output.rs,project
   tests/claim_release_differential.rs,project
+  tests/cli_dispatch.rs,project
   tests/oracle/package-lock.json,project
   tests/ownership_contract.rs,project
   tests/search_collections_differential.rs,project
   tests/support/json_output_unit.rs,project
   tests/support/mutation_differential.rs,project
-tests[4]{command,scope,provenance{author,created_at,source_kind,source_ref}}:
+tests[5]{command,scope,provenance{author,created_at,source_kind,source_ref}}:
   PM_RUST_REQUIRE_PUBLISHED_CLI=1 cargo test --locked --all-targets --all-features --no-fail-fast,project,codex-sol,"2026-11-18T09:58:16.490Z",local_mutation,fix/oracle-pm-cli-1118
   cargo fmt --all -- --check,project,codex-sol,"2026-11-18T09:58:23.289Z",local_mutation,fix/oracle-pm-cli-1118
   cargo clippy --locked --all-targets --all-features -- -D warnings,project,codex-sol,"2026-11-18T10:10:28.550Z",local_mutation,fix/oracle-pm-cli-1118
   cargo test --locked --test ownership_contract,project,codex-sol,"2026-11-18T11:04:44.802Z",local_mutation,fix/oracle-pm-cli-1118
+  cargo test --locked --test cli_dispatch,project,codex-sol,"2026-11-18T11:26:41.613Z",local_mutation,fix/oracle-pm-cli-1118
 docs[1]{path,scope}:
   README.md,project
 body: ""
