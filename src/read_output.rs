@@ -47,7 +47,7 @@ fn already_compacted(text: &str) -> bool {
         && prefix.encode_utf16().count() <= 240
 }
 
-/// Protects only the root cursor envelope while compacting identically named item metadata.
+/// Protects root continuation tokens while compacting item metadata (unbraind/pm-cli#1754).
 fn compact_strings_at(value: &mut Value, envelope: bool) -> bool {
     match value {
         Value::String(text) if text.encode_utf16().count() > 240 && !already_compacted(text) => {

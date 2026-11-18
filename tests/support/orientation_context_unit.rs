@@ -1535,3 +1535,30 @@ fn round18_late_context_registry_failure_is_read_only() -> Result<(), Box<dyn st
     assert_eq!(fs::read_dir(root.join("schema"))?.count(), 1);
     Ok(())
 }
+
+/// An unowned item with unparseable activity counts as unowned without an idle estimate.
+#[test]
+fn in_progress_counts_keep_ownership_without_a_valid_activity_timestamp()
+-> Result<(), Box<dyn std::error::Error>> {
+    let (_temp, workspace, lifecycle) = workspace()?;
+    let now = time::OffsetDateTime::parse(NOW, &time::format_description::well_known::Rfc3339)?;
+    fs::write(
+        workspace.pm_root().join("history/sample-unknown.jsonl"),
+        json!({"ts":NOW, "patch":[]}).to_string(),
+    )?;
+    let items = [
+        json!({"id":"sample-unknown","status":"in_progress","updated_at":"unparseable"}),
+        json!({"id":"sample-idle","status":"in_progress","assignee":"alpha","updated_at":"2026-08-20T00:00:00Z"}),
+    ];
+    assert_eq!(
+        super::in_progress_counts(
+            &workspace,
+            &items,
+            &lifecycle,
+            &json!({"mutation_guard":{"stale_in_progress_hours":24}}),
+            now
+        ),
+        [("in_progress_unowned", 1), ("in_progress_idle", 1)]
+    );
+    Ok(())
+}

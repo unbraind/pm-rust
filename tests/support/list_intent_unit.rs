@@ -402,5 +402,34 @@ fn round5_second_projection_rechecks_a_valid_snapshot() -> Result<(), Box<dyn st
     Ok(())
 }
 
+/// A finalized intent page over the delivery budget exposes recovery instead of its rows.
+#[test]
+fn oversized_final_projection_returns_a_recovery_receipt() -> Result<(), Box<dyn std::error::Error>>
+{
+    let source = final_receipt_boundary_source();
+    let budget = 3345;
+    let options = ListOptions {
+        intent: Some("triage".to_owned()),
+        token_budget: Some(budget.to_string()),
+        limit: Some("43".to_owned()),
+        output_limit: Some("100".to_owned()),
+        full: true,
+        toon: true,
+        ..Default::default()
+    };
+    let first = super::attach(source, &options, budget);
+    let receipt = first["context_intent"].clone();
+    let delivered = super::finalize(first, &options, None)?;
+    assert!(super::settled(&delivered, &receipt, &options).is_some());
+    let outcome = super::verify_projection(delivered, &receipt, &options, &options, budget, None)?;
+    assert_eq!(
+        outcome["budget_exceeded"]["reason"],
+        "effective_budget_infeasible"
+    );
+    assert_eq!(outcome["context_intent"]["result_omitted"], true);
+    assert!(outcome.get("items").is_none());
+    Ok(())
+}
+
 #[path = "list_intent_delivery_differential.rs"]
 mod delivery_differential;

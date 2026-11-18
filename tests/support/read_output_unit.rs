@@ -631,7 +631,7 @@ fn round5_omission_cursor_policy() -> Result<(), Box<dyn std::error::Error>> {
     Ok(())
 }
 
-/// Item metadata cursor names compact while genuine root continuations remain executable.
+/// Cursor-named item metadata compacts while envelope cursors survive (unbraind/pm-cli#1754).
 #[test]
 fn round7_cursor_metadata_compacts_below_the_envelope() -> Result<(), Box<dyn std::error::Error>> {
     let long = "a".repeat(30_000);
@@ -657,4 +657,19 @@ fn round7_cursor_metadata_compacts_below_the_envelope() -> Result<(), Box<dyn st
     assert_eq!(result["count"], 1);
     assert!(result.get("output_budget_exceeded").is_none());
     Ok(())
+}
+
+/// Only canonical omission markers can suppress another pass of string compaction.
+#[test]
+fn malformed_omission_markers_still_compact() {
+    for suffix in ["…[+bad", "…[+ chars]", "…[+01 chars]", "…[+1x chars]"] {
+        let prefix = "x".repeat(240);
+        let mut value = json!(format!("{prefix}{suffix}"));
+        assert!(compact_strings(&mut value), "{suffix}");
+        assert_eq!(
+            value,
+            format!("{prefix}…[+{} chars]", suffix.encode_utf16().count())
+        );
+        assert!(!compact_strings(&mut value), "{suffix}");
+    }
 }

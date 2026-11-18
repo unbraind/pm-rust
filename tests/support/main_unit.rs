@@ -2102,8 +2102,7 @@ fn round5_close_release_receipt_counts_an_intervening_claim()
     use clap::Parser as _;
     let temp = tempfile::tempdir()?;
     let root = temp.path().join(".agents/pm");
-    fs::create_dir_all(root.join("tasks"))?;
-    fs::create_dir(root.join("history"))?;
+    fs::create_dir_all(&root)?;
     fs::write(root.join("settings.json"), "{}")?;
     run(Cli::try_parse_from([
         "pm-rust",
@@ -2162,6 +2161,37 @@ fn round5_close_release_receipt_counts_an_intervening_claim()
         ),
         6
     );
+    let foreign = pm_rust::OwnershipItem {
+        author: "beta".to_owned(),
+        ..request.clone()
+    };
+    workspace.claim(&foreign)?;
+    fs::write(
+        root.join("settings.json"),
+        r#"{"governance":{"preset":"strict"}}"#,
+    )?;
+    let path = root.join("history/sample-one.jsonl");
+    let before = (workspace.get("sample-one")?, fs::read(&path)?);
+    let error = super::release_after_close(
+        &workspace,
+        &pm_rust::OwnershipItem {
+            force: false,
+            ..request
+        },
+    )
+    .err()
+    .ok_or("foreign assignment was released")?;
+    let pm_rust::PmRustError::CommandRefusal { context, .. } = error else {
+        return Err(format!("unexpected release error: {error}").into());
+    };
+    assert_eq!(context["item_id"], "sample-one");
+    assert!(
+        context["why"]
+            .as_str()
+            .is_some_and(|why| why.contains("close completed"))
+    );
+    assert_eq!(before.0.metadata.status, "closed");
+    assert_eq!((workspace.get("sample-one")?, fs::read(&path)?), before);
     let mut duplicate_fields = closed.close_changed_fields;
     duplicate_fields.extend(["assignee".to_owned(), "claim_principal".to_owned()]);
     assert_eq!(
@@ -2626,4 +2656,91 @@ fn round19_unclosed_recovery_advice_is_not_executable() {
         valid,
         Some("pm --pm-path selected get sample-one".to_owned())
     );
+}
+
+/// Admission handles both explicit spellings and projects a rejected environment identity safely.
+#[test]
+fn identity_refusal_keeps_explicit_and_environment_sources_distinct()
+-> Result<(), Box<dyn std::error::Error>> {
+    let identity = "https://fixture:synthetic-secret@example.invalid";
+    let directory = tempfile::tempdir()?;
+    let root = directory.path().join(".agents/pm");
+    fs::create_dir_all(&root)?;
+    fs::write(root.join("settings.json"), "{}")?;
+    let workspace = pm_rust::Workspace::discover(directory.path())?;
+    let ownership = super::ownership_request(
+        &workspace,
+        super::OwnershipArgs {
+            id: Some("sample-one".to_owned()),
+            author: Some(identity.to_owned()),
+            timestamp: None,
+            message: None,
+            force: false,
+            json: true,
+        },
+        false,
+    );
+    let collection = super::run_collection_with_cwd(
+        &workspace,
+        "files",
+        super::CollectionArgs {
+            id: "sample-one".to_owned(),
+            author: Some(identity.to_owned()),
+            ..super::CollectionArgs::default()
+        },
+        Ok(directory.path().to_owned()),
+    );
+    for error in [ownership.err(), collection.err()] {
+        let error = error.ok_or("expected credential refusal")?;
+        assert!(matches!(
+            error.downcast_ref::<pm_rust::PmRustError>(),
+            Some(pm_rust::PmRustError::IdentityCredentials {
+                identity_source: "--author"
+            })
+        ));
+        assert!(!error.to_string().contains("synthetic-secret"));
+    }
+    assert_eq!(fs::read_dir(&root)?.count(), 1);
+    for (source, arguments) in [
+        (
+            "--author",
+            vec![
+                "claim".to_owned(),
+                "sample-one".to_owned(),
+                format!("--author={identity}"),
+                "--json".to_owned(),
+            ],
+        ),
+        (
+            "PM_AUTHOR",
+            vec![
+                "claim".to_owned(),
+                "sample-one".to_owned(),
+                "--json".to_owned(),
+            ],
+        ),
+    ] {
+        let mut output = Vec::new();
+        super::write_identity_refusal(
+            &mut output,
+            source,
+            "Identity contains URL credentials",
+            &arguments,
+        )?;
+        let receipt: serde_json::Value = serde_json::from_slice(&output)?;
+        assert_eq!(
+            receipt["flag"].as_str(),
+            (source == "--author").then_some(source)
+        );
+        assert_eq!(
+            receipt["refusal"]["surface"],
+            if source == "--author" {
+                source
+            } else {
+                "claim"
+            }
+        );
+        assert!(!String::from_utf8(output)?.contains("synthetic-secret"));
+    }
+    Ok(())
 }

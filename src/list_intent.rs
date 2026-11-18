@@ -384,52 +384,58 @@ pub(crate) fn deliver(
         let receipt = projected["context_intent"].clone();
         Ok((finalize(projected, delivery, continuation)?, receipt))
     };
-    let (first, receipt) = match project(0, requested) {
-        Ok(result) => result,
+    // Use the same projection and stopping rule for first pages and cursor recovery.
+    let settle = |(first, receipt): (ListOutput, Value), delivery: &ListOptions| {
+        let Some((_, estimated)) = settled(&first, &receipt, delivery) else {
+            return Ok((first, None));
+        };
+        let overhead = overshoot(&receipt, estimated);
+        let (second, receipt) = project(overhead, delivery)?;
+        verify_projection(second, &receipt, options, delivery, budget, continuation).map(|page| {
+            let resumable = page["output_budget_truncation"]["continuations"].is_array();
+            (page, resumable.then_some(overhead))
+        })
+    };
+    match project(0, requested) {
+        Ok(first) => settle(first, requested).map(|(page, _)| page),
         Err(
-            error @ PmRustError::ReadCursor {
+            stale @ PmRustError::ReadCursor {
                 code: "read_output_cursor_stale",
                 ..
             },
-        ) if requested.output_cursor.is_some() => {
-            return resume_reprojected(requested, project, error);
+        ) => {
+            // Recreate the unpaged second projection for unchanged cursors (unbraind/pm-cli#1753).
+            let mut unpaged = requested.clone();
+            unpaged.output_cursor = None;
+            project(0, &unpaged)
+                .and_then(|first| settle(first, &unpaged))
+                .and_then(|(_, overhead)| {
+                    overhead
+                        .ok_or(stale)
+                        .and_then(|overhead| project(overhead, requested).map(|(page, _)| page))
+                })
         }
-        Err(error) => return Err(error),
-    };
-    let Some((_, estimated)) = settled(&first, &receipt, requested) else {
-        return Ok(first);
-    };
-    let (second, receipt) = project(overshoot(&receipt, estimated), requested)?;
-    let Some((receipt, estimated)) = settled(&second, &receipt, requested) else {
-        return Ok(second);
-    };
-    finalize(
-        omitted(receipt, options, budget, estimated),
-        requested,
-        continuation,
-    )
+        Err(error) => Err(error),
+    }
 }
 
-/// Recreates the unpaged second projection before validating an output cursor against it.
-fn resume_reprojected(
-    requested: &ListOptions,
-    project: impl Fn(usize, &ListOptions) -> Result<(ListOutput, Value), PmRustError>,
-    stale: PmRustError,
+/// Returns the verified page or a recovery receipt if finalized overhead still exceeds the budget.
+fn verify_projection(
+    page: ListOutput,
+    receipt: &Value,
+    options: &ListOptions,
+    delivery: &ListOptions,
+    budget: usize,
+    continuation: Option<&str>,
 ) -> Result<ListOutput, PmRustError> {
-    let mut unpaged = requested.clone();
-    unpaged.output_cursor = None;
-    let (first, receipt) = project(0, &unpaged)?;
-    let Some((_, estimated)) = settled(&first, &receipt, &unpaged) else {
-        return Err(stale);
-    };
-    let overhead = overshoot(&receipt, estimated);
-    let (second, receipt) = project(overhead, &unpaged)?;
-    if settled(&second, &receipt, &unpaged).is_some()
-        || !second["output_budget_truncation"]["continuations"].is_array()
-    {
-        return Err(stale);
+    if let Some((receipt, estimated)) = settled(&page, receipt, delivery) {
+        return finalize(
+            omitted(receipt, options, budget, estimated),
+            delivery,
+            continuation,
+        );
     }
-    project(overhead, requested).map(|(page, _)| page)
+    Ok(page)
 }
 
 /// Measures the extra final envelope cost beyond the intent's initial estimate.

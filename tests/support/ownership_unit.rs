@@ -919,3 +919,39 @@ fn round17_runtime_duplicate_status_precedence() -> Result<(), Box<dyn std::erro
     }
     Ok(())
 }
+
+/// The identity projection leaves public paths and addresses intact and removes private userinfo.
+#[test]
+fn identity_redaction_keeps_path_and_authority_boundaries() {
+    for (input, expected) in [
+        ("agent:work", "agent:work"),
+        ("agent@example.invalid:work", "agent@example.invalid:work"),
+        (
+            "custom://fixture@example.invalid",
+            "custom://[redacted]@example.invalid",
+        ),
+        ("https://@example.invalid", "https://@example.invalid"),
+        (
+            "see https://example.invalid/@scope/pkg",
+            "see https://example.invalid/@scope/pkg",
+        ),
+        (
+            "https://example.invalid/@scope/pkg\n",
+            "https://[redacted]@scope/pkg\n",
+        ),
+        (
+            "https://example.invalid//path@ref",
+            "https://[redacted]@ref",
+        ),
+        (
+            "https://example.invalid/path:kind@ref",
+            "https://[redacted]@ref",
+        ),
+    ] {
+        assert_eq!(
+            AuthorIdentity::redact_credentials(input),
+            expected,
+            "{input}"
+        );
+    }
+}

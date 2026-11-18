@@ -2159,7 +2159,7 @@ fn round5_long_intent_cursor_remains_executable() -> TestResult {
     long_intent_cursor_case(fixture(8, 2000)?.path())
 }
 
-/// Native compacts row metadata even when the pinned oracle preserves it as a cursor.
+/// Verifies native compaction and the published omission in unbraind/pm-cli#1754.
 #[test]
 fn round7_full_item_cursor_metadata_matches_published_budget() -> TestResult {
     let directory = fixture(1, 0)?;

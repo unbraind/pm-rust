@@ -1102,15 +1102,14 @@ fn project_tags(result: &mut Value, omit: bool) {
         }
     }
 }
-/// Adds the published nonzero ownership and inactivity counts for the matching corpus.
-fn append_in_progress_counts(
-    summary: &mut Value,
+/// Counts ownership and inactivity for the matching in-progress items.
+fn in_progress_counts(
     workspace: &Workspace,
     items: &[Value],
     lifecycle: &Lifecycle,
     settings: &Value,
-    now: &str,
-) {
+    now: time::OffsetDateTime,
+) -> [(&'static str, usize); 2] {
     use time::OffsetDateTime;
     use time::format_description::well_known::Rfc3339;
     let parse = |stamp: &str| OffsetDateTime::parse(stamp, &Rfc3339).ok();
@@ -1118,7 +1117,6 @@ fn append_in_progress_counts(
         .as_i64()
         .unwrap_or(72)
         .max(1);
-    let now = parse(now);
     let progress = lifecycle.activity_progress_status();
     let mut unowned = 0;
     let mut idle = 0;
@@ -1136,21 +1134,13 @@ fn append_in_progress_counts(
             )
             .filter_map(parse)
             .max();
-        if let Some((now, activity)) = now.zip(activity)
+        if let Some(activity) = activity
             && (now - activity).whole_hours() >= threshold
         {
             idle += 1;
         }
     }
-    if let Some(summary) = summary.as_object_mut() {
-        for (field, count) in [("in_progress_idle", idle), ("in_progress_unowned", unowned)] {
-            if count > 0
-                && let Some(index) = summary.keys().position(|key| key == "in_progress")
-            {
-                summary.shift_insert(index + 1, field.to_owned(), json!(count));
-            }
-        }
-    }
+    [("in_progress_unowned", unowned), ("in_progress_idle", idle)]
 }
 
 impl Workspace {
@@ -1170,15 +1160,15 @@ impl Workspace {
         now: &str,
         global: Option<std::path::PathBuf>,
     ) -> Result<ListOutput, PmRustError> {
-        time::OffsetDateTime::parse(now, &time::format_description::well_known::Rfc3339).map_err(
-            |_| {
-                crate::collections::refusal(
-                    "Invalid time value",
-                    1,
-                    json!({"code":"unknown_error"}),
-                )
-            },
-        )?;
+        let now_instant =
+            time::OffsetDateTime::parse(now, &time::format_description::well_known::Rfc3339)
+                .map_err(|_| {
+                    crate::collections::refusal(
+                        "Invalid time value",
+                        1,
+                        json!({"code":"unknown_error"}),
+                    )
+                })?;
         let settings = crate::ownership::runtime_settings(self.pm_root())?;
         let depth = options
             .depth
@@ -1473,15 +1463,48 @@ impl Workspace {
             .filter(|item| lifecycle.role(text(item, "status"), "active"))
             .filter(|item| lifecycle.matches(text(item, "status"), "in_progress"))
             .count();
-        let mut result = json!({"output_default":"toon","now":now,"depth":depth,"sections_included":names,"window":{"anchor":now,"start":now,"end":null,"past":false,"from":null,"to":null},"filters":{"type":null,"tag":null,"priority":null,"assignee":null,"assignee_filter":null,"sprint":null,"release":null,"limit":options.limit,"parent":null,"token_budget":number(budget),"runtime_filters":{}},"summary":{"returned_focus":{"active_items":high.len()+low.len()+fallback.len(),"in_progress":in_progress,"open":high.len()+low.len()+fallback.len()-in_progress,"blocked":high.iter().chain(&low).chain(&fallback).filter(|row|row["blocked"]==true).count()},"blocked_fallback_used":active.is_empty(),"high_level":high.len(),"low_level":low.len(),"agenda_events":events.len(),"scope":"matching_items","active_items":all_active,"open":all_active-all_progress,"in_progress":all_progress,"blocked":blocked.len(),"total_items":corpus.len(),"closed":corpus.iter().filter(|item|lifecycle.canonical(text(item,"status"))==lifecycle.canonical("closed")).count(),"canceled":corpus.iter().filter(|item|lifecycle.canonical(text(item,"status"))==lifecycle.canonical("canceled")).count()},"high_level":high,"low_level":low,"blocked_fallback":fallback,"agenda":{"summary":agenda_summary,"events":events}});
-        append_in_progress_counts(
-            &mut result["summary"],
-            self,
-            &corpus,
-            &lifecycle,
-            &settings,
-            now,
-        );
+        let mut summary: serde_json::Map<String, Value> = [
+            ("returned_focus", json!({"active_items":high.len()+low.len()+fallback.len(),"in_progress":in_progress,"open":high.len()+low.len()+fallback.len()-in_progress,"blocked":high.iter().chain(&low).chain(&fallback).filter(|row|row["blocked"]==true).count()})),
+            ("blocked_fallback_used", json!(active.is_empty())),
+            ("high_level", json!(high.len())),
+            ("low_level", json!(low.len())),
+            ("agenda_events", json!(events.len())),
+            ("scope", json!("matching_items")),
+            ("active_items", json!(all_active)),
+            ("open", json!(all_active - all_progress)),
+            ("in_progress", json!(all_progress)),
+        ].into_iter().map(|(key, value)| (key.to_owned(), value)).collect();
+        for (field, count) in in_progress_counts(self, &corpus, &lifecycle, &settings, now_instant)
+        {
+            if count > 0 {
+                summary.insert(field.to_owned(), json!(count));
+            }
+        }
+        summary.extend([
+            ("blocked".to_owned(), json!(blocked.len())),
+            ("total_items".to_owned(), json!(corpus.len())),
+            (
+                "closed".to_owned(),
+                json!(
+                    corpus
+                        .iter()
+                        .filter(|item| lifecycle.canonical(text(item, "status"))
+                            == lifecycle.canonical("closed"))
+                        .count()
+                ),
+            ),
+            (
+                "canceled".to_owned(),
+                json!(
+                    corpus
+                        .iter()
+                        .filter(|item| lifecycle.canonical(text(item, "status"))
+                            == lifecycle.canonical("canceled"))
+                        .count()
+                ),
+            ),
+        ]);
+        let mut result = json!({"output_default":"toon","now":now,"depth":depth,"sections_included":names,"window":{"anchor":now,"start":now,"end":null,"past":false,"from":null,"to":null},"filters":{"type":null,"tag":null,"priority":null,"assignee":null,"assignee_filter":null,"sprint":null,"release":null,"limit":options.limit,"parent":null,"token_budget":number(budget),"runtime_filters":{}},"summary":summary,"high_level":high,"low_level":low,"blocked_fallback":fallback,"agenda":{"summary":agenda_summary,"events":events}});
         let mut row_states = json!({});
         let mut needs_states = false;
         for name in ["high_level", "low_level", "blocked_fallback"] {

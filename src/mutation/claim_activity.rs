@@ -222,3 +222,7 @@ pub(super) fn evidence(
     });
     json!({"claimed_by":assignee,"claimed_at":since,"claim_source":source,"claim_activity":activity})
 }
+
+#[cfg(test)]
+#[path = "../../tests/support/claim_activity_differential.rs"]
+mod tests;

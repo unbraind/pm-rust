@@ -666,6 +666,7 @@ pub(crate) struct Edit {
     pub removes: Vec<(String, String)>,
     /// Unique one-based linked test indices.
     pub indices: Vec<usize>,
+    note_policy: NotePolicy,
 }
 
 /// Parses collection inputs without reading a potentially stale item snapshot.
@@ -833,6 +834,7 @@ pub(crate) fn prepare(
         adds,
         removes,
         indices,
+        note_policy: NotePolicy::Refuse,
     })
 }
 
@@ -842,15 +844,18 @@ fn same_artifact(a: &Value, b: &Value) -> bool {
 }
 
 /// Validates the explicit repair policy before opening an item for mutation.
-fn note_policy(options: &CollectionOptions, has_adds: bool) -> Result<&str, PmRustError> {
+fn note_policy(options: &CollectionOptions, has_adds: bool) -> Result<NotePolicy, PmRustError> {
     let Some(raw) = options.note_conflict.as_deref() else {
-        return Ok("refuse");
+        return Ok(NotePolicy::Refuse);
     };
     let mode = raw.trim();
-    let Some(mode) = ["refuse", "replace", "append"]
-        .into_iter()
-        .find(|value| mode.eq_ignore_ascii_case(value))
-    else {
+    let Some((_, mode)) = [
+        ("refuse", NotePolicy::Refuse),
+        ("replace", NotePolicy::Replace),
+        ("append", NotePolicy::Append),
+    ]
+    .into_iter()
+    .find(|(value, _)| mode.eq_ignore_ascii_case(value)) else {
         return Err(refusal(
             format!("--note-conflict must be one of refuse, replace, append; got \"{raw}\""),
             2,
@@ -944,7 +949,7 @@ pub(crate) fn reconcile_artifact_notes(
     edit: &mut Edit,
     options: &CollectionOptions,
 ) -> Result<Vec<Value>, PmRustError> {
-    let mode = note_policy(options, !edit.adds.is_empty())?;
+    let mode = edit.note_policy;
     let mut working: Vec<(Value, bool)> = current
         .iter()
         .cloned()
@@ -968,15 +973,15 @@ pub(crate) fn reconcile_artifact_notes(
             continue;
         }
         let revised = match (existing, mode) {
-            (None, _) | (_, "replace") => requested.to_owned(),
-            (Some(existing), "append") => {
+            (None, _) | (_, NotePolicy::Replace) => requested.to_owned(),
+            (Some(existing), NotePolicy::Append) => {
                 if format!("; {existing}; ").contains(&format!("; {requested}; ")) {
                     existing.to_owned()
                 } else {
                     format!("{existing}; {requested}")
                 }
             }
-            (Some(existing), _) => {
+            (Some(existing), NotePolicy::Refuse) => {
                 conflicts.push(json!({"path":add["path"],"scope":add["scope"],"existing_note":existing,"requested_note":requested,"source":if *edited {"this_write"} else {"stored"}}));
                 continue;
             }
@@ -1003,7 +1008,7 @@ pub(crate) fn reconcile_artifact_notes(
             None => "added",
             Some(entry) if after == Some(&entry["note"]) => "unchanged",
             Some(entry) if entry["note"].is_null() => "note_added",
-            Some(_) if mode == "append" => "note_appended",
+            Some(_) if mode == NotePolicy::Append => "note_appended",
             Some(_) => "note_replaced",
         };
         outcomes.push(json!({"path":add["path"],"scope":add["scope"],"outcome":outcome}));
@@ -1187,7 +1192,7 @@ impl Workspace {
             .parent()
             .and_then(Path::parent)
             .unwrap_or(self.pm_root());
-        let edit = prepare(key, options, root, cwd)?;
+        let mut edit = prepare(key, options, root, cwd)?;
         if options.note.is_some() && edit.adds.is_empty() {
             return Err(refusal(
                 "--note requires --add or --add-glob in the same invocation (the note annotates the links being added)",
@@ -1195,9 +1200,7 @@ impl Workspace {
                 json!({}),
             ));
         }
-        if options.note_conflict.is_some() {
-            note_policy(options, !edit.adds.is_empty())?;
-        }
+        edit.note_policy = note_policy(options, !edit.adds.is_empty())?;
         let write = !edit.adds.is_empty() || !edit.removes.is_empty() || !edit.indices.is_empty();
         let (document, mutation) = if write {
             crate::ownership::with_identity(
@@ -1307,4 +1310,12 @@ fn validate_link_paths(root: &Path, rows: &[Value]) -> Value {
         }
     }
     json!({"checked":paths.len(),"existing_files":existing,"missing_paths":missing,"non_file_paths":nonfile,"remote_references":remote})
+}
+
+/// Repair policy validated before any linked-artifact mutation opens the tracker.
+#[derive(Clone, Copy, PartialEq, Eq)]
+enum NotePolicy {
+    Refuse,
+    Replace,
+    Append,
 }

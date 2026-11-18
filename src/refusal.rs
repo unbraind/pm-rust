@@ -1189,3 +1189,7 @@ mod stored_diagnostics {
         }
     }
 }
+
+#[cfg(test)]
+#[path = "../tests/support/refusal_unit.rs"]
+mod coverage_regressions;

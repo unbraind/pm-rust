@@ -465,13 +465,20 @@ fn table_encoding(
         encoding["json_columns"] = json!(nested);
     }
     if !absent.is_empty() {
-        let mut groups = Map::new();
+        let mut groups: Vec<(&str, Vec<usize>)> = Vec::new();
         for (index, key) in absent {
-            if let Value::Array(indexes) = groups.entry(key).or_insert_with(|| json!([])) {
-                indexes.push(json!(index));
+            if let Some((_, indexes)) = groups.iter_mut().find(|(column, _)| *column == key) {
+                indexes.push(index);
+            } else {
+                groups.push((key, vec![index]));
             }
         }
-        encoding["absent_rows"] = Value::Object(groups);
+        encoding["absent_rows"] = Value::Object(
+            groups
+                .into_iter()
+                .map(|(key, rows)| (key.to_owned(), json!(rows)))
+                .collect(),
+        );
     }
     if !lists.is_empty() {
         encoding["list_columns"] =

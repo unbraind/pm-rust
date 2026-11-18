@@ -695,9 +695,10 @@ fn run_with_io(
             let mut receipt = result.close_receipt.unwrap_or_default();
             project_close_receipt_scope(&mut receipt, &raw_invocation());
             if fields.release_assignment {
-                let release = identity
-                    .with(|| {
-                        workspace.release(&OwnershipItem {
+                let release = identity.with(|| {
+                    release_after_close(
+                        &workspace,
+                        &OwnershipItem {
                             id: result.item.metadata.id.clone(),
                             author: close_author,
                             timestamp: Some(result.item.metadata.updated_at.clone()),
@@ -705,22 +706,33 @@ fn run_with_io(
                             force: fields.force,
                             if_available: false,
                             provenance_role: Some("implementer".to_owned()),
-                        })
-                    })
-                    .map_err(|error| {
-                        pm_rust::completed_step_failure(error, &result.item.metadata.id, "close")
-                    })?;
-                // Another writer can claim between the separate close and release steps.
-                let changed_count = close_release_changed_field_count(
-                    &result.close_changed_fields,
-                    release.changed_field_count,
-                );
-                receipt = serde_json::json!({"id":result.item.metadata.id,"action":"close_task","close":receipt,"release":release,"status":result.item.metadata.status,"changed_field_count":changed_count});
+                        },
+                    )
+                });
+                return release.map_err(Into::into).and_then(|release| {
+                    // Another writer can claim between the separate close and release steps.
+                    let changed_count = close_release_changed_field_count(
+                        &result.close_changed_fields,
+                        release.changed_field_count,
+                    );
+                    let reply = serde_json::json!({"id":result.item.metadata.id,"action":"close_task","close":receipt,"release":release,"status":result.item.metadata.status,"changed_field_count":changed_count});
+                    write_close_receipt(&reply, fields.json)
+                });
             }
             write_close_receipt(&receipt, fields.json)?;
         }
     }
     Ok(())
+}
+
+/// Releases the assignment after close and reports the durable close if release fails.
+fn release_after_close(
+    workspace: &Workspace,
+    request: &OwnershipItem,
+) -> Result<pm_rust::OwnershipResult, pm_rust::PmRustError> {
+    workspace
+        .release(request)
+        .map_err(|error| pm_rust::completed_step_failure(error, &request.id, "close"))
 }
 
 /// Resolves the collection author and renders the published receipt.
@@ -1318,16 +1330,17 @@ fn write_identity_refusal(
     args: &[String],
 ) -> Result<(), Box<dyn std::error::Error>> {
     let mut safe_args = args.to_vec();
-    for option in Invocation::parse(args).options {
-        if option.name == "author"
-            && let Some(value) = option.value
-        {
-            let safe = AuthorIdentity::redact_credentials(value);
-            if option.end == option.start + 1 {
-                safe_args[option.start] = format!("--author={safe}");
-            } else {
-                safe_args[option.start + 1] = safe.into_owned();
-            }
+    let supplied = Invocation::parse(args)
+        .options
+        .into_iter()
+        .filter(|option| option.name == "author")
+        .filter_map(|option| option.value.map(|value| (option.start, option.end, value)));
+    for (start, end, value) in supplied {
+        let safe = AuthorIdentity::redact_credentials(value);
+        if end == start + 1 {
+            safe_args[start] = format!("--author={safe}");
+        } else {
+            safe_args[start + 1] = safe.into_owned();
         }
     }
     let flag = source.starts_with("--");
@@ -1746,12 +1759,13 @@ fn collection_error_json(
         result["flag"] = serde_json::json!("id");
         result["value"] = serde_json::json!(id);
     }
-    if context["code"] == "unknown_option" {
+    if let Some(flag) = context["flag"]
+        .as_str()
+        .filter(|_| context["code"] == "unknown_option")
+    {
         result.as_object_mut().map(|map| map.shift_remove("why"));
-        if let Some(flag) = context["flag"].as_str() {
-            result["refusal"] =
-                serde_json::json!({"surface":flag,"rejected_value":flag,"exit_code":exit_code});
-        }
+        result["refusal"] =
+            serde_json::json!({"surface":flag,"rejected_value":flag,"exit_code":exit_code});
     }
     result
 }

@@ -497,6 +497,28 @@ fn artifact_note_conflicts_preserve_storage_and_report_explicit_append() -> Test
         replay["mutation_receipt"]["link_outcomes"][0]["outcome"],
         "unchanged"
     );
+    options.note_conflict = Some("REPLACE".to_owned());
+    options.full_history = true;
+    options.add = vec!["path=a.rs,note=Replacement".to_owned(); 2];
+    let replaced = workspace.collection("sample-one", "files", &options, root)?;
+    assert_eq!(replaced["count"], 2);
+    assert_eq!(
+        replaced["mutation_receipt"]["link_outcomes"],
+        json!([{"path":"a.rs","scope":"project","outcome":"note_replaced"}])
+    );
+    options.add = vec!["path=b.rs,note=New rationale".to_owned()];
+    let added = workspace.collection("sample-one", "files", &options, root)?;
+    assert_eq!(added["files"][1]["note"], "New rationale");
+    assert_eq!(
+        added["mutation_receipt"]["link_outcomes"][0]["outcome"],
+        "note_added"
+    );
+    options.add.clear();
+    options.note_conflict = None;
+    options.remove = vec!["a.rs".to_owned(), "b.rs".to_owned()];
+    let removed = workspace.collection("sample-one", "files", &options, root)?;
+    assert_eq!(removed["changed"], true);
+    assert_eq!(removed["count"], 0);
     Ok(())
 }
 
@@ -1022,5 +1044,93 @@ fn sdk_collection_git_source_ignores_hook_repository() -> TestResult {
         String::from_utf8_lossy(&output.stderr)
     );
     assert!(String::from_utf8_lossy(&output.stdout).contains("test result: ok. 1 passed;"));
+    Ok(())
+}
+
+/// Explicit note policies refuse invalid values, missing additions and linked-test use.
+#[test]
+fn sdk_note_policy_refusals_are_read_only() -> TestResult {
+    let (directory, workspace) = tracker()?;
+    let path = workspace.pm_root().join("history/sample-one.jsonl");
+    let before = std::fs::read(&path)?;
+    for (key, mode, add, expected) in [
+        (
+            "files",
+            "invalid",
+            vec!["source.rs".to_owned()],
+            "invalid_argument_value",
+        ),
+        ("files", "append", vec![], "missing_required_argument"),
+        (
+            "tests",
+            "replace",
+            vec!["command=cargo fmt".to_owned()],
+            "unknown_option",
+        ),
+    ] {
+        let options = CollectionOptions {
+            author: "fixture".to_owned(),
+            add,
+            note_conflict: Some(mode.to_owned()),
+            ..CollectionOptions::default()
+        };
+        let Err(PmRustError::CommandRefusal { context, .. }) =
+            workspace.collection("sample-one", key, &options, directory.path())
+        else {
+            return Err(format!("expected a {key} note policy refusal").into());
+        };
+        assert_eq!(context["code"], expected);
+    }
+    assert_eq!(std::fs::read(path)?, before);
+    Ok(())
+}
+
+/// Each in-batch conflict is described and the retry retains nonconflicting options.
+#[test]
+fn sdk_note_conflict_retry_preserves_the_request() -> TestResult {
+    let (directory, workspace) = tracker()?;
+    let item = workspace.pm_root().join("tasks/sample-one.toon");
+    let history = workspace.pm_root().join("history/sample-one.jsonl");
+    let before = (std::fs::read(&item)?, std::fs::read(&history)?);
+    for (key, path, append_stable) in [("docs", "guide.md", false), ("files", "source.rs", true)] {
+        let options = CollectionOptions {
+            author: "fixture".to_owned(),
+            add: ["first", "second", "third"]
+                .map(|note| format!("path={path},note={note}"))
+                .to_vec(),
+            remove: vec!["unrelated.md".to_owned()],
+            note: Some("fallback".to_owned()),
+            force: true,
+            append_stable,
+            full_history: true,
+            message: Some("Link rationale".to_owned()),
+            ..CollectionOptions::default()
+        };
+        let Err(PmRustError::CommandRefusal { context, .. }) =
+            workspace.collection("sample-one", key, &options, directory.path())
+        else {
+            return Err(format!("expected an in-batch {key} conflict").into());
+        };
+        assert_eq!(context["code"], "linked_artifact_note_conflict");
+        let rows = context["details"]["conflicts"]
+            .as_array()
+            .ok_or("conflict rows")?;
+        assert_eq!(rows.len(), 2);
+        assert!(rows.iter().all(|row| row["source"] == "this_write"));
+        let retry = context["recovery"]["suggested_retry_args"]
+            .as_array()
+            .ok_or("retry args")?;
+        for flag in [
+            "--remove",
+            "--note",
+            "--force",
+            "--full-history",
+            "--message",
+        ] {
+            assert!(retry.contains(&json!(flag)), "{key}: {flag}");
+        }
+        assert_eq!(retry.contains(&json!("--append-stable")), append_stable);
+    }
+    assert_eq!((std::fs::read(item)?, std::fs::read(history)?), before);
     Ok(())
 }

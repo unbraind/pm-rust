@@ -1,0 +1,16 @@
+id: pm-rust-linked-note-diagnostics
+title: Align linked note-option scope and diagnostic guidance
+description: "Synthetic pm-cli 2026.11.18 comparisons exposed pre-existing differences. Native docs accepts --append-stable while the published command declares it on files only. Invalid --note-conflict values and missing add inputs share exit codes and refusal codes, but native omits some published usage guidance. Round CE covers the shared no-write behavior."
+type: Task
+status: open
+priority: 3
+tags[3]: collections,follow-up,oracle
+created_at: "2026-11-18T13:06:06.143Z"
+updated_at: "2026-11-18T13:06:10.812Z"
+author: codex-sol
+parent: pm-rust-oracle-1118
+files[3]{path,scope}:
+  src/collections.rs,project
+  src/main.rs,project
+  tests/search_collections_differential.rs,project
+body: ""

@@ -5734,3 +5734,115 @@ fn round15_duplicate_examples_shell_round_trip() -> Result<(), Box<dyn std::erro
     }
     Ok(())
 }
+
+/// A skipped foreign claim projects a safe holder without altering legacy stored ownership.
+#[test]
+fn skipped_claim_redacts_legacy_result_without_writing() -> Result<(), Box<dyn std::error::Error>> {
+    let (_temp, pm_root) = root(&settings("sample-", "toon", 1800))?;
+    let mut document = create_item(&pm_root, request())?.item;
+    let holder = "https://fixture:synthetic-secret@example.invalid";
+    document
+        .metadata
+        .extra
+        .insert("assignee".to_owned(), serde_json::json!(holder));
+    let path = pm_root.join("tasks/sample-unit.toon");
+    let history = pm_root.join("history/sample-unit.jsonl");
+    let bytes = canonical_item_bytes(&document)?;
+    fs::write(&path, &bytes)?;
+    let history_before = fs::read(&history)?;
+    let result = ownership_item(
+        &pm_root,
+        &OwnershipItem {
+            id: "sample-unit".to_owned(),
+            author: "other".to_owned(),
+            timestamp: Some(TS.to_owned()),
+            message: None,
+            force: false,
+            if_available: true,
+            provenance_role: None,
+        },
+        true,
+    )?;
+    assert_eq!(result.skipped, Some(true));
+    assert_eq!(
+        result.item.metadata.extra["assignee"],
+        "https://[redacted]@example.invalid"
+    );
+    assert_eq!(fs::read_to_string(&path)?, bytes);
+    assert_eq!(fs::read(&history)?, history_before);
+    Ok(())
+}
+
+/// Direct create and update reject private author values before lock or history writes.
+#[test]
+fn credential_authors_cannot_enter_native_mutations() -> Result<(), Box<dyn std::error::Error>> {
+    let (_temp, pm_root) = root(&settings("sample-", "toon", 1800))?;
+    let author = "https://fixture:synthetic-secret@example.invalid".to_owned();
+    let mut create = request();
+    create.author.clone_from(&author);
+    assert!(matches!(
+        create_item(&pm_root, create),
+        Err(PmRustError::IdentityCredentials {
+            identity_source: "--author"
+        })
+    ));
+    assert!(!pm_root.join("tasks/sample-unit.toon").exists());
+    let outcome = create_item(&pm_root, request())?;
+    let history = pm_root.join("history/sample-unit.jsonl");
+    let before = fs::read(&history)?;
+    assert!(matches!(
+        update_item(
+            &pm_root,
+            serde_json::from_value(serde_json::json!({
+                "id": outcome.item.metadata.id,
+                "author": author,
+                "title": "Changed"
+            }))?,
+        ),
+        Err(PmRustError::IdentityCredentials {
+            identity_source: "--author"
+        })
+    ));
+    assert_eq!(fs::read(history)?, before);
+    Ok(())
+}
+
+/// A confirmed stale SDK refusal suggests explicit takeover and leaves the claim intact.
+#[test]
+fn stale_claim_refusal_suggests_explicit_takeover() -> Result<(), Box<dyn std::error::Error>> {
+    let (_temp, pm_root) = root(&settings("sample-", "toon", 1800))?;
+    create_item(&pm_root, request())?;
+    let claim = OwnershipItem {
+        id: "sample-unit".to_owned(),
+        author: "first-holder".to_owned(),
+        timestamp: Some(TS.to_owned()),
+        message: None,
+        force: false,
+        if_available: false,
+        provenance_role: None,
+    };
+    ownership_item(&pm_root, &claim, true)?;
+    let item = pm_root.join("tasks/sample-unit.toon");
+    let history = pm_root.join("history/sample-unit.jsonl");
+    let before = (fs::read(&item)?, fs::read(&history)?);
+    let Err(PmRustError::OwnershipRefusal { context, .. }) = ownership_item(
+        &pm_root,
+        &OwnershipItem {
+            author: "other".to_owned(),
+            timestamp: Some("2026-08-11T10:06:30.183Z".to_owned()),
+            ..claim
+        },
+        true,
+    ) else {
+        return Err("expected the stale foreign-claim refusal".into());
+    };
+    assert_eq!(context["claimed_by"], "first-holder");
+    assert_eq!(context["claim_activity"]["stale_policy"]["stale"], true);
+    assert!(
+        context["next_steps"]
+            .to_string()
+            .contains("--takeover-stale")
+    );
+    assert_eq!((fs::read(item)?, fs::read(history)?), before);
+    Ok(())
+}

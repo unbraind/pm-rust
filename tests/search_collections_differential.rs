@@ -198,6 +198,18 @@ fn collection_commands_match_oracle() -> TestResult {
             vec!["files", "sample-item", "--add", "src/a.rs"],
             vec!["files", "sample-item", "--add", "9:artifact.rs"],
             vec!["files", "sample-item", "--add", "path=src/a.rs,note=new"],
+            vec!["files", "sample-item", "--add", "path=src/z.rs,note=last"],
+            vec![
+                "files",
+                "sample-item",
+                "--add",
+                "path=src/z.rs,note=new",
+                "--note-conflict",
+                "REPLACE",
+                "--add",
+                "path=src/z.rs,note=new",
+                "--full-history",
+            ],
             vec![
                 "files",
                 "sample-item",
@@ -369,6 +381,163 @@ fn collection_commands_match_oracle() -> TestResult {
         }
     }
     assert_eq!(mismatches, 0, "collection scenarios with byte differences");
+    Ok(())
+}
+
+/// Both CLIs reject unsafe note edits before modifying any linked artifacts.
+#[test]
+#[allow(
+    clippy::too_many_lines,
+    reason = "Each case includes the complete CLI arguments"
+)]
+fn linked_note_recovery_matches_published_semantics() -> TestResult {
+    let Some(published) = published_cli::published_cli_or_skip("linked artifact note recovery")
+    else {
+        return Ok(());
+    };
+    let scratch = tempfile::tempdir()?;
+    let driver = write_driver(scratch.path(), &published)?;
+    let tracker = tempfile::tempdir()?;
+    let rust = tempfile::tempdir()?;
+    let snapshot = tempfile::tempdir()?;
+    for args in [
+        vec!["init", "sample-", "--defaults"],
+        vec![
+            "create",
+            "--id",
+            "sample-item",
+            "--title",
+            "Notes",
+            "--type",
+            "Task",
+            "--author",
+            "alpha",
+        ],
+    ] {
+        let result = oracle(&driver, tracker.path(), &args)?;
+        assert!(
+            result.status.success(),
+            "{}",
+            String::from_utf8_lossy(&result.stderr)
+        );
+    }
+    for target in [rust.path(), snapshot.path()] {
+        copy_directory(&tracker.path().join(".agents"), &target.join(".agents"))?;
+    }
+    let cases = [
+        (
+            vec![
+                "files",
+                "sample-item",
+                "--add",
+                "example.rs",
+                "--note-conflict",
+                "broken",
+            ],
+            "invalid_argument_value",
+            2,
+            0,
+        ),
+        (
+            vec![
+                "files",
+                "sample-item",
+                "--remove",
+                "example.rs",
+                "--note-conflict",
+                "append",
+            ],
+            "missing_required_argument",
+            2,
+            0,
+        ),
+    ];
+    for (command, path, extra) in [
+        ("docs", "guide.md", vec![]),
+        ("files", "source.rs", vec!["--append-stable"]),
+    ] {
+        let first = format!("path={path},note=first");
+        let second = format!("path={path},note=second");
+        let third = format!("path={path},note=third");
+        let mut args = vec![
+            command,
+            "sample-item",
+            "--add",
+            &first,
+            "--add",
+            &second,
+            "--add",
+            &third,
+            "--remove",
+            "unrelated.md",
+            "--note",
+            "fallback",
+            "--force",
+            "--full-history",
+            "--message",
+            "Link rationale",
+        ];
+        args.extend(extra);
+        assert_note_refusal(
+            &driver,
+            tracker.path(),
+            rust.path(),
+            &args,
+            "linked_artifact_note_conflict",
+            4,
+            2,
+        )?;
+    }
+    for (args, code, exit, conflicts) in cases {
+        assert_note_refusal(
+            &driver,
+            tracker.path(),
+            rust.path(),
+            &args,
+            code,
+            exit,
+            conflicts,
+        )?;
+    }
+    for target in [tracker.path(), rust.path()] {
+        artifacts(
+            &snapshot.path().join(".agents/pm"),
+            &target.join(".agents/pm"),
+        )?;
+    }
+    Ok(())
+}
+
+/// Compares the refusal contract and conflict rows independently of each CLI's rendered guidance.
+fn assert_note_refusal(
+    driver: &Path,
+    published: &Path,
+    rust: &Path,
+    args: &[&str],
+    code: &str,
+    exit: i32,
+    conflicts: usize,
+) -> TestResult {
+    let mut args = args.to_vec();
+    args.extend(["--author", "alpha", "--json"]);
+    let expected = oracle(driver, published, &args)?;
+    let actual = native(rust, &args, true)?;
+    for output in [expected, actual] {
+        let stderr = String::from_utf8(output.stderr)?;
+        assert_eq!(output.status.code(), Some(exit), "{args:?}: {stderr}");
+        assert!(output.stdout.is_empty());
+        let receipt: serde_json::Value = serde_json::from_str(&stderr)?;
+        assert_eq!(receipt["code"], code, "{args:?}: {stderr}");
+        if conflicts > 0 {
+            let rows = receipt["details"]["conflicts"]
+                .as_array()
+                .ok_or("conflict rows")?;
+            assert_eq!(rows.len(), conflicts);
+            assert_eq!(rows[0]["existing_note"], "first");
+            assert_eq!(rows[0]["requested_note"], "second");
+            assert_eq!(rows[0]["source"], "this_write");
+        }
+    }
     Ok(())
 }
 

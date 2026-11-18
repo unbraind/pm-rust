@@ -1830,6 +1830,98 @@ fn claim_refusal_uses_matching_latest_ownership_evidence() -> Result<(), Box<dyn
     Ok(())
 }
 
+/// Stale foreign claims report exact advice and preserve item and history bytes.
+#[test]
+fn stale_foreign_claim_refusal_matches_published() -> Result<(), Box<dyn std::error::Error>> {
+    let Some(fixture) = Fixture::new("none")? else {
+        return Ok(());
+    };
+    prepare(
+        &fixture,
+        &["claim", "sample-own", "--author", "alpha", "--json"],
+    )?;
+    let earlier = "2026-08-18T10:00:00.000Z";
+    for root in [fixture.node.path(), fixture.rust.path()] {
+        for relative in ["tasks/sample-own.toon", "history/sample-own.jsonl"] {
+            let path = root.join(".agents/pm").join(relative);
+            let bytes = fs::read_to_string(&path)?;
+            assert!(bytes.contains(CLOCK));
+            fs::write(path, bytes.replace(CLOCK, earlier))?;
+        }
+    }
+    let args = ["claim", "sample-own", "--author", "beta"];
+    fixture.step(&args)?;
+    let human = native_command(fixture.rust.path(), &args).output()?;
+    assert_eq!(human.status.code(), Some(4));
+    assert!(String::from_utf8(human.stderr)?.contains("idle 96h, stale"));
+    let args = ["claim", "sample-own", "--author", "beta", "--json"];
+    fixture.step(&args)?;
+    let output = native_command(fixture.rust.path(), &args).output()?;
+    let receipt: serde_json::Value = serde_json::from_slice(&output.stderr)?;
+    assert_eq!(receipt["claim_activity"]["stale_policy"]["stale"], true);
+    assert_eq!(
+        receipt["claim_activity"]["stale_policy"]["eligible_at"],
+        "2026-08-21T10:00:00.000Z"
+    );
+    Ok(())
+}
+
+/// The CLI refuses private explicit and environment authors before altering a tracker.
+#[test]
+fn credential_author_sources_refuse_without_writes() -> Result<(), Box<dyn std::error::Error>> {
+    let Some(fixture) = Fixture::new("none")? else {
+        return Ok(());
+    };
+    let credential = "https://fixture:synthetic-secret@example.invalid";
+    let attached = format!("--author={credential}");
+    for args in [
+        vec![
+            "create",
+            "--id",
+            "sample-other",
+            "--title",
+            "Other",
+            "--type",
+            "Task",
+            &attached,
+        ],
+        vec![
+            "files",
+            "sample-own",
+            "--add",
+            "example.rs",
+            &attached,
+            "--json",
+        ],
+        vec!["update", "sample-own", "--title", "Changed", &attached],
+    ] {
+        let expected = published_run(&fixture.driver, fixture.node.path(), &args)?;
+        let actual = native_command(fixture.rust.path(), &args).output()?;
+        for output in [&expected, &actual] {
+            let stderr = String::from_utf8_lossy(&output.stderr);
+            assert_eq!(output.status.code(), Some(2), "{args:?}: {stderr}");
+            assert!(output.stdout.is_empty());
+            assert!(!stderr.contains("synthetic-secret"));
+            assert!(stderr.contains("--author"), "{args:?}: {stderr}");
+        }
+        if args.contains(&"--json") {
+            let refusal: serde_json::Value = serde_json::from_slice(&actual.stderr)?;
+            assert_eq!(refusal["code"], "invalid_argument_value");
+        }
+        fixture.compare_bytes()?;
+    }
+    let args = ["claim", "sample-own", "--json"];
+    let actual = native_command(fixture.rust.path(), &args)
+        .env("PM_AUTHOR", credential)
+        .output()?;
+    assert_eq!(actual.status.code(), Some(2));
+    let stderr = String::from_utf8(actual.stderr)?;
+    assert!(!stderr.contains("synthetic-secret"));
+    let refusal: serde_json::Value = serde_json::from_str(&stderr)?;
+    assert_eq!(refusal["refusal"]["surface"], "claim");
+    fixture.compare_bytes()
+}
+
 /// Registry-defined terminal states refuse atomic starts under the claim lock without writes.
 #[test]
 fn atomic_start_rejects_configured_terminal_status_like_oracle()

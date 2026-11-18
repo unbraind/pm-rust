@@ -102,24 +102,22 @@ fn native(source: &Value, reprojected: bool) -> Result<Value, Box<dyn std::error
     let result = super::super::deliver(source.clone().into(), &retry, &retry, Some(1000), None)?;
     let offset = usize::try_from(cursor["o"].as_u64().ok_or("offset")?)?;
     assert_eq!(result["items"][0]["id"], initial_rows[offset]["id"]);
-    if reprojected {
-        let mut changed = source.clone();
-        changed["items"][0]["title"] = json!("q".repeat(106));
-        assert!(matches!(
-            super::super::deliver(changed.into(), &retry, &retry, Some(1000), None),
-            Err(PmRustError::ReadCursor {
-                code: "read_output_cursor_stale",
-                ..
-            })
-        ));
-    }
+    let mut changed = source.clone();
+    changed["items"][0]["title"] = json!("q".repeat(106));
+    assert!(matches!(
+        super::super::deliver(changed.into(), &retry, &retry, Some(1000), None),
+        Err(PmRustError::ReadCursor {
+            code: "read_output_cursor_stale",
+            ..
+        })
+    ));
     let wire = crate::stringify_toon(&result)?;
     let retry = json!({"ok":true,"result":result.value,"wire":wire});
     let wire = crate::stringify_toon(&first)?;
     Ok(json!({"first":first.value,"wire":wire,"retry":retry}))
 }
 
-/// The first page matches the oracle and native replays its own reprojected cursor.
+/// First-page parity and native cursor replay across the unbraind/pm-cli#1753 boundary.
 #[test]
 fn round9_reprojected_continuation_matches_published() -> Result<(), Box<dyn std::error::Error>> {
     let oracle = published_cli::published_cli_or_skip("intent delivery continuation");
