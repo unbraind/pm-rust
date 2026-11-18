@@ -6,10 +6,10 @@ status: in_progress
 priority: 1
 tags[2]: "gh:unbraind/pm-rust#176",oracle
 created_at: "2026-11-18T09:41:09.150Z"
-updated_at: "2026-11-18T11:26:49.687Z"
+updated_at: "2026-11-18T11:47:22.281Z"
 author: codex-sol
 parent: pm-rust-u4al
-comments[15]{created_at,author,text}:
+comments[18]{created_at,author,text}:
   "2026-11-18T09:41:20.010Z",codex-sol,Started from the Dependabot head. npm latest is 2026.11.18. Reviewing the failed matrix and reproducing against the current pin.
   "2026-11-18T09:57:01.888Z",codex-sol,"All seven failed jobs in run 44015087729 report two cases. GH-1707 in 2026.11.13 introduces credential-bearing identity admission and stored-holder redaction. Direct 2026.11.18 probes confirm stored holders are redacted without requiring credential restoration from a clean invocation. The full Linux run also confirms GH-1684 and GH-1703 in 2026.11.14 change TOON receipts and budgeted row counts, and GH-1336 in 2026.11.16 adds claim activity evidence. Implementing these wire changes while the remaining suites run."
   "2026-11-18T10:10:24.585Z",codex-sol,"Published 2026.11.18 accepts the unchanged replay at the old TOON overhead boundary. The same stale-output-cursor defect remains at an adjacent second-projection boundary, with successful replay on either side. Saved an upstream draft after checking related issues. Native already had this stale replay behavior. Kept the existing reprojected-snapshot test and tracked the separate GH-1336 takeover and next write/read work under pm-rust-stale-claim-takeover."
@@ -25,7 +25,10 @@ comments[15]{created_at,author,text}:
   "2026-11-18T11:22:50.277Z",codex-sol,At cd70569 all three platform shard-two Rust jobs and coverage shard two passed. Shard one found three legacy CLI fixtures attempting to create forbidden identities via the modern claim path. Direct comparisons with 2026.11.18 confirmed broader whole-value masking for some previously stored holders. The CLI refusal now masks the holder and detail with that rule while retaining the existing protection for copied sensitive text. Legacy fixtures seed older durable data directly.
   "2026-11-18T11:24:02.658Z",codex-sol,Tracked the remaining raw direct-SDK error projection under pm-rust-sdk-holder-projection. The CLI applies whole-value masking before rendering while supporting its existing copied-text protections.
   "2026-11-18T11:26:45.144Z",codex-sol,"The whole-value legacy holder refusal now matches published JSON byte for byte. Both focused legacy holder CLI cases pass, and the complete public prose close-recovery corpus passed with the updated fixtures. Formatting and all-target Clippy passed. The full published collection comparison passed, and the isolated session-attribution differential passed after its concurrent Linux failure."
-files[13]{path,scope}:
+  "2026-11-18T11:34:29.424Z",codex-sol,Exact e3e057f Ubuntu CI reached mutation acceptance after passing the 41 CLI dispatch tests. A stale SDK assertion assumed unreadable history would prevent the foreign claim refusal. The published 2026.11.18 CLI and native CLI return byte-identical already_claimed_by receipts with history_unreadable true and stale false for the synthetic directory case. Updated the acceptance test to verify the typed fallback and unchanged item and to retain the separate journal recovery assertions.
+  "2026-11-18T11:41:20.514Z",codex-sol,"The GH-1710 root cursor fix is present in the published oracle. Its long producer cursor matches native and replays in both implementations. The same release family over-applies cursor preservation to item fields with those names. Synthetic 2026.11.11 and 2026.11.18 CLI comparisons and a one-field control confirm the newer version omits rows at the tight budget. The draft captures this distinct regression. Native keeps nested data compactable, with deliberate divergence at the tight budget and byte parity at the wider budget."
+  "2026-11-18T11:47:14.156Z",codex-sol,"All 41 dispatch cases, 29 mutation acceptance cases, and both generated output-parity cases passed locally. The three focused pagination cases passed against the pinned oracle. In particular, both CLIs deliver byte-identical exit-2 receipts for the full triage query at the default effective cap. Both upstream draft reproductions were run from their exact saved code and yielded their passing controls."
+files[15]{path,scope}:
   src/collections.rs,project
   src/mutation/claim_activity.rs,project
   src/ownership.rs,project
@@ -34,8 +37,10 @@ files[13]{path,scope}:
   src/toon_output.rs,project
   tests/claim_release_differential.rs,project
   tests/cli_dispatch.rs,project
+  tests/mutation_contract.rs,project
   tests/oracle/package-lock.json,project
   tests/ownership_contract.rs,project
+  tests/pagination_differential.rs,project
   tests/search_collections_differential.rs,project
   tests/support/json_output_unit.rs,project
   tests/support/mutation_differential.rs,project
