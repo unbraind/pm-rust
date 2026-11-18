@@ -6,12 +6,10 @@ status: in_progress
 priority: 1
 tags[3]: "gh:unbraind/pm-rust#176","gh:unbraind/pm-rust#181",oracle
 created_at: "2026-11-18T09:41:09.150Z"
-updated_at: "2026-11-18T21:50:07.436Z"
-assignee: codex-sol
-claim_principal: codex-sol
+updated_at: "2026-11-18T22:16:08.828Z"
 author: codex-sol
 parent: pm-rust-u4al
-comments[37]{created_at,author,text}:
+comments[38]{created_at,author,text}:
   "2026-11-18T09:41:20.010Z",codex-sol,Started from the Dependabot head. npm latest is 2026.11.18. Reviewing the failed matrix and reproducing against the current pin.
   "2026-11-18T09:57:01.888Z",codex-sol,"All seven failed jobs in run 44015087729 report two cases. GH-1707 in 2026.11.13 introduces credential-bearing identity admission and stored-holder redaction. Direct 2026.11.18 probes confirm stored holders are redacted without requiring credential restoration from a clean invocation. The full Linux run also confirms GH-1684 and GH-1703 in 2026.11.14 change TOON receipts and budgeted row counts, and GH-1336 in 2026.11.16 adds claim activity evidence. Implementing these wire changes while the remaining suites run."
   "2026-11-18T10:10:24.585Z",codex-sol,"Published 2026.11.18 accepts the unchanged replay at the old TOON overhead boundary. The same stale-output-cursor defect remains at an adjacent second-projection boundary, with successful replay on either side. Saved an upstream draft after checking related issues. Native already had this stale replay behavior. Kept the existing reprojected-snapshot test and tracked the separate GH-1336 takeover and next write/read work under pm-rust-stale-claim-takeover."
@@ -49,6 +47,7 @@ comments[37]{created_at,author,text}:
   "2026-11-18T17:29:44.993Z",codex-sol,The timestamp regression also includes an older operation-free history record. It must remain ineligible for idle evidence while the compact-baseline timestamp is parsed.
   "2026-11-18T18:06:57.845Z",codex-sol,Extended the recovered-page regression to cover the explicit output budget as well as the intent budget. Both over-budget paths discard the rows and return the corresponding recovery receipt.
   "2026-11-18T18:09:11.469Z",codex-sol,"Round CK addressed 20 findings and retained six behaviors from pm-cli 2026.11.18. The merged LLVM report passed the unmodified strict check with 20534/20534 lines, 2115/2115 functions, 33603/33603 regions and 4688/4688 branches. All eight affected oracle tests, formatting, Clippy and changelog validation passed. A wider run encountered a five-second dependency-packet timeout; the direct fixture returned matching bytes across all six measurements."
+  "2026-11-18T22:16:06.246Z",codex-sol,"Round CT maps Greptile PRRT_kwDOTwgMRs65H_CX to feab9220af035cf6df9c2b329abe28e8b98fed14. Session publication drops the cleanup gate before its owner receipt, so the successor can reclaim a confirmed dead writer. The Linux SIGKILL regression reproduced the release attribution warning on f51fe8e and now verifies warning-free release and an updated active-work list. The two retained first-fsync cases, formatting, Clippy with warnings denied, 504 library tests, 11 ownership contracts, 61 claim/release differentials against pm-cli 2026.11.18, and changelog verification passed. The full four-dimension coverage run is in progress."
 files[21]{path,scope}:
   scripts/crash-review.test.mts,project
   src/collections.rs,project
