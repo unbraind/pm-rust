@@ -296,7 +296,11 @@ impl Credentials {
             if let Some(password) = password.filter(|password| !password.is_empty()) {
                 secrets.push((password, false));
             }
-            if span.chars().any(whitespace) {
+            // Whole-identity admission can cover a public host followed by prose.
+            // Keep its complete spelling private without indexing public hostname fragments.
+            if let Some((first, _)) = span.split_once(whitespace)
+                && !completed_authority(first)
+            {
                 secrets.push((span, false));
             }
             for (secret, username) in secrets {
@@ -1025,6 +1029,21 @@ mod tests {
             );
             assert!(payload["recovery"].get("suggested_retry").is_none());
         }
+    }
+
+    /// Shared public hostname suffixes survive projection of a whole-value legacy identity.
+    #[test]
+    fn legacy_prose_holder_preserves_the_public_hostname() {
+        let raw = "https://host.invalid or user@example.invalid";
+        let safe = "https://[redacted]@example.invalid";
+        let (detail, context) = sdk_fields(
+            safe.to_owned(),
+            json!({"claimed_by":safe,"details":{"copy":"host.invalid or user"}}),
+            Some(raw),
+        );
+        assert_eq!(detail, safe);
+        assert_eq!(context["claimed_by"], safe);
+        assert_eq!(context["details"]["copy"], REDACTED);
     }
 
     /// Whitespace-only userinfo remains private when persisted without a password separator.
