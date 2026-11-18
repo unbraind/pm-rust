@@ -1584,7 +1584,11 @@ fn in_progress_counts_keep_ownership_without_a_valid_activity_timestamp()
     let now = time::OffsetDateTime::parse(NOW, &time::format_description::well_known::Rfc3339)?;
     fs::write(
         workspace.pm_root().join("history/sample-unknown.jsonl"),
-        json!({"ts":"unparseable", "op":"history_compact_baseline", "patch":[]}).to_string(),
+        [
+            json!({"ts":"unparseable", "op":"history_compact_baseline", "patch":[]}).to_string(),
+            json!({"ts":"2026-08-01T00:00:00Z", "patch":[]}).to_string(),
+        ]
+        .join("\n"),
     )?;
     let items = [
         json!({"id":"sample-unknown","status":"in_progress","updated_at":"unparseable"}),
