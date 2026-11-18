@@ -6048,3 +6048,22 @@ fn busy_session_publication_gate_preserves_snapshot() -> Result<(), Box<dyn std:
     );
     Ok(())
 }
+
+/// A native CLI scope may project recovery copies without leaking its registry to later SDK calls.
+#[test]
+fn sdk_holder_registration_ends_with_the_cli_invocation() {
+    let holder = "https://fixture:synthetic-token@example.invalid";
+    let display = crate::AuthorIdentity::redact_credentials(holder).into_owned();
+    crate::refusal::with_cli_projection(|| {
+        let refusal = owner_conflict(Some(holder), display.clone(), serde_json::json!({}));
+        assert!(refusal.to_string().contains(&display));
+        assert_eq!(
+            crate::refusal::diagnostic("synthetic-token", &[]),
+            "[redacted]"
+        );
+    });
+    assert_eq!(
+        crate::refusal::diagnostic("synthetic-token", &[]),
+        "synthetic-token"
+    );
+}
