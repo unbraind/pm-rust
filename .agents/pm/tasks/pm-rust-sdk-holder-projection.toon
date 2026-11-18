@@ -6,11 +6,9 @@ status: in_progress
 priority: 2
 tags[3]: follow-up,"gh:unbraind/pm-cli#1707",oracle
 created_at: "2026-11-18T11:23:58.521Z"
-updated_at: "2026-11-18T17:35:02.151Z"
-assignee: codex-sol
-claim_principal: codex-sol
+updated_at: "2026-11-18T18:09:33.699Z"
 author: codex-sol
-comments[8]{created_at,author,text}:
+comments[9]{created_at,author,text}:
   "2026-11-18T16:39:29.060Z",codex-sol,Reviewing the assigned PR 181 findings against native behavior and the pinned oracle. Regression tests and gate results will be linked here.
   "2026-11-18T16:52:39.958Z",codex-sol,"PRRT_kwDOTwgMRs65CD-X - Retained oracle parity. Invoking the pinned redactIdentityCredentials on the same public scoped path with no port preserves the identity. Port 8443 produces https://[redacted]@scope/pkg, as does the userinfo plus port control."
   "2026-11-18T17:12:48.481Z",codex-sol,PRRT_kwDOTwgMRs65BDBt - 34d1ea82c7af. Validate the effective SDK ownership principal before lock acquisition. The direct and scoped identity cases preserve item and history bytes and create no session.
@@ -19,6 +17,7 @@ comments[8]{created_at,author,text}:
   "2026-11-18T17:13:26.512Z",codex-sol,PRRT_kwDOTwgMRs65CD-g - 34d1ea82c7af. Reject a credential-bearing options or scoped principal before persistence. Plain and encoded fixtures exercise the SDK with a clean request author.
   "2026-11-18T17:24:30.243Z",codex-sol,The wider CLI suite exposed over-redaction of a public hostname suffix shared with a legacy holder. Added direct SDK coverage for both the preserved hostname and complete copied holder text.
   "2026-11-18T17:35:02.142Z",codex-sol,The SDK registry isolation regression checks that CLI rendering can hide a stored credential copy during the invocation and that a later independent diagnostic does not retain this private state.
+  "2026-11-18T18:09:15.596Z",codex-sol,"The public-hostname correction in ffc0606 and invocation isolation test in 3671559 passed. All 45 CLI dispatch tests passed together, including stored credentials, public usernames and hostnames, and refusal recovery."
 files[4]{path,scope}:
   src/mutation.rs,project
   src/refusal.rs,project
