@@ -662,6 +662,9 @@ fn run_with_io(
             let workspace = discover()?;
             let identity = scalar_identity(&workspace, author.as_deref())?;
             let author = author.unwrap_or_else(|| identity.author.clone());
+            if fields.release_assignment {
+                pm_rust::reject_future_timestamp(timestamp.as_deref().unwrap_or_default())?;
+            }
             let close_author = author.clone();
             let result = close_payload(
                 &workspace,
@@ -770,7 +773,7 @@ fn run_collection_with_cwd(
             settings["author_default"].as_str(),
         )?)
     };
-    let result = workspace.collection(
+    let result = workspace.collection_for_cli(
         &args.id,
         key,
         &pm_rust::CollectionOptions {

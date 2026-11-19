@@ -4,9 +4,11 @@ description: "Classify the published CLI divergences, update native parity and v
 type: Task
 status: in_progress
 priority: 1
-tags[3]: "gh:unbraind/pm-rust#176","gh:unbraind/pm-rust#181",oracle
+tags[4]: "gh:unbraind/pm-cli#1753","gh:unbraind/pm-rust#176","gh:unbraind/pm-rust#181",oracle
 created_at: "2026-11-18T09:41:09.150Z"
-updated_at: "2026-11-18T22:16:08.828Z"
+updated_at: "2026-11-19T01:32:56.729Z"
+assignee: codex-sol
+claim_principal: codex-sol
 author: codex-sol
 parent: pm-rust-u4al
 comments[38]{created_at,author,text}:
@@ -48,10 +50,12 @@ comments[38]{created_at,author,text}:
   "2026-11-18T18:06:57.845Z",codex-sol,Extended the recovered-page regression to cover the explicit output budget as well as the intent budget. Both over-budget paths discard the rows and return the corresponding recovery receipt.
   "2026-11-18T18:09:11.469Z",codex-sol,"Round CK addressed 20 findings and retained six behaviors from pm-cli 2026.11.18. The merged LLVM report passed the unmodified strict check with 20534/20534 lines, 2115/2115 functions, 33603/33603 regions and 4688/4688 branches. All eight affected oracle tests, formatting, Clippy and changelog validation passed. A wider run encountered a five-second dependency-packet timeout; the direct fixture returned matching bytes across all six measurements."
   "2026-11-18T22:16:06.246Z",codex-sol,"Round CT maps Greptile PRRT_kwDOTwgMRs65H_CX to feab9220af035cf6df9c2b329abe28e8b98fed14. Session publication drops the cleanup gate before its owner receipt, so the successor can reclaim a confirmed dead writer. The Linux SIGKILL regression reproduced the release attribution warning on f51fe8e and now verifies warning-free release and an updated active-work list. The two retained first-fsync cases, formatting, Clippy with warnings denied, 504 library tests, 11 ownership contracts, 61 claim/release differentials against pm-cli 2026.11.18, and changelog verification passed. The full four-dimension coverage run is in progress."
-files[21]{path,scope}:
+files[24]{path,scope}:
   scripts/crash-review.test.mts,project
   src/collections.rs,project
+  src/lib.rs,project
   src/list_intent.rs,project
+  src/main.rs,project
   src/mutation.rs,project
   src/mutation/claim_activity.rs,project
   src/orientation_context.rs,project
@@ -67,10 +71,11 @@ files[21]{path,scope}:
   tests/ownership_contract.rs,project
   tests/pagination_differential.rs,project
   tests/search_collections_differential.rs,project
+  tests/support/collections_unit.rs,project
   tests/support/json_output_unit.rs,project
   tests/support/list_intent_delivery_differential.rs,project
   tests/support/mutation_differential.rs,project
-tests[10]{command,scope,provenance{author,created_at,source_kind,source_ref}}:
+tests[14]{command,scope,provenance{author,created_at,source_kind,source_ref}}:
   PM_RUST_REQUIRE_PUBLISHED_CLI=1 cargo test --locked --all-targets --all-features --no-fail-fast,project,codex-sol,"2026-11-18T09:58:16.490Z",local_mutation,fix/oracle-pm-cli-1118
   cargo fmt --all -- --check,project,codex-sol,"2026-11-18T09:58:23.289Z",local_mutation,fix/oracle-pm-cli-1118
   cargo clippy --locked --all-targets --all-features -- -D warnings,project,codex-sol,"2026-11-18T10:10:28.550Z",local_mutation,fix/oracle-pm-cli-1118
@@ -81,8 +86,13 @@ tests[10]{command,scope,provenance{author,created_at,source_kind,source_ref}}:
   "npm run changelog:check",project,codex-sol,"2026-11-18T17:12:16.534Z",local_mutation,fix/oracle-pm-cli-1118
   node --test --test-name-pattern='session writer recovers' scripts/crash-review.test.mts,project,codex-sol,"2026-11-18T21:49:30.363Z",local_mutation,fix/oracle-pm-cli-1118
   PM_RUST_REQUIRE_PUBLISHED_CLI=1 cargo test --locked --all-features --test ownership_contract --test claim_release_differential,project,codex-sol,"2026-11-18T21:50:07.067Z",local_mutation,fix/oracle-pm-cli-1118
-docs[3]{path,scope}:
+  PM_RUST_REQUIRE_PUBLISHED_CLI=1 cargo test --locked --all-features --lib --test cli_dispatch --test search_collections_differential --test close_differential --no-fail-fast,project,codex-sol,"2026-11-19T00:19:14.443Z",local_mutation,fix/oracle-pm-cli-1118
+  PM_RUST_REQUIRE_PUBLISHED_CLI=1 cargo +nightly-2026-08-06 llvm-cov --locked --branch --all-targets --all-features --no-fail-fast --json --output-path target/cw-coverage.json,project,codex-sol,"2026-11-19T00:19:17.767Z",local_mutation,fix/oracle-pm-cli-1118
+  "cargo +nightly-2026-08-06 llvm-cov --no-report --locked --branch --all-features --lib -- collections::tests::sdk_note_conflict_retry_preserves_the_request --exact",project,codex-sol,"2026-11-19T01:32:56.633Z",local_mutation,fix/oracle-pm-cli-1118
+  cargo +nightly-2026-08-06 llvm-cov --no-report --locked --branch --all-features --test cli_dispatch -- close_release_refuses_future_timestamp_before_writing --exact,project,codex-sol,"2026-11-19T01:32:56.633Z",local_mutation,fix/oracle-pm-cli-1118
+docs[4]{path,scope}:
   docs/CRASH_HARNESS.md,project
   docs/EVIDENCE.md,project
+  docs/NATIVE_PARITY_2026_11_11.md,project
   README.md,project
 body: ""

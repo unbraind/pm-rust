@@ -553,6 +553,76 @@ fn linked_note_recovery_matches_published_semantics() -> TestResult {
     Ok(())
 }
 
+/// Explicit and implicit note repair scope follows the published CLI's invocation.
+#[test]
+fn linked_note_retry_scope_matches_published_cli() -> TestResult {
+    let Some(published) = published_cli::published_cli_or_skip("linked note retry scope") else {
+        return Ok(());
+    };
+    let scratch = tempfile::tempdir()?;
+    let driver = write_driver(scratch.path(), &published)?;
+    let cwd = scratch.path().join("default");
+    let selected = scratch.path().join("selected");
+    fs::create_dir(&cwd)?;
+    fs::create_dir(&selected)?;
+    for args in [
+        vec!["init", "sample-", "--defaults"],
+        vec![
+            "create",
+            "--id",
+            "sample-item",
+            "--title",
+            "Notes",
+            "--type",
+            "Task",
+            "--author",
+            "alpha",
+        ],
+        vec![
+            "files",
+            "sample-item",
+            "--add",
+            "path=example.rs,note=first",
+            "--author",
+            "alpha",
+        ],
+    ] {
+        let result = oracle(&driver, &cwd, &args)?;
+        assert!(
+            result.status.success(),
+            "{}",
+            String::from_utf8_lossy(&result.stderr)
+        );
+    }
+    copy_directory(&cwd.join(".agents"), &selected.join(".agents"))?;
+    for scope in [&[][..], &["--pm-path", "../selected/.agents/pm"][..]] {
+        let mut args = scope.to_vec();
+        args.extend([
+            "files",
+            "sample-item",
+            "--add",
+            "path=example.rs,note=second",
+            "--author",
+            "alpha",
+            "--json",
+        ]);
+        let expected = oracle(&driver, &cwd, &args)?;
+        let actual = native(&cwd, &args, false)?;
+        assert_eq!(expected.status.code(), Some(4));
+        output(&expected, &actual, &args);
+        let refusal: Value = serde_json::from_slice(&expected.stderr)?;
+        let retry = refusal["recovery"]["suggested_retry_args"]
+            .as_array()
+            .ok_or("retry")?;
+        assert_eq!(
+            retry[..scope.len()],
+            scope.iter().map(|arg| json!(arg)).collect::<Vec<_>>()
+        );
+        assert_eq!(retry[scope.len()], "files");
+    }
+    Ok(())
+}
+
 /// Compares the refusal contract and conflict rows independently of each CLI's rendered guidance.
 fn assert_note_refusal(
     driver: &Path,

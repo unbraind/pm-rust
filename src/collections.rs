@@ -879,6 +879,7 @@ fn note_conflict_refusal(
     key: &str,
     options: &CollectionOptions,
     conflicts: &[Value],
+    retry_scope: Option<&Path>,
 ) -> PmRustError {
     let first = &conflicts[0];
     let path = first["path"].as_str().unwrap_or_default();
@@ -899,8 +900,25 @@ fn note_conflict_refusal(
             "The add names {noun} {path} on {id} with two notes, \"{existing}\" and then \"{requested}\"{more}; the add was refused because they disagree"
         )
     };
+    let mut context = json!({
+        "code":"linked_artifact_note_conflict",
+        "why":"A different stored note is usually another agent's rationale, so --add never overwrites it silently.",
+        "required":"Re-run with --note-conflict append to keep both notes, or --note-conflict replace to overwrite the stored note."
+    });
+    let mut base_args = Vec::new();
+    if let Some(pm_root) = retry_scope {
+        let Some(path) = pm_root.to_str() else {
+            context["next_steps"] = json!([
+                "Run the repair from the selected tracker. Its path is not valid UTF-8 and cannot be encoded as retry arguments."
+            ]);
+            context["details"] = json!({"conflicts":conflicts});
+            return refusal(detail, 4, context);
+        };
+        base_args.extend(["--pm-path".to_owned(), path.to_owned()]);
+    }
+    base_args.extend([key.to_owned(), id.to_owned()]);
     let retry = |mode: &str| {
-        let mut args = vec![key.to_owned(), id.to_owned()];
+        let mut args = base_args.clone();
         for add in &options.add {
             args.extend(["--add".to_owned(), add.clone()]);
         }
@@ -937,18 +955,10 @@ fn note_conflict_refusal(
     };
     let append = retry("append");
     let append_command = crate::render_pm_command(&append);
-    refusal(
-        detail,
-        4,
-        json!({
-            "code":"linked_artifact_note_conflict",
-            "why":"A different stored note is usually another agent's rationale, so --add never overwrites it silently.",
-            "required":"Re-run with --note-conflict append to keep both notes, or --note-conflict replace to overwrite the stored note.",
-            "next_steps":[append_command,crate::render_pm_command(retry("replace"))],
-            "recovery":{"suggested_retry":append_command,"suggested_retry_args":append},
-            "details":{"conflicts":conflicts}
-        }),
-    )
+    context["next_steps"] = json!([append_command, crate::render_pm_command(retry("replace"))]);
+    context["recovery"] = json!({"suggested_retry":append_command,"suggested_retry_args":append});
+    context["details"] = json!({"conflicts":conflicts});
+    refusal(detail, 4, context)
 }
 
 /// Resolves note edits in request order and refuses the whole write on a conflict.
@@ -958,6 +968,7 @@ pub(crate) fn reconcile_artifact_notes(
     current: &[Value],
     edit: &mut Edit,
     options: &CollectionOptions,
+    retry_scope: Option<&Path>,
 ) -> Result<Vec<Value>, PmRustError> {
     let mode = edit.note_policy;
     let mut working: Vec<(Value, bool)> = current
@@ -1001,7 +1012,13 @@ pub(crate) fn reconcile_artifact_notes(
         entry["note"] = add["note"].clone();
     }
     if !conflicts.is_empty() {
-        return Err(note_conflict_refusal(id, key, options, &conflicts));
+        return Err(note_conflict_refusal(
+            id,
+            key,
+            options,
+            &conflicts,
+            retry_scope,
+        ));
     }
     let mut outcomes = Vec::<Value>::new();
     for add in &edit.adds {
@@ -1178,6 +1195,33 @@ impl Workspace {
         options: &CollectionOptions,
         cwd: &Path,
     ) -> Result<Value, PmRustError> {
+        self.collection_with_retry_scope(id, key, options, cwd, Some(self.pm_root()))
+    }
+
+    /// Runs a collection with retry scope projected from the original CLI invocation.
+    ///
+    /// # Errors
+    /// Returns the same collection refusals as [`Self::collection`].
+    #[doc(hidden)]
+    pub fn collection_for_cli(
+        &self,
+        id: &str,
+        key: &str,
+        options: &CollectionOptions,
+        cwd: &Path,
+    ) -> Result<Value, PmRustError> {
+        self.collection_with_retry_scope(id, key, options, cwd, None)
+    }
+
+    /// Runs the shared collection operation with the caller's retry scope policy.
+    fn collection_with_retry_scope(
+        &self,
+        id: &str,
+        key: &str,
+        options: &CollectionOptions,
+        cwd: &Path,
+        retry_scope: Option<&Path>,
+    ) -> Result<Value, PmRustError> {
         if !matches!(key, "files" | "docs" | "tests") {
             return Err(PmRustError::InvalidMutationRequest {
                 reason: "collection must be files, docs or tests".to_owned(),
@@ -1197,11 +1241,8 @@ impl Workspace {
                 &["item docs", "item files"],
             ));
         }
-        let root = self
-            .pm_root()
-            .parent()
-            .and_then(Path::parent)
-            .unwrap_or(self.pm_root());
+        let pm_root = self.pm_root();
+        let root = pm_root.parent().and_then(Path::parent).unwrap_or(pm_root);
         let mut edit = prepare(key, options, root, cwd)?;
         if options.note.is_some() && edit.adds.is_empty() {
             return Err(refusal(
@@ -1214,12 +1255,12 @@ impl Workspace {
         let write = !edit.adds.is_empty() || !edit.removes.is_empty() || !edit.indices.is_empty();
         let (document, mutation) = if write {
             crate::ownership::with_identity(
-                self.pm_root(),
+                pm_root,
                 &crate::OwnershipOptions {
                     identity: options.identity.clone(),
                     ..crate::OwnershipOptions::default()
                 },
-                || crate::mutation::collection_item(self.pm_root(), id, key, options, edit),
+                || crate::mutation::collection_item(pm_root, id, key, options, edit, retry_scope),
             )?
         } else {
             (
@@ -1264,7 +1305,7 @@ impl Workspace {
                 &mut result,
                 key,
                 id,
-                self.pm_root(),
+                pm_root,
                 cwd,
                 &mutation,
                 count < total,

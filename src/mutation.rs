@@ -647,6 +647,20 @@ pub fn validate_timestamp(value: &str) -> Result<(), PmRustError> {
     Ok(())
 }
 
+/// Rejects a future UTC mutation timestamp. Format validation is handled separately.
+///
+/// # Errors
+/// Returns [`PmRustError::InvalidMutationRequest`] when the timestamp is in the future.
+pub fn reject_future_timestamp(timestamp: &str) -> Result<(), PmRustError> {
+    if timestamp.ends_with('Z')
+        && OffsetDateTime::parse(timestamp, &Rfc3339)
+            .is_ok_and(|value| value > OffsetDateTime::now_utc())
+    {
+        return Err(invalid_mutation("timestamp must not be in the future"));
+    }
+    Ok(())
+}
+
 /// Generates a process-local collision-resistant suffix for files and request correlation.
 pub(crate) fn unique_token() -> String {
     let nanos = OffsetDateTime::now_utc().unix_timestamp_nanos();
@@ -3095,6 +3109,7 @@ pub(crate) fn collection_item(
     key: &str,
     options: &crate::CollectionOptions,
     mut edit: crate::collections::Edit,
+    retry_scope: Option<&Path>,
 ) -> Result<(ItemDocument, crate::collections::CollectionChange), PmRustError> {
     let mut settings = read_settings(pm_root)?;
     let timestamp = validate_mutation_request(&options.author, options.timestamp.as_deref())?;
@@ -3216,7 +3231,14 @@ pub(crate) fn collection_item(
     let outcomes = if key == "tests" {
         Vec::new()
     } else {
-        crate::collections::reconcile_artifact_notes(id, key, &current, &mut edit, options)?
+        crate::collections::reconcile_artifact_notes(
+            id,
+            key,
+            &current,
+            &mut edit,
+            options,
+            retry_scope,
+        )?
     };
     let (rows, removed) = crate::collections::merge(
         key,
@@ -3291,11 +3313,7 @@ pub(crate) fn ownership_item_with_options(
     settings.locks.use_created_at = true;
     let timestamp = validate_mutation_request(&request.author, request.timestamp.as_deref())?;
     // A fixture clock must never age a live lock into stale-lock recovery.
-    if OffsetDateTime::parse(&timestamp, &Rfc3339)
-        .is_ok_and(|value| value > OffsetDateTime::now_utc())
-    {
-        return Err(invalid_mutation("timestamp must not be in the future"));
-    }
+    reject_future_timestamp(&timestamp)?;
     let caller_principal = options.identity.as_ref().map_or_else(
         || crate::ownership::caller_principal(&request.author),
         |identity| identity.principal.clone(),
@@ -3641,11 +3659,7 @@ pub(crate) fn lifecycle_status(
     let mut settings = read_settings(pm_root)?;
     settings.locks.use_created_at = true;
     let timestamp = validate_mutation_request(&request.author, request.timestamp.as_deref())?;
-    if OffsetDateTime::parse(&timestamp, &Rfc3339)
-        .is_ok_and(|value| value > OffsetDateTime::now_utc())
-    {
-        return Err(invalid_mutation("timestamp must not be in the future"));
-    }
+    reject_future_timestamp(&timestamp)?;
     let _lock = acquire_lock(
         pm_root,
         &request.id,

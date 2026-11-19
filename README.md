@@ -386,6 +386,15 @@ explicitly approves publishing. The daily release workflow is present and
 correct but cannot fire without the `PM_RELEASE_APPROVED` repository variable
 being set to `true`.
 
+### Known divergences
+
+- At a budget of 1,000 tokens, the triage list fixture with 136 characters of
+  filter padding needs a second projection. pm-rust replays its continuation
+  against unchanged rows, while pm-cli 2026.11.18 returns
+  `read_output_cursor_stale`. The differential test records both outcomes and
+  fails when the published refusal changes.
+  [unbraind/pm-cli#1753](https://github.com/unbraind/pm-cli/issues/1753)
+
 ### Identity audit gate
 
 A native Rust identity-audit gate (`tests/identity_audit.rs`) scans every object

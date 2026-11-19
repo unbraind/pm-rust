@@ -1160,8 +1160,57 @@ fn sdk_note_conflict_retry_preserves_the_request() -> TestResult {
             assert!(retry.contains(&json!(flag)), "{key}: {flag}");
         }
         assert_eq!(retry.contains(&json!("--append-stable")), append_stable);
+        assert_eq!(retry[0], "--pm-path");
+
+        let Err(PmRustError::CommandRefusal { context, .. }) =
+            workspace.collection_for_cli("sample-one", key, &options, directory.path())
+        else {
+            return Err(format!("expected a CLI {key} conflict").into());
+        };
+        assert_eq!(
+            context["recovery"]["suggested_retry_args"],
+            json!(retry[2..])
+        );
     }
     assert_eq!((std::fs::read(item)?, std::fs::read(history)?), before);
+    Ok(())
+}
+
+/// An SDK retry cannot substitute a different path for a non-UTF-8 tracker.
+#[cfg(target_os = "linux")]
+#[test]
+fn sdk_note_conflict_with_non_utf8_tracker_has_no_replay_command() -> TestResult {
+    use std::os::unix::ffi::OsStrExt as _;
+
+    let (directory, _) = tracker()?;
+    let parent = tempfile::tempdir()?;
+    let target = parent
+        .path()
+        .join(std::ffi::OsStr::from_bytes(b"selected-\xff"));
+    std::fs::rename(directory.path(), &target)?;
+    let workspace = Workspace::discover(&target)?;
+    let options = CollectionOptions {
+        author: "fixture".to_owned(),
+        add: vec![
+            "path=source.rs,note=first".to_owned(),
+            "path=source.rs,note=second".to_owned(),
+        ],
+        ..Default::default()
+    };
+    let Err(PmRustError::CommandRefusal { context, .. }) =
+        workspace.collection("sample-one", "files", &options, parent.path())
+    else {
+        return Err("expected a note conflict".into());
+    };
+    assert_eq!(context["code"], "linked_artifact_note_conflict");
+    assert!(context.get("recovery").is_none());
+    assert!(
+        context["next_steps"][0]
+            .as_str()
+            .ok_or("repair guidance")?
+            .contains("UTF-8")
+    );
+    assert_eq!(context["details"]["conflicts"][0]["path"], "source.rs");
     Ok(())
 }
 

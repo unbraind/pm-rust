@@ -118,9 +118,10 @@ fn native(source: &Value, reprojected: bool) -> Result<Value, Box<dyn std::error
     Ok(json!({"first":first.value,"wire":wire,"retry":retry}))
 }
 
-/// First-page parity and native cursor replay across the unbraind/pm-cli#1753 boundary.
+/// First-page parity and the known continuation exception in unbraind/pm-cli#1753.
 #[test]
-fn round9_reprojected_continuation_matches_published() -> Result<(), Box<dyn std::error::Error>> {
+fn continuation_matches_published_with_known_exception_1753()
+-> Result<(), Box<dyn std::error::Error>> {
     let oracle = published_cli::published_cli_or_skip("intent delivery continuation");
     for (padding, reprojected) in [(0, false), (104, false), (136, true)] {
         let source = source(padding);
@@ -131,9 +132,11 @@ fn round9_reprojected_continuation_matches_published() -> Result<(), Box<dyn std
             assert_eq!(actual["first"], expected["first"]);
             assert_eq!(actual["wire"], expected["wire"]);
             if reprojected {
+                assert_eq!(padding, 136);
+                assert_eq!(expected["retry"]["ok"], false);
                 assert_eq!(
-                    expected["retry"]["context"]["code"],
-                    "read_output_cursor_stale"
+                    expected["retry"]["context"]["code"], "read_output_cursor_stale",
+                    "Known exception unbraind/pm-cli#1753 changed; recheck native parity"
                 );
                 assert_eq!(actual["retry"]["ok"], true);
             } else {

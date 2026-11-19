@@ -589,6 +589,56 @@ fn close_dispatch_closes_once_and_refuses_repeats() -> Result<(), Box<dyn std::e
     Ok(())
 }
 
+/// A future release timestamp refuses before close changes the item or its history.
+#[test]
+fn close_release_refuses_future_timestamp_before_writing() -> Result<(), Box<dyn std::error::Error>>
+{
+    let workspace = workspace()?;
+    seed_item(&workspace)?;
+    expect_ok(&workspace, &["claim", "sample-cli", "--author=cli-agent"])?;
+    let root = workspace.path().join(".agents/pm");
+    let snapshot = || -> std::io::Result<_> {
+        Ok((
+            fs::read(root.join("tasks/sample-cli.toon"))?,
+            fs::read(root.join("history/sample-cli.jsonl"))?,
+        ))
+    };
+    let before = snapshot()?;
+    for (timestamp, expected) in [
+        (
+            "2099-01-01T00:00:00Z",
+            "timestamp must not be in the future",
+        ),
+        (
+            "malformedZ",
+            "timestamp must be a non-empty UTC RFC 3339 value",
+        ),
+        (
+            "malformed",
+            "timestamp must be a non-empty UTC RFC 3339 value",
+        ),
+    ] {
+        let output = pm_rust(
+            &workspace,
+            &[
+                "close",
+                "sample-cli",
+                "Verified",
+                "--author=cli-agent",
+                "--release-assignment",
+                "--timestamp",
+                timestamp,
+                "--json",
+            ],
+        )?;
+        assert_eq!(output.status.code(), Some(2));
+        assert!(output.stdout.is_empty());
+        assert!(String::from_utf8_lossy(&output.stderr).contains(expected));
+        assert_eq!(snapshot()?, before);
+    }
+    Ok(())
+}
+
 /// A non-UTF-8 workspace argument must not panic a cursor refusal.
 /// Linux permits these directory names; macOS rejects them before dispatch.
 /// The argument-publisher unit test exercises invalid bytes on every Unix OS.
@@ -2090,6 +2140,90 @@ fn collection_restore_after_removal_is_read_only() -> Result<(), Box<dyn std::er
     Ok(())
 }
 
+/// Both SDK note repairs can be executed from a different tracker with the same item ID.
+#[test]
+fn sdk_note_repair_replays_only_in_the_selected_tracker() -> Result<(), Box<dyn std::error::Error>>
+{
+    let cwd = workspace()?;
+    let selected = workspace()?;
+    for (tracker, note) in [(&cwd, "other"), (&selected, "selected")] {
+        seed_item(tracker)?;
+        for (key, path) in [("files", "source.rs"), ("docs", "guide.md")] {
+            expect_ok(
+                tracker,
+                &[
+                    key,
+                    "sample-cli",
+                    "--add",
+                    &format!("path={path},note={note}"),
+                    "--author=fixture",
+                ],
+            )?;
+        }
+    }
+    let root = cwd.path().join(".agents/pm");
+    let snapshot = || -> std::io::Result<_> {
+        Ok((
+            fs::read(root.join("tasks/sample-cli.toon"))?,
+            fs::read(root.join("history/sample-cli.jsonl"))?,
+        ))
+    };
+    let before = snapshot()?;
+    let workspace = pm_rust::Workspace::discover(selected.path())?;
+    for (key, path, mode, expected_note) in [
+        ("files", "source.rs", "append", "selected; repair"),
+        ("docs", "guide.md", "replace", "repair"),
+    ] {
+        let options = pm_rust::CollectionOptions {
+            add: vec![format!("path={path},note=repair")],
+            author: "fixture".to_owned(),
+            ..Default::default()
+        };
+        let Err(pm_rust::PmRustError::CommandRefusal { context, .. }) =
+            workspace.collection("sample-cli", key, &options, cwd.path())
+        else {
+            return Err("expected a note conflict".into());
+        };
+        assert_eq!(context["code"], "linked_artifact_note_conflict");
+        assert_eq!(
+            context["details"]["conflicts"][0]["existing_note"],
+            "selected"
+        );
+
+        let advice = &context["next_steps"][usize::from(mode == "replace")];
+        let command = pm_rust::parse_command_args(advice.as_str().ok_or("repair command")?)
+            .ok_or("repair arguments")?;
+        let args = &command[1..];
+        assert_eq!(args[0], "--pm-path");
+        assert_eq!(std::path::Path::new(&args[1]), workspace.pm_root());
+        if mode == "append" {
+            assert_eq!(
+                context["recovery"]["suggested_retry_args"],
+                serde_json::json!(args)
+            );
+            assert_eq!(context["recovery"]["suggested_retry"], *advice);
+        }
+        let output = Command::new(env!("CARGO_BIN_EXE_pm-rust"))
+            .current_dir(cwd.path())
+            .args(args)
+            .arg("--json")
+            .output()?;
+        assert!(
+            output.status.success(),
+            "{}",
+            String::from_utf8_lossy(&output.stderr)
+        );
+        let receipt: serde_json::Value = serde_json::from_slice(&output.stdout)?;
+        assert_eq!(receipt[key][0]["note"], expected_note);
+        assert_eq!(
+            workspace.get("sample-cli")?.metadata.extra[key][0]["note"],
+            expected_note
+        );
+        assert_eq!(snapshot()?, before);
+    }
+    Ok(())
+}
+
 /// A detected session can execute both the refused write and its repair as the same principal.
 #[test]
 fn detected_session_can_replay_note_repair_under_strict_ownership()
@@ -2105,27 +2239,39 @@ fn detected_session_can_replay_note_repair_under_strict_ownership()
         Command::new(env!("CARGO_BIN_EXE_pm-rust"))
             .current_dir(tracker.path())
             .env_remove("PM_AUTHOR")
+            .env_remove("CLAUDE_CODE")
+            .env_remove("CLAUDECODE")
+            .env_remove("CLAUDE_CODE_SESSION_ID")
             .env("CODEX_THREAD_ID", "test-note-session")
             .args(args)
             .output()
     };
-    for args in [
-        vec!["claim", "sample-cli", "--json"],
-        vec![
-            "files",
-            "sample-cli",
-            "--add",
-            "path=x.rs,note=first",
-            "--json",
-        ],
-    ] {
-        let out = session(&args)?;
-        assert!(
-            out.status.success(),
-            "{}",
-            String::from_utf8_lossy(&out.stderr)
-        );
-    }
+    let claim = session(&["claim", "sample-cli", "--json"])?;
+    assert!(
+        claim.status.success(),
+        "{}",
+        String::from_utf8_lossy(&claim.stderr)
+    );
+    let item = pm_rust::Workspace::discover(tracker.path())?.get("sample-cli")?;
+    let expected = pm_rust::AuthorIdentity::resolve(
+        None,
+        None,
+        &[("CODEX_THREAD_ID".to_owned(), "test-note-session".to_owned())].into(),
+    );
+    assert!(expected.instance.is_some());
+    assert_eq!(item.metadata.extra["claim_principal"], expected.principal);
+    let initial = session(&[
+        "files",
+        "sample-cli",
+        "--add",
+        "path=x.rs,note=first",
+        "--json",
+    ])?;
+    assert!(
+        initial.status.success(),
+        "{}",
+        String::from_utf8_lossy(&initial.stderr)
+    );
     let out = session(&[
         "files",
         "sample-cli",

@@ -407,7 +407,8 @@ pub(crate) fn deliver(
                 ..
             },
         ) => {
-            // Recreate the unpaged second projection for unchanged cursors (unbraind/pm-cli#1753).
+            // Intentional divergence from pm-cli 2026.11.18 (unbraind/pm-cli#1753).
+            // Recreate the second projection so unchanged continuations can be replayed.
             let mut unpaged = requested.clone();
             unpaged.output_cursor = None;
             project(0, &unpaged)
