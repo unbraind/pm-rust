@@ -1209,6 +1209,16 @@ fn sdk_note_retry_resolves_the_caller_directory() -> TestResult {
         workspace.collection("sample-one", "files", &options, Path::new("")),
         Err(PmRustError::Io { .. })
     ));
+    assert!(matches!(
+        workspace.collection_for_cli_with_artifact_cwd(
+            "sample-one",
+            "files",
+            &options,
+            Path::new(""),
+            Some(Path::new("")),
+        ),
+        Err(PmRustError::Io { .. })
+    ));
     Ok(())
 }
 
@@ -1221,14 +1231,16 @@ fn cli_note_repair_identifies_other_native_only_options() -> TestResult {
         .ancestors()
         .nth(2)
         .ok_or("tracker project")?;
-    for (key, timestamp, append_stable, flag) in [
+    for (key, timestamp, append_stable, artifact_cwd, flag) in [
         (
             "files",
             Some("2026-08-22T10:00:00.000Z"),
             false,
+            None,
             "--timestamp",
         ),
-        ("docs", None, true, "--append-stable"),
+        ("docs", None, true, None, "--append-stable"),
+        ("files", None, false, Some(Path::new(".")), "--artifact-cwd"),
     ] {
         let options = CollectionOptions {
             author: "fixture".to_owned(),
@@ -1239,8 +1251,8 @@ fn cli_note_repair_identifies_other_native_only_options() -> TestResult {
             append_stable,
             ..CollectionOptions::default()
         };
-        let Err(PmRustError::CommandRefusal { context, .. }) =
-            workspace.collection_for_cli("sample-one", key, &options, cwd)
+        let Err(PmRustError::CommandRefusal { context, .. }) = workspace
+            .collection_for_cli_with_artifact_cwd("sample-one", key, &options, cwd, artifact_cwd)
         else {
             return Err("expected a note conflict".into());
         };
@@ -1251,6 +1263,8 @@ fn cli_note_repair_identifies_other_native_only_options() -> TestResult {
             let args = crate::parse_command_args(command).ok_or("repair arguments")?;
             assert_eq!(args[..2], ["pm-rust", "--pm-path"]);
             assert!(args.iter().any(|arg| arg == flag));
+            assert_eq!(args[5], "--artifact-cwd");
+            assert_eq!(Path::new(&args[6]), cwd);
         }
     }
     Ok(())
