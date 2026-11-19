@@ -773,7 +773,7 @@ fn run_collection_with_cwd(
             settings["author_default"].as_str(),
         )?)
     };
-    let result = workspace.collection_for_cli(
+    let result = workspace.collection_for_cli_with_artifact_cwd(
         &args.id,
         key,
         &pm_rust::CollectionOptions {
@@ -794,6 +794,7 @@ fn run_collection_with_cwd(
             note_conflict: args.note_conflict,
         },
         &cwd?,
+        args.artifact_cwd.as_deref(),
     )?;
     write_list_to(
         &mut std::io::stdout().lock(),

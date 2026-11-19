@@ -3109,7 +3109,7 @@ pub(crate) fn collection_item(
     key: &str,
     options: &crate::CollectionOptions,
     mut edit: crate::collections::Edit,
-    retry_scope: Option<&Path>,
+    retry_scope: Option<(&Path, &Path)>,
 ) -> Result<(ItemDocument, crate::collections::CollectionChange), PmRustError> {
     let mut settings = read_settings(pm_root)?;
     let timestamp = validate_mutation_request(&options.author, options.timestamp.as_deref())?;
@@ -3887,7 +3887,17 @@ fn publish_session_state(
     temporary: &Path,
     path: &Path,
 ) -> Result<(), PmRustError> {
-    let gate = acquire_cleanup_gate(&pm_root.join("locks"), "session-state", ttl)?;
+    let gate = match acquire_cleanup_gate(&pm_root.join("locks"), "session-state", ttl) {
+        Ok(gate) => gate,
+        Err(PmRustError::LockConflict { .. }) => {
+            return Err(close_refusal(
+                "Session attribution was not published because the cleanup gate is busy".to_owned(),
+                4,
+                serde_json::json!({"code":"session_attribution_publication_conflict"}),
+            ));
+        }
+        Err(error) => return Err(error),
+    };
     let result = if ownership_lock_stale(&lock.raw, &now_iso(), ttl)
         || fs::read_to_string(&lock.path).as_deref().ok() != Some(lock.raw.as_str())
     {

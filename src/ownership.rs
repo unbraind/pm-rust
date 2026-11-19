@@ -639,7 +639,11 @@ fn ownership_parents(
 }
 
 /// Reports a derived-state failure after the ownership mutation has already committed.
-fn append_attribution_warning(receipt: &mut OwnershipResult, action: &str, error: &PmRustError) {
+pub(crate) fn append_attribution_warning(
+    receipt: &mut OwnershipResult,
+    action: &str,
+    error: &PmRustError,
+) {
     let cause = match error {
         PmRustError::CommandRefusal { context, .. } => {
             context["code"].as_str().unwrap_or("unexpected_error")
@@ -650,8 +654,13 @@ fn append_attribution_warning(receipt: &mut OwnershipResult, action: &str, error
     receipt
         .warnings
         .push(format!("{action}_semantic_attribution_unrecorded"));
+    let guidance = if cause == "session_attribution_publication_conflict" {
+        ". Retry the ownership command after the session-state cleanup gate clears to record session attribution."
+    } else {
+        "; nothing needs a retry. If pm health reports a stale lock, remove it with pm gc --scope locks."
+    };
     receipt.suggestions.push(format!(
-        "The {action} of {} is saved, but the session attribution that names this agent's active work was not updated ({cause}); nothing needs a retry. If pm health reports a stale lock, remove it with pm gc --scope locks.",
+        "The {action} of {} is saved, but the session attribution that names this agent's active work was not updated ({cause}){guidance}",
         receipt.id,
     ));
 }

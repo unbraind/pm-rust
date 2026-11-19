@@ -1167,12 +1167,52 @@ fn sdk_note_conflict_retry_preserves_the_request() -> TestResult {
         else {
             return Err(format!("expected a CLI {key} conflict").into());
         };
+        assert_eq!(retry[4], "--artifact-cwd");
+        let cli_retry = [&retry[2..4], &retry[6..]].concat();
         assert_eq!(
             context["recovery"]["suggested_retry_args"],
-            json!(retry[2..])
+            json!(cli_retry)
         );
     }
     assert_eq!((std::fs::read(item)?, std::fs::read(history)?), before);
+    Ok(())
+}
+
+/// A redacted requested note cannot turn into executable SDK guidance.
+#[test]
+fn sdk_note_conflict_requires_original_note_after_redaction() -> TestResult {
+    let (directory, workspace) = tracker()?;
+    let mut options = CollectionOptions {
+        author: "fixture".into(),
+        add: vec!["path=source.rs,note=first".into()],
+        ..Default::default()
+    };
+    workspace.collection("sample-one", "files", &options, directory.path())?;
+    options.add = vec!["source.rs".into()];
+    options.note = Some("See https://fixture:synthetic-secret@example.invalid".into());
+    let Err(PmRustError::CommandRefusal { context, .. }) =
+        workspace.collection("sample-one", "files", &options, directory.path())
+    else {
+        return Err("expected a note conflict".into());
+    };
+    assert!(context.get("recovery").is_none());
+    assert_eq!(
+        context["details"]["conflicts"][0]["requested_note"],
+        "See https://[redacted]@example.invalid"
+    );
+    let steps = context["next_steps"].as_array().ok_or("guidance")?;
+    assert_eq!(steps.len(), 1);
+    assert!(
+        steps[0]
+            .as_str()
+            .ok_or("step")?
+            .contains("Supply the original note")
+    );
+    assert!(!steps[0].to_string().contains("[redacted]"));
+    assert_eq!(
+        workspace.get("sample-one")?.metadata.extra["files"][0]["note"],
+        "first"
+    );
     Ok(())
 }
 
@@ -1211,6 +1251,35 @@ fn sdk_note_conflict_with_non_utf8_tracker_has_no_replay_command() -> TestResult
             .contains("UTF-8")
     );
     assert_eq!(context["details"]["conflicts"][0]["path"], "source.rs");
+
+    let mut options = CollectionOptions {
+        author: "fixture".into(),
+        add: vec!["keep.rs".into(), "relative.rs".into(), "absolute.rs".into()],
+        ..Default::default()
+    };
+    workspace.collection("sample-one", "files", &options, &target)?;
+    options.add.clear();
+    let outside = tempfile::tempdir()?;
+    for (cwd, removed) in [
+        (parent.path(), "relative.rs"),
+        (outside.path(), "absolute.rs"),
+    ] {
+        options.remove = vec![removed.into()];
+        let receipt = workspace.collection("sample-one", "files", &options, cwd)?;
+        assert_eq!(
+            receipt["total_count"],
+            if removed == "relative.rs" { 2 } else { 1 }
+        );
+        let group = &receipt["omission_receipt"]["omitted_field_groups"][0];
+        assert_eq!(group["name"], "files_history");
+        assert!(group.get("restore_with").is_none());
+        assert!(
+            group["restore_guidance"]
+                .as_str()
+                .ok_or("manual restore guidance")?
+                .contains("UTF-8")
+        );
+    }
     Ok(())
 }
 

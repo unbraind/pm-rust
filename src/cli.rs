@@ -532,6 +532,9 @@ pub struct CollectionArgs {
     /// How an add handles an existing artifact note.
     #[arg(long, allow_hyphen_values = true)]
     pub note_conflict: Option<String>,
+    /// Original operand directory carried by native SDK note-conflict retries.
+    #[arg(long, hide = true, allow_hyphen_values = true)]
+    pub artifact_cwd: Option<std::path::PathBuf>,
     /// Emit JSON instead of TOON.
     #[arg(long)]
     pub json: bool,

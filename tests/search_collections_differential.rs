@@ -620,6 +620,30 @@ fn linked_note_retry_scope_matches_published_cli() -> TestResult {
         );
         assert_eq!(retry[scope.len()], "files");
     }
+    // The published CLI strips structured retry fields for credential-bearing
+    // notes and still displays redacted commands in its diagnostic next steps.
+    let args = [
+        "files",
+        "sample-item",
+        "--add",
+        "path=example.rs,note=https://fixture:synthetic-secret@example.invalid",
+        "--author",
+        "alpha",
+        "--json",
+    ];
+    let expected = oracle(&driver, &cwd, &args)?;
+    let actual = native(&cwd, &args, false)?;
+    assert_eq!(expected.status.code(), Some(4));
+    output(&expected, &actual, &args);
+    let refusal: Value = serde_json::from_slice(&expected.stderr)?;
+    assert!(refusal["recovery"].get("suggested_retry_args").is_none());
+    assert!(refusal["recovery"].get("suggested_retry").is_none());
+    assert_eq!(refusal["next_steps"][0], pm_rust::refusal::RESTORE);
+    assert!(
+        refusal["next_steps"][1]
+            .to_string()
+            .contains("[redacted]@example.invalid")
+    );
     Ok(())
 }
 

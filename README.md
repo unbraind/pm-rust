@@ -394,6 +394,11 @@ being set to `true`.
   `read_output_cursor_stale`. The differential test records both outcomes and
   fails when the published refusal changes.
   [unbraind/pm-cli#1753](https://github.com/unbraind/pm-cli/issues/1753)
+- At a budget of 2,000 tokens, pm-rust compacts oversized `next_cursor` and
+  `output_cursor` fields inside an item and returns the row. pm-cli 2026.11.18
+  exits 2 and reports `result_omitted: true` and `strings_compacted: false`.
+  The differential test asserts both outcomes and compares the full row at a
+  larger budget. [unbraind/pm-cli#1754](https://github.com/unbraind/pm-cli/issues/1754)
 
 ### Identity audit gate
 

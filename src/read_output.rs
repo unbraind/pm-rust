@@ -51,7 +51,7 @@ fn already_compacted(text: &str) -> bool {
             .is_some_and(|total| total > 240)
 }
 
-/// Protects root continuation tokens while compacting item metadata (unbraind/pm-cli#1754).
+/// Protects root continuation tokens while compacting item metadata.
 fn compact_strings_at(value: &mut Value, envelope: bool) -> bool {
     match value {
         Value::String(text) if text.encode_utf16().count() > 240 && !already_compacted(text) => {
@@ -72,6 +72,8 @@ fn compact_strings_at(value: &mut Value, envelope: bool) -> bool {
             compact_strings_at(row, false) | changed
         }),
         Value::Object(map) => map.iter_mut().fold(false, |changed, (key, row)| {
+            // Intentional divergence from pm-cli 2026.11.18 (unbraind/pm-cli#1754).
+            // Cursor names inside item metadata still follow the ordinary string budget.
             (!(key == "focus_row_states"
                 || (envelope && matches!(key.as_str(), "next_cursor" | "output_cursor")))
                 && compact_strings_at(row, false))

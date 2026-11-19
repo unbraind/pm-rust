@@ -879,7 +879,7 @@ fn note_conflict_refusal(
     key: &str,
     options: &CollectionOptions,
     conflicts: &[Value],
-    retry_scope: Option<&Path>,
+    retry_scope: Option<(&Path, &Path)>,
 ) -> PmRustError {
     let first = &conflicts[0];
     let path = first["path"].as_str().unwrap_or_default();
@@ -905,18 +905,21 @@ fn note_conflict_refusal(
         "why":"A different stored note is usually another agent's rationale, so --add never overwrites it silently.",
         "required":"Re-run with --note-conflict append to keep both notes, or --note-conflict replace to overwrite the stored note."
     });
-    let mut base_args = Vec::new();
-    if let Some(pm_root) = retry_scope {
-        let Some(path) = pm_root.to_str() else {
+    let base_args = if let Some((pm_root, cwd)) = retry_scope {
+        let Some((path, cwd)) = pm_root.to_str().zip(cwd.to_str()) else {
             context["next_steps"] = json!([
-                "Run the repair from the selected tracker. Its path is not valid UTF-8 and cannot be encoded as retry arguments."
+                "Run the repair from the original directory with the same tracker selected. The tracker or invocation path cannot be encoded as UTF-8 retry arguments."
             ]);
             context["details"] = json!({"conflicts":conflicts});
             return refusal(detail, 4, context);
         };
-        base_args.extend(["--pm-path".to_owned(), path.to_owned()]);
-    }
-    base_args.extend([key.to_owned(), id.to_owned()]);
+        // Tracker selection and operand anchoring are independent.
+        ["--pm-path", path, key, id, "--artifact-cwd", cwd]
+            .map(str::to_owned)
+            .to_vec()
+    } else {
+        vec![key.to_owned(), id.to_owned()]
+    };
     let retry = |mode: &str| {
         let mut args = base_args.clone();
         for add in &options.add {
@@ -955,10 +958,29 @@ fn note_conflict_refusal(
     };
     let append = retry("append");
     let append_command = crate::render_pm_command(&append);
-    context["next_steps"] = json!([append_command, crate::render_pm_command(retry("replace"))]);
+    let next_steps = json!([append_command, crate::render_pm_command(retry("replace"))]);
+    context["next_steps"] = next_steps.clone();
     context["recovery"] = json!({"suggested_retry":append_command,"suggested_retry_args":append});
     context["details"] = json!({"conflicts":conflicts});
-    refusal(detail, 4, context)
+    let (detail, mut context) = crate::refusal::sdk_fields(detail, context, None);
+    if retry_scope.is_some()
+        && (
+            &context["next_steps"],
+            &context["recovery"]["suggested_retry_args"],
+        ) != (&next_steps, &json!(append))
+    {
+        context
+            .as_object_mut()
+            .and_then(|fields| fields.shift_remove("recovery"));
+        context["next_steps"] = json!([
+            "Repeat the original request from the original directory with the same tracker selected. Supply the original note or other redacted values again and choose --note-conflict append or replace."
+        ]);
+    }
+    PmRustError::CommandRefusal {
+        detail,
+        exit_code: 4,
+        context,
+    }
 }
 
 /// Resolves note edits in request order and refuses the whole write on a conflict.
@@ -968,7 +990,7 @@ pub(crate) fn reconcile_artifact_notes(
     current: &[Value],
     edit: &mut Edit,
     options: &CollectionOptions,
-    retry_scope: Option<&Path>,
+    retry_scope: Option<(&Path, &Path)>,
 ) -> Result<Vec<Value>, PmRustError> {
     let mode = edit.note_policy;
     let mut working: Vec<(Value, bool)> = current
@@ -1195,7 +1217,7 @@ impl Workspace {
         options: &CollectionOptions,
         cwd: &Path,
     ) -> Result<Value, PmRustError> {
-        self.collection_with_retry_scope(id, key, options, cwd, Some(self.pm_root()))
+        self.collection_with_retry_scope(id, key, options, cwd, cwd, Some((self.pm_root(), cwd)))
     }
 
     /// Runs a collection with retry scope projected from the original CLI invocation.
@@ -1210,7 +1232,23 @@ impl Workspace {
         options: &CollectionOptions,
         cwd: &Path,
     ) -> Result<Value, PmRustError> {
-        self.collection_with_retry_scope(id, key, options, cwd, None)
+        self.collection_for_cli_with_artifact_cwd(id, key, options, cwd, None)
+    }
+
+    /// Runs a CLI collection, optionally anchoring artifact operands at an SDK retry's directory.
+    ///
+    /// # Errors
+    /// Returns the same collection refusals as [`Self::collection`].
+    #[doc(hidden)]
+    pub fn collection_for_cli_with_artifact_cwd(
+        &self,
+        id: &str,
+        key: &str,
+        options: &CollectionOptions,
+        cwd: &Path,
+        artifact_cwd: Option<&Path>,
+    ) -> Result<Value, PmRustError> {
+        self.collection_with_retry_scope(id, key, options, cwd, artifact_cwd.unwrap_or(cwd), None)
     }
 
     /// Runs the shared collection operation with the caller's retry scope policy.
@@ -1220,7 +1258,8 @@ impl Workspace {
         key: &str,
         options: &CollectionOptions,
         cwd: &Path,
-        retry_scope: Option<&Path>,
+        artifact_cwd: &Path,
+        retry_scope: Option<(&Path, &Path)>,
     ) -> Result<Value, PmRustError> {
         if !matches!(key, "files" | "docs" | "tests") {
             return Err(PmRustError::InvalidMutationRequest {
@@ -1243,7 +1282,7 @@ impl Workspace {
         }
         let pm_root = self.pm_root();
         let root = pm_root.parent().and_then(Path::parent).unwrap_or(pm_root);
-        let mut edit = prepare(key, options, root, cwd)?;
+        let mut edit = prepare(key, options, root, artifact_cwd)?;
         if options.note.is_some() && edit.adds.is_empty() {
             return Err(refusal(
                 "--note requires --add or --add-glob in the same invocation (the note annotates the links being added)",
@@ -1343,13 +1382,18 @@ fn attach_collection_receipts(
         // basis so symlinked temporary roots and Windows short paths retain relative recovery.
         let canonical = cwd.canonicalize();
         let scope = match pm_root.strip_prefix(canonical.as_deref().unwrap_or(cwd)) {
-            Ok(relative) if relative.as_os_str().is_empty() => ".".to_owned(),
+            Ok(relative) if relative.as_os_str().is_empty() => Some(".".to_owned()),
             Ok(relative) => relative
-                .to_string_lossy()
-                .replace(std::path::MAIN_SEPARATOR, "/"),
-            Err(_) => pm_root.to_string_lossy().into_owned(),
+                .to_str()
+                .map(|path| path.replace(std::path::MAIN_SEPARATOR, "/")),
+            Err(_) => pm_root.to_str().map(str::to_owned),
         };
-        json!([{"name":format!("{key}_history"),"restore_with":crate::render_pm_command(["--pm-path", &scope, command, id])}])
+        let name = format!("{key}_history");
+        if let Some(scope) = scope {
+            json!([{"name":name,"restore_with":crate::render_pm_command(["--pm-path", &scope, command, id])}])
+        } else {
+            json!([{"name":name,"restore_guidance":format!("Select the original tracker manually and list {key} for {id}. The tracker scope cannot be encoded as UTF-8.")}])
+        }
     } else {
         json!([])
     };

@@ -2159,9 +2159,9 @@ fn round5_long_intent_cursor_remains_executable() -> TestResult {
     long_intent_cursor_case(fixture(8, 2000)?.path())
 }
 
-/// Verifies native compaction and the published omission in unbraind/pm-cli#1754.
+/// Verifies bounded output with the known item metadata exception in unbraind/pm-cli#1754.
 #[test]
-fn round7_full_item_cursor_metadata_matches_published_budget() -> TestResult {
+fn full_item_cursor_metadata_budget_with_known_exception_1754() -> TestResult {
     let directory = fixture(1, 0)?;
     let path = directory.path().join(".agents/pm/tasks/demo-0000.toon");
     let mut item: Value = toon_format::decode_default(&fs::read_to_string(&path)?)?;
@@ -2184,7 +2184,11 @@ fn round7_full_item_cursor_metadata_matches_published_budget() -> TestResult {
     assert_eq!(result["read_output"]["within_budget"], true);
     if directory.path().join("driver.mjs").is_file() {
         let published = published_output(directory.path(), &flags)?;
-        assert_eq!(published.status.code(), Some(2));
+        assert_eq!(
+            published.status.code(),
+            Some(2),
+            "Known exception unbraind/pm-cli#1754 changed; recheck native parity"
+        );
         let omitted: Value = serde_json::from_slice(&published.stdout)?;
         assert_eq!(omitted["read_output"]["result_omitted"], true);
         assert_eq!(omitted["read_output"]["strings_compacted"], false);

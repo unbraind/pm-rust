@@ -2140,27 +2140,14 @@ fn collection_restore_after_removal_is_read_only() -> Result<(), Box<dyn std::er
     Ok(())
 }
 
-/// Both SDK note repairs can be executed from a different tracker with the same item ID.
+/// Both SDK note repairs preserve tracker selection and the original operand directory.
 #[test]
 fn sdk_note_repair_replays_only_in_the_selected_tracker() -> Result<(), Box<dyn std::error::Error>>
 {
     let cwd = workspace()?;
     let selected = workspace()?;
-    for (tracker, note) in [(&cwd, "other"), (&selected, "selected")] {
-        seed_item(tracker)?;
-        for (key, path) in [("files", "source.rs"), ("docs", "guide.md")] {
-            expect_ok(
-                tracker,
-                &[
-                    key,
-                    "sample-cli",
-                    "--add",
-                    &format!("path={path},note={note}"),
-                    "--author=fixture",
-                ],
-            )?;
-        }
-    }
+    seed_item(&cwd)?;
+    seed_item(&selected)?;
     let root = cwd.path().join(".agents/pm");
     let snapshot = || -> std::io::Result<_> {
         Ok((
@@ -2170,17 +2157,38 @@ fn sdk_note_repair_replays_only_in_the_selected_tracker() -> Result<(), Box<dyn 
     };
     let before = snapshot()?;
     let workspace = pm_rust::Workspace::discover(selected.path())?;
+    let invocation = selected.path().join("sub");
+    fs::create_dir(&invocation)?;
+    let invocation = invocation.canonicalize()?;
     for (key, path, mode, expected_note) in [
         ("files", "source.rs", "append", "selected; repair"),
         ("docs", "guide.md", "replace", "repair"),
     ] {
+        let root_path = format!("sub/{path}");
+        expect_ok(
+            &selected,
+            &[
+                key,
+                "sample-cli",
+                "--add",
+                &format!("path={root_path},note=selected"),
+                "--add",
+                &format!("path={path},note=selected"),
+                "--add",
+                "sub/obsolete.md",
+                "--add",
+                "obsolete.md",
+                "--author=fixture",
+            ],
+        )?;
         let options = pm_rust::CollectionOptions {
             add: vec![format!("path={path},note=repair")],
+            remove: vec!["path=obsolete.md".to_owned()],
             author: "fixture".to_owned(),
             ..Default::default()
         };
         let Err(pm_rust::PmRustError::CommandRefusal { context, .. }) =
-            workspace.collection("sample-cli", key, &options, cwd.path())
+            workspace.collection("sample-cli", key, &options, &invocation)
         else {
             return Err("expected a note conflict".into());
         };
@@ -2214,11 +2222,19 @@ fn sdk_note_repair_replays_only_in_the_selected_tracker() -> Result<(), Box<dyn 
             String::from_utf8_lossy(&output.stderr)
         );
         let receipt: serde_json::Value = serde_json::from_slice(&output.stdout)?;
+        assert_eq!(receipt[key][0]["path"], root_path);
         assert_eq!(receipt[key][0]["note"], expected_note);
-        assert_eq!(
-            workspace.get("sample-cli")?.metadata.extra[key][0]["note"],
-            expected_note
-        );
+        assert_eq!(receipt["mutation_receipt"]["removed_count"], 1);
+        let item = workspace.get("sample-cli")?;
+        let rows = item.metadata.extra[key].as_array().ok_or("linked rows")?;
+        assert_eq!(rows.len(), 3);
+        for (path, note) in [(path, "selected"), (&root_path, expected_note)] {
+            assert!(
+                rows.iter()
+                    .any(|row| row["path"] == path && row["note"] == note)
+            );
+        }
+        assert!(rows.iter().any(|row| row["path"] == "obsolete.md"));
         assert_eq!(snapshot()?, before);
     }
     Ok(())

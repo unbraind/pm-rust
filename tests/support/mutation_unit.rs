@@ -218,6 +218,9 @@ fn ownership_session_faults_and_contention_preserve_durable_steps()
         Err(PmRustError::LockConflict { .. })
     ));
     assert!(!called.get());
+    let claim = workspace.claim_with_options(&mutation, &options)?;
+    assert_eq!(claim.warnings, ["claim_semantic_attribution_unrecorded"]);
+    assert!(claim.suggestions[0].contains("(lock_conflict); nothing needs a retry"));
     drop(guard);
     mutate_session_state(&pm_root, |state| {
         state.insert("marker".to_owned(), serde_json::json!("published"));
@@ -6022,7 +6025,19 @@ fn expired_session_lease_refuses_its_own_staged_write() -> Result<(), Box<dyn st
 /// Losing access to the publication gate discards the staged snapshot and preserves prior bytes.
 #[test]
 fn busy_session_publication_gate_preserves_snapshot() -> Result<(), Box<dyn std::error::Error>> {
-    let (_temp, pm_root) = root("{}")?;
+    let (_temp, pm_root) = root(&settings("sample-", "toon", 1800))?;
+    create_item(&pm_root, request())?;
+    let workspace = crate::Workspace::discover(&pm_root)?;
+    let claim = OwnershipItem {
+        id: "sample-unit".into(),
+        author: "fixture".into(),
+        timestamp: Some(TS.into()),
+        message: None,
+        force: false,
+        if_available: false,
+        provenance_role: None,
+    };
+    let mut receipt = workspace.claim(&claim)?;
     let runtime = pm_root.join("runtime");
     fs::create_dir_all(&runtime)?;
     let session = runtime.join("session.json");
@@ -6037,14 +6052,44 @@ fn busy_session_publication_gate_preserves_snapshot() -> Result<(), Box<dyn std:
             30,
         ));
     });
-    let _gate = held.ok_or("mutation did not reach publication")??;
-    assert!(matches!(result, Err(PmRustError::LockConflict { .. })));
+    let gate = held.ok_or("mutation did not reach publication")??;
+    let error = result
+        .err()
+        .ok_or("session publication unexpectedly succeeded")?;
+    assert!(matches!(&error, PmRustError::CommandRefusal { context, .. }
+        if context["code"] == "session_attribution_publication_conflict"));
+    crate::ownership::append_attribution_warning(&mut receipt, "claim", &error);
+    assert_eq!(receipt.warnings, ["claim_semantic_attribution_unrecorded"]);
+    assert!(receipt.suggestions[0].contains("claim of sample-unit is saved"));
+    assert!(receipt.suggestions[0].contains("session attribution"));
+    assert!(receipt.suggestions[0].contains("Retry the ownership command"));
+    assert!(!receipt.suggestions[0].contains("nothing needs a retry"));
+    assert_eq!(
+        workspace.get("sample-unit")?.metadata.extra["assignee"],
+        "fixture"
+    );
     assert_eq!(fs::read_to_string(&session)?, original);
     assert!(
         fs::read_dir(&runtime)?
             .collect::<Result<Vec<_>, _>>()?
             .iter()
             .all(|entry| !entry.file_name().to_string_lossy().ends_with(".tmp"))
+    );
+    drop(gate);
+    let lease = pm_root.join("locks/session-state.lock.gate-lease");
+    let broken = mutate_session_state(&pm_root, |_| {
+        assert!(fs::remove_file(&lease).is_ok());
+        assert!(fs::create_dir(&lease).is_ok());
+    });
+    assert!(matches!(broken, Err(PmRustError::Io { .. })));
+    assert_eq!(fs::read_to_string(&session)?, original);
+    fs::remove_dir(lease)?;
+    assert!(workspace.claim(&claim)?.warnings.is_empty());
+    let state: Value = serde_json::from_slice(&fs::read(session)?)?;
+    assert!(
+        state["semantic_attribution"]
+            .to_string()
+            .contains("sample-unit")
     );
     Ok(())
 }
