@@ -116,23 +116,9 @@ fn artifacts(expected: &Path, actual: &Path) -> TestResult {
     Ok(())
 }
 
-/// A logical SDK base names the same link as an explicit project path in the published CLI.
+/// Creates the root link and the competing link that a relative removal can select.
 #[cfg(unix)]
-#[test]
-fn sdk_removal_preserves_logical_symlink_operand_base() -> TestResult {
-    let Some(published) = published_cli::published_cli_or_skip("logical artifact base") else {
-        return Ok(());
-    };
-    let scratch = tempfile::tempdir()?;
-    let driver = write_driver(scratch.path(), &published)?;
-    let oracle_project = tempfile::tempdir()?;
-    let native_project = tempfile::tempdir()?;
-    let outside = tempfile::tempdir()?;
-    fs::write(outside.path().join("source.rs"), "external fixture")?;
-    for project in [oracle_project.path(), native_project.path()] {
-        fs::write(project.join("source.rs"), "project fixture")?;
-        std::os::unix::fs::symlink(outside.path(), project.join("vendor"))?;
-    }
+fn seed_linked_files(driver: &Path, project: &Path, other_path: &str) -> TestResult {
     for args in [
         vec!["init", "sample-", "--defaults"],
         vec![
@@ -152,18 +138,39 @@ fn sdk_removal_preserves_logical_symlink_operand_base() -> TestResult {
             "--add",
             "source.rs",
             "--add",
-            "vendor/source.rs",
+            other_path,
             "--author",
             "alpha",
         ],
     ] {
-        let result = oracle(&driver, oracle_project.path(), &args)?;
+        let result = oracle(driver, project, &args)?;
         assert!(
             result.status.success(),
-            "{}",
+            "{args:?}: {}",
             String::from_utf8_lossy(&result.stderr)
         );
     }
+    Ok(())
+}
+
+/// A logical SDK base names the same link as an explicit project path in the published CLI.
+#[cfg(unix)]
+#[test]
+fn sdk_removal_preserves_logical_symlink_operand_base() -> TestResult {
+    let Some(published) = published_cli::published_cli_or_skip("logical artifact base") else {
+        return Ok(());
+    };
+    let scratch = tempfile::tempdir()?;
+    let driver = write_driver(scratch.path(), &published)?;
+    let oracle_project = tempfile::tempdir()?;
+    let native_project = tempfile::tempdir()?;
+    let outside = tempfile::tempdir()?;
+    fs::write(outside.path().join("source.rs"), "external fixture")?;
+    for project in [oracle_project.path(), native_project.path()] {
+        fs::write(project.join("source.rs"), "project fixture")?;
+        std::os::unix::fs::symlink(outside.path(), project.join("vendor"))?;
+    }
+    seed_linked_files(&driver, oracle_project.path(), "vendor/source.rs")?;
     copy_directory(
         &oracle_project.path().join(".agents"),
         &native_project.path().join(".agents"),
@@ -213,6 +220,85 @@ fn sdk_removal_preserves_logical_symlink_operand_base() -> TestResult {
         workspace.pm_root(),
         &oracle_project.path().join(".agents/pm"),
     )?;
+    Ok(())
+}
+
+/// An external alias selects the same project-relative link in the native SDK and published CLI.
+#[cfg(unix)]
+#[test]
+fn sdk_removal_anchors_external_directory_aliases() -> TestResult {
+    let Some(published) = published_cli::published_cli_or_skip("external artifact aliases") else {
+        return Ok(());
+    };
+    let scratch = tempfile::tempdir()?;
+    let driver = write_driver(scratch.path(), &published)?;
+    let seed = scratch.path().join("seed");
+    fs::create_dir_all(seed.join("sub"))?;
+    for path in ["source.rs", "sub/source.rs"] {
+        fs::write(seed.join(path), "source fixture")?;
+    }
+    seed_linked_files(&driver, &seed, "sub/source.rs")?;
+    for (target, remaining) in [("", "sub/source.rs"), ("sub", "source.rs")] {
+        let oracle_project = tempfile::tempdir_in(scratch.path())?;
+        let native_project = tempfile::tempdir_in(scratch.path())?;
+        let aliases = tempfile::tempdir_in(scratch.path())?;
+        let oracle_alias = aliases.path().join("oracle");
+        let native_alias = aliases.path().join("native");
+        for (project, alias) in [
+            (oracle_project.path(), &oracle_alias),
+            (native_project.path(), &native_alias),
+        ] {
+            copy_directory(&seed, project)?;
+            std::os::unix::fs::symlink(project.join(target), alias)?;
+        }
+        let expected = oracle(
+            &driver,
+            &oracle_alias,
+            &[
+                "files",
+                "sample-item",
+                "--remove",
+                "source.rs",
+                "--full-history",
+                "--author",
+                "alpha",
+                "--json",
+            ],
+        )?;
+        assert!(
+            expected.status.success(),
+            "{}",
+            String::from_utf8_lossy(&expected.stderr)
+        );
+        let expected: Value = serde_json::from_slice(&expected.stdout)?;
+        assert_eq!(
+            expected["files"],
+            json!([{"path":remaining,"scope":"project"}])
+        );
+        assert_eq!(expected["mutation_receipt"]["removed_count"], 1);
+        let workspace = pm_rust::Workspace::discover(native_project.path())?;
+        let actual = workspace.collection(
+            "sample-item",
+            "files",
+            &pm_rust::CollectionOptions {
+                remove: vec!["source.rs".to_owned()],
+                full_history: true,
+                author: "alpha".to_owned(),
+                timestamp: Some(CLOCK.to_owned()),
+                ..Default::default()
+            },
+            &native_alias,
+        )?;
+        assert_eq!(
+            actual["files"], expected["files"],
+            "alias target {target:?}"
+        );
+        assert_eq!(actual, expected);
+        artifacts(
+            workspace.pm_root(),
+            &oracle_project.path().join(".agents/pm"),
+        )?;
+    }
     Ok(())
 }
 

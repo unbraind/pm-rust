@@ -1238,10 +1238,12 @@ fn artifact_cwd_resolves_root_alias_without_following_its_suffix() -> TestResult
     std::os::unix::fs::symlink(directory.path(), &alias)?;
     std::os::unix::fs::symlink(aliases.path(), directory.path().join("vendor"))?;
     let project = workspace.artifact_project_root();
-    assert_eq!(
-        resolve_artifact_cwd(&alias.join("vendor"), project)?,
-        project.join("vendor")
-    );
+    for suffix in ["vendor", "missing"] {
+        assert_eq!(
+            resolve_artifact_cwd(&alias.join(suffix), project)?,
+            project.join(suffix)
+        );
+    }
     Ok(())
 }
 

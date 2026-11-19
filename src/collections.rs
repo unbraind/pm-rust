@@ -255,7 +255,7 @@ fn structured(raw: &str, test: bool) -> bool {
             })
 }
 
-/// Resolves an artifact directory without following symlinks in its project-relative suffix.
+/// Maps external aliases into the project while retaining logical paths that point outside.
 fn resolve_artifact_cwd(path: &Path, root: &Path) -> Result<PathBuf, PmRustError> {
     let absolute = std::path::absolute(path).map_err(|source| PmRustError::Io {
         path: path.to_path_buf(),
@@ -279,11 +279,13 @@ fn resolve_artifact_cwd(path: &Path, root: &Path) -> Result<PathBuf, PmRustError
     if normalized.starts_with(root) {
         return Ok(normalized);
     }
-    // Discovery canonicalizes the tracker, so validate aliases of the project root
-    // without resolving the suffix that identifies the stored link.
+    // Use the nearest ancestor that resolves inside the project. Any remaining
+    // suffix identifies the stored link even when it points outside the project.
     for ancestor in normalized.ancestors() {
-        if ancestor.canonicalize().as_deref().ok() == Some(root) {
-            return Ok(root.join(normalized.strip_prefix(ancestor).unwrap_or(Path::new(""))));
+        if let Ok(canonical) = ancestor.canonicalize()
+            && canonical.starts_with(root)
+        {
+            return Ok(canonical.join(normalized.strip_prefix(ancestor).unwrap_or(Path::new(""))));
         }
     }
     Ok(normalized)
