@@ -33,6 +33,51 @@ fn parse(value: &str) -> Option<OffsetDateTime> {
     OffsetDateTime::parse(value, &Rfc3339).ok()
 }
 
+/// Reads the required fields and validates each patch path.
+fn record_fields(entry: &Value) -> Option<(&str, &str, &[Value])> {
+    let timestamp = entry["ts"].as_str()?;
+    let operation = entry["op"].as_str()?;
+    let patch = entry["patch"].as_array()?;
+    patch
+        .iter()
+        .all(|row| row["path"].is_string())
+        .then_some((timestamp, operation, patch))
+}
+
+/// Prefix activity carried by a compaction baseline.
+enum CompactionActivity<'a> {
+    /// A baseline written without retained activity evidence.
+    Legacy,
+    /// A retained timestamp or explicit evidence that no prefix work occurred.
+    Recorded(Option<&'a str>),
+    /// A receipt with invalid containers or an invalid timestamp.
+    Malformed,
+}
+
+/// Distinguishes missing receipt fields from malformed stored values.
+fn compaction_activity(entry: &Value) -> CompactionActivity<'_> {
+    let mut container = entry;
+    for field in ["context", "history_compaction"] {
+        let Some(value) = container.get(field) else {
+            return CompactionActivity::Legacy;
+        };
+        if !value.is_object() {
+            return CompactionActivity::Malformed;
+        }
+        container = value;
+    }
+    match container.get("last_activity_at") {
+        None => CompactionActivity::Legacy,
+        Some(Value::Null) => CompactionActivity::Recorded(None),
+        Some(value) => value
+            .as_str()
+            .filter(|timestamp| parse(timestamp).is_some())
+            .map_or(CompactionActivity::Malformed, |timestamp| {
+                CompactionActivity::Recorded(Some(timestamp))
+            }),
+    }
+}
+
 /// Reads an entire stream, treating missing streams as empty and broken streams as unjudgeable.
 fn read_history(path: &Path) -> Option<Vec<Value>> {
     super::read_optional(path)
@@ -42,19 +87,10 @@ fn read_history(path: &Path) -> Option<Vec<Value>> {
         .filter(|line| !line.trim().is_empty())
         .map(|line| {
             let entry: Value = crate::strict_json::from_str(line).ok()?;
-            parse(entry["ts"].as_str()?)?;
-            entry["op"].as_str()?;
-            if !entry["patch"]
-                .as_array()?
-                .iter()
-                .all(|row| row["path"].is_string())
-            {
-                return None;
-            }
-            if entry["op"] == "history_compact_baseline"
-                && let Some(value) = entry["context"]["history_compaction"].get("last_activity_at")
-                && !value.is_null()
-                && value.as_str().and_then(parse).is_none()
+            let (timestamp, operation, _) = record_fields(&entry)?;
+            parse(timestamp)?;
+            if operation == "history_compact_baseline"
+                && matches!(compaction_activity(&entry), CompactionActivity::Malformed)
             {
                 return None;
             }
@@ -85,17 +121,22 @@ fn patches(entry: &Value) -> impl Iterator<Item = &Value> {
 
 /// Reads substantive activity, using the retained time for compacted streams.
 pub(crate) fn activity(entry: &Value) -> Option<&str> {
-    let op = entry["op"].as_str()?;
+    let (timestamp, op, patch) = record_fields(entry)?;
     if op == "history_compact_baseline" {
-        return entry["context"]["history_compaction"]
-            .get("last_activity_at")
-            .unwrap_or(&entry["ts"])
-            .as_str();
+        return match compaction_activity(entry) {
+            CompactionActivity::Recorded(activity) => activity,
+            CompactionActivity::Legacy | CompactionActivity::Malformed => Some(timestamp),
+        };
     }
-    let paths = patches(entry).filter_map(|row| row["path"].as_str());
-    (crate::history::classify_history_paths(op, paths) == "substantive")
-        .then(|| entry["ts"].as_str())
-        .flatten()
+    let substantive = match entry["event_class"].as_str() {
+        Some("substantive") => true,
+        Some("maintenance") => false,
+        _ => {
+            let paths = patch.iter().filter_map(|row| row["path"].as_str());
+            crate::history::classify_history_paths(op, paths) == "substantive"
+        }
+    };
+    substantive.then_some(timestamp)
 }
 
 /// Determines whether audited or discarded history prevents a stale verdict.

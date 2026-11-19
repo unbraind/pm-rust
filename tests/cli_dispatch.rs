@@ -2191,6 +2191,7 @@ fn native_note_repair_replays_only_in_the_selected_tracker()
             remove: vec!["path=obsolete.md".to_owned()],
             author: "fixture".to_owned(),
             note: Some("-draft".to_owned()),
+            message: native_option.is_none().then(|| "-draft".to_owned()),
             ..Default::default()
         };
         let context = if let Some(flag) = native_option {
@@ -2226,6 +2227,7 @@ fn native_note_repair_replays_only_in_the_selected_tracker()
         assert_eq!(receipt[key][0]["path"], root_path);
         assert_eq!(receipt[key][0]["note"], expected_note);
         assert_eq!(receipt["mutation_receipt"]["removed_count"], 1);
+        assert_repair_message(&workspace, &command, options.message.as_deref())?;
         let item = workspace.get("sample-cli")?;
         let rows = item.metadata.extra[key].as_array().ok_or("linked rows")?;
         assert_eq!(rows.len(), 3);
@@ -2237,6 +2239,22 @@ fn native_note_repair_replays_only_in_the_selected_tracker()
         }
         assert!(rows.iter().any(|row| row["path"] == "obsolete.md"));
         assert_eq!(snapshot()?, before);
+    }
+    Ok(())
+}
+
+/// Checks that the replay carries a single message token and persists its value.
+fn assert_repair_message(
+    workspace: &pm_rust::Workspace,
+    command: &[String],
+    message: Option<&str>,
+) -> Result<(), Box<dyn std::error::Error>> {
+    if let Some(message) = message {
+        assert!(command.contains(&format!("--message={message}")));
+        let history = fs::read_to_string(workspace.pm_root().join("history/sample-cli.jsonl"))?;
+        let last: serde_json::Value =
+            serde_json::from_str(history.lines().last().ok_or("repair history")?)?;
+        assert_eq!(last["message"], message);
     }
     Ok(())
 }

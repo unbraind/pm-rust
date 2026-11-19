@@ -970,17 +970,21 @@ fn note_conflict_refusal(
     } else {
         ("pm", vec![key.to_owned(), id.to_owned()])
     };
-    let append = note_retry_args(base_args.clone(), options, "append");
+    let native = retry_scope.is_some();
+    let append = note_retry_args(base_args.clone(), options, "append", native);
     let append_command = crate::command_line::render_command(binary, &append);
     let next_steps = json!([
         append_command,
-        crate::command_line::render_command(binary, note_retry_args(base_args, options, "replace"))
+        crate::command_line::render_command(
+            binary,
+            note_retry_args(base_args, options, "replace", native)
+        )
     ]);
     context["next_steps"] = next_steps.clone();
     context["recovery"] = json!({"suggested_retry":append_command,"suggested_retry_args":append});
     context["details"] = json!({"conflicts":conflicts});
     let (detail, mut context) = crate::refusal::sdk_fields(detail, context, None);
-    if retry_scope.is_some()
+    if native
         && (
             &context["next_steps"],
             &context["recovery"]["suggested_retry_args"],
@@ -1001,7 +1005,12 @@ fn note_conflict_refusal(
 }
 
 /// Replays the original linked-artifact edit with an explicit conflict policy.
-fn note_retry_args(mut args: Vec<String>, options: &CollectionOptions, mode: &str) -> Vec<String> {
+fn note_retry_args(
+    mut args: Vec<String>,
+    options: &CollectionOptions,
+    mode: &str,
+    native: bool,
+) -> Vec<String> {
     for add in &options.add {
         args.extend(["--add".to_owned(), add.clone()]);
     }
@@ -1022,7 +1031,11 @@ fn note_retry_args(mut args: Vec<String>, options: &CollectionOptions, mode: &st
         args.push("--full-history".to_owned());
     }
     if let Some(message) = &options.message {
-        args.extend(["--message".to_owned(), message.clone()]);
+        if native && message.starts_with('-') {
+            args.push(format!("--message={message}"));
+        } else {
+            args.extend(["--message".to_owned(), message.clone()]);
+        }
     }
     if let Some(timestamp) = &options.timestamp {
         args.extend(["--timestamp".to_owned(), timestamp.clone()]);

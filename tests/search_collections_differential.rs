@@ -705,9 +705,12 @@ fn linked_note_recovery_matches_published_semantics() -> TestResult {
             "-draft",
             "--force",
             "--full-history",
-            "--message",
-            "Link rationale",
         ];
+        if command == "docs" {
+            args.push("--message=-draft");
+        } else {
+            args.extend(["--message", "Link rationale"]);
+        }
         args.extend(extra);
         assert_note_refusal(
             &driver,
@@ -864,7 +867,9 @@ fn assert_note_refusal(
     let mut args = args.to_vec();
     args.extend(["--author", "alpha", "--json"]);
     let expected = oracle(driver, published, &args)?;
-    let actual = native(rust, &args, true)?;
+    let hyphen_message = args.contains(&"--message=-draft");
+    // A clock override advertises native-only replay guidance.
+    let actual = native(rust, &args, !hyphen_message)?;
     let conflict_rows =
         [expected, actual].map(|output| -> Result<Value, Box<dyn std::error::Error>> {
             let stderr = String::from_utf8(output.stderr)?;
@@ -872,6 +877,15 @@ fn assert_note_refusal(
             assert!(output.stdout.is_empty());
             let receipt: serde_json::Value = serde_json::from_str(&stderr)?;
             assert_eq!(receipt["code"], code, "{args:?}: {stderr}");
+            if hyphen_message {
+                let retry = receipt["recovery"]["suggested_retry_args"]
+                    .as_array()
+                    .ok_or("retry args")?;
+                assert!(
+                    retry.windows(2).any(|pair| pair == ["--message", "-draft"]),
+                    "{retry:?}"
+                );
+            }
             Ok(receipt["details"]["conflicts"].clone())
         });
     let [expected, actual] = conflict_rows;

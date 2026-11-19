@@ -9,6 +9,7 @@ type TestResult = Result<(), Box<dyn std::error::Error>>;
 const BEFORE: &str = "2026-08-01T10:00:00.000Z";
 const CLAIMED: &str = "2026-08-02T10:00:00.000Z";
 const LATER: &str = "2026-08-03T10:00:00.000Z";
+const RECENT: &str = "2026-08-06T10:00:00.000Z";
 const NOW: &str = "2026-08-07T10:00:00.000Z";
 const HOLDER: &str = "alpha";
 
@@ -132,9 +133,35 @@ fn claim_history_provenance_and_activity_match_published() -> TestResult {
     let mut malformed_evidence = matching_evidence.clone();
     malformed_evidence["reanchor_evidence"] = json!({"patch_hash": patch_hash});
     let legacy_baseline = record("history_compact_baseline", LATER, json!([]));
+    let mut bad_context = legacy_baseline.clone();
+    bad_context["context"] = json!([]);
+    let mut bad_receipt = legacy_baseline.clone();
+    bad_receipt["context"] = json!({"history_compaction": null});
+    let mut maintenance = record(
+        "update",
+        RECENT,
+        patch("/metadata/title", json!("New title")),
+    );
+    maintenance["event_class"] = json!("maintenance");
+    let mut reclassified = record("update", RECENT, patch("/metadata/notes", json!([])));
+    reclassified["event_class"] = json!("substantive");
     let cases = [
         ("untouched", vec![claim()], None, false, true),
         ("recent-work", vec![claim(), substantive], None, false, true),
+        (
+            "stored-maintenance",
+            vec![claim(), maintenance],
+            None,
+            false,
+            true,
+        ),
+        (
+            "stored-substantive",
+            vec![claim(), reclassified],
+            None,
+            false,
+            false,
+        ),
         (
             "reclaimed",
             vec![claim(), principal.clone()],
@@ -227,6 +254,20 @@ fn claim_history_provenance_and_activity_match_published() -> TestResult {
             false,
         ),
         (
+            "bad-baseline-context",
+            vec![claim(), bad_context],
+            None,
+            true,
+            false,
+        ),
+        (
+            "bad-baseline-receipt",
+            vec![claim(), bad_receipt],
+            None,
+            true,
+            false,
+        ),
+        (
             "bad-timestamp",
             vec![claim(), record("update", "invalid", json!([]))],
             None,
@@ -293,6 +334,88 @@ fn claim_history_provenance_and_activity_match_published() -> TestResult {
         native.push(evidence);
     }
     verify_published(directory.path(), &inputs, &native)
+}
+
+/// Advisory activity skips malformed records and approximates malformed receipts.
+#[test]
+fn advisory_history_activity_matches_published() -> TestResult {
+    let cases = [
+        (json!({"ts": RECENT, "op": "update"}), None),
+        (json!({"ts": RECENT, "op": "update", "patch": [{}]}), None),
+        (json!({"ts": RECENT, "op": false, "patch": []}), None),
+        (json!({"ts": null, "op": "update", "patch": []}), None),
+        (
+            json!({"ts": RECENT, "op": "update", "patch": []}),
+            Some(RECENT),
+        ),
+        (baseline(RECENT, json!("invalid")), Some(RECENT)),
+        (baseline(RECENT, json!(42)), Some(RECENT)),
+        (baseline(RECENT, Value::Null), None),
+        (baseline(RECENT, json!(LATER)), Some(LATER)),
+        (
+            json!({"ts": RECENT, "op": "history_compact_baseline", "patch": [], "context": {"history_compaction": {}}}),
+            Some(RECENT),
+        ),
+        (
+            json!({"ts": RECENT, "op": "history_compact_baseline", "patch": [], "context": {}}),
+            Some(RECENT),
+        ),
+        (
+            json!({"ts": RECENT, "op": "history_compact_baseline", "patch": [], "context": {"history_compaction": null}}),
+            Some(RECENT),
+        ),
+        (
+            json!({"ts": RECENT, "op": "update", "patch": [{"path": "/metadata/title"}], "event_class": "maintenance"}),
+            None,
+        ),
+        (
+            json!({"ts": RECENT, "op": "update", "patch": [{"path": "/metadata/notes"}], "event_class": "substantive"}),
+            Some(RECENT),
+        ),
+        (
+            json!({"ts": RECENT, "op": "update", "patch": [{"path": "/metadata/title"}], "event_class": "legacy"}),
+            Some(RECENT),
+        ),
+    ];
+    for (entry, expected) in &cases {
+        assert_eq!(super::activity(entry), *expected, "{entry}");
+    }
+    let Some(published) = published_cli::published_cli_or_skip("advisory history activity") else {
+        return Ok(());
+    };
+    let mut command = published_cli::oracle_command(
+        std::env::var("PM_NODE_INTERPRETER").unwrap_or_else(|_| "node".to_owned()),
+    );
+    crate::test_process_environment::isolate_environment(&mut command);
+    let output = command
+        .env("DO_NOT_TRACK", "1")
+        .args([
+            "--input-type=module",
+            "-e",
+            r"
+import { pathToFileURL } from 'node:url';
+const { latestHistoryTimestamp } = await import(pathToFileURL(process.argv[1]));
+const entries = JSON.parse(process.argv[2]);
+process.stdout.write(JSON.stringify(entries.map(entry => latestHistoryTimestamp([entry]))));
+",
+        ])
+        .arg(
+            published
+                .package_root
+                .join("dist/sdk/governance/stale-work.js"),
+        )
+        .arg(serde_json::to_string(
+            &cases.iter().map(|(entry, _)| entry).collect::<Vec<_>>(),
+        )?)
+        .output()?;
+    assert!(
+        output.status.success(),
+        "{}",
+        String::from_utf8_lossy(&output.stderr)
+    );
+    let oracle: Vec<Option<&str>> = serde_json::from_slice(&output.stdout)?;
+    assert_eq!(oracle, cases.map(|(_, expected)| expected));
+    Ok(())
 }
 
 /// A workspace recovery boundary invalidates stale evidence only when it may include the claim.
