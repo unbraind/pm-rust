@@ -47,7 +47,7 @@ mod toon_output;
 mod workspace;
 
 pub use collections::CollectionOptions;
-pub use command_line::{parse_command_args, render_pm_command};
+pub use command_line::{parse_command_args, render_pm_command, render_pm_rust_command};
 pub use error::PmRustError;
 pub use history::canonical_metadata_pairs;
 pub use item::{ItemDocument, ItemMetadata, ItemSummary};

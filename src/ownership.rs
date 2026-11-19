@@ -651,16 +651,31 @@ pub(crate) fn append_attribution_warning(
         PmRustError::LockConflict { .. } => "lock_conflict",
         _ => "unexpected_error",
     };
+    let (status, detail) = match cause {
+        crate::mutation::SESSION_PUBLICATION_CONFLICT => (
+            "unrecorded",
+            format!(
+                "was not updated ({cause}). After the cleanup gate clears, reconcile only the session's active-item attribution for this item against current ownership."
+            ),
+        ),
+        crate::mutation::SESSION_DURABILITY_UNKNOWN => (
+            "durability_unknown",
+            format!(
+                "may already be visible, and its durability is unknown ({cause}). Check the session's active-item attribution for this item against current ownership and reconcile it only if needed."
+            ),
+        ),
+        _ => (
+            "unrecorded",
+            format!(
+                "was not updated ({cause}); nothing needs a retry. If pm health reports a stale lock, remove it with pm gc --scope locks."
+            ),
+        ),
+    };
     receipt
         .warnings
-        .push(format!("{action}_semantic_attribution_unrecorded"));
-    let guidance = if cause == "session_attribution_publication_conflict" {
-        ". Retry the ownership command after the session-state cleanup gate clears to record session attribution."
-    } else {
-        "; nothing needs a retry. If pm health reports a stale lock, remove it with pm gc --scope locks."
-    };
+        .push(format!("{action}_semantic_attribution_{status}"));
     receipt.suggestions.push(format!(
-        "The {action} of {} is saved, but the session attribution that names this agent's active work was not updated ({cause}){guidance}",
+        "The {action} of {} is saved, but the session attribution that names this agent's active work {detail}",
         receipt.id,
     ));
 }

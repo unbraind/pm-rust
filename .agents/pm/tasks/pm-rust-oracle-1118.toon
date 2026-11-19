@@ -6,7 +6,9 @@ status: in_progress
 priority: 1
 tags[6]: "gh:unbraind/pm-cli#1753","gh:unbraind/pm-cli#1754","gh:unbraind/pm-cli#1757","gh:unbraind/pm-rust#176","gh:unbraind/pm-rust#181",oracle
 created_at: "2026-11-18T09:41:09.150Z"
-updated_at: "2026-11-19T03:11:02.134Z"
+updated_at: "2026-11-19T04:19:39.577Z"
+assignee: codex-sol
+claim_principal: codex-sol
 author: codex-sol
 parent: pm-rust-u4al
 comments[40]{created_at,author,text}:
@@ -50,10 +52,11 @@ comments[40]{created_at,author,text}:
   "2026-11-18T22:16:06.246Z",codex-sol,"Round CT maps Greptile PRRT_kwDOTwgMRs65H_CX to feab9220af035cf6df9c2b329abe28e8b98fed14. Session publication drops the cleanup gate before its owner receipt, so the successor can reclaim a confirmed dead writer. The Linux SIGKILL regression reproduced the release attribution warning on f51fe8e and now verifies warning-free release and an updated active-work list. The two retained first-fsync cases, formatting, Clippy with warnings denied, 504 library tests, 11 ownership contracts, 61 claim/release differentials against pm-cli 2026.11.18, and changelog verification passed. The full four-dimension coverage run is in progress."
   "2026-11-19T01:34:38.094Z",codex-sol,"Round CW maps PRRT_kwDOTwgMRs65PThx to 61a359c634ddf702e687fbab278d7cf1a98152ee. SDK append and replace retries target the selected tracker with overlapping IDs. The published 2026.11.18 SDK already includes --pm-path when given pmRoot, and the native CLI matches its explicit and implicit CLI refusal bytes. PRRT_kwDOTwgMRs65PTh5 maps to 61a359c634ddf702e687fbab278d7cf1a98152ee and unbraind/pm-cli#1753. At budget 1000 with padding 136, unchanged native replay succeeds and the published SDK refuses read_output_cursor_stale, which the known-exception test requires. PRRT_kwDOTwgMRs65PTh9 maps to 61a359c634ddf702e687fbab278d7cf1a98152ee. A future composed close timestamp refuses before any item or history write. PRRT_kwDOTwgMRs65PTiD maps to 61a359c634ddf702e687fbab278d7cf1a98152ee. The dispatch regression asserts its Codex session principal under inherited Claude markers. Formatting, Clippy, changelog, 582 affected tests, the inherited-marker regression, and 960 instrumented tests passed. The full LLVM profiles and two focused supplemental tests passed the exact thresholds with 20579/20579 lines, 2116/2116 functions, 33663/33663 regions and 4692/4692 branches."
   "2026-11-19T03:10:56.926Z",codex-sol,"Round DC maps all five findings to dfaf09908daf43275b7a3512e9d571b58c58d9e7.\nPRRT_kwDOTwgMRs65Sw16 carries the original operand directory in the SDK retry. Append and replace replay from another workspace now update the original nested links and remove only the original selectors. Native and published 2026.11.18 CLI refusals from a nested directory match byte for byte and retain the original relative CLI arguments.\nPRRT_kwDOTwgMRs65Sw1_ gives SDK callers manual guidance to supply the original note again when the command would be rewritten by credential redaction. Both CLIs exit 4, redact the note, omit structured retry fields, and retain the published diagnostic next steps.\nPRRT_kwDOTwgMRs65Sw2F gives manual restoration guidance for unrepresentable relative and absolute tracker scopes. The published CLI exits 3 with tracker_root_missing when passed the original non-UTF-8 scope.\nPRRT_kwDOTwgMRs65Sw2K tells callers that the item change was saved and session attribution needs another attempt after the native publication gate clears. The regression checks the prior snapshot, the committed claim, and successful attribution on retry. Ordinary session lock contention keeps the existing guidance.\nPRRT_kwDOTwgMRs65Sw2N records the tracked exception in unbraind/pm-cli#1754. At budget 2000 native returns the compacted row and the oracle exits 2 with result_omitted true and strings_compacted false. Both return the full values at budget 20000.\nFormatting, Clippy, changelog, 506 library tests, 63 binary tests under instrumentation, 47 dispatch tests, 11 ownership contracts, and the affected 2026.11.18 oracle regression cases passed. The strict local merge of verified baseline and fresh affected profiles has 20626/20626 lines, 2119/2119 functions, 33721/33721 regions and 4700/4700 branches. Broader differential runs are in progress."
-files[26]{path,scope}:
+files[27]{path,scope}:
   scripts/crash-review.test.mts,project
   src/cli.rs,project
   src/collections.rs,project
+  src/command_line.rs,project
   src/lib.rs,project
   src/list_intent.rs,project
   src/main.rs,project
@@ -77,7 +80,7 @@ files[26]{path,scope}:
   tests/support/list_intent_delivery_differential.rs,project
   tests/support/mutation_differential.rs,project
   tests/support/mutation_unit.rs,project
-tests[19]{command,scope,provenance{author,created_at,source_kind,source_ref}}:
+tests[21]{command,scope,provenance{author,created_at,source_kind,source_ref}}:
   PM_RUST_REQUIRE_PUBLISHED_CLI=1 cargo test --locked --all-targets --all-features --no-fail-fast,project,codex-sol,"2026-11-18T09:58:16.490Z",local_mutation,fix/oracle-pm-cli-1118
   cargo fmt --all -- --check,project,codex-sol,"2026-11-18T09:58:23.289Z",local_mutation,fix/oracle-pm-cli-1118
   cargo clippy --locked --all-targets --all-features -- -D warnings,project,codex-sol,"2026-11-18T10:10:28.550Z",local_mutation,fix/oracle-pm-cli-1118
@@ -97,6 +100,8 @@ tests[19]{command,scope,provenance{author,created_at,source_kind,source_ref}}:
   PM_RUST_REQUIRE_PUBLISHED_CLI=1 cargo +nightly-2026-08-06 llvm-cov --no-report --locked --branch --all-features --lib --bins --test cli_dispatch --test ownership_contract --no-fail-fast,project,codex-sol,"2026-11-19T02:51:00.484Z",local_mutation,fix/oracle-pm-cli-1118
   PM_RUST_REQUIRE_PUBLISHED_CLI=1 cargo +nightly-2026-08-06 llvm-cov --no-report --locked --branch --all-features --test search_collections_differential --test pagination_differential --no-fail-fast,project,codex-sol,"2026-11-19T02:51:00.484Z",local_mutation,fix/oracle-pm-cli-1118
   PM_RUST_REQUIRE_PUBLISHED_CLI=1 cargo +nightly-2026-08-06 llvm-cov --no-report --locked --branch --all-features --lib -- ownership_session_faults_and_contention_preserve_durable_steps,project,codex-sol,"2026-11-19T03:10:50.285Z",local_mutation,fix/oracle-pm-cli-1118
+  PM_RUST_REQUIRE_PUBLISHED_CLI=1 cargo test --locked --all-features --lib --test ownership_contract --test claim_release_differential --test search_collections_differential --test cli_dispatch --no-fail-fast,project,codex-sol,"2026-11-19T04:19:34.653Z",local_mutation,fix/oracle-pm-cli-1118
+  PM_RUST_REQUIRE_PUBLISHED_CLI=1 cargo +nightly-2026-08-06 llvm-cov --locked --branch --all-targets --all-features --no-fail-fast --json --output-path target/dh-coverage.json,project,codex-sol,"2026-11-19T04:19:39.232Z",local_mutation,fix/oracle-pm-cli-1118
 docs[4]:
   - path: docs/CRASH_HARNESS.md
     scope: project

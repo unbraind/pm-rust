@@ -620,6 +620,15 @@ fn linked_note_retry_scope_matches_published_cli() -> TestResult {
         );
         assert_eq!(retry[scope.len()], "files");
     }
+    let native_only = oracle(
+        &driver,
+        &cwd,
+        &["files", "sample-item", "--artifact-cwd", ".", "--json"],
+    )?;
+    assert_eq!(native_only.status.code(), Some(2));
+    let refusal: Value = serde_json::from_slice(&native_only.stderr)?;
+    assert_eq!(refusal["code"], "unknown_option");
+    assert_eq!(refusal["flag"], "--artifact-cwd");
     // The published CLI strips structured retry fields for credential-bearing
     // notes and still displays redacted commands in its diagnostic next steps.
     let args = [

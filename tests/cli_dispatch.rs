@@ -2140,30 +2140,32 @@ fn collection_restore_after_removal_is_read_only() -> Result<(), Box<dyn std::er
     Ok(())
 }
 
-/// Both SDK note repairs preserve tracker selection and the original operand directory.
+/// Native SDK and CLI note repairs replay from outside the selected operand directory.
 #[test]
-fn sdk_note_repair_replays_only_in_the_selected_tracker() -> Result<(), Box<dyn std::error::Error>>
-{
-    let cwd = workspace()?;
-    let selected = workspace()?;
-    seed_item(&cwd)?;
-    seed_item(&selected)?;
-    let root = cwd.path().join(".agents/pm");
-    let snapshot = || -> std::io::Result<_> {
-        Ok((
-            fs::read(root.join("tasks/sample-cli.toon"))?,
-            fs::read(root.join("history/sample-cli.jsonl"))?,
-        ))
-    };
-    let before = snapshot()?;
-    let workspace = pm_rust::Workspace::discover(selected.path())?;
-    let invocation = selected.path().join("sub");
-    fs::create_dir(&invocation)?;
-    let invocation = invocation.canonicalize()?;
-    for (key, path, mode, expected_note) in [
-        ("files", "source.rs", "append", "selected; repair"),
-        ("docs", "guide.md", "replace", "repair"),
+fn native_note_repair_replays_only_in_the_selected_tracker()
+-> Result<(), Box<dyn std::error::Error>> {
+    for (key, path, mode, expected_note, from_sdk) in [
+        ("files", "source.rs", "append", "selected; repair", true),
+        ("docs", "guide.md", "replace", "repair", true),
+        ("files", "cli.rs", "replace", "repair", false),
+        ("docs", "cli.md", "append", "selected; repair", false),
     ] {
+        let cwd = workspace()?;
+        let selected = workspace()?;
+        seed_item(&cwd)?;
+        seed_item(&selected)?;
+        let root = cwd.path().join(".agents/pm");
+        let snapshot = || -> std::io::Result<_> {
+            Ok((
+                fs::read(root.join("tasks/sample-cli.toon"))?,
+                fs::read(root.join("history/sample-cli.jsonl"))?,
+            ))
+        };
+        let before = snapshot()?;
+        let workspace = pm_rust::Workspace::discover(selected.path())?;
+        let invocation = selected.path().join("sub");
+        fs::create_dir(&invocation)?;
+        let invocation = invocation.canonicalize()?;
         let root_path = format!("sub/{path}");
         expect_ok(
             &selected,
@@ -2187,10 +2189,15 @@ fn sdk_note_repair_replays_only_in_the_selected_tracker() -> Result<(), Box<dyn 
             author: "fixture".to_owned(),
             ..Default::default()
         };
-        let Err(pm_rust::PmRustError::CommandRefusal { context, .. }) =
-            workspace.collection("sample-cli", key, &options, &invocation)
-        else {
-            return Err("expected a note conflict".into());
+        let context = if from_sdk {
+            let Err(pm_rust::PmRustError::CommandRefusal { context, .. }) =
+                workspace.collection("sample-cli", key, &options, &invocation)
+            else {
+                return Err("expected an SDK note conflict".into());
+            };
+            context
+        } else {
+            native_note_override_conflict(&selected, key, &options)?
         };
         assert_eq!(context["code"], "linked_artifact_note_conflict");
         assert_eq!(
@@ -2198,22 +2205,12 @@ fn sdk_note_repair_replays_only_in_the_selected_tracker() -> Result<(), Box<dyn 
             "selected"
         );
 
-        let advice = &context["next_steps"][usize::from(mode == "replace")];
-        let command = pm_rust::parse_command_args(advice.as_str().ok_or("repair command")?)
-            .ok_or("repair arguments")?;
-        let args = &command[1..];
-        assert_eq!(args[0], "--pm-path");
-        assert_eq!(std::path::Path::new(&args[1]), workspace.pm_root());
-        if mode == "append" {
-            assert_eq!(
-                context["recovery"]["suggested_retry_args"],
-                serde_json::json!(args)
-            );
-            assert_eq!(context["recovery"]["suggested_retry"], *advice);
-        }
-        let output = Command::new(env!("CARGO_BIN_EXE_pm-rust"))
+        let command = scoped_note_repair_command(&context, mode, workspace.pm_root(), &invocation)?;
+        let executable = std::path::Path::new(env!("CARGO_BIN_EXE_pm-rust"))
+            .with_file_name(format!("{}{}", command[0], std::env::consts::EXE_SUFFIX));
+        let output = Command::new(executable)
             .current_dir(cwd.path())
-            .args(args)
+            .args(&command[1..])
             .arg("--json")
             .output()?;
         assert!(
@@ -2238,6 +2235,69 @@ fn sdk_note_repair_replays_only_in_the_selected_tracker() -> Result<(), Box<dyn 
         assert_eq!(snapshot()?, before);
     }
     Ok(())
+}
+
+/// Verifies that the printed retry and its argument vector preserve both scopes.
+fn scoped_note_repair_command(
+    context: &serde_json::Value,
+    mode: &str,
+    tracker: &std::path::Path,
+    artifact_cwd: &std::path::Path,
+) -> Result<Vec<String>, Box<dyn std::error::Error>> {
+    let advice = &context["next_steps"][usize::from(mode == "replace")];
+    let command = pm_rust::parse_command_args(advice.as_str().ok_or("repair command")?)
+        .ok_or("repair arguments")?;
+    assert_eq!(command[..2], ["pm-rust", "--pm-path"]);
+    assert_eq!(std::path::Path::new(&command[2]), tracker);
+    assert_eq!(command[5], "--artifact-cwd");
+    assert_eq!(std::path::Path::new(&command[6]), artifact_cwd);
+    let append = context["next_steps"][0].as_str().ok_or("append command")?;
+    let append_args = pm_rust::parse_command_args(append).ok_or("append arguments")?;
+    assert_eq!(append_args[..7], command[..7]);
+    assert_eq!(
+        context["recovery"]["suggested_retry_args"],
+        serde_json::json!(append_args[1..])
+    );
+    assert_eq!(context["recovery"]["suggested_retry"], append);
+    Ok(command)
+}
+
+/// Invokes the CLI with a relative operand directory and an explicit tracker.
+fn native_note_override_conflict(
+    selected: &tempfile::TempDir,
+    key: &str,
+    options: &pm_rust::CollectionOptions,
+) -> Result<serde_json::Value, Box<dyn std::error::Error>> {
+    let output = Command::new(env!("CARGO_BIN_EXE_pm-rust"))
+        .current_dir(selected.path())
+        .args([
+            "--pm-path",
+            ".agents/pm",
+            key,
+            "sample-cli",
+            "--artifact-cwd=sub",
+            "--add",
+            &options.add[0],
+            "--remove",
+            &options.remove[0],
+            "--author=fixture",
+            "--json",
+        ])
+        .output()?;
+    assert_eq!(
+        output.status.code(),
+        Some(4),
+        "{}",
+        String::from_utf8_lossy(&output.stderr)
+    );
+    let refusal: serde_json::Value = serde_json::from_slice(&output.stderr)?;
+    assert!(
+        refusal["recovery"]["attempted_command"]
+            .as_str()
+            .ok_or("attempted command")?
+            .starts_with("pm-rust ")
+    );
+    Ok(refusal)
 }
 
 /// A detected session can execute both the refused write and its repair as the same principal.

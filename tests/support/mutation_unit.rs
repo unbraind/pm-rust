@@ -22,6 +22,24 @@ const TS: &str = "2026-08-07T10:06:30.183Z";
 thread_local! {
     /// Counts entries that actually reach the locator's live metadata boundary.
     pub(crate) static LOCATOR_METADATA_ENTRIES: std::cell::Cell<usize> = const { std::cell::Cell::new(0) };
+
+    /// Injects a failure only at the selected target's post-rename sync.
+    #[cfg(unix)]
+    pub(super) static FAIL_PARENT_SYNC: std::cell::RefCell<Option<PathBuf>> = const { std::cell::RefCell::new(None) };
+
+    /// Simulates a busy publication gate after an ownership command obtains its session lease.
+    static HOLD_PUBLICATION_GATE: std::cell::Cell<bool> = const { std::cell::Cell::new(false) };
+}
+
+/// Keeps a real cleanup gate held until the single instrumented publication ends.
+pub(super) fn hold_session_publication_gate(
+    locks: &Path,
+    ttl: u64,
+) -> Result<Option<CleanupGate>, PmRustError> {
+    if HOLD_PUBLICATION_GATE.take() {
+        return acquire_cleanup_gate(locks, "session-state", ttl).map(Some);
+    }
+    Ok(None)
 }
 
 /// Thousands of unrelated items must not require individual metadata probes.
@@ -6061,9 +6079,10 @@ fn busy_session_publication_gate_preserves_snapshot() -> Result<(), Box<dyn std:
     crate::ownership::append_attribution_warning(&mut receipt, "claim", &error);
     assert_eq!(receipt.warnings, ["claim_semantic_attribution_unrecorded"]);
     assert!(receipt.suggestions[0].contains("claim of sample-unit is saved"));
-    assert!(receipt.suggestions[0].contains("session attribution"));
-    assert!(receipt.suggestions[0].contains("Retry the ownership command"));
-    assert!(!receipt.suggestions[0].contains("nothing needs a retry"));
+    assert!(
+        receipt.suggestions[0].contains("reconcile only the session's active-item attribution")
+    );
+    assert!(!receipt.suggestions[0].to_lowercase().contains("retry"));
     assert_eq!(
         workspace.get("sample-unit")?.metadata.extra["assignee"],
         "fixture"
@@ -6090,6 +6109,168 @@ fn busy_session_publication_gate_preserves_snapshot() -> Result<(), Box<dyn std:
         state["semantic_attribution"]
             .to_string()
             .contains("sample-unit")
+    );
+    Ok(())
+}
+
+/// A live session writer publishes its staged snapshot once transient contention clears.
+#[test]
+fn session_publication_waits_for_transient_cleanup_gate() -> Result<(), Box<dyn std::error::Error>>
+{
+    let (_temp, pm_root) = root("{}")?;
+    let locks = pm_root.join("locks");
+    let (send, receive) = std::sync::mpsc::channel();
+    let (held, ready) = std::sync::mpsc::channel();
+    thread::scope(|scope| -> Result<(), Box<dyn std::error::Error>> {
+        let other = scope.spawn(move || -> Result<(), PmRustError> {
+            if receive.recv().is_ok() {
+                let gate = acquire_cleanup_gate(&locks, "session-state", 30)?;
+                assert!(held.send(()).is_ok());
+                thread::sleep(Duration::from_millis(75));
+                drop(gate);
+            }
+            Ok(())
+        });
+        mutate_session_state(&pm_root, move |state| {
+            assert!(send.send(()).is_ok());
+            assert!(ready.recv().is_ok());
+            state.insert("published".into(), Value::Bool(true));
+        })?;
+        other.join().map_err(|_| "cleanup gate holder panicked")??;
+        Ok(())
+    })?;
+    let state: Value = serde_json::from_slice(&fs::read(pm_root.join("runtime/session.json"))?)?;
+    assert_eq!(state, serde_json::json!({"published":true}));
+    Ok(())
+}
+
+/// Saved selection and forced-release results invite only derived-state repair.
+#[test]
+fn ownership_gate_warning_never_replays_a_committed_command()
+-> Result<(), Box<dyn std::error::Error>> {
+    let (_temp, pm_root) = root(&settings("sample-", "toon", 1800))?;
+    create_item(&pm_root, request())?;
+    let mut extra_item = request();
+    extra_item.id = "sample-other".into();
+    create_item(&pm_root, extra_item)?;
+    let workspace = crate::Workspace::discover(&pm_root)?;
+    let mut item = OwnershipItem {
+        id: String::new(),
+        author: "fixture".into(),
+        timestamp: Some(TS.into()),
+        message: None,
+        force: false,
+        if_available: false,
+        provenance_role: None,
+    };
+    let selection = crate::SelectionOptions {
+        assignee_filter: Some("unassigned".into()),
+        ..Default::default()
+    };
+    HOLD_PUBLICATION_GATE.set(true);
+    let claimed = workspace.claim_next(&item, &crate::OwnershipOptions::default(), &selection)?;
+    assert_eq!(
+        claimed["warnings"][0],
+        "claim_semantic_attribution_unrecorded"
+    );
+    item.id = claimed["id"].as_str().ok_or("claimed id")?.into();
+    let unclaimed = ["sample-unit", "sample-other"]
+        .into_iter()
+        .find(|id| *id != item.id)
+        .ok_or("other item")?;
+    assert!(
+        workspace
+            .get(unclaimed)?
+            .metadata
+            .extra
+            .get("assignee")
+            .is_none()
+    );
+    assert_eq!(
+        workspace.get(&item.id)?.metadata.extra["assignee"],
+        "fixture"
+    );
+
+    item.author = "maintainer".into();
+    item.force = true;
+    HOLD_PUBLICATION_GATE.set(true);
+    let released = workspace.release(&item)?;
+    assert_eq!(
+        released.warnings,
+        ["release_semantic_attribution_unrecorded"]
+    );
+    assert!(
+        workspace
+            .get(&item.id)?
+            .metadata
+            .extra
+            .get("assignee")
+            .is_none()
+    );
+    for (action, guidance) in [
+        (
+            "claim",
+            claimed["suggestions"][0].as_str().ok_or("claim guidance")?,
+        ),
+        ("release", released.suggestions[0].as_str()),
+    ] {
+        assert!(guidance.contains(&format!("{action} of {} is saved", item.id)));
+        assert!(guidance.contains("reconcile only the session's active-item attribution"));
+        for unsafe_text in ["retry", "--next", "--assignee-filter", "--force", "pm "] {
+            assert!(!guidance.to_lowercase().contains(unsafe_text));
+        }
+    }
+    Ok(())
+}
+
+/// A failed sync after session rename leaves visible bytes and a durability warning.
+#[cfg(unix)]
+#[test]
+fn session_parent_sync_failure_reports_visible_attribution_with_unknown_durability()
+-> Result<(), Box<dyn std::error::Error>> {
+    let (_temp, pm_root) = root(&settings("sample-", "toon", 1800))?;
+    create_item(&pm_root, request())?;
+    let workspace = crate::Workspace::discover(&pm_root)?;
+    let item = OwnershipItem {
+        id: "sample-unit".into(),
+        author: "fixture".into(),
+        timestamp: Some(TS.into()),
+        message: None,
+        force: false,
+        if_available: false,
+        provenance_role: None,
+    };
+    assert!(workspace.claim(&item)?.warnings.is_empty());
+    let session = pm_root.join("runtime/session.json");
+    assert!(fs::read_to_string(&session)?.contains("sample-unit"));
+    FAIL_PARENT_SYNC.replace(Some(session.clone()));
+    let released = workspace.release(&item);
+    FAIL_PARENT_SYNC.replace(None);
+    let released = released?;
+    assert_eq!(
+        released.warnings,
+        ["release_semantic_attribution_durability_unknown"]
+    );
+    let guidance = &released.suggestions[0];
+    assert!(guidance.contains("release of sample-unit is saved"));
+    assert!(guidance.contains("may already be visible, and its durability is unknown"));
+    assert!(guidance.contains("Check the session's active-item attribution"));
+    assert!(!guidance.contains("was not updated"));
+    assert!(!guidance.to_lowercase().contains("retry"));
+    assert!(
+        workspace
+            .get("sample-unit")?
+            .metadata
+            .extra
+            .get("assignee")
+            .is_none()
+    );
+    assert_eq!(fs::read_to_string(&session)?, "{}");
+    assert!(!pm_root.join("locks/session-state.lock").exists());
+    assert!(
+        !pm_root
+            .join("locks/session-state.lock.stale-cleanup")
+            .exists()
     );
     Ok(())
 }

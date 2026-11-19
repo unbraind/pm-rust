@@ -826,6 +826,12 @@ fn stage_temporary(mut file: File, temporary: &Path, contents: &str) -> Result<(
 
 /// Atomically moves staged bytes onto their durable target path.
 fn publish_replacement(temporary: &Path, path: &Path) -> Result<(), PmRustError> {
+    rename_replacement(temporary, path)?;
+    sync_replacement(path)
+}
+
+/// Installs the new bytes at the target before attempting the durability sync.
+fn rename_replacement(temporary: &Path, path: &Path) -> Result<(), PmRustError> {
     // std::fs::rename replaces existing files on both Unix and Windows.
     // Unlinking first exposes an absent item to lock-free readers and loses
     // the destination if publication fails. Keep the destination until rename.
@@ -837,12 +843,18 @@ fn publish_replacement(temporary: &Path, path: &Path) -> Result<(), PmRustError>
             source,
         });
     }
+    Ok(())
+}
+
+/// Makes the new target name durable on platforms that sync parent directories.
+fn sync_replacement(path: &Path) -> Result<(), PmRustError> {
     #[cfg(unix)]
     {
         sync_parent(path)
     }
     #[cfg(not(unix))]
     {
+        let _ = path;
         Ok(())
     }
 }
@@ -902,9 +914,8 @@ fn acquire_lock(
             "id must use ASCII letters, digits, and interior hyphens",
         ));
     }
-    let deadline = Instant::now() + Duration::from_millis(wait_ms);
-    loop {
-        match acquire_lock_attempt(
+    wait_for_lock(id, wait_ms, || {
+        acquire_lock_attempt(
             pm_root,
             id,
             owner,
@@ -912,15 +923,27 @@ fn acquire_lock(
             force_stale,
             timestamp,
             locks.use_created_at,
-        ) {
-            Ok(lock) => return Ok(lock),
+        )
+    })
+}
+
+/// Retries lock contention within a fixed budget, propagating other failures immediately.
+fn wait_for_lock<T>(
+    id: &str,
+    wait_ms: u64,
+    mut attempt: impl FnMut() -> Result<T, PmRustError>,
+) -> Result<T, PmRustError> {
+    let deadline = Instant::now() + Duration::from_millis(wait_ms);
+    loop {
+        match attempt() {
             Err(PmRustError::LockConflict { .. }) => {}
-            Err(error) => return Err(error),
+            result => return result,
         }
-        if Instant::now() >= deadline {
+        let remaining = deadline.saturating_duration_since(Instant::now());
+        if remaining.is_zero() {
             return Err(PmRustError::LockConflict { id: id.to_owned() });
         }
-        std::thread::sleep(Duration::from_millis(25));
+        std::thread::sleep(remaining.min(Duration::from_millis(25)));
     }
 }
 
@@ -1403,6 +1426,13 @@ fn remove_file(path: &Path) -> Result<(), PmRustError> {
 #[cfg(unix)]
 /// Flushes the parent directory so a publication or deletion survives a crash.
 fn sync_parent(path: &Path) -> Result<(), PmRustError> {
+    #[cfg(test)]
+    if tests::FAIL_PARENT_SYNC.with_borrow(|target| target.as_deref() == Some(path)) {
+        return Err(PmRustError::Io {
+            path: path.to_path_buf(),
+            source: std::io::Error::other("injected parent directory sync failure"),
+        });
+    }
     // `let..else` instead of `.ok_or_else(..)` avoids a per-instantiation
     // closure function the coverage gate counts separately.
     let Some(parent) = path.parent() else {
@@ -3879,6 +3909,11 @@ pub(crate) fn mutate_session_state(
     })
 }
 
+/// Identifies a session snapshot that could not enter the publication gate.
+pub(crate) const SESSION_PUBLICATION_CONFLICT: &str = "session_attribution_publication_conflict";
+/// Identifies an installed session snapshot whose parent directory could not be synced.
+pub(crate) const SESSION_DURABILITY_UNKNOWN: &str = "session_attribution_durability_unknown";
+
 /// Fences a prepared snapshot with the same gate used to replace stale session leases.
 fn publish_session_state(
     pm_root: &Path,
@@ -3887,13 +3922,19 @@ fn publish_session_state(
     temporary: &Path,
     path: &Path,
 ) -> Result<(), PmRustError> {
-    let gate = match acquire_cleanup_gate(&pm_root.join("locks"), "session-state", ttl) {
+    let locks = pm_root.join("locks");
+    #[cfg(test)]
+    let _test_gate = tests::hold_session_publication_gate(&locks, ttl)?;
+    // A competing lease check can briefly hold this gate even while our lease is current.
+    let gate = match wait_for_lock("session-state", 250, || {
+        acquire_cleanup_gate(&locks, "session-state", ttl)
+    }) {
         Ok(gate) => gate,
         Err(PmRustError::LockConflict { .. }) => {
             return Err(close_refusal(
                 "Session attribution was not published because the cleanup gate is busy".to_owned(),
                 4,
-                serde_json::json!({"code":"session_attribution_publication_conflict"}),
+                serde_json::json!({"code":SESSION_PUBLICATION_CONFLICT}),
             ));
         }
         Err(error) => return Err(error),
@@ -3905,7 +3946,17 @@ fn publish_session_state(
             "session-state lease expired or was replaced before publication",
         ))
     } else {
-        publish_replacement(temporary, path)
+        rename_replacement(temporary, path).and_then(|()| {
+            sync_replacement(path).map_err(|error| {
+                close_refusal(
+                    format!(
+                        "Session attribution was renamed, but its durability is unknown: {error}"
+                    ),
+                    4,
+                    serde_json::json!({"code":SESSION_DURABILITY_UNKNOWN}),
+                )
+            })
+        })
     };
     // Keep the owner receipt until the gate is gone so a crash leaves a
     // receipt that the next writer can reclaim through dead-owner recovery.

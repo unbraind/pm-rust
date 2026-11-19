@@ -7,8 +7,28 @@ where
     I: IntoIterator<Item = S>,
     S: AsRef<str>,
 {
+    render_command("pm", args)
+}
+
+/// Renders a recovery command whose arguments require the native binary.
+#[doc(hidden)]
+#[must_use]
+pub fn render_pm_rust_command<I, S>(args: I) -> String
+where
+    I: IntoIterator<Item = S>,
+    S: AsRef<str>,
+{
+    render_command("pm-rust", args)
+}
+
+/// Quotes arguments for the selected recovery executable.
+pub(crate) fn render_command<I, S>(binary: &str, args: I) -> String
+where
+    I: IntoIterator<Item = S>,
+    S: AsRef<str>,
+{
     format!(
-        "pm {}",
+        "{binary} {}",
         args.into_iter()
             .map(|arg| crate::quote_command_arg(arg.as_ref()))
             .collect::<Vec<_>>()

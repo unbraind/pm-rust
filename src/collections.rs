@@ -905,7 +905,7 @@ fn note_conflict_refusal(
         "why":"A different stored note is usually another agent's rationale, so --add never overwrites it silently.",
         "required":"Re-run with --note-conflict append to keep both notes, or --note-conflict replace to overwrite the stored note."
     });
-    let base_args = if let Some((pm_root, cwd)) = retry_scope {
+    let (binary, base_args) = if let Some((pm_root, cwd)) = retry_scope {
         let Some((path, cwd)) = pm_root.to_str().zip(cwd.to_str()) else {
             context["next_steps"] = json!([
                 "Run the repair from the original directory with the same tracker selected. The tracker or invocation path cannot be encoded as UTF-8 retry arguments."
@@ -914,51 +914,21 @@ fn note_conflict_refusal(
             return refusal(detail, 4, context);
         };
         // Tracker selection and operand anchoring are independent.
-        ["--pm-path", path, key, id, "--artifact-cwd", cwd]
-            .map(str::to_owned)
-            .to_vec()
+        (
+            "pm-rust",
+            ["--pm-path", path, key, id, "--artifact-cwd", cwd]
+                .map(str::to_owned)
+                .to_vec(),
+        )
     } else {
-        vec![key.to_owned(), id.to_owned()]
+        ("pm", vec![key.to_owned(), id.to_owned()])
     };
-    let retry = |mode: &str| {
-        let mut args = base_args.clone();
-        for add in &options.add {
-            args.extend(["--add".to_owned(), add.clone()]);
-        }
-        for remove in &options.remove {
-            args.extend(["--remove".to_owned(), remove.clone()]);
-        }
-        if let Some(note) = &options.note {
-            args.extend(["--note".to_owned(), note.clone()]);
-        }
-        args.extend(["--note-conflict".to_owned(), mode.to_owned()]);
-        if options.force {
-            args.push("--force".to_owned());
-        }
-        if options.append_stable {
-            args.push("--append-stable".to_owned());
-        }
-        if options.full_history {
-            args.push("--full-history".to_owned());
-        }
-        if let Some(message) = &options.message {
-            args.extend(["--message".to_owned(), message.clone()]);
-        }
-        if let Some(timestamp) = &options.timestamp {
-            args.extend(["--timestamp".to_owned(), timestamp.clone()]);
-        }
-        if options
-            .identity
-            .as_ref()
-            .is_none_or(|identity| identity.source != "detected")
-        {
-            args.extend(["--author".to_owned(), options.author.clone()]);
-        }
-        args
-    };
-    let append = retry("append");
-    let append_command = crate::render_pm_command(&append);
-    let next_steps = json!([append_command, crate::render_pm_command(retry("replace"))]);
+    let append = note_retry_args(base_args.clone(), options, "append");
+    let append_command = crate::command_line::render_command(binary, &append);
+    let next_steps = json!([
+        append_command,
+        crate::command_line::render_command(binary, note_retry_args(base_args, options, "replace"))
+    ]);
     context["next_steps"] = next_steps.clone();
     context["recovery"] = json!({"suggested_retry":append_command,"suggested_retry_args":append});
     context["details"] = json!({"conflicts":conflicts});
@@ -981,6 +951,43 @@ fn note_conflict_refusal(
         exit_code: 4,
         context,
     }
+}
+
+/// Replays the original linked-artifact edit with an explicit conflict policy.
+fn note_retry_args(mut args: Vec<String>, options: &CollectionOptions, mode: &str) -> Vec<String> {
+    for add in &options.add {
+        args.extend(["--add".to_owned(), add.clone()]);
+    }
+    for remove in &options.remove {
+        args.extend(["--remove".to_owned(), remove.clone()]);
+    }
+    if let Some(note) = &options.note {
+        args.extend(["--note".to_owned(), note.clone()]);
+    }
+    args.extend(["--note-conflict".to_owned(), mode.to_owned()]);
+    if options.force {
+        args.push("--force".to_owned());
+    }
+    if options.append_stable {
+        args.push("--append-stable".to_owned());
+    }
+    if options.full_history {
+        args.push("--full-history".to_owned());
+    }
+    if let Some(message) = &options.message {
+        args.extend(["--message".to_owned(), message.clone()]);
+    }
+    if let Some(timestamp) = &options.timestamp {
+        args.extend(["--timestamp".to_owned(), timestamp.clone()]);
+    }
+    if options
+        .identity
+        .as_ref()
+        .is_none_or(|identity| identity.source != "detected")
+    {
+        args.extend(["--author".to_owned(), options.author.clone()]);
+    }
+    args
 }
 
 /// Resolves note edits in request order and refuses the whole write on a conflict.
@@ -1248,7 +1255,19 @@ impl Workspace {
         cwd: &Path,
         artifact_cwd: Option<&Path>,
     ) -> Result<Value, PmRustError> {
-        self.collection_with_retry_scope(id, key, options, cwd, artifact_cwd.unwrap_or(cwd), None)
+        let artifact_cwd = artifact_cwd
+            .map(|directory| cwd.canonicalize().as_deref().unwrap_or(cwd).join(directory));
+        let retry_scope = artifact_cwd
+            .as_deref()
+            .map(|directory| (self.pm_root(), directory));
+        self.collection_with_retry_scope(
+            id,
+            key,
+            options,
+            cwd,
+            artifact_cwd.as_deref().unwrap_or(cwd),
+            retry_scope,
+        )
     }
 
     /// Runs the shared collection operation with the caller's retry scope policy.

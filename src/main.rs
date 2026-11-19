@@ -1832,9 +1832,17 @@ fn strip_bootstrap_scope(args: &mut Vec<String>) {
     }
 }
 
-/// Renders canonical recovery arguments with the shared published shell renderer.
+/// Renders recovery arguments with the binary that supports them.
 fn render_recovery(args: &[String]) -> String {
-    pm_rust::render_pm_command(args)
+    if Invocation::parse(args)
+        .options
+        .iter()
+        .any(|option| option.name == "artifact-cwd")
+    {
+        pm_rust::render_pm_rust_command(args)
+    } else {
+        pm_rust::render_pm_command(args)
+    }
 }
 
 /// Adds invocation scope to executable advice while respecting an explicit producer scope.
