@@ -1178,6 +1178,40 @@ fn sdk_note_conflict_retry_preserves_the_request() -> TestResult {
     Ok(())
 }
 
+/// SDK repair guidance captures the absolute operand base at the time of the conflict.
+#[test]
+fn sdk_note_retry_resolves_the_caller_directory() -> TestResult {
+    let (directory, workspace) = tracker()?;
+    let options = CollectionOptions {
+        author: "fixture".to_owned(),
+        add: ["first", "second"]
+            .map(|note| format!("path=source.rs,note={note}"))
+            .to_vec(),
+        ..CollectionOptions::default()
+    };
+    let missing = directory.path().join("missing").join("..");
+    for (cwd, expected) in [
+        (Path::new("."), std::env::current_dir()?.canonicalize()?),
+        (&missing, directory.path().canonicalize()?),
+    ] {
+        let Err(PmRustError::CommandRefusal { context, .. }) =
+            workspace.collection("sample-one", "files", &options, cwd)
+        else {
+            return Err("expected an SDK note conflict".into());
+        };
+        let retry = &context["recovery"]["suggested_retry_args"];
+        assert_eq!(retry[4], "--artifact-cwd");
+        let resolved = Path::new(retry[5].as_str().ok_or("artifact directory")?);
+        assert!(resolved.is_absolute());
+        assert_eq!(resolved, expected);
+    }
+    assert!(matches!(
+        workspace.collection("sample-one", "files", &options, Path::new("")),
+        Err(PmRustError::Io { .. })
+    ));
+    Ok(())
+}
+
 /// Native-only options keep their values and receive a native repair command.
 #[test]
 fn cli_note_repair_identifies_other_native_only_options() -> TestResult {

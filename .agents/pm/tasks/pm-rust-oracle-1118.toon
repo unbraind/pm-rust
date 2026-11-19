@@ -6,7 +6,9 @@ status: in_progress
 priority: 1
 tags[6]: "gh:unbraind/pm-cli#1753","gh:unbraind/pm-cli#1754","gh:unbraind/pm-cli#1757","gh:unbraind/pm-rust#176","gh:unbraind/pm-rust#181",oracle
 created_at: "2026-11-18T09:41:09.150Z"
-updated_at: "2026-11-19T05:06:16.445Z"
+updated_at: "2026-11-19T07:59:06.546Z"
+assignee: codex-sol
+claim_principal: codex-sol
 author: codex-sol
 parent: pm-rust-u4al
 comments[41]{created_at,author,text}:
@@ -79,7 +81,7 @@ files[27]{path,scope}:
   tests/support/list_intent_delivery_differential.rs,project
   tests/support/mutation_differential.rs,project
   tests/support/mutation_unit.rs,project
-tests[25]{command,scope,provenance{author,created_at,source_kind,source_ref}}:
+tests[28]{command,scope,provenance{author,created_at,source_kind,source_ref}}:
   PM_RUST_REQUIRE_PUBLISHED_CLI=1 cargo test --locked --all-targets --all-features --no-fail-fast,project,codex-sol,"2026-11-18T09:58:16.490Z",local_mutation,fix/oracle-pm-cli-1118
   cargo fmt --all -- --check,project,codex-sol,"2026-11-18T09:58:23.289Z",local_mutation,fix/oracle-pm-cli-1118
   cargo clippy --locked --all-targets --all-features -- -D warnings,project,codex-sol,"2026-11-18T10:10:28.550Z",local_mutation,fix/oracle-pm-cli-1118
@@ -105,6 +107,9 @@ tests[25]{command,scope,provenance{author,created_at,source_kind,source_ref}}:
   PM_RUST_REQUIRE_PUBLISHED_CLI=1 cargo +nightly-2026-08-06 llvm-cov --no-report --locked --branch --all-features --lib -- session_,project,codex-sol,"2026-11-19T04:50:07.364Z",local_mutation,fix/oracle-pm-cli-1118
   cargo +nightly-2026-08-06 llvm-cov report --json --failure-mode=any --output-path target/dh-final-coverage.json,project,codex-sol,"2026-11-19T05:00:34.908Z",local_mutation,fix/oracle-pm-cli-1118
   PM_RUST_REQUIRE_PUBLISHED_CLI=1 cargo test --locked --all-features --lib -- session_parent_sync_failure_reports_visible_attribution_with_unknown_durability,project,codex-sol,"2026-11-19T05:06:12.826Z",local_mutation,fix/oracle-pm-cli-1118
+  "cargo test --locked --all-features --lib collections::tests -- --test-threads=2",project,codex-sol,"2026-11-19T07:56:25.626Z",local_mutation,fix/oracle-pm-cli-1118
+  PM_RUST_REQUIRE_PUBLISHED_CLI=1 cargo test --locked --all-features --test search_collections_differential --test cli_dispatch -- --test-threads=2,project,codex-sol,"2026-11-19T07:56:25.626Z",local_mutation,fix/oracle-pm-cli-1118
+  PM_RUST_REQUIRE_PUBLISHED_CLI=1 cargo +nightly-2026-08-06 llvm-cov --locked --branch --all-targets --all-features --json --output-path target/dk-coverage.json -- --test-threads=2,project,codex-sol,"2026-11-19T07:59:06.202Z",local_mutation,fix/oracle-pm-cli-1118
 docs[4]:
   - path: docs/CRASH_HARNESS.md
     scope: project

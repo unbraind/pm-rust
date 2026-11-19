@@ -2243,6 +2243,44 @@ fn native_note_repair_replays_only_in_the_selected_tracker()
     Ok(())
 }
 
+/// Leaving and reentering the project in the operand base keeps links nested.
+#[test]
+fn artifact_cwd_parent_traversal_preserves_the_operand_base()
+-> Result<(), Box<dyn std::error::Error>> {
+    let project = workspace()?;
+    seed_item(&project)?;
+    fs::create_dir(project.path().join("sub"))?;
+    let name = project
+        .path()
+        .file_name()
+        .and_then(std::ffi::OsStr::to_str)
+        .ok_or("project name")?;
+    let parent_alias = format!("../{name}/sub");
+    for (base, file) in [("sub", "direct.rs"), (&parent_alias, "via-parent.rs")] {
+        let output = pm_rust(
+            &project,
+            &[
+                "files",
+                "sample-cli",
+                "--artifact-cwd",
+                base,
+                "--add",
+                file,
+                "--author=fixture",
+                "--json",
+            ],
+        )?;
+        assert!(
+            output.status.success(),
+            "{}",
+            String::from_utf8_lossy(&output.stderr)
+        );
+        let receipt: serde_json::Value = serde_json::from_slice(&output.stdout)?;
+        assert_eq!(receipt["files"][0]["path"], format!("sub/{file}"));
+    }
+    Ok(())
+}
+
 /// Verifies that the printed retry and its argument vector preserve both scopes.
 fn scoped_note_repair_command(
     context: &serde_json::Value,

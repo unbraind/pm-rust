@@ -2,7 +2,7 @@
 
 use crate::{PmRustError, Workspace};
 use serde_json::{Map, Value, json};
-use std::path::{Component, Path};
+use std::path::{Component, Path, PathBuf};
 
 /// Collection command inputs shared by the CLI and SDK.
 #[derive(Clone, Debug, Default)]
@@ -253,6 +253,25 @@ fn structured(raw: &str, test: bool) -> bool {
             && first.find('=').is_some_and(|index| {
                 raw.chars().any(char::is_whitespace) || !first[..index].contains(['/', '\\'])
             })
+}
+
+/// Resolves the operand base, preserving lexical anchoring when it no longer exists.
+fn resolve_artifact_cwd(path: &Path) -> Result<PathBuf, PmRustError> {
+    path.canonicalize().or_else(|_| {
+        let absolute = std::path::absolute(path).map_err(|source| PmRustError::Io {
+            path: path.to_path_buf(),
+            source,
+        })?;
+        let mut normalized = PathBuf::new();
+        for component in absolute.components() {
+            if component == Component::ParentDir {
+                normalized.pop();
+            } else {
+                normalized.push(component.as_os_str());
+            }
+        }
+        Ok(normalized.canonicalize().unwrap_or(normalized))
+    })
 }
 
 /// Anchors a relative artifact reference at the invocation directory.
@@ -1224,7 +1243,15 @@ impl Workspace {
         options: &CollectionOptions,
         cwd: &Path,
     ) -> Result<Value, PmRustError> {
-        self.collection_with_retry_scope(id, key, options, cwd, cwd, Some((self.pm_root(), cwd)))
+        let artifact_cwd = resolve_artifact_cwd(cwd)?;
+        self.collection_with_retry_scope(
+            id,
+            key,
+            options,
+            cwd,
+            &artifact_cwd,
+            Some((self.pm_root(), &artifact_cwd)),
+        )
     }
 
     /// Runs a collection with retry scope projected from the original CLI invocation.
@@ -1258,12 +1285,17 @@ impl Workspace {
         let needs_native = artifact_cwd.is_some()
             || options.timestamp.is_some()
             || (key == "docs" && options.append_stable);
-        let artifact_cwd = needs_native.then(|| {
-            cwd.canonicalize()
-                .as_deref()
-                .unwrap_or(cwd)
-                .join(artifact_cwd.unwrap_or(Path::new("")))
-        });
+        let artifact_cwd = needs_native
+            .then(|| {
+                let base = cwd.canonicalize();
+                resolve_artifact_cwd(
+                    &base
+                        .as_deref()
+                        .unwrap_or(cwd)
+                        .join(artifact_cwd.unwrap_or(Path::new(""))),
+                )
+            })
+            .transpose()?;
         let retry_scope = artifact_cwd
             .as_deref()
             .map(|directory| (self.pm_root(), directory));
