@@ -655,7 +655,7 @@ pub(crate) fn append_attribution_warning(
         crate::mutation::SESSION_PUBLICATION_CONFLICT => (
             "unrecorded",
             format!(
-                "was not updated ({cause}). After the cleanup gate clears, reconcile only the session's active-item attribution for this item against current ownership."
+                "was not updated ({cause}). To recover, reconcile only the session's active-item attribution for this item against current ownership."
             ),
         ),
         crate::mutation::SESSION_DURABILITY_UNKNOWN => (

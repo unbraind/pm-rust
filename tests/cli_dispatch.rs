@@ -2281,6 +2281,40 @@ fn artifact_cwd_parent_traversal_preserves_the_operand_base()
     Ok(())
 }
 
+/// Rejects an existing file as the artifact working directory before writing anything.
+#[test]
+fn artifact_cwd_file_refusal_preserves_item_and_history() -> Result<(), Box<dyn std::error::Error>>
+{
+    let project = workspace()?;
+    seed_item(&project)?;
+    fs::write(project.path().join("base.txt"), "file fixture")?;
+    let item = project.path().join(".agents/pm/tasks/sample-cli.toon");
+    let history = project.path().join(".agents/pm/history/sample-cli.jsonl");
+    let before = (fs::read(&item)?, fs::read(&history)?);
+    let output = pm_rust(
+        &project,
+        &[
+            "files",
+            "sample-cli",
+            "--artifact-cwd",
+            "base.txt",
+            "--add",
+            "source.rs",
+            "--author=fixture",
+            "--json",
+        ],
+    )?;
+    let stderr = String::from_utf8(output.stderr)?;
+    assert_eq!(output.status.code(), Some(2), "{stderr}");
+    assert!(
+        stderr.contains("--artifact-cwd must name a directory"),
+        "{stderr}"
+    );
+    assert!(output.stdout.is_empty());
+    assert_eq!((fs::read(item)?, fs::read(history)?), before);
+    Ok(())
+}
+
 /// Verifies that the printed retry and its argument vector preserve both scopes.
 fn scoped_note_repair_command(
     context: &serde_json::Value,

@@ -6,7 +6,9 @@ status: in_progress
 priority: 1
 tags[6]: "gh:unbraind/pm-cli#1753","gh:unbraind/pm-cli#1754","gh:unbraind/pm-cli#1757","gh:unbraind/pm-rust#176","gh:unbraind/pm-rust#181",oracle
 created_at: "2026-11-18T09:41:09.150Z"
-updated_at: "2026-11-19T08:35:07.013Z"
+updated_at: "2026-11-19T10:47:58.145Z"
+assignee: codex-sol
+claim_principal: codex-sol
 author: codex-sol
 parent: pm-rust-u4al
 comments[42]{created_at,author,text}:
@@ -80,7 +82,7 @@ files[27]{path,scope}:
   tests/support/list_intent_delivery_differential.rs,project
   tests/support/mutation_differential.rs,project
   tests/support/mutation_unit.rs,project
-tests[28]{command,scope,provenance{author,created_at,source_kind,source_ref}}:
+tests[33]{command,scope,provenance{author,created_at,source_kind,source_ref}}:
   PM_RUST_REQUIRE_PUBLISHED_CLI=1 cargo test --locked --all-targets --all-features --no-fail-fast,project,codex-sol,"2026-11-18T09:58:16.490Z",local_mutation,fix/oracle-pm-cli-1118
   cargo fmt --all -- --check,project,codex-sol,"2026-11-18T09:58:23.289Z",local_mutation,fix/oracle-pm-cli-1118
   cargo clippy --locked --all-targets --all-features -- -D warnings,project,codex-sol,"2026-11-18T10:10:28.550Z",local_mutation,fix/oracle-pm-cli-1118
@@ -109,6 +111,11 @@ tests[28]{command,scope,provenance{author,created_at,source_kind,source_ref}}:
   "cargo test --locked --all-features --lib collections::tests -- --test-threads=2",project,codex-sol,"2026-11-19T07:56:25.626Z",local_mutation,fix/oracle-pm-cli-1118
   PM_RUST_REQUIRE_PUBLISHED_CLI=1 cargo test --locked --all-features --test search_collections_differential --test cli_dispatch -- --test-threads=2,project,codex-sol,"2026-11-19T07:56:25.626Z",local_mutation,fix/oracle-pm-cli-1118
   PM_RUST_REQUIRE_PUBLISHED_CLI=1 cargo +nightly-2026-08-06 llvm-cov --locked --branch --all-targets --all-features --json --output-path target/dk-coverage.json -- --test-threads=2,project,codex-sol,"2026-11-19T07:59:06.202Z",local_mutation,fix/oracle-pm-cli-1118
+  PM_RUST_REQUIRE_PUBLISHED_CLI=1 cargo test --locked --all-features --lib --test cli_dispatch --test ownership_contract --test claim_release_differential --test search_collections_differential --no-fail-fast -- --test-threads=2,project,codex-sol,"2026-11-19T10:25:00.713Z",local_mutation,fix/oracle-pm-cli-1118
+  PM_RUST_REQUIRE_PUBLISHED_CLI=1 cargo +nightly-2026-08-06 llvm-cov --locked --branch --all-targets --all-features --json --failure-mode=any --output-path target/dn-coverage.json,project,codex-sol,"2026-11-19T10:25:00.713Z",local_mutation,fix/oracle-pm-cli-1118
+  PM_TEST_COVERAGE_MERGE=required node --test scripts/crash-coverage-union.test.mts,project,codex-sol,"2026-11-19T10:25:00.713Z",local_mutation,fix/oracle-pm-cli-1118
+  PM_RUST_REQUIRE_PUBLISHED_CLI=1 cargo +nightly-2026-08-06 llvm-cov --no-report --locked --branch --all-targets --all-features -- --list,project,codex-sol,"2026-11-19T10:47:57.654Z",local_mutation,fix/oracle-pm-cli-1118
+  cargo +nightly-2026-08-06 llvm-cov report --json --failure-mode=any --output-path target/dn-final-coverage.json,project,codex-sol,"2026-11-19T10:47:57.654Z",local_mutation,fix/oracle-pm-cli-1118
 docs[4]:
   - path: docs/CRASH_HARNESS.md
     scope: project

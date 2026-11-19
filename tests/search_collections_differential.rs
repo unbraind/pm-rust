@@ -116,6 +116,106 @@ fn artifacts(expected: &Path, actual: &Path) -> TestResult {
     Ok(())
 }
 
+/// A logical SDK base names the same link as an explicit project path in the published CLI.
+#[cfg(unix)]
+#[test]
+fn sdk_removal_preserves_logical_symlink_operand_base() -> TestResult {
+    let Some(published) = published_cli::published_cli_or_skip("logical artifact base") else {
+        return Ok(());
+    };
+    let scratch = tempfile::tempdir()?;
+    let driver = write_driver(scratch.path(), &published)?;
+    let oracle_project = tempfile::tempdir()?;
+    let native_project = tempfile::tempdir()?;
+    let outside = tempfile::tempdir()?;
+    fs::write(outside.path().join("source.rs"), "external fixture")?;
+    for project in [oracle_project.path(), native_project.path()] {
+        fs::write(project.join("source.rs"), "project fixture")?;
+        std::os::unix::fs::symlink(outside.path(), project.join("vendor"))?;
+    }
+    for args in [
+        vec!["init", "sample-", "--defaults"],
+        vec![
+            "create",
+            "--id",
+            "sample-item",
+            "--title",
+            "Artifacts",
+            "--type",
+            "Task",
+            "--author",
+            "alpha",
+        ],
+        vec![
+            "files",
+            "sample-item",
+            "--add",
+            "source.rs",
+            "--add",
+            "vendor/source.rs",
+            "--author",
+            "alpha",
+        ],
+    ] {
+        let result = oracle(&driver, oracle_project.path(), &args)?;
+        assert!(
+            result.status.success(),
+            "{}",
+            String::from_utf8_lossy(&result.stderr)
+        );
+    }
+    copy_directory(
+        &oracle_project.path().join(".agents"),
+        &native_project.path().join(".agents"),
+    )?;
+    // The published SDK changes the process directory, which loses the logical symlink
+    // name. Spell out the logical operand from the project root to compare the write.
+    let expected = oracle(
+        &driver,
+        oracle_project.path(),
+        &[
+            "files",
+            "sample-item",
+            "--remove",
+            "vendor/source.rs",
+            "--full-history",
+            "--author",
+            "alpha",
+            "--json",
+        ],
+    )?;
+    assert!(
+        expected.status.success(),
+        "{}",
+        String::from_utf8_lossy(&expected.stderr)
+    );
+    let expected: Value = serde_json::from_slice(&expected.stdout)?;
+    assert_eq!(
+        expected["files"],
+        json!([{"path":"source.rs","scope":"project"}])
+    );
+    assert_eq!(expected["mutation_receipt"]["removed_count"], 1);
+    let workspace = pm_rust::Workspace::discover(native_project.path())?;
+    let actual = workspace.collection(
+        "sample-item",
+        "files",
+        &pm_rust::CollectionOptions {
+            remove: vec!["source.rs".to_owned()],
+            full_history: true,
+            author: "alpha".to_owned(),
+            timestamp: Some(CLOCK.to_owned()),
+            ..Default::default()
+        },
+        &native_project.path().join("vendor"),
+    )?;
+    assert_eq!(actual, expected);
+    artifacts(
+        workspace.pm_root(),
+        &oracle_project.path().join(".agents/pm"),
+    )?;
+    Ok(())
+}
+
 /// Preserve the oracle wire comparison except for the known destructive expansion hint.
 /// Both renderings must round-trip exactly before projecting the native read command.
 fn scoped_collection_restore(
@@ -679,20 +779,25 @@ fn assert_note_refusal(
     args.extend(["--author", "alpha", "--json"]);
     let expected = oracle(driver, published, &args)?;
     let actual = native(rust, &args, true)?;
-    for output in [expected, actual] {
-        let stderr = String::from_utf8(output.stderr)?;
-        assert_eq!(output.status.code(), Some(exit), "{args:?}: {stderr}");
-        assert!(output.stdout.is_empty());
-        let receipt: serde_json::Value = serde_json::from_str(&stderr)?;
-        assert_eq!(receipt["code"], code, "{args:?}: {stderr}");
-        if conflicts > 0 {
-            let rows = receipt["details"]["conflicts"]
-                .as_array()
-                .ok_or("conflict rows")?;
-            assert_eq!(rows.len(), conflicts);
-            assert_eq!(rows[0]["existing_note"], "first");
-            assert_eq!(rows[0]["requested_note"], "second");
-            assert_eq!(rows[0]["source"], "this_write");
+    let conflict_rows =
+        [expected, actual].map(|output| -> Result<Value, Box<dyn std::error::Error>> {
+            let stderr = String::from_utf8(output.stderr)?;
+            assert_eq!(output.status.code(), Some(exit), "{args:?}: {stderr}");
+            assert!(output.stdout.is_empty());
+            let receipt: serde_json::Value = serde_json::from_str(&stderr)?;
+            assert_eq!(receipt["code"], code, "{args:?}: {stderr}");
+            Ok(receipt["details"]["conflicts"].clone())
+        });
+    let [expected, actual] = conflict_rows;
+    let expected = expected?;
+    assert_eq!(actual?, expected, "{args:?}: conflict rows");
+    if conflicts > 0 {
+        let rows = expected.as_array().ok_or("conflict rows")?;
+        assert_eq!(rows.len(), conflicts);
+        for (row, requested) in rows.iter().zip(["second", "third"]) {
+            assert_eq!(row["existing_note"], "first");
+            assert_eq!(row["requested_note"], requested);
+            assert_eq!(row["source"], "this_write");
         }
     }
     Ok(())

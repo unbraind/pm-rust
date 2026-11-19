@@ -3909,7 +3909,7 @@ pub(crate) fn mutate_session_state(
     })
 }
 
-/// Identifies a session snapshot that could not enter the publication gate.
+/// Identifies a session snapshot that could not be published under its lease.
 pub(crate) const SESSION_PUBLICATION_CONFLICT: &str = "session_attribution_publication_conflict";
 /// Identifies an installed session snapshot whose parent directory could not be synced.
 pub(crate) const SESSION_DURABILITY_UNKNOWN: &str = "session_attribution_durability_unknown";
@@ -3925,6 +3925,8 @@ fn publish_session_state(
     let locks = pm_root.join("locks");
     #[cfg(test)]
     let _test_gate = tests::hold_session_publication_gate(&locks, ttl);
+    #[cfg(test)]
+    tests::replace_session_lease_before_publication(&lock.path);
     // A competing lease check can briefly hold this gate even while our lease is current.
     let gate = match wait_for_lock("session-state", 250, || {
         acquire_cleanup_gate(&locks, "session-state", ttl)
@@ -3942,8 +3944,10 @@ fn publish_session_state(
     let result = if ownership_lock_stale(&lock.raw, &now_iso(), ttl)
         || fs::read_to_string(&lock.path).as_deref().ok() != Some(lock.raw.as_str())
     {
-        Err(invalid_mutation(
-            "session-state lease expired or was replaced before publication",
+        Err(close_refusal(
+            "Session attribution was not published because the session-state lease expired or was replaced before publication".to_owned(),
+            4,
+            serde_json::json!({"code":SESSION_PUBLICATION_CONFLICT}),
         ))
     } else {
         rename_replacement(temporary, path).and_then(|()| {

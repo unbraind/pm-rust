@@ -29,6 +29,19 @@ thread_local! {
 
     /// Simulates a busy publication gate after an ownership command obtains its session lease.
     static HOLD_PUBLICATION_GATE: std::cell::Cell<bool> = const { std::cell::Cell::new(false) };
+
+    /// Simulates a successor lease after an ownership mutation commits.
+    static REPLACE_SESSION_LEASE: std::cell::Cell<bool> = const { std::cell::Cell::new(false) };
+}
+
+/// Changes the on-disk lease exactly once, immediately before the publication fence.
+pub(super) fn replace_session_lease_before_publication(path: &Path) {
+    if REPLACE_SESSION_LEASE.take() {
+        assert!(
+            fs::write(path, "successor lease").is_ok(),
+            "could not replace the fixture's session lease"
+        );
+    }
 }
 
 /// Keeps a real cleanup gate held until the single instrumented publication ends.
@@ -6036,9 +6049,44 @@ fn expired_session_lease_refuses_its_own_staged_write() -> Result<(), Box<dyn st
     fs::write(&staged, "expired")?;
     let result = publish_session_state(&pm_root, lock, 1, &staged, &path);
     assert!(
-        matches!(result,Err(PmRustError::InvalidMutationRequest{reason}) if reason.contains("lease expired"))
+        matches!(result, Err(PmRustError::CommandRefusal { detail, context, .. })
+            if detail.contains("lease expired") && context["code"] == SESSION_PUBLICATION_CONFLICT)
     );
     assert!(!path.exists());
+    Ok(())
+}
+
+/// Lease loss after commit only requires reconciling the derived session attribution.
+#[test]
+fn committed_claim_reports_replaced_session_lease() -> Result<(), Box<dyn std::error::Error>> {
+    let (_temp, pm_root) = root(&settings("sample-", "toon", 1800))?;
+    create_item(&pm_root, request())?;
+    let workspace = crate::Workspace::discover(&pm_root)?;
+    let session = pm_root.join("runtime/session.json");
+    fs::write(&session, r#"{"value":"original"}"#)?;
+    REPLACE_SESSION_LEASE.set(true);
+    let receipt = workspace.claim(&OwnershipItem {
+        id: "sample-unit".into(),
+        author: "fixture".into(),
+        timestamp: Some(TS.into()),
+        message: None,
+        force: false,
+        if_available: false,
+        provenance_role: None,
+    })?;
+    assert_eq!(receipt.warnings, ["claim_semantic_attribution_unrecorded"]);
+    let suggestion = &receipt.suggestions[0];
+    assert!(suggestion.contains("claim of sample-unit is saved"));
+    assert!(suggestion.contains("reconcile only the session's active-item attribution"));
+    assert_eq!(
+        workspace.get("sample-unit")?.metadata.extra["assignee"],
+        "fixture"
+    );
+    assert_eq!(fs::read_to_string(session)?, r#"{"value":"original"}"#);
+    assert_eq!(
+        fs::read_to_string(pm_root.join("locks/session-state.lock"))?,
+        "successor lease"
+    );
     Ok(())
 }
 

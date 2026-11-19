@@ -1191,7 +1191,7 @@ fn sdk_note_retry_resolves_the_caller_directory() -> TestResult {
     };
     let missing = directory.path().join("missing").join("..");
     for (cwd, expected) in [
-        (Path::new("."), std::env::current_dir()?.canonicalize()?),
+        (Path::new("."), std::env::current_dir()?),
         (&missing, directory.path().canonicalize()?),
     ] {
         let Err(PmRustError::CommandRefusal { context, .. }) =
@@ -1209,6 +1209,12 @@ fn sdk_note_retry_resolves_the_caller_directory() -> TestResult {
         workspace.collection("sample-one", "files", &options, Path::new("")),
         Err(PmRustError::Io { .. })
     ));
+    let file = directory.path().join("base.txt");
+    std::fs::write(&file, "file fixture")?;
+    assert!(matches!(
+        workspace.collection("sample-one", "files", &options, &file),
+        Err(PmRustError::CommandRefusal { exit_code: 2, .. })
+    ));
     assert!(matches!(
         workspace.collection_for_cli_with_artifact_cwd(
             "sample-one",
@@ -1219,6 +1225,23 @@ fn sdk_note_retry_resolves_the_caller_directory() -> TestResult {
         ),
         Err(PmRustError::Io { .. })
     ));
+    Ok(())
+}
+
+/// An alias of the project root preserves the logical suffix for replay.
+#[cfg(unix)]
+#[test]
+fn artifact_cwd_resolves_root_alias_without_following_its_suffix() -> TestResult {
+    let (directory, workspace) = tracker()?;
+    let aliases = tempfile::tempdir()?;
+    let alias = aliases.path().join("alias");
+    std::os::unix::fs::symlink(directory.path(), &alias)?;
+    std::os::unix::fs::symlink(aliases.path(), directory.path().join("vendor"))?;
+    let project = workspace.artifact_project_root();
+    assert_eq!(
+        resolve_artifact_cwd(&alias.join("vendor"), project)?,
+        project.join("vendor")
+    );
     Ok(())
 }
 

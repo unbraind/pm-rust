@@ -255,23 +255,38 @@ fn structured(raw: &str, test: bool) -> bool {
             })
 }
 
-/// Resolves the operand base, preserving lexical anchoring when it no longer exists.
-fn resolve_artifact_cwd(path: &Path) -> Result<PathBuf, PmRustError> {
-    path.canonicalize().or_else(|_| {
-        let absolute = std::path::absolute(path).map_err(|source| PmRustError::Io {
-            path: path.to_path_buf(),
-            source,
-        })?;
-        let mut normalized = PathBuf::new();
-        for component in absolute.components() {
-            if component == Component::ParentDir {
-                normalized.pop();
-            } else {
-                normalized.push(component.as_os_str());
-            }
+/// Resolves an artifact directory without following symlinks in its project-relative suffix.
+fn resolve_artifact_cwd(path: &Path, root: &Path) -> Result<PathBuf, PmRustError> {
+    let absolute = std::path::absolute(path).map_err(|source| PmRustError::Io {
+        path: path.to_path_buf(),
+        source,
+    })?;
+    let mut normalized = PathBuf::new();
+    for component in absolute.components() {
+        if component == Component::ParentDir {
+            normalized.pop();
+        } else {
+            normalized.push(component.as_os_str());
         }
-        Ok(normalized.canonicalize().unwrap_or(normalized))
-    })
+    }
+    if std::fs::metadata(&normalized).is_ok_and(|metadata| !metadata.is_dir()) {
+        return Err(refusal(
+            "--artifact-cwd must name a directory",
+            2,
+            json!({}),
+        ));
+    }
+    if normalized.starts_with(root) {
+        return Ok(normalized);
+    }
+    // Discovery canonicalizes the tracker, so validate aliases of the project root
+    // without resolving the suffix that identifies the stored link.
+    for ancestor in normalized.ancestors() {
+        if ancestor.canonicalize().as_deref().ok() == Some(root) {
+            return Ok(root.join(normalized.strip_prefix(ancestor).unwrap_or(Path::new(""))));
+        }
+    }
+    Ok(normalized)
 }
 
 /// Anchors a relative artifact reference at the invocation directory.
@@ -1232,6 +1247,12 @@ fn refuse_collection_option(command: &str, flag: &str, candidates: &[&str]) -> P
 }
 
 impl Workspace {
+    /// Gets the root against which project-relative artifact paths are stored.
+    fn artifact_project_root(&self) -> &Path {
+        let pm_root = self.pm_root();
+        pm_root.parent().and_then(Path::parent).unwrap_or(pm_root)
+    }
+
     /// Lists or atomically edits files, docs or tests using the published receipts.
     ///
     /// # Errors
@@ -1243,7 +1264,7 @@ impl Workspace {
         options: &CollectionOptions,
         cwd: &Path,
     ) -> Result<Value, PmRustError> {
-        let artifact_cwd = resolve_artifact_cwd(cwd)?;
+        let artifact_cwd = resolve_artifact_cwd(cwd, self.artifact_project_root())?;
         self.collection_with_retry_scope(
             id,
             key,
@@ -1287,12 +1308,9 @@ impl Workspace {
             || (key == "docs" && options.append_stable);
         let artifact_cwd = needs_native
             .then(|| {
-                let base = cwd.canonicalize();
                 resolve_artifact_cwd(
-                    &base
-                        .as_deref()
-                        .unwrap_or(cwd)
-                        .join(artifact_cwd.unwrap_or(Path::new(""))),
+                    &cwd.join(artifact_cwd.unwrap_or(Path::new(""))),
+                    self.artifact_project_root(),
                 )
             })
             .transpose()?;
@@ -1339,7 +1357,7 @@ impl Workspace {
             ));
         }
         let pm_root = self.pm_root();
-        let root = pm_root.parent().and_then(Path::parent).unwrap_or(pm_root);
+        let root = self.artifact_project_root();
         let mut edit = prepare(key, options, root, artifact_cwd)?;
         if options.note.is_some() && edit.adds.is_empty() {
             return Err(refusal(
