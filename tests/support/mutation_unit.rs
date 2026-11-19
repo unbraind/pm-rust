@@ -6230,8 +6230,10 @@ fn ownership_gate_warning_never_replays_a_committed_command()
 #[test]
 fn session_parent_sync_failure_reports_visible_attribution_with_unknown_durability()
 -> Result<(), Box<dyn std::error::Error>> {
-    let (_temp, pm_root) = root(&settings("sample-", "toon", 1800))?;
-    create_item(&pm_root, request())?;
+    let (temp, tracker) = root(&settings("sample-", "toon", 1800))?;
+    create_item(&tracker, request())?;
+    let pm_root = temp.path().join("tracker-alias");
+    std::os::unix::fs::symlink(tracker, &pm_root)?;
     let workspace = crate::Workspace::discover(&pm_root)?;
     let item = OwnershipItem {
         id: "sample-unit".into(),
@@ -6243,7 +6245,7 @@ fn session_parent_sync_failure_reports_visible_attribution_with_unknown_durabili
         provenance_role: None,
     };
     assert!(workspace.claim(&item)?.warnings.is_empty());
-    let session = pm_root.join("runtime/session.json");
+    let session = workspace.pm_root().join("runtime/session.json");
     assert!(fs::read_to_string(&session)?.contains("sample-unit"));
     FAIL_PARENT_SYNC.replace(Some(session.clone()));
     let released = workspace.release(&item);
