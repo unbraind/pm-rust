@@ -2,16 +2,14 @@ id: pm-rust-oracle-1118
 title: Refresh published pm-cli oracle to 2026.11.18
 description: "Classify the published CLI divergences, update native parity and validate the locked npm oracle on Linux."
 type: Task
-status: in_progress
+status: open
 priority: 1
 tags[6]: "gh:unbraind/pm-cli#1753","gh:unbraind/pm-cli#1754","gh:unbraind/pm-cli#1757","gh:unbraind/pm-rust#176","gh:unbraind/pm-rust#181",oracle
 created_at: "2026-11-18T09:41:09.150Z"
-updated_at: "2026-11-19T13:09:25.162Z"
-assignee: codex-sol
-claim_principal: codex-sol
+updated_at: "2026-11-19T13:31:34.959Z"
 author: codex-sol
 parent: pm-rust-u4al
-comments[48]{created_at,author,text}:
+comments[51]{created_at,author,text}:
   "2026-11-18T09:41:20.010Z",codex-sol,Started from the Dependabot head. npm latest is 2026.11.18. Reviewing the failed matrix and reproducing against the current pin.
   "2026-11-18T09:57:01.888Z",codex-sol,"All seven failed jobs in run 44015087729 report two cases. GH-1707 in 2026.11.13 introduces credential-bearing identity admission and stored-holder redaction. Direct 2026.11.18 probes confirm stored holders are redacted without requiring credential restoration from a clean invocation. The full Linux run also confirms GH-1684 and GH-1703 in 2026.11.14 change TOON receipts and budgeted row counts, and GH-1336 in 2026.11.16 adds claim activity evidence. Implementing these wire changes while the remaining suites run."
   "2026-11-18T10:10:24.585Z",codex-sol,"Published 2026.11.18 accepts the unchanged replay at the old TOON overhead boundary. The same stale-output-cursor defect remains at an adjacent second-projection boundary, with successful replay on either side. Saved an upstream draft after checking related issues. Native already had this stale replay behavior. Kept the existing reprojected-snapshot test and tracked the separate GH-1336 takeover and next write/read work under pm-rust-stale-claim-takeover."
@@ -60,6 +58,9 @@ comments[48]{created_at,author,text}:
   "2026-11-19T12:56:48.689Z",codex-sol,The new differential reproduces the wrong retained link on 48b8c06 for an external alias into sub. The resolver now accepts the nearest canonical ancestor inside the project while preserving the suffix if the full directory points outside. All requested gates are running against the edited worktree.
   "2026-11-19T13:04:39.607Z",codex-sol,"Both alias targets and the existing outside-pointing symlink passed against the published oracle. The targeted branch report identified an unexercised canonicalization error, so the root-alias unit fixture now also verifies that a missing descendant keeps its logical suffix."
   "2026-11-19T13:09:25.159Z",codex-sol,"The strict LLVM merge against the rebuilt all-target maps passed at 20773/20773 lines, 2138/2138 functions, 33908/33908 regions and 4718/4718 branches. It used the verified Round DN profile archive plus fresh Round DS collection unit and alias differential profiles. Only the collections source coverage totals changed. The separate fresh all-target run is still in progress."
+  "2026-11-19T13:10:28.418Z",codex-sol,"Round DS maps Greptile thread PRRT_kwDOTwgMRs65cs2Q to 58e939027dad10fb92015a493fbb4c8253fdb46a. External aliases to the project root or a subdirectory now remove the corresponding stored link. The regression verifies the exact published removal receipt and durable bytes for both alias targets, and the existing outside-pointing symlink case remains covered."
+  "2026-11-19T13:13:20.791Z",codex-sol,The supplemental fresh coverage run had three self-spawning library fixtures return ENOENT after a concurrent focused rebuild replaced their running executable. The process executable was marked deleted. All three passed on individual reruns from the stable rebuilt executable. The independent strict merged coverage gate remained green.
+  "2026-11-19T13:31:32.432Z",codex-sol,"Round DS local gates passed against published pm-cli 2026.11.18. Formatting, all-target Clippy with warnings denied, changelog, and both coverage union tests passed. The required Cargo suites passed 513 library, 49 CLI dispatch, 11 ownership, 61 claim/release differential, and 21 search/collections differential cases. The claim/release test name inventory matched the union of its 23 initial and 38 continuation passes. Strict merged coverage reached 100 percent in all four dimensions. The supplemental fresh all-target run was stopped after the independent merged gate passed and the three interrupted self-spawning fixtures passed individually."
 files[27]{path,scope}:
   scripts/crash-review.test.mts,project
   src/cli.rs,project
@@ -88,7 +89,7 @@ files[27]{path,scope}:
   tests/support/list_intent_delivery_differential.rs,project
   tests/support/mutation_differential.rs,project
   tests/support/mutation_unit.rs,project
-tests[39]{command,scope,provenance{author,created_at,source_kind,source_ref}}:
+tests[40]{command,scope,provenance{author,created_at,source_kind,source_ref}}:
   PM_RUST_REQUIRE_PUBLISHED_CLI=1 cargo test --locked --all-targets --all-features --no-fail-fast,project,codex-sol,"2026-11-18T09:58:16.490Z",local_mutation,fix/oracle-pm-cli-1118
   cargo fmt --all -- --check,project,codex-sol,"2026-11-18T09:58:23.289Z",local_mutation,fix/oracle-pm-cli-1118
   cargo clippy --locked --all-targets --all-features -- -D warnings,project,codex-sol,"2026-11-18T10:10:28.550Z",local_mutation,fix/oracle-pm-cli-1118
@@ -128,6 +129,7 @@ tests[39]{command,scope,provenance{author,created_at,source_kind,source_ref}}:
   PM_RUST_REQUIRE_PUBLISHED_CLI=1 cargo test --locked --all-features --test search_collections_differential -- --test-threads=2,project,codex-sol,"2026-11-19T13:04:32.354Z",local_mutation,fix/oracle-pm-cli-1118
   "PM_RUST_REQUIRE_PUBLISHED_CLI=1 cargo +nightly-2026-08-06 llvm-cov --no-report --locked --branch --all-features --lib -- collections::tests::artifact_cwd_resolves_root_alias_without_following_its_suffix --exact",project,codex-sol,"2026-11-19T13:05:11.355Z",local_mutation,fix/oracle-pm-cli-1118
   CARGO_LLVM_COV_TARGET_DIR=target/ds-merge-probe cargo +nightly-2026-08-06 llvm-cov report --json --failure-mode=any --output-path target/ds-merged-coverage.json,project,codex-sol,"2026-11-19T13:09:21.416Z",local_mutation,fix/oracle-pm-cli-1118
+  PM_RUST_REQUIRE_PUBLISHED_CLI=1 cargo test --locked --all-features --test cli_dispatch --test ownership_contract --no-fail-fast -- --test-threads=2,project,codex-sol,"2026-11-19T13:25:21.768Z",local_mutation,fix/oracle-pm-cli-1118
 docs[5]:
   - path: docs/CRASH_HARNESS.md
     scope: project
