@@ -3924,7 +3924,7 @@ fn publish_session_state(
 ) -> Result<(), PmRustError> {
     let locks = pm_root.join("locks");
     #[cfg(test)]
-    let _test_gate = tests::hold_session_publication_gate(&locks, ttl)?;
+    let _test_gate = tests::hold_session_publication_gate(&locks, ttl);
     // A competing lease check can briefly hold this gate even while our lease is current.
     let gate = match wait_for_lock("session-state", 250, || {
         acquire_cleanup_gate(&locks, "session-state", ttl)

@@ -32,14 +32,16 @@ thread_local! {
 }
 
 /// Keeps a real cleanup gate held until the single instrumented publication ends.
-pub(super) fn hold_session_publication_gate(
-    locks: &Path,
-    ttl: u64,
-) -> Result<Option<CleanupGate>, PmRustError> {
-    if HOLD_PUBLICATION_GATE.take() {
-        return acquire_cleanup_gate(locks, "session-state", ttl).map(Some);
+pub(super) fn hold_session_publication_gate(locks: &Path, ttl: u64) -> Option<CleanupGate> {
+    if !HOLD_PUBLICATION_GATE.take() {
+        return None;
     }
-    Ok(None)
+    let gate = acquire_cleanup_gate(locks, "session-state", ttl);
+    assert!(
+        gate.is_ok(),
+        "could not hold the fixture's session publication gate"
+    );
+    gate.ok()
 }
 
 /// Thousands of unrelated items must not require individual metadata probes.
