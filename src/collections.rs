@@ -1255,8 +1255,15 @@ impl Workspace {
         cwd: &Path,
         artifact_cwd: Option<&Path>,
     ) -> Result<Value, PmRustError> {
-        let artifact_cwd = artifact_cwd
-            .map(|directory| cwd.canonicalize().as_deref().unwrap_or(cwd).join(directory));
+        let needs_native = artifact_cwd.is_some()
+            || options.timestamp.is_some()
+            || (key == "docs" && options.append_stable);
+        let artifact_cwd = needs_native.then(|| {
+            cwd.canonicalize()
+                .as_deref()
+                .unwrap_or(cwd)
+                .join(artifact_cwd.unwrap_or(Path::new("")))
+        });
         let retry_scope = artifact_cwd
             .as_deref()
             .map(|directory| (self.pm_root(), directory));

@@ -2144,12 +2144,18 @@ fn collection_restore_after_removal_is_read_only() -> Result<(), Box<dyn std::er
 #[test]
 fn native_note_repair_replays_only_in_the_selected_tracker()
 -> Result<(), Box<dyn std::error::Error>> {
-    for (key, path, mode, expected_note, from_sdk) in [
-        ("files", "source.rs", "append", "selected; repair", true),
-        ("docs", "guide.md", "replace", "repair", true),
-        ("files", "cli.rs", "replace", "repair", false),
-        ("docs", "cli.md", "append", "selected; repair", false),
+    for (key, path, mode, native_option) in [
+        ("files", "source.rs", "append", None),
+        ("docs", "guide.md", "replace", None),
+        ("files", "cli.rs", "replace", Some("--artifact-cwd=sub")),
+        ("docs", "cli.md", "append", Some("--artifact-cwd=sub")),
+        ("docs", "stable.md", "replace", Some("--append-stable")),
     ] {
+        let expected_note = if mode == "append" {
+            "selected; repair"
+        } else {
+            "repair"
+        };
         let cwd = workspace()?;
         let selected = workspace()?;
         seed_item(&cwd)?;
@@ -2189,15 +2195,15 @@ fn native_note_repair_replays_only_in_the_selected_tracker()
             author: "fixture".to_owned(),
             ..Default::default()
         };
-        let context = if from_sdk {
+        let context = if let Some(flag) = native_option {
+            native_note_cli_conflict(&selected, &invocation, key, flag, &options)?
+        } else {
             let Err(pm_rust::PmRustError::CommandRefusal { context, .. }) =
                 workspace.collection("sample-cli", key, &options, &invocation)
             else {
                 return Err("expected an SDK note conflict".into());
             };
             context
-        } else {
-            native_note_override_conflict(&selected, key, &options)?
         };
         assert_eq!(context["code"], "linked_artifact_note_conflict");
         assert_eq!(
@@ -2262,20 +2268,27 @@ fn scoped_note_repair_command(
     Ok(command)
 }
 
-/// Invokes the CLI with a relative operand directory and an explicit tracker.
-fn native_note_override_conflict(
+/// Invokes the CLI with a native-only option and an explicit tracker.
+fn native_note_cli_conflict(
     selected: &tempfile::TempDir,
+    invocation: &std::path::Path,
     key: &str,
+    flag: &str,
     options: &pm_rust::CollectionOptions,
 ) -> Result<serde_json::Value, Box<dyn std::error::Error>> {
+    let (cwd, scope) = if flag == "--artifact-cwd=sub" {
+        (selected.path(), ".agents/pm")
+    } else {
+        (invocation, "../.agents/pm")
+    };
     let output = Command::new(env!("CARGO_BIN_EXE_pm-rust"))
-        .current_dir(selected.path())
+        .current_dir(cwd)
         .args([
             "--pm-path",
-            ".agents/pm",
+            scope,
             key,
             "sample-cli",
-            "--artifact-cwd=sub",
+            flag,
             "--add",
             &options.add[0],
             "--remove",

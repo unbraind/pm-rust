@@ -1834,11 +1834,16 @@ fn strip_bootstrap_scope(args: &mut Vec<String>) {
 
 /// Renders recovery arguments with the binary that supports them.
 fn render_recovery(args: &[String]) -> String {
-    if Invocation::parse(args)
-        .options
-        .iter()
-        .any(|option| option.name == "artifact-cwd")
-    {
+    let invocation = Invocation::parse(args);
+    let native = invocation.options.iter().any(|option| match option.name {
+        "artifact-cwd" => true,
+        "append-stable" => invocation
+            .command
+            .and_then(|index| args.get(index + usize::from(args[index] == "item")))
+            .is_some_and(|command| command == "docs"),
+        _ => false,
+    });
+    if native {
         pm_rust::render_pm_rust_command(args)
     } else {
         pm_rust::render_pm_command(args)

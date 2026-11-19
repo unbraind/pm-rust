@@ -620,15 +620,7 @@ fn linked_note_retry_scope_matches_published_cli() -> TestResult {
         );
         assert_eq!(retry[scope.len()], "files");
     }
-    let native_only = oracle(
-        &driver,
-        &cwd,
-        &["files", "sample-item", "--artifact-cwd", ".", "--json"],
-    )?;
-    assert_eq!(native_only.status.code(), Some(2));
-    let refusal: Value = serde_json::from_slice(&native_only.stderr)?;
-    assert_eq!(refusal["code"], "unknown_option");
-    assert_eq!(refusal["flag"], "--artifact-cwd");
+    assert_native_only_note_flags(&driver, &cwd)?;
     // The published CLI strips structured retry fields for credential-bearing
     // notes and still displays redacted commands in its diagnostic next steps.
     let args = [
@@ -653,6 +645,23 @@ fn linked_note_retry_scope_matches_published_cli() -> TestResult {
             .to_string()
             .contains("[redacted]@example.invalid")
     );
+    Ok(())
+}
+
+/// Confirms which native recovery options the published executable refuses.
+fn assert_native_only_note_flags(driver: &Path, cwd: &Path) -> TestResult {
+    for (command, flags) in [
+        ("files", &["--artifact-cwd", "."][..]),
+        ("files", &["--timestamp", CLOCK][..]),
+        ("docs", &["--append-stable"][..]),
+    ] {
+        let args = [&[command, "sample-item"][..], flags, &["--json"]].concat();
+        let native_only = oracle(driver, cwd, &args)?;
+        assert_eq!(native_only.status.code(), Some(2));
+        let refusal: Value = serde_json::from_slice(&native_only.stderr)?;
+        assert_eq!(refusal["code"], "unknown_option");
+        assert_eq!(refusal["flag"], flags[0]);
+    }
     Ok(())
 }
 

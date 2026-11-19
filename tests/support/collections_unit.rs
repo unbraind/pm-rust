@@ -1178,6 +1178,50 @@ fn sdk_note_conflict_retry_preserves_the_request() -> TestResult {
     Ok(())
 }
 
+/// Native-only options keep their values and receive a native repair command.
+#[test]
+fn cli_note_repair_identifies_other_native_only_options() -> TestResult {
+    let (_directory, workspace) = tracker()?;
+    let cwd = workspace
+        .pm_root()
+        .ancestors()
+        .nth(2)
+        .ok_or("tracker project")?;
+    for (key, timestamp, append_stable, flag) in [
+        (
+            "files",
+            Some("2026-08-22T10:00:00.000Z"),
+            false,
+            "--timestamp",
+        ),
+        ("docs", None, true, "--append-stable"),
+    ] {
+        let options = CollectionOptions {
+            author: "fixture".to_owned(),
+            add: ["first", "second"]
+                .map(|note| format!("path=resource.md,note={note}"))
+                .to_vec(),
+            timestamp: timestamp.map(str::to_owned),
+            append_stable,
+            ..CollectionOptions::default()
+        };
+        let Err(PmRustError::CommandRefusal { context, .. }) =
+            workspace.collection_for_cli("sample-one", key, &options, cwd)
+        else {
+            return Err("expected a note conflict".into());
+        };
+        assert_eq!(context["code"], "linked_artifact_note_conflict");
+        let steps = context["next_steps"].as_array().ok_or("repair commands")?;
+        for step in steps {
+            let command = step.as_str().ok_or("repair command")?;
+            let args = crate::parse_command_args(command).ok_or("repair arguments")?;
+            assert_eq!(args[..2], ["pm-rust", "--pm-path"]);
+            assert!(args.iter().any(|arg| arg == flag));
+        }
+    }
+    Ok(())
+}
+
 /// A redacted requested note cannot turn into executable SDK guidance.
 #[test]
 fn sdk_note_conflict_requires_original_note_after_redaction() -> TestResult {
