@@ -515,6 +515,12 @@ journals. Historical same-operation receipts do not establish complete recovery
 conformance; the locked published oracle still has measured history-open failures.
 
 The repository check `node scripts/crash-history-prefix.mts` requires Git and
-compares every changed history stream with `origin/main` as exact bytes. Main
-history must remain a prefix; new item streams are permitted. Tracker commands
-and `just crash` continue to work in plain directories without Git.
+compares every changed history stream with `origin/main` as exact bytes. It
+accepts appends, new item streams and verified lossless PM repairs. For an
+owner-approved redaction, commit the item, literal,
+replacement, reason (the audit message), approval, author and audit record hash
+to `.github/history-redactions.json`. Reviewers can compare the marker with the
+item history. The gate checks the committed rule, reconstructs the ordered
+prefix with the pinned PM oracle, and verifies the full stream and its paired
+item. A later append must also pass replay. Tracker commands and `just crash`
+continue to work in plain directories without Git.

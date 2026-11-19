@@ -1,0 +1,26 @@
+id: pm-rust-history-redaction-prefix
+title: Verify owner-authorized PM history redactions in the prefix gate
+description: The history-prefix gate rejects the verified Round DT redaction of pm-rust-guou. Define how the gate should verify an owner-authorized redaction while refusing arbitrary history edits. Preserve the current check for lossless re-anchors.
+type: Task
+status: open
+priority: 2
+tags: []
+created_at: "2026-11-19T14:07:39.852Z"
+updated_at: "2026-11-19T15:55:47.751Z"
+author: codex-sol
+comments[2]{created_at,author,text}:
+  "2026-11-19T15:50:23.994Z",codex-sol,"Scope one committed literal and replacement to one item and the approved audit author and message. Reconstruct each original entry in order with only message and patch value substitutions, using the pinned PM replay and reseal functions to derive the exact anchors, seals and retained evidence. Require the adjacent sealed maintenance marker and verify the complete current stream against its item. Keep ordinary append and lossless repair paths intact."
+  "2026-11-19T15:55:44.279Z",codex-sol,"The approval pins the actual audit record hash. The real Git and published PM fixture suite passes all 39 tests, including a differently edited and resealed line that passes PM verification alone, invalid rules, forged evidence, and a broken chain after the marker. TypeScript, ESLint, formatting, the changelog check, and the documentation and CI contract tests passed locally."
+files[4]{path,scope}:
+  .github/history-redactions.json,project
+  scripts/crash-history-prefix.mts,project
+  scripts/crash-history-prefix.test.mts,project
+  scripts/crash-history-redaction.mts,project
+tests[4]{command,scope,provenance{author,created_at,source_kind,source_ref}}:
+  node --test scripts/crash-history-prefix.test.mts,project,codex-sol,"2026-11-19T15:54:27.079Z",local_mutation,chore/commit-identity-unbrained
+  node scripts/crash-history-prefix.mts,project,codex-sol,"2026-11-19T15:54:30.438Z",local_mutation,chore/commit-identity-unbrained
+  cargo fmt --check,project,codex-sol,"2026-11-19T15:54:33.269Z",local_mutation,chore/commit-identity-unbrained
+  "npm run changelog:check",project,codex-sol,"2026-11-19T15:54:36.310Z",local_mutation,chore/commit-identity-unbrained
+docs[1]{path,scope}:
+  README.md,project
+body: ""

@@ -50,4 +50,4 @@ All four negatives fail executed assertions with exit 101; all four restorations
 A final combined binary/CLI run passes 72 and 31 tests on the complete corpus. The pinned PM test runner also passes the public-retry regression with run-artifact recording disabled. Changelog generation/check follow the final tracker writes.
 
 
-After the final PM results comment and claim release, `npm run changelog:full` and `npm run changelog:check` pass. The item remains in_progress and unclosed. History remains a byte-prefix extension of the checkpoint. All commits ahead of main use the required SteveBot email.
+After the final PM results comment and claim release, `npm run changelog:full` and `npm run changelog:check` pass. The item remains in_progress and unclosed. History remains a byte-prefix extension of the checkpoint. All commits ahead of main use the required unbrained email.

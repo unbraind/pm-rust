@@ -4,7 +4,7 @@ Package owner: [pm-rust-4ld8](https://github.com/unbraind/pm-rust/blob/main/.age
 
 ## Toolchain branch
 
-`fix/pm-rust-ci-release-toolchain-2026-9-26` contains SteveBot commit
+`fix/pm-rust-ci-release-toolchain-2026-9-26` contains unbrained commit
 `823513ec5870758d82732bdca2b1acc59be12f72`, already squash-merged by
 [PR #52](https://github.com/unbraind/pm-rust/pull/52) as
 `a39a52b629cd138ccf7b6429a855a884919ede9e`. The branch and main have identical

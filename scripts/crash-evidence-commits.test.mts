@@ -11,7 +11,7 @@ test('fresh clone rejects branch-only and tag-only receipt sources, accepts pres
   try {
     /** Build real commits with the same generic identity used by the repository. */
     function git(...args: string[]): string {
-      const result = spawnSync('git', ['-c', 'user.name=SteveBot', '-c', 'user.email=1153461+unbraind@users.noreply.github.com', ...args], { cwd: root, encoding: 'utf8' });
+      const result = spawnSync('git', ['-c', 'user.name=unbrained', '-c', 'user.email=1153461+unbraind@users.noreply.github.com', ...args], { cwd: root, encoding: 'utf8' });
       assert.equal(result.status, 0, result.stderr);
       return result.stdout.trim();
     }
