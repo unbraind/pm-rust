@@ -6,12 +6,10 @@ status: in_progress
 priority: 1
 tags[4]: "gh:unbraind/pm-cli#1753","gh:unbraind/pm-rust#176","gh:unbraind/pm-rust#181",oracle
 created_at: "2026-11-18T09:41:09.150Z"
-updated_at: "2026-11-19T01:32:56.729Z"
-assignee: codex-sol
-claim_principal: codex-sol
+updated_at: "2026-11-19T01:34:38.770Z"
 author: codex-sol
 parent: pm-rust-u4al
-comments[38]{created_at,author,text}:
+comments[39]{created_at,author,text}:
   "2026-11-18T09:41:20.010Z",codex-sol,Started from the Dependabot head. npm latest is 2026.11.18. Reviewing the failed matrix and reproducing against the current pin.
   "2026-11-18T09:57:01.888Z",codex-sol,"All seven failed jobs in run 44015087729 report two cases. GH-1707 in 2026.11.13 introduces credential-bearing identity admission and stored-holder redaction. Direct 2026.11.18 probes confirm stored holders are redacted without requiring credential restoration from a clean invocation. The full Linux run also confirms GH-1684 and GH-1703 in 2026.11.14 change TOON receipts and budgeted row counts, and GH-1336 in 2026.11.16 adds claim activity evidence. Implementing these wire changes while the remaining suites run."
   "2026-11-18T10:10:24.585Z",codex-sol,"Published 2026.11.18 accepts the unchanged replay at the old TOON overhead boundary. The same stale-output-cursor defect remains at an adjacent second-projection boundary, with successful replay on either side. Saved an upstream draft after checking related issues. Native already had this stale replay behavior. Kept the existing reprojected-snapshot test and tracked the separate GH-1336 takeover and next write/read work under pm-rust-stale-claim-takeover."
@@ -50,6 +48,7 @@ comments[38]{created_at,author,text}:
   "2026-11-18T18:06:57.845Z",codex-sol,Extended the recovered-page regression to cover the explicit output budget as well as the intent budget. Both over-budget paths discard the rows and return the corresponding recovery receipt.
   "2026-11-18T18:09:11.469Z",codex-sol,"Round CK addressed 20 findings and retained six behaviors from pm-cli 2026.11.18. The merged LLVM report passed the unmodified strict check with 20534/20534 lines, 2115/2115 functions, 33603/33603 regions and 4688/4688 branches. All eight affected oracle tests, formatting, Clippy and changelog validation passed. A wider run encountered a five-second dependency-packet timeout; the direct fixture returned matching bytes across all six measurements."
   "2026-11-18T22:16:06.246Z",codex-sol,"Round CT maps Greptile PRRT_kwDOTwgMRs65H_CX to feab9220af035cf6df9c2b329abe28e8b98fed14. Session publication drops the cleanup gate before its owner receipt, so the successor can reclaim a confirmed dead writer. The Linux SIGKILL regression reproduced the release attribution warning on f51fe8e and now verifies warning-free release and an updated active-work list. The two retained first-fsync cases, formatting, Clippy with warnings denied, 504 library tests, 11 ownership contracts, 61 claim/release differentials against pm-cli 2026.11.18, and changelog verification passed. The full four-dimension coverage run is in progress."
+  "2026-11-19T01:34:38.094Z",codex-sol,"Round CW maps PRRT_kwDOTwgMRs65PThx to 61a359c634ddf702e687fbab278d7cf1a98152ee. SDK append and replace retries target the selected tracker with overlapping IDs. The published 2026.11.18 SDK already includes --pm-path when given pmRoot, and the native CLI matches its explicit and implicit CLI refusal bytes. PRRT_kwDOTwgMRs65PTh5 maps to 61a359c634ddf702e687fbab278d7cf1a98152ee and unbraind/pm-cli#1753. At budget 1000 with padding 136, unchanged native replay succeeds and the published SDK refuses read_output_cursor_stale, which the known-exception test requires. PRRT_kwDOTwgMRs65PTh9 maps to 61a359c634ddf702e687fbab278d7cf1a98152ee. A future composed close timestamp refuses before any item or history write. PRRT_kwDOTwgMRs65PTiD maps to 61a359c634ddf702e687fbab278d7cf1a98152ee. The dispatch regression asserts its Codex session principal under inherited Claude markers. Formatting, Clippy, changelog, 582 affected tests, the inherited-marker regression, and 960 instrumented tests passed. The full LLVM profiles and two focused supplemental tests passed the exact thresholds with 20579/20579 lines, 2116/2116 functions, 33663/33663 regions and 4692/4692 branches."
 files[24]{path,scope}:
   scripts/crash-review.test.mts,project
   src/collections.rs,project
