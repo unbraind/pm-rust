@@ -269,7 +269,17 @@ fn resolve_artifact_cwd(path: &Path, root: &Path) -> Result<PathBuf, PmRustError
             normalized.push(component.as_os_str());
         }
     }
-    if std::fs::metadata(&normalized).is_ok_and(|metadata| !metadata.is_dir()) {
+    // The nearest existing ancestor must be a directory, including on platforms
+    // that report a file in an intermediate component as a missing path.
+    let directory =
+        normalized
+            .ancestors()
+            .find_map(|candidate| match std::fs::metadata(candidate) {
+                Ok(metadata) => Some(metadata.is_dir()),
+                Err(error) if error.kind() == std::io::ErrorKind::NotADirectory => Some(false),
+                Err(_) => None,
+            });
+    if directory == Some(false) {
         return Err(refusal(
             "--artifact-cwd must name a directory",
             2,
@@ -279,9 +289,10 @@ fn resolve_artifact_cwd(path: &Path, root: &Path) -> Result<PathBuf, PmRustError
     if normalized.starts_with(root) {
         return Ok(normalized);
     }
-    // Use the nearest ancestor that resolves inside the project. Any remaining
-    // suffix identifies the stored link even when it points outside the project.
-    for ancestor in normalized.ancestors() {
+    // Stop canonicalizing at the first project prefix so in-project symlinks
+    // remain part of the logical link, regardless of where they point.
+    let ancestors: Vec<_> = normalized.ancestors().collect();
+    for ancestor in ancestors.into_iter().rev() {
         if let Ok(canonical) = ancestor.canonicalize()
             && canonical.starts_with(root)
         {
@@ -1266,14 +1277,20 @@ impl Workspace {
         options: &CollectionOptions,
         cwd: &Path,
     ) -> Result<Value, PmRustError> {
-        let artifact_cwd = resolve_artifact_cwd(cwd, self.artifact_project_root())?;
+        let artifact_cwd = (matches!(key, "files" | "docs")
+            && !(options.add.is_empty() && options.remove.is_empty()))
+        .then(|| resolve_artifact_cwd(cwd, self.artifact_project_root()))
+        .transpose()?;
+        let retry_scope = artifact_cwd
+            .as_deref()
+            .map(|directory| (self.pm_root(), directory));
         self.collection_with_retry_scope(
             id,
             key,
             options,
-            cwd,
-            &artifact_cwd,
-            Some((self.pm_root(), &artifact_cwd)),
+            None,
+            artifact_cwd.as_deref().unwrap_or(cwd),
+            retry_scope,
         )
     }
 
@@ -1323,7 +1340,7 @@ impl Workspace {
             id,
             key,
             options,
-            cwd,
+            Some(cwd),
             artifact_cwd.as_deref().unwrap_or(cwd),
             retry_scope,
         )
@@ -1335,7 +1352,7 @@ impl Workspace {
         id: &str,
         key: &str,
         options: &CollectionOptions,
-        cwd: &Path,
+        cli_cwd: Option<&Path>,
         artifact_cwd: &Path,
         retry_scope: Option<(&Path, &Path)>,
     ) -> Result<Value, PmRustError> {
@@ -1423,7 +1440,7 @@ impl Workspace {
                 key,
                 id,
                 pm_root,
-                cwd,
+                cli_cwd,
                 &mutation,
                 count < total,
             );
@@ -1445,7 +1462,7 @@ fn attach_collection_receipts(
     key: &str,
     id: &str,
     pm_root: &Path,
-    cwd: &Path,
+    cli_cwd: Option<&Path>,
     changed: &CollectionChange,
     withheld: bool,
 ) {
@@ -1458,13 +1475,18 @@ fn attach_collection_receipts(
         let command = if key == "tests" { "test" } else { key };
         // Discovery canonicalizes the tracker. Resolve the invocation directory on the same
         // basis so symlinked temporary roots and Windows short paths retain relative recovery.
-        let canonical = cwd.canonicalize();
-        let scope = match pm_root.strip_prefix(canonical.as_deref().unwrap_or(cwd)) {
-            Ok(relative) if relative.as_os_str().is_empty() => Some(".".to_owned()),
-            Ok(relative) => relative
+        let relative = cli_cwd.and_then(|cwd| {
+            let canonical = cwd.canonicalize();
+            pm_root
+                .strip_prefix(canonical.as_deref().unwrap_or(cwd))
+                .ok()
+        });
+        let scope = match relative {
+            Some(relative) if relative.as_os_str().is_empty() => Some(".".to_owned()),
+            Some(relative) => relative
                 .to_str()
                 .map(|path| path.replace(std::path::MAIN_SEPARATOR, "/")),
-            Err(_) => pm_root.to_str().map(str::to_owned),
+            None => pm_root.to_str().map(str::to_owned),
         };
         let name = format!("{key}_history");
         if let Some(scope) = scope {

@@ -32,6 +32,14 @@ thread_local! {
 
     /// Simulates a successor lease after an ownership mutation commits.
     static REPLACE_SESSION_LEASE: std::cell::Cell<bool> = const { std::cell::Cell::new(false) };
+
+    /// Holds a real gate until publication observes contention on this thread.
+    static TRANSIENT_PUBLICATION_GATE: std::cell::RefCell<Option<CleanupGate>> = const { std::cell::RefCell::new(None) };
+}
+
+/// Releases the test gate only after an acquisition attempt returns contention.
+pub(super) fn release_session_publication_gate() {
+    drop(TRANSIENT_PUBLICATION_GATE.take());
 }
 
 /// Changes the on-disk lease exactly once, immediately before the publication fence.
@@ -235,6 +243,9 @@ fn ownership_session_faults_and_contention_preserve_durable_steps()
             .contains_key("assignee")
     );
     fs::remove_dir(&session)?;
+    let initial_claim = workspace.claim_with_options(&mutation, &options)?;
+    assert!(initial_claim.warnings.is_empty());
+    let saved_session = fs::read(&session)?;
     let locks = LockSettings::default();
     let guard = acquire_lock(
         &pm_root,
@@ -247,16 +258,36 @@ fn ownership_session_faults_and_contention_preserve_durable_steps()
     )?;
     let called = std::cell::Cell::new(false);
     assert!(matches!(
-        mutate_session_state(&pm_root, |_| called.set(true)),
+        mutate_session_state(&pm_root, &mut |_| {
+            called.set(true);
+            Ok(())
+        }),
         Err(PmRustError::LockConflict { .. })
     ));
     assert!(!called.get());
     let claim = workspace.claim_with_options(&mutation, &options)?;
     assert_eq!(claim.warnings, ["claim_semantic_attribution_unrecorded"]);
     assert!(claim.suggestions[0].contains("(lock_conflict); nothing needs a retry"));
+    let release = workspace.release_with_options(&mutation, &options)?;
+    assert_eq!(
+        release.warnings,
+        ["release_semantic_attribution_unrecorded"]
+    );
+    assert!(release.suggestions[0].contains("The release of sample-unit is saved"));
+    assert!(release.suggestions[0].contains("check the session's active-item attribution"));
+    assert!(!release.suggestions[0].contains("retry"));
+    assert_eq!(fs::read(&session)?, saved_session);
+    assert!(
+        !workspace
+            .get("sample-unit")?
+            .metadata
+            .extra
+            .contains_key("assignee")
+    );
     drop(guard);
-    mutate_session_state(&pm_root, |state| {
+    mutate_session_state(&pm_root, &mut |state| {
         state.insert("marker".to_owned(), serde_json::json!("published"));
+        Ok(())
     })?;
     assert_eq!(
         serde_json::from_slice::<Value>(&fs::read(&session)?)?["marker"],
@@ -5927,7 +5958,15 @@ fn private_sdk_principals_refuse_before_storage() -> Result<(), Box<dyn std::err
     };
     let item = pm_root.join("tasks/sample-unit.toon");
     let history = pm_root.join("history/sample-unit.jsonl");
+    workspace.start_task(&claim, &crate::OwnershipOptions::default())?;
+    assert_eq!(workspace.get(&claim.id)?.metadata.status, "in_progress");
+    let pause = OwnershipItem {
+        force: true,
+        ..claim.clone()
+    };
     let before = (fs::read(&item)?, fs::read(&history)?);
+    let session = pm_root.join("runtime/session.json");
+    let session_before = fs::read(&session).ok();
     let mut identity =
         crate::AuthorIdentity::resolve(Some("fixture"), None, &std::collections::BTreeMap::new());
     for principal in [
@@ -5940,8 +5979,12 @@ fn private_sdk_principals_refuse_before_storage() -> Result<(), Box<dyn std::err
             ..Default::default()
         };
         for result in [
-            workspace.claim_with_options(&claim, &options),
-            identity.with(|| workspace.claim(&claim)),
+            workspace.claim_with_options(&claim, &options).map(|_| ()),
+            identity.with(|| workspace.claim(&claim)).map(|_| ()),
+            workspace.pause_task(&pause, &options).map(|_| ()),
+            identity
+                .with(|| workspace.pause_task(&pause, &crate::OwnershipOptions::default()))
+                .map(|_| ()),
         ] {
             assert!(matches!(
                 result,
@@ -5951,7 +5994,7 @@ fn private_sdk_principals_refuse_before_storage() -> Result<(), Box<dyn std::err
             ));
         }
         assert_eq!((fs::read(&item)?, fs::read(&history)?), before);
-        assert!(!pm_root.join("runtime/session.json").exists());
+        assert_eq!(fs::read(&session).ok(), session_before);
         assert!(!pm_root.join("locks/sample-unit.lock").exists());
     }
     Ok(())
@@ -5963,14 +6006,16 @@ fn reclaimed_session_writer_cannot_replace_new_attribution()
 -> Result<(), Box<dyn std::error::Error>> {
     let (_temp, pm_root) = root("{}")?;
     let (ready, paused) = std::sync::mpsc::channel();
-    let (resume, resumed) = std::sync::mpsc::channel();
     std::thread::scope(|scope| -> Result<(), Box<dyn std::error::Error>> {
+        let (resume, resumed) = std::sync::mpsc::channel();
         let root = &pm_root;
         let old = scope.spawn(move || {
-            mutate_session_state(root, |state| {
+            mutate_session_state(root, &mut |state| {
                 state.insert("old".into(), Value::Bool(true));
                 assert!(ready.send(()).is_ok());
-                assert!(resumed.recv().is_ok());
+                resumed
+                    .recv()
+                    .map_err(|_| invalid_mutation("session fixture canceled"))
             })
         });
         paused.recv()?;
@@ -5978,8 +6023,9 @@ fn reclaimed_session_writer_cannot_replace_new_attribution()
         let mut receipt: Value = serde_json::from_slice(&fs::read(&lock)?)?;
         receipt["created_at"] = serde_json::json!("2000-01-01T00:00:00Z");
         fs::write(lock, receipt.to_string())?;
-        let new = mutate_session_state(&pm_root, |state| {
+        let new = mutate_session_state(&pm_root, &mut |state| {
             state.insert("new".into(), Value::Bool(true));
+            Ok(())
         });
         resume.send(())?;
         new?;
@@ -5991,8 +6037,54 @@ fn reclaimed_session_writer_cannot_replace_new_attribution()
         assert!(error.to_string().contains("lease expired or was replaced"));
         Ok(())
     })?;
-    let state: Value = serde_json::from_slice(&fs::read(pm_root.join("runtime/session.json"))?)?;
+    let session = pm_root.join("runtime/session.json");
+    let state: Value = serde_json::from_slice(&fs::read(&session)?)?;
     assert_eq!(state, serde_json::json!({"new":true}));
+    let (resume, resumed) = std::sync::mpsc::channel::<()>();
+    drop(resume);
+    let aborted = mutate_session_state(&pm_root, &mut |snapshot| {
+        snapshot.clear();
+        resumed
+            .recv()
+            .map_err(|_| invalid_mutation("session fixture canceled"))
+    });
+    assert!(aborted.is_err());
+    assert_eq!(serde_json::from_slice::<Value>(&fs::read(session)?)?, state);
+    assert!(!pm_root.join("locks/session-state.lock").exists());
+    Ok(())
+}
+
+/// A session lease that expires between attempts is replaced using the new attempt's clock.
+#[test]
+fn session_acquisition_refreshes_the_clock_on_retry() -> Result<(), Box<dyn std::error::Error>> {
+    let (_temp, pm_root) = root("{}")?;
+    let ttl = 1;
+    let _incumbent = acquire_lock_attempt(
+        &pm_root,
+        "session-state",
+        "session-state",
+        ttl,
+        false,
+        "2026-08-07T10:06:30.000Z",
+        true,
+    )?;
+    let attempts = std::cell::Cell::new(0);
+    let expired = "2026-08-07T10:06:31.001Z";
+    let clock = || {
+        let attempt = attempts.get();
+        attempts.set(attempt + 1);
+        if attempt < 3 { TS } else { expired }.to_owned()
+    };
+    assert!(matches!(
+        acquire_session_lock(&pm_root, ttl, 0, clock),
+        Err(PmRustError::LockConflict { .. })
+    ));
+    let acquired = acquire_session_lock(&pm_root, ttl, 1000, clock)?;
+    assert_eq!(attempts.get(), 4);
+    assert_eq!(
+        serde_json::from_str::<Value>(&acquired.raw)?["created_at"],
+        expired
+    );
     Ok(())
 }
 
@@ -6112,13 +6204,14 @@ fn busy_session_publication_gate_preserves_snapshot() -> Result<(), Box<dyn std:
     let original = r#"{"value":"original"}"#;
     fs::write(&session, original)?;
     let mut held = None;
-    let result = mutate_session_state(&pm_root, |state| {
+    let result = mutate_session_state(&pm_root, &mut |state| {
         state.insert("value".into(), serde_json::json!("replacement"));
         held = Some(acquire_cleanup_gate(
             &pm_root.join("locks"),
             "session-state",
             30,
         ));
+        Ok(())
     });
     let gate = held.ok_or("mutation did not reach publication")??;
     let error = result
@@ -6146,9 +6239,10 @@ fn busy_session_publication_gate_preserves_snapshot() -> Result<(), Box<dyn std:
     );
     drop(gate);
     let lease = pm_root.join("locks/session-state.lock.gate-lease");
-    let broken = mutate_session_state(&pm_root, |_| {
+    let broken = mutate_session_state(&pm_root, &mut |_| {
         assert!(fs::remove_file(&lease).is_ok());
         assert!(fs::create_dir(&lease).is_ok());
+        Ok(())
     });
     assert!(matches!(broken, Err(PmRustError::Io { .. })));
     assert_eq!(fs::read_to_string(&session)?, original);
@@ -6169,26 +6263,17 @@ fn session_publication_waits_for_transient_cleanup_gate() -> Result<(), Box<dyn 
 {
     let (_temp, pm_root) = root("{}")?;
     let locks = pm_root.join("locks");
-    let (send, receive) = std::sync::mpsc::channel();
-    let (held, ready) = std::sync::mpsc::channel();
-    thread::scope(|scope| -> Result<(), Box<dyn std::error::Error>> {
-        let other = scope.spawn(move || -> Result<(), PmRustError> {
-            if receive.recv().is_ok() {
-                let gate = acquire_cleanup_gate(&locks, "session-state", 30)?;
-                assert!(held.send(()).is_ok());
-                thread::sleep(Duration::from_millis(75));
-                drop(gate);
-            }
-            Ok(())
-        });
-        mutate_session_state(&pm_root, move |state| {
-            assert!(send.send(()).is_ok());
-            assert!(ready.recv().is_ok());
-            state.insert("published".into(), Value::Bool(true));
-        })?;
-        other.join().map_err(|_| "cleanup gate holder panicked")??;
+    let result = mutate_session_state(&pm_root, &mut |state| {
+        TRANSIENT_PUBLICATION_GATE.replace(Some(acquire_cleanup_gate(
+            &locks,
+            "session-state",
+            30,
+        )?));
+        state.insert("published".into(), Value::Bool(true));
         Ok(())
-    })?;
+    });
+    assert!(TRANSIENT_PUBLICATION_GATE.take().is_none());
+    result?;
     let state: Value = serde_json::from_slice(&fs::read(pm_root.join("runtime/session.json"))?)?;
     assert_eq!(state, serde_json::json!({"published":true}));
     Ok(())

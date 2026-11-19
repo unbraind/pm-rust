@@ -524,7 +524,7 @@ pub struct CollectionArgs {
     #[arg(long)]
     pub append_stable: bool,
     /// Annotate added artifacts.
-    #[arg(long)]
+    #[arg(long, allow_hyphen_values = true)]
     pub note: Option<String>,
     /// Preserve the full stored collection in a mutation receipt.
     #[arg(long)]

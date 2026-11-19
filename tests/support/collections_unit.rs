@@ -1244,6 +1244,11 @@ fn artifact_cwd_resolves_root_alias_without_following_its_suffix() -> TestResult
             project.join(suffix)
         );
     }
+    let external_missing = aliases.path().canonicalize()?.join("missing/sub");
+    assert_eq!(
+        resolve_artifact_cwd(&external_missing, project)?,
+        external_missing
+    );
     Ok(())
 }
 
@@ -1382,7 +1387,11 @@ fn sdk_note_conflict_with_non_utf8_tracker_has_no_replay_command() -> TestResult
         (outside.path(), "absolute.rs"),
     ] {
         options.remove = vec![removed.into()];
-        let receipt = workspace.collection("sample-one", "files", &options, cwd)?;
+        let receipt = if removed == "relative.rs" {
+            workspace.collection_for_cli("sample-one", "files", &options, cwd)?
+        } else {
+            workspace.collection("sample-one", "files", &options, cwd)?
+        };
         assert_eq!(
             receipt["total_count"],
             if removed == "relative.rs" { 2 } else { 1 }
@@ -1400,9 +1409,9 @@ fn sdk_note_conflict_with_non_utf8_tracker_has_no_replay_command() -> TestResult
     Ok(())
 }
 
-/// SDK callers operating inside the tracker restore omitted rows relative to that same tracker.
+/// CLI callers retain relative restore commands, including when invoked from the tracker itself.
 #[test]
-fn omitted_rows_retain_tracker_root_as_invocation_directory() -> TestResult {
+fn cli_omitted_rows_retain_tracker_root_as_invocation_directory() -> TestResult {
     let (_directory, workspace) = tracker()?;
     let mut options = CollectionOptions {
         author: "fixture".into(),
@@ -1412,7 +1421,8 @@ fn omitted_rows_retain_tracker_root_as_invocation_directory() -> TestResult {
     workspace.collection("sample-one", "files", &options, workspace.pm_root())?;
     options.add.clear();
     options.remove.push("a.rs".into());
-    let result = workspace.collection("sample-one", "files", &options, workspace.pm_root())?;
+    let result =
+        workspace.collection_for_cli("sample-one", "files", &options, workspace.pm_root())?;
     assert_eq!(
         result["omission_receipt"]["omitted_field_groups"][0]["restore_with"],
         "pm --pm-path . files sample-one"
@@ -1426,7 +1436,7 @@ fn omitted_rows_retain_tracker_root_as_invocation_directory() -> TestResult {
     std::fs::create_dir(project.join("scratch"))?;
     options.remove.clear();
     options.add.push("c.rs".into());
-    let result = workspace.collection("sample-one", "files", &options, &alias)?;
+    let result = workspace.collection_for_cli("sample-one", "files", &options, &alias)?;
     assert_eq!(
         result["omission_receipt"]["omitted_field_groups"][0]["restore_with"],
         "pm --pm-path .agents/pm files sample-one"
@@ -1434,7 +1444,7 @@ fn omitted_rows_retain_tracker_root_as_invocation_directory() -> TestResult {
     let other = tempfile::tempdir()?;
     options.add.clear();
     options.remove.push("c.rs".into());
-    let result = workspace.collection("sample-one", "files", &options, other.path())?;
+    let result = workspace.collection_for_cli("sample-one", "files", &options, other.path())?;
     let hint = result["omission_receipt"]["omitted_field_groups"][0]["restore_with"]
         .as_str()
         .ok_or("scope")?;
@@ -1445,5 +1455,73 @@ fn omitted_rows_retain_tracker_root_as_invocation_directory() -> TestResult {
         other.path().join(&args[2]).canonicalize()?,
         workspace.pm_root().canonicalize()?
     );
+    Ok(())
+}
+
+/// Listing and linked-test operations have no artifact operand base to resolve.
+#[test]
+fn sdk_collection_reads_ignore_the_artifact_base() -> TestResult {
+    let (directory, workspace) = tracker()?;
+    let file = directory.path().join("base.txt");
+    std::fs::write(&file, "file fixture")?;
+    let listed = CollectionOptions::default();
+    for key in ["files", "docs", "tests"] {
+        let expected = workspace.collection("sample-one", key, &listed, directory.path())?;
+        for unused in [Path::new(""), file.as_path()] {
+            assert_eq!(
+                workspace.collection("sample-one", key, &listed, unused)?,
+                expected
+            );
+        }
+    }
+    let tests = CollectionOptions {
+        author: "fixture".into(),
+        add: vec!["command=fixture".into()],
+        ..Default::default()
+    };
+    assert_eq!(
+        workspace.collection("sample-one", "tests", &tests, Path::new(""))?["count"],
+        1
+    );
+    Ok(())
+}
+
+/// Removing through a project alias targets the logical link even if its directory is a symlink.
+#[cfg(unix)]
+#[test]
+fn project_alias_removal_preserves_internal_directory_symlinks() -> TestResult {
+    let (directory, workspace) = tracker()?;
+    let aliases = tempfile::tempdir()?;
+    let alias = aliases.path().join("project");
+    let direct = aliases.path().join("subdirectory");
+    let project = directory.path();
+    let vendor = project.join("vendor");
+    let shared = project.join("shared");
+    std::fs::create_dir(&shared)?;
+    std::os::unix::fs::symlink(project, &alias)?;
+    std::os::unix::fs::symlink(&shared, &vendor)?;
+    std::os::unix::fs::symlink(&shared, &direct)?;
+    let add = CollectionOptions {
+        author: "fixture".into(),
+        add: vec!["vendor/source.rs".into(), "shared/source.rs".into()],
+        ..Default::default()
+    };
+    let remove = CollectionOptions {
+        author: "fixture".into(),
+        remove: vec!["source.rs".into()],
+        full_history: true,
+        ..Default::default()
+    };
+    for (cwd, expected) in [
+        (alias.join("vendor"), "shared/source.rs"),
+        (vendor, "shared/source.rs"),
+        (direct, "vendor/source.rs"),
+    ] {
+        workspace.collection("sample-one", "files", &add, project)?;
+        let receipt = workspace.collection("sample-one", "files", &remove, &cwd)?;
+        assert_eq!(receipt["mutation_receipt"]["removed_count"], 1);
+        assert_eq!(receipt["files"][0]["path"], expected);
+        assert_eq!(receipt["count"], 1);
+    }
     Ok(())
 }

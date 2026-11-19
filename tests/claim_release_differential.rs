@@ -1503,15 +1503,33 @@ fn start_semantic_recording_warns_and_matches_published_state()
 #[test]
 fn stale_session_lock_lifecycle_matches_published_bytes() -> Result<(), Box<dyn std::error::Error>>
 {
-    for action in ["claim", "release", "start-task", "pause-task"] {
+    for (action, owned) in [
+        ("claim", false),
+        ("release", true),
+        ("start-task", false),
+        ("pause-task", true),
+        ("pause-task", false),
+    ] {
         let Some(fixture) = Fixture::new("none")? else {
             return Ok(());
         };
+        if owned {
+            prepare(
+                &fixture,
+                &["start-task", "sample-own", "--author", "alpha", "--json"],
+            )?;
+        }
         let lock = r#"{"id":"session-state","pid":1,"token":"session-fixture","ttl_seconds":1800,"created_at":"2000-01-01T00:00:00.000Z","owner":"session-state"}"#;
         for root in [fixture.node.path(), fixture.rust.path()] {
             fs::write(root.join(".agents/pm/locks/session-state.lock"), lock)?;
         }
         fixture.step(&[action, "sample-own", "--author", "alpha", "--json"])?;
+        for root in [fixture.node.path(), fixture.rust.path()] {
+            assert!(
+                !root.join(".agents/pm/locks/session-state.lock").exists(),
+                "{action}, owned={owned}"
+            );
+        }
     }
     Ok(())
 }

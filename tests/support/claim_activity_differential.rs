@@ -384,3 +384,47 @@ fn workspace_restore_evidence_matches_published() -> TestResult {
     }
     verify_published(directory.path(), &inputs, &native)
 }
+
+/// Native eligibility is absent when UTC crosses the timestamp library's supported range.
+#[test]
+fn claim_eligibility_handles_the_utc_year_boundary() -> TestResult {
+    let directory = tempfile::tempdir()?;
+    let mut inputs = Vec::new();
+    let mut oracle_expected = Vec::new();
+    for (ts, native_time, oracle_time) in [
+        (
+            "9999-12-28T22:30:00-01:00",
+            json!("9999-12-31T23:30:00.000Z"),
+            "9999-12-31T23:30:00.000Z",
+        ),
+        (
+            "9999-12-28T23:30:00-01:00",
+            Value::Null,
+            "+010000-01-01T00:30:00.000Z",
+        ),
+        (
+            "9999-12-31T23:30:00-01:00",
+            Value::Null,
+            "+010000-01-04T00:30:00.000Z",
+        ),
+    ] {
+        let root = directory.path().join(oracle_expected.len().to_string());
+        fs::create_dir_all(root.join("history"))?;
+        let entries = [record(
+            "claim",
+            ts,
+            patch("/metadata/assignee", json!(HOLDER)),
+        )];
+        let history = root.join("history/demo-claim.jsonl");
+        write_stream(&history, &entries)?;
+        let mut evidence = super::evidence(&history, &document(ts)?, HOLDER, NOW, 72);
+        let activity = &mut evidence["claim_activity"];
+        assert_eq!(activity["last_activity_at"], ts);
+        assert_eq!(activity["stale_policy"]["stale"], false);
+        assert_eq!(activity["stale_policy"]["eligible_at"], native_time);
+        activity["stale_policy"]["eligible_at"] = json!(oracle_time);
+        oracle_expected.push(evidence);
+        inputs.push(json!({"label":ts,"root":root,"id":"demo-claim","holder":HOLDER,"updated_at":ts,"threshold_hours":72,"now":NOW}));
+    }
+    verify_published(directory.path(), &inputs, &oracle_expected)
+}

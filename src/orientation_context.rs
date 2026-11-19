@@ -72,23 +72,16 @@ fn optional(a: &Value, b: &Value, date: bool) -> std::cmp::Ordering {
 fn recency(entries: &mut [Value], item: &Value) -> String {
     entries.sort_by(|a, b| crate::collation::compare(text(a, "ts"), text(b, "ts")));
     for entry in entries.iter().rev() {
-        let patch: Vec<_> = entry["patch"]
-            .as_array()
-            .into_iter()
-            .flatten()
-            .map(|operation| crate::history::HistoryPatch {
-                op: "replace",
-                path: text(operation, "path").to_owned(),
-                value: None,
-            })
-            .collect();
         let substantive = match entry["event_class"].as_str() {
             Some("substantive") => true,
             Some("maintenance") => false,
             _ => {
-                !matches!(text(entry, "op"), "history_salvage" | "tests_update")
-                    && crate::history::classify_history_event(text(entry, "op"), &patch)
-                        == "substantive"
+                let paths = entry["patch"]
+                    .as_array()
+                    .into_iter()
+                    .flatten()
+                    .map(|operation| text(operation, "path"));
+                crate::history::classify_history_paths(text(entry, "op"), paths) == "substantive"
             }
         };
         if substantive && !text(entry, "ts").is_empty() {

@@ -50,3 +50,36 @@ fn stored_holder_recovery_preserves_only_clean_replays() {
         }
     }
 }
+
+/// Encoded rejection spans stay scoped and preserve the native command renderer.
+#[test]
+fn encoded_identity_projection_preserves_native_recovery() {
+    let refused = || {
+        json!({
+            "recovery":{
+                "normalized_args":["files","sample-own","--artifact-cwd",".","--message","fixture-only-password public text"],
+                "attempted_command":"pm-rust files sample-own --artifact-cwd . --message \"fixture-only-password public text\""
+            }
+        })
+    };
+    super::with_cli_projection(|| {
+        assert!(
+            crate::AuthorIdentity::validate_credentials(
+                "https://fixture:fixture-only-password%40example.invalid",
+                "--author"
+            )
+            .is_err()
+        );
+        let mut payload = refused();
+        redact(&mut payload, &[]);
+        let recovery = &payload["recovery"];
+        assert_eq!(recovery["normalized_args"][5], "[redacted] public text");
+        assert_eq!(
+            recovery["attempted_command"],
+            "pm-rust files sample-own --artifact-cwd . --message \"[redacted] public text\""
+        );
+    });
+    let mut payload = refused();
+    redact(&mut payload, &[]);
+    assert_eq!(payload, refused());
+}

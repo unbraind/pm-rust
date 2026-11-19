@@ -702,7 +702,7 @@ fn linked_note_recovery_matches_published_semantics() -> TestResult {
             "--remove",
             "unrelated.md",
             "--note",
-            "fallback",
+            "-draft",
             "--force",
             "--full-history",
             "--message",

@@ -2075,40 +2075,37 @@ fn collection_restore_after_removal_is_read_only() -> Result<(), Box<dyn std::er
     let tracker = workspace()?;
     let elsewhere = workspace()?;
     seed_item(&tracker)?;
+    seed_item(&elsewhere)?;
     let root = tracker.path().join(".agents/pm");
-    expect_ok(
-        &tracker,
-        &[
-            "test",
-            "sample-cli",
-            "--add",
-            "command=first",
-            "--add",
-            "command=second",
-            "--author",
-            "fixture",
-        ],
+    for (project, commands) in [
+        (&tracker, ["command=first", "command=second"]),
+        (&elsewhere, ["command=unrelated", "command=wrong tracker"]),
+    ] {
+        expect_ok(
+            project,
+            &[
+                "test",
+                "sample-cli",
+                "--add",
+                commands[0],
+                "--add",
+                commands[1],
+                "--author",
+                "fixture",
+            ],
+        )?;
+    }
+    let selected = pm_rust::Workspace::discover(tracker.path())?;
+    let receipt = selected.collection(
+        "sample-cli",
+        "tests",
+        &pm_rust::CollectionOptions {
+            author: "fixture".into(),
+            remove_index: vec!["1".into()],
+            ..Default::default()
+        },
+        tracker.path(),
     )?;
-    let result = Command::new(env!("CARGO_BIN_EXE_pm-rust"))
-        .current_dir(elsewhere.path())
-        .arg("--pm-path")
-        .arg(&root)
-        .args([
-            "test",
-            "sample-cli",
-            "--remove-index",
-            "1",
-            "--author",
-            "fixture",
-            "--json",
-        ])
-        .output()?;
-    assert!(
-        result.status.success(),
-        "{}",
-        String::from_utf8_lossy(&result.stderr)
-    );
-    let receipt: serde_json::Value = serde_json::from_slice(&result.stdout)?;
     let hint = receipt["omission_receipt"]["omitted_field_groups"][0]["restore_with"]
         .as_str()
         .ok_or("read command")?;
@@ -2152,9 +2149,9 @@ fn native_note_repair_replays_only_in_the_selected_tracker()
         ("docs", "stable.md", "replace", Some("--append-stable")),
     ] {
         let expected_note = if mode == "append" {
-            "selected; repair"
+            "selected; -draft"
         } else {
-            "repair"
+            "-draft"
         };
         let cwd = workspace()?;
         let selected = workspace()?;
@@ -2190,9 +2187,10 @@ fn native_note_repair_replays_only_in_the_selected_tracker()
             ],
         )?;
         let options = pm_rust::CollectionOptions {
-            add: vec![format!("path={path},note=repair")],
+            add: vec![path.to_owned()],
             remove: vec!["path=obsolete.md".to_owned()],
             author: "fixture".to_owned(),
+            note: Some("-draft".to_owned()),
             ..Default::default()
         };
         let context = if let Some(flag) = native_option {
@@ -2291,27 +2289,49 @@ fn artifact_cwd_file_refusal_preserves_item_and_history() -> Result<(), Box<dyn 
     let item = project.path().join(".agents/pm/tasks/sample-cli.toon");
     let history = project.path().join(".agents/pm/history/sample-cli.jsonl");
     let before = (fs::read(&item)?, fs::read(&history)?);
+    for base in ["base.txt", "base.txt/sub"] {
+        let output = pm_rust(
+            &project,
+            &[
+                "files",
+                "sample-cli",
+                "--artifact-cwd",
+                base,
+                "--add",
+                "source.rs",
+                "--author=fixture",
+                "--json",
+            ],
+        )?;
+        let stderr = String::from_utf8(output.stderr)?;
+        assert_eq!(output.status.code(), Some(2), "{stderr}");
+        assert!(
+            stderr.contains("--artifact-cwd must name a directory"),
+            "{stderr}"
+        );
+        assert!(output.stdout.is_empty());
+        assert_eq!((fs::read(&item)?, fs::read(&history)?), before);
+    }
     let output = pm_rust(
         &project,
         &[
             "files",
             "sample-cli",
             "--artifact-cwd",
-            "base.txt",
+            "missing/sub",
             "--add",
             "source.rs",
             "--author=fixture",
             "--json",
         ],
     )?;
-    let stderr = String::from_utf8(output.stderr)?;
-    assert_eq!(output.status.code(), Some(2), "{stderr}");
     assert!(
-        stderr.contains("--artifact-cwd must name a directory"),
-        "{stderr}"
+        output.status.success(),
+        "{}",
+        String::from_utf8_lossy(&output.stderr)
     );
-    assert!(output.stdout.is_empty());
-    assert_eq!((fs::read(item)?, fs::read(history)?), before);
+    let receipt: serde_json::Value = serde_json::from_slice(&output.stdout)?;
+    assert_eq!(receipt["files"][0]["path"], "missing/sub/source.rs");
     Ok(())
 }
 
@@ -2365,6 +2385,8 @@ fn native_note_cli_conflict(
             &options.add[0],
             "--remove",
             &options.remove[0],
+            "--note",
+            options.note.as_deref().ok_or("note")?,
             "--author=fixture",
             "--json",
         ])
@@ -2459,5 +2481,40 @@ fn detected_session_can_replay_note_repair_under_strict_ownership()
     let after = session(&["files", "sample-cli", "--json"])?;
     let listed: serde_json::Value = serde_json::from_slice(&after.stdout)?;
     assert_eq!(listed["files"][0]["note"], "first; second");
+    Ok(())
+}
+
+/// Refusals preserve the selected replay binary after projecting credential-bearing copies.
+#[test]
+fn projected_collection_recovery_keeps_the_selected_binary()
+-> Result<(), Box<dyn std::error::Error>> {
+    let project = workspace()?;
+    seed_item(&project)?;
+    for (scope, binary) in [(&[][..], "pm"), (&["--artifact-cwd", "."][..], "pm-rust")] {
+        let mut args = vec!["files", "sample-cli", "--add", "source.rs"];
+        args.extend_from_slice(scope);
+        args.extend([
+            "--author=https://fixture:synthetic-secret%40example.invalid",
+            "--message",
+            "synthetic-secret public rationale",
+            "--json",
+        ]);
+        let output = pm_rust(&project, &args)?;
+        assert_eq!(output.status.code(), Some(2));
+        assert!(output.stdout.is_empty());
+        let stderr = String::from_utf8(output.stderr)?;
+        assert!(!stderr.contains("synthetic-secret"));
+        let refusal: serde_json::Value = serde_json::from_str(&stderr)?;
+        let command = refusal["recovery"]["attempted_command"]
+            .as_str()
+            .ok_or("command")?;
+        let replay = pm_rust::parse_command_args(command).ok_or("replay arguments")?;
+        assert_eq!(replay[0], binary);
+        assert_eq!(
+            replay.iter().any(|arg| arg == "--artifact-cwd"),
+            !scope.is_empty()
+        );
+        assert!(command.contains("public rationale"));
+    }
     Ok(())
 }

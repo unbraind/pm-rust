@@ -203,8 +203,9 @@ pub(super) fn evidence(
     let judgeable = stream.is_some() && reason.is_none() && last.is_some();
     let eligible = last
         .filter(|_| judgeable && threshold <= 2_400_000_000)
-        .and_then(|(_, time)| time.checked_add(Duration::hours(threshold)))
-        .map(|time| super::format_timestamp(time.to_offset(time::UtcOffset::UTC)));
+        .and_then(|(_, time)| time.checked_to_offset(time::UtcOffset::UTC))
+        .and_then(|time| time.checked_add(Duration::hours(threshold)))
+        .map(super::format_timestamp);
     let mut activity = json!({"last_activity_at":last.map(|(raw, _)| raw)});
     if stream.is_none() {
         activity["history_unreadable"] = json!(true);

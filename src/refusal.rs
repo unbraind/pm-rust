@@ -29,6 +29,15 @@ pub fn with_cli_projection<T>(run: impl FnOnce() -> T) -> T {
     run()
 }
 
+/// Keeps a rejected identity's sensitive span available for CLI recovery projection.
+pub(crate) fn enroll_identity_span(span: &str) {
+    CLI_USERINFO.with_borrow_mut(|scope| {
+        if let Some(enrolled) = scope {
+            enrolled.push(span.to_owned());
+        }
+    });
+}
+
 /// Finds every explicit URL scheme without consuming neighboring URLs or their separators.
 fn url_schemes(text: &str) -> Vec<(usize, usize)> {
     let mut schemes = Vec::new();
@@ -570,7 +579,14 @@ pub fn redact(payload: &mut Value, raw: &[String]) {
                 .filter_map(Value::as_str)
                 .map(str::to_owned)
                 .collect::<Vec<_>>();
-            let command = crate::render_pm_command(&args);
+            let command = if original["recovery"]["attempted_command"]
+                .as_str()
+                .is_some_and(|command| command.starts_with("pm-rust "))
+            {
+                crate::render_pm_rust_command(&args)
+            } else {
+                crate::render_pm_command(&args)
+            };
             payload["recovery"]["attempted_command"] = Value::String(command.clone());
             if let Some(examples) = payload["examples"].as_array_mut() {
                 for (before, after) in original["examples"]

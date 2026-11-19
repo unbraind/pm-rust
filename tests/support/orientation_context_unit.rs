@@ -1637,3 +1637,21 @@ fn terminal_progress_reads_advisory_history_once() -> Result<(), Box<dyn std::er
     assert_eq!(HISTORY_READS.get(), 1);
     Ok(())
 }
+
+/// Recency honors stored event classes before applying legacy path classification.
+#[test]
+fn recency_honors_event_classes_and_legacy_paths() {
+    let row = item("sample-one", "open");
+    let mut entries = [
+        json!({"ts":"2026-08-23T00:00:00Z","op":"update","patch":[{"path":7}]}),
+        json!({"ts":"2026-08-24T00:00:00Z","op":"tests_update","patch":[{"path":"/body"}]}),
+        json!({"ts":"2026-08-25T00:00:00Z","op":"update","patch":[{"path":"/metadata/notes"}]}),
+        json!({"ts":"2026-08-26T00:00:00Z","op":"update","event_class":"maintenance","patch":[{"path":"/body"}]}),
+        json!({"ts":"2026-08-27T00:00:00Z","op":"release","event_class":"substantive"}),
+    ];
+    assert_eq!(super::recency(&mut entries, &row), "2026-08-27T00:00:00Z");
+    assert_eq!(
+        super::recency(&mut entries[..4], &row),
+        "2026-08-23T00:00:00Z"
+    );
+}

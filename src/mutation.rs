@@ -3690,6 +3690,11 @@ pub(crate) fn lifecycle_status(
     settings.locks.use_created_at = true;
     let timestamp = validate_mutation_request(&request.author, request.timestamp.as_deref())?;
     reject_future_timestamp(&timestamp)?;
+    let principal = options.identity.as_ref().map_or_else(
+        || crate::ownership::caller_principal(&request.author),
+        |identity| identity.principal.clone(),
+    );
+    crate::AuthorIdentity::validate_credentials(&principal, "claim_principal")?;
     let _lock = acquire_lock(
         pm_root,
         &request.id,
@@ -3710,10 +3715,6 @@ pub(crate) fn lifecycle_status(
         other => other,
     })?;
     let (item_path, history_path, before) = recover_and_locate(pm_root, "update", &request.id)?;
-    let principal = options.identity.as_ref().map_or_else(
-        || crate::ownership::caller_principal(&request.author),
-        |identity| identity.principal.clone(),
-    );
     let owner = ownership_text(&before, "assignee");
     let held_principal = ownership_text(&before, "claim_principal");
     let held_principal = if held_principal.trim().is_empty() {
@@ -3864,48 +3865,44 @@ fn session_lock_refusal(
     }
 }
 
+/// Acquires the derived-state lease using one wall-clock sample per attempt.
+fn acquire_session_lock(
+    pm_root: &Path,
+    ttl_seconds: u64,
+    wait_ms: u64,
+    now: impl Fn() -> String,
+) -> Result<ItemLock, PmRustError> {
+    wait_for_lock("session-state", wait_ms, || {
+        acquire_lock_attempt(
+            pm_root,
+            "session-state",
+            "session-state",
+            ttl_seconds,
+            true,
+            &now(),
+            true,
+        )
+    })
+    .map_err(|error| session_lock_refusal(pm_root, error, &now(), ttl_seconds))
+}
+
 /// Mutates derived session attribution under the shared session-state lock.
 pub(crate) fn mutate_session_state(
     pm_root: &Path,
-    update: impl FnOnce(&mut serde_json::Map<String, Value>),
+    update: &mut SessionUpdate<'_>,
 ) -> Result<(), PmRustError> {
-    let settings = LockSettings {
-        wait_ms: 3000,
-        use_created_at: true,
-        ..LockSettings::default()
-    };
-    let timestamp = now_iso();
-    let lock = match acquire_lock(
-        pm_root,
-        "session-state",
-        "session-state",
-        &settings,
-        true,
-        &timestamp,
-        lock_wait_budget(
-            std::env::var("PM_LOCK_WAIT_MS").ok().as_deref(),
-            settings.wait_ms,
-        ),
-    ) {
-        Ok(lock) => lock,
-        Err(error) => {
-            return Err(session_lock_refusal(
-                pm_root,
-                error,
-                &timestamp,
-                settings.ttl_seconds,
-            ));
-        }
-    };
+    let ttl = default_lock_ttl();
+    let wait = lock_wait_budget(std::env::var("PM_LOCK_WAIT_MS").ok().as_deref(), 3000);
+    let lock = acquire_session_lock(pm_root, ttl, wait, now_iso)?;
     let path = pm_root.join("runtime/session.json");
     let mut state = fs::read_to_string(&path)
         .ok()
         .and_then(|text| crate::strict_json::from_str::<serde_json::Map<String, Value>>(&text).ok())
         .unwrap_or_default();
-    update(&mut state);
+    update(&mut state)?;
     let contents = crate::stringify_json(&Value::Object(state), false);
     replace_with(&path, &contents, |temporary, path| {
-        publish_session_state(pm_root, lock, settings.ttl_seconds, temporary, path)
+        publish_session_state(pm_root, lock, ttl, temporary, path)
     })
 }
 
@@ -3929,7 +3926,12 @@ fn publish_session_state(
     tests::replace_session_lease_before_publication(&lock.path);
     // A competing lease check can briefly hold this gate even while our lease is current.
     let gate = match wait_for_lock("session-state", 250, || {
-        acquire_cleanup_gate(&locks, "session-state", ttl)
+        let attempt = acquire_cleanup_gate(&locks, "session-state", ttl);
+        #[cfg(test)]
+        if matches!(attempt, Err(PmRustError::LockConflict { .. })) {
+            tests::release_session_publication_gate();
+        }
+        attempt
     }) {
         Ok(gate) => gate,
         Err(PmRustError::LockConflict { .. }) => {
@@ -4084,6 +4086,9 @@ fn commit_mutation_with_context(
             .map(|()| result)
     })
 }
+
+type SessionUpdate<'a> =
+    dyn FnMut(&mut serde_json::Map<String, Value>) -> Result<(), PmRustError> + 'a;
 
 #[cfg(test)]
 #[path = "../tests/support/mutation_unit.rs"]

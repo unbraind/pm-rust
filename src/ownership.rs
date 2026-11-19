@@ -44,7 +44,9 @@ impl AuthorIdentity {
         identity: &str,
         identity_source: &'static str,
     ) -> Result<(), PmRustError> {
-        if identity_userinfo(identity.trim()).is_some() {
+        let identity = identity.trim();
+        if let Some((start, end)) = identity_userinfo(identity) {
+            crate::refusal::enroll_identity_span(&identity[start..end]);
             return Err(PmRustError::IdentityCredentials { identity_source });
         }
         Ok(())
@@ -658,6 +660,10 @@ pub(crate) fn append_attribution_warning(
                 "was not updated ({cause}). To recover, reconcile only the session's active-item attribution for this item against current ownership."
             ),
         ),
+        "lock_conflict" if action == "release" => (
+            "unrecorded",
+            "was not updated (lock_conflict). Once the lock clears, check the session's active-item attribution against current ownership and reconcile it if needed.".to_owned(),
+        ),
         crate::mutation::SESSION_DURABILITY_UNKNOWN => (
             "durability_unknown",
             format!(
@@ -694,16 +700,6 @@ fn record_semantics(
         .map_or(request.author.as_str(), |identity| {
             identity.principal.as_str()
         });
-    let key = if let Some(instance) = principal
-        .rsplit_once('#')
-        .map(|(_, instance)| instance)
-        .filter(|instance| {
-            instance.len() == 24 && instance.bytes().all(|byte| byte.is_ascii_hexdigit())
-        }) {
-        instance.to_owned()
-    } else {
-        format!("author-{}", hex_prefix(principal.as_bytes(), 24))
-    };
     let Some(mut current) = parents.get(&request.id).cloned() else {
         return Err(PmRustError::ItemNotFound {
             id: request.id.clone(),
@@ -717,7 +713,17 @@ fn record_semantics(
         lineage.push(parent.clone());
         current = parents.get(&parent).cloned().flatten();
     }
-    crate::mutation::mutate_session_state(workspace.pm_root(), |state| {
+    crate::mutation::mutate_session_state(workspace.pm_root(), &mut |state| {
+        let key = if let Some(instance) = principal
+            .rsplit_once('#')
+            .map(|(_, instance)| instance)
+            .filter(|instance| {
+                instance.len() == 24 && instance.bytes().all(|byte| byte.is_ascii_hexdigit())
+            }) {
+            instance.to_owned()
+        } else {
+            format!("author-{}", hex_prefix(principal.as_bytes(), 24))
+        };
         let mut attribution = state
             .get("semantic_attribution")
             .and_then(Value::as_object)
@@ -772,6 +778,7 @@ fn record_semantics(
                 Value::Object(attribution),
             );
         }
+        Ok(())
     })
 }
 
