@@ -1,0 +1,11 @@
+id: pm-rust-history-redaction-prefix
+title: Verify owner-authorized PM history redactions in the prefix gate
+description: The history-prefix gate rejects the verified Round DT redaction of pm-rust-guou. Define how the gate should verify an owner-authorized redaction while refusing arbitrary history edits. Preserve the current check for lossless re-anchors.
+type: Task
+status: open
+priority: 2
+tags: []
+created_at: "2026-11-19T14:07:39.852Z"
+updated_at: "2026-11-19T14:07:39.852Z"
+author: codex-sol
+body: ""

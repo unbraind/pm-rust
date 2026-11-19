@@ -1,0 +1,27 @@
+id: pm-rust-identity-unbrained
+title: Use the unbrained commit identity
+description: "Apply the owner's 2026-11-19 commit identity decision to tracked text and PM history. Verify tracker integrity, canonical attribution, and package gates."
+type: Chore
+status: open
+priority: 2
+tags: []
+created_at: "2026-11-19T13:58:16.034Z"
+updated_at: "2026-11-19T14:08:13.542Z"
+author: codex-sol
+comments[4]{created_at,author,text}:
+  "2026-11-19T13:58:22.641Z",codex-sol,"Round DT applies the owner-approved name and retains the approved noreply address. The public Git history remains intact. I will verify the tracker redactions, author mapping, and package gates."
+  "2026-11-19T14:07:10.515Z",codex-sol,"The tracker verified the redaction with zero seal mismatches. The independent history-prefix gate rejected the intentional rewrite because it currently accepts only byte-prefix appends and verified lossless re-anchors. The test fixtures, package typecheck, documentation tests, and commit evidence checks pass."
+  "2026-11-19T14:07:46.694Z",codex-sol,The history-prefix gate policy is tracked in pm-rust-history-redaction-prefix. The identity change keeps the existing gate intact.
+  "2026-11-19T14:07:54.915Z",codex-sol,"Verified the item snapshot and history redaction, the Rust typecheck, the linked fixture and changelog tests, the documentation tests, the all-object identity audit, and the fresh-clone evidence check. The tracker health check passed with clone-local merge drivers. The history-prefix gate reports the separately tracked policy conflict."
+files[3]{path,scope}:
+  .agents/pm/issues/pm-rust-guou.toon,project
+  scripts/crash-evidence-commits.test.mts,project
+  scripts/crash-history-prefix.test.mts,project
+tests[1]{command,scope,timeout_seconds,provenance{author,created_at,source_kind,source_ref}}:
+  node --test scripts/crash-evidence-commits.test.mts scripts/crash-history-prefix.test.mts scripts/changelog.test.mts,project,600,codex-sol,"2026-11-19T14:02:29.887Z",local_mutation,chore/commit-identity-unbrained
+docs[4]{path,scope}:
+  CHANGELOG.md,project
+  docs/backlog-review-2026-10-02.md,project
+  docs/ORACLE_REVIEW_ROUND12_2026_11_13.md,project
+  docs/ORACLE_REVIEW_ROUND16_2026_11_13.md,project
+body: ""

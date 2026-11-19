@@ -15,7 +15,7 @@ function command(root: string, executable: string, args: string[]): void {
   const result = spawnSync(executable, args, { cwd: root, encoding: 'utf8', env: {
     ...Object.fromEntries(Object.entries(process.env).filter(([name]) => !name.startsWith('PM_') && !['NODE_OPTIONS', 'GIT_DIR', 'GIT_WORK_TREE', 'GIT_COMMON_DIR'].includes(name))), HOME: join(root, 'home'), GIT_CONFIG_GLOBAL: process.platform === 'win32' ? 'NUL' : '/dev/null',
     GIT_CONFIG_NOSYSTEM: '1', GIT_CEILING_DIRECTORIES: dirname(root),
-    GIT_AUTHOR_NAME: 'SteveBot', GIT_COMMITTER_NAME: 'SteveBot',
+    GIT_AUTHOR_NAME: 'unbrained', GIT_COMMITTER_NAME: 'unbrained',
     GIT_AUTHOR_EMAIL: '1153461+unbraind@users.noreply.github.com', GIT_COMMITTER_EMAIL: '1153461+unbraind@users.noreply.github.com',
     PM_SENTRY_DISABLED: '1', PM_TELEMETRY_SOURCE_CONTEXT: 'test', DO_NOT_TRACK: '1',
   } });
