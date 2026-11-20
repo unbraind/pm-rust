@@ -1689,7 +1689,7 @@ fn bounded_ownership_lock_wait_preserves_ownerless_diagnostics_and_bytes()
     fs::write(settings_path, serde_json::to_vec(&settings)?)?;
     fs::write(
         root.join("locks/sample-conv.lock"),
-        serde_json::to_vec(&serde_json::json!({"created_at":TIMESTAMP}))?,
+        serde_json::to_vec(&serde_json::json!({"created_at":pm_rust::current_timestamp()}))?,
     )?;
     let request = OwnershipItem {
         id: "sample-conv".to_owned(),

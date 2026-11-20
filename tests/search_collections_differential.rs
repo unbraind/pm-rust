@@ -1804,10 +1804,15 @@ fn collection_safety_refusals_match_oracle() -> TestResult {
                     .success()
                 );
             } else {
+                let lease_timestamp = if state == "stale" {
+                    "2000-01-01T00:00:00.000Z".to_owned()
+                } else {
+                    pm_rust::current_timestamp()
+                };
                 fs::write(
                     tracker.path().join(".agents/pm/locks/sample-item.lock"),
                     serde_json::to_string(
-                        &json!({"id":"sample-item","pid":1,"owner":"holder","created_at":if state=="stale" {"2000-01-01T00:00:00.000Z"} else {CLOCK},"ttl_seconds":1800,"token":"fixture"}),
+                        &json!({"id":"sample-item","pid":1,"owner":"holder","created_at":lease_timestamp,"ttl_seconds":1800,"token":"fixture"}),
                     )?,
                 )?;
             }

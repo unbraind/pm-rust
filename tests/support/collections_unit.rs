@@ -827,10 +827,10 @@ fn collection_ownership_and_lock_boundaries() -> TestResult {
             root.join("settings.json"),
             json!({"locks":{"wait_ms":wait}}).to_string(),
         )?;
-        std::fs::write(&lock,json!({"id":"sample-one","pid":1,"owner":"holder","token":"fixture","created_at":"2026-08-22T10:00:00.000Z","ttl_seconds":1800}).to_string())?;
+        std::fs::write(&lock,json!({"id":"sample-one","pid":1,"owner":"holder","token":"fixture","created_at":crate::current_timestamp(),"ttl_seconds":1800}).to_string())?;
         assert!(matches!(
             workspace.collection("sample-one", "files", &options, cwd),
-            Err(PmRustError::OwnershipRefusal { .. })
+            Err(PmRustError::OwnershipRefusal { context, .. }) if context["code"] == "lock_conflict"
         ));
         std::fs::remove_file(&lock)?;
     }
