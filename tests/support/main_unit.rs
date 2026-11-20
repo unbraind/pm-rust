@@ -3,10 +3,13 @@
 mod advice_corpus;
 use clap::Parser as _;
 use serde_json::Map;
+use std::collections::BTreeMap;
 use std::fs;
 use std::io;
 
-use pm_rust::{ItemDocument, ItemFilter, ItemMetadata, ListResult};
+use pm_rust::{
+    AuthorIdentity, ItemDocument, ItemFilter, ItemMetadata, ListResult, OwnershipItem, Workspace,
+};
 
 use super::{Cli, Command, run, write_json_to};
 
@@ -2161,10 +2164,8 @@ fn round5_close_release_receipt_counts_an_intervening_claim()
         ),
         6
     );
-    let foreign = pm_rust::OwnershipItem {
-        author: "beta".to_owned(),
-        ..request.clone()
-    };
+    let mut foreign = request.clone();
+    "beta".clone_into(&mut foreign.author);
     workspace.claim(&foreign)?;
     fs::write(
         root.join("settings.json"),
@@ -2176,8 +2177,9 @@ fn round5_close_release_receipt_counts_an_intervening_claim()
         &workspace,
         &pm_rust::OwnershipItem {
             force: false,
-            ..request
+            ..request.clone()
         },
+        AuthorIdentity::resolve(Some(&request.author), None, &BTreeMap::new()),
     )
     .err()
     .ok_or("foreign assignment was released")?;
@@ -2199,6 +2201,96 @@ fn round5_close_release_receipt_counts_an_intervening_claim()
         super::close_release_changed_field_count(&duplicate_fields, release.changed_field_count),
         6
     );
+    Ok(())
+}
+
+/// Closing is safe to retry only while the close step has not committed.
+#[test]
+fn close_lock_retry_tracks_the_failed_step() -> Result<(), Box<dyn std::error::Error>> {
+    let temp = tempfile::tempdir()?;
+    let root = temp.path().join(".agents/pm");
+    let locks = root.join("locks");
+    fs::create_dir_all(&locks)?;
+    fs::write(root.join("settings.json"), r#"{"locks":{"wait_ms":0}}"#)?;
+    let workspace = Workspace::discover(temp.path())?;
+    workspace.create(serde_json::from_value(serde_json::json!({
+        "id":"sample-one","title":"Close contention","type":"Task","author":"alpha"
+    }))?)?;
+    let close: pm_rust::CloseItem = serde_json::from_value(serde_json::json!({
+        "id":"sample-one","reason":"Done","author":"alpha"
+    }))?;
+    let request: OwnershipItem = serde_json::from_value(serde_json::json!({
+        "id":"sample-one","author":"alpha","force":false,"if_available":false
+    }))?;
+    let identity = AuthorIdentity::resolve(Some("alpha"), None, &BTreeMap::new());
+    let args = [
+        "close",
+        "sample-one",
+        "Done",
+        "--release-assignment",
+        "--json",
+    ]
+    .map(str::to_owned);
+    let path = locks.join("sample-one.lock");
+    let raw = serde_json::json!({"id":"sample-one","pid":1,"owner":"fixture","created_at":pm_rust::current_timestamp(),"ttl_seconds":1800}).to_string();
+    fs::write(&path, &raw)?;
+    let precommit_error = workspace
+        .close(close.clone())
+        .err()
+        .ok_or("blocked close")?;
+    assert!(matches!(
+        precommit_error,
+        pm_rust::PmRustError::LockConflict { .. }
+    ));
+    let before_commit = super::ownership_error_json(
+        &precommit_error.to_string(),
+        &serde_json::json!({"code":"lock_conflict"}),
+        &args,
+    );
+    assert_eq!(
+        before_commit["recovery"]["suggested_retry_args"],
+        serde_json::json!(args)
+    );
+    fs::remove_file(&path)?;
+    assert_eq!(workspace.close(close)?.item.metadata.status, "closed");
+    let history = root.join("history/sample-one.jsonl");
+    let committed = fs::read(&history)?;
+    fs::write(&path, &raw)?;
+    let error = super::release_after_close(&workspace, &request, identity)
+        .err()
+        .ok_or("the release should have encountered contention")?;
+    let pm_rust::PmRustError::CommandRefusal {
+        detail,
+        exit_code,
+        context,
+    } = error
+    else {
+        return Err(format!("unexpected release error: {error}").into());
+    };
+    let after_commit = super::command_error_json(&detail, &context, &args, exit_code);
+    assert_eq!(after_commit["code"], "lock_conflict");
+    assert_eq!(after_commit["exit_code"], 4);
+    assert_eq!(
+        after_commit["recovery"]["attempted_command"],
+        before_commit["recovery"]["attempted_command"]
+    );
+    assert_eq!(after_commit["recovery"]["retry_after_ms"], 250);
+    let recovery = after_commit["recovery"].as_object().ok_or("recovery")?;
+    for key in ["suggested_retry_args", "suggested_retry"] {
+        assert!(!recovery.contains_key(key));
+    }
+    assert_eq!(
+        after_commit["examples"],
+        serde_json::json!(["pm release --help"])
+    );
+    assert!(
+        after_commit["required"]
+            .to_string()
+            .contains("retry the release step")
+    );
+    assert!(after_commit["why"].to_string().contains("close completed"));
+    assert_eq!(fs::read_to_string(path)?, raw);
+    assert_eq!(fs::read(history)?, committed);
     Ok(())
 }
 

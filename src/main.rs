@@ -697,20 +697,19 @@ fn run_with_io(
             let mut receipt = result.close_receipt.unwrap_or_default();
             project_close_receipt_scope(&mut receipt, &raw_invocation());
             if fields.release_assignment {
-                let release = identity.with(|| {
-                    release_after_close(
-                        &workspace,
-                        &OwnershipItem {
-                            id: result.item.metadata.id.clone(),
-                            author: close_author,
-                            timestamp: Some(result.item.metadata.updated_at.clone()),
-                            message: fields.message,
-                            force: fields.force,
-                            if_available: false,
-                            provenance_role: Some("implementer".to_owned()),
-                        },
-                    )
-                });
+                let release = release_after_close(
+                    &workspace,
+                    &OwnershipItem {
+                        id: result.item.metadata.id.clone(),
+                        author: close_author,
+                        timestamp: Some(result.item.metadata.updated_at.clone()),
+                        message: fields.message,
+                        force: fields.force,
+                        if_available: false,
+                        provenance_role: Some("implementer".to_owned()),
+                    },
+                    identity,
+                );
                 return release.map_err(Into::into).and_then(|release| {
                     let reply =
                         close_release_receipt(&result.close_changed_fields, &receipt, &release);
@@ -738,9 +737,16 @@ fn close_release_receipt(
 fn release_after_close(
     workspace: &Workspace,
     request: &OwnershipItem,
+    identity: AuthorIdentity,
 ) -> Result<pm_rust::OwnershipResult, pm_rust::PmRustError> {
     workspace
-        .release(request)
+        .release_with_options(
+            request,
+            &OwnershipOptions {
+                identity: Some(identity),
+                ..OwnershipOptions::default()
+            },
+        )
         .map_err(|error| pm_rust::completed_step_failure(error, &request.id, "close"))
 }
 
@@ -1395,10 +1401,15 @@ fn write_identity_refusal(
         }
     }
     let flag = source.starts_with("--");
+    let setting = if source == "default_author" {
+        "author_default"
+    } else {
+        source
+    };
     let mut context = serde_json::json!({
         "code": "invalid_argument_value",
-        "required": format!("Set {source} to a plain name such as agent-a, without user:[redacted]@ or token@ userinfo."),
-        "next_steps": [refusal::RESTORE, format!("Rerun with {source} set to a plain name.")]
+        "required": format!("Set {setting} to a plain name such as agent-a, without user:[redacted]@ or token@ userinfo."),
+        "next_steps": [refusal::RESTORE, format!("Rerun with {setting} set to a plain name.")]
     });
     if flag {
         context["flag"] = serde_json::json!(source);
@@ -2136,6 +2147,10 @@ fn apply_ownership_guidance(payload: &mut serde_json::Value, context: &serde_jso
             );
             payload["why"] =
                 serde_json::json!("Locking protects item files from concurrent write races.");
+            if context["completed_step"] == "close" {
+                payload["examples"] = serde_json::json!(["pm release --help"]);
+                return;
+            }
             let retry = payload["recovery"]["attempted_command"].clone();
             payload["examples"] = serde_json::json!([retry]);
             payload["recovery"]["suggested_retry"] = retry;

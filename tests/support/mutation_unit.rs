@@ -20,6 +20,9 @@ mod windows_acl;
 const TS: &str = "2026-08-07T10:06:30.183Z";
 
 thread_local! {
+    /// Pauses one close after it has read the item while holding its lease.
+    static AFTER_CLOSE_READ: std::cell::RefCell<Option<Box<dyn FnOnce()>>> = const { std::cell::RefCell::new(None) };
+
     /// Counts entries that actually reach the locator's live metadata boundary.
     pub(crate) static LOCATOR_METADATA_ENTRIES: std::cell::Cell<usize> = const { std::cell::Cell::new(0) };
 
@@ -35,6 +38,13 @@ thread_local! {
 
     /// Holds a real gate until publication observes contention on this thread.
     static TRANSIENT_PUBLICATION_GATE: std::cell::RefCell<Option<CleanupGate>> = const { std::cell::RefCell::new(None) };
+}
+
+/// Runs the close contention fixture only on the requesting thread.
+pub(super) fn after_close_read() {
+    if let Some(hook) = AFTER_CLOSE_READ.take() {
+        hook();
+    }
 }
 
 /// Releases the test gate only after an acquisition attempt returns contention.
@@ -253,7 +263,6 @@ fn ownership_session_faults_and_contention_preserve_durable_steps()
         "other",
         &locks,
         false,
-        &now_iso(),
         locks.wait_ms,
     )?;
     let called = std::cell::Cell::new(false);
@@ -517,7 +526,6 @@ fn initialization_gate_protects_a_lock_before_its_payload_is_published()
             "contender",
             &lock_settings,
             true,
-            TS,
             lock_settings.wait_ms,
         ),
         Err(PmRustError::LockConflict { .. })
@@ -530,7 +538,6 @@ fn initialization_gate_protects_a_lock_before_its_payload_is_published()
         "initializer",
         &lock_settings,
         true,
-        TS,
         lock_settings.wait_ms,
     )?;
     assert!(matches!(
@@ -540,7 +547,6 @@ fn initialization_gate_protects_a_lock_before_its_payload_is_published()
             "contender",
             &lock_settings,
             true,
-            TS,
             lock_settings.wait_ms,
         ),
         Err(PmRustError::LockConflict { .. })
@@ -557,7 +563,6 @@ fn initialization_gate_protects_a_lock_before_its_payload_is_published()
             ..locks(0)
         },
         true,
-        TS,
         0,
     )?);
     assert!(!gate.exists());
@@ -608,7 +613,6 @@ fn fresh_initialization_gate_requires_confirmed_death_and_an_empty_unchanged_gat
         "original",
         &locks(1_800),
         false,
-        TS,
         0,
     )?;
     let path = pm_root.join("locks/sample-crash.lock");
@@ -812,9 +816,9 @@ fn stale_gate_reclamation_preserves_a_concurrent_replacement()
 fn lock_conflicts_and_forced_stale_cleanup_preserve_the_current_owner()
 -> Result<(), Box<dyn std::error::Error>> {
     let (_directory, pm_root) = root(&settings("sample-", "toon", 0))?;
-    let first = acquire_lock(&pm_root, "sample-unit", "first", &locks(0), false, TS, 0)?;
+    let first = acquire_lock(&pm_root, "sample-unit", "first", &locks(0), false, 0)?;
     assert!(matches!(
-        acquire_lock(&pm_root, "sample-unit", "second", &locks(0), false, TS, 0,),
+        acquire_lock(&pm_root, "sample-unit", "second", &locks(0), false, 0,),
         Err(PmRustError::LockConflict { .. })
     ));
     let lock_path = pm_root.join("locks/sample-unit.lock");
@@ -823,12 +827,12 @@ fn lock_conflicts_and_forced_stale_cleanup_preserve_the_current_owner()
         fs::FileTimes::new().set_modified(SystemTime::now() + Duration::from_secs(60)),
     )?;
     assert!(matches!(
-        acquire_lock(&pm_root, "sample-unit", "second", &locks(0), true, TS, 0,),
+        acquire_lock(&pm_root, "sample-unit", "second", &locks(0), true, 0,),
         Err(PmRustError::LockConflict { .. })
     ));
     lock_file.set_times(fs::FileTimes::new().set_modified(SystemTime::now()))?;
     thread::sleep(Duration::from_millis(2));
-    let second = acquire_lock(&pm_root, "sample-unit", "second", &locks(0), true, TS, 0)?;
+    let second = acquire_lock(&pm_root, "sample-unit", "second", &locks(0), true, 0)?;
     drop(first);
     assert!(pm_root.join("locks/sample-unit.lock").exists());
     drop(second);
@@ -844,18 +848,10 @@ fn lock_conflicts_and_forced_stale_cleanup_preserve_the_current_owner()
     fs::create_dir(&gate)?;
     thread::sleep(Duration::from_millis(2));
     assert!(matches!(
-        acquire_lock(
-            &pm_root,
-            "sample-gated",
-            "third",
-            &locks(1_800),
-            true,
-            TS,
-            0,
-        ),
+        acquire_lock(&pm_root, "sample-gated", "third", &locks(1_800), true, 0,),
         Err(PmRustError::LockConflict { .. })
     ));
-    let recovered_gate = acquire_lock(&pm_root, "sample-gated", "third", &locks(0), true, TS, 0)?;
+    let recovered_gate = acquire_lock(&pm_root, "sample-gated", "third", &locks(0), true, 0)?;
     assert!(!gate.exists());
     drop(recovered_gate);
 
@@ -866,36 +862,20 @@ fn lock_conflicts_and_forced_stale_cleanup_preserve_the_current_owner()
     fs::write(blocked_gate.join("active-owner"), "present")?;
     thread::sleep(Duration::from_millis(2));
     assert!(matches!(
-        acquire_lock(
-            &pm_root,
-            "sample-blocked-gate",
-            "third",
-            &locks(0),
-            true,
-            TS,
-            0,
-        ),
+        acquire_lock(&pm_root, "sample-blocked-gate", "third", &locks(0), true, 0,),
         Err(PmRustError::LockConflict { .. })
     ));
     let directory_lock = pm_root.join("locks/sample-directory.lock");
     fs::create_dir(&directory_lock)?;
     assert!(matches!(
-        acquire_lock(
-            &pm_root,
-            "sample-directory",
-            "third",
-            &locks(0),
-            true,
-            TS,
-            0,
-        ),
+        acquire_lock(&pm_root, "sample-directory", "third", &locks(0), true, 0,),
         Err(PmRustError::Io { .. })
     ));
     #[cfg(unix)]
     {
         let oversized_id = "x".repeat(300);
         assert!(matches!(
-            acquire_lock(&pm_root, &oversized_id, "third", &locks(0), true, TS, 0,),
+            acquire_lock(&pm_root, &oversized_id, "third", &locks(0), true, 0,),
             Err(PmRustError::Io { .. })
         ));
     }
@@ -1158,7 +1138,6 @@ fn filesystem_failures_are_typed_and_atomic_temps_are_cleaned()
             "agent",
             &LockSettings::default(),
             false,
-            TS,
             LockSettings::default().wait_ms,
         ),
         Err(PmRustError::Io { .. })
@@ -1331,7 +1310,6 @@ fn create_surfaces_lock_recovery_journal_and_item_stage_failures()
         "holder",
         &LockSettings::default(),
         false,
-        TS,
         LockSettings::default().wait_ms,
     )?;
     assert!(matches!(
@@ -1521,15 +1499,7 @@ fn in_place_mutations_refuse_a_live_lock_within_the_budget()
 -> Result<(), Box<dyn std::error::Error>> {
     let (_directory, pm_root) = root(&mutation_settings(0))?;
     create_item(&pm_root, request())?;
-    let _held = acquire_lock(
-        &pm_root,
-        "sample-unit",
-        "holder",
-        &locks(1_800),
-        false,
-        TS,
-        0,
-    )?;
+    let _held = acquire_lock(&pm_root, "sample-unit", "holder", &locks(1_800), false, 0)?;
     let mut update = UpdateItem {
         id: "sample-unit".to_owned(),
         title: Some("Next".to_owned()),
@@ -2075,15 +2045,7 @@ fn cross_operation_journal_recovery_waits_for_item_lock() -> Result<(), Box<dyn 
     let item_path = pm_root.join("tasks/sample-unit.toon");
     let before = fs::read(&item_path)?;
     let journal_bytes = fs::read(&journal)?;
-    let lock = acquire_lock(
-        &pm_root,
-        "sample-unit",
-        "incumbent",
-        &locks(1800),
-        false,
-        TS,
-        0,
-    )?;
+    let lock = acquire_lock(&pm_root, "sample-unit", "incumbent", &locks(1800), false, 0)?;
     let error = cross_operation_comment(&pm_root, "Contending comment")
         .err()
         .ok_or("expected lock refusal")?;
@@ -3322,15 +3284,7 @@ fn remaining_portable_mutation_arms_are_covered_in_the_unit_binary()
 
     // acquire_lock retry loop: a held lock plus a non-zero wait budget
     // exercises the sleep arm before the deadline returns the conflict.
-    let held = acquire_lock(
-        &pm_root,
-        "sample-unit",
-        "holder",
-        &locks(1_800),
-        false,
-        TS,
-        0,
-    )?;
+    let held = acquire_lock(&pm_root, "sample-unit", "holder", &locks(1_800), false, 0)?;
     assert!(matches!(
         acquire_lock(
             &pm_root,
@@ -3342,7 +3296,6 @@ fn remaining_portable_mutation_arms_are_covered_in_the_unit_binary()
                 wait_ms: 40,
             },
             false,
-            TS,
             40,
         ),
         Err(PmRustError::LockConflict { .. })
@@ -3814,7 +3767,6 @@ fn future_ownership_preserves_held_lock(
         "live-holder",
         &lock_settings,
         false,
-        &now_iso(),
         lock_settings.wait_ms,
     )?;
     let paths = [
@@ -4647,6 +4599,81 @@ fn closure_request() -> CloseItem {
     }
 }
 
+/// A claim cannot reclaim a live close lease stamped during a historical mutation.
+#[test]
+fn historical_close_keeps_its_lease_while_claim_waits() -> Result<(), Box<dyn std::error::Error>> {
+    let (_directory, pm_root) =
+        root(r#"{"governance":{"preset":"minimal"},"locks":{"ttl_seconds":1800,"wait_ms":50}}"#)?;
+    create_item(
+        &pm_root,
+        CreateItem {
+            timestamp: Some("1999-12-31T00:00:00.000Z".to_owned()),
+            ..request()
+        },
+    )?;
+    let historical = "2000-01-01T00:00:00.000Z";
+    let closing = CloseItem {
+        timestamp: Some(historical.to_owned()),
+        ..closure_request()
+    };
+    let claim = OwnershipItem {
+        id: closing.id.clone(),
+        author: "contending-agent".to_owned(),
+        timestamp: closing.timestamp.clone(),
+        message: None,
+        force: false,
+        if_available: false,
+        provenance_role: None,
+    };
+    let path = pm_root.join("locks/sample-unit.lock");
+    let item = pm_root.join("tasks/sample-unit.toon");
+    let history = pm_root.join("history/sample-unit.jsonl");
+    let before = (fs::read(&item)?, fs::read(&history)?);
+    thread::scope(|scope| -> Result<(), Box<dyn std::error::Error>> {
+        let (ready, acquired) = std::sync::mpsc::channel();
+        let (resume, paused) = std::sync::mpsc::channel::<()>();
+        let root = &pm_root;
+        let writer = scope.spawn(move || {
+            AFTER_CLOSE_READ.set(Some(Box::new(move || {
+                let _ = ready.send(());
+                let _ = paused.recv();
+            })));
+            close_item(root, root, closing)
+        });
+        let checked = (|| -> Result<(), Box<dyn std::error::Error>> {
+            acquired.recv_timeout(Duration::from_secs(10))?;
+            let lease = fs::read_to_string(&path)?;
+            let contention = ownership_item(&pm_root, &claim, true);
+            assert!(
+                matches!(contention, Err(PmRustError::OwnershipRefusal { context, .. }) if context["code"] == "lock_conflict"),
+                "the contender must honor the live lease"
+            );
+            assert!(!ownership_lock_stale(&lease, &now_iso(), 1_800));
+            assert_eq!(fs::read_to_string(&path)?, lease);
+            assert_eq!((fs::read(&item)?, fs::read(&history)?), before);
+            Ok(())
+        })();
+        drop(resume);
+        let result = writer.join().map_err(|_| "close writer panicked")??;
+        checked?;
+        assert_eq!(result.item.metadata.updated_at, historical);
+        assert_eq!(result.item.metadata.status, "closed");
+        assert!(!path.exists());
+        Ok(())
+    })?;
+    let bytes = fs::read_to_string(history)?;
+    let record: Value = crate::strict_json::from_str(bytes.lines().last().ok_or("close history")?)?;
+    assert_eq!(record["ts"], historical);
+    assert_eq!(record["op"], "close");
+    let records: Vec<Value> = bytes
+        .lines()
+        .map(crate::strict_json::from_str)
+        .collect::<Result<_, _>>()?;
+    assert_eq!(records.len(), 2);
+    assert_eq!(record["before_hash"], records[0]["after_hash"]);
+    Ok(())
+}
+
 /// Closure ownership and predecessor cleanup preserve strict and advisory governance.
 #[test]
 fn closure_ownership_and_predecessor_storage() -> Result<(), Box<dyn std::error::Error>> {
@@ -5068,7 +5095,6 @@ fn closure_prelock_identifier_grammar() -> Result<(), Box<dyn std::error::Error>
                 "unit-agent",
                 &LockSettings::default(),
                 false,
-                TS,
                 LockSettings::default().wait_ms,
             ),
             Err(PmRustError::InvalidMutationRequest { .. })
@@ -5200,7 +5226,6 @@ fn future_collection_preserves_held_lock() -> Result<(), Box<dyn std::error::Err
                 ..locks(1800)
             },
             false,
-            &now_iso(),
             0,
         )?;
         let paths = [
@@ -5366,7 +5391,6 @@ fn dead_owner_recovery_requires_a_durable_intent() -> Result<(), Box<dyn std::er
             "alpha",
             &LockSettings::default(),
             false,
-            &now_iso(),
             LockSettings::default().wait_ms,
         ),
         Err(PmRustError::Io { .. })
@@ -5380,7 +5404,6 @@ fn dead_owner_recovery_requires_a_durable_intent() -> Result<(), Box<dyn std::er
         "alpha",
         &LockSettings::default(),
         false,
-        &now_iso(),
         0,
     );
     RECOVERY_SYNC_HOOK.set(keep_recovery_directory);
@@ -5399,7 +5422,6 @@ fn dead_owner_recovery_requires_a_durable_intent() -> Result<(), Box<dyn std::er
         "alpha",
         &LockSettings::default(),
         false,
-        &now_iso(),
         LockSettings::default().wait_ms,
     )?;
     assert_eq!(fs::read_dir(pm_root.join("locks/recoveries"))?.count(), 1);
@@ -5575,19 +5597,11 @@ fn resolved_zero_wait_budget_is_used_without_rereading_settings()
         wait_ms: 2_000,
         ..locks(1_800)
     };
-    let held = acquire_lock(&pm_root, "sample-unit", "holder", &configured, false, TS, 0)?;
+    let held = acquire_lock(&pm_root, "sample-unit", "holder", &configured, false, 0)?;
     // Keep the incumbent held for the entire attempt, independent of thread scheduling.
     // Re-reading the configured budget would wait the full two seconds.
     let started = Instant::now();
-    let outcome = acquire_lock(
-        &pm_root,
-        "sample-unit",
-        "contender",
-        &configured,
-        false,
-        TS,
-        0,
-    );
+    let outcome = acquire_lock(&pm_root, "sample-unit", "contender", &configured, false, 0);
     assert!(matches!(outcome, Err(PmRustError::LockConflict { .. })));
     assert!(started.elapsed() < Duration::from_millis(1_000));
     drop(held);

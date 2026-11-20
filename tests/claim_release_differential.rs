@@ -8,7 +8,7 @@ use std::sync::{Arc, Barrier};
 mod mutation_differential;
 #[path = "support/published_cli.rs"]
 mod published_cli;
-use mutation_differential::{copy_directory, run_minimal, write_driver};
+use mutation_differential::{copy_directory, minimal_command, run_minimal, write_driver};
 use published_cli::published_cli_or_skip;
 const CLOCK: &str = "2026-08-22T10:00:00.000Z";
 
@@ -32,6 +32,11 @@ impl Fixture {
 
     /// Initializes a numeric-looking title with a published record and chosen policy.
     fn new(policy: &str) -> Result<Option<Self>, Box<dyn std::error::Error>> {
+        Self::new_at(policy, CLOCK)
+    }
+
+    /// Seeds the initial published history using the requested recipe clock.
+    fn new_at(policy: &str, clock: &str) -> Result<Option<Self>, Box<dyn std::error::Error>> {
         let Some(published) = published_cli_or_skip("Ownership differential") else {
             return Ok(None);
         };
@@ -52,7 +57,9 @@ impl Fixture {
                 "alpha",
             ],
         ] {
-            let output = published_run(&driver, node.path(), &args)?;
+            let output = published_command(&driver, node.path(), &args)
+                .env("FIXED_CLOCK", clock)
+                .output()?;
             assert!(
                 output.status.success(),
                 "{}",
@@ -191,6 +198,15 @@ fn published_run(
     let mut arguments = vec![driver.to_string_lossy().into_owned()];
     arguments.extend(args.iter().map(ToString::to_string));
     run_minimal(&interpreter, &arguments, root)
+}
+
+/// Prepares a published invocation whose environment a test needs to vary.
+fn published_command(driver: &Path, root: &Path, args: &[&str]) -> Command {
+    let interpreter =
+        PathBuf::from(std::env::var("PM_NODE_INTERPRETER").unwrap_or_else(|_| "node".to_owned()));
+    let mut command = minimal_command(&interpreter, root);
+    command.arg(driver).args(args);
+    command
 }
 
 /// Builds a native process over the same fixed-clock inputs.
@@ -829,6 +845,98 @@ fn detected_sessions_and_asserted_overrides_match_published_history()
         fixture.compare_bytes()?;
     }
     fixture.verify()?;
+    Ok(())
+}
+
+/// Composed close removes the active workset entry under the claim's identity.
+#[test]
+fn close_release_clears_scoped_and_asserted_claim_attribution()
+-> Result<(), Box<dyn std::error::Error>> {
+    for asserted in [false, true] {
+        let Some(fixture) = Fixture::new("strict")? else {
+            return Ok(());
+        };
+        let mut claim = vec!["claim", "sample-own", "--json"];
+        let mut close = vec![
+            "close",
+            "sample-own",
+            "Done",
+            "--validate-close",
+            "off",
+            "--release-assignment",
+            "--json",
+        ];
+        if asserted {
+            for args in [&mut claim, &mut close] {
+                args.extend(["--author", "asserted-agent"]);
+            }
+        }
+        let state = fixture.rust.path().join(".agents/pm/runtime/session.json");
+        let mut oracle = published_command(&fixture.driver, fixture.node.path(), &claim);
+        let mut native = native_command(fixture.rust.path(), &claim);
+        for command in [&mut oracle, &mut native] {
+            command
+                .env("PI_AGENT", "1")
+                .env("PI_SESSION_ID", "fixture-close-session")
+                .env("PI_MODEL", "fixture-model");
+            let output = command.output()?;
+            assert!(
+                output.status.success(),
+                "{}",
+                String::from_utf8_lossy(&output.stderr)
+            );
+        }
+        fixture.compare_bytes()?;
+        let before: serde_json::Value = serde_json::from_slice(&fs::read(&state)?)?;
+        let entries = before["semantic_attribution"]
+            .as_object()
+            .ok_or("active attribution")?;
+        let (key, entry) = entries.iter().next().ok_or("claim attribution")?;
+        assert_eq!(entries.len(), 1);
+        assert_eq!(key.starts_with("author-"), asserted);
+        assert_eq!(entry["active_item_ids"], serde_json::json!(["sample-own"]));
+        let mut oracle = published_command(&fixture.driver, fixture.node.path(), &close);
+        let mut native = native_command(fixture.rust.path(), &close);
+        for command in [&mut oracle, &mut native] {
+            command
+                .env("PI_AGENT", "1")
+                .env("PI_SESSION_ID", "fixture-close-session")
+                .env("PI_MODEL", "fixture-model");
+        }
+        let oracle = oracle.output()?;
+        let native = native.output()?;
+        for output in [&oracle, &native] {
+            assert!(
+                output.status.success(),
+                "{}",
+                String::from_utf8_lossy(&output.stderr)
+            );
+        }
+        assert_eq!(
+            String::from_utf8(native.stdout)?,
+            String::from_utf8(oracle.stdout)?
+        );
+        let tracker = |root: &Path| root.join(".agents/pm");
+        let published = tracker(fixture.node.path());
+        let native = tracker(fixture.rust.path());
+        for relative in ["tasks/sample-own.toon", "runtime/session.json"] {
+            assert_eq!(
+                fs::read(native.join(relative))?,
+                fs::read(published.join(relative))?
+            );
+        }
+        let after: serde_json::Value = serde_json::from_slice(&fs::read(&state)?)?;
+        assert!(after["semantic_attribution"].get(key).is_none());
+        // Compare the release record independently of the earlier close record.
+        let read_history = |root: &Path| fs::read_to_string(root.join("history/sample-own.jsonl"));
+        let native_history = read_history(&native)?;
+        let published_history = read_history(&published)?;
+        let release = native_history.lines().last().ok_or("release record")?;
+        let record: serde_json::Value = serde_json::from_str(release)?;
+        assert_eq!(record["op"], "release");
+        assert_eq!(Some(release), published_history.lines().last());
+        fixture.verify()?;
+    }
     Ok(())
 }
 
@@ -2100,22 +2208,27 @@ fn claim_refusal_uses_matching_latest_ownership_evidence() -> Result<(), Box<dyn
 /// Stale foreign claims report exact advice and preserve item and history bytes.
 #[test]
 fn stale_foreign_claim_refusal_matches_published() -> Result<(), Box<dyn std::error::Error>> {
-    let Some(fixture) = Fixture::new("none")? else {
+    let earlier = "2026-08-18T10:00:00.000Z";
+    let Some(fixture) = Fixture::new_at("none", earlier)? else {
         return Ok(());
     };
-    prepare(
-        &fixture,
+    let claim = published_command(
+        &fixture.driver,
+        fixture.node.path(),
         &["claim", "sample-own", "--author", "alpha", "--json"],
+    )
+    .env("FIXED_CLOCK", earlier)
+    .output()?;
+    assert!(
+        claim.status.success(),
+        "{}",
+        String::from_utf8_lossy(&claim.stderr)
+    );
+    copy_directory(
+        &fixture.node.path().join(".agents"),
+        &fixture.rust.path().join(".agents"),
     )?;
-    let earlier = "2026-08-18T10:00:00.000Z";
-    for root in [fixture.node.path(), fixture.rust.path()] {
-        for relative in ["tasks/sample-own.toon", "history/sample-own.jsonl"] {
-            let path = root.join(".agents/pm").join(relative);
-            let bytes = fs::read_to_string(&path)?;
-            assert!(bytes.contains(CLOCK));
-            fs::write(path, bytes.replace(CLOCK, earlier))?;
-        }
-    }
+    fixture.verify()?;
     let args = ["claim", "sample-own", "--author", "beta"];
     let before = fixture.snapshots()?;
     fixture.step(&args)?;
@@ -2131,6 +2244,9 @@ fn stale_foreign_claim_refusal_matches_published() -> Result<(), Box<dyn std::er
     let output = native_command(fixture.rust.path(), &args).output()?;
     assert_eq!(fixture.snapshots()?, before);
     let receipt: serde_json::Value = serde_json::from_slice(&output.stderr)?;
+    assert_eq!(receipt["claim_source"], "claim");
+    assert_eq!(receipt["claimed_at"], earlier);
+    assert_eq!(receipt["claim_activity"]["claim_age_hours"], 96);
     assert_eq!(receipt["claim_activity"]["stale_policy"]["stale"], true);
     assert_eq!(
         receipt["claim_activity"]["stale_policy"]["eligible_at"],
@@ -2729,6 +2845,99 @@ fn start_declared_blocker_variants_match_published_bytes() -> Result<(), Box<dyn
     }
     Ok(())
 }
+/// Redacting an external selector preserves diagnostics and withdraws its update command.
+#[test]
+fn external_blocker_removal_guidance_respects_selector_projection()
+-> Result<(), Box<dyn std::error::Error>> {
+    for private in [false, true] {
+        let Some(fixture) = Fixture::new("none")? else {
+            return Ok(());
+        };
+        let id = if private {
+            "https://fixture:synthetic-secret@example.invalid/issue"
+        } else {
+            "https://example.invalid/issue"
+        };
+        let selector = format!("id={id},kind=blocked_by");
+        let dependency = format!("{selector},source_kind=external");
+        prepare(
+            &fixture,
+            &[
+                "update",
+                "sample-own",
+                "--dep",
+                &dependency,
+                "--author",
+                "alpha",
+                "--json",
+            ],
+        )?;
+        let before = fixture.snapshots()?;
+        let args = [
+            "claim",
+            "sample-own",
+            "--start",
+            "--author",
+            "alpha",
+            "--json",
+        ];
+        let oracle = published_run(&fixture.driver, fixture.node.path(), &args)?;
+        let native = native_command(fixture.rust.path(), &args).output()?;
+        assert_eq!(oracle.status.code(), Some(4));
+        assert_eq!(native.status.code(), Some(4));
+        let oracle: serde_json::Value = serde_json::from_slice(&oracle.stderr)?;
+        let native: serde_json::Value = serde_json::from_slice(&native.stderr)?;
+        assert_eq!(oracle["code"], "start_blocked_by_open_dependency");
+        assert_eq!(native["code"], oracle["code"]);
+        let workspace = pm_rust::Workspace::discover(fixture.rust.path())?;
+        let error = workspace
+            .claim_with_options(
+                &pm_rust::OwnershipItem {
+                    id: "sample-own".to_owned(),
+                    author: "alpha".to_owned(),
+                    timestamp: Some(CLOCK.to_owned()),
+                    message: None,
+                    force: false,
+                    if_available: false,
+                    provenance_role: None,
+                },
+                &pm_rust::OwnershipOptions {
+                    start: true,
+                    ..Default::default()
+                },
+            )
+            .err()
+            .ok_or("blocker admission")?;
+        let pm_rust::PmRustError::OwnershipRefusal { detail, context } = error else {
+            return Err(format!("unexpected blocker refusal: {error}").into());
+        };
+        for receipt in [&native, &context] {
+            let steps = receipt["next_steps"].to_string();
+            if private {
+                assert!(!steps.contains("--dep-remove"), "{steps}");
+                assert!(steps.contains("use its original ID"), "{steps}");
+                assert!(!receipt.to_string().contains("synthetic-secret"));
+                assert_eq!(
+                    receipt["details"]["open_blockers"][0]["id"],
+                    "https://[redacted]@example.invalid/issue"
+                );
+            } else {
+                assert_eq!(receipt["next_steps"], oracle["next_steps"]);
+                assert!(
+                    steps.contains("--dep-remove") && steps.contains(&selector),
+                    "{steps}"
+                );
+            }
+        }
+        if private {
+            assert!(!detail.contains("synthetic-secret"));
+        }
+        assert_eq!(fixture.snapshots()?, before);
+        fixture.compare_bytes()?;
+    }
+    Ok(())
+}
+
 /// Removed and aliased workflow progress selectors use the same registered fallback for both paths.
 #[test]
 fn configured_progress_resolution_matches_published_registry()

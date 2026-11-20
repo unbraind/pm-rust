@@ -462,6 +462,20 @@ fn round5_external_and_incomplete_unblock_advice() {
     );
 }
 
+/// A projected dependency ID cannot be replayed as a removal selector.
+#[test]
+fn credential_blocker_unblock_advice_uses_original_id() {
+    let mut before = document("sample-own", "open");
+    let id = "https://fixture:synthetic-secret@example.invalid/issue";
+    before.metadata.extra.insert(
+        "dependencies".to_owned(),
+        json!([{"id":id,"kind":"blocked_by","source_kind":"external"}]),
+    );
+    let advice = unblock(&before, id, &json!({"id_prefix":"sample-"}));
+    assert!(advice.contains("use its original ID"));
+    assert!(!advice.contains("--dep-remove") && !advice.contains("synthetic-secret"));
+}
+
 /// Closed blockers admit progress, force admits open blockers, and complete missing IDs stay unresolved.
 #[test]
 fn round5_closed_and_force_open_blockers_use_shared_policy()

@@ -832,6 +832,14 @@ pub fn partial_failure(error: PmRustError, id: &str, completed: &str) -> PmRustE
         steps.extend(original.clone());
     }
     context["item_id"] = json!(id);
+    if completed == "close" {
+        context["completed_step"] = json!(completed);
+        if context["code"] == "lock_conflict" {
+            context["required"] = json!(
+                "Wait for the lock to clear, then retry the release step with the original identity and applicable release options."
+            );
+        }
+    }
     context["why"] = json!(format!(
         "{completed} completed for {id} before the following step failed. No rollback was performed.{original_why}"
     ));

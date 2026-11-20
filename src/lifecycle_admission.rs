@@ -339,14 +339,19 @@ fn unblock(before: &ItemDocument, first: &str, settings: &Value) -> String {
             .as_str()
             .is_some_and(|id| external(id, "") || id == canonical(id))
     {
+        let id = matches[0]["id"].as_str().unwrap_or_default();
+        let selector = format!("id={id},kind=blocked_by");
+        if crate::refusal::diagnostic(&selector, &[]) != selector {
+            return format!(
+                "Inspect the dependency with {} and use its original ID to remove the blocked_by edge.",
+                inspect()
+            );
+        }
         return crate::render_pm_command([
             "update",
             &before.metadata.id,
             "--dep-remove",
-            &format!(
-                "id={},kind=blocked_by",
-                matches[0]["id"].as_str().unwrap_or_default()
-            ),
+            &selector,
         ]);
     }
     inspect()

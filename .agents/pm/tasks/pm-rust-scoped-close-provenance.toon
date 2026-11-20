@@ -1,0 +1,16 @@
+id: pm-rust-scoped-close-provenance
+title: Match scoped close provenance with the published oracle
+description: A detected session that claims and then closes an item records inferred role and topic on the close history entry in the published 2026.11.18 CLI. Native close records the argv role and omits the inferred topic. The item bytes and close output match. The separate release record and session cleanup are covered by the Round FG fix.
+type: Task
+status: open
+priority: 3
+tags[3]: attribution,follow-up,oracle
+created_at: "2026-11-20T21:19:33.916Z"
+updated_at: "2026-11-20T21:20:48.150Z"
+author: codex-sol
+acceptance_criteria: Compare the exact close history record for detected and asserted authors with populated semantic attribution.
+parent: pm-rust-oracle-1118
+files[2]{path,scope}:
+  src/main.rs,project
+  tests/claim_release_differential.rs,project
+body: ""

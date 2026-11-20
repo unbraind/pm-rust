@@ -920,7 +920,6 @@ fn acquire_lock(
     owner: &str,
     locks: &LockSettings,
     force_stale: bool,
-    timestamp: &str,
     wait_ms: u64,
 ) -> Result<ItemLock, PmRustError> {
     if id.is_empty()
@@ -935,15 +934,14 @@ fn acquire_lock(
         ));
     }
     wait_for_lock(id, lock_retry(wait_ms), || {
-        // Ownership leases use the wall clock. The caller's timestamp is for history.
-        let wall_clock = (locks.age == LockAge::OwnershipReceipt).then(now_iso);
+        // All item writers share these leases. Mutation timestamps belong to history.
         acquire_lock_attempt(
             pm_root,
             id,
             owner,
             locks.ttl_seconds,
             force_stale,
-            wall_clock.as_deref().unwrap_or(timestamp),
+            &now_iso(),
             locks.age,
         )
     })
@@ -2109,7 +2107,6 @@ pub(crate) fn create_item(
         &request.author,
         &settings.locks,
         request.force_stale_lock,
-        &timestamp,
         lock_wait_budget(
             std::env::var("PM_LOCK_WAIT_MS").ok().as_deref(),
             settings.locks.wait_ms,
@@ -2279,7 +2276,6 @@ pub(crate) fn update_item(
         &request.author,
         &settings.locks,
         request.force_stale_lock,
-        &timestamp,
         lock_wait_budget(
             std::env::var("PM_LOCK_WAIT_MS").ok().as_deref(),
             settings.locks.wait_ms,
@@ -2329,7 +2325,6 @@ pub(crate) fn comment_item(
         &request.author,
         &settings.locks,
         request.force_stale_lock,
-        &timestamp,
         lock_wait_budget(
             std::env::var("PM_LOCK_WAIT_MS").ok().as_deref(),
             settings.locks.wait_ms,
@@ -2778,13 +2773,14 @@ pub(crate) fn close_item(
         request.force_stale_lock
             || request.fields.force
             || !settings.governance.stale_requires_force(),
-        &timestamp,
         lock_wait_budget(
             std::env::var("PM_LOCK_WAIT_MS").ok().as_deref(),
             settings.locks.wait_ms,
         ),
     )?;
     let (item_path, history_path, before) = recover_and_locate(pm_root, "close", &request.id)?;
+    #[cfg(test)]
+    tests::after_close_read();
     if (crate::list::terminal(&before.metadata.status)
         || before.metadata.status == settings.workflow.close_status)
         && !request.fields.force
@@ -3210,7 +3206,6 @@ pub(crate) fn collection_item(
         &options.author,
         &settings.locks,
         options.force || !settings.governance.stale_requires_force(),
-        &timestamp,
         wait_ms,
     )
     .map_err(|error| match error {
@@ -3395,7 +3390,6 @@ pub(crate) fn ownership_item_with_options(
         &request.author,
         &settings.locks,
         request.force || !settings.governance.stale_requires_force(),
-        &timestamp,
         wait_ms,
     ) {
         Ok(lock) => lock,
@@ -3733,7 +3727,6 @@ pub(crate) fn lifecycle_status(
         &request.author,
         &settings.locks,
         request.force || !settings.governance.stale_requires_force(),
-        &timestamp,
         lock_wait_budget(
             std::env::var("PM_LOCK_WAIT_MS").ok().as_deref(),
             settings.locks.wait_ms,

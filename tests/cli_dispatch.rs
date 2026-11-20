@@ -589,6 +589,106 @@ fn close_dispatch_closes_once_and_refuses_repeats() -> Result<(), Box<dyn std::e
     Ok(())
 }
 
+/// A contender between the two CLI steps leaves close durable and suppresses close replay.
+#[cfg(target_os = "linux")]
+#[test]
+fn close_release_contention_reports_only_release_recovery() -> Result<(), Box<dyn std::error::Error>>
+{
+    use rustix::fs::{Mode, OFlags, open};
+    use std::io::Write as _;
+    use std::process::Stdio;
+    use std::time::{Duration, Instant};
+
+    let workspace = workspace()?;
+    seed_item(&workspace)?;
+    let root = workspace.path().join(".agents/pm");
+    let item = root.join("tasks/sample-cli.toon");
+    let history = root.join("history/sample-cli.jsonl");
+    let resumed = serde_json::json!({
+        "version":1, "id":"sample-cli", "item_type":"Task",
+        "item_bytes":fs::read_to_string(&item)?, "history_bytes":fs::read_to_string(&history)?,
+    });
+    // Close reads this already-committed create journal under the item lock.
+    let journal = root.join("runtime/transactions/create-sample-cli.json");
+    rustix::fs::mkfifoat(rustix::fs::CWD, &journal, Mode::RUSR | Mode::WUSR)?;
+    let mut child = Command::new(env!("CARGO_BIN_EXE_pm-rust"))
+        .current_dir(workspace.path())
+        .env("PM_LOCK_WAIT_MS", "0")
+        .args([
+            "--workspace=.",
+            "close",
+            "sample-cli",
+            "Done",
+            "--author=cli-agent",
+            "--release-assignment",
+            "--json",
+        ])
+        .stdout(Stdio::piped())
+        .stderr(Stdio::piped())
+        .spawn()?;
+    let interposed = (|| -> Result<fs::File, Box<dyn std::error::Error>> {
+        let deadline = Instant::now() + Duration::from_secs(15);
+        let mut writer = loop {
+            match open(
+                &journal,
+                OFlags::WRONLY | OFlags::NONBLOCK | OFlags::CLOEXEC,
+                Mode::empty(),
+            ) {
+                Ok(writer) => break fs::File::from(writer),
+                Err(rustix::io::Errno::NXIO) => {}
+                Err(error) => return Err(error.into()),
+            }
+            if child.try_wait()?.is_some() || Instant::now() >= deadline {
+                return Err("close did not reach journal recovery".into());
+            }
+            std::thread::sleep(Duration::from_millis(5));
+        };
+        // Holding the cleanup gate leaves the incumbent close free to commit.
+        // Release's next acquisition will observe this gate held by the contender.
+        let gate = fs::File::options()
+            .read(true)
+            .write(true)
+            .open(root.join("locks/sample-cli.lock.gate-lease"))?;
+        gate.try_lock()?;
+        writer.write_all(resumed.to_string().as_bytes())?;
+        Ok(gate)
+    })();
+    if interposed.is_err() {
+        let _ = child.kill();
+        let _ = child.wait();
+    }
+    let _gate = interposed?;
+    let output = child.wait_with_output()?;
+    assert_eq!(
+        output.status.code(),
+        Some(4),
+        "{}",
+        String::from_utf8_lossy(&output.stderr)
+    );
+    assert!(output.stdout.is_empty());
+    let receipt: serde_json::Value = serde_json::from_slice(&output.stderr)?;
+    assert_eq!(receipt["code"], "lock_conflict");
+    assert!(receipt["why"].to_string().contains("close completed"));
+    assert!(
+        receipt["required"]
+            .to_string()
+            .contains("retry the release step")
+    );
+    assert!(
+        receipt["recovery"]["attempted_command"]
+            .to_string()
+            .contains("--release-assignment")
+    );
+    for field in ["suggested_retry", "suggested_retry_args"] {
+        assert!(receipt["recovery"].get(field).is_none());
+    }
+    assert!(fs::read_to_string(item)?.contains("status: closed"));
+    let history = fs::read_to_string(history)?;
+    let last: serde_json::Value = serde_json::from_str(history.lines().last().ok_or("history")?)?;
+    assert_eq!(last["op"], "close");
+    Ok(())
+}
+
 /// A future release timestamp refuses before close changes the item or its history.
 #[test]
 fn close_release_refuses_future_timestamp_before_writing() -> Result<(), Box<dyn std::error::Error>>
@@ -2088,20 +2188,52 @@ fn legacy_default_author_does_not_block_collection_reads() -> Result<(), Box<dyn
     let mut settings: serde_json::Value = serde_json::from_slice(&fs::read(&path)?)?;
     settings["author_default"] =
         serde_json::json!("https://fixture:synthetic-secret@example.invalid");
-    fs::write(path, settings.to_string())?;
-    for args in [
-        vec!["files", "sample-cli", "--json"],
-        vec!["files", "sample-cli", "--add", "file.rs", "--json"],
-        vec!["files", "sample-cli", "--remove", "file.rs", "--json"],
+    fs::write(&path, settings.to_string())?;
+    for (args, exit) in [
+        (vec!["files", "sample-cli", "--json"], 0),
+        (vec!["files", "sample-cli", "--add", "file.rs", "--json"], 2),
+        (
+            vec!["files", "sample-cli", "--remove", "file.rs", "--json"],
+            2,
+        ),
+        (vec!["claim", "sample-cli", "--json"], 2),
     ] {
         let out = Command::new(env!("CARGO_BIN_EXE_pm-rust"))
             .current_dir(tracker.path())
             .env_remove("PM_AUTHOR")
             .args(&args)
             .output()?;
-        assert_eq!(out.status.code(), Some(if args.len() == 3 { 0 } else { 2 }));
+        assert_eq!(out.status.code(), Some(exit));
         assert!(!String::from_utf8_lossy(&out.stderr).contains("synthetic-secret"));
+        if exit == 2 {
+            let refusal: serde_json::Value = serde_json::from_slice(&out.stderr)?;
+            assert!(
+                refusal["required"]
+                    .as_str()
+                    .ok_or("required")?
+                    .contains("Set author_default")
+            );
+            assert!(
+                refusal["next_steps"]
+                    .to_string()
+                    .contains("with author_default set")
+            );
+        }
     }
+    settings["author_default"] = serde_json::json!("configured-agent");
+    fs::write(path, settings.to_string())?;
+    let output = Command::new(env!("CARGO_BIN_EXE_pm-rust"))
+        .current_dir(tracker.path())
+        .env_remove("PM_AUTHOR")
+        .args(["claim", "sample-cli", "--json"])
+        .output()?;
+    assert!(
+        output.status.success(),
+        "{}",
+        String::from_utf8_lossy(&output.stderr)
+    );
+    let item = pm_rust::Workspace::discover(tracker.path())?.get("sample-cli")?;
+    assert_eq!(item.metadata.extra["assignee"], "configured-agent");
     Ok(())
 }
 

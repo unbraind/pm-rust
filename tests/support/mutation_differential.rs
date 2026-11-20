@@ -16,6 +16,14 @@ pub fn run_minimal(
     arguments: &[String],
     working_directory: &Path,
 ) -> Result<std::process::Output, Box<dyn std::error::Error>> {
+    minimal_command(program, working_directory)
+        .args(arguments)
+        .output()
+        .map_err(Into::into)
+}
+
+/// Prepares the oracle process so a fixture can override the clock before running it.
+pub fn minimal_command(program: &Path, working_directory: &Path) -> std::process::Command {
     let mut command = super::published_cli::oracle_command(program);
     command.current_dir(working_directory);
     isolate_environment(&mut command);
@@ -24,7 +32,7 @@ pub fn run_minimal(
     command.env("DO_NOT_TRACK", "1");
     command.env("PM_CONTEXT_USAGE_DISABLED", "1");
     command.env("FIXED_CLOCK", CLOCK);
-    command.args(arguments).output().map_err(Into::into)
+    command
 }
 
 /// Recursively copies one directory's regular files and subdirectories.
