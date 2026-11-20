@@ -13,6 +13,20 @@ const RECENT: &str = "2026-08-06T10:00:00.000Z";
 const NOW: &str = "2026-08-07T10:00:00.000Z";
 const HOLDER: &str = "alpha";
 
+/// The typed settings decoder follows the oracle's positive safe integer range.
+#[test]
+fn stale_threshold_rejects_invalid_numbers() -> TestResult {
+    for invalid in ["0", "-1", "72.5", "9007199254740992", "\"72\"", "null"] {
+        let settings = format!(r#"{{"stale_in_progress_hours":{invalid}}}"#);
+        assert!(crate::strict_json::from_str::<super::MutationGuard>(&settings).is_err());
+    }
+    let max = crate::strict_json::from_str::<super::MutationGuard>(
+        r#"{"stale_in_progress_hours":9007199254740991}"#,
+    )?;
+    assert_eq!(max.stale_in_progress_hours, 9_007_199_254_740_991);
+    Ok(())
+}
+
 fn record(op: &str, ts: &str, patch: Value) -> Value {
     let mut record = json!({"op": op, "ts": ts});
     record["patch"] = patch;
@@ -147,6 +161,20 @@ fn claim_history_provenance_and_activity_match_published() -> TestResult {
     reclassified["event_class"] = json!("substantive");
     let cases = [
         ("untouched", vec![claim()], None, false, true),
+        (
+            "date-only-claim",
+            vec![record("claim", "2026-08-02", claim()["patch"].clone())],
+            None,
+            false,
+            true,
+        ),
+        (
+            "invalid-date-only-claim",
+            vec![record("claim", "2026-13-02", claim()["patch"].clone())],
+            None,
+            true,
+            false,
+        ),
         ("recent-work", vec![claim(), substantive], None, false, true),
         (
             "stored-maintenance",

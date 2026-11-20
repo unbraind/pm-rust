@@ -178,6 +178,11 @@ pub(crate) fn classify_history_event(operation: &str, patch: &[HistoryPatch]) ->
     classify_history_paths(operation, patch.iter().map(|change| change.path.as_str()))
 }
 
+/// Checks that every supplied patch row has a string path.
+pub(crate) fn patch_paths_are_strings(patch: &[Value]) -> bool {
+    patch.iter().all(|row| row["path"].is_string())
+}
+
 /// Classifies decoded history paths without constructing a new patch.
 pub(crate) fn classify_history_paths<'a>(
     operation: &str,

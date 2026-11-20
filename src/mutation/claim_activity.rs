@@ -11,7 +11,10 @@ use crate::item::ItemDocument;
 #[derive(Debug, serde::Deserialize)]
 pub(super) struct MutationGuard {
     /// Minimum whole hours of inactivity before a claim is stale.
-    #[serde(default = "default_threshold")]
+    #[serde(
+        default = "default_threshold",
+        deserialize_with = "deserialize_threshold"
+    )]
     pub(super) stale_in_progress_hours: i64,
 }
 
@@ -28,8 +31,27 @@ const fn default_threshold() -> i64 {
     72
 }
 
+/// Decodes whole JSON numbers within the published positive safe-integer range.
+#[allow(
+    clippy::cast_possible_truncation,
+    reason = "the range and whole value are checked"
+)]
+fn deserialize_threshold<'de, D: serde::Deserializer<'de>>(reader: D) -> Result<i64, D::Error> {
+    let hours = <f64 as serde::Deserialize>::deserialize(reader)?;
+    if (1.0..=9_007_199_254_740_991.0).contains(&hours) && hours.fract() == 0.0 {
+        Ok(hours as i64)
+    } else {
+        Err(serde::de::Error::custom(
+            "expected positive safe integer hours",
+        ))
+    }
+}
+
 /// Parses a stored timestamp for activity comparisons.
 fn parse(value: &str) -> Option<OffsetDateTime> {
+    if value.len() == 10 {
+        return OffsetDateTime::parse(&format!("{value}T00:00:00Z"), &Rfc3339).ok();
+    }
     OffsetDateTime::parse(value, &Rfc3339).ok()
 }
 
@@ -38,10 +60,7 @@ fn record_fields(entry: &Value) -> Option<(&str, &str, &[Value])> {
     let timestamp = entry["ts"].as_str()?;
     let operation = entry["op"].as_str()?;
     let patch = entry["patch"].as_array()?;
-    patch
-        .iter()
-        .all(|row| row["path"].is_string())
-        .then_some((timestamp, operation, patch))
+    crate::history::patch_paths_are_strings(patch).then_some((timestamp, operation, patch))
 }
 
 /// Prefix activity carried by a compaction baseline.

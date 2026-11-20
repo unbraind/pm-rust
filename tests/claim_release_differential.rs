@@ -77,6 +77,11 @@ impl Fixture {
 
     /// Executes a step and compares complete envelopes, exit codes and durable bytes.
     fn step(&self, args: &[&str]) -> Result<(), Box<dyn std::error::Error>> {
+        self.step_with_exit(args).map(|_| ())
+    }
+
+    /// Returns the common exit code after comparing both command results.
+    fn step_with_exit(&self, args: &[&str]) -> Result<Option<i32>, Box<dyn std::error::Error>> {
         let node = published_run(&self.driver, self.node.path(), args)?;
         let rust = native_command(self.rust.path(), args).output()?;
         assert_eq!(
@@ -97,7 +102,7 @@ impl Fixture {
             );
         }
         self.compare_bytes()?;
-        Ok(())
+        Ok(node.status.code())
     }
 
     /// Asserts exact item and history bytes, without normalization.
@@ -1862,14 +1867,69 @@ fn abandoned_blank_lock_receipts_match_oracle() -> Result<(), Box<dyn std::error
             );
         }
     }
-    fixture.step(&[
-        "claim",
-        "sample-own",
-        "--author",
-        "alpha",
-        "--force",
-        "--json",
-    ])
+    assert_eq!(
+        fixture.step_with_exit(&[
+            "claim",
+            "sample-own",
+            "--author",
+            "alpha",
+            "--force",
+            "--json",
+        ])?,
+        Some(0)
+    );
+    for root in [fixture.node.path(), fixture.rust.path()] {
+        let workspace = pm_rust::Workspace::discover(root)?;
+        assert_eq!(
+            workspace.get("sample-own")?.metadata.extra["assignee"].as_str(),
+            Some("alpha")
+        );
+    }
+    Ok(())
+}
+
+/// The pinned settings loader accepts whole numeric hours regardless of JSON notation.
+#[test]
+fn create_accepts_integral_stale_threshold_notation() -> Result<(), Box<dyn std::error::Error>> {
+    let Some(fixture) = Fixture::new("none")? else {
+        return Ok(());
+    };
+    for (raw, id) in [("72.0", "sample-decimal"), ("24e0", "sample-exponent")] {
+        for root in [fixture.node.path(), fixture.rust.path()] {
+            let path = root.join(".agents/pm/settings.json");
+            let mut settings: serde_json::Value = serde_json::from_slice(&fs::read(&path)?)?;
+            settings["mutation_guard"]["stale_in_progress_hours"] = serde_json::json!(72);
+            let json = serde_json::to_string(&settings)?;
+            let json = json.replace(
+                "\"stale_in_progress_hours\":72",
+                &format!("\"stale_in_progress_hours\":{raw}"),
+            );
+            fs::write(path, json)?;
+        }
+        let args = [
+            "create",
+            "--id",
+            id,
+            "--title",
+            "Threshold settings",
+            "--type",
+            "Task",
+            "--author",
+            "alpha",
+        ];
+        for output in [
+            published_run(&fixture.driver, fixture.node.path(), &args)?,
+            native_command(fixture.rust.path(), &args).output()?,
+        ] {
+            assert!(
+                output.status.success(),
+                "threshold {raw}: {}",
+                String::from_utf8_lossy(&output.stderr)
+            );
+        }
+        fixture.compare_bytes()?;
+    }
+    Ok(())
 }
 
 /// A stored credential named like an option leaves that option usable in the attempted command.

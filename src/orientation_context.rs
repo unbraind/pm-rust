@@ -72,20 +72,22 @@ fn optional(a: &Value, b: &Value, date: bool) -> std::cmp::Ordering {
 fn recency(entries: &mut [Value], item: &Value) -> String {
     entries.sort_by(|a, b| crate::collation::compare(text(a, "ts"), text(b, "ts")));
     for entry in entries.iter().rev() {
+        // Legacy records without a patch still supply recency in the published reader.
+        let patch = entry["patch"].as_array().map_or(&[][..], Vec::as_slice);
+        if !crate::history::patch_paths_are_strings(patch) {
+            continue;
+        }
         let substantive = match entry["event_class"].as_str() {
             Some("substantive") => true,
             Some("maintenance") => false,
             _ => {
-                let paths = entry["patch"]
-                    .as_array()
-                    .into_iter()
-                    .flatten()
-                    .map(|operation| text(operation, "path"));
+                let paths = patch.iter().filter_map(|row| row["path"].as_str());
                 crate::history::classify_history_paths(text(entry, "op"), paths) == "substantive"
             }
         };
-        if substantive && !text(entry, "ts").is_empty() {
-            return text(entry, "ts").to_owned();
+        let timestamp = text(entry, "ts");
+        if substantive && !timestamp.is_empty() {
+            return timestamp.to_owned();
         }
     }
     let release = text(item, "release").trim_start_matches('v');

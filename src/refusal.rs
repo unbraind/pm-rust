@@ -266,19 +266,24 @@ struct Credentials {
 
 impl Credentials {
     /// Registers credentials supplied by the invocation and persisted refusal provenance.
-    fn new(args: &[String]) -> Self {
-        let spans = Self::spans(args);
+    fn new(args: &[String], holder: Option<&str>) -> Self {
+        let spans = Self::spans(args, holder);
         CLI_USERINFO
             .with_borrow(|scope| Self::from_spans(spans.iter().chain(scope.iter().flatten())))
     }
 
     /// Collects userinfo without interpreting public recovery text as an asserted identity.
-    fn spans(args: &[String]) -> Vec<String> {
+    fn spans(args: &[String], holder: Option<&str>) -> Vec<String> {
         let mut spans = Vec::new();
         for token in args {
             for (start, end) in userinfos(token) {
                 spans.push(token[start..end].to_owned());
             }
+        }
+        if let Some(holder) = holder
+            && let Some((start, end)) = crate::ownership::identity_userinfo(holder)
+        {
+            spans.push(holder[start..end].to_owned());
         }
         spans
     }
@@ -536,7 +541,7 @@ impl Credentials {
 pub fn diagnostic(text: &str, raw: &[String]) -> String {
     let mut sources = raw.to_vec();
     collect_credential_sources(&Value::String(text.to_owned()), &mut sources);
-    Credentials::new(&sources).text(text, false)
+    Credentials::new(&sources, None).text(text, false)
 }
 
 /// Projects the public SDK fields before constructing a structured refusal.
@@ -550,12 +555,7 @@ pub(crate) fn sdk_fields(
     if !userinfos(&detail).is_empty() {
         sources.push(detail.clone());
     }
-    let mut spans = Credentials::spans(&sources);
-    if let Some(holder) = holder
-        && let Some((start, end)) = crate::ownership::identity_userinfo(holder)
-    {
-        spans.push(holder[start..end].to_owned());
-    }
+    let spans = Credentials::spans(&sources, holder);
     if spans.is_empty() {
         return (detail, context);
     }
@@ -598,11 +598,11 @@ fn collect_credential_sources(value: &Value, sources: &mut Vec<String>) {
 pub fn redact(payload: &mut Value, raw: &[String]) {
     let mut sources = raw.to_vec();
     collect_credential_sources(payload, &mut sources);
-    let credentials = Credentials::new(&sources);
     let original = payload.clone();
     let stored_holder = (original["code"] == "already_claimed_by")
         .then(|| original["claimed_by"].as_str())
         .flatten();
+    let credentials = Credentials::new(&sources, stored_holder);
     if let Some(holder) = stored_holder
         && let std::borrow::Cow::Owned(safe) = crate::AuthorIdentity::redact_credentials(holder)
     {
@@ -614,9 +614,14 @@ pub fn redact(payload: &mut Value, raw: &[String]) {
         }
     }
     credentials.value(payload, false, false, true);
+    if !payload.is_object() {
+        return;
+    }
     // A stored holder can be redacted without making a clean invocation unreplayable.
     if original["code"] == "already_claimed_by"
-        && stored_holder.is_some_and(|holder| !userinfos(holder).is_empty())
+        && stored_holder
+            .and_then(crate::ownership::identity_userinfo)
+            .is_some()
         && original["recovery"].get("suggested_retry").is_none()
         && original["recovery"].get("suggested_retry_args").is_none()
         && original["recovery"] == payload["recovery"]
@@ -721,7 +726,7 @@ mod tests {
     #[test]
     fn round16_userinfo_components_share_registration() {
         for &(url, message, expected) in corpus::USERINFO_COMPONENTS {
-            let credentials = Credentials::new(&[url.to_owned()]);
+            let credentials = Credentials::new(&[url.to_owned()], None);
             assert_eq!(credentials.text(message, false), expected, "{url}");
             for source_in_args in [false, true] {
                 let mut raw = vec![
@@ -779,7 +784,7 @@ mod tests {
                 let source = format!("{prefix}{input}");
                 let expected = format!("{prefix}{expected}");
                 let private = source != expected;
-                let credentials = Credentials::new(std::slice::from_ref(&source));
+                let credentials = Credentials::new(std::slice::from_ref(&source), None);
                 assert_eq!(credentials.carried, private, "registration: {source}");
                 assert_eq!(redact_token(&source), expected, "projection: {source}");
                 for raw in [vec![], vec![source.clone()]] {
@@ -829,7 +834,7 @@ mod tests {
             for &prefix in corpus::DECORATIONS {
                 let source = format!("{prefix}{input}");
                 assert!(
-                    !Credentials::new(std::slice::from_ref(&source)).carried,
+                    !Credentials::new(std::slice::from_ref(&source), None).carried,
                     "{source}"
                 );
                 let mut payload = json!({"claimed_by":source,"recovery":{"suggested_retry":"pm claim sample-own","suggested_retry_args":["claim","sample-own"]}});
@@ -1260,10 +1265,13 @@ mod tests {
             redact_token("https:\\\\u:secret@host.invalid"),
             "https:\\\\[redacted]@host.invalid"
         );
-        let credentials = Credentials::new(&[
-            format!("https://u:{}@host.invalid", "large".repeat(100_000)),
-            "https://v:small6@other.invalid".to_owned(),
-        ]);
+        let credentials = Credentials::new(
+            &[
+                format!("https://u:{}@host.invalid", "large".repeat(100_000)),
+                "https://v:small6@other.invalid".to_owned(),
+            ],
+            None,
+        );
         assert_eq!(credentials.text("small6", false), REDACTED);
         assert_eq!(credentials.text("ordinary", false), "ordinary");
         let mut payload = json!({"code":4,"details":{"normalizedInvocationArgs":[{"echo":"https://u:long-secret@host.invalid"}]}});
@@ -1296,12 +1304,71 @@ mod tests {
         assert!(payload["recovery"].get("suggested_retry").is_none());
     }
 
+    /// The public projection preserves JSON shapes and masks nested values.
+    #[test]
+    fn redact_preserves_non_object_payloads() {
+        let url = "https://fixture:synthetic-secret@example.invalid";
+        let safe = "https://[redacted]@example.invalid";
+        let mut array = json!([url, {"value":"synthetic-secret"}]);
+        redact(&mut array, &[]);
+        assert_eq!(array, json!([safe, {"value":REDACTED}]));
+        let mut scalar = json!(url);
+        redact(&mut scalar, &[]);
+        assert_eq!(scalar, safe);
+        let mut null = Value::Null;
+        redact(&mut null, &[url.to_owned()]);
+        assert_eq!(null, Value::Null);
+    }
+
+    /// Stored identities protect copied values without ambient CLI enrollment.
+    #[test]
+    fn redact_registers_custom_holder_without_cli_scope() {
+        for separator in ["@", "%40"] {
+            let holder = format!("custom:author:synthetic-secret{separator}example.invalid");
+            let mut payload = json!({
+                "code":"already_claimed_by",
+                "claimed_by":holder,
+                "title":format!("Held by {holder}"),
+                "detail":format!("Held by {holder}"),
+                "recovery":{
+                    "normalized_args":["claim","sample","--author","beta","--message=synthetic-secret"],
+                    "provided_fields":["--author"],
+                    "attempted_command":"pm claim sample --author beta --message=synthetic-secret",
+                    "copy":"synthetic-secret",
+                    "suggested_retry":"pm claim sample",
+                    "suggested_retry_args":["claim","sample"]
+                }
+            });
+            redact(&mut payload, &[]);
+            assert_eq!(
+                payload["claimed_by"],
+                format!("custom:[redacted]{separator}example.invalid")
+            );
+            assert_eq!(payload["recovery"]["copy"], REDACTED);
+            assert_eq!(payload["recovery"]["normalized_args"][2], "--author");
+            assert_eq!(
+                payload["recovery"]["normalized_args"][4],
+                "--message=[redacted]"
+            );
+            assert_eq!(payload["recovery"]["provided_fields"], json!(["--author"]));
+            assert!(
+                payload["recovery"]["attempted_command"]
+                    .as_str()
+                    .unwrap_or_default()
+                    .contains("--author beta")
+            );
+            assert!(payload["recovery"].get("suggested_retry").is_none());
+            assert!(payload["recovery"].get("suggested_retry_args").is_none());
+            assert!(!payload.to_string().contains("synthetic-secret"));
+        }
+    }
+
     /// UTF-16 fragments and shell/JSON spellings are projected without shifting boundaries.
     #[test]
     fn unicode_and_escaped_fragments_are_redacted() {
         for secret in ["ab🚀cdefgh", "a\\b\"c$d`efgh", "a b", "İabcdef"] {
             let credentials =
-                Credentials::new(&[format!("https://fixture:{secret}@example.invalid")]);
+                Credentials::new(&[format!("https://fixture:{secret}@example.invalid")], None);
             let encoded = crate::stringify_json(&json!(secret), false);
             assert_eq!(credentials.text(secret, false), REDACTED);
             assert_eq!(

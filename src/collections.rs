@@ -952,6 +952,15 @@ fn note_conflict_refusal(
         "why":"A different stored note is usually another agent's rationale, so --add never overwrites it silently.",
         "required":"Re-run with --note-conflict append to keep both notes, or --note-conflict replace to overwrite the stored note."
     });
+    if options
+        .identity
+        .as_ref()
+        .is_some_and(|identity| identity.source == "detected")
+    {
+        context["required"] = json!(
+            "Run the repair in the original detected session with --note-conflict append or replace, or retry through the SDK with the original AuthorIdentity and the chosen note conflict policy."
+        );
+    }
     let (binary, base_args) = if let Some((pm_root, cwd)) = retry_scope {
         let Some((path, cwd)) = pm_root.to_str().zip(cwd.to_str()) else {
             context["next_steps"] = json!([

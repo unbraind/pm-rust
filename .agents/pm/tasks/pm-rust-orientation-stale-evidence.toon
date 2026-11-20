@@ -1,0 +1,12 @@
+id: pm-rust-orientation-stale-evidence
+title: Align native context idle evidence with the published settings and timestamps
+description: Native context still reads stale_in_progress_hours as an integer JSON token and parses idle history timestamps as RFC 3339 only. The pinned pm-cli accepts integral decimal and exponent notation and interprets date-only stored evidence at UTC midnight. Reuse the claim activity semantics and add a pinned-oracle context case for both inputs.
+type: Task
+status: open
+priority: 3
+tags[3]: follow-up,oracle,orientation
+created_at: "2026-11-20T06:08:40.405Z"
+updated_at: "2026-11-20T06:08:40.405Z"
+author: codex-sol
+parent: pm-rust-oracle-1118
+body: ""

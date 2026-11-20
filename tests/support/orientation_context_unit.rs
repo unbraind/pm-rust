@@ -1643,15 +1643,18 @@ fn terminal_progress_reads_advisory_history_once() -> Result<(), Box<dyn std::er
 fn recency_honors_event_classes_and_legacy_paths() {
     let row = item("sample-one", "open");
     let mut entries = [
+        json!({"ts":"2026-08-22T12:00:00Z","op":"update","patch":[{"path":"/body"}]}),
         json!({"ts":"2026-08-23T00:00:00Z","op":"update","patch":[{"path":7}]}),
+        json!({"ts":"2026-08-23T01:00:00Z","op":"update","patch":[{"path":"/body"},{}]}),
         json!({"ts":"2026-08-24T00:00:00Z","op":"tests_update","patch":[{"path":"/body"}]}),
         json!({"ts":"2026-08-25T00:00:00Z","op":"update","patch":[{"path":"/metadata/notes"}]}),
         json!({"ts":"2026-08-26T00:00:00Z","op":"update","event_class":"maintenance","patch":[{"path":"/body"}]}),
         json!({"ts":"2026-08-27T00:00:00Z","op":"release","event_class":"substantive"}),
+        json!({"ts":"2026-08-28T00:00:00Z","op":"update","event_class":"substantive","patch":[{}]}),
     ];
     assert_eq!(super::recency(&mut entries, &row), "2026-08-27T00:00:00Z");
     assert_eq!(
-        super::recency(&mut entries[..4], &row),
-        "2026-08-23T00:00:00Z"
+        super::recency(&mut entries[..6], &row),
+        "2026-08-22T12:00:00Z"
     );
 }

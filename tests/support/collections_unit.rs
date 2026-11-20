@@ -552,6 +552,69 @@ fn artifact_note_conflicts_preserve_storage_and_report_explicit_append() -> Test
     Ok(())
 }
 
+/// A note repair under strict ownership requires the session that holds the item.
+#[test]
+fn artifact_note_repair_uses_the_original_detected_session() -> TestResult {
+    let (directory, workspace) = tracker()?;
+    let root = directory.path();
+    std::fs::write(
+        workspace.pm_root().join("settings.json"),
+        r#"{"governance":{"preset":"strict"}}"#,
+    )?;
+    let identity = |session: &str| {
+        crate::AuthorIdentity::resolve(
+            None,
+            None,
+            &std::collections::BTreeMap::from([("CODEX_THREAD_ID".into(), session.into())]),
+        )
+    };
+    let owner = identity("session-a");
+    let other = identity("session-b");
+    assert_eq!(owner.author, other.author);
+    workspace.claim_with_options(
+        &crate::OwnershipItem {
+            id: "sample-one".into(),
+            author: owner.author.clone(),
+            timestamp: None,
+            message: None,
+            force: false,
+            if_available: false,
+            provenance_role: None,
+        },
+        &crate::OwnershipOptions {
+            identity: Some(owner.clone()),
+            ..crate::OwnershipOptions::default()
+        },
+    )?;
+    let mut options = CollectionOptions {
+        author: owner.author.clone(),
+        identity: Some(owner.clone()),
+        add: vec!["path=a.rs,note=Stored".into()],
+        ..CollectionOptions::default()
+    };
+    workspace.collection("sample-one", "files", &options, root)?;
+    options.add = vec!["path=a.rs,note=Incoming".into()];
+    let Err(PmRustError::CommandRefusal { context, .. }) =
+        workspace.collection("sample-one", "files", &options, root)
+    else {
+        return Err("expected note conflict in the original session".into());
+    };
+    assert_eq!(context["code"], "linked_artifact_note_conflict");
+    let guidance = context["required"].as_str().ok_or("repair requirements")?;
+    assert!(guidance.contains("original detected session"));
+    assert!(guidance.contains("original AuthorIdentity"));
+    options.note_conflict = Some("append".into());
+    options.identity = Some(other);
+    assert!(matches!(
+        workspace.collection("sample-one", "files", &options, root),
+        Err(PmRustError::OwnershipRefusal { context, .. }) if context["code"] == "ownership_conflict"
+    ));
+    options.identity = Some(owner);
+    let result = workspace.collection("sample-one", "files", &options, root)?;
+    assert_eq!(result["files"][0]["note"], "Stored; Incoming");
+    Ok(())
+}
+
 /// Read-only lists, no-op edits, missing entries and I/O failures preserve authoritative state.
 #[test]
 #[allow(clippy::too_many_lines)]
