@@ -2149,8 +2149,11 @@ fn native_note_repair_replays_only_in_the_selected_tracker()
         ("docs", "cli.md", "append", Some("--artifact-cwd=sub")),
         ("docs", "stable.md", "replace", Some("--append-stable")),
     ] {
-        let (author, note) =
-            native_option.map_or(("-fixture", "--json"), |_| ("fixture", "-draft"));
+        let (author, note) = match native_option {
+            None => ("-fixture", "--json"),
+            Some("--append-stable") => ("fixture", "ordinary note"),
+            Some(_) => ("fixture", "-draft"),
+        };
         let expected_note = if mode == "append" {
             format!("selected; {note}")
         } else {
@@ -2277,7 +2280,11 @@ fn artifact_cwd_parent_traversal_preserves_the_operand_base()
         .and_then(std::ffi::OsStr::to_str)
         .ok_or("project name")?;
     let parent_alias = format!("../{name}/sub");
-    for (base, file) in [("sub", "direct.rs"), (&parent_alias, "via-parent.rs")] {
+    for (base, file) in [
+        ("sub", "direct.rs"),
+        (&parent_alias, "via-parent.rs"),
+        ("sub/missing/..", "via-missing.rs"),
+    ] {
         let output = pm_rust(
             &project,
             &[

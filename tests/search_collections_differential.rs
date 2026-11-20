@@ -298,7 +298,8 @@ fn artifact_cwd_traverses_the_symlink_target_parent() -> TestResult {
         &published.path().join(".agents"),
         &rust.path().join(".agents"),
     )?;
-    let pm_root = published.path().join(".agents/pm");
+    // A process traversing the link enters a physical cwd, including on aliased temp roots.
+    let pm_root = published.path().canonicalize()?.join(".agents/pm");
     let args = [
         "files",
         "sample-item",

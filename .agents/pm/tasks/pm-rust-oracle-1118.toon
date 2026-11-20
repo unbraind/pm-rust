@@ -2,16 +2,14 @@ id: pm-rust-oracle-1118
 title: Refresh published pm-cli oracle to 2026.11.18
 description: "Classify the published CLI divergences, update native parity and validate the locked npm oracle on Linux."
 type: Task
-status: in_progress
+status: open
 priority: 1
 tags[6]: "gh:unbraind/pm-cli#1753","gh:unbraind/pm-cli#1754","gh:unbraind/pm-cli#1757","gh:unbraind/pm-rust#176","gh:unbraind/pm-rust#181",oracle
 created_at: "2026-11-18T09:41:09.150Z"
-updated_at: "2026-11-20T14:28:04.942Z"
-assignee: codex-sol
-claim_principal: codex-sol
+updated_at: "2026-11-20T15:19:51.271Z"
 author: codex-sol
 parent: pm-rust-u4al
-comments[65]{created_at,author,text}:
+comments[67]{created_at,author,text}:
   "2026-11-18T09:41:20.010Z",codex-sol,Started from the Dependabot head. npm latest is 2026.11.18. Reviewing the failed matrix and reproducing against the current pin.
   "2026-11-18T09:57:01.888Z",codex-sol,"All seven failed jobs in run 44015087729 report two cases. GH-1707 in 2026.11.13 introduces credential-bearing identity admission and stored-holder redaction. Direct 2026.11.18 probes confirm stored holders are redacted without requiring credential restoration from a clean invocation. The full Linux run also confirms GH-1684 and GH-1703 in 2026.11.14 change TOON receipts and budgeted row counts, and GH-1336 in 2026.11.16 adds claim activity evidence. Implementing these wire changes while the remaining suites run."
   "2026-11-18T10:10:24.585Z",codex-sol,"Published 2026.11.18 accepts the unchanged replay at the old TOON overhead boundary. The same stale-output-cursor defect remains at an adjacent second-projection boundary, with successful replay on either side. Saved an upstream draft after checking related issues. Native already had this stale replay behavior. Kept the existing reprojected-snapshot test and tracked the separate GH-1336 takeover and next write/read work under pm-rust-stale-claim-takeover."
@@ -77,6 +75,8 @@ comments[65]{created_at,author,text}:
   "2026-11-20T13:29:26.284Z",codex-sol,"Round EZ started on df2f418. Verify the eleven review threads against the pinned published CLI and run the regression, lint, changelog, and merged coverage gates."
   "2026-11-20T13:36:17.905Z",codex-sol,"The pinned CLI stores -mreviewed literally after --note, so the parser retains the existing behavior. It accepts --note=--json and rejects the separate form. The symlink-parent case reproduced against both executables. The asserted SDK repair retains the original principal by directing callers to retry with the original identity. Validation is running."
   "2026-11-20T14:28:04.942Z",codex-sol,The instrumented mutation contract exposed another historical timestamp in a live-lock fixture. Updated the affected mutation and collection fixtures to stamp the lease with the current time and kept the historical mutation timestamp. All 29 native mutation contract tests pass. Coverage resumed after excluding the previous profiles for the changed targets.
+  "2026-11-20T14:41:56.311Z",codex-sol,"Round EZ reviewed all eleven threads from df2f418 against pm-cli 2026.11.18 and current native code.\n\nPRRT_kwDOTwgMRs65-3tl — 2f779f0 resolves the symlink target before parent traversal. The oracle run from link/.. and the native artifact-cwd run both remove vendor/source.rs and retain source.rs.\nPRRT_kwDOTwgMRs65-3tp — 2f779f0 directs callers to an SDK repair with the original asserted AuthorIdentity when the fallback author has a different principal. The strict-ownership regression refuses the fallback and appends with the asserted owner.\nPRRT_kwDOTwgMRs65-3ts — The oracle exits 0 and stores -mreviewed literally for both --note -mreviewed and --note=-mreviewed. 2f779f0 adds differential evidence for both inputs and preserves that parser behavior.\nPRRT_kwDOTwgMRs65-3tv — 2f779f0 writes and judges ownership leases with the wall clock while preserving the historical mutation timestamp. The oracle lock module uses nowIso() and Date.now(). dce2e43 updates the live fixtures and preserves both bounded waits and typed expiry checks.\nPRRT_kwDOTwgMRs65-3t2 — 2f779f0 matches the published Date precision. The differential fixture reports 72 idle hours and stale true at the threshold and retains the raw timestamp in the receipt.\nPRRT_kwDOTwgMRs65-3t7 — 2f779f0 preserves the parsed subcommand in normalized recovery. The oracle preserves pm claim when a stored holder name collides with claim. Native also masks the word when supplied as an argument value.\nPRRT_kwDOTwgMRs65-3uB — 2f779f0 keeps the restore warning when an independent replay example changes. A clean structurally projected invocation still receives the ordinary holder guidance.\nPRRT_kwDOTwgMRs65-3uD — 2f779f0 normalizes only the first suggestion in the published comparison and checks the remaining native suggestions for replay advice.\nPRRT_kwDOTwgMRs65-3uH — 2f779f0 checks both explicit author spellings and executes the author-free replay under the same detected session.\nPRRT_kwDOTwgMRs65-3uJ — 2f779f0 uses --note=--json in the default retry. The pinned executable refuses the separate flag-looking value and successfully applies the attached retry.\nPRRT_kwDOTwgMRs65-3uN — 2f779f0 checks assignee and claim_principal redaction in the skipped SDK claim. The original item and history bytes stay intact.\n\nThe native gates passed all 817 tests, formatting, Clippy and the changelog check. The exact coverage union is in progress. Follow-up evidence is in pm-rust-shared-lock-wall-clock and pm-rust-linked-note-diagnostics."
+  "2026-11-20T15:19:47.863Z",codex-sol,"Round EZ validation completed. The strict LLVM profile union restored 3493 original profiles. Both union proof tests and the final report passed after the focused library and CLI coverage cases. Coverage is 21030/21030 lines, 2169/2169 functions, 34383/34383 regions and 4776/4776 branch outcomes. The symlink fixture passed with regular and symlinked temporary roots. The updated mutation, library and CLI fixtures passed their filtered reruns. Formatting, Clippy and changelog passed. Round coverage artifacts were removed."
 files[34]:
   - path: scripts/crash-review.test.mts
     scope: project
@@ -147,7 +147,7 @@ files[34]:
     scope: project
   - path: tests/support/refusal_unit.rs
     scope: project
-tests[74]{command,scope,provenance{author,created_at,source_kind,source_ref}}:
+tests[78]{command,scope,provenance{author,created_at,source_kind,source_ref}}:
   PM_RUST_REQUIRE_PUBLISHED_CLI=1 cargo test --locked --all-targets --all-features --no-fail-fast,project,codex-sol,"2026-11-18T09:58:16.490Z",local_mutation,fix/oracle-pm-cli-1118
   cargo fmt --all -- --check,project,codex-sol,"2026-11-18T09:58:23.289Z",local_mutation,fix/oracle-pm-cli-1118
   cargo clippy --locked --all-targets --all-features -- -D warnings,project,codex-sol,"2026-11-18T10:10:28.550Z",local_mutation,fix/oracle-pm-cli-1118
@@ -222,6 +222,10 @@ tests[74]{command,scope,provenance{author,created_at,source_kind,source_ref}}:
   PM_RUST_REQUIRE_PUBLISHED_CLI=1 RUST_TEST_THREADS=2 cargo test --locked --all-features --lib collection_ownership_and_lock_boundaries,project,codex-sol,"2026-11-20T14:27:58.522Z",local_mutation,fix/oracle-pm-cli-1118
   PM_RUST_REQUIRE_PUBLISHED_CLI=1 RUST_TEST_THREADS=2 cargo test --locked --all-features --test search_collections_differential,project,codex-sol,"2026-11-20T14:27:58.522Z",local_mutation,fix/oracle-pm-cli-1118
   CARGO_TARGET_DIR=target/round-ez-coverage/build PM_RUST_REQUIRE_PUBLISHED_CLI=1 CARGO_BUILD_JOBS=2 RUST_TEST_THREADS=2 cargo +nightly-2026-08-06 llvm-cov --no-report --locked --branch --all-features --lib --examples --benches --test mutation_contract --test oracle_launcher --test output_parity_differential --test pagination_differential --test query_cost_contract --test read_session_contract,project,codex-sol,"2026-11-20T14:27:58.522Z",local_mutation,fix/oracle-pm-cli-1118
+  PM_RUST_REQUIRE_PUBLISHED_CLI=1 cargo test --locked --all-features --test search_collections_differential artifact_cwd_traverses_the_symlink_target_parent -- --exact,project,codex-sol,"2026-11-20T15:02:16.615Z",local_mutation,fix/oracle-pm-cli-1118
+  CARGO_TARGET_DIR=target/round-ez-coverage/build PM_RUST_REQUIRE_PUBLISHED_CLI=1 CARGO_BUILD_JOBS=2 RUST_TEST_THREADS=2 cargo +nightly-2026-08-06 llvm-cov --no-report --locked --branch --all-features --test search_collections_differential --test strict_json_contract,project,codex-sol,"2026-11-20T15:02:16.615Z",local_mutation,fix/oracle-pm-cli-1118
+  PM_RUST_REQUIRE_PUBLISHED_CLI=1 cargo test --locked --all-features --lib -- sdk_note_retry_resolves_the_caller_directory stored_holder_recovery_preserves_only_clean_replays,project,codex-sol,"2026-11-20T15:18:53.604Z",local_mutation,fix/oracle-pm-cli-1118
+  PM_RUST_REQUIRE_PUBLISHED_CLI=1 cargo test --locked --all-features --test cli_dispatch -- artifact_cwd_parent_traversal_preserves_the_operand_base native_note_repair_replays_only_in_the_selected_tracker,project,codex-sol,"2026-11-20T15:18:53.604Z",local_mutation,fix/oracle-pm-cli-1118
 docs[9]:
   - path: docs/CRASH_HARNESS.md
     scope: project

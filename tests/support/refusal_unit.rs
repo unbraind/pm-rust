@@ -17,6 +17,10 @@ fn stored_holder_recovery_preserves_only_clean_replays() {
     let before = public.clone();
     redact(&mut public, &["claim".to_owned(), "sample".to_owned()]);
     assert_eq!(public, before);
+    redact(&mut public, &[holder.to_owned()]);
+    assert_eq!(public["claimed_by"], before["claimed_by"]);
+    assert_eq!(public["recovery"], clean);
+    assert_eq!(public["next_steps"][0], RESTORE);
     for (recovery, raw, allowed) in [
         (clean.clone(), vec!["claim", "sample"], true),
         (

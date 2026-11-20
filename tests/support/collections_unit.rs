@@ -1344,9 +1344,12 @@ fn sdk_note_retry_resolves_the_caller_directory() -> TestResult {
         ..CollectionOptions::default()
     };
     let missing = directory.path().join("missing").join("..");
+    let present = directory.path().join(".agents").join("..");
+    let project = directory.path().canonicalize()?;
     for (cwd, expected) in [
         (Path::new("."), std::env::current_dir()?),
-        (&missing, directory.path().canonicalize()?),
+        (&missing, project.clone()),
+        (&present, project),
     ] {
         let Err(PmRustError::CommandRefusal { context, .. }) =
             workspace.collection("sample-one", "files", &options, cwd)
