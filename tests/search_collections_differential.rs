@@ -742,6 +742,100 @@ fn linked_note_recovery_matches_published_semantics() -> TestResult {
     Ok(())
 }
 
+/// A declared output flag cannot stand in for a note, while literal hyphen text can.
+#[test]
+fn collection_note_value_boundaries_match_oracle() -> TestResult {
+    let Some(published) = published_cli::published_cli_or_skip("collection note value boundaries")
+    else {
+        return Ok(());
+    };
+    let scratch = tempfile::tempdir()?;
+    let driver = write_driver(scratch.path(), &published)?;
+    let published = tempfile::tempdir()?;
+    let rust = tempfile::tempdir()?;
+    let snapshot = tempfile::tempdir()?;
+    for args in [
+        &["init", "sample-", "--defaults"][..],
+        &[
+            "create",
+            "--id",
+            "sample-item",
+            "--title",
+            "Notes",
+            "--type",
+            "Task",
+            "--author",
+            "alpha",
+        ],
+    ] {
+        let result = oracle(&driver, published.path(), args)?;
+        assert!(
+            result.status.success(),
+            "{}",
+            String::from_utf8_lossy(&result.stderr)
+        );
+    }
+    for target in [rust.path(), snapshot.path()] {
+        copy_directory(&published.path().join(".agents"), &target.join(".agents"))?;
+    }
+    let args = [
+        "files",
+        "sample-item",
+        "--add",
+        "refused.rs",
+        "--author=alpha",
+        "--note",
+        "--json",
+    ];
+    let expected = oracle(&driver, published.path(), &args)?;
+    let actual = native(rust.path(), &args, false)?;
+    assert_eq!(expected.status.code(), Some(2));
+    assert_eq!(actual.status.code(), expected.status.code());
+    assert!(expected.stdout.is_empty() && actual.stdout.is_empty());
+    let refusal: Value = serde_json::from_slice(&expected.stderr)?;
+    assert_eq!(refusal["code"], "invalid_command_usage");
+    assert!(String::from_utf8_lossy(&actual.stderr).contains("--note"));
+    for target in [published.path(), rust.path()] {
+        artifacts(
+            &snapshot.path().join(".agents/pm"),
+            &target.join(".agents/pm"),
+        )?;
+    }
+
+    for (file, flags, note) in [
+        ("draft.rs", &["--note", "-draft"][..], "-draft"),
+        (
+            "unknown.rs",
+            &["--note", "--unknown-note"][..],
+            "--unknown-note",
+        ),
+        ("attached.rs", &["--note=--json"][..], "--json"),
+    ] {
+        let mut args = vec!["files", "sample-item", "--add", file, "--author=alpha"];
+        args.extend(flags);
+        args.extend(["--full-history", "--json"]);
+        let expected = oracle(&driver, published.path(), &args)?;
+        let actual = native(rust.path(), &args, true)?;
+        assert!(
+            expected.status.success(),
+            "{}",
+            String::from_utf8_lossy(&expected.stderr)
+        );
+        output(&expected, &actual, &args);
+        let receipt: Value = serde_json::from_slice(&actual.stdout)?;
+        let linked = receipt["files"].as_array().ok_or("linked files")?;
+        assert!(
+            linked
+                .iter()
+                .any(|row| row["path"] == file && row["note"] == note)
+        );
+    }
+    artifacts(
+        &published.path().join(".agents/pm"),
+        &rust.path().join(".agents/pm"),
+    )
+}
+
 /// Explicit and implicit note repair scope follows the published CLI's invocation.
 #[test]
 fn linked_note_retry_scope_matches_published_cli() -> TestResult {

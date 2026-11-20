@@ -2570,6 +2570,52 @@ fn round12_hyphen_value_delimiter() {
     assert!(!super::json_requested(&positional));
 }
 
+/// Note operands preserve output controls and recognized flags in the original invocation.
+#[test]
+fn collection_note_argv_boundaries() {
+    for next in [
+        "--",
+        "--output-format",
+        "--json",
+        "--pm-path",
+        "--author=fixture",
+        "-m",
+    ] {
+        let args = ["files", "sample-one", "--note", next].map(str::to_owned);
+        let detail = super::Invocation::parse(&args);
+        assert_eq!(detail.options[0].name, "note");
+        assert_eq!(detail.options[0].value, None, "{next}");
+        let native = ["pm-rust", "files", "sample-one", "--note", next]
+            .map(std::ffi::OsString::from)
+            .to_vec();
+        assert_eq!(super::native_arguments(native.clone()), native);
+    }
+    let plain = ["pm-rust", "files", "sample-one", "--note", "plain"]
+        .map(std::ffi::OsString::from)
+        .to_vec();
+    assert_eq!(super::native_arguments(plain.clone()), plain);
+    for next in ["-draft", "--unknown-note", "-"] {
+        let args = ["files", "sample-one", "--note", next, "--json"].map(str::to_owned);
+        let detail = super::Invocation::parse(&args);
+        assert_eq!(detail.options[0].value, Some(next));
+        assert!(super::json_requested(&args));
+        let native = std::iter::once("pm-rust".into())
+            .chain(args.into_iter().map(std::ffi::OsString::from))
+            .collect();
+        assert_eq!(
+            super::native_arguments(native),
+            [
+                "pm-rust",
+                "files",
+                "sample-one",
+                &format!("--note={next}"),
+                "--json"
+            ]
+            .map(std::ffi::OsString::from)
+        );
+    }
+}
+
 /// Refusal output uses the effective final format, with aliases and values kept separate.
 #[test]
 fn round14_last_output_format_controls_refusal() {

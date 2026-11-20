@@ -234,7 +234,7 @@ fn ownership_session_faults_and_contention_preserve_durable_steps()
         release.warnings,
         ["release_semantic_attribution_unrecorded"]
     );
-    assert!(release.suggestions[0].contains("nothing needs a retry"));
+    assert!(release.suggestions[0].contains("check and reconcile"));
     assert!(
         !workspace
             .get("sample-unit")?

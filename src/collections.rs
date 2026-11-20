@@ -1018,7 +1018,11 @@ fn note_retry_args(
         args.extend(["--remove".to_owned(), remove.clone()]);
     }
     if let Some(note) = &options.note {
-        args.extend(["--note".to_owned(), note.clone()]);
+        if native && note.starts_with('-') {
+            args.push(format!("--note={note}"));
+        } else {
+            args.extend(["--note".to_owned(), note.clone()]);
+        }
     }
     args.extend(["--note-conflict".to_owned(), mode.to_owned()]);
     if options.force {
@@ -1045,7 +1049,11 @@ fn note_retry_args(
         .as_ref()
         .is_none_or(|identity| identity.source != "detected")
     {
-        args.extend(["--author".to_owned(), options.author.clone()]);
+        if native && options.author.starts_with('-') {
+            args.push(format!("--author={}", options.author));
+        } else {
+            args.extend(["--author".to_owned(), options.author.clone()]);
+        }
     }
     args
 }

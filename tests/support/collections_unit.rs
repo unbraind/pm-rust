@@ -1178,6 +1178,42 @@ fn sdk_note_conflict_retry_preserves_the_request() -> TestResult {
     Ok(())
 }
 
+/// Retry operands with leading hyphens use one token in native commands.
+#[test]
+fn note_repair_arguments_preserve_leading_hyphens() {
+    let options = CollectionOptions {
+        author: "-fixture".to_owned(),
+        note: Some("--json".to_owned()),
+        message: Some("-rationale".to_owned()),
+        ..CollectionOptions::default()
+    };
+    for mode in ["append", "replace"] {
+        assert_eq!(
+            note_retry_args(Vec::new(), &options, mode, true),
+            [
+                "--note=--json",
+                "--note-conflict",
+                mode,
+                "--message=-rationale",
+                "--author=-fixture"
+            ]
+        );
+        assert_eq!(
+            note_retry_args(Vec::new(), &options, mode, false),
+            [
+                "--note",
+                "--json",
+                "--note-conflict",
+                mode,
+                "--message",
+                "-rationale",
+                "--author",
+                "-fixture"
+            ]
+        );
+    }
+}
+
 /// SDK repair guidance captures the absolute operand base at the time of the conflict.
 #[test]
 fn sdk_note_retry_resolves_the_caller_directory() -> TestResult {

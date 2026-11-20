@@ -73,7 +73,10 @@ fn session_publication_faults_preserve_completed_ownership() -> TestResult {
         release.warnings,
         ["release_semantic_attribution_unrecorded"]
     );
-    assert!(release.suggestions[0].contains("nothing needs a retry"));
+    assert!(
+        release.suggestions[0]
+            .contains("check and reconcile the session's active-item attribution")
+    );
     assert!(
         !workspace
             .get("sample-one")?
@@ -102,6 +105,55 @@ fn session_publication_faults_preserve_completed_ownership() -> TestResult {
             .count(),
         4
     );
+    Ok(())
+}
+
+/// A failed session update leaves the saved release and its prior attribution independently visible.
+#[test]
+fn release_reconciles_stale_session_attribution_after_io_failure() -> TestResult {
+    let (_directory, workspace) = fixture()?;
+    let root = workspace.pm_root();
+    let alpha = request("alpha");
+    assert!(workspace.claim(&alpha)?.warnings.is_empty());
+    let session = root.join("runtime/session.json");
+    let saved = fs::read(&session)?;
+    let state: Value = serde_json::from_slice(&saved)?;
+    assert!(
+        state["semantic_attribution"]
+            .as_object()
+            .ok_or("attribution")?
+            .values()
+            .any(|attribution| attribution["active_item_ids"] == json!(["sample-one"]))
+    );
+
+    let backup = session.with_extension("saved");
+    fs::rename(&session, &backup)?;
+    fs::create_dir(&session)?;
+    let release = workspace.release(&alpha)?;
+    assert_eq!(
+        release.warnings,
+        ["release_semantic_attribution_unrecorded"]
+    );
+    let advice = &release.suggestions[0];
+    assert!(advice.contains("release of sample-one is saved"));
+    assert!(advice.contains("After fixing the session update failure"));
+    assert!(advice.contains(
+        "check and reconcile the session's active-item attribution against current ownership"
+    ));
+    assert!(!advice.contains("retry"));
+    assert!(
+        !workspace
+            .get("sample-one")?
+            .metadata
+            .extra
+            .contains_key("assignee")
+    );
+    let history = fs::read_to_string(root.join("history/sample-one.jsonl"))?;
+    let entry: Value = serde_json::from_str(history.lines().last().ok_or("release history")?)?;
+    assert_eq!(entry["op"], "release");
+    fs::remove_dir(&session)?;
+    fs::rename(backup, &session)?;
+    assert_eq!(fs::read(session)?, saved);
     Ok(())
 }
 

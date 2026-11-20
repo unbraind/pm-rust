@@ -1020,10 +1020,13 @@ fn close_payload(
         .map_err(Into::into)
 }
 
-/// Accepts canonical item namespaces emitted by verified retry commands.
+/// Normalizes collection note values and canonical item namespaces for Clap.
 fn native_arguments(mut args: Vec<std::ffi::OsString>) -> Vec<std::ffi::OsString> {
-    // Ordinary commands need no namespace rewrite or second parser definition.
-    if !args.iter().skip(1).any(|arg| arg == "item") {
+    if !args
+        .iter()
+        .skip(1)
+        .any(|arg| arg == "item" || arg == "--note")
+    {
         return args;
     }
     let raw = args
@@ -1031,11 +1034,22 @@ fn native_arguments(mut args: Vec<std::ffi::OsString>) -> Vec<std::ffi::OsString
         .skip(1)
         .map(|arg| arg.to_string_lossy().into_owned())
         .collect::<Vec<_>>();
-    if let Some(index) = Invocation::parse(&raw).command.map(|index| index + 1)
+    let invocation = Invocation::parse(&raw);
+    for option in invocation.options.iter().rev() {
+        if option.name == "note"
+            && option.end == option.start + 2
+            && option.value.is_some_and(|value| value.starts_with('-'))
+        {
+            let value = args.remove(option.start + 2);
+            args[option.start + 1].push("=");
+            args[option.start + 1].push(value);
+        }
+    }
+    if let Some(index) = invocation.command.map(|index| index + 1)
         && args.get(index).is_some_and(|arg| arg == "item")
     {
         match args.get(index + 1).and_then(|arg| arg.to_str()) {
-            Some("deps") => {
+            Some("deps" | "docs" | "files" | "test") => {
                 args.remove(index);
             }
             Some("comments") => {

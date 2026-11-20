@@ -670,6 +670,12 @@ pub(crate) fn append_attribution_warning(
                 "may already be visible, and its durability is unknown ({cause}). Check the session's active-item attribution for this item against current ownership and reconcile it only if needed."
             ),
         ),
+        _ if action == "release" => (
+            "unrecorded",
+            format!(
+                "was not updated ({cause}). After fixing the session update failure, check and reconcile the session's active-item attribution against current ownership."
+            ),
+        ),
         _ => (
             "unrecorded",
             format!(

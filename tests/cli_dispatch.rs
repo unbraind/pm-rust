@@ -870,14 +870,15 @@ fn startup_argument_boundaries_are_read_only() -> Result<(), Box<dyn std::error:
     let workspace = workspace()?;
     let settings = workspace.path().join(".agents/pm/settings.json");
     let before = fs::read(&settings)?;
-    for args in [
-        vec![],
-        vec!["item"],
-        vec!["item", "files", "sample-missing"],
-        vec!["assurance", "show", "measurement"],
+    for (args, exit) in [
+        (vec![], 2),
+        (vec!["item"], 2),
+        // Canonical collection commands reach the tracker and report the absent item.
+        (vec!["item", "files", "sample-missing"], 3),
+        (vec!["assurance", "show", "measurement"], 2),
     ] {
         let output = pm_rust(&workspace, &args)?;
-        assert_eq!(output.status.code(), Some(2), "{args:?}");
+        assert_eq!(output.status.code(), Some(exit), "{args:?}");
         assert!(output.stdout.is_empty());
         assert!(!output.stderr.is_empty());
         assert_eq!(fs::read(&settings)?, before);
@@ -2148,10 +2149,12 @@ fn native_note_repair_replays_only_in_the_selected_tracker()
         ("docs", "cli.md", "append", Some("--artifact-cwd=sub")),
         ("docs", "stable.md", "replace", Some("--append-stable")),
     ] {
+        let (author, note) =
+            native_option.map_or(("-fixture", "--json"), |_| ("fixture", "-draft"));
         let expected_note = if mode == "append" {
-            "selected; -draft"
+            format!("selected; {note}")
         } else {
-            "-draft"
+            note.to_owned()
         };
         let cwd = workspace()?;
         let selected = workspace()?;
@@ -2189,8 +2192,8 @@ fn native_note_repair_replays_only_in_the_selected_tracker()
         let options = pm_rust::CollectionOptions {
             add: vec![path.to_owned()],
             remove: vec!["path=obsolete.md".to_owned()],
-            author: "fixture".to_owned(),
-            note: Some("-draft".to_owned()),
+            author: author.to_owned(),
+            note: Some(note.to_owned()),
             message: native_option.is_none().then(|| "-draft".to_owned()),
             ..Default::default()
         };
@@ -2204,12 +2207,6 @@ fn native_note_repair_replays_only_in_the_selected_tracker()
             };
             context
         };
-        assert_eq!(context["code"], "linked_artifact_note_conflict");
-        assert_eq!(
-            context["details"]["conflicts"][0]["existing_note"],
-            "selected"
-        );
-
         let command = scoped_note_repair_command(&context, mode, workspace.pm_root(), &invocation)?;
         let executable = std::path::Path::new(env!("CARGO_BIN_EXE_pm-rust"))
             .with_file_name(format!("{}{}", command[0], std::env::consts::EXE_SUFFIX));
@@ -2227,11 +2224,11 @@ fn native_note_repair_replays_only_in_the_selected_tracker()
         assert_eq!(receipt[key][0]["path"], root_path);
         assert_eq!(receipt[key][0]["note"], expected_note);
         assert_eq!(receipt["mutation_receipt"]["removed_count"], 1);
-        assert_repair_message(&workspace, &command, options.message.as_deref())?;
+        assert_repair_metadata(&workspace, &command, &options)?;
         let item = workspace.get("sample-cli")?;
         let rows = item.metadata.extra[key].as_array().ok_or("linked rows")?;
         assert_eq!(rows.len(), 3);
-        for (path, note) in [(path, "selected"), (&root_path, expected_note)] {
+        for (path, note) in [(path, "selected"), (&root_path, expected_note.as_str())] {
             assert!(
                 rows.iter()
                     .any(|row| row["path"] == path && row["note"] == note)
@@ -2243,18 +2240,26 @@ fn native_note_repair_replays_only_in_the_selected_tracker()
     Ok(())
 }
 
-/// Checks that the replay carries a single message token and persists its value.
-fn assert_repair_message(
+/// Checks that hyphen-leading values survive the command and the resulting history.
+fn assert_repair_metadata(
     workspace: &pm_rust::Workspace,
     command: &[String],
-    message: Option<&str>,
+    options: &pm_rust::CollectionOptions,
 ) -> Result<(), Box<dyn std::error::Error>> {
-    if let Some(message) = message {
+    let history = fs::read_to_string(workspace.pm_root().join("history/sample-cli.jsonl"))?;
+    let last: serde_json::Value =
+        serde_json::from_str(history.lines().last().ok_or("repair history")?)?;
+    assert_eq!(last["author"], options.author);
+    if options.author.starts_with('-') {
+        assert!(command.contains(&format!("--author={}", options.author)));
+        assert!(command.contains(&format!(
+            "--note={}",
+            options.note.as_deref().ok_or("note")?
+        )));
+    }
+    if let Some(message) = &options.message {
         assert!(command.contains(&format!("--message={message}")));
-        let history = fs::read_to_string(workspace.pm_root().join("history/sample-cli.jsonl"))?;
-        let last: serde_json::Value =
-            serde_json::from_str(history.lines().last().ok_or("repair history")?)?;
-        assert_eq!(last["message"], message);
+        assert_eq!(last["message"], *message);
     }
     Ok(())
 }
@@ -2353,6 +2358,138 @@ fn artifact_cwd_file_refusal_preserves_item_and_history() -> Result<(), Box<dyn 
     Ok(())
 }
 
+/// A declared flag cannot supply a missing directory, even before an otherwise valid edit.
+#[test]
+fn artifact_cwd_requires_an_attached_flag_shaped_value() -> Result<(), Box<dyn std::error::Error>> {
+    let project = workspace()?;
+    seed_item(&project)?;
+    let root = project.path().join(".agents/pm");
+    let snapshot = || -> std::io::Result<_> {
+        Ok((
+            fs::read(root.join("tasks/sample-cli.toon"))?,
+            fs::read(root.join("history/sample-cli.jsonl"))?,
+        ))
+    };
+    let before = snapshot()?;
+    let add = [
+        "files",
+        "sample-cli",
+        "--add",
+        "source.rs",
+        "--author=fixture",
+    ];
+    for flag in ["--json", "--force", "--help", "-m", "-draft"] {
+        let output = pm_rust(&project, &[&add[..], &["--artifact-cwd", flag]].concat())?;
+        assert_eq!(output.status.code(), Some(2), "{flag}: {:?}", output.stderr);
+        assert!(output.stdout.is_empty());
+        assert_eq!(snapshot()?, before);
+    }
+    let output = pm_rust(
+        &project,
+        &[&add[..], &["--artifact-cwd=--json", "--json"]].concat(),
+    )?;
+    assert!(
+        output.status.success(),
+        "{}",
+        String::from_utf8_lossy(&output.stderr)
+    );
+    let receipt: serde_json::Value = serde_json::from_slice(&output.stdout)?;
+    assert_eq!(receipt["files"][0]["path"], "--json/source.rs");
+    Ok(())
+}
+
+/// The executable preserves collection note values without consuming declared flags.
+#[test]
+fn note_value_boundaries_preserve_declared_flags() -> Result<(), Box<dyn std::error::Error>> {
+    let project = workspace()?;
+    seed_item(&project)?;
+    let root = project.path().join(".agents/pm");
+    let snapshot = || -> std::io::Result<_> {
+        Ok((
+            fs::read(root.join("tasks/sample-cli.toon"))?,
+            fs::read(root.join("history/sample-cli.jsonl"))?,
+        ))
+    };
+    let before = snapshot()?;
+    let add = [
+        "files",
+        "sample-cli",
+        "--add",
+        "source.rs",
+        "--author=fixture",
+    ];
+    for flag in ["--", "--json", "--output-format", "--pm-path", "-m"] {
+        let output = pm_rust(&project, &[&add[..], &["--note", flag]].concat())?;
+        assert_eq!(output.status.code(), Some(2), "{flag}: {:?}", output.stderr);
+        assert!(output.stdout.is_empty());
+        assert_eq!(snapshot()?, before);
+    }
+    for (path, note) in [("dash.rs", "-"), ("source.rs", "plain")] {
+        let output = pm_rust(
+            &project,
+            &[
+                "files",
+                "sample-cli",
+                "--add",
+                path,
+                "--author=fixture",
+                "--note",
+                note,
+                "--json",
+            ],
+        )?;
+        assert!(
+            output.status.success(),
+            "{}",
+            String::from_utf8_lossy(&output.stderr)
+        );
+        let receipt: serde_json::Value = serde_json::from_slice(&output.stdout)?;
+        assert_eq!(receipt["files"][0]["note"], note);
+    }
+    Ok(())
+}
+
+/// Native recovery commands replay the collection namespace carried by the refusal.
+#[test]
+fn native_item_collection_recovery_replays() -> Result<(), Box<dyn std::error::Error>> {
+    for (collection, native_flag) in [
+        ("files", "--artifact-cwd=."),
+        ("docs", "--append-stable"),
+        ("test", "--artifact-cwd=."),
+    ] {
+        let project = workspace()?;
+        let refusal = pm_rust(&project, &[collection, "sample-cli", native_flag, "--json"])?;
+        assert_eq!(
+            refusal.status.code(),
+            Some(3),
+            "{}",
+            String::from_utf8_lossy(&refusal.stderr)
+        );
+        let error: serde_json::Value = serde_json::from_slice(&refusal.stderr)?;
+        let command = error["recovery"]["attempted_command"]
+            .as_str()
+            .ok_or("attempted command")?;
+        let replay = pm_rust::parse_command_args(command).ok_or("replay arguments")?;
+        assert_eq!(
+            replay[..5],
+            ["pm-rust", "--pm-path", ".", "item", collection]
+        );
+        seed_item(&project)?;
+        let result = Command::new(env!("CARGO_BIN_EXE_pm-rust"))
+            .current_dir(project.path())
+            .args(&replay[1..])
+            .output()?;
+        assert!(
+            result.status.success(),
+            "{command}: {}",
+            String::from_utf8_lossy(&result.stderr)
+        );
+        let receipt: serde_json::Value = serde_json::from_slice(&result.stdout)?;
+        assert_eq!(receipt["id"], "sample-cli");
+    }
+    Ok(())
+}
+
 /// Verifies that the printed retry and its argument vector preserve both scopes.
 fn scoped_note_repair_command(
     context: &serde_json::Value,
@@ -2360,6 +2497,11 @@ fn scoped_note_repair_command(
     tracker: &std::path::Path,
     artifact_cwd: &std::path::Path,
 ) -> Result<Vec<String>, Box<dyn std::error::Error>> {
+    assert_eq!(context["code"], "linked_artifact_note_conflict");
+    assert_eq!(
+        context["details"]["conflicts"][0]["existing_note"],
+        "selected"
+    );
     let advice = &context["next_steps"][usize::from(mode == "replace")];
     let command = pm_rust::parse_command_args(advice.as_str().ok_or("repair command")?)
         .ok_or("repair arguments")?;

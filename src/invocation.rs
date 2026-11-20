@@ -35,6 +35,23 @@ fn definition() -> &'static clap::Command {
     })
 }
 
+/// Resolves a long name, alias or exact short spelling in one parser scope.
+fn declared_option<'a>(command: &'a clap::Command, spelling: &str) -> Option<&'a clap::Arg> {
+    command.get_arguments().find(|argument| {
+        argument
+            .get_long()
+            .is_some_and(|name| spelling.strip_prefix("--") == Some(name))
+            || argument.get_all_aliases().is_some_and(|aliases| {
+                aliases
+                    .iter()
+                    .any(|name| spelling.strip_prefix("--") == Some(*name))
+            })
+            || argument
+                .get_short()
+                .is_some_and(|name| spelling == format!("-{name}"))
+    })
+}
+
 impl<'a> Invocation<'a> {
     /// Parses declared boundaries; a standalone `--` ends options unless consumed as a value.
     pub fn parse(args: &'a [String]) -> Self {
@@ -53,19 +70,7 @@ impl<'a> Invocation<'a> {
                 let (spelling, attached) = token
                     .split_once('=')
                     .map_or((token.as_str(), None), |(name, value)| (name, Some(value)));
-                let argument = command.get_arguments().find(|argument| {
-                    argument
-                        .get_long()
-                        .is_some_and(|name| spelling.strip_prefix("--") == Some(name))
-                        || argument.get_all_aliases().is_some_and(|aliases| {
-                            aliases
-                                .iter()
-                                .any(|name| spelling.strip_prefix("--") == Some(*name))
-                        })
-                        || argument
-                            .get_short()
-                            .is_some_and(|name| spelling == format!("-{name}"))
-                });
+                let argument = declared_option(command, spelling);
                 let name = argument
                     .and_then(clap::Arg::get_long)
                     .unwrap_or(spelling.trim_start_matches('-'));
@@ -87,7 +92,17 @@ impl<'a> Invocation<'a> {
                             break;
                         };
                         if next.starts_with('-') && next != "-" && !allow_hyphen {
-                            break;
+                            let spelling =
+                                next.split_once('=').map_or(next.as_str(), |(name, _)| name);
+                            // Notes accept free text beginning with a hyphen, up to declared options.
+                            if name != "note"
+                                || spelling == "--"
+                                || spelling == "--output-format"
+                                || declared_option(command, spelling).is_some()
+                                || declared_option(definition(), spelling).is_some()
+                            {
+                                break;
+                            }
                         }
                         value.get_or_insert(next.as_str());
                         index += 1;
