@@ -52,7 +52,8 @@ pub(crate) fn parse_stored_timestamp(value: &str) -> Option<OffsetDateTime> {
     if value.len() == 10 {
         return OffsetDateTime::parse(&format!("{value}T00:00:00Z"), &Rfc3339).ok();
     }
-    OffsetDateTime::parse(value, &Rfc3339).ok()
+    let time = OffsetDateTime::parse(value, &Rfc3339).ok()?;
+    Some(time - Duration::nanoseconds(i64::from(time.nanosecond() % 1_000_000)))
 }
 
 /// Reads the inactivity threshold for the context advisory, defaulting unusable settings.

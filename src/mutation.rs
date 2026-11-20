@@ -935,13 +935,15 @@ fn acquire_lock(
         ));
     }
     wait_for_lock(id, lock_retry(wait_ms), || {
+        // Ownership leases use the wall clock. The caller's timestamp is for history.
+        let wall_clock = (locks.age == LockAge::OwnershipReceipt).then(now_iso);
         acquire_lock_attempt(
             pm_root,
             id,
             owner,
             locks.ttl_seconds,
             force_stale,
-            timestamp,
+            wall_clock.as_deref().unwrap_or(timestamp),
             locks.age,
         )
     })
@@ -3197,15 +3199,6 @@ pub(crate) fn collection_item(
     let mut settings = read_settings(pm_root)?;
     let timestamp = validate_mutation_request(&options.author, options.timestamp.as_deref())?;
     settings.locks.age = LockAge::OwnershipReceipt;
-    // Preserve fixture timestamps in history, but never let them age a live lock.
-    let wall_clock = now_iso();
-    let lock_clock = if OffsetDateTime::parse(&timestamp, &Rfc3339)
-        .is_ok_and(|value| value > OffsetDateTime::now_utc())
-    {
-        &wall_clock
-    } else {
-        &timestamp
-    };
     let wait_ms = lock_wait_budget(
         std::env::var("PM_LOCK_WAIT_MS").ok().as_deref(),
         settings.locks.wait_ms,
@@ -3217,7 +3210,7 @@ pub(crate) fn collection_item(
         &options.author,
         &settings.locks,
         options.force || !settings.governance.stale_requires_force(),
-        lock_clock,
+        &timestamp,
         wait_ms,
     )
     .map_err(|error| match error {
@@ -3384,7 +3377,6 @@ pub(crate) fn ownership_item_with_options(
     let mut settings = read_settings(pm_root)?;
     settings.locks.age = LockAge::OwnershipReceipt;
     let timestamp = validate_mutation_request(&request.author, request.timestamp.as_deref())?;
-    // A fixture clock must never age a live lock into stale-lock recovery.
     reject_future_timestamp(&timestamp)?;
     let caller_principal = options.identity.as_ref().map_or_else(
         || crate::ownership::caller_principal(&request.author),

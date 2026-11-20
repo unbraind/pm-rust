@@ -4336,7 +4336,8 @@ fn ownership_refusals_and_interrupted_history_append_remain_recoverable()
     assert!(ownership_item(&pm_root, &mutation, true).is_err());
     mutation.id = "sample-unit".to_owned();
     let lock_path = pm_root.join("locks/sample-unit.lock");
-    for clock in [TS, "2000-01-01T00:00:00Z"] {
+    let active = now_iso();
+    for clock in [active.as_str(), "2000-01-01T00:00:00Z"] {
         fs::write(&lock_path, format!(r#"{{"created_at":"{clock}"}}"#))?;
         assert!(matches!(
             ownership_item(&pm_root, &mutation, true),
@@ -4347,7 +4348,7 @@ fn ownership_refusals_and_interrupted_history_append_remain_recoverable()
     let mut timed_settings: Value = serde_json::from_slice(&fs::read(&settings_path)?)?;
     timed_settings["locks"]["wait_ms"] = serde_json::json!(25);
     fs::write(&settings_path, serde_json::to_vec(&timed_settings)?)?;
-    fs::write(&lock_path, format!(r#"{{"created_at":"{TS}"}}"#))?;
+    fs::write(&lock_path, format!(r#"{{"created_at":"{active}"}}"#))?;
     let error = ownership_item(&pm_root, &mutation, true);
     assert!(
         matches!(error, Err(PmRustError::OwnershipRefusal { detail, .. }) if detail.contains("after waiting"))
@@ -5836,6 +5837,51 @@ fn round15_duplicate_examples_shell_round_trip() -> Result<(), Box<dyn std::erro
     Ok(())
 }
 
+/// A historical claim writes the requested history timestamp and holds a fresh lease.
+#[test]
+fn historical_claim_uses_a_live_lease() -> Result<(), Box<dyn std::error::Error>> {
+    let (_directory, pm_root) =
+        root(r#"{"governance":{"preset":"strict"},"locks":{"wait_ms":0}}"#)?;
+    create_item(&pm_root, request())?;
+    let historical = "2000-01-01T00:00:00.000Z";
+    let holder = OwnershipItem {
+        id: "sample-unit".into(),
+        author: "holder".into(),
+        timestamp: Some(historical.into()),
+        message: None,
+        force: false,
+        if_available: false,
+        provenance_role: None,
+    };
+    let contender = OwnershipItem {
+        author: "contender".into(),
+        timestamp: None,
+        ..holder.clone()
+    };
+    ownership_item_with_options(
+        &pm_root,
+        &holder,
+        true,
+        &crate::OwnershipOptions::default(),
+        &mut || {
+            let raw = read_optional(&pm_root.join("locks/sample-unit.lock"))?
+                .ok_or_else(|| invalid_mutation("missing live lease"))?;
+            assert!(!ownership_lock_stale(&raw, &now_iso(), 1800));
+            let result = ownership_item(&pm_root, &contender, true);
+            assert!(matches!(
+                result,
+                Err(PmRustError::OwnershipRefusal { context, .. })
+                    if context["code"] == "lock_conflict"
+            ));
+            Ok(())
+        },
+    )?;
+    let history = fs::read_to_string(pm_root.join("history/sample-unit.jsonl"))?;
+    let claim: Value = serde_json::from_str(history.lines().last().ok_or("claim history")?)?;
+    assert_eq!(claim["ts"], historical);
+    Ok(())
+}
+
 /// A skipped foreign claim projects a safe holder without altering legacy stored ownership.
 #[test]
 fn skipped_claim_redacts_legacy_result_without_writing() -> Result<(), Box<dyn std::error::Error>> {
@@ -5846,6 +5892,10 @@ fn skipped_claim_redacts_legacy_result_without_writing() -> Result<(), Box<dyn s
         .metadata
         .extra
         .insert("assignee".to_owned(), serde_json::json!(holder));
+    document
+        .metadata
+        .extra
+        .insert("claim_principal".to_owned(), serde_json::json!(holder));
     let path = pm_root.join("tasks/sample-unit.toon");
     let history = pm_root.join("history/sample-unit.jsonl");
     let bytes = canonical_item_bytes(&document)?;
@@ -5894,6 +5944,10 @@ fn skipped_claim_redacts_legacy_result_without_writing() -> Result<(), Box<dyn s
     assert_eq!(result.skipped, Some(true));
     assert_eq!(
         result.item.metadata.extra["assignee"],
+        "https://[redacted]@example.invalid"
+    );
+    assert_eq!(
+        result.item.metadata.extra["claim_principal"],
         "https://[redacted]@example.invalid"
     );
     assert_eq!(fs::read_to_string(&path)?, bytes);

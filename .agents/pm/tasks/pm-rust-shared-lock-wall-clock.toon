@@ -1,0 +1,15 @@
+id: pm-rust-shared-lock-wall-clock
+title: Use a wall clock for remaining shared item-lock writers
+description: Separate item-lock receipt timestamps from historical mutation timestamps on the remaining native write paths.
+type: Task
+status: open
+priority: 2
+tags[3]: follow-up,lock,oracle
+created_at: "2026-11-20T13:41:46.041Z"
+updated_at: "2026-11-20T13:41:51.377Z"
+author: codex-sol
+acceptance_criteria: "Cross-command contention uses current lease timestamps, typed expiry remains intact, and durable history retains the supplied timestamp."
+parent: pm-rust-oracle-1118
+files[1]{path,scope}:
+  src/mutation.rs,project
+body: "Round EZ covers ownership and linked collection leases. In src/mutation.rs, the remaining LockAge::Modified and LockAge::Receipt item writers still write the supplied mutation timestamp into LockPayload.created_at. They share locks with ownership commands, so a strict contender can read an apparently expired timestamp while one of those writes is live. The published pm-cli 2026.11.18 core lock module creates receipts with nowIso() and checks expiry with Date.now(). Add cross-command regression cases that hold a historical writer past the first contender attempt."

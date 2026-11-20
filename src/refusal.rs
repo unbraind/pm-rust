@@ -418,13 +418,14 @@ impl Credentials {
         output
     }
 
-    /// Identifies declared option spellings without mistaking option values for flags.
-    fn fixed_options(values: &[Value]) -> Vec<(usize, String)> {
+    /// Identifies the command and declared option spellings without mistaking values for flags.
+    fn fixed_arguments(values: &[Value]) -> (std::ops::Range<usize>, Vec<(usize, String)>) {
         let args = values
             .iter()
             .map(|value| value.as_str().unwrap_or_default().to_owned())
             .collect::<Vec<_>>();
-        crate::invocation::Invocation::parse(&args)
+        let invocation = crate::invocation::Invocation::parse(&args);
+        let options = invocation
             .options
             .into_iter()
             .filter(|option| option.declared)
@@ -433,11 +434,17 @@ impl Credentials {
                 let name = token.split_once('=').map_or(token, |(name, _)| name);
                 (option.start, name.to_owned())
             })
-            .collect()
+            .collect();
+        (invocation.command_tokens, options)
     }
 
-    /// Projects argument values while preserving the spelling of declared options.
-    fn arguments(&self, values: &mut [Value], options: &[(usize, String)]) {
+    /// Projects argument values while preserving declared commands and option names.
+    fn arguments(
+        &self,
+        values: &mut [Value],
+        command: &std::ops::Range<usize>,
+        options: &[(usize, String)],
+    ) {
         let mut options = options.iter().peekable();
         for (index, value) in values.iter_mut().enumerate() {
             if let Some((_, name)) = options.next_if(|(start, _)| *start == index) {
@@ -445,7 +452,7 @@ impl Credentials {
                 {
                     *value = Value::String(format!("{name}={}", self.text(attached, true)));
                 }
-            } else {
+            } else if !command.contains(&index) {
                 self.value(value, true, false, false);
             }
         }
@@ -470,10 +477,11 @@ impl Credentials {
                 }
             }
             Value::Object(values) => {
-                let options = match values.get("normalized_args").and_then(Value::as_array) {
-                    Some(args) if schema => Self::fixed_options(args),
-                    _ => Vec::new(),
-                };
+                let (command, options) =
+                    match values.get("normalized_args").and_then(Value::as_array) {
+                        Some(args) if schema => Self::fixed_arguments(args),
+                        _ => (0..0, Vec::new()),
+                    };
                 let mut projected = serde_json::Map::new();
                 for (key, mut value) in std::mem::take(values) {
                     if schema
@@ -503,7 +511,9 @@ impl Credentials {
                         suffix += 1;
                     }
                     match (schema, key.as_str(), value.as_array_mut()) {
-                        (true, "normalized_args", Some(args)) => self.arguments(args, &options),
+                        (true, "normalized_args", Some(args)) => {
+                            self.arguments(args, &command, &options);
+                        }
                         (true, "provided_fields", Some(fields)) => {
                             self.provided_fields(fields, &options);
                         }
@@ -617,18 +627,6 @@ pub fn redact(payload: &mut Value, raw: &[String]) {
     if !payload.is_object() {
         return;
     }
-    // A stored holder can be redacted without making a clean invocation unreplayable.
-    if original["code"] == "already_claimed_by"
-        && stored_holder
-            .and_then(crate::ownership::identity_userinfo)
-            .is_some()
-        && original["recovery"].get("suggested_retry").is_none()
-        && original["recovery"].get("suggested_retry_args").is_none()
-        && original["recovery"] == payload["recovery"]
-        && raw.iter().all(|token| userinfos(token).is_empty())
-    {
-        return;
-    }
     if credentials.carried {
         if payload["recovery"].get("attempted_command").is_some()
             && let Some(values) = payload["recovery"]["normalized_args"].as_array()
@@ -647,7 +645,7 @@ pub fn redact(payload: &mut Value, raw: &[String]) {
                 crate::render_pm_command(&args)
             };
             payload["recovery"]["attempted_command"] = Value::String(command.clone());
-            if let Some(examples) = payload["examples"].as_array_mut() {
+            if let Some(examples) = payload.get_mut("examples").and_then(Value::as_array_mut) {
                 for (before, after) in original["examples"]
                     .as_array()
                     .into_iter()
@@ -659,6 +657,19 @@ pub fn redact(payload: &mut Value, raw: &[String]) {
                     }
                 }
             }
+        }
+        // A stored holder can be redacted without making a clean invocation unreplayable.
+        if original["code"] == "already_claimed_by"
+            && stored_holder
+                .and_then(crate::ownership::identity_userinfo)
+                .is_some()
+            && original["recovery"].get("suggested_retry").is_none()
+            && original["recovery"].get("suggested_retry_args").is_none()
+            && original["recovery"] == payload["recovery"]
+            && original["examples"] == payload["examples"]
+            && raw.iter().all(|token| userinfos(token).is_empty())
+        {
+            return;
         }
         if let Some(recovery) = payload["recovery"].as_object_mut() {
             recovery.shift_remove("suggested_retry");

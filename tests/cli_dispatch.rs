@@ -2631,7 +2631,11 @@ fn detected_session_can_replay_note_repair_under_strict_ownership()
         .iter()
         .filter_map(serde_json::Value::as_str)
         .collect::<Vec<_>>();
-    assert!(!args.contains(&"--author"));
+    assert!(
+        !args
+            .iter()
+            .any(|arg| *arg == "--author" || arg.starts_with("--author="))
+    );
     let repair = session(&args)?;
     assert!(
         repair.status.success(),

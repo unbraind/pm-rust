@@ -23,6 +23,8 @@ pub struct OptionToken<'a> {
 pub struct Invocation<'a> {
     /// The first command token, after consuming bootstrap option values.
     pub command: Option<usize>,
+    /// Indices of the recognized command name, including its optional item namespace.
+    pub(crate) command_tokens: std::ops::Range<usize>,
     /// Actual option occurrences before the argument delimiter.
     pub options: Vec<OptionToken<'a>>,
 }
@@ -59,6 +61,7 @@ impl<'a> Invocation<'a> {
     pub fn parse(args: &'a [String]) -> Self {
         let mut result = Self {
             command: None,
+            command_tokens: 0..0,
             options: Vec::new(),
         };
         let mut command = definition();
@@ -136,6 +139,7 @@ impl<'a> Invocation<'a> {
                     definition().find_subcommand(if name == "comments" { "comment" } else { name })
                 {
                     command = subcommand;
+                    result.command_tokens = index..index + 1 + usize::from(token == "item");
                 }
             }
             index += 1;

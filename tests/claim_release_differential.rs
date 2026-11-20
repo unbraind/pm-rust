@@ -399,7 +399,8 @@ fn active_and_stale_lock_refusals_and_force_match_published()
         settings["locks"]["wait_ms"] = serde_json::json!(0);
         fs::write(path, serde_json::to_vec_pretty(&settings)?)?;
     }
-    for clock in [CLOCK, "2000-01-01T00:00:00.000Z"] {
+    let active = pm_rust::current_timestamp();
+    for clock in [active.as_str(), "2000-01-01T00:00:00.000Z"] {
         for root in [fixture.node.path(), fixture.rust.path()] {
             fs::write(
                 root.join(".agents/pm/locks/sample-own.lock"),
@@ -410,7 +411,7 @@ fn active_and_stale_lock_refusals_and_force_match_published()
             )?;
         }
         fixture.step(&["claim", "sample-own", "--author", "alpha", "--json"])?;
-        if clock == CLOCK {
+        if clock == active {
             fixture.step(&["claim", "--next", "--author", "alpha", "--json"])?;
         }
         fixture.step(&[
@@ -1544,7 +1545,21 @@ fn start_semantic_recording_warns_and_matches_published_state()
     assert!(native_advice.contains("active-item attribution against current ownership"));
     assert!(!native_advice.contains("retry"));
     // This sentence is native recovery guidance. The remaining receipt matches the oracle.
-    native["claim"]["suggestions"] = oracle["claim"]["suggestions"].clone();
+    let suggestions = native["claim"]["suggestions"]
+        .as_array_mut()
+        .ok_or("native suggestions")?;
+    for suggestion in &suggestions[1..] {
+        let suggestion = suggestion
+            .as_str()
+            .ok_or("native suggestion")?
+            .to_ascii_lowercase();
+        assert!(
+            ["retry", "replay", "rerun", "re-run"]
+                .iter()
+                .all(|word| !suggestion.contains(word))
+        );
+    }
+    suggestions[0] = oracle["claim"]["suggestions"][0].clone();
     assert_eq!(native, oracle);
     fixture.compare_bytes()?;
     let item = workspace.get("sample-own")?;

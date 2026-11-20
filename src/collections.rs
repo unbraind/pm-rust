@@ -264,7 +264,12 @@ fn resolve_artifact_cwd(path: &Path, root: &Path) -> Result<PathBuf, PmRustError
     let mut normalized = PathBuf::new();
     for component in absolute.components() {
         if component == Component::ParentDir {
-            normalized.pop();
+            // Traversal from an existing symlink starts at its target directory.
+            if let Ok(parent) = normalized.join("..").canonicalize() {
+                normalized = parent;
+            } else {
+                normalized.pop();
+            }
         } else {
             normalized.push(component.as_os_str());
         }
@@ -960,6 +965,16 @@ fn note_conflict_refusal(
         context["required"] = json!(
             "Run the repair in the original detected session with --note-conflict append or replace, or retry through the SDK with the original AuthorIdentity and the chosen note conflict policy."
         );
+    } else if options
+        .identity
+        .as_ref()
+        .is_some_and(|identity| identity.principal != options.author.trim())
+    {
+        let guidance = "Retry through the SDK with the original AuthorIdentity and set note_conflict to append or replace to preserve the ownership principal.";
+        context["required"] = json!(guidance);
+        context["next_steps"] = json!([guidance]);
+        context["details"] = json!({"conflicts":conflicts});
+        return refusal(detail, 4, context);
     }
     let (binary, base_args) = if let Some((pm_root, cwd)) = retry_scope {
         let Some((path, cwd)) = pm_root.to_str().zip(cwd.to_str()) else {
@@ -1027,7 +1042,7 @@ fn note_retry_args(
         args.extend(["--remove".to_owned(), remove.clone()]);
     }
     if let Some(note) = &options.note {
-        if native && note.starts_with('-') {
+        if note.starts_with('-') {
             args.push(format!("--note={note}"));
         } else {
             args.extend(["--note".to_owned(), note.clone()]);

@@ -615,6 +615,62 @@ fn artifact_note_repair_uses_the_original_detected_session() -> TestResult {
     Ok(())
 }
 
+/// An SDK repair retains an asserted identity that a fallback CLI author cannot reproduce.
+#[test]
+fn artifact_note_repair_requires_the_asserted_sdk_principal() -> TestResult {
+    let (directory, workspace) = tracker()?;
+    std::fs::write(
+        workspace.pm_root().join("settings.json"),
+        r#"{"governance":{"preset":"strict"}}"#,
+    )?;
+    workspace.claim(&crate::OwnershipItem {
+        id: "sample-one".into(),
+        author: "owner".into(),
+        timestamp: None,
+        message: None,
+        force: false,
+        if_available: false,
+        provenance_role: None,
+    })?;
+    let mut options = CollectionOptions {
+        add: vec!["path=a.rs,note=Stored".into()],
+        author: "fallback".into(),
+        identity: Some(crate::AuthorIdentity::resolve(
+            Some("owner"),
+            None,
+            &std::collections::BTreeMap::default(),
+        )),
+        ..Default::default()
+    };
+    let root = directory.path();
+    workspace.collection("sample-one", "files", &options, root)?;
+    options.add = vec!["path=a.rs,note=Incoming".into()];
+    let Err(PmRustError::CommandRefusal { context, .. }) =
+        workspace.collection("sample-one", "files", &options, root)
+    else {
+        return Err("expected a note conflict for the asserted owner".into());
+    };
+    assert_eq!(context["code"], "linked_artifact_note_conflict");
+    assert!(context.get("recovery").is_none());
+    assert!(
+        context["required"]
+            .as_str()
+            .ok_or("repair guidance")?
+            .contains("original AuthorIdentity")
+    );
+
+    options.note_conflict = Some("append".into());
+    let mut fallback = options.clone();
+    fallback.identity = None;
+    assert!(matches!(
+        workspace.collection("sample-one", "files", &fallback, root),
+        Err(PmRustError::OwnershipRefusal { context, .. }) if context["code"] == "ownership_conflict"
+    ));
+    let result = workspace.collection("sample-one", "files", &options, root)?;
+    assert_eq!(result["files"][0]["note"], "Stored; Incoming");
+    Ok(())
+}
+
 /// Read-only lists, no-op edits, missing entries and I/O failures preserve authoritative state.
 #[test]
 #[allow(clippy::too_many_lines)]
@@ -1241,7 +1297,7 @@ fn sdk_note_conflict_retry_preserves_the_request() -> TestResult {
     Ok(())
 }
 
-/// Retry operands with leading hyphens use one token in native commands.
+/// Leading-hyphen notes use one token for both replay binaries.
 #[test]
 fn note_repair_arguments_preserve_leading_hyphens() {
     let options = CollectionOptions {
@@ -1264,8 +1320,7 @@ fn note_repair_arguments_preserve_leading_hyphens() {
         assert_eq!(
             note_retry_args(Vec::new(), &options, mode, false),
             [
-                "--note",
-                "--json",
+                "--note=--json",
                 "--note-conflict",
                 mode,
                 "--message",

@@ -43,6 +43,7 @@ fn stored_holder_recovery_preserves_only_clean_replays() {
         assert!(!payload.to_string().contains("synthetic-secret"));
         if allowed {
             assert_eq!(payload["recovery"], clean);
+            assert!(payload.get("examples").is_none());
         } else {
             assert_eq!(payload["next_steps"][0], RESTORE);
             assert!(payload["recovery"].get("suggested_retry").is_none());
@@ -126,4 +127,46 @@ fn credential_recovery_preserves_author_option_but_redacts_values() {
             crate::render_pm_command(&expected_args)
         );
     }
+}
+
+/// Fixed command spellings survive while credentials in arguments and other examples are masked.
+#[test]
+fn stored_holder_projection_preserves_command_spelling_and_warns_about_altered_examples() {
+    let command = "pm claim sample";
+    for (example, projected, warn) in [
+        (command, command, false),
+        (
+            "pm release sample --author claim",
+            "pm release sample --author [redacted]",
+            true,
+        ),
+    ] {
+        let raw = ["claim".to_owned(), "sample".to_owned()];
+        let mut payload = json!({
+            "code": "already_claimed_by",
+            "claimed_by": "custom:claim%40example.invalid",
+            "detail": "Assigned to custom:claim%40example.invalid",
+            "examples": [command, example],
+            "recovery": {"attempted_command":command,"normalized_args":raw}
+        });
+        redact(&mut payload, &raw);
+        assert_eq!(payload["claimed_by"], "custom:[redacted]%40example.invalid");
+        assert_eq!(payload["recovery"]["normalized_args"], json!(raw));
+        assert_eq!(payload["recovery"]["attempted_command"], command);
+        assert_eq!(payload["examples"], json!([command, projected]));
+        assert_eq!(payload["next_steps"][0] == RESTORE, warn);
+    }
+
+    let raw = ["item", "files", "sample", "--message", "files"].map(str::to_owned);
+    let mut payload = json!({
+        "code": "already_claimed_by",
+        "claimed_by": "custom:files%40example.invalid",
+        "recovery": {"attempted_command":crate::render_pm_command(&raw),"normalized_args":raw}
+    });
+    redact(&mut payload, &raw);
+    assert_eq!(
+        payload["recovery"]["normalized_args"],
+        json!(["item", "files", "sample", "--message", "[redacted]"])
+    );
+    assert_eq!(payload["next_steps"][0], RESTORE);
 }

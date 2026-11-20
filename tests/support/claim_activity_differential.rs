@@ -641,3 +641,31 @@ fn claim_eligibility_matches_oracle_date_range() -> TestResult {
     }
     verify_published(directory.path(), &inputs, &native)
 }
+
+/// The published Date clock considers fractional-millisecond activity stale at the threshold.
+#[test]
+fn claim_activity_matches_the_millisecond_threshold() -> TestResult {
+    let root = tempfile::tempdir()?;
+    let ts = "2026-08-02T10:00:00.0009Z";
+    let now = "2026-08-05T10:00:00.000Z";
+    let mut claim = claim();
+    claim["ts"] = json!(ts);
+    fs::create_dir(root.path().join("history"))?;
+    let history = root.path().join("history/demo-claim.jsonl");
+    write_stream(&history, &[claim])?;
+    let evidence = super::evidence(&history, &document(BEFORE)?, HOLDER, now, 72);
+    let activity = &evidence["claim_activity"];
+    assert_eq!(evidence["claimed_at"], ts);
+    assert_eq!(activity["last_activity_at"], ts);
+    assert_eq!(activity["claim_age_hours"], 72);
+    assert_eq!(activity["idle_hours"], 72);
+    assert_eq!(activity["stale_policy"]["stale"], true);
+    verify_published(
+        root.path(),
+        &[
+            json!({"label":"fractional threshold","root":root.path(),"id":"demo-claim",
+            "holder":HOLDER,"updated_at":BEFORE,"threshold_hours":72,"now":now}),
+        ],
+        &[evidence],
+    )
+}
