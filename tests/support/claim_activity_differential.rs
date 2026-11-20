@@ -614,6 +614,8 @@ fn claim_eligibility_matches_oracle_date_range() -> TestResult {
             1,
             Some("1970-01-01T00:59:59.999Z"),
         ),
+        // This duration fits in i64 milliseconds, but adding the activity instant overflows.
+        ("2026-08-07T10:06:30.183Z", 2_562_047_788_015, None),
         ("2026-08-07T10:06:30.183Z", 9_007_199_254_740_991, None),
     ] {
         let root = directory.path().join(native.len().to_string());
