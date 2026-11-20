@@ -1296,26 +1296,24 @@ fn sdk_note_conflict_retry_preserves_the_request() -> TestResult {
             "--author",
             "fixture",
         ]);
-        let native_retry = [
-            &[
-                "--pm-path",
-                workspace.pm_root().to_str().ok_or("tracker path")?,
-            ][..],
-            &expected[..2],
-            &[
-                "--artifact-cwd",
-                workspace
-                    .artifact_project_root()
-                    .to_str()
-                    .ok_or("project path")?,
-            ],
-            &expected[2..],
-        ]
-        .concat();
+        let native_retry = context["recovery"]["suggested_retry_args"]
+            .as_array()
+            .ok_or("SDK retry arguments")?;
         assert_eq!(
-            context["recovery"]["suggested_retry_args"],
-            json!(native_retry)
+            json!(&native_retry[..5]),
+            json!([
+                "--pm-path",
+                workspace.pm_root(),
+                key,
+                "sample-one",
+                "--artifact-cwd"
+            ])
         );
+        assert_eq!(
+            Path::new(native_retry[5].as_str().ok_or("artifact directory")?),
+            workspace.artifact_project_root()
+        );
+        assert_eq!(json!(&native_retry[6..]), json!(&expected[2..]));
 
         let Err(PmRustError::CommandRefusal { context, .. }) =
             workspace.collection_for_cli("sample-one", key, &options, directory.path())

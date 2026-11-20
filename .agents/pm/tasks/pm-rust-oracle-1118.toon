@@ -6,7 +6,7 @@ status: open
 priority: 1
 tags[6]: "gh:unbraind/pm-cli#1753","gh:unbraind/pm-cli#1754","gh:unbraind/pm-cli#1757","gh:unbraind/pm-rust#176","gh:unbraind/pm-rust#181",oracle
 created_at: "2026-11-18T09:41:09.150Z"
-updated_at: "2026-11-20T18:20:27.370Z"
+updated_at: "2026-11-20T18:32:57.834Z"
 author: codex-sol
 parent: pm-rust-u4al
 comments[68]{created_at,author,text}:
@@ -148,7 +148,7 @@ files[34]:
     scope: project
   - path: tests/support/refusal_unit.rs
     scope: project
-tests[83]{command,scope,provenance{author,created_at,source_kind,source_ref}}:
+tests[84]{command,scope,provenance{author,created_at,source_kind,source_ref}}:
   PM_RUST_REQUIRE_PUBLISHED_CLI=1 cargo test --locked --all-targets --all-features --no-fail-fast,project,codex-sol,"2026-11-18T09:58:16.490Z",local_mutation,fix/oracle-pm-cli-1118
   cargo fmt --all -- --check,project,codex-sol,"2026-11-18T09:58:23.289Z",local_mutation,fix/oracle-pm-cli-1118
   cargo clippy --locked --all-targets --all-features -- -D warnings,project,codex-sol,"2026-11-18T10:10:28.550Z",local_mutation,fix/oracle-pm-cli-1118
@@ -232,6 +232,7 @@ tests[83]{command,scope,provenance{author,created_at,source_kind,source_ref}}:
   PM_RUST_REQUIRE_PUBLISHED_CLI=1 node scripts/ci-targets.mts 2 --coverage,project,codex-sol,"2026-11-20T16:47:52.006Z",local_mutation,fix/oracle-pm-cli-1118
   PM_RUST_REQUIRE_PUBLISHED_CLI=1 RUST_TEST_THREADS=1 cargo +nightly-2026-08-06 llvm-cov --no-report --locked --branch --all-features --test orientation_differential -- --exact relationship_large_edge_limit_finishes_at_budget_floor,project,codex-sol,"2026-11-20T18:03:41.806Z",local_mutation,fix/oracle-pm-cli-1118
   PM_RUST_REQUIRE_PUBLISHED_CLI=1 cargo +nightly-2026-08-06 llvm-cov --no-report --locked --branch --all-features --test cli_dispatch -- --exact parser_diagnostics_project_only_actual_author_values,project,codex-sol,"2026-11-20T18:16:54.193Z",local_mutation,fix/oracle-pm-cli-1118
+  "PM_RUST_REQUIRE_PUBLISHED_CLI=1 cargo test --locked --all-features --lib -- --exact collections::tests::sdk_note_conflict_retry_preserves_the_request",project,codex-sol,"2026-11-20T18:28:28.615Z",local_mutation,fix/oracle-pm-cli-1118
 docs[10]:
   - path: .github/workflows/ci.yml
     scope: project
