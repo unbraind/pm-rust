@@ -963,6 +963,80 @@ fn parser_diagnostics_redact_credential_bearing_tokens() -> Result<(), Box<dyn s
     Ok(())
 }
 
+/// Parser failures project asserted author credentials even before a workspace is opened.
+#[test]
+fn parser_diagnostics_project_only_actual_author_values() -> Result<(), Box<dyn std::error::Error>>
+{
+    let directory = workspace()?;
+    let marker = "synthetic-marker";
+    let bare = "fixture:synthetic-marker%40example.invalid";
+    for (extra, expected) in [
+        (vec!["--author", bare], "[redacted]"),
+        (
+            vec!["--author=fixture:synthetic-marker@example.invalid"],
+            "[redacted]",
+        ),
+        (
+            vec!["--author=https://fixture:synthetic-marker@example.invalid"],
+            "[redacted]",
+        ),
+        (
+            vec!["--author", "plain-author", "--description", bare],
+            marker,
+        ),
+    ] {
+        let mut args = vec!["create", "--title", "Fixture", "--priority", marker];
+        args.extend(extra);
+        let output = pm_rust(&directory, &args)?;
+        assert_eq!(output.status.code(), Some(2));
+        assert!(output.stdout.is_empty());
+        let stderr = String::from_utf8(output.stderr)?;
+        assert!(
+            stderr.contains(&format!("invalid value '{expected}'")),
+            "{stderr}"
+        );
+        assert_eq!(stderr.contains(marker), expected == marker, "{stderr}");
+    }
+    expect_err(
+        &directory,
+        &[
+            "create",
+            "--title",
+            "Fixture",
+            "--",
+            "--author=fixture:synthetic-marker%40example.invalid",
+        ],
+        "--author=fixture:synthetic-marker%40example.invalid",
+    )?;
+    expect_err(
+        &directory,
+        &[
+            "files",
+            "sample-one",
+            "--add",
+            "--author=fixture:synthetic-marker%40example.invalid",
+            marker,
+        ],
+        "unexpected argument 'synthetic-marker'",
+    )?;
+    expect_err(
+        &directory,
+        &["create", "--title", "Fixture", "--author"],
+        "a value is required for '--author",
+    )?;
+    expect_err(
+        &directory,
+        &[
+            "close",
+            "sample-one",
+            "--author=fixture:synthetic-marker%40example.invalid",
+            "--synthetic-marker",
+        ],
+        "unexpected argument '--[redacted]'",
+    )?;
+    Ok(())
+}
+
 /// Stored credential authorities are withheld in JSON and human foreign-claim refusals.
 #[test]
 fn persisted_holder_credentials_never_reach_refusal_streams()

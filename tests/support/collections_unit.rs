@@ -1266,34 +1266,123 @@ fn sdk_note_conflict_retry_preserves_the_request() -> TestResult {
             .ok_or("conflict rows")?;
         assert_eq!(rows.len(), 2);
         assert!(rows.iter().all(|row| row["source"] == "this_write"));
-        let retry = context["recovery"]["suggested_retry_args"]
-            .as_array()
-            .ok_or("retry args")?;
-        for flag in [
+        let path_first = format!("path={path},note=first");
+        let path_second = format!("path={path},note=second");
+        let path_third = format!("path={path},note=third");
+        let mut expected = vec![
+            key,
+            "sample-one",
+            "--add",
+            &path_first,
+            "--add",
+            &path_second,
+            "--add",
+            &path_third,
             "--remove",
+            "unrelated.md",
             "--note",
+            "fallback",
+            "--note-conflict",
+            "append",
             "--force",
+        ];
+        if append_stable {
+            expected.push("--append-stable");
+        }
+        expected.extend([
             "--full-history",
             "--message",
-        ] {
-            assert!(retry.contains(&json!(flag)), "{key}: {flag}");
-        }
-        assert_eq!(retry.contains(&json!("--append-stable")), append_stable);
-        assert_eq!(retry[0], "--pm-path");
+            "Link rationale",
+            "--author",
+            "fixture",
+        ]);
+        let native_retry = [
+            &[
+                "--pm-path",
+                workspace.pm_root().to_str().ok_or("tracker path")?,
+            ][..],
+            &expected[..2],
+            &[
+                "--artifact-cwd",
+                workspace
+                    .artifact_project_root()
+                    .to_str()
+                    .ok_or("project path")?,
+            ],
+            &expected[2..],
+        ]
+        .concat();
+        assert_eq!(
+            context["recovery"]["suggested_retry_args"],
+            json!(native_retry)
+        );
 
         let Err(PmRustError::CommandRefusal { context, .. }) =
             workspace.collection_for_cli("sample-one", key, &options, directory.path())
         else {
             return Err(format!("expected a CLI {key} conflict").into());
         };
-        assert_eq!(retry[4], "--artifact-cwd");
-        let cli_retry = [&retry[2..4], &retry[6..]].concat();
-        assert_eq!(
-            context["recovery"]["suggested_retry_args"],
-            json!(cli_retry)
-        );
+        assert_eq!(context["recovery"]["suggested_retry_args"], json!(expected));
     }
     assert_eq!((std::fs::read(item)?, std::fs::read(history)?), before);
+    Ok(())
+}
+
+/// A public refusal with a projected note withholds executable retry fields.
+#[test]
+fn projected_note_conflicts_withhold_retries() -> TestResult {
+    let (directory, workspace) = tracker()?;
+    let root = directory.path();
+    workspace.collection(
+        "sample-one",
+        "files",
+        &CollectionOptions {
+            author: "fixture".to_owned(),
+            add: vec!["path=source.rs,note=stored".to_owned()],
+            ..CollectionOptions::default()
+        },
+        root,
+    )?;
+    let options = CollectionOptions {
+        author: "fixture".to_owned(),
+        add: vec!["source.rs".to_owned()],
+        note: Some("https://fixture:synthetic-marker@example.invalid".to_owned()),
+        ..CollectionOptions::default()
+    };
+    for (result, guidance) in [
+        (
+            workspace.collection_for_cli("sample-one", "files", &options, root),
+            crate::refusal::RESTORE,
+        ),
+        (
+            workspace.collection("sample-one", "files", &options, root),
+            "Supply the original note",
+        ),
+    ] {
+        let Err(PmRustError::CommandRefusal {
+            detail,
+            context,
+            exit_code,
+        }) = result
+        else {
+            return Err("expected note conflict".into());
+        };
+        assert_eq!(exit_code, 4);
+        assert_eq!(context["code"], "linked_artifact_note_conflict");
+        assert!(context["recovery"].get("suggested_retry").is_none());
+        assert!(context["recovery"].get("suggested_retry_args").is_none());
+        assert!(
+            context["next_steps"][0]
+                .as_str()
+                .is_some_and(|step| step.contains(guidance))
+        );
+        assert!(!detail.contains("synthetic-marker"));
+        assert!(!context.to_string().contains("synthetic-marker"));
+        assert_eq!(
+            context["details"]["conflicts"][0]["requested_note"],
+            "https://[redacted]@example.invalid"
+        );
+    }
     Ok(())
 }
 

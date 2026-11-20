@@ -1251,7 +1251,11 @@ fn stale_session_lock_reclamation_matches_published_policy()
         for root in [fixture.node.path(), fixture.rust.path()] {
             fs::write(root.join(".agents/pm/locks/session-state.lock"), &lock)?;
         }
-        fixture.step(&[action, "sample-own", "--author", "alpha", "--json"])?;
+        assert_eq!(
+            fixture.step_with_exit(&[action, "sample-own", "--author", "alpha", "--json"])?,
+            Some(0),
+            "{action}"
+        );
         for root in [fixture.node.path(), fixture.rust.path()] {
             assert!(!root.join(".agents/pm/locks/session-state.lock").exists());
             assert!(root.join(".agents/pm/runtime/session.json").exists());
@@ -1607,7 +1611,11 @@ fn stale_session_lock_lifecycle_matches_published_bytes() -> Result<(), Box<dyn 
         for root in [fixture.node.path(), fixture.rust.path()] {
             fs::write(root.join(".agents/pm/locks/session-state.lock"), lock)?;
         }
-        fixture.step(&[action, "sample-own", "--author", "alpha", "--json"])?;
+        assert_eq!(
+            fixture.step_with_exit(&[action, "sample-own", "--author", "alpha", "--json"])?,
+            Some(0),
+            "{action}, owned={owned}"
+        );
         for root in [fixture.node.path(), fixture.rust.path()] {
             assert!(
                 !root.join(".agents/pm/locks/session-state.lock").exists(),

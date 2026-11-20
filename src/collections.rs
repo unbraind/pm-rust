@@ -1008,18 +1008,26 @@ fn note_conflict_refusal(
     context["recovery"] = json!({"suggested_retry":append_command,"suggested_retry_args":append});
     context["details"] = json!({"conflicts":conflicts});
     let (detail, mut context) = crate::refusal::sdk_fields(detail, context, None);
-    if native
-        && (
-            &context["next_steps"],
-            &context["recovery"]["suggested_retry_args"],
-        ) != (&next_steps, &json!(append))
+    if (
+        &context["next_steps"],
+        &context["recovery"]["suggested_retry_args"],
+    ) != (&next_steps, &json!(append))
     {
+        // Projected commands no longer carry the original request.
         context
             .as_object_mut()
             .and_then(|fields| fields.shift_remove("recovery"));
-        context["next_steps"] = json!([
-            "Repeat the original request from the original directory with the same tracker selected. Supply the original note or other redacted values again and choose --note-conflict append or replace."
-        ]);
+        if native {
+            context["next_steps"] = json!([
+                "Repeat the original request from the original directory with the same tracker selected. Supply the original note or other redacted values again and choose --note-conflict append or replace."
+            ]);
+        } else {
+            context["next_steps"] = json!([
+                crate::refusal::RESTORE,
+                context["next_steps"][0],
+                context["next_steps"][1]
+            ]);
+        }
     }
     PmRustError::CommandRefusal {
         detail,

@@ -1079,6 +1079,8 @@ fn default_note_retry_replays_hyphen_notes_on_published_cli() -> TestResult {
             "sample-item",
             "--add",
             "path=example.rs,note=first",
+            "--add",
+            "unrelated.md",
             "--author",
             "alpha",
         ],
@@ -1095,6 +1097,8 @@ fn default_note_retry_replays_hyphen_notes_on_published_cli() -> TestResult {
         "sample-item",
         "--add",
         "example.rs",
+        "--remove",
+        "unrelated.md",
         "--note=--json",
         "--author",
         "alpha",
@@ -1111,7 +1115,23 @@ fn default_note_retry_replays_hyphen_notes_on_published_cli() -> TestResult {
         .iter()
         .map(|arg| arg.as_str().ok_or("retry token"))
         .collect::<Result<Vec<_>, _>>()?;
-    assert!(retry.contains(&"--note=--json"));
+    assert_eq!(
+        retry,
+        [
+            "files",
+            "sample-item",
+            "--add",
+            "example.rs",
+            "--remove",
+            "unrelated.md",
+            "--note=--json",
+            "--note-conflict",
+            "append",
+            "--full-history",
+            "--author",
+            "alpha"
+        ]
+    );
     retry.push("--json");
     let applied = oracle(&driver, project.path(), &retry)?;
     assert!(
@@ -1120,7 +1140,11 @@ fn default_note_retry_replays_hyphen_notes_on_published_cli() -> TestResult {
         String::from_utf8_lossy(&applied.stderr)
     );
     let listed: Value = serde_json::from_slice(&applied.stdout)?;
-    assert_eq!(listed["files"][0]["note"], "first; --json");
+    assert_eq!(listed["mutation_receipt"]["removed_count"], 1);
+    assert_eq!(
+        listed["files"],
+        json!([{"path":"example.rs","scope":"project","note":"first; --json"}])
+    );
     Ok(())
 }
 

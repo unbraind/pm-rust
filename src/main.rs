@@ -1124,7 +1124,17 @@ fn run_cli() -> ExitCode {
     let cli = match Cli::try_parse_from(native_arguments(std::env::args_os().collect())) {
         Ok(cli) => cli,
         Err(error) => {
-            let mut args = published_read_arguments(std::env::args_os().skip(1));
+            let raw = raw_invocation();
+            let invocation = Invocation::parse(&raw);
+            // Clap can reject another option before normal identity validation runs.
+            for option in invocation.options {
+                if raw[option.start].split('=').next() == Some("--author")
+                    && let Some(author) = option.value
+                {
+                    let _ = AuthorIdentity::validate_credentials(author, "asserted");
+                }
+            }
+            let mut args = published_read_arguments(&raw);
             let orientation = Invocation::parse(&args)
                 .command
                 .filter(|&index| matches!(args[index].as_str(), "context" | "history" | "deps"));
@@ -1195,7 +1205,7 @@ fn run_cli() -> ExitCode {
             // Keep Clap's bytes and statuses while allowing normal process teardown.
             // Immediate exit bypasses profile finalization on Windows.
             let diagnostic = error.render().to_string();
-            let safe = refusal::diagnostic(&diagnostic, &raw_invocation());
+            let safe = refusal::diagnostic(&diagnostic, &raw);
             if safe == diagnostic {
                 let _ = error.print();
             } else if error.use_stderr() {
