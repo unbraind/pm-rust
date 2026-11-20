@@ -1,10 +1,10 @@
 //! Lossless option boundaries shared by bootstrap, dispatch and refusal projection.
+use crate::cli::Cli;
 use clap::CommandFactory;
-use pm_rust::cli::Cli;
 use std::sync::OnceLock;
 
 /// One real option, excluding positionals and values that resemble flags.
-pub(super) struct OptionToken<'a> {
+pub struct OptionToken<'a> {
     /// Canonical long spelling, including aliases resolved through the CLI definition.
     pub name: &'a str,
     /// First physical argv index occupied by the option.
@@ -15,10 +15,12 @@ pub(super) struct OptionToken<'a> {
     pub value: Option<&'a str>,
     /// Whether this option precedes the command.
     pub bootstrap: bool,
+    /// Whether this spelling is fixed by the native or published CLI.
+    pub(crate) declared: bool,
 }
 
 /// Parsed boundaries retain original argv positions without interpreting positional data.
-pub(super) struct Invocation<'a> {
+pub struct Invocation<'a> {
     /// The first command token, after consuming bootstrap option values.
     pub command: Option<usize>,
     /// Actual option occurrences before the argument delimiter.
@@ -118,6 +120,7 @@ impl<'a> Invocation<'a> {
                     end: index,
                     value,
                     bootstrap: result.command.is_none(),
+                    declared: argument.is_some() || shared_value,
                 });
                 continue;
             }
@@ -141,6 +144,7 @@ impl<'a> Invocation<'a> {
     }
 
     /// Explicit tracker scope is meaningful only before the command.
+    #[must_use]
     pub fn scope(&self) -> Option<&'a str> {
         self.options
             .iter()
@@ -149,6 +153,7 @@ impl<'a> Invocation<'a> {
     }
 
     /// Whether this physical argv index is a real author/output control.
+    #[must_use]
     pub fn is_identity_or_format(&self, index: usize) -> bool {
         self.options.iter().any(|option| {
             option.start == index && matches!(option.name, "author" | "json" | "output-format")

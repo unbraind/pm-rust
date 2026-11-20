@@ -87,13 +87,18 @@ fn session_publication_faults_preserve_completed_ownership() -> TestResult {
     fs::remove_dir(&session)?;
     let lock = root.join("locks/session-state.lock");
     let held = serde_json::to_vec(
-        &json!({"created_at":pm_rust::current_timestamp(), "owner":"fixture-holder"}),
+        &json!({"id":"session-state", "pid":1, "created_at":pm_rust::current_timestamp(), "owner":"fixture-holder", "ttl_seconds":1800}),
     )?;
     fs::write(&lock, &held)?;
-    assert_eq!(
-        workspace.claim(&alpha)?.warnings,
-        ["claim_semantic_attribution_unrecorded"]
-    );
+    let claim = workspace.claim(&alpha)?;
+    assert_eq!(claim.warnings, ["claim_semantic_attribution_unrecorded"]);
+    let advice = &claim.suggestions[0];
+    assert!(advice.contains("The claim of sample-one is saved"));
+    assert!(advice.contains("Once the lock clears"));
+    assert!(advice.contains("active-item attribution against current ownership"));
+    assert!(advice.contains("pm gc --scope locks"));
+    assert!(!advice.contains("retry"));
+    assert!(!session.exists());
     assert_eq!(fs::read(&lock)?, held);
     assert_eq!(
         workspace.get("sample-one")?.metadata.extra["assignee"],
@@ -105,6 +110,8 @@ fn session_publication_faults_preserve_completed_ownership() -> TestResult {
             .count(),
         4
     );
+    fs::remove_file(lock)?;
+    assert!(!session.exists());
     Ok(())
 }
 

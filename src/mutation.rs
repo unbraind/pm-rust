@@ -330,10 +330,22 @@ impl OwnershipGovernance {
     }
 }
 
+/// Chooses the expiry clock and how to report a lease that requires force.
+#[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
+enum LockAge {
+    /// Older mutation callers use the incumbent file's modification time.
+    #[default]
+    Modified,
+    /// Published expiry uses the timestamp in the receipt.
+    Receipt,
+    /// Ownership and collection commands also explain an expired incumbent.
+    OwnershipReceipt,
+}
+
 #[derive(Debug, Deserialize)]
 struct LockSettings {
     #[serde(skip)]
-    use_created_at: bool,
+    age: LockAge,
     #[serde(default = "default_lock_ttl")]
     ttl_seconds: u64,
     #[serde(default)]
@@ -346,7 +358,7 @@ impl Default for LockSettings {
         Self {
             ttl_seconds: default_lock_ttl(),
             wait_ms: 0,
-            use_created_at: false,
+            age: LockAge::Modified,
         }
     }
 }
@@ -922,7 +934,7 @@ fn acquire_lock(
             locks.ttl_seconds,
             force_stale,
             timestamp,
-            locks.use_created_at,
+            locks.age,
         )
     })
 }
@@ -966,7 +978,7 @@ fn acquire_lock_attempt(
     ttl_seconds: u64,
     force_stale: bool,
     timestamp: &str,
-    use_created_at: bool,
+    age: LockAge,
 ) -> Result<ItemLock, PmRustError> {
     let locks = pm_root.join("locks");
     // `if let` instead of `.map_err(..)` avoids a per-instantiation closure
@@ -993,15 +1005,7 @@ fn acquire_lock_attempt(
         serde_json::to_string_pretty(&payload).unwrap_or_default()
     );
     let _gate = acquire_cleanup_gate(&locks, id, ttl_seconds)?;
-    create_or_reclaim_lock(
-        &path,
-        &raw,
-        id,
-        ttl_seconds,
-        force_stale,
-        timestamp,
-        use_created_at,
-    )
+    create_or_reclaim_lock(&path, &raw, id, ttl_seconds, force_stale, timestamp, age)
 }
 
 /// Serializes native lock reclamation and session snapshot publication.
@@ -1139,7 +1143,7 @@ fn create_or_reclaim_lock(
     ttl_seconds: u64,
     force_stale: bool,
     timestamp: &str,
-    use_created_at: bool,
+    age: LockAge,
 ) -> Result<ItemLock, PmRustError> {
     match create_lock_file(path, raw, id) {
         Ok(lock) => return Ok(lock),
@@ -1164,13 +1168,16 @@ fn create_or_reclaim_lock(
         }
     };
     let modified = observed.metadata.modified().unwrap_or(UNIX_EPOCH);
-    let stale = if use_created_at {
-        ownership_lock_stale(&existing_raw, timestamp, ttl_seconds)
-    } else {
-        SystemTime::now()
-            .duration_since(modified)
-            .unwrap_or_default()
-            > Duration::from_secs(ttl_seconds)
+    let stale = match age {
+        LockAge::Modified => {
+            SystemTime::now()
+                .duration_since(modified)
+                .unwrap_or_default()
+                > Duration::from_secs(ttl_seconds)
+        }
+        LockAge::Receipt | LockAge::OwnershipReceipt => {
+            ownership_lock_stale(&existing_raw, timestamp, ttl_seconds)
+        }
     };
     #[cfg(target_os = "linux")]
     {
@@ -1181,11 +1188,16 @@ fn create_or_reclaim_lock(
                 .and_then(|()| create_lock_file(path, raw, id));
         }
     }
-    if !stale || !force_stale {
-        return Err(PmRustError::LockConflict { id: id.to_owned() });
+    if stale {
+        if force_stale {
+            return remove_stale_lock(path, &existing_raw, Some(&observed), id)
+                .and_then(|()| create_lock_file(path, raw, id));
+        }
+        if age == LockAge::OwnershipReceipt {
+            return Err(stale_ownership_lock_refusal(id, &existing_raw));
+        }
     }
-    remove_stale_lock(path, &existing_raw, Some(&observed), id)
-        .and_then(|()| create_lock_file(path, raw, id))
+    Err(PmRustError::LockConflict { id: id.to_owned() })
 }
 
 /// Rejects malformed lock receipts before inspecting same-host original-process death.
@@ -2737,7 +2749,7 @@ pub(crate) fn close_item(
         Some(raw) => close_completion(raw, &timestamp)?,
         None => timestamp.clone(),
     };
-    settings.locks.use_created_at = true;
+    settings.locks.age = LockAge::Receipt;
     let _lock = acquire_lock(
         pm_root,
         &request.id,
@@ -3073,38 +3085,64 @@ fn ownership_lock_stale(raw: &str, timestamp: &str, ttl_seconds: u64) -> bool {
     }
 }
 
+/// Reports a lock receipt that cannot be used for owner identification or garbage collection.
+fn lock_receipt_warning(raw: &str) -> Option<&'static str> {
+    match crate::strict_json::from_str::<Value>(raw) {
+        Err(_) => Some("lock_info_invalid_json"),
+        Ok(value) => {
+            if value["id"].is_string()
+                && value["pid"].is_number()
+                && value["owner"].is_string()
+                && value["created_at"].is_string()
+                && value["ttl_seconds"].is_number()
+                && value.get("token").is_none_or(|token| {
+                    token.as_str().is_some_and(|token| !token.trim().is_empty())
+                })
+            {
+                None
+            } else {
+                Some("lock_info_invalid_shape")
+            }
+        }
+    }
+}
+
+/// Explains an expired incumbent observed while holding the cleanup gate.
+fn stale_ownership_lock_refusal(id: &str, raw: &str) -> PmRustError {
+    let path = format!("locks/{id}.lock");
+    let (suffix, cleanup) = match lock_receipt_warning(raw) {
+        Some(warning) => (
+            format!(" ({warning})"),
+            format!(
+                "Remove {path} from the selected tracker once its owner is confirmed gone, then retry the same command. pm gc --scope locks keeps receipts with unreadable metadata."
+            ),
+        ),
+        None => (
+            String::new(),
+            "Run pm gc --scope locks (add --dry-run to preview), then retry the same command."
+                .to_owned(),
+        ),
+    };
+    ownership_refusal(
+        format!(
+            "Lock {id} is stale{suffix}; remove the expired lease, or rerun with --force where this command accepts it"
+        ),
+        serde_json::json!({
+            "code": "stale_lock_requires_override",
+            "required": "Remove the expired lease, then retry the same command.",
+            "next_steps": [cleanup],
+            "why": format!("The lease in {path} is past its TTL, and force_required_for_stale_lock keeps an expired lease until it is removed explicitly."),
+            "details": {"lock_id":id,"lock_path":path}
+        }),
+    )
+}
+
 /// Converts exhausted ownership lock contention to the published conflict.
-fn ownership_lock_refusal(
-    pm_root: &Path,
-    request: &OwnershipItem,
-    settings: &MutationSettings,
-    timestamp: &str,
-    waited_ms: u128,
-) -> PmRustError {
-    let raw = match read_optional(&pm_root.join("locks").join(format!("{}.lock", request.id))) {
+fn ownership_lock_refusal(pm_root: &Path, id: &str, waited_ms: u128) -> PmRustError {
+    let raw = match read_optional(&pm_root.join("locks").join(format!("{id}.lock"))) {
         Ok(raw) => raw.unwrap_or_default(),
         Err(error) => return error,
     };
-    if !request.force
-        && settings.governance.stale_requires_force()
-        && !raw.trim().is_empty()
-        && ownership_lock_stale(&raw, timestamp, settings.locks.ttl_seconds)
-    {
-        let id = &request.id;
-        let path = format!("locks/{id}.lock");
-        return ownership_refusal(
-            format!(
-                "Lock {id} is stale; remove the expired lease, or rerun with --force where this command accepts it"
-            ),
-            serde_json::json!({
-                "code": "stale_lock_requires_override",
-                "required": "Remove the expired lease, then retry the same command.",
-                "next_steps": ["Run pm gc --scope locks (add --dry-run to preview), then retry the same command."],
-                "why": format!("The lease in {path} is past its TTL, and force_required_for_stale_lock keeps an expired lease until it is removed explicitly."),
-                "details": {"lock_id":id,"lock_path":path}
-            }),
-        );
-    }
     let value: Value = crate::strict_json::from_str(&raw).unwrap_or(Value::Null);
     let owner = value["owner"].as_str().unwrap_or_default();
     let owner_suffix = if owner.is_empty() {
@@ -3123,11 +3161,8 @@ fn ownership_lock_refusal(
     let owner_state = crate::lock_owner::inspect(&value);
     owner_conflict(
         Some(owner),
-        format!(
-            "Item {} is locked{owner_suffix} (owner process {owner_state}){waited}",
-            request.id
-        ),
-        serde_json::json!({"code":"lock_conflict","item_id":request.id,"reason":format!("lock_owner_{owner_state}"),"required":"Wait for the owner to release the lock, then retry the same operation. Set PM_LOCK_WAIT_MS to a larger bounded millisecond budget when contention is expected. Inspect stale receipts with pm gc --scope locks --dry-run.","recovery":{"retry_after_ms":250}}),
+        format!("Item {id} is locked{owner_suffix} (owner process {owner_state}){waited}"),
+        serde_json::json!({"code":"lock_conflict","item_id":id,"reason":format!("lock_owner_{owner_state}"),"required":"Wait for the owner to release the lock, then retry the same operation. Set PM_LOCK_WAIT_MS to a larger bounded millisecond budget when contention is expected. Inspect stale receipts with pm gc --scope locks --dry-run.","recovery":{"retry_after_ms":250}}),
     )
 }
 
@@ -3143,7 +3178,7 @@ pub(crate) fn collection_item(
 ) -> Result<(ItemDocument, crate::collections::CollectionChange), PmRustError> {
     let mut settings = read_settings(pm_root)?;
     let timestamp = validate_mutation_request(&options.author, options.timestamp.as_deref())?;
-    settings.locks.use_created_at = true;
+    settings.locks.age = LockAge::OwnershipReceipt;
     // Preserve fixture timestamps in history, but never let them age a live lock.
     let wall_clock = now_iso();
     let lock_clock = if OffsetDateTime::parse(&timestamp, &Rfc3339)
@@ -3152,15 +3187,6 @@ pub(crate) fn collection_item(
         &wall_clock
     } else {
         &timestamp
-    };
-    let request = OwnershipItem {
-        id: id.to_owned(),
-        author: options.author.clone(),
-        timestamp: options.timestamp.clone(),
-        message: options.message.clone(),
-        force: options.force,
-        if_available: false,
-        provenance_role: None,
     };
     let wait_ms = lock_wait_budget(
         std::env::var("PM_LOCK_WAIT_MS").ok().as_deref(),
@@ -3179,9 +3205,7 @@ pub(crate) fn collection_item(
     .map_err(|error| match error {
         PmRustError::LockConflict { .. } => ownership_lock_refusal(
             pm_root,
-            &request,
-            &settings,
-            lock_clock,
+            id,
             if wait_ms == 0 {
                 0
             } else {
@@ -3340,7 +3364,7 @@ pub(crate) fn ownership_item_with_options(
     prepare: &mut dyn FnMut() -> Result<(), PmRustError>,
 ) -> Result<OwnershipResult, PmRustError> {
     let mut settings = read_settings(pm_root)?;
-    settings.locks.use_created_at = true;
+    settings.locks.age = LockAge::OwnershipReceipt;
     let timestamp = validate_mutation_request(&request.author, request.timestamp.as_deref())?;
     // A fixture clock must never age a live lock into stale-lock recovery.
     reject_future_timestamp(&timestamp)?;
@@ -3368,9 +3392,7 @@ pub(crate) fn ownership_item_with_options(
         Err(PmRustError::LockConflict { .. }) => {
             return Err(ownership_lock_refusal(
                 pm_root,
-                request,
-                &settings,
-                &timestamp,
+                &request.id,
                 if wait_ms == 0 {
                     0
                 } else {
@@ -3687,7 +3709,7 @@ pub(crate) fn lifecycle_status(
     start: bool,
 ) -> Result<Value, PmRustError> {
     let mut settings = read_settings(pm_root)?;
-    settings.locks.use_created_at = true;
+    settings.locks.age = LockAge::Receipt;
     let timestamp = validate_mutation_request(&request.author, request.timestamp.as_deref())?;
     reject_future_timestamp(&timestamp)?;
     let principal = options.identity.as_ref().map_or_else(
@@ -3833,24 +3855,7 @@ fn session_lock_refusal(
         return error;
     }
     let raw = fs::read_to_string(pm_root.join("locks/session-state.lock")).unwrap_or_default();
-    let warning = match crate::strict_json::from_str::<Value>(&raw) {
-        Err(_) => Some("lock_info_invalid_json"),
-        Ok(value) => {
-            if value["id"].is_string()
-                && value["pid"].is_number()
-                && value["owner"].is_string()
-                && value["created_at"].is_string()
-                && value["ttl_seconds"].is_number()
-                && value.get("token").is_none_or(|token| {
-                    token.as_str().is_some_and(|token| !token.trim().is_empty())
-                })
-            {
-                None
-            } else {
-                Some("lock_info_invalid_shape")
-            }
-        }
-    };
+    let warning = lock_receipt_warning(&raw);
     if warning.is_some() || ownership_lock_stale(&raw, timestamp, ttl_seconds) {
         let suffix = warning.map_or_else(String::new, |warning| format!(" ({warning})"));
         close_refusal(
@@ -3880,7 +3885,7 @@ fn acquire_session_lock(
             ttl_seconds,
             true,
             &now(),
-            true,
+            LockAge::Receipt,
         )
     })
     .map_err(|error| session_lock_refusal(pm_root, error, &now(), ttl_seconds))

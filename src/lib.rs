@@ -19,6 +19,8 @@ pub mod discovery;
 mod error;
 mod history;
 mod identity_probes;
+#[doc(hidden)]
+pub mod invocation;
 mod item;
 mod json_output;
 mod lifecycle_admission;

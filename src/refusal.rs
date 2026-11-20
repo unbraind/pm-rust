@@ -413,6 +413,48 @@ impl Credentials {
         output
     }
 
+    /// Identifies declared option spellings without mistaking option values for flags.
+    fn fixed_options(values: &[Value]) -> Vec<(usize, String)> {
+        let args = values
+            .iter()
+            .map(|value| value.as_str().unwrap_or_default().to_owned())
+            .collect::<Vec<_>>();
+        crate::invocation::Invocation::parse(&args)
+            .options
+            .into_iter()
+            .filter(|option| option.declared)
+            .map(|option| {
+                let token = args[option.start].as_str();
+                let name = token.split_once('=').map_or(token, |(name, _)| name);
+                (option.start, name.to_owned())
+            })
+            .collect()
+    }
+
+    /// Projects argument values while preserving the spelling of declared options.
+    fn arguments(&self, values: &mut [Value], options: &[(usize, String)]) {
+        let mut options = options.iter().peekable();
+        for (index, value) in values.iter_mut().enumerate() {
+            if let Some((_, name)) = options.next_if(|(start, _)| *start == index) {
+                if let Some((_, attached)) = value.as_str().and_then(|token| token.split_once('='))
+                {
+                    *value = Value::String(format!("{name}={}", self.text(attached, true)));
+                }
+            } else {
+                self.value(value, true, false, false);
+            }
+        }
+    }
+
+    /// Leaves a reported option name intact when the invocation identifies it as fixed.
+    fn provided_fields(&self, fields: &mut [Value], options: &[(usize, String)]) {
+        for field in fields {
+            if !options.iter().any(|(_, name)| field.as_str() == Some(name)) {
+                self.value(field, true, false, false);
+            }
+        }
+    }
+
     /// Recurses through typed values, preserving schema keys and fixed contract identifiers.
     fn value(&self, value: &mut Value, token: bool, producer: bool, schema: bool) {
         match value {
@@ -423,6 +465,10 @@ impl Credentials {
                 }
             }
             Value::Object(values) => {
+                let options = match values.get("normalized_args").and_then(Value::as_array) {
+                    Some(args) if schema => Self::fixed_options(args),
+                    _ => Vec::new(),
+                };
                 let mut projected = serde_json::Map::new();
                 for (key, mut value) in std::mem::take(values) {
                     if schema
@@ -451,23 +497,31 @@ impl Credentials {
                         unique = format!("{safe_key} ({suffix})");
                         suffix += 1;
                     }
-                    let token = token
-                        || matches!(
-                            key.as_str(),
-                            "normalized_args"
-                                | "suggested_retry_args"
-                                | "provided_fields"
-                                | "parsed_positionals"
-                                | "normalizedInvocationArgs"
-                                | "providedOptionFlags"
-                                | "suggestedRetryArgs"
-                        );
-                    self.value(
-                        &mut value,
-                        token,
-                        producer || key == "details",
-                        schema && key == "recovery",
-                    );
+                    match (schema, key.as_str(), value.as_array_mut()) {
+                        (true, "normalized_args", Some(args)) => self.arguments(args, &options),
+                        (true, "provided_fields", Some(fields)) => {
+                            self.provided_fields(fields, &options);
+                        }
+                        _ => {
+                            let token = token
+                                || matches!(
+                                    key.as_str(),
+                                    "normalized_args"
+                                        | "suggested_retry_args"
+                                        | "provided_fields"
+                                        | "parsed_positionals"
+                                        | "normalizedInvocationArgs"
+                                        | "providedOptionFlags"
+                                        | "suggestedRetryArgs"
+                                );
+                            self.value(
+                                &mut value,
+                                token,
+                                producer || key == "details",
+                                schema && key == "recovery",
+                            );
+                        }
+                    }
                     projected.insert(unique, value);
                 }
                 *values = projected;

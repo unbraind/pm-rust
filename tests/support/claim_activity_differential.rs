@@ -420,6 +420,10 @@ process.stdout.write(JSON.stringify(entries.map(entry => latestHistoryTimestamp(
 
 /// A workspace recovery boundary invalidates stale evidence only when it may include the claim.
 #[test]
+#[allow(
+    clippy::too_many_lines,
+    reason = "Keep the workspace evidence cases in one oracle run"
+)]
 fn workspace_restore_evidence_matches_published() -> TestResult {
     let workspaces = [
         (
@@ -442,6 +446,28 @@ fn workspace_restore_evidence_matches_published() -> TestResult {
             record("comment", LATER, json!([])),
             false,
         ),
+        (
+            "undated-ordinary-history",
+            record("comment", "invalid", json!([])),
+            false,
+        ),
+        (
+            "undated-restore",
+            record("workspace_snapshot_restore", "invalid", json!([])),
+            true,
+        ),
+        (
+            "undated-rewrite",
+            record("history_salvage", "invalid", json!([])),
+            true,
+        ),
+        ("undated-compaction", baseline("invalid", Value::Null), true),
+        (
+            "invalid-retained-activity",
+            baseline(BEFORE, json!("invalid")),
+            true,
+        ),
+        ("malformed-workspace-json", json!("{"), true),
         (
             "legacy-compaction",
             record("history_compact_baseline", BEFORE, json!([])),
@@ -479,7 +505,11 @@ fn workspace_restore_evidence_matches_published() -> TestResult {
         let history = root.join("history/demo-claim.jsonl");
         write_stream(&history, &[claim()])?;
         let workspace = root.join("history/_workspace.jsonl");
-        write_stream(&workspace, &[entry])?;
+        if let Some(raw) = entry.as_str() {
+            fs::write(workspace, raw)?;
+        } else {
+            write_stream(&workspace, &[entry])?;
+        }
         // The pinned oracle checks workspace recovery only once inactivity reaches the threshold.
         let soon = "2026-08-05T09:00:00.000Z";
         let pending = super::evidence(&history, &item, HOLDER, soon, 72);

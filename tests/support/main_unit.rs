@@ -2561,7 +2561,7 @@ fn round12_hyphen_value_delimiter() {
     let args: Vec<String> = ["context", "--limit", "--", "--json"]
         .map(str::to_owned)
         .to_vec();
-    let parsed = crate::invocation::Invocation::parse(&args);
+    let parsed = crate::Invocation::parse(&args);
     assert_eq!(parsed.options[0].value, Some("--"));
     assert!(super::json_requested(&args));
     let positional: Vec<String> = ["close", "sample-one", "--", "--json"]

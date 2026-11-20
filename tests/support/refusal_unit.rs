@@ -83,3 +83,47 @@ fn encoded_identity_projection_preserves_native_recovery() {
     redact(&mut payload, &[]);
     assert_eq!(payload, refused());
 }
+
+/// Attached and separate author values remain subject to credential projection.
+#[test]
+fn credential_recovery_preserves_author_option_but_redacts_values() {
+    let source = "https://author@example.invalid";
+    let redacted = "https://[redacted]@example.invalid";
+    for (supplied, expected) in [
+        (
+            vec!["--author".to_owned(), source.to_owned()],
+            vec!["--author".to_owned(), redacted.to_owned()],
+        ),
+        (
+            vec![format!("--author={source}")],
+            vec![format!("--author={redacted}")],
+        ),
+    ] {
+        let mut args = vec!["claim".to_owned(), "sample-own".to_owned()];
+        args.extend(supplied);
+        let mut expected_args = vec!["claim".to_owned(), "sample-own".to_owned()];
+        expected_args.extend(expected);
+        let mut payload = json!({
+            "details": {"normalized_args": ["--author"]},
+            "recovery": {
+                "normalized_args": args,
+                "attempted_command": crate::render_pm_command(&args),
+                "provided_fields": ["--author", "author"],
+            }
+        });
+        redact(&mut payload, &args);
+        assert_eq!(payload["recovery"]["normalized_args"], json!(expected_args));
+        assert_eq!(
+            payload["recovery"]["provided_fields"],
+            json!(["--author", "[redacted]"])
+        );
+        assert_eq!(
+            payload["details"]["normalized_args"],
+            json!(["--[redacted]"])
+        );
+        assert_eq!(
+            payload["recovery"]["attempted_command"],
+            crate::render_pm_command(&expected_args)
+        );
+    }
+}

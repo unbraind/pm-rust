@@ -1431,6 +1431,49 @@ fn ranking_comparison_rejects_exit_stderr_and_session_divergence()
     Ok(())
 }
 
+/// The oracle saves a new claim under a busy session lease and leaves attribution unchanged.
+#[test]
+fn saved_claim_with_busy_session_matches_published_state() -> Result<(), Box<dyn std::error::Error>>
+{
+    let Some(fixture) = Fixture::new("strict")? else {
+        return Ok(());
+    };
+    let lock = ".agents/pm/locks/session-state.lock";
+    let session = ".agents/pm/runtime/session.json";
+    let initial_session = fs::read(fixture.node.path().join(session)).ok();
+    let lease = r#"{"id":"session-state","pid":1,"owner":"fixture","created_at":"2126-01-01T00:00:00Z","ttl_seconds":1800,"token":"fixture-token"}"#;
+    for root in [fixture.node.path(), fixture.rust.path()] {
+        fs::write(root.join(lock), lease)?;
+    }
+    let oracle = published_run(
+        &fixture.driver,
+        fixture.node.path(),
+        &["__ownership_error", "claim", "sample-own"],
+    )?;
+    assert!(oracle.status.success());
+    assert_eq!(oracle.stdout, b"{\"ok\":true}\n");
+    let workspace = pm_rust::Workspace::discover(fixture.rust.path())?;
+    let receipt = workspace.claim(&pm_rust::OwnershipItem {
+        id: "sample-own".to_owned(),
+        author: "alpha".to_owned(),
+        timestamp: Some(CLOCK.to_owned()),
+        message: None,
+        force: false,
+        if_available: false,
+        provenance_role: Some("implementer".to_owned()),
+    })?;
+    assert_eq!(receipt.changed_field_count, 2);
+    assert_eq!(receipt.warnings, ["claim_semantic_attribution_unrecorded"]);
+    assert!(receipt.suggestions[0].contains("check the session's active-item attribution"));
+    fixture.compare_bytes()?;
+    for root in [fixture.node.path(), fixture.rust.path()] {
+        assert_eq!(fs::read_to_string(root.join(lock))?, lease);
+        fs::remove_file(root.join(lock))?;
+        assert_eq!(fs::read(root.join(session)).ok(), initial_session);
+    }
+    Ok(())
+}
+
 /// Claim attribution failures remain warnings while composed starts finish durably.
 #[test]
 fn start_semantic_recording_warns_and_matches_published_state()
@@ -1470,14 +1513,35 @@ fn start_semantic_recording_warns_and_matches_published_state()
         serde_json::json!(["claim_semantic_attribution_unrecorded"])
     );
     fixture.compare_bytes()?;
-    fixture.step(&[
+    let args = [
         "claim",
         "sample-own",
         "--start",
         "--author",
         "alpha",
         "--json",
-    ])?;
+    ];
+    let oracle = published_run(&fixture.driver, fixture.node.path(), &args)?;
+    let native = native_command(fixture.rust.path(), &args).output()?;
+    assert!(oracle.status.success());
+    assert_eq!(native.status.code(), oracle.status.code());
+    assert_eq!(native.stderr, oracle.stderr);
+    let oracle: serde_json::Value = serde_json::from_slice(&oracle.stdout)?;
+    let mut native: serde_json::Value = serde_json::from_slice(&native.stdout)?;
+    let oracle_advice = oracle["claim"]["suggestions"][0]
+        .as_str()
+        .ok_or("oracle advice")?;
+    let native_advice = native["claim"]["suggestions"][0]
+        .as_str()
+        .ok_or("native advice")?;
+    assert!(oracle_advice.contains("nothing needs a retry"));
+    assert!(native_advice.contains("The claim of sample-own is saved"));
+    assert!(native_advice.contains("active-item attribution against current ownership"));
+    assert!(!native_advice.contains("retry"));
+    // This sentence is native recovery guidance. The remaining receipt matches the oracle.
+    native["claim"]["suggestions"] = oracle["claim"]["suggestions"].clone();
+    assert_eq!(native, oracle);
+    fixture.compare_bytes()?;
     let item = workspace.get("sample-own")?;
     assert_eq!(item.metadata.status, "in_progress");
     assert_eq!(item.metadata.extra["assignee"], "alpha");
@@ -1735,7 +1799,12 @@ fn unpublished_lock_payload_refusals_match_oracle() -> Result<(), Box<dyn std::e
                 .join(".agents/pm/locks/sample-own.lock.gate-lease"),
         )?;
     lease.try_lock()?;
-    for payload in [None, Some(""), Some(" \n\t")] {
+    for payload in [
+        None,
+        Some(""),
+        Some(" \n\t"),
+        Some(r#"{"created_at":"2000-01-01T00:00:00Z","owner":"fixture"}"#),
+    ] {
         for root in [fixture.node.path(), fixture.rust.path()] {
             let path = root.join(".agents/pm/locks/sample-own.lock");
             if let Some(raw) = payload {
@@ -1746,10 +1815,97 @@ fn unpublished_lock_payload_refusals_match_oracle() -> Result<(), Box<dyn std::e
         let expected = published_run(&fixture.driver, fixture.node.path(), &args)?;
         assert!(!expected.status.success());
         assert!(String::from_utf8_lossy(&expected.stderr).contains("is locked"));
-        fixture.step(&args)?;
+        let actual = native_command(fixture.rust.path(), &args).output()?;
+        for output in [&expected, &actual] {
+            assert_eq!(output.status.code(), Some(4));
+            let refusal: serde_json::Value = serde_json::from_slice(&output.stderr)?;
+            assert_eq!(refusal["code"], "lock_conflict");
+        }
+        if payload.is_none_or(|raw| raw.trim().is_empty()) {
+            assert_eq!(expected.stderr, actual.stderr);
+        }
     }
     fs::File::unlock(&lease)?;
     Ok(())
+}
+
+/// An abandoned receipt requires force regardless of whether its payload was written.
+#[test]
+fn abandoned_blank_lock_receipts_match_oracle() -> Result<(), Box<dyn std::error::Error>> {
+    let Some(fixture) = Fixture::new("strict")? else {
+        return Ok(());
+    };
+    let args = ["claim", "sample-own", "--author", "alpha", "--json"];
+    for raw in ["", " \n\t"] {
+        for project in [fixture.node.path(), fixture.rust.path()] {
+            fs::write(project.join(".agents/pm/locks/sample-own.lock"), raw)?;
+        }
+        let before = fixture.snapshots()?;
+        let oracle = published_run(&fixture.driver, fixture.node.path(), &args)?;
+        let native = native_command(fixture.rust.path(), &args).output()?;
+        for output in [oracle, native] {
+            assert_eq!(output.status.code(), Some(4));
+            let refusal: serde_json::Value = serde_json::from_slice(&output.stderr)?;
+            assert_eq!(refusal["code"], "stale_lock_requires_override");
+            assert_eq!(refusal["details"]["lock_path"], "locks/sample-own.lock");
+            let guidance = refusal["next_steps"][0]
+                .as_str()
+                .ok_or("cleanup guidance")?;
+            assert!(guidance.contains("once its owner is confirmed gone"));
+            assert!(guidance.contains("pm gc --scope locks keeps"));
+        }
+        assert_eq!(fixture.snapshots()?, before);
+        for project in [fixture.node.path(), fixture.rust.path()] {
+            assert_eq!(
+                fs::read_to_string(project.join(".agents/pm/locks/sample-own.lock"))?,
+                raw
+            );
+        }
+    }
+    fixture.step(&[
+        "claim",
+        "sample-own",
+        "--author",
+        "alpha",
+        "--force",
+        "--json",
+    ])
+}
+
+/// A stored credential named like an option leaves that option usable in the attempted command.
+#[test]
+fn stored_holder_cannot_redact_fixed_author_option() -> Result<(), Box<dyn std::error::Error>> {
+    let Some(fixture) = Fixture::new("strict")? else {
+        return Ok(());
+    };
+    for project in [fixture.node.path(), fixture.rust.path()] {
+        let path = project.join(".agents/pm/tasks/sample-own.toon");
+        let mut item = fs::read_to_string(&path)?;
+        item.push_str("assignee: custom:author%40example.invalid\n");
+        fs::write(path, item)?;
+    }
+    let args = ["claim", "sample-own", "--author", "beta", "--json"];
+    for output in [
+        published_run(&fixture.driver, fixture.node.path(), &args)?,
+        native_command(fixture.rust.path(), &args).output()?,
+    ] {
+        assert_eq!(output.status.code(), Some(4));
+        let payload: serde_json::Value = serde_json::from_slice(&output.stderr)?;
+        assert_eq!(payload["claimed_by"], "custom:[redacted]%40example.invalid");
+        assert_eq!(
+            payload["recovery"]["normalized_args"],
+            serde_json::json!(args)
+        );
+        assert_eq!(
+            payload["recovery"]["provided_fields"],
+            serde_json::json!(["--author", "--json"])
+        );
+        assert_eq!(
+            payload["recovery"]["attempted_command"],
+            "pm claim sample-own --author beta --json"
+        );
+    }
+    fixture.compare_bytes()
 }
 
 /// All ownership refusals preserve explicit scope and redact URL credentials centrally.

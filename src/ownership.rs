@@ -660,9 +660,9 @@ pub(crate) fn append_attribution_warning(
                 "was not updated ({cause}). To recover, reconcile only the session's active-item attribution for this item against current ownership."
             ),
         ),
-        "lock_conflict" if action == "release" => (
+        "lock_conflict" => (
             "unrecorded",
-            "was not updated (lock_conflict). Once the lock clears, check the session's active-item attribution against current ownership and reconcile it if needed.".to_owned(),
+            "was not updated (lock_conflict). Once the lock clears, check the session's active-item attribution against current ownership and reconcile it if needed. If pm health reports a stale lock, remove it with pm gc --scope locks.".to_owned(),
         ),
         crate::mutation::SESSION_DURABILITY_UNKNOWN => (
             "durability_unknown",
@@ -670,16 +670,10 @@ pub(crate) fn append_attribution_warning(
                 "may already be visible, and its durability is unknown ({cause}). Check the session's active-item attribution for this item against current ownership and reconcile it only if needed."
             ),
         ),
-        _ if action == "release" => (
-            "unrecorded",
-            format!(
-                "was not updated ({cause}). After fixing the session update failure, check and reconcile the session's active-item attribution against current ownership."
-            ),
-        ),
         _ => (
             "unrecorded",
             format!(
-                "was not updated ({cause}); nothing needs a retry. If pm health reports a stale lock, remove it with pm gc --scope locks."
+                "was not updated ({cause}). After fixing the session update failure, check and reconcile the session's active-item attribution against current ownership."
             ),
         ),
     };

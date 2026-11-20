@@ -79,7 +79,7 @@ fn compaction_activity(entry: &Value) -> CompactionActivity<'_> {
 }
 
 /// Reads an entire stream, treating missing streams as empty and broken streams as unjudgeable.
-fn read_history(path: &Path) -> Option<Vec<Value>> {
+fn read_history(path: &Path, valid: fn(&Value) -> bool) -> Option<Vec<Value>> {
     super::read_optional(path)
         .ok()?
         .unwrap_or_default()
@@ -87,16 +87,19 @@ fn read_history(path: &Path) -> Option<Vec<Value>> {
         .filter(|line| !line.trim().is_empty())
         .map(|line| {
             let entry: Value = crate::strict_json::from_str(line).ok()?;
-            let (timestamp, operation, _) = record_fields(&entry)?;
-            parse(timestamp)?;
-            if operation == "history_compact_baseline"
-                && matches!(compaction_activity(&entry), CompactionActivity::Malformed)
-            {
-                return None;
-            }
-            Some(entry)
+            valid(&entry).then_some(entry)
         })
         .collect()
+}
+
+/// Checks whether an item record can support the claim activity judgment.
+fn judgeable_item_record(entry: &Value) -> bool {
+    let Some((timestamp, operation, _)) = record_fields(entry) else {
+        return false;
+    };
+    parse(timestamp).is_some()
+        && (operation != "history_compact_baseline"
+            || !matches!(compaction_activity(entry), CompactionActivity::Malformed))
 }
 
 /// Finds the assignment or principal change that created the current ownership.
@@ -181,23 +184,23 @@ fn rewritten_operation(op: &Value) -> bool {
 
 /// Finds workspace history changes at or after the claim timestamp.
 fn workspace_restored(history_path: &Path, claimed_at: OffsetDateTime) -> bool {
-    read_history(&history_path.with_file_name("_workspace.jsonl")).is_none_or(|history| {
+    read_history(&history_path.with_file_name("_workspace.jsonl"), |entry| {
+        record_fields(entry).is_some()
+    })
+    .is_none_or(|history| {
         history.iter().any(|entry| {
-            let at_or_after = |value: &Value| {
-                value
-                    .as_str()
-                    .and_then(parse)
-                    .is_none_or(|at| at >= claimed_at)
-            };
+            let at_or_after = |value: &str| parse(value).is_none_or(|at| at >= claimed_at);
+            let timestamp = entry["ts"].as_str().unwrap_or_default();
             if entry["op"] == "workspace_snapshot_restore" || rewritten_operation(&entry["op"]) {
-                return at_or_after(&entry["ts"]);
+                return at_or_after(timestamp);
             }
             if entry["op"] == "history_compact_baseline" {
-                return entry["context"]["history_compaction"]
-                    .get("last_activity_at")
-                    .is_none_or(|at| {
-                        at_or_after(&entry["ts"]) || (!at.is_null() && at_or_after(at))
-                    });
+                return match compaction_activity(entry) {
+                    CompactionActivity::Recorded(activity) => {
+                        at_or_after(timestamp) || activity.is_some_and(at_or_after)
+                    }
+                    CompactionActivity::Legacy | CompactionActivity::Malformed => true,
+                };
             }
             false
         })
@@ -212,7 +215,7 @@ pub(super) fn evidence(
     timestamp: &str,
     threshold: i64,
 ) -> Value {
-    let stream = read_history(history_path);
+    let stream = read_history(history_path, judgeable_item_record);
     let history = stream.as_deref().unwrap_or_default();
     let index = ownership_index(history, assignee);
     let anchor = index.and_then(|index| history.get(index));

@@ -4,8 +4,7 @@ use std::io::{Read, Write};
 use std::path::PathBuf;
 use std::process::ExitCode;
 
-mod invocation;
-use invocation::Invocation;
+use pm_rust::invocation::Invocation;
 use pm_rust::refusal;
 
 use clap::Parser;

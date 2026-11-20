@@ -267,7 +267,8 @@ fn ownership_session_faults_and_contention_preserve_durable_steps()
     assert!(!called.get());
     let claim = workspace.claim_with_options(&mutation, &options)?;
     assert_eq!(claim.warnings, ["claim_semantic_attribution_unrecorded"]);
-    assert!(claim.suggestions[0].contains("(lock_conflict); nothing needs a retry"));
+    assert!(claim.suggestions[0].contains("(lock_conflict). Once the lock clears"));
+    assert!(claim.suggestions[0].contains("pm gc --scope locks"));
     let release = workspace.release_with_options(&mutation, &options)?;
     assert_eq!(
         release.warnings,
@@ -295,7 +296,7 @@ fn ownership_session_faults_and_contention_preserve_durable_steps()
     );
     fs::create_dir(pm_root.join("locks/sample-unit.lock"))?;
     assert!(matches!(
-        ownership_lock_refusal(&pm_root, &mutation, &read_settings(&pm_root)?, TS, 0),
+        ownership_lock_refusal(&pm_root, &mutation.id, 0),
         PmRustError::Io { .. }
     ));
     Ok(())
@@ -337,7 +338,7 @@ type CompletedTransaction = (TempDir, PathBuf, String, String, MutationJournal);
 /// Builds lock settings without a wait budget for deterministic unit tests.
 const fn locks(ttl_seconds: u64) -> LockSettings {
     LockSettings {
-        use_created_at: false,
+        age: LockAge::Modified,
         ttl_seconds,
         wait_ms: 0,
     }
@@ -506,7 +507,7 @@ fn initialization_gate_protects_a_lock_before_its_payload_is_published()
     let gate = pm_root.join("locks/sample-initializing.lock.stale-cleanup");
     fs::create_dir(&gate)?;
     let lock_settings = LockSettings {
-        use_created_at: true,
+        age: LockAge::Receipt,
         ..locks(1_800)
     };
     assert!(matches!(
@@ -552,7 +553,7 @@ fn initialization_gate_protects_a_lock_before_its_payload_is_published()
         "sample-initializing",
         "recovered",
         &LockSettings {
-            use_created_at: true,
+            age: LockAge::Receipt,
             ..locks(0)
         },
         true,
@@ -561,7 +562,15 @@ fn initialization_gate_protects_a_lock_before_its_payload_is_published()
     )?);
     assert!(!gate.exists());
     assert!(matches!(
-        acquire_lock_attempt(&pm_root, "invalid\0id", "fixture", 1_800, true, TS, true),
+        acquire_lock_attempt(
+            &pm_root,
+            "invalid\0id",
+            "fixture",
+            1_800,
+            true,
+            TS,
+            LockAge::Receipt
+        ),
         Err(PmRustError::Io { .. })
     ));
     #[cfg(any(unix, windows))]
@@ -574,7 +583,7 @@ fn initialization_gate_protects_a_lock_before_its_payload_is_published()
             .join("locks")
             .join(format!("{long_id}.lock.stale-cleanup"));
         assert!(matches!(
-            acquire_lock_attempt(&long_root, &long_id, "fixture", 1_800, true, TS, true),
+            acquire_lock_attempt(&long_root, &long_id, "fixture", 1_800, true, TS, LockAge::Receipt),
             Err(PmRustError::Io { path, .. }) if path == gate_path
         ));
         assert!(
@@ -621,7 +630,7 @@ fn fresh_initialization_gate_requires_confirmed_death_and_an_empty_unchanged_gat
                 1_800,
                 false,
                 TS,
-                false
+                LockAge::Modified
             ),
             Err(PmRustError::LockConflict { .. })
         ));
@@ -641,7 +650,7 @@ fn fresh_initialization_gate_requires_confirmed_death_and_an_empty_unchanged_gat
             1_800,
             false,
             TS,
-            false
+            LockAge::Modified
         ),
         Err(PmRustError::LockConflict { .. })
     ));
@@ -661,7 +670,7 @@ fn fresh_initialization_gate_requires_confirmed_death_and_an_empty_unchanged_gat
             1_800,
             false,
             TS,
-            false
+            LockAge::Modified
         ),
         Err(PmRustError::LockConflict { .. })
     ));
@@ -674,7 +683,7 @@ fn fresh_initialization_gate_requires_confirmed_death_and_an_empty_unchanged_gat
         1_800,
         false,
         TS,
-        false,
+        LockAge::Modified,
     )?;
     assert!(!gate.exists());
     let current: Value = serde_json::from_str(&fs::read_to_string(&path)?)?;
@@ -754,7 +763,15 @@ fn stale_gate_reclamation_preserves_a_concurrent_replacement()
         .open(gate.with_extension("gate-lease"))?;
     lease.try_lock()?;
     assert!(matches!(
-        acquire_lock_attempt(&pm_root, "sample-race", "contender", 0, true, TS, true),
+        acquire_lock_attempt(
+            &pm_root,
+            "sample-race",
+            "contender",
+            0,
+            true,
+            TS,
+            LockAge::Receipt
+        ),
         Err(PmRustError::LockConflict { .. })
     ));
     assert!(gate.is_dir());
@@ -769,7 +786,7 @@ fn stale_gate_reclamation_preserves_a_concurrent_replacement()
         0,
         true,
         TS,
-        true,
+        LockAge::Receipt,
     )?);
     drop(inherited);
     fs::create_dir(&gate)?;
@@ -3320,7 +3337,7 @@ fn remaining_portable_mutation_arms_are_covered_in_the_unit_binary()
             "sample-unit",
             "challenger",
             &LockSettings {
-                use_created_at: false,
+                age: LockAge::Modified,
                 ttl_seconds: 1_800,
                 wait_ms: 40,
             },
@@ -3653,7 +3670,7 @@ fn an_unreadable_incumbent_lock_is_contention_rather_than_a_filesystem_error() {
         1800,
         false,
         TS,
-        false,
+        LockAge::Modified,
     );
     let Ok(()) = fs::set_permissions(&path, fs::Permissions::from_mode(0o600)) else {
         unreachable!("the fixture is restored so the directory can be removed");
@@ -3705,7 +3722,7 @@ fn a_windows_exclusive_incumbent_lock_is_contention() -> Result<(), Box<dyn std:
         1800,
         false,
         TS,
-        false,
+        LockAge::Modified,
     );
     assert!(
         matches!(&outcome, Err(PmRustError::LockConflict { id }) if id == "sample-held"),
@@ -3722,7 +3739,7 @@ fn a_windows_exclusive_incumbent_lock_is_contention() -> Result<(), Box<dyn std:
         1800,
         false,
         TS,
-        false,
+        LockAge::Modified,
     )?;
     drop(acquired);
     Ok(())
@@ -3752,7 +3769,7 @@ fn a_lock_file_holding_invalid_utf8_is_a_fault_not_contention() {
         1800,
         false,
         TS,
-        false,
+        LockAge::Modified,
     );
     let Err(error) = outcome else {
         unreachable!("a held lock cannot be acquired");
@@ -3788,7 +3805,7 @@ fn future_ownership_preserves_held_lock(
         workspace.claim(&mutation)?;
     }
     let lock_settings = LockSettings {
-        use_created_at: true,
+        age: LockAge::Receipt,
         ..locks(1800)
     };
     let held = acquire_lock(
@@ -4220,9 +4237,8 @@ fn ownership_preset_precedence_and_lock_payload_clock() -> Result<(), Box<dyn st
         if_available: false,
         provenance_role: None,
     };
-    let mut settings: MutationSettings = read_settings(&pm_root)?;
     assert!(matches!(
-        ownership_lock_refusal(&pm_root, &request, &settings, TS, 0),
+        ownership_lock_refusal(&pm_root, &request.id, 0),
         PmRustError::OwnershipRefusal { .. }
     ));
     fs::create_dir_all(pm_root.join("locks"))?;
@@ -4230,14 +4246,13 @@ fn ownership_preset_precedence_and_lock_payload_clock() -> Result<(), Box<dyn st
         pm_root.join("locks/sample-unit.lock"),
         format!(r#"{{"created_at":"{TS}"}}"#),
     )?;
-    settings.locks.wait_ms = 25;
-    let error = ownership_lock_refusal(&pm_root, &request, &settings, TS, 25);
+    let error = ownership_lock_refusal(&pm_root, &request.id, 25);
     assert!(error.to_string().contains("after waiting 25ms"));
     fs::write(
         pm_root.join("locks/sample-unit.lock"),
         format!(r#"{{"created_at":"{TS}","owner":"unit-holder"}}"#),
     )?;
-    let error = ownership_lock_refusal(&pm_root, &request, &settings, TS, 0);
+    let error = ownership_lock_refusal(&pm_root, &request.id, 0);
     assert!(error.to_string().contains("(owner unit-holder)"));
 
     Ok(())
@@ -5180,7 +5195,7 @@ fn future_collection_preserves_held_lock() -> Result<(), Box<dyn std::error::Err
             "sample-unit",
             "live-holder",
             &LockSettings {
-                use_created_at: true,
+                age: LockAge::Receipt,
                 ..locks(1800)
             },
             false,
@@ -5256,9 +5271,10 @@ fn gate_lease_errors_preserve_io_diagnostics() {
     );
 }
 
-/// Unpublished lock payloads stay busy, while nonempty malformed payloads remain stale.
+/// A contention diagnostic keeps its acquisition reason for any receipt contents.
 #[test]
-fn unpublished_lock_payloads_are_not_stale() -> Result<(), Box<dyn std::error::Error>> {
+fn contention_diagnostic_does_not_reclassify_receipt_age() -> Result<(), Box<dyn std::error::Error>>
+{
     let (_directory, pm_root) = root("{}")?;
     let request = OwnershipItem {
         id: "sample-unit".to_owned(),
@@ -5269,7 +5285,6 @@ fn unpublished_lock_payloads_are_not_stale() -> Result<(), Box<dyn std::error::E
         if_available: false,
         provenance_role: None,
     };
-    let settings = read_settings(&pm_root)?;
     fs::create_dir_all(pm_root.join("locks"))?;
     for raw in [
         None,
@@ -5282,22 +5297,42 @@ fn unpublished_lock_payloads_are_not_stale() -> Result<(), Box<dyn std::error::E
         if let Some(raw) = raw {
             fs::write(pm_root.join("locks/sample-unit.lock"), raw)?;
         }
-        let error = ownership_lock_refusal(&pm_root, &request, &settings, TS, 0);
+        let error = ownership_lock_refusal(&pm_root, &request.id, 0);
         let PmRustError::OwnershipRefusal {
             detail, context, ..
         } = error
         else {
             return Err(format!("unexpected lock refusal: {error}").into());
         };
-        if raw.is_none_or(|value| value.trim().is_empty()) {
-            assert_eq!(detail, "Item sample-unit is locked (owner process unknown)");
-            assert_eq!(context["code"], "lock_conflict");
-            assert_eq!(context["reason"], "lock_owner_unknown");
-            assert_eq!(context["recovery"]["retry_after_ms"], 250);
-        } else {
-            assert!(detail.contains("is stale"));
-        }
+        assert_eq!(detail, "Item sample-unit is locked (owner process unknown)");
+        assert_eq!(context["code"], "lock_conflict");
+        assert_eq!(context["reason"], "lock_owner_unknown");
+        assert_eq!(context["recovery"]["retry_after_ms"], 250);
     }
+    Ok(())
+}
+
+/// Callers using receipt age without ownership guidance retain the generic conflict.
+#[test]
+fn expired_receipt_retains_generic_non_ownership_lock_conflict()
+-> Result<(), Box<dyn std::error::Error>> {
+    let (_directory, pm_root) = root("{}")?;
+    fs::create_dir_all(pm_root.join("locks"))?;
+    let path = pm_root.join("locks/sample-unit.lock");
+    fs::write(&path, " ")?;
+    assert!(matches!(
+        acquire_lock_attempt(
+            &pm_root,
+            "sample-unit",
+            "fixture",
+            1_800,
+            false,
+            TS,
+            LockAge::Receipt
+        ),
+        Err(PmRustError::LockConflict { .. })
+    ));
+    assert_eq!(fs::read_to_string(path)?, " ");
     Ok(())
 }
 
@@ -5416,7 +5451,6 @@ fn ownership_refusal_observes_owner_once() -> Result<(), Box<dyn std::error::Err
         provenance_role: None,
     };
     fs::create_dir_all(pm_root.join("locks"))?;
-    let settings = read_settings(&pm_root)?;
     for start in [None, Some("0"), Some("invalid")] {
         let mut owner = crate::lock_owner::capture();
         owner["pid"] = serde_json::json!(process::id());
@@ -5431,7 +5465,7 @@ fn ownership_refusal_observes_owner_once() -> Result<(), Box<dyn std::error::Err
             serde_json::to_vec(&owner)?,
         )?;
         let before = crate::lock_owner::INSPECT_CALLS.get();
-        let error = ownership_lock_refusal(&pm_root, &request, &settings, TS, 25);
+        let error = ownership_lock_refusal(&pm_root, &request.id, 25);
         assert_eq!(crate::lock_owner::INSPECT_CALLS.get() - before, 1);
         let PmRustError::OwnershipRefusal { detail, context } = error else {
             return Err(format!("unexpected refusal: {error}").into());
@@ -6066,7 +6100,7 @@ fn session_acquisition_refreshes_the_clock_on_retry() -> Result<(), Box<dyn std:
         ttl,
         false,
         "2026-08-07T10:06:30.000Z",
-        true,
+        LockAge::Receipt,
     )?;
     let attempts = std::cell::Cell::new(0);
     let expired = "2026-08-07T10:06:31.001Z";
@@ -6088,41 +6122,6 @@ fn session_acquisition_refreshes_the_clock_on_retry() -> Result<(), Box<dyn std:
     Ok(())
 }
 
-/// An expired receipt behind a busy reclamation gate reports contention under automatic recovery.
-#[test]
-fn stale_lock_diagnostic_tracks_recovery_policy() -> Result<(), Box<dyn std::error::Error>> {
-    let (_temp, pm_root) = root("{}")?;
-    fs::create_dir_all(pm_root.join("locks"))?;
-    fs::write(
-        pm_root.join("locks/sample-unit.lock"),
-        r#"{"owner":"test","created_at":"2000-01-01T00:00:00Z"}"#,
-    )?;
-    let mut settings = read_settings(&pm_root)?;
-    for (preset, force, code) in [
-        ("minimal", false, "lock_conflict"),
-        ("strict", true, "lock_conflict"),
-        ("strict", false, "stale_lock_requires_override"),
-    ] {
-        settings.governance.preset = preset.into();
-        let request = OwnershipItem {
-            id: "sample-unit".into(),
-            author: "test".into(),
-            timestamp: Some(TS.into()),
-            message: None,
-            force,
-            if_available: false,
-            provenance_role: None,
-        };
-        let PmRustError::OwnershipRefusal { context, .. } =
-            ownership_lock_refusal(&pm_root, &request, &settings, TS, 0)
-        else {
-            return Err("expected lock refusal".into());
-        };
-        assert_eq!(context["code"], code);
-    }
-    Ok(())
-}
-
 /// Even an unreclaimed session lease cannot authorize publication beyond its TTL.
 #[test]
 fn expired_session_lease_refuses_its_own_staged_write() -> Result<(), Box<dyn std::error::Error>> {
@@ -6134,7 +6133,7 @@ fn expired_session_lease_refuses_its_own_staged_write() -> Result<(), Box<dyn st
         1,
         true,
         TS,
-        true,
+        LockAge::Receipt,
     )?;
     let staged = pm_root.join("prepared");
     let path = pm_root.join("runtime/session.json");
