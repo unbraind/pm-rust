@@ -13,6 +13,60 @@ use mutation_differential::{copy_directory, run_minimal, write_driver};
 type TestResult = Result<(), Box<dyn std::error::Error>>;
 const CLOCK: &str = "2026-08-22T10:00:00.000Z";
 
+/// Help advertises note conflict modes only for the collections that accept them.
+#[test]
+fn linked_note_conflict_help_and_test_refusal_match_oracle() -> TestResult {
+    let Some(published) = published_cli::published_cli_or_skip("linked note conflict help") else {
+        return Ok(());
+    };
+    let scratch = tempfile::tempdir()?;
+    let driver = write_driver(scratch.path(), &published)?;
+    for (command, advertised) in [("files", true), ("docs", true), ("test", false)] {
+        let args = [command, "--help"];
+        for result in [
+            oracle(&driver, scratch.path(), &args)?,
+            native(scratch.path(), &args, false)?,
+        ] {
+            assert!(result.status.success(), "{command}");
+            assert_eq!(
+                String::from_utf8(result.stdout)?.contains("--note-conflict"),
+                advertised,
+                "{command}"
+            );
+        }
+    }
+    assert!(
+        oracle(&driver, scratch.path(), &["init", "sample-", "--defaults"])?
+            .status
+            .success()
+    );
+    let args = [
+        "test",
+        "sample-item",
+        "--add",
+        "command=cargo test",
+        "--note-conflict",
+        "replace",
+        "--author",
+        "alpha",
+        "--json",
+    ];
+    for result in [
+        oracle(&driver, scratch.path(), &args)?,
+        native(scratch.path(), &args, false)?,
+    ] {
+        assert_eq!(result.status.code(), Some(2));
+        let refusal: Value = serde_json::from_slice(&result.stderr)?;
+        assert_eq!(refusal["code"], "unknown_option");
+        assert_eq!(refusal["flag"], "--note-conflict");
+        assert_eq!(
+            refusal["recovery"]["candidate_commands"],
+            json!(["item docs", "item files"])
+        );
+    }
+    Ok(())
+}
+
 /// Executes the fixed-clock, telemetry-isolated published command.
 fn oracle(driver: &Path, root: &Path, args: &[&str]) -> Result<Output, Box<dyn std::error::Error>> {
     let mut arguments = vec![driver.to_string_lossy().into_owned()];

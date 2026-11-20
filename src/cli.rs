@@ -266,6 +266,7 @@ pub enum Command {
     /// List or edit linked documentation.
     Docs(CollectionArgs),
     /// List or edit linked test commands.
+    #[command(mut_arg("note_conflict", |arg| arg.hide(true)))]
     Test(CollectionArgs),
     /// List stable item projections.
     List {

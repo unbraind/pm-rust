@@ -566,30 +566,57 @@ fn workspace_restore_evidence_matches_published() -> TestResult {
     verify_published(directory.path(), &inputs, &native)
 }
 
-/// Native eligibility is absent when UTC crosses the timestamp library's supported range.
+/// Native eligibility matches the pinned SDK through extended ISO years and the Date limit.
 #[test]
-fn claim_eligibility_handles_the_utc_year_boundary() -> TestResult {
+fn claim_eligibility_matches_oracle_date_range() -> TestResult {
     let directory = tempfile::tempdir()?;
     let mut inputs = Vec::new();
-    let mut oracle_expected = Vec::new();
-    for (ts, native_time, oracle_time) in [
+    let mut native = Vec::new();
+    for (ts, threshold, eligible) in [
         (
             "9999-12-28T22:30:00-01:00",
-            json!("9999-12-31T23:30:00.000Z"),
-            "9999-12-31T23:30:00.000Z",
+            72,
+            Some("9999-12-31T23:30:00.000Z"),
         ),
         (
             "9999-12-28T23:30:00-01:00",
-            Value::Null,
-            "+010000-01-01T00:30:00.000Z",
+            72,
+            Some("+010000-01-01T00:30:00.000Z"),
         ),
         (
             "9999-12-31T23:30:00-01:00",
-            Value::Null,
-            "+010000-01-04T00:30:00.000Z",
+            72,
+            Some("+010000-01-04T00:30:00.000Z"),
         ),
+        (
+            "2026-08-07T10:06:30.183Z",
+            100_000_000,
+            Some("+013434-07-19T02:06:30.183Z"),
+        ),
+        (
+            "1970-01-01T00:00:00.000Z",
+            2_400_000_000,
+            Some("+275760-09-13T00:00:00.000Z"),
+        ),
+        ("1970-01-01T00:00:00.001Z", 2_400_000_000, None),
+        (
+            "1969-12-31T23:00:00.000Z",
+            2_400_000_001,
+            Some("+275760-09-13T00:00:00.000Z"),
+        ),
+        (
+            "0000-01-01T00:00:00.000+02:00",
+            1,
+            Some("-000001-12-31T23:00:00.000Z"),
+        ),
+        (
+            "1969-12-31T23:59:59.9999Z",
+            1,
+            Some("1970-01-01T00:59:59.999Z"),
+        ),
+        ("2026-08-07T10:06:30.183Z", 9_007_199_254_740_991, None),
     ] {
-        let root = directory.path().join(oracle_expected.len().to_string());
+        let root = directory.path().join(native.len().to_string());
         fs::create_dir_all(root.join("history"))?;
         let entries = [record(
             "claim",
@@ -598,14 +625,17 @@ fn claim_eligibility_handles_the_utc_year_boundary() -> TestResult {
         )];
         let history = root.join("history/demo-claim.jsonl");
         write_stream(&history, &entries)?;
-        let mut evidence = super::evidence(&history, &document(ts)?, HOLDER, NOW, 72);
-        let activity = &mut evidence["claim_activity"];
+        let evidence = super::evidence(&history, &document(ts)?, HOLDER, ts, threshold);
+        let activity = &evidence["claim_activity"];
         assert_eq!(activity["last_activity_at"], ts);
         assert_eq!(activity["stale_policy"]["stale"], false);
-        assert_eq!(activity["stale_policy"]["eligible_at"], native_time);
-        activity["stale_policy"]["eligible_at"] = json!(oracle_time);
-        oracle_expected.push(evidence);
-        inputs.push(json!({"label":ts,"root":root,"id":"demo-claim","holder":HOLDER,"updated_at":ts,"threshold_hours":72,"now":NOW}));
+        assert_eq!(
+            activity["stale_policy"]["eligible_at"],
+            json!(eligible),
+            "{ts}, {threshold} hours"
+        );
+        native.push(evidence);
+        inputs.push(json!({"label":format!("{ts}, {threshold} hours"),"root":root,"id":"demo-claim","holder":HOLDER,"updated_at":ts,"threshold_hours":threshold,"now":ts}));
     }
-    verify_published(directory.path(), &inputs, &oracle_expected)
+    verify_published(directory.path(), &inputs, &native)
 }

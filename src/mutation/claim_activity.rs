@@ -48,11 +48,33 @@ fn deserialize_threshold<'de, D: serde::Deserializer<'de>>(reader: D) -> Result<
 }
 
 /// Parses a stored timestamp for activity comparisons.
-fn parse(value: &str) -> Option<OffsetDateTime> {
+pub(crate) fn parse_stored_timestamp(value: &str) -> Option<OffsetDateTime> {
     if value.len() == 10 {
         return OffsetDateTime::parse(&format!("{value}T00:00:00Z"), &Rfc3339).ok();
     }
     OffsetDateTime::parse(value, &Rfc3339).ok()
+}
+
+/// Reads the inactivity threshold for the context advisory, defaulting unusable settings.
+pub(crate) fn context_threshold(settings: &Value) -> i64 {
+    deserialize_threshold(&settings["mutation_guard"]["stale_in_progress_hours"])
+        .unwrap_or_else(|_| default_threshold())
+}
+
+/// Adds the threshold in epoch milliseconds and applies the SDK's Date range.
+fn eligible_at(time: OffsetDateTime, threshold: i64) -> Option<String> {
+    const DATE_LIMIT_MS: i64 = 8_640_000_000_000_000;
+    // Leap days repeat every 400 years in the proleptic Gregorian calendar.
+    const CYCLE_MS: i64 = 146_097 * 86_400_000;
+    let activity_ms = time.unix_timestamp() * 1000 + i64::from(time.millisecond());
+    let millis = threshold.checked_mul(3_600_000)?.checked_add(activity_ms)?;
+    if !(-DATE_LIMIT_MS..=DATE_LIMIT_MS).contains(&millis) {
+        return None;
+    }
+    // Convert within one cycle so the calendar library never sees an extended year.
+    let date = OffsetDateTime::UNIX_EPOCH + Duration::milliseconds(millis.rem_euclid(CYCLE_MS));
+    let year = i64::from(date.year()) + 400 * millis.div_euclid(CYCLE_MS);
+    Some(super::format_timestamp(date, year))
 }
 
 /// Reads the required fields and validates each patch path.
@@ -90,7 +112,7 @@ fn compaction_activity(entry: &Value) -> CompactionActivity<'_> {
         Some(Value::Null) => CompactionActivity::Recorded(None),
         Some(value) => value
             .as_str()
-            .filter(|timestamp| parse(timestamp).is_some())
+            .filter(|timestamp| parse_stored_timestamp(timestamp).is_some())
             .map_or(CompactionActivity::Malformed, |timestamp| {
                 CompactionActivity::Recorded(Some(timestamp))
             }),
@@ -116,7 +138,7 @@ fn judgeable_item_record(entry: &Value) -> bool {
     let Some((timestamp, operation, _)) = record_fields(entry) else {
         return false;
     };
-    parse(timestamp).is_some()
+    parse_stored_timestamp(timestamp).is_some()
         && (operation != "history_compact_baseline"
             || !matches!(compaction_activity(entry), CompactionActivity::Malformed))
 }
@@ -208,7 +230,8 @@ fn workspace_restored(history_path: &Path, claimed_at: OffsetDateTime) -> bool {
     })
     .is_none_or(|history| {
         history.iter().any(|entry| {
-            let at_or_after = |value: &str| parse(value).is_none_or(|at| at >= claimed_at);
+            let at_or_after =
+                |value: &str| parse_stored_timestamp(value).is_none_or(|at| at >= claimed_at);
             let timestamp = entry["ts"].as_str().unwrap_or_default();
             if entry["op"] == "workspace_snapshot_restore" || rewritten_operation(&entry["op"]) {
                 return at_or_after(timestamp);
@@ -246,15 +269,15 @@ pub(super) fn evidence(
     };
     let last = std::iter::once(item.metadata.updated_at.as_str())
         .chain(history.iter().filter_map(activity))
-        .filter_map(|raw| parse(raw).map(|time| (raw, time)))
+        .filter_map(|raw| parse_stored_timestamp(raw).map(|time| (raw, time)))
         .fold(None, |latest, candidate| match latest {
             Some((_, time)) if time >= candidate.1 => latest,
             _ => Some(candidate),
         });
-    let now = parse(timestamp).unwrap_or_else(OffsetDateTime::now_utc);
+    let now = parse_stored_timestamp(timestamp).unwrap_or_else(OffsetDateTime::now_utc);
     let elapsed = |time: OffsetDateTime| (now - time).whole_hours().max(0);
     let idle = last.map(|(_, time)| elapsed(time));
-    let claimed = since.and_then(parse);
+    let claimed = since.and_then(parse_stored_timestamp);
     let threshold = threshold.max(1);
     let mut reason = stream.as_ref().and_then(|_| unproven(history, index));
     if reason.is_none()
@@ -265,10 +288,8 @@ pub(super) fn evidence(
     }
     let judgeable = stream.is_some() && reason.is_none() && last.is_some();
     let eligible = last
-        .filter(|_| judgeable && threshold <= 2_400_000_000)
-        .and_then(|(_, time)| time.checked_to_offset(time::UtcOffset::UTC))
-        .and_then(|time| time.checked_add(Duration::hours(threshold)))
-        .map(super::format_timestamp);
+        .filter(|_| judgeable)
+        .and_then(|(_, time)| eligible_at(time, threshold));
     let mut activity = json!({"last_activity_at":last.map(|(raw, _)| raw)});
     if stream.is_none() {
         activity["history_unreadable"] = json!(true);

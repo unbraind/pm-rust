@@ -6,7 +6,15 @@ status: open
 priority: 3
 tags[3]: follow-up,oracle,orientation
 created_at: "2026-11-20T06:08:40.405Z"
-updated_at: "2026-11-20T06:08:40.405Z"
+updated_at: "2026-11-20T10:17:10.197Z"
 author: codex-sol
 parent: pm-rust-oracle-1118
+comments[1]{created_at,author,text}:
+  "2026-11-20T10:17:06.200Z",codex-sol,"Round EV threads PRRT_kwDOTwgMRs655AhE and PRRT_kwDOTwgMRs655AhH are addressed by sharing the stored activity timestamp parser and the whole-hour settings decoder with claim evidence. The pinned context differential passes for substantive date-only history and the 24, 24.0 and 24e0 forms. The separate RFC 3339 context evaluation clock is still enforced."
+files[1]{path,scope,note}:
+  tests/orientation_differential.rs,project,Date-only history and integral threshold parity
+tests[1]{command,scope,provenance{author,created_at,source_kind,source_ref}}:
+  PM_RUST_REQUIRE_PUBLISHED_CLI=1 cargo test --locked --all-features --test orientation_differential context_idle_activity_and_threshold_match_oracle,project,codex-sol,"2026-11-20T10:17:09.907Z",local_mutation,fix/oracle-pm-cli-1118
+docs[1]{path,scope,note}:
+  docs/NATIVE_ORIENTATION.md,project,Native context and published orientation evidence
 body: ""

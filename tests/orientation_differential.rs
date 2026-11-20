@@ -288,6 +288,72 @@ fn context_non_active_progress_matches_oracle() -> TestResult {
     Ok(())
 }
 
+/// Context matches the pinned SDK for date-only history and integral settings syntax.
+#[test]
+fn context_idle_activity_and_threshold_match_oracle() -> TestResult {
+    let Some(published) = published_cli::published_cli_or_skip("context idle evidence") else {
+        return Ok(());
+    };
+    let scratch = tempfile::tempdir()?;
+    let driver = orientation_driver(scratch.path(), &published)?;
+    for (threshold, updated, history, idle) in [
+        ("72", "2026-08-18T00:00:00.000Z", Some("2026-08-22"), 0),
+        ("24", "2026-08-21T04:00:00.000Z", None, 1),
+        ("24.0", "2026-08-21T04:00:00.000Z", None, 1),
+        ("24e0", "2026-08-21T04:00:00.000Z", None, 1),
+    ] {
+        let root = tempfile::tempdir()?;
+        assert!(
+            oracle(&driver, root.path(), &["init", "sample-", "--defaults"])?
+                .status
+                .success()
+        );
+        let pm = root.path().join(".agents/pm");
+        let settings_path = pm.join("settings.json");
+        let mut settings: Value = serde_json::from_slice(&fs::read(&settings_path)?)?;
+        settings["mutation_guard"]["stale_in_progress_hours"] = json!(72);
+        fs::write(
+            &settings_path,
+            settings.to_string().replace(
+                "\"stale_in_progress_hours\":72",
+                &format!("\"stale_in_progress_hours\":{threshold}"),
+            ),
+        )?;
+        let mut row = item("sample-activity", "Task", "in_progress", 1);
+        row["created_at"] = json!("2026-08-17T00:00:00.000Z");
+        row["updated_at"] = json!(updated);
+        fixture(root.path(), &[row])?;
+        if let Some(timestamp) = history {
+            let record = json!({
+                "op":"update", "ts":timestamp, "event_class":"substantive",
+                "patch":[{"op":"replace", "path":"/metadata/title", "value":"Updated title"}]
+            });
+            fs::write(
+                pm.join("history/sample-activity.jsonl"),
+                json_lines(&[record]),
+            )?;
+        }
+        let args = ["context", "--json"];
+        let expected = oracle(&driver, root.path(), &args)?;
+        assert!(
+            expected.status.success(),
+            "{}",
+            String::from_utf8_lossy(&expected.stderr)
+        );
+        let value: Value = serde_json::from_slice(&expected.stdout)?;
+        assert_eq!(
+            value["summary"]["in_progress_idle"]
+                .as_u64()
+                .unwrap_or_default(),
+            idle,
+            "threshold {threshold}, history {history:?}"
+        );
+        let actual = native(root.path(), &args)?;
+        compare(&expected, &actual, &args);
+    }
+    Ok(())
+}
+
 /// Dangling scalar parents match every read projection without modifying authoritative bytes.
 #[test]
 fn deps_dangling_parents_match_oracle() -> TestResult {

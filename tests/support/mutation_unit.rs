@@ -6102,21 +6102,22 @@ fn session_acquisition_refreshes_the_clock_on_retry() -> Result<(), Box<dyn std:
         "2026-08-07T10:06:30.000Z",
         LockAge::Receipt,
     )?;
+    assert!(matches!(
+        acquire_session_lock(&pm_root, ttl, lock_retry(0), || TS.to_owned()),
+        Err(PmRustError::LockConflict { .. })
+    ));
+    let retried = std::cell::Cell::new(false);
     let attempts = std::cell::Cell::new(0);
     let expired = "2026-08-07T10:06:31.001Z";
     let clock = || {
-        let attempt = attempts.get();
-        attempts.set(attempt + 1);
-        if attempt < 3 { TS } else { expired }.to_owned()
+        attempts.set(attempts.get() + 1);
+        if retried.get() { expired } else { TS }.to_owned()
     };
-    assert!(matches!(
-        acquire_session_lock(&pm_root, ttl, 0, clock),
-        Err(PmRustError::LockConflict { .. })
-    ));
-    let acquired = acquire_session_lock(&pm_root, ttl, 1000, clock)?;
-    assert_eq!(attempts.get(), 4);
+    let acquired = acquire_session_lock(&pm_root, ttl, || !retried.replace(true), clock)?;
+    assert!(retried.get());
+    assert_eq!(attempts.get(), 2);
     assert_eq!(
-        serde_json::from_str::<Value>(&acquired.raw)?["created_at"],
+        serde_json::from_slice::<Value>(&fs::read(&acquired.path)?)?["created_at"],
         expired
     );
     Ok(())

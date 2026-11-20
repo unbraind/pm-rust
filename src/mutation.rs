@@ -626,14 +626,22 @@ fn validate_request(
 /// Formats the current UTC instant in canonical millisecond RFC 3339 form.
 #[must_use]
 pub fn now_iso() -> String {
-    format_timestamp(OffsetDateTime::now_utc())
+    let now = OffsetDateTime::now_utc();
+    format_timestamp(now, i64::from(now.year()))
 }
 
-/// Formats a UTC time as the published ISO timestamp with millisecond precision.
-fn format_timestamp(value: OffsetDateTime) -> String {
+/// Formats UTC calendar fields with the published four-digit or signed extended ISO year.
+fn format_timestamp(value: OffsetDateTime, year: i64) -> String {
+    let (sign, width) = if (0..=9999).contains(&year) {
+        ("", 4)
+    } else if year < 0 {
+        ("-", 6)
+    } else {
+        ("+", 6)
+    };
     format!(
-        "{:04}-{:02}-{:02}T{:02}:{:02}:{:02}.{:03}Z",
-        value.year(),
+        "{sign}{:0width$}-{:02}-{:02}T{:02}:{:02}:{:02}.{:03}Z",
+        year.unsigned_abs(),
         u8::from(value.month()),
         value.day(),
         value.hour(),
@@ -926,7 +934,7 @@ fn acquire_lock(
             "id must use ASCII letters, digits, and interior hyphens",
         ));
     }
-    wait_for_lock(id, wait_ms, || {
+    wait_for_lock(id, lock_retry(wait_ms), || {
         acquire_lock_attempt(
             pm_root,
             id,
@@ -939,23 +947,33 @@ fn acquire_lock(
     })
 }
 
-/// Retries lock contention within a fixed budget, propagating other failures immediately.
+/// Waits before retrying lock contention while the fixed budget remains.
+fn lock_retry(wait_ms: u64) -> impl FnMut() -> bool {
+    let deadline = Instant::now() + Duration::from_millis(wait_ms);
+    move || {
+        let remaining = deadline.saturating_duration_since(Instant::now());
+        if remaining.is_zero() {
+            return false;
+        }
+        std::thread::sleep(remaining.min(Duration::from_millis(25)));
+        true
+    }
+}
+
+/// Retries only lock contention, propagating other failures immediately.
 fn wait_for_lock<T>(
     id: &str,
-    wait_ms: u64,
+    mut retry: impl FnMut() -> bool,
     mut attempt: impl FnMut() -> Result<T, PmRustError>,
 ) -> Result<T, PmRustError> {
-    let deadline = Instant::now() + Duration::from_millis(wait_ms);
     loop {
         match attempt() {
             Err(PmRustError::LockConflict { .. }) => {}
             result => return result,
         }
-        let remaining = deadline.saturating_duration_since(Instant::now());
-        if remaining.is_zero() {
+        if !retry() {
             return Err(PmRustError::LockConflict { id: id.to_owned() });
         }
-        std::thread::sleep(remaining.min(Duration::from_millis(25)));
     }
 }
 
@@ -3874,10 +3892,10 @@ fn session_lock_refusal(
 fn acquire_session_lock(
     pm_root: &Path,
     ttl_seconds: u64,
-    wait_ms: u64,
+    retry: impl FnMut() -> bool,
     now: impl Fn() -> String,
 ) -> Result<ItemLock, PmRustError> {
-    wait_for_lock("session-state", wait_ms, || {
+    wait_for_lock("session-state", retry, || {
         acquire_lock_attempt(
             pm_root,
             "session-state",
@@ -3898,7 +3916,7 @@ pub(crate) fn mutate_session_state(
 ) -> Result<(), PmRustError> {
     let ttl = default_lock_ttl();
     let wait = lock_wait_budget(std::env::var("PM_LOCK_WAIT_MS").ok().as_deref(), 3000);
-    let lock = acquire_session_lock(pm_root, ttl, wait, now_iso)?;
+    let lock = acquire_session_lock(pm_root, ttl, lock_retry(wait), now_iso)?;
     let path = pm_root.join("runtime/session.json");
     let mut state = fs::read_to_string(&path)
         .ok()
@@ -3930,7 +3948,7 @@ fn publish_session_state(
     #[cfg(test)]
     tests::replace_session_lease_before_publication(&lock.path);
     // A competing lease check can briefly hold this gate even while our lease is current.
-    let gate = match wait_for_lock("session-state", 250, || {
+    let gate = match wait_for_lock("session-state", lock_retry(250), || {
         let attempt = acquire_cleanup_gate(&locks, "session-state", ttl);
         #[cfg(test)]
         if matches!(attempt, Err(PmRustError::LockConflict { .. })) {

@@ -1093,13 +1093,8 @@ fn context_history<'a>(
     settings: &Value,
     now: time::OffsetDateTime,
 ) -> Result<ContextHistory<'a>, PmRustError> {
-    use time::OffsetDateTime;
-    use time::format_description::well_known::Rfc3339;
-    let parse = |stamp: &str| OffsetDateTime::parse(stamp, &Rfc3339).ok();
-    let threshold = settings["mutation_guard"]["stale_in_progress_hours"]
-        .as_i64()
-        .unwrap_or(72)
-        .max(1);
+    use crate::mutation::claim_activity;
+    let threshold = claim_activity::context_threshold(settings);
     let progress = lifecycle.activity_progress_status();
     let mut recent = Vec::new();
     let mut unowned = 0;
@@ -1123,12 +1118,8 @@ fn context_history<'a>(
         }
         unowned += usize::from(text(item, "assignee").trim().is_empty());
         let activity = std::iter::once(text(item, "updated_at"))
-            .chain(
-                history
-                    .iter()
-                    .filter_map(crate::mutation::claim_activity::activity),
-            )
-            .filter_map(parse)
+            .chain(history.iter().filter_map(claim_activity::activity))
+            .filter_map(claim_activity::parse_stored_timestamp)
             .max();
         if let Some(activity) = activity
             && (now - activity).whole_hours() >= threshold

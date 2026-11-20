@@ -2,14 +2,16 @@ id: pm-rust-oracle-1118
 title: Refresh published pm-cli oracle to 2026.11.18
 description: "Classify the published CLI divergences, update native parity and validate the locked npm oracle on Linux."
 type: Task
-status: open
+status: in_progress
 priority: 1
 tags[6]: "gh:unbraind/pm-cli#1753","gh:unbraind/pm-cli#1754","gh:unbraind/pm-cli#1757","gh:unbraind/pm-rust#176","gh:unbraind/pm-rust#181",oracle
 created_at: "2026-11-18T09:41:09.150Z"
-updated_at: "2026-11-20T07:32:58.197Z"
+updated_at: "2026-11-20T10:17:19.858Z"
+assignee: codex-sol
+claim_principal: codex-sol
 author: codex-sol
 parent: pm-rust-u4al
-comments[60]{created_at,author,text}:
+comments[61]{created_at,author,text}:
   "2026-11-18T09:41:20.010Z",codex-sol,Started from the Dependabot head. npm latest is 2026.11.18. Reviewing the failed matrix and reproducing against the current pin.
   "2026-11-18T09:57:01.888Z",codex-sol,"All seven failed jobs in run 44015087729 report two cases. GH-1707 in 2026.11.13 introduces credential-bearing identity admission and stored-holder redaction. Direct 2026.11.18 probes confirm stored holders are redacted without requiring credential restoration from a clean invocation. The full Linux run also confirms GH-1684 and GH-1703 in 2026.11.14 change TOON receipts and budgeted row counts, and GH-1336 in 2026.11.16 adds claim activity evidence. Implementing these wire changes while the remaining suites run."
   "2026-11-18T10:10:24.585Z",codex-sol,"Published 2026.11.18 accepts the unchanged replay at the old TOON overhead boundary. The same stale-output-cursor defect remains at an adjacent second-projection boundary, with successful replay on either side. Saved an upstream draft after checking related issues. Native already had this stale replay behavior. Kept the existing reprojected-snapshot test and tracked the separate GH-1336 takeover and next write/read work under pm-rust-stale-claim-takeover."
@@ -70,41 +72,78 @@ comments[60]{created_at,author,text}:
   "2026-11-20T04:06:11.878Z",codex-sol,"Round EM verified all four pm-rust#181 findings at 2228b77 against the published pm-cli 2026.11.18 CLI and SDK. The fixes and regression tests are in Fix Round EM ownership refusals and attribution.\n\nPRRT_kwDOTwgMRs65yq-c - The oracle refuses an abandoned empty or whitespace-only receipt with stale_lock_requires_override and reports lock_conflict while the gate is held. Native acquisition now makes the stale decision under the gate, gives owner-verified removal guidance for unreadable receipts, and preserves the lock and the item until an authorized retry. Differential tests cover gate contention, abandoned receipts, and forced recovery.\nPRRT_kwDOTwgMRs65yq-e - The pinned SDK leaves stale eligibility intact for a well-formed workspace comment with an invalid timestamp. Workspace fixtures compare the entire activity receipt and retain conservative evidence for unreadable JSON, undated restores and rewrites, and invalid compactions.\nPRRT_kwDOTwgMRs65yq-i - The published SDK saves a claim under a held session lock and the session stays as it was after the lock clears. The native saved-claim receipt now directs attribution reconciliation. The composed-start test asserts the revised advice and compares the remaining receipt and durable bytes against the oracle.\nPRRT_kwDOTwgMRs65yq-j - The oracle preserves --author beta when a stored holder supplied the credential. Native projection preserves the declared flag in normalized_args, provided_fields, and the rebuilt attempted command. The regression also checks redaction of separate and attached credential-bearing values.\n\nFormatting, deny-warnings Clippy, changelog, and both coverage profile-union fixtures passed. The required stable suites passed across the full run and focused rerun of the updated fixtures, with 522 library, 64 binary unit, 53 CLI dispatch, 12 ownership contract, 64 claim/release differential, and 22 search/collections differential cases. The full merged coverage run is in progress at the unchanged four-dimension threshold of 100 percent."
   "2026-11-20T05:57:13.041Z",codex-sol,"Round ER started against PR #181 head 5070345. Read all seven review threads. Checking the published 2026.11.18 settings, history, refusal and force behavior alongside the Rust paths. Preserving Round EC, EG and EM option parsing and retry behavior."
   "2026-11-20T07:32:56.011Z",codex-sol,"Round ER on 5070345 against the published pm-cli 2026.11.18. All seven findings are addressed by Fix Round ER history evidence and refusal redaction.\n\nPRRT_kwDOTwgMRs651ruq — Strict ownership reproduced in both implementations: session A receives the note conflict, session B receives ownership_conflict on the retry, and session A successfully appends. Rust guidance names the original detected session and the original SDK AuthorIdentity while retaining the executable commands.\nPRRT_kwDOTwgMRs651rut — Native recency checks string paths in supplied patch rows using the same validation as claim activity. Existing legacy records without a patch retain the published recency behavior. The pinned context command exits with unknown_error for a malformed row. Native skips it and retains older valid evidence.\nPRRT_kwDOTwgMRs651ruw — The pinned loader accepts 72.0 and 24e0 as whole hours and rejects fractional, nonpositive and out-of-range values. Both CLIs create byte-identical item and history records with the accepted values.\nPRRT_kwDOTwgMRs651ru1 — The claim-activity differential matches the published stale verdict and receipt for a date-only claim at UTC midnight and for an invalid calendar month.\nPRRT_kwDOTwgMRs651ru5 — Public Rust redaction projects arrays and scalars in place, preserves null and applies recovery metadata to object envelopes.\nPRRT_kwDOTwgMRs651ru8 — Public Rust redaction registers the stored holder before projecting a copied value, without raw arguments or CLI projection scope. Synthetic literal and encoded fixtures preserve declared flags, project option values and remove unsafe retries.\nPRRT_kwDOTwgMRs651ru- — The abandoned receipt fixture now requires both CLIs to exit successfully after --force and verifies alpha as the persisted assignee.\n\nOpen follow-ups are pm-rust-oracle-malformed-recency for the pinned context failure and pm-rust-orientation-stale-evidence for native context idle settings and dates.\n\nFinal validation passed formatting, deny-warnings Clippy, changelog and both LLVM profile union fixtures. The pinned stable suites accounted for all 780 tests: 526 library, 64 binary, 53 CLI dispatch, 12 ownership, 65 claim and release, 22 search and collections, and 38 orientation. The known dependency-packet five-second deadline failed in concurrent runs and passed unchanged in both single-test reruns. The current LLVM mapping and refreshed profiles passed the merged gate at 20990/20990 lines, 2167/2167 functions, 34304/34304 regions and 4766/4766 branch outcomes."
-files[33]{path,scope}:
-  scripts/crash-review.test.mts,project
-  src/cli.rs,project
-  src/collections.rs,project
-  src/command_line.rs,project
-  src/history.rs,project
-  src/invocation.rs,project
-  src/lib.rs,project
-  src/list_intent.rs,project
-  src/main.rs,project
-  src/mutation.rs,project
-  src/mutation/claim_activity.rs,project
-  src/orientation_context.rs,project
-  src/ownership.rs,project
-  src/read_output.rs,project
-  src/refusal.rs,project
-  src/toon_input.rs,project
-  src/toon_output.rs,project
-  tests/claim_release_differential.rs,project
-  tests/cli_dispatch.rs,project
-  tests/mutation_contract.rs,project
-  tests/oracle/package-lock.json,project
-  tests/ownership_contract.rs,project
-  tests/pagination_differential.rs,project
-  tests/search_collections_differential.rs,project
-  tests/support/claim_activity_differential.rs,project
-  tests/support/collections_unit.rs,project
-  tests/support/json_output_unit.rs,project
-  tests/support/list_intent_delivery_differential.rs,project
-  tests/support/main_unit.rs,project
-  tests/support/mutation_differential.rs,project
-  tests/support/mutation_unit.rs,project
-  tests/support/orientation_context_unit.rs,project
-  tests/support/refusal_unit.rs,project
-tests[65]{command,scope,provenance{author,created_at,source_kind,source_ref}}:
+  "2026-11-20T10:08:15.580Z",codex-sol,"Round EV started on the open PR head 9816f48. Read all five review threads and confirmed the help, timestamp, threshold, and retry paths under review. The pinned oracle and existing parser regressions are the comparison points."
+files[34]:
+  - path: scripts/crash-review.test.mts
+    scope: project
+  - path: src/cli.rs
+    scope: project
+  - path: src/collections.rs
+    scope: project
+  - path: src/command_line.rs
+    scope: project
+  - path: src/history.rs
+    scope: project
+  - path: src/invocation.rs
+    scope: project
+  - path: src/lib.rs
+    scope: project
+  - path: src/list_intent.rs
+    scope: project
+  - path: src/main.rs
+    scope: project
+  - path: src/mutation.rs
+    scope: project
+  - path: src/mutation/claim_activity.rs
+    scope: project
+  - path: src/orientation_context.rs
+    scope: project
+  - path: src/ownership.rs
+    scope: project
+  - path: src/read_output.rs
+    scope: project
+  - path: src/refusal.rs
+    scope: project
+  - path: src/toon_input.rs
+    scope: project
+  - path: src/toon_output.rs
+    scope: project
+  - path: tests/claim_release_differential.rs
+    scope: project
+  - path: tests/cli_dispatch.rs
+    scope: project
+  - path: tests/mutation_contract.rs
+    scope: project
+  - path: tests/oracle/package-lock.json
+    scope: project
+  - path: tests/orientation_differential.rs
+    scope: project
+    note: Published context regression for date-only history and integral threshold syntax
+  - path: tests/ownership_contract.rs
+    scope: project
+  - path: tests/pagination_differential.rs
+    scope: project
+  - path: tests/search_collections_differential.rs
+    scope: project
+  - path: tests/support/claim_activity_differential.rs
+    scope: project
+  - path: tests/support/collections_unit.rs
+    scope: project
+  - path: tests/support/json_output_unit.rs
+    scope: project
+  - path: tests/support/list_intent_delivery_differential.rs
+    scope: project
+  - path: tests/support/main_unit.rs
+    scope: project
+  - path: tests/support/mutation_differential.rs
+    scope: project
+  - path: tests/support/mutation_unit.rs
+    scope: project
+  - path: tests/support/orientation_context_unit.rs
+    scope: project
+  - path: tests/support/refusal_unit.rs
+    scope: project
+tests[66]{command,scope,provenance{author,created_at,source_kind,source_ref}}:
   PM_RUST_REQUIRE_PUBLISHED_CLI=1 cargo test --locked --all-targets --all-features --no-fail-fast,project,codex-sol,"2026-11-18T09:58:16.490Z",local_mutation,fix/oracle-pm-cli-1118
   cargo fmt --all -- --check,project,codex-sol,"2026-11-18T09:58:23.289Z",local_mutation,fix/oracle-pm-cli-1118
   cargo clippy --locked --all-targets --all-features -- -D warnings,project,codex-sol,"2026-11-18T10:10:28.550Z",local_mutation,fix/oracle-pm-cli-1118
@@ -170,6 +209,7 @@ tests[65]{command,scope,provenance{author,created_at,source_kind,source_ref}}:
   PM_RUST_REQUIRE_PUBLISHED_CLI=1 LLVM_PROFILE_FILE_NAME=er-%4m.profraw cargo +nightly-2026-08-06 llvm-cov --no-clean --locked --branch --all-targets --all-features --no-fail-fast --json --failure-mode=any --output-path target/er-merged-coverage.json,project,codex-sol,"2026-11-20T06:05:09.552Z",local_mutation,fix/oracle-pm-cli-1118
   PM_RUST_REQUIRE_PUBLISHED_CLI=1 RUST_TEST_THREADS=1 cargo test --locked --all-features --test orientation_differential relationship_large_edge_limit_finishes_at_budget_floor -- --exact,project,codex-sol,"2026-11-20T07:25:47.631Z",local_mutation,fix/oracle-pm-cli-1118
   PM_RUST_REQUIRE_PUBLISHED_CLI=1 cargo +nightly-2026-08-06 llvm-cov --no-report --locked --branch --all-features --no-fail-fast --lib --test orientation_differential,project,codex-sol,"2026-11-20T07:25:47.631Z",local_mutation,fix/oracle-pm-cli-1118
+  PM_RUST_REQUIRE_PUBLISHED_CLI=1 RUST_TEST_THREADS=2 cargo test --locked --all-features --lib --bins --test cli_dispatch --test ownership_contract --test claim_release_differential --test search_collections_differential --test orientation_differential,project,codex-sol,"2026-11-20T10:17:19.382Z",local_mutation,fix/oracle-pm-cli-1118
 docs[9]:
   - path: docs/CRASH_HARNESS.md
     scope: project
