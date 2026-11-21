@@ -79,14 +79,14 @@ fn lossless_views_keep_cuts_and_javascript_numbers() -> Result<(), Box<dyn std::
     let mut output =
         super::ListOutput::from(json!({"items":[cut, cut],"notice":cut,"number":1e20}));
     assert!(crate::read_output::compact_strings(&mut output.value));
-    assert_eq!(output["notice"], format!("{}…", "x".repeat(239)));
+    assert_eq!(output["notice"], format!("{}…[+8 chars]", "x".repeat(239)));
     let compacted = serde_json::to_string(&output)?;
     assert_eq!(compacted.matches("…").count(), 3);
     assert_eq!(compacted.matches("\\ud83d").count(), 0);
     assert!(compacted.contains("100000000000000000000"));
     // Retained raw overrides replace their safe views verbatim, including the
     // lone-surrogate escape a malformed value keeps for the encoder to reject.
-    let raw = format!("\"{}\\ud83d…\"", "x".repeat(239));
+    let raw = format!("\"{}\\ud83d…[+7 chars]\"", "x".repeat(239));
     for pointer in ["/items/0", "/items/1", "/notice"] {
         output.cuts.insert(pointer.to_owned(), raw.clone());
     }

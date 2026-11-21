@@ -280,9 +280,166 @@ fn context_non_active_progress_matches_oracle() -> TestResult {
                 let result: Value = serde_json::from_slice(&expected.stdout)?;
                 assert_eq!(result["summary"]["open"], active_count);
                 assert_eq!(result["summary"]["in_progress"], 0);
+                assert_eq!(result["summary"]["in_progress_unowned"], 2);
             }
             compare(&expected, &native(root.path(), &args)?, &args);
         }
+    }
+    Ok(())
+}
+
+/// Context ranks by the latest substantive instant even when offsets reverse text order.
+#[test]
+fn context_focus_recency_uses_latest_instant() -> TestResult {
+    let Some(published) = published_cli::published_cli_or_skip("mixed offset focus recency") else {
+        return Ok(());
+    };
+    let scratch = tempfile::tempdir()?;
+    let driver = orientation_driver(scratch.path(), &published)?;
+    let root = tempfile::tempdir()?;
+    assert!(
+        oracle(&driver, root.path(), &["init", "sample-", "--defaults"])?
+            .status
+            .success()
+    );
+    fixture(
+        root.path(),
+        &[
+            item("sample-one", "Task", "open", 2),
+            item("sample-two", "Task", "open", 2),
+            item("sample-z", "Task", "open", 2),
+        ],
+    )?;
+    for (id, timestamps) in [
+        (
+            "sample-one",
+            &["2026-08-21T12:00:00Z", "2026-08-21T14:00:00+05:00"][..],
+        ),
+        ("sample-two", &["2026-08-21T11:00:00Z"][..]),
+        ("sample-z", &["2026-08-21T10:00:00Z"][..]),
+    ] {
+        let events: Vec<_> = timestamps
+            .iter()
+            .map(|ts| {
+                json!({
+                    "op":"update", "ts":ts, "event_class":"substantive",
+                    "patch":[{"op":"replace", "path":"/metadata/title", "value":"Updated title"}]
+                })
+            })
+            .collect();
+        fs::write(
+            root.path().join(format!(".agents/pm/history/{id}.jsonl")),
+            json_lines(&events),
+        )?;
+    }
+    let args = ["context", "--json"];
+    let expected = oracle(&driver, root.path(), &args)?;
+    assert!(
+        expected.status.success(),
+        "{}",
+        String::from_utf8_lossy(&expected.stderr)
+    );
+    let value: Value = serde_json::from_slice(&expected.stdout)?;
+    assert_eq!(value["low_level"][0]["id"], "sample-one");
+    assert_eq!(value["low_level"][1]["id"], "sample-two");
+    compare(&expected, &native(root.path(), &args)?, &args);
+
+    // Selecting the later spelling would leave only the 09:00 UTC event.
+    let history = root.path().join(".agents/pm/history/sample-one.jsonl");
+    let events = fs::read_to_string(&history)?;
+    fs::write(&history, events.lines().last().ok_or("offset event")?)?;
+    let output = native(root.path(), &args)?;
+    assert!(
+        output.status.success(),
+        "{}",
+        String::from_utf8_lossy(&output.stderr)
+    );
+    let with_earlier_instant: Value = serde_json::from_slice(&output.stdout)?;
+    assert_eq!(with_earlier_instant["low_level"][0]["id"], "sample-two");
+    Ok(())
+}
+
+/// Context matches the pinned SDK for date-only history and integral settings syntax.
+#[test]
+fn context_idle_activity_and_threshold_match_oracle() -> TestResult {
+    let Some(published) = published_cli::published_cli_or_skip("context idle evidence") else {
+        return Ok(());
+    };
+    let scratch = tempfile::tempdir()?;
+    let driver = orientation_driver(scratch.path(), &published)?;
+    for (threshold, updated, history, idle) in [
+        ("72", "2026-08-18T00:00:00.000Z", Some("2026-08-22"), 0),
+        (
+            "72",
+            "2026-08-18T00:00:00.000Z",
+            Some("2026-08-22T00:00Z"),
+            0,
+        ),
+        ("72", "2026-08-18T00:00:00.000Z", Some("2026-08-18"), 1),
+        (
+            "72",
+            "2026-08-18T00:00:00.000Z",
+            Some("+002026-08-19T24:00:00.000Z"),
+            0,
+        ),
+        (
+            "72",
+            "2026-08-18T00:00:00.000Z",
+            Some("2026-08-20T00:00:00.000Z"),
+            0,
+        ),
+        ("24", "2026-08-21T04:00:00.000Z", None, 1),
+        ("24.0", "2026-08-21T04:00:00.000Z", None, 1),
+        ("24e0", "2026-08-21T04:00:00.000Z", None, 1),
+    ] {
+        let root = tempfile::tempdir()?;
+        assert!(
+            oracle(&driver, root.path(), &["init", "sample-", "--defaults"])?
+                .status
+                .success()
+        );
+        let pm = root.path().join(".agents/pm");
+        let settings_path = pm.join("settings.json");
+        let mut settings: Value = serde_json::from_slice(&fs::read(&settings_path)?)?;
+        settings["mutation_guard"]["stale_in_progress_hours"] = json!(72);
+        fs::write(
+            &settings_path,
+            settings.to_string().replace(
+                "\"stale_in_progress_hours\":72",
+                &format!("\"stale_in_progress_hours\":{threshold}"),
+            ),
+        )?;
+        let mut row = item("sample-activity", "Task", "in_progress", 1);
+        row["created_at"] = json!("2026-08-17T00:00:00.000Z");
+        row["updated_at"] = json!(updated);
+        fixture(root.path(), &[row])?;
+        if let Some(timestamp) = history {
+            let record = json!({
+                "op":"update", "ts":timestamp, "event_class":"substantive",
+                "patch":[{"op":"replace", "path":"/metadata/title", "value":"Updated title"}]
+            });
+            fs::write(
+                pm.join("history/sample-activity.jsonl"),
+                json_lines(&[record]),
+            )?;
+        }
+        let args = ["context", "--json"];
+        let expected = oracle(&driver, root.path(), &args)?;
+        assert!(
+            expected.status.success(),
+            "{}",
+            String::from_utf8_lossy(&expected.stderr)
+        );
+        let value: Value = serde_json::from_slice(&expected.stdout)?;
+        assert_eq!(
+            value["summary"]["in_progress_idle"]
+                .as_u64()
+                .unwrap_or_default(),
+            idle,
+            "threshold {threshold}, history {history:?}"
+        );
+        let actual = native(root.path(), &args)?;
+        compare(&expected, &actual, &args);
     }
     Ok(())
 }

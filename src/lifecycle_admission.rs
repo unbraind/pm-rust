@@ -76,13 +76,13 @@ pub(crate) fn admit_with_registry(
     };
     let terminal = registry.terminal(&before.metadata.status);
     if phase == Phase::AtomicStart && terminal {
-        return Err(PmRustError::OwnershipRefusal {
-            detail: format!(
+        return Err(crate::mutation::ownership_refusal(
+            format!(
                 "Cannot start terminal item {}; reopen it with pm item reopen before starting it",
                 request.id
             ),
-            context: json!({"code":"terminal_state_conflict","item_id":request.id,"why":"Starting work moves an active item into progress; a terminal item must be reopened so its recurrence evidence is recorded.","next_steps":[format!("Run {}, then {}.",crate::render_pm_command(["item","reopen",&request.id,"<reason>"]),crate::render_pm_command(["claim",&request.id,"--start"]))]}),
-        });
+            json!({"code":"terminal_state_conflict","item_id":request.id,"why":"Starting work moves an active item into progress; a terminal item must be reopened so its recurrence evidence is recorded.","next_steps":[format!("Run {}, then {}.",crate::render_pm_command(["item","reopen",&request.id,"<reason>"]),crate::render_pm_command(["claim",&request.id,"--start"]))]}),
+        ));
     }
     let mut warnings = if phase == Phase::Claim {
         vec![]
@@ -265,17 +265,18 @@ fn read_blocker(path: &Path, canonical: &str) -> Result<ItemDocument, PmRustErro
         path: path.to_path_buf(),
         source,
     })?;
-    let raw = std::str::from_utf8(&bytes).map_err(|_| PmRustError::CommandRefusal {
-        detail: "Item contains invalid UTF-8; preserve a binary backup before recovering it.".to_owned(),
-        exit_code: 4,
-        context: json!({"code":"item_document_encoding_invalid","item_id":canonical,"item_path":path,"byte_length":bytes.len(),"empty":false}),
-    })?;
+    let raw = std::str::from_utf8(&bytes).map_err(|_| crate::collections::refusal(
+        "Item contains invalid UTF-8; preserve a binary backup before recovering it.",
+        4,
+        json!({"code":"item_document_encoding_invalid","item_id":canonical,"item_path":path,"byte_length":bytes.len(),"empty":false}),
+    ))?;
     let item = crate::item::decode_item(path, raw)?;
     crate::item::validate_file_identity(path, &item)?;
     Ok(item)
 }
 /// Builds executable unblock advice only when the scalar/edge removal is unambiguous.
-fn unblock(before: &ItemDocument, first: &str, settings: &Value) -> String {
+fn unblock(before: &ItemDocument, open_ids: &[String], settings: &Value) -> Vec<String> {
+    let first = &open_ids[0];
     let prefix = settings["id_prefix"].as_str().unwrap_or("pm-");
     let canonical = |id: &str| {
         let id = id.trim().trim_start_matches('#').to_lowercase();
@@ -311,7 +312,7 @@ fn unblock(before: &ItemDocument, first: &str, settings: &Value) -> String {
             && dep["kind"] != "blocked_by"
             && canonical(dep["id"].as_str().unwrap_or_default()) == canonical(first)
     }) {
-        return inspect();
+        return vec![inspect()];
     }
     if canonical(scalar) == canonical(first)
         && deps
@@ -325,7 +326,12 @@ fn unblock(before: &ItemDocument, first: &str, settings: &Value) -> String {
                     .eq_ignore_ascii_case(scalar.trim())
             })
     {
-        return crate::render_pm_command(["update", &before.metadata.id, "--unset", "blocked_by"]);
+        return vec![crate::render_pm_command([
+            "update",
+            &before.metadata.id,
+            "--unset",
+            "blocked_by",
+        ])];
     }
     let matches: Vec<_> = deps
         .iter()
@@ -339,18 +345,24 @@ fn unblock(before: &ItemDocument, first: &str, settings: &Value) -> String {
             .as_str()
             .is_some_and(|id| external(id, "") || id == canonical(id))
     {
-        return crate::render_pm_command([
+        let id = matches[0]["id"].as_str().unwrap_or_default();
+        let selector = format!("id={id},kind=blocked_by");
+        if crate::refusal::diagnostic(&selector, open_ids) != selector {
+            return vec![
+                inspect(),
+                "Use the dependency's original ID to remove the blocked_by edge.".to_owned(),
+            ];
+        }
+        return vec![crate::render_pm_command([
             "update",
             &before.metadata.id,
             "--dep-remove",
-            &format!(
-                "id={},kind=blocked_by",
-                matches[0]["id"].as_str().unwrap_or_default()
-            ),
-        ]);
+            &selector,
+        ])];
     }
-    inspect()
+    vec![inspect()]
 }
+
 /// Implements strict/default, warning, off and explicit-force dependency policies once.
 fn admit_blockers(
     root: &Path,
@@ -404,11 +416,11 @@ fn admit_blockers(
     if open.is_empty() {
         return Ok(vec![]);
     }
-    let ids = open
+    let open_ids = open
         .iter()
-        .filter_map(|row| row["id"].as_str())
-        .collect::<Vec<_>>()
-        .join(",");
+        .map(|row| row["id"].as_str().unwrap_or_default().to_owned())
+        .collect::<Vec<_>>();
+    let ids = open_ids.join(",");
     let id = &before.metadata.id;
     if enforcement == "warn" {
         return Ok(vec![format!("start_with_open_blockers:{id}:{ids}")]);
@@ -420,31 +432,22 @@ fn admit_blockers(
         .iter()
         .filter(|row| row["external"] != true)
         .take(3)
-        .map(|row| {
-            json!(crate::render_pm_command([
-                "get",
-                row["id"].as_str().unwrap_or_default()
-            ]))
-        })
+        .map(|row| crate::render_pm_command(["get", row["id"].as_str().unwrap_or_default()]))
         .collect();
-    steps.push(json!(unblock(
-        before,
-        open[0]["id"].as_str().unwrap_or_default(),
-        settings
-    )));
-    steps.push(json!(crate::render_pm_command(["next"])));
+    steps.extend(unblock(before, &open_ids, settings));
+    steps.push(crate::render_pm_command(["next"]));
     let plural = if open.len() == 1 {
         "its blocker".to_owned()
     } else {
         format!("{} of its blockers", open.len())
     };
-    Err(PmRustError::OwnershipRefusal {
-        detail: format!(
+    Err(crate::mutation::ownership_refusal(
+        format!(
             "Cannot start {id}: {plural} {ids} {} still open.",
             if open.len() == 1 { "is" } else { "are" }
         ),
-        context: json!({"code":"start_blocked_by_open_dependency","item_id":id,"required":format!("Finish or close the open blocker{} first, remove the blocked_by edge if it no longer applies, or start anyway with --force.",if open.len()==1{""}else{"s"}),"why":"Starting work that a declared blocker still gates would leave an in-progress item that validate reports as non_blocked_status_has_blocked_by. governance.start_blocker_enforcement (strict by default) governs this check.","next_steps":steps,"details":{"enforcement":enforcement,"open_blockers":open}}),
-    })
+        json!({"code":"start_blocked_by_open_dependency","item_id":id,"required":format!("Finish or close the open blocker{} first, remove the blocked_by edge if it no longer applies, or start anyway with --force.",if open.len()==1{""}else{"s"}),"why":"Starting work that a declared blocker still gates would leave an in-progress item that validate reports as non_blocked_status_has_blocked_by. governance.start_blocker_enforcement (strict by default) governs this check.","next_steps":steps,"details":{"enforcement":enforcement,"open_blockers":open}}),
+    ))
 }
 
 /// Keeps warning/force policy limited to the published unverifiable-document failures.

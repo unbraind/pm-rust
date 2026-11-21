@@ -69,43 +69,54 @@ fn optional(a: &Value, b: &Value, date: bool) -> std::cmp::Ordering {
     }
 }
 /// Returns recency from substantive history, release cohort or creation time.
-fn recency(workspace: &Workspace, item: &Value) -> Result<String, PmRustError> {
-    let mut entries = records(workspace, text(item, "id"))?;
-    entries.sort_by(|a, b| crate::collation::compare(text(a, "ts"), text(b, "ts")));
-    for entry in entries.iter().rev() {
-        let patch: Vec<_> = entry["patch"]
-            .as_array()
-            .into_iter()
-            .flatten()
-            .map(|operation| crate::history::HistoryPatch {
-                op: "replace",
-                path: text(operation, "path").to_owned(),
-                value: None,
-            })
-            .collect();
-        let substantive = match entry["event_class"].as_str() {
-            Some("substantive") => true,
-            Some("maintenance") => false,
-            _ => {
-                !matches!(text(entry, "op"), "history_salvage" | "tests_update")
-                    && crate::history::classify_history_event(text(entry, "op"), &patch)
-                        == "substantive"
-            }
-        };
-        if substantive && !text(entry, "ts").is_empty() {
-            return Ok(text(entry, "ts").to_owned());
-        }
+fn recency(entries: &[Value], item: &Value) -> String {
+    entries
+        .iter()
+        .filter_map(substantive_history_timestamp)
+        .max_by_key(|timestamp| recency_key(timestamp))
+        .map_or_else(|| release_recency(item), str::to_owned)
+}
+
+/// Equal parsed instants share a rank coordinate regardless of their original offset spelling.
+fn recency_key(timestamp: &str) -> (Option<i128>, String) {
+    let (instant, mut raw) = crate::list::timestamp_key(timestamp);
+    if instant.is_some() {
+        raw.clear();
     }
+    (instant, raw)
+}
+
+/// Keeps the context ranking classification independent of the idle advisory.
+fn substantive_history_timestamp(entry: &Value) -> Option<&str> {
+    // Legacy records without a patch still supply recency in the published reader.
+    let patch = entry["patch"].as_array().map_or(&[][..], Vec::as_slice);
+    if !crate::history::patch_paths_are_strings(patch) {
+        return None;
+    }
+    let substantive = match entry["event_class"].as_str() {
+        Some("substantive") => true,
+        Some("maintenance") => false,
+        _ => {
+            let paths = patch.iter().filter_map(|row| row["path"].as_str());
+            crate::history::classify_history_paths(text(entry, "op"), paths) == "substantive"
+        }
+    };
+    let timestamp = text(entry, "ts");
+    (substantive && !timestamp.is_empty()).then_some(timestamp)
+}
+
+/// Uses the release cohort when no substantive history is available.
+fn release_recency(item: &Value) -> String {
     let release = text(item, "release").trim_start_matches('v');
     let parts: Vec<_> = release.split('.').collect();
     if parts.len() >= 3 {
         let day = parts[2].split(['-', '+']).next().unwrap_or_default();
         let candidate = format!("{}-{:0>2}-{:0>2}T00:00:00.000Z", parts[0], parts[1], day);
         if crate::validate_timestamp(&candidate).is_ok() {
-            return Ok(candidate);
+            return candidate;
         }
     }
-    Ok(text(item, "created_at").to_owned())
+    text(item, "created_at").to_owned()
 }
 /// Validated semantic and usage affinity resolved for one context reader.
 #[derive(Default)]
@@ -275,31 +286,13 @@ fn affinity(workspace: &Workspace, identity: &crate::AuthorIdentity, now: &str) 
 /// Scores candidates using the published default weighted signal model.
 #[allow(clippy::too_many_lines)]
 fn ranked(
-    workspace: &Workspace,
+    recency: &BTreeMap<&str, usize>,
     items: &[Value],
     now: &str,
     lifecycle: &Lifecycle,
     author: &str,
     affinity: &Affinity,
-) -> Result<Vec<(Value, f64)>, PmRustError> {
-    let mut recent: Vec<_> = items
-        .iter()
-        .map(|item| {
-            Ok((
-                text(item, "id"),
-                crate::list::timestamp_key(&recency(workspace, item)?),
-            ))
-        })
-        .collect::<Result<_, PmRustError>>()?;
-    recent.sort_by(|a, b| {
-        b.1.cmp(&a.1)
-            .then_with(|| crate::collation::compare(a.0, b.0))
-    });
-    let recency: BTreeMap<_, _> = recent
-        .iter()
-        .enumerate()
-        .map(|(i, (id, _))| (*id, i))
-        .collect();
+) -> Vec<(Value, f64)> {
     let mut degrees: BTreeMap<String, usize> = BTreeMap::new();
     for item in items {
         let id = text(item, "id");
@@ -421,7 +414,7 @@ fn ranked(
         scored.push((item.clone(), score));
     }
     scored.sort_by(|a, b| b.1.total_cmp(&a.1));
-    Ok(scored)
+    scored
 }
 /// Selects identities by marginal score density with the context redundancy penalty.
 fn pack(candidates: &[(Value, f64)], budget: usize, required: &BTreeSet<String>) -> Vec<Value> {
@@ -1102,6 +1095,71 @@ fn project_tags(result: &mut Value, omit: bool) {
         }
     }
 }
+/// Ranking and advisory counts computed from the same per-item history snapshot.
+struct ContextHistory<'a> {
+    ranks: BTreeMap<&'a str, usize>,
+    unowned: usize,
+    idle: usize,
+}
+
+/// Loads each relevant stream once while preserving the independent activity rules.
+fn context_history<'a>(
+    workspace: &Workspace,
+    items: &'a [Value],
+    lifecycle: &Lifecycle,
+    settings: &Value,
+    now: time::OffsetDateTime,
+) -> Result<ContextHistory<'a>, PmRustError> {
+    use crate::mutation::claim_activity;
+    let threshold = claim_activity::context_threshold(settings);
+    let progress = lifecycle.activity_progress_status();
+    let mut recent = Vec::new();
+    let mut unowned = 0;
+    let mut idle = 0;
+    for item in items {
+        let id = text(item, "id");
+        let status = text(item, "status");
+        let advisory = lifecycle.canonical(status) == progress;
+        let history = if lifecycle.terminal(status) {
+            if !advisory {
+                continue;
+            }
+            records(workspace, id).unwrap_or_default()
+        } else {
+            let history = records(workspace, id)?;
+            recent.push((id, recency_key(&recency(&history, item))));
+            history
+        };
+        if !advisory {
+            continue;
+        }
+        unowned += usize::from(text(item, "assignee").trim().is_empty());
+        let activity = std::iter::once(text(item, "updated_at"))
+            .chain(history.iter().filter_map(claim_activity::activity))
+            .filter_map(claim_activity::parse_stored_timestamp)
+            .max();
+        if let Some(activity) = activity
+            && (now - activity).whole_hours() >= threshold
+        {
+            idle += 1;
+        }
+    }
+    recent.sort_by(|a, b| {
+        b.1.cmp(&a.1)
+            .then_with(|| crate::collation::compare(a.0, b.0))
+    });
+    let ranks = recent
+        .into_iter()
+        .enumerate()
+        .map(|(index, (id, _))| (id, index))
+        .collect();
+    Ok(ContextHistory {
+        ranks,
+        unowned,
+        idle,
+    })
+}
+
 impl Workspace {
     /// Renders ranked focus, selected context sections and the oracle's omission receipt.
     ///
@@ -1119,15 +1177,15 @@ impl Workspace {
         now: &str,
         global: Option<std::path::PathBuf>,
     ) -> Result<ListOutput, PmRustError> {
-        time::OffsetDateTime::parse(now, &time::format_description::well_known::Rfc3339).map_err(
-            |_| {
-                crate::collections::refusal(
-                    "Invalid time value",
-                    1,
-                    json!({"code":"unknown_error"}),
-                )
-            },
-        )?;
+        let now_instant =
+            time::OffsetDateTime::parse(now, &time::format_description::well_known::Rfc3339)
+                .map_err(|_| {
+                    crate::collections::refusal(
+                        "Invalid time value",
+                        1,
+                        json!({"code":"unknown_error"}),
+                    )
+                })?;
         let settings = crate::ownership::runtime_settings(self.pm_root())?;
         let depth = options
             .depth
@@ -1269,7 +1327,15 @@ impl Workspace {
             crate::AuthorIdentity::resolve(None, settings["author_default"].as_str(), &env);
         context_state_boundary(self, &items, global.clone())?;
         let affinity = affinity(self, &identity, now);
-        let ranking = ranked(self, &items, now, &lifecycle, &identity.author, &affinity)?;
+        let history = context_history(self, &corpus, &lifecycle, &settings, now_instant)?;
+        let ranking = ranked(
+            &history.ranks,
+            &items,
+            now,
+            &lifecycle,
+            &identity.author,
+            &affinity,
+        );
         let active: Vec<_> = ranking
             .iter()
             .filter(|(item, _)| lifecycle.role(text(item, "status"), "active"))
@@ -1422,7 +1488,50 @@ impl Workspace {
             .filter(|item| lifecycle.role(text(item, "status"), "active"))
             .filter(|item| lifecycle.matches(text(item, "status"), "in_progress"))
             .count();
-        let mut result = json!({"output_default":"toon","now":now,"depth":depth,"sections_included":names,"window":{"anchor":now,"start":now,"end":null,"past":false,"from":null,"to":null},"filters":{"type":null,"tag":null,"priority":null,"assignee":null,"assignee_filter":null,"sprint":null,"release":null,"limit":options.limit,"parent":null,"token_budget":number(budget),"runtime_filters":{}},"summary":{"returned_focus":{"active_items":high.len()+low.len()+fallback.len(),"in_progress":in_progress,"open":high.len()+low.len()+fallback.len()-in_progress,"blocked":high.iter().chain(&low).chain(&fallback).filter(|row|row["blocked"]==true).count()},"blocked_fallback_used":active.is_empty(),"high_level":high.len(),"low_level":low.len(),"agenda_events":events.len(),"scope":"matching_items","active_items":all_active,"open":all_active-all_progress,"in_progress":all_progress,"blocked":blocked.len(),"total_items":corpus.len(),"closed":corpus.iter().filter(|item|lifecycle.canonical(text(item,"status"))==lifecycle.canonical("closed")).count(),"canceled":corpus.iter().filter(|item|lifecycle.canonical(text(item,"status"))==lifecycle.canonical("canceled")).count()},"high_level":high,"low_level":low,"blocked_fallback":fallback,"agenda":{"summary":agenda_summary,"events":events}});
+        let mut summary: serde_json::Map<String, Value> = [
+            ("returned_focus", json!({"active_items":high.len()+low.len()+fallback.len(),"in_progress":in_progress,"open":high.len()+low.len()+fallback.len()-in_progress,"blocked":high.iter().chain(&low).chain(&fallback).filter(|row|row["blocked"]==true).count()})),
+            ("blocked_fallback_used", json!(active.is_empty())),
+            ("high_level", json!(high.len())),
+            ("low_level", json!(low.len())),
+            ("agenda_events", json!(events.len())),
+            ("scope", json!("matching_items")),
+            ("active_items", json!(all_active)),
+            ("open", json!(all_active - all_progress)),
+            ("in_progress", json!(all_progress)),
+        ].into_iter().map(|(key, value)| (key.to_owned(), value)).collect();
+        for (field, count) in [
+            ("in_progress_unowned", history.unowned),
+            ("in_progress_idle", history.idle),
+        ] {
+            if count > 0 {
+                summary.insert(field.to_owned(), json!(count));
+            }
+        }
+        summary.extend([
+            ("blocked".to_owned(), json!(blocked.len())),
+            ("total_items".to_owned(), json!(corpus.len())),
+            (
+                "closed".to_owned(),
+                json!(
+                    corpus
+                        .iter()
+                        .filter(|item| lifecycle.canonical(text(item, "status"))
+                            == lifecycle.canonical("closed"))
+                        .count()
+                ),
+            ),
+            (
+                "canceled".to_owned(),
+                json!(
+                    corpus
+                        .iter()
+                        .filter(|item| lifecycle.canonical(text(item, "status"))
+                            == lifecycle.canonical("canceled"))
+                        .count()
+                ),
+            ),
+        ]);
+        let mut result = json!({"output_default":"toon","now":now,"depth":depth,"sections_included":names,"window":{"anchor":now,"start":now,"end":null,"past":false,"from":null,"to":null},"filters":{"type":null,"tag":null,"priority":null,"assignee":null,"assignee_filter":null,"sprint":null,"release":null,"limit":options.limit,"parent":null,"token_budget":number(budget),"runtime_filters":{}},"summary":summary,"high_level":high,"low_level":low,"blocked_fallback":fallback,"agenda":{"summary":agenda_summary,"events":events}});
         let mut row_states = json!({});
         let mut needs_states = false;
         for name in ["high_level", "low_level", "blocked_fallback"] {
@@ -1529,4 +1638,4 @@ impl Workspace {
 
 #[cfg(test)]
 #[path = "../tests/support/orientation_context_unit.rs"]
-mod tests;
+pub(crate) mod tests;

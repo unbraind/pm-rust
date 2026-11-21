@@ -6,13 +6,13 @@ use serde_json::{Value, json};
 use std::{fs, path::Path};
 
 /// Uses identical producer snapshots at the native and published delivery boundaries.
-fn source(padding: bool) -> Value {
+fn source(padding: usize) -> Value {
     let mut source = super::final_receipt_boundary_source();
     for row in source["items"].as_array_mut().into_iter().flatten() {
         row["title"] = json!("x".repeat(106));
     }
-    if padding {
-        source["filters"]["padding"] = json!("z".repeat(104));
+    if padding > 0 {
+        source["filters"]["padding"] = json!("z".repeat(padding));
     }
     source["total"] = json!(75);
     source["has_more"] = json!(true);
@@ -70,7 +70,7 @@ console.log(JSON.stringify({{first,wire:formatBuiltInOutput(first,'toon'),retry}
 }
 
 /// Exercises every native assertion even when the optional published installation is absent.
-fn native(source: &Value, padding: bool) -> Result<Value, Box<dyn std::error::Error>> {
+fn native(source: &Value, reprojected: bool) -> Result<Value, Box<dyn std::error::Error>> {
     let options = ListOptions {
         intent: Some("triage".to_owned()),
         output_budget: Some("1000".to_owned()),
@@ -87,7 +87,7 @@ fn native(source: &Value, padding: bool) -> Result<Value, Box<dyn std::error::Er
     let first_pass = super::super::finalize(initial, &options, None)?;
     assert_eq!(
         super::super::settled(&first_pass, &initial_receipt, &options).is_some(),
-        padding
+        reprojected
     );
     let first = super::super::deliver(source.clone().into(), &options, &options, Some(1000), None)?;
     let raw = first["output_budget_truncation"]["continuations"][0]["cursor"]
@@ -96,39 +96,52 @@ fn native(source: &Value, padding: bool) -> Result<Value, Box<dyn std::error::Er
     let cursor: Value =
         serde_json::from_slice(&base64::engine::general_purpose::URL_SAFE_NO_PAD.decode(raw)?)?;
     assert!(cursor["o"].as_u64().is_some_and(|offset| offset > 0));
-    assert_eq!(cursor["f"] != initial_fingerprint, padding);
+    assert_eq!(cursor["f"] != initial_fingerprint, reprojected);
     let mut retry = options.clone();
     retry.output_cursor = Some(raw.to_owned());
-    let actual = super::super::deliver(source.clone().into(), &retry, &retry, Some(1000), None);
-    let retry = if padding {
-        let error = actual.err().ok_or("reprojected replay was admitted")?;
-        let PmRustError::ReadCursor { code, detail } = error else {
-            return Err(format!("unexpected {error}").into());
-        };
-        assert_eq!(code, "read_output_cursor_stale");
-        json!({"ok":false,"detail":detail,"context":{"code":code}})
-    } else {
-        let result = actual?;
-        let offset = usize::try_from(cursor["o"].as_u64().ok_or("offset")?)?;
-        assert_eq!(result["items"][0]["id"], initial_rows[offset]["id"]);
-        let wire = crate::stringify_toon(&result)?;
-        json!({"ok":true,"result":result.value,"wire":wire})
-    };
+    let result = super::super::deliver(source.clone().into(), &retry, &retry, Some(1000), None)?;
+    assert!(crate::read_output::measure(&result, true) <= 1000);
+    let offset = usize::try_from(cursor["o"].as_u64().ok_or("offset")?)?;
+    assert_eq!(result["items"][0]["id"], initial_rows[offset]["id"]);
+    let mut changed = source.clone();
+    changed["items"][0]["title"] = json!("q".repeat(106));
+    assert!(matches!(
+        super::super::deliver(changed.into(), &retry, &retry, Some(1000), None),
+        Err(PmRustError::ReadCursor {
+            code: "read_output_cursor_stale",
+            ..
+        })
+    ));
+    let wire = crate::stringify_toon(&result)?;
+    let retry = json!({"ok":true,"result":result.value,"wire":wire});
     let wire = crate::stringify_toon(&first)?;
     Ok(json!({"first":first.value,"wire":wire,"retry":retry}))
 }
 
-/// A real nonzero reprojected cursor refuses unchanged replay, matching the published SDK.
+/// First-page parity and the known continuation exception in unbraind/pm-cli#1753.
 #[test]
-fn round9_reprojected_continuation_matches_published() -> Result<(), Box<dyn std::error::Error>> {
+fn continuation_matches_published_with_known_exception_1753()
+-> Result<(), Box<dyn std::error::Error>> {
     let oracle = published_cli::published_cli_or_skip("intent delivery continuation");
-    for padding in [false, true] {
+    for (padding, reprojected) in [(0, false), (104, false), (136, true)] {
         let source = source(padding);
-        let actual = native(&source, padding)?;
+        let actual = native(&source, reprojected)?;
         if let Some(oracle) = &oracle {
             let directory = tempfile::tempdir()?;
             let expected = published(&oracle.package_root, directory.path(), &source)?;
-            assert_eq!(actual, expected);
+            assert_eq!(actual["first"], expected["first"]);
+            assert_eq!(actual["wire"], expected["wire"]);
+            if reprojected {
+                assert_eq!(padding, 136);
+                assert_eq!(expected["retry"]["ok"], false);
+                assert_eq!(
+                    expected["retry"]["context"]["code"], "read_output_cursor_stale",
+                    "Known exception unbraind/pm-cli#1753 changed; recheck native parity"
+                );
+                assert_eq!(actual["retry"]["ok"], true);
+            } else {
+                assert_eq!(actual["retry"], expected["retry"]);
+            }
         }
     }
     Ok(())

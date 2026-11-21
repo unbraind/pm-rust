@@ -10,7 +10,40 @@ mod corpus;
 /// Published replacement token and replay instruction.
 const REDACTED: &str = "[redacted]";
 /// Recovery advice is withheld until the caller restores its own credentials.
-const RESTORE: &str = "URL credentials in this invocation were replaced with [redacted]; restore them before replaying any command shown here.";
+pub const RESTORE: &str = "URL credentials in this invocation were replaced with [redacted]; restore them before replaying any command shown here.";
+
+thread_local! {
+    /// Private credential spans retained only for the current CLI invocation.
+    static CLI_USERINFO: std::cell::RefCell<Option<Vec<String>>> = const { std::cell::RefCell::new(None) };
+}
+
+/// Runs the CLI renderer with private enrollment for copies in command recovery.
+pub fn with_cli_projection<T>(run: impl FnOnce() -> T) -> T {
+    struct Restore(Option<Vec<String>>);
+    impl Drop for Restore {
+        fn drop(&mut self) {
+            CLI_USERINFO.replace(self.0.take());
+        }
+    }
+    let _restore = Restore(CLI_USERINFO.replace(Some(Vec::new())));
+    run()
+}
+
+/// Keeps a rejected identity's sensitive span available for CLI recovery projection.
+pub(crate) fn enroll_rejected_identity(identity: &str, span: &str) {
+    CLI_USERINFO.with_borrow_mut(|scope| {
+        if let Some(enrolled) = scope {
+            enrolled.push(span.to_owned());
+            // The admission span can extend past the URL authority. Enroll its
+            // userinfo independently so short copies of the password are masked.
+            enrolled.extend(
+                userinfos(identity)
+                    .into_iter()
+                    .map(|(start, end)| identity[start..end].to_owned()),
+            );
+        }
+    });
+}
 
 /// Finds every explicit URL scheme without consuming neighboring URLs or their separators.
 fn url_schemes(text: &str) -> Vec<(usize, usize)> {
@@ -240,48 +273,76 @@ struct Credentials {
 
 impl Credentials {
     /// Registers credentials supplied by the invocation and persisted refusal provenance.
-    fn new(args: &[String]) -> Self {
-        let mut spellings = HashSet::new();
-        let mut carried = false;
+    fn new(args: &[String], holder: Option<&str>) -> Self {
+        let spans = Self::spans(args, holder);
+        CLI_USERINFO
+            .with_borrow(|scope| Self::from_spans(spans.iter().chain(scope.iter().flatten())))
+    }
+
+    /// Collects userinfo without interpreting public recovery text as an asserted identity.
+    fn spans(args: &[String], holder: Option<&str>) -> Vec<String> {
+        let mut spans = Vec::new();
         for token in args {
             for (start, end) in userinfos(token) {
-                carried = true;
-                let span = &token[start..end];
-                let (username, password) = span
-                    .split_once(':')
-                    .map_or((span, None), |(username, password)| {
-                        (username, Some(password))
-                    });
-                let mut secrets = Vec::new();
-                if !username.is_empty() {
-                    secrets.push((username, true));
-                }
-                if let Some(password) = password.filter(|password| !password.is_empty()) {
-                    secrets.push((password, false));
-                }
-                if span.chars().any(whitespace) {
-                    secrets.push((span, false));
-                }
-                for (secret, username) in secrets {
-                    let escaped: String = secret
-                        .chars()
-                        .flat_map(|ch| {
-                            if matches!(ch, '"' | '\\' | '$' | '`') {
-                                vec!['\\', ch]
-                            } else {
-                                vec![ch]
-                            }
-                        })
-                        .collect();
-                    let json = pm_rust::stringify_json(&Value::String(secret.to_owned()), false);
-                    for spelling in [
-                        secret.to_owned(),
-                        escaped,
-                        windows_spelling(secret),
-                        json[1..json.len() - 1].to_owned(),
-                    ] {
-                        spellings.insert((lower(&spelling), username));
-                    }
+                spans.push(token[start..end].to_owned());
+            }
+        }
+        if let Some(holder) = holder
+            && let Some((start, end)) = crate::ownership::identity_userinfo(holder)
+        {
+            spans.push(holder[start..end].to_owned());
+        }
+        spans
+    }
+
+    /// Indexes only the already identified sensitive spans.
+    fn from_spans<'a>(spans: impl Iterator<Item = &'a String>) -> Self {
+        let mut spellings = HashSet::new();
+        let mut carried = false;
+        for span in spans {
+            carried = true;
+            let span = span.as_str();
+            if span == REDACTED {
+                continue;
+            }
+            let (username, password) = span
+                .split_once(':')
+                .map_or((span, None), |(username, password)| {
+                    (username, Some(password))
+                });
+            let mut secrets = Vec::new();
+            if !username.is_empty() {
+                secrets.push((username, true));
+            }
+            if let Some(password) = password.filter(|password| !password.is_empty()) {
+                secrets.push((password, false));
+            }
+            // Whole-identity admission can cover a public host followed by prose.
+            // Keep its complete spelling private without indexing public hostname fragments.
+            if let Some((first, _)) = span.split_once(whitespace)
+                && !completed_authority(first)
+            {
+                secrets.push((span, false));
+            }
+            for (secret, username) in secrets {
+                let escaped: String = secret
+                    .chars()
+                    .flat_map(|ch| {
+                        if matches!(ch, '"' | '\\' | '$' | '`') {
+                            vec!['\\', ch]
+                        } else {
+                            vec![ch]
+                        }
+                    })
+                    .collect();
+                let json = crate::stringify_json(&Value::String(secret.to_owned()), false);
+                for spelling in [
+                    secret.to_owned(),
+                    escaped,
+                    windows_spelling(secret),
+                    json[1..json.len() - 1].to_owned(),
+                ] {
+                    spellings.insert((lower(&spelling), username));
                 }
             }
         }
@@ -364,6 +425,75 @@ impl Credentials {
         output
     }
 
+    /// Identifies the command and declared option spellings without mistaking values for flags.
+    fn fixed_arguments(values: &[Value]) -> (std::ops::Range<usize>, Vec<(usize, String)>) {
+        let args = values
+            .iter()
+            .map(|value| value.as_str().unwrap_or_default().to_owned())
+            .collect::<Vec<_>>();
+        let invocation = crate::invocation::Invocation::parse(&args);
+        let options = invocation
+            .options
+            .into_iter()
+            .filter(|option| option.declared)
+            .map(|option| {
+                let token = args[option.start].as_str();
+                let name = token.split_once('=').map_or(token, |(name, _)| name);
+                (option.start, name.to_owned())
+            })
+            .collect();
+        (invocation.command_tokens, options)
+    }
+
+    /// Projects argument values while preserving declared commands and option names.
+    fn arguments(
+        &self,
+        values: &mut [Value],
+        command: &std::ops::Range<usize>,
+        options: &[(usize, String)],
+    ) {
+        let mut options = options.iter().peekable();
+        for (index, value) in values.iter_mut().enumerate() {
+            if let Some((_, name)) = options.next_if(|(start, _)| *start == index) {
+                if let Some((_, attached)) = value.as_str().and_then(|token| token.split_once('='))
+                {
+                    *value = Value::String(format!("{name}={}", self.text(attached, true)));
+                }
+            } else if !command.contains(&index) {
+                self.value(value, true, false, false);
+            }
+        }
+    }
+
+    /// Projects executable advice without changing its verb or option names.
+    fn next_steps(&self, steps: &mut [Value]) {
+        for step in steps {
+            if let Some(text) = step.as_str()
+                && let Some((binary @ ("pm" | "pm-rust"), command)) = text.split_once(' ')
+                && let Some(args) = crate::parse_command_args(command)
+            {
+                let mut values: Vec<_> = args.into_iter().map(Value::String).collect();
+                let (verb, options) = Self::fixed_arguments(&values);
+                self.arguments(&mut values, &verb, &options);
+                *step = Value::String(crate::command_line::render_command(
+                    binary,
+                    values.iter().filter_map(Value::as_str),
+                ));
+            } else {
+                self.value(step, false, false, false);
+            }
+        }
+    }
+
+    /// Leaves a reported option name intact when the invocation identifies it as fixed.
+    fn provided_fields(&self, fields: &mut [Value], options: &[(usize, String)]) {
+        for field in fields {
+            if !options.iter().any(|(_, name)| field.as_str() == Some(name)) {
+                self.value(field, true, false, false);
+            }
+        }
+    }
+
     /// Recurses through typed values, preserving schema keys and fixed contract identifiers.
     fn value(&self, value: &mut Value, token: bool, producer: bool, schema: bool) {
         match value {
@@ -374,6 +504,11 @@ impl Credentials {
                 }
             }
             Value::Object(values) => {
+                let (command, options) =
+                    match values.get("normalized_args").and_then(Value::as_array) {
+                        Some(args) if schema => Self::fixed_arguments(args),
+                        _ => (0..0, Vec::new()),
+                    };
                 let mut projected = serde_json::Map::new();
                 for (key, mut value) in std::mem::take(values) {
                     if schema
@@ -402,23 +537,34 @@ impl Credentials {
                         unique = format!("{safe_key} ({suffix})");
                         suffix += 1;
                     }
-                    let token = token
-                        || matches!(
-                            key.as_str(),
-                            "normalized_args"
-                                | "suggested_retry_args"
-                                | "provided_fields"
-                                | "parsed_positionals"
-                                | "normalizedInvocationArgs"
-                                | "providedOptionFlags"
-                                | "suggestedRetryArgs"
-                        );
-                    self.value(
-                        &mut value,
-                        token,
-                        producer || key == "details",
-                        schema && key == "recovery",
-                    );
+                    match (schema, key.as_str(), value.as_array_mut()) {
+                        (true, "normalized_args", Some(args)) => {
+                            self.arguments(args, &command, &options);
+                        }
+                        (true, "next_steps", Some(steps)) => self.next_steps(steps),
+                        (true, "provided_fields", Some(fields)) => {
+                            self.provided_fields(fields, &options);
+                        }
+                        _ => {
+                            let token = token
+                                || matches!(
+                                    key.as_str(),
+                                    "normalized_args"
+                                        | "suggested_retry_args"
+                                        | "provided_fields"
+                                        | "parsed_positionals"
+                                        | "normalizedInvocationArgs"
+                                        | "providedOptionFlags"
+                                        | "suggestedRetryArgs"
+                                );
+                            self.value(
+                                &mut value,
+                                token,
+                                producer || key == "details",
+                                schema && key == "recovery",
+                            );
+                        }
+                    }
                     projected.insert(unique, value);
                 }
                 *values = projected;
@@ -429,10 +575,36 @@ impl Credentials {
 }
 
 /// Redacts fallback parser and runtime diagnostics with the same credential registry.
-pub(super) fn diagnostic(text: &str, raw: &[String]) -> String {
+#[must_use]
+pub fn diagnostic(text: &str, raw: &[String]) -> String {
     let mut sources = raw.to_vec();
     collect_credential_sources(&Value::String(text.to_owned()), &mut sources);
-    Credentials::new(&sources).text(text, false)
+    Credentials::new(&sources, None).text(text, false)
+}
+
+/// Projects the public SDK fields before constructing a structured refusal.
+pub(crate) fn sdk_fields(
+    detail: String,
+    mut context: Value,
+    holder: Option<&str>,
+) -> (String, Value) {
+    let mut sources = Vec::new();
+    collect_credential_sources(&context, &mut sources);
+    if !userinfos(&detail).is_empty() {
+        sources.push(detail.clone());
+    }
+    let spans = Credentials::spans(&sources, holder);
+    if spans.is_empty() {
+        return (detail, context);
+    }
+    let credentials = Credentials::from_spans(spans.iter());
+    CLI_USERINFO.with_borrow_mut(|scope| {
+        if let Some(enrolled) = scope {
+            enrolled.extend(spans);
+        }
+    });
+    credentials.value(&mut context, false, false, true);
+    (credentials.text(&detail, false), context)
 }
 
 /// Registers credential-bearing producer strings before any copied fragment is projected.
@@ -461,13 +633,28 @@ fn collect_credential_sources(value: &Value, sources: &mut Vec<String>) {
 }
 
 /// Redacts every refusal field once, before either JSON or human rendering.
-pub(super) fn redact(payload: &mut Value, raw: &[String]) {
+pub fn redact(payload: &mut Value, raw: &[String]) {
     let mut sources = raw.to_vec();
     collect_credential_sources(payload, &mut sources);
-    let credentials = Credentials::new(&sources);
     let original = payload.clone();
+    let stored_holder = (original["code"] == "already_claimed_by")
+        .then(|| original["claimed_by"].as_str())
+        .flatten();
+    let credentials = Credentials::new(&sources, stored_holder);
+    if let Some(holder) = stored_holder
+        && let std::borrow::Cow::Owned(safe) = crate::AuthorIdentity::redact_credentials(holder)
+    {
+        payload["claimed_by"] = Value::String(safe.clone());
+        for field in ["title", "detail"] {
+            if let Some(text) = original[field].as_str() {
+                payload[field] = Value::String(text.replace(holder, &safe));
+            }
+        }
+    }
     credentials.value(payload, false, false, true);
-    // Every credential-bearing producer was registered before projection.
+    if !payload.is_object() {
+        return;
+    }
     if credentials.carried {
         if payload["recovery"].get("attempted_command").is_some()
             && let Some(values) = payload["recovery"]["normalized_args"].as_array()
@@ -477,9 +664,16 @@ pub(super) fn redact(payload: &mut Value, raw: &[String]) {
                 .filter_map(Value::as_str)
                 .map(str::to_owned)
                 .collect::<Vec<_>>();
-            let command = super::render_recovery(&args);
+            let command = if original["recovery"]["attempted_command"]
+                .as_str()
+                .is_some_and(|command| command.starts_with("pm-rust "))
+            {
+                crate::render_pm_rust_command(&args)
+            } else {
+                crate::render_pm_command(&args)
+            };
             payload["recovery"]["attempted_command"] = Value::String(command.clone());
-            if let Some(examples) = payload["examples"].as_array_mut() {
+            if let Some(examples) = payload.get_mut("examples").and_then(Value::as_array_mut) {
                 for (before, after) in original["examples"]
                     .as_array()
                     .into_iter()
@@ -491,6 +685,19 @@ pub(super) fn redact(payload: &mut Value, raw: &[String]) {
                     }
                 }
             }
+        }
+        // A stored holder can be redacted without making a clean invocation unreplayable.
+        if original["code"] == "already_claimed_by"
+            && stored_holder
+                .and_then(crate::ownership::identity_userinfo)
+                .is_some()
+            && original["recovery"].get("suggested_retry").is_none()
+            && original["recovery"].get("suggested_retry_args").is_none()
+            && original["recovery"] == payload["recovery"]
+            && original["examples"] == payload["examples"]
+            && raw.iter().all(|token| userinfos(token).is_empty())
+        {
+            return;
         }
         if let Some(recovery) = payload["recovery"].as_object_mut() {
             recovery.shift_remove("suggested_retry");
@@ -558,7 +765,7 @@ mod tests {
     #[test]
     fn round16_userinfo_components_share_registration() {
         for &(url, message, expected) in corpus::USERINFO_COMPONENTS {
-            let credentials = Credentials::new(&[url.to_owned()]);
+            let credentials = Credentials::new(&[url.to_owned()], None);
             assert_eq!(credentials.text(message, false), expected, "{url}");
             for source_in_args in [false, true] {
                 let mut raw = vec![
@@ -584,7 +791,7 @@ mod tests {
                     .collect::<Vec<_>>();
                 assert_eq!(
                     payload["recovery"]["attempted_command"],
-                    super::super::render_recovery(&expected_args)
+                    crate::render_pm_command(&expected_args)
                 );
             }
         }
@@ -616,7 +823,7 @@ mod tests {
                 let source = format!("{prefix}{input}");
                 let expected = format!("{prefix}{expected}");
                 let private = source != expected;
-                let credentials = Credentials::new(std::slice::from_ref(&source));
+                let credentials = Credentials::new(std::slice::from_ref(&source), None);
                 assert_eq!(credentials.carried, private, "registration: {source}");
                 assert_eq!(redact_token(&source), expected, "projection: {source}");
                 for raw in [vec![], vec![source.clone()]] {
@@ -666,7 +873,7 @@ mod tests {
             for &prefix in corpus::DECORATIONS {
                 let source = format!("{prefix}{input}");
                 assert!(
-                    !Credentials::new(std::slice::from_ref(&source)).carried,
+                    !Credentials::new(std::slice::from_ref(&source), None).carried,
                     "{source}"
                 );
                 let mut payload = json!({"claimed_by":source,"recovery":{"suggested_retry":"pm claim sample-own","suggested_retry_args":["claim","sample-own"]}});
@@ -748,7 +955,7 @@ mod tests {
                 assert_eq!(value["recovery"]["normalized_args"][4], "safe");
                 assert_eq!(
                     value["recovery"]["attempted_command"],
-                    super::super::render_recovery(&[
+                    crate::render_pm_command(&[
                         "claim".to_owned(),
                         "sample-own".to_owned(),
                         "--message".to_owned(),
@@ -814,7 +1021,7 @@ mod tests {
                 assert_eq!(value["details"][expected], REDACTED);
                 assert!(value["recovery"].get("suggested_retry").is_none());
                 assert_eq!(diagnostic(&input, std::slice::from_ref(&input)), expected);
-                assert!(!pm_rust::stringify_json(&value, false).contains("secret"));
+                assert!(!crate::stringify_json(&value, false).contains("secret"));
             }
         }
     }
@@ -922,9 +1129,9 @@ mod tests {
                 ],
             );
             assert_eq!(payload["claimed_by"], "https://[redacted]@example.invalid");
-            assert!(!pm_rust::stringify_json(&payload, false).contains(
-                &pm_rust::stringify_json(&json!(secret), false)
-                    [1..pm_rust::stringify_json(&json!(secret), false).len() - 1]
+            assert!(!crate::stringify_json(&payload, false).contains(
+                &crate::stringify_json(&json!(secret), false)
+                    [1..crate::stringify_json(&json!(secret), false).len() - 1]
             ));
             assert_eq!(
                 payload["title"],
@@ -936,6 +1143,21 @@ mod tests {
             );
             assert!(payload["recovery"].get("suggested_retry").is_none());
         }
+    }
+
+    /// Shared public hostname suffixes survive projection of a whole-value legacy identity.
+    #[test]
+    fn legacy_prose_holder_preserves_the_public_hostname() {
+        let raw = "https://host.invalid or user@example.invalid";
+        let safe = "https://[redacted]@example.invalid";
+        let (detail, context) = sdk_fields(
+            safe.to_owned(),
+            json!({"claimed_by":safe,"details":{"copy":"host.invalid or user"}}),
+            Some(raw),
+        );
+        assert_eq!(detail, safe);
+        assert_eq!(context["claimed_by"], safe);
+        assert_eq!(context["details"]["copy"], REDACTED);
     }
 
     /// Whitespace-only userinfo remains private when persisted without a password separator.
@@ -997,7 +1219,7 @@ mod tests {
                 "--message".to_owned(),
                 input.to_owned(),
             ];
-            let mut payload = json!({"title":input,"detail":input,"why":input,"required":input,"examples":[input],"next_steps":[input],"claimed_by":input,"details":{input:input},"recovery":{"normalized_args":raw,"attempted_command":super::super::render_recovery(&raw),"suggested_retry":"pm claim sample"}});
+            let mut payload = json!({"title":input,"detail":input,"why":input,"required":input,"examples":[input],"next_steps":[input],"claimed_by":input,"details":{input:input},"recovery":{"normalized_args":raw,"attempted_command":crate::render_pm_command(&raw),"suggested_retry":"pm claim sample"}});
             redact(&mut payload, &raw);
             for key in ["title", "detail", "why", "required", "claimed_by"] {
                 assert_eq!(payload[key], expected, "{key}: {input}");
@@ -1040,7 +1262,7 @@ mod tests {
             "claim".to_owned(),
             "https://u:long-secret@host.invalid".to_owned(),
         ];
-        let command = super::super::render_recovery(&raw);
+        let command = crate::render_pm_command(&raw);
         for exit in [false, true] {
             let mut payload = json!({"title":"Refused","examples":[command,"independent"],"recovery":{"normalized_args":raw,"attempted_command":command,"suggested_retry":"retry","suggested_retry_args":["retry"]}});
             if exit {
@@ -1082,10 +1304,13 @@ mod tests {
             redact_token("https:\\\\u:secret@host.invalid"),
             "https:\\\\[redacted]@host.invalid"
         );
-        let credentials = Credentials::new(&[
-            format!("https://u:{}@host.invalid", "large".repeat(100_000)),
-            "https://v:small6@other.invalid".to_owned(),
-        ]);
+        let credentials = Credentials::new(
+            &[
+                format!("https://u:{}@host.invalid", "large".repeat(100_000)),
+                "https://v:small6@other.invalid".to_owned(),
+            ],
+            None,
+        );
         assert_eq!(credentials.text("small6", false), REDACTED);
         assert_eq!(credentials.text("ordinary", false), "ordinary");
         let mut payload = json!({"code":4,"details":{"normalizedInvocationArgs":[{"echo":"https://u:long-secret@host.invalid"}]}});
@@ -1118,13 +1343,72 @@ mod tests {
         assert!(payload["recovery"].get("suggested_retry").is_none());
     }
 
+    /// The public projection preserves JSON shapes and masks nested values.
+    #[test]
+    fn redact_preserves_non_object_payloads() {
+        let url = "https://fixture:synthetic-secret@example.invalid";
+        let safe = "https://[redacted]@example.invalid";
+        let mut array = json!([url, {"value":"synthetic-secret"}]);
+        redact(&mut array, &[]);
+        assert_eq!(array, json!([safe, {"value":REDACTED}]));
+        let mut scalar = json!(url);
+        redact(&mut scalar, &[]);
+        assert_eq!(scalar, safe);
+        let mut null = Value::Null;
+        redact(&mut null, &[url.to_owned()]);
+        assert_eq!(null, Value::Null);
+    }
+
+    /// Stored identities protect copied values without ambient CLI enrollment.
+    #[test]
+    fn redact_registers_custom_holder_without_cli_scope() {
+        for separator in ["@", "%40"] {
+            let holder = format!("custom:author:synthetic-secret{separator}example.invalid");
+            let mut payload = json!({
+                "code":"already_claimed_by",
+                "claimed_by":holder,
+                "title":format!("Held by {holder}"),
+                "detail":format!("Held by {holder}"),
+                "recovery":{
+                    "normalized_args":["claim","sample","--author","beta","--message=synthetic-secret"],
+                    "provided_fields":["--author"],
+                    "attempted_command":"pm claim sample --author beta --message=synthetic-secret",
+                    "copy":"synthetic-secret",
+                    "suggested_retry":"pm claim sample",
+                    "suggested_retry_args":["claim","sample"]
+                }
+            });
+            redact(&mut payload, &[]);
+            assert_eq!(
+                payload["claimed_by"],
+                format!("custom:[redacted]{separator}example.invalid")
+            );
+            assert_eq!(payload["recovery"]["copy"], REDACTED);
+            assert_eq!(payload["recovery"]["normalized_args"][2], "--author");
+            assert_eq!(
+                payload["recovery"]["normalized_args"][4],
+                "--message=[redacted]"
+            );
+            assert_eq!(payload["recovery"]["provided_fields"], json!(["--author"]));
+            assert!(
+                payload["recovery"]["attempted_command"]
+                    .as_str()
+                    .unwrap_or_default()
+                    .contains("--author beta")
+            );
+            assert!(payload["recovery"].get("suggested_retry").is_none());
+            assert!(payload["recovery"].get("suggested_retry_args").is_none());
+            assert!(!payload.to_string().contains("synthetic-secret"));
+        }
+    }
+
     /// UTF-16 fragments and shell/JSON spellings are projected without shifting boundaries.
     #[test]
     fn unicode_and_escaped_fragments_are_redacted() {
         for secret in ["ab🚀cdefgh", "a\\b\"c$d`efgh", "a b", "İabcdef"] {
             let credentials =
-                Credentials::new(&[format!("https://fixture:{secret}@example.invalid")]);
-            let encoded = pm_rust::stringify_json(&json!(secret), false);
+                Credentials::new(&[format!("https://fixture:{secret}@example.invalid")], None);
+            let encoded = crate::stringify_json(&json!(secret), false);
             assert_eq!(credentials.text(secret, false), REDACTED);
             assert_eq!(
                 credentials.text(&encoded[1..encoded.len() - 1], false),
@@ -1167,3 +1451,7 @@ mod stored_diagnostics {
         }
     }
 }
+
+#[cfg(test)]
+#[path = "../tests/support/refusal_unit.rs"]
+mod coverage_regressions;

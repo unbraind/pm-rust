@@ -1,0 +1,64 @@
+id: pm-rust-oracle-1118-coverage
+title: Restore complete Rust coverage for the published oracle refresh
+description: "PR 181 at 1caff0a passes both Rust shards on Ubuntu, macOS and Windows. CI run 44297971605 merged both coverage shards and found 108 uncovered lines, 7 functions, 206 regions and 92 branches. Reproduce the merged report, identify the uncovered paths introduced or moved by this refresh, and add targeted tests to meet the existing 100 percent thresholds."
+type: Task
+status: in_progress
+priority: 1
+tags[3]: coverage,follow-up,oracle
+created_at: "2026-11-18T12:11:43.150Z"
+updated_at: "2026-11-18T14:32:09.853Z"
+author: codex-sol
+parent: pm-rust-oracle-1118
+comments[9]{created_at,author,text}:
+  "2026-11-18T12:22:36.203Z",codex-sol,Preserved the existing coverage receipt and started reproducing the full instrumented oracle suite and four-dimension gate for PR 181.
+  "2026-11-18T12:48:44.313Z",codex-sol,"Verified both original coverage profile manifests and used the report to isolate gaps in claim provenance, linked artifact notes, cursor delivery, context activity, and refusal rendering. Published SDK history and stale foreign-claim CLI cases pass. Validating remaining cases with the locked oracle and a fresh all-target branch coverage run."
+  "2026-11-18T13:04:15.879Z",codex-sol,"The published and native note refusals agree on exit, error codes and unchanged artifacts. Existing option-scope and rendered-guidance differences are tracked in pm-rust-linked-note-diagnostics. The focused note refusal test passed."
+  "2026-11-18T13:05:03.256Z",codex-sol,"Coverage map: src/mutation/claim_activity.rs:37,87,102,142,167 -> tests/support/claim_activity_differential.rs, covering corrupt streams, ownership provenance, history rewrites and restores. src/mutation.rs:599,1856,3495 -> credential-authors and skipped-claim mutation tests. src/collections.rs:845,871,940,1229 -> linked note recovery and full-history replacement cases in tests/search_collections_differential.rs. src/list_intent.rs:368,423 -> stale and over-budget projection tests. src/read_output.rs:37,51 -> malformed omission markers and cursor metadata tests. src/orientation_context.rs:1106 -> unknown-time activity control. src/main.rs:726,1323 -> post-close release and explicit or environment identity refusals. src/ownership.rs:237 and src/refusal.rs:464 -> authority boundaries and recovery redaction. src/toon_output.rs:334,456 -> per-group restore hints and sparse row grouping tests."
+  "2026-11-18T13:31:07.474Z",codex-sol,"Formatting, locked all-target Clippy, changelog check, and both native coverage-union fixtures passed. The initial instrumented ownership target passed 60 cases. Its earlier credential fixture used a format flag absent from the scalar commands; the corrected case passed both the stable and instrumented targeted runs. The remaining targets use the two repository shard partitions and one common local profile set."
+  "2026-11-18T13:46:52.048Z",codex-sol,The local Node wrapper now preserves each harness case’s NODE_OPTIONS override. Both optional and required missing-tool controls and harness parity passed on the instrumented rerun.
+  "2026-11-18T14:02:07.229Z",codex-sol,"The first complete local profile union had 20343 of 20354 lines, 2095 of 2095 functions, 33290 of 33312 regions and 4638 of 4650 branches. The final gaps identified a repeated linked-note policy validation and split SDK versus CLI coverage. A typed, validated note policy now reaches reconciliation directly, the SDK cases cover conflict replay and write projection, and close returns the release error through the same tested receipt path. Running the affected instrumented targets on the updated source mapping."
+  "2026-11-18T14:32:05.025Z",codex-sol,"Final coverage map: src/main.rs:757,922 -> identity_refusal_keeps_explicit_and_environment_sources_distinct in tests/support/main_unit.rs. With a disposable tracker, both request paths propagate the typed explicit credential refusal, redact the credential, and leave tracker storage untouched. Existing published-oracle credential checks validate the CLI boundary."
+  "2026-11-18T14:32:06.254Z",codex-sol,"Local merged quick coverage passes the unchanged four-dimension predicate using real current instrumented profiles: lines 20360/20360, functions 2096/2096, regions 33314/33314, branches 4648/4648. Run 44297971605 measured 99.47%, 99.66%, 99.38%, and 98.03% respectively. The strict coverage-union fixture tests passed 2/2. The affected published-oracle tests passed against pm-cli 2026.11.18. Initial harness and pagination failures caused by the local Node wrapper and concurrent executable rebuild passed on isolated reruns."
+files[22]{path,scope}:
+  src/collections.rs,project
+  src/list_intent.rs,project
+  src/main.rs,project
+  src/mutation.rs,project
+  src/mutation/claim_activity.rs,project
+  src/orientation_context.rs,project
+  src/ownership.rs,project
+  src/read_output.rs,project
+  src/refusal.rs,project
+  src/toon_output.rs,project
+  tests/claim_release_differential.rs,project
+  tests/search_collections_differential.rs,project
+  tests/support/claim_activity_differential.rs,project
+  tests/support/collections_unit.rs,project
+  tests/support/list_intent_unit.rs,project
+  tests/support/main_unit.rs,project
+  tests/support/mutation_unit.rs,project
+  tests/support/orientation_context_unit.rs,project
+  tests/support/ownership_unit.rs,project
+  tests/support/read_output_unit.rs,project
+  tests/support/refusal_unit.rs,project
+  tests/support/toon_output_unit.rs,project
+tests[15]{command,scope,provenance{author,created_at,source_kind,source_ref}}:
+  cargo fmt --all -- --check,project,codex-sol,"2026-11-18T12:49:54.641Z",local_mutation,fix/oracle-pm-cli-1118
+  cargo clippy --locked --all-targets --all-features -- -D warnings,project,codex-sol,"2026-11-18T12:50:00.310Z",local_mutation,fix/oracle-pm-cli-1118
+  "PM_RUST_REQUIRE_PUBLISHED_CLI=1 PM_NODE_CLI=tests/oracle/node_modules/@unbrained/pm-cli cargo test --locked --lib claim_activity::tests",project,codex-sol,"2026-11-18T12:50:07.462Z",local_mutation,fix/oracle-pm-cli-1118
+  PM_RUST_REQUIRE_PUBLISHED_CLI=1 PM_NODE_CLI=tests/oracle/node_modules/@unbrained/pm-cli cargo test --locked --test claim_release_differential stale_foreign_claim_refusal_matches_published,project,codex-sol,"2026-11-18T12:50:13.200Z",local_mutation,fix/oracle-pm-cli-1118
+  PM_RUST_REQUIRE_PUBLISHED_CLI=1 PM_NODE_CLI=tests/oracle/node_modules/@unbrained/pm-cli cargo test --locked --test search_collections_differential collection_commands_match_oracle,project,codex-sol,"2026-11-18T12:50:17.857Z",local_mutation,fix/oracle-pm-cli-1118
+  PM_RUST_REQUIRE_PUBLISHED_CLI=1 PM_NODE_CLI=tests/oracle/node_modules/@unbrained/pm-cli cargo +nightly-2026-08-06 llvm-cov --locked --branch --all-targets --all-features --json --output-path target/ce-coverage.json,project,codex-sol,"2026-11-18T12:50:23.504Z",local_mutation,fix/oracle-pm-cli-1118
+  "npm run changelog:check",project,codex-sol,"2026-11-18T12:50:29.608Z",local_mutation,fix/oracle-pm-cli-1118
+  PM_RUST_REQUIRE_PUBLISHED_CLI=1 PM_NODE_CLI=tests/oracle/node_modules/@unbrained/pm-cli cargo test --locked --test search_collections_differential linked_note_recovery_matches_published_semantics,project,codex-sol,"2026-11-18T13:04:19.398Z",local_mutation,fix/oracle-pm-cli-1118
+  "jq -e \".data[0].totals | .lines.percent == 100 and .functions.percent == 100 and .regions.percent == 100 and .branches.percent == 100\" target/ce-coverage.json",project,codex-sol,"2026-11-18T13:04:23.965Z",local_mutation,fix/oracle-pm-cli-1118
+  PM_RUST_REQUIRE_PUBLISHED_CLI=1 PM_NODE_CLI=tests/oracle/node_modules/@unbrained/pm-cli cargo test --locked --test claim_release_differential credential_author_sources_refuse_without_writes,project,codex-sol,"2026-11-18T13:05:07.478Z",local_mutation,fix/oracle-pm-cli-1118
+  PM_TEST_DEPTH=quick PROPTEST_CASES=50 PROPTEST_RNG_SEED=20261116 PM_RUST_REQUIRE_PUBLISHED_CLI=1 PM_NODE_CLI=tests/oracle/node_modules/@unbrained/pm-cli cargo +nightly-2026-08-06 llvm-cov --no-clean --no-fail-fast --locked --branch --all-targets --all-features --json --output-path target/ce-coverage.json,project,codex-sol,"2026-11-18T13:12:27.064Z",local_mutation,fix/oracle-pm-cli-1118
+  cargo +nightly-2026-08-06 llvm-cov report --json --failure-mode=any --output-path target/ce-coverage.json,project,codex-sol,"2026-11-18T13:12:35.256Z",local_mutation,fix/oracle-pm-cli-1118
+  "cargo test --locked --lib -- collections::tests",project,codex-sol,"2026-11-18T14:02:05.671Z",local_mutation,fix/oracle-pm-cli-1118
+  cargo +nightly-2026-08-06 llvm-cov --no-clean --locked --branch --all-features --bin pm-rust --json --output-path target/ce-last.json -- identity_refusal_keeps_explicit_and_environment_sources_distinct,project,codex-sol,"2026-11-18T14:31:57.733Z",local_mutation,fix/oracle-pm-cli-1118
+  PM_TEST_COVERAGE_MERGE=required node --test scripts/crash-coverage-union.test.mts,project,codex-sol,"2026-11-18T14:32:00.032Z",local_mutation,fix/oracle-pm-cli-1118
+docs[2]{path,scope}:
+  .github/workflows/ci.yml,project
+  justfile,project
+body: ""

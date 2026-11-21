@@ -115,18 +115,7 @@ fn compare_outputs(
     expected_success: bool,
     equals_controls: bool,
 ) -> Result<Output, Box<dyn std::error::Error>> {
-    let mut native = Command::new(env!("CARGO_BIN_EXE_pm-rust"));
-    if equals_controls {
-        native.args(["--workspace=.", "list", &format!("--timestamp={CLOCK}")]);
-    } else {
-        native.args(["--workspace", ".", "list", "--timestamp", CLOCK]);
-    }
-    let native = native
-        .arg("--json")
-        .args(flags)
-        .current_dir(directory)
-        .env_remove("PM_PATH")
-        .output()?;
+    let native = native_output(directory, flags, equals_controls)?;
     assert_eq!(
         native.status.success(),
         expected_success,
@@ -134,16 +123,7 @@ fn compare_outputs(
         String::from_utf8_lossy(&native.stderr)
     );
     if directory.join("driver.mjs").is_file() {
-        let published = published_cli::oracle_command(
-            std::env::var("PM_NODE_INTERPRETER").unwrap_or_else(|_| "node".to_owned()),
-        )
-        .arg(directory.join("driver.mjs"))
-        // Match the native-only workspace alias with its published bootstrap scope.
-        .args(["--pm-path", ".", "list", "--json"])
-        .args(flags)
-        .current_dir(directory)
-        .env_remove("PM_PATH")
-        .output()?;
+        let published = published_output(directory, flags)?;
         assert_eq!(
             published.status.code(),
             native.status.code(),
@@ -154,6 +134,39 @@ fn compare_outputs(
         assert_bytes(&native, &published, flags);
     }
     Ok(native)
+}
+
+/// Invokes the Rust binary with the fixture's clock and explicit tracker scope.
+fn native_output(
+    directory: &Path,
+    flags: &[&str],
+    equals_controls: bool,
+) -> std::io::Result<Output> {
+    let mut native = Command::new(env!("CARGO_BIN_EXE_pm-rust"));
+    if equals_controls {
+        native.args(["--workspace=.", "list", &format!("--timestamp={CLOCK}")]);
+    } else {
+        native.args(["--workspace", ".", "list", "--timestamp", CLOCK]);
+    }
+    native
+        .arg("--json")
+        .args(flags)
+        .current_dir(directory)
+        .env_remove("PM_PATH")
+        .output()
+}
+
+/// Invokes the installed oracle with the equivalent bootstrap scope.
+fn published_output(directory: &Path, flags: &[&str]) -> std::io::Result<Output> {
+    published_cli::oracle_command(
+        std::env::var("PM_NODE_INTERPRETER").unwrap_or_else(|_| "node".to_owned()),
+    )
+    .arg(directory.join("driver.mjs"))
+    .args(["--pm-path", ".", "list", "--json"])
+    .args(flags)
+    .current_dir(directory)
+    .env_remove("PM_PATH")
+    .output()
 }
 
 /// Combined ceilings bind the uncapped snapshot and accept an unchanged replay.
@@ -526,6 +539,7 @@ fn bounded_receipts_match_bytes() -> TestResult {
             vec!["--for", "triage", "--token-budget", "256"],
             vec!["--for", "triage"],
             vec!["--for", "triage", "--brief"],
+            vec!["--for", "triage", "--token-budget", "10000", "--full"],
         ]
         .contains(&flags);
         compare(directory.path(), &flags, success)?;
@@ -2034,8 +2048,6 @@ fn long_intent_cursor_case(directory: &Path) -> TestResult {
         fs::write(path.with_file_name(format!("{id}.toon")), text)?;
     }
     let flags = ["--for", "triage", "--output-budget", "2000", "--limit", "4"];
-    // Native continuation usability intentionally repairs the measured published bug.
-    // Every existing byte-exact comparator remains unchanged.
     let native = |args: &[&str]| -> Result<Value, Box<dyn std::error::Error>> {
         let output = Command::new(env!("CARGO_BIN_EXE_pm-rust"))
             .args(["--workspace", ".", "list", "--json", "--timestamp", CLOCK])
@@ -2056,6 +2068,7 @@ fn long_intent_cursor_case(directory: &Path) -> TestResult {
     let mut resumed = flags.to_vec();
     resumed.extend(["--after", cursor]);
     let next = native(&resumed)?;
+    let resumed_ids = returned_ids(&next)?;
     let expected =
         [0, 5, 1, 6, 2, 7, 3, 4].map(|index| format!("demo-{index:04}{}", "a".repeat(170)));
     let mut seen = returned_ids(&page)?;
@@ -2106,39 +2119,29 @@ fn long_intent_cursor_case(directory: &Path) -> TestResult {
     if !directory.join("driver.mjs").is_file() {
         return Ok(());
     }
-    published_long_cursor_case(directory, &flags)
+    published_long_cursor_case(directory, &flags, cursor, &resumed_ids)
 }
 
-/// Measures only the pinned oracle cursor bug after every native assertion has run.
-fn published_long_cursor_case(directory: &Path, flags: &[&str]) -> TestResult {
-    let published = published_cli::oracle_command(
-        std::env::var("PM_NODE_INTERPRETER").unwrap_or_else(|_| "node".to_owned()),
-    )
-    .arg(directory.join("driver.mjs"))
-    .args(["--pm-path", ".", "list", "--json"])
-    .args(flags)
-    .current_dir(directory)
-    .env_remove("PM_PATH")
-    .output()?;
-    assert!(published.status.success());
-    let published: Value = serde_json::from_slice(&published.stdout)?;
-    let broken = published["next_cursor"]
-        .as_str()
-        .ok_or("published cursor")?;
-    assert!(broken.ends_with('…'), "published cursor was not compacted");
-    assert!(
-        pm_rust::Workspace::discover(directory)?
-            .list_page(
-                &ItemFilter::default(),
-                &ListOptions {
-                    intent: Some("triage".to_owned()),
-                    after: Some(broken.to_owned()),
-                    ..Default::default()
-                },
-                CLOCK,
-            )
-            .is_err()
-    );
+/// Confirms the pinned oracle preserves and replays the same long producer cursor.
+fn published_long_cursor_case(
+    directory: &Path,
+    flags: &[&str],
+    cursor: &str,
+    resumed_ids: &[String],
+) -> TestResult {
+    let published = |arguments: &[&str]| -> Result<Value, Box<dyn std::error::Error>> {
+        let output = published_output(directory, arguments)?;
+        assert!(
+            output.status.success(),
+            "{}",
+            String::from_utf8_lossy(&output.stderr)
+        );
+        Ok(serde_json::from_slice(&output.stdout)?)
+    };
+    assert_eq!(published(flags)?["next_cursor"], cursor);
+    let mut continuation = flags.to_vec();
+    continuation.extend(["--after", cursor]);
+    assert_eq!(returned_ids(&published(&continuation)?)?, resumed_ids);
     Ok(())
 }
 
@@ -2150,35 +2153,52 @@ fn round7_native_long_cursor_without_oracle() -> TestResult {
     long_intent_cursor_case(directory.path())
 }
 
-/// Long native cursors remain executable while the measured oracle-only bug stays documented.
+/// Long producer cursors remain executable in both implementations after GH-1710.
 #[test]
 fn round5_long_intent_cursor_remains_executable() -> TestResult {
     long_intent_cursor_case(fixture(8, 2000)?.path())
 }
 
-/// Oversized metadata cursor names are ordinary full-item strings, not envelope continuations.
+/// Verifies bounded output with the known item metadata exception in unbraind/pm-cli#1754.
 #[test]
-fn round7_full_item_cursor_metadata_matches_published_budget() -> TestResult {
+fn full_item_cursor_metadata_budget_with_known_exception_1754() -> TestResult {
     let directory = fixture(1, 0)?;
     let path = directory.path().join(".agents/pm/tasks/demo-0000.toon");
     let mut item: Value = toon_format::decode_default(&fs::read_to_string(&path)?)?;
     item["next_cursor"] = serde_json::json!("x".repeat(30_000));
     item["output_cursor"] = serde_json::json!("y".repeat(30_000));
     fs::write(path, toon_format::encode_default(&item)?)?;
-    let result = compare(
-        directory.path(),
-        &["--full", "--output-budget", "2000"],
-        true,
-    )?;
+    let flags = ["--full", "--output-budget", "2000"];
+    let native = native_output(directory.path(), &flags, false)?;
+    assert!(native.status.success());
+    let result: Value = serde_json::from_slice(&native.stdout)?;
     assert_eq!(
         result["items"][0]["next_cursor"],
-        format!("{}…", "x".repeat(240))
+        format!("{}…[+29760 chars]", "x".repeat(240))
     );
     assert_eq!(
         result["items"][0]["output_cursor"],
-        format!("{}…", "y".repeat(240))
+        format!("{}…[+29760 chars]", "y".repeat(240))
     );
     assert_eq!(result["count"], 1);
     assert_eq!(result["read_output"]["within_budget"], true);
+    if directory.path().join("driver.mjs").is_file() {
+        let published = published_output(directory.path(), &flags)?;
+        assert_eq!(
+            published.status.code(),
+            Some(2),
+            "Known exception unbraind/pm-cli#1754 changed; recheck native parity"
+        );
+        let omitted: Value = serde_json::from_slice(&published.stdout)?;
+        assert_eq!(omitted["read_output"]["result_omitted"], true);
+        assert_eq!(omitted["read_output"]["strings_compacted"], false);
+        let wide = compare(
+            directory.path(),
+            &["--full", "--output-budget", "20000"],
+            true,
+        )?;
+        assert_eq!(wide["items"][0]["next_cursor"], "x".repeat(30_000));
+        assert_eq!(wide["items"][0]["output_cursor"], "y".repeat(30_000));
+    }
     Ok(())
 }

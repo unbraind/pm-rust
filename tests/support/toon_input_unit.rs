@@ -41,6 +41,16 @@ fn round12_nested_sparse_table_restore() -> Result<(), Box<dyn std::error::Error
             .collect::<Vec<_>>(),
         vec!["n", "a", "b", "last"]
     );
+    let mut current = encoded.clone();
+    let encoding = current["page"]["items_encoding"]
+        .as_object_mut()
+        .ok_or("encoding")?;
+    encoding.shift_remove("absent");
+    encoding.insert("absent_rows".into(), json!({"missing":[0]}));
+    assert_eq!(
+        parse_toon(&toon_format::encode_default(&current)?)?,
+        restored
+    );
     let mut explicit = encoded;
     explicit["page"]["items_encoding"]["column_order"] =
         json!(["last", "b", "a", "n", "missing", "absent"]);
@@ -66,8 +76,16 @@ fn round12_nested_sparse_table_restore() -> Result<(), Box<dyn std::error::Error
 #[test]
 fn round12_invalid_table_read_refuses() -> Result<(), Box<dyn std::error::Error>> {
     assert!(parse_toon("items[2]{id}:\n  one\n").is_err());
+    let compact = json!({"items":[{"id":"one"}],"items_encoding":{}});
+    assert_eq!(
+        parse_toon(&toon_format::encode_default(&compact)?)?,
+        json!({"items":[{"id":"one"}]})
+    );
     for value in [
-        json!({"items":[],"items_encoding":{}}),
+        json!({"items":[],"items_encoding":{"absent_rows":{"id":"bad"}}}),
+        json!({"items":[{"id":"one"}],"items_encoding":{"absent_rows":{"id":[0]}}}),
+        json!({"items":[{"id":null}],"items_encoding":{"absent_rows":{"id":[1]}}}),
+        json!({"items":[{"id":null}],"items_encoding":{"absent_rows":{"missing":[0]}}}),
         json!({"items":[1],"items_encoding":{"json_columns":[],"absent":[]}}),
         json!({"items":[{"a":1}],"items_encoding":{"json_columns":[],"absent":[],"list_columns":{"a":";"}}}),
         json!({"items":[{"a":"x"}],"items_encoding":{"json_columns":[],"absent":[],"list_columns":{"a":""}}}),

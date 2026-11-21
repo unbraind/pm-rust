@@ -11,7 +11,7 @@ import { exactState, phasePairs, transactionPhase, transactionState } from './cr
 import type { TransactionPhase } from './crash-oracle.mts';
 
 /** Locked published CLI version shared by validation, remedies, and receipts. */
-export const CRASH_ORACLE_VERSION = '2026.11.11';
+export const CRASH_ORACLE_VERSION = '2026.11.18';
 /** Public clock used by both real implementations. */
 export const CRASH_CLOCK = '2026-10-21T12:00:00.000Z';
 /** Supported independent corpus mutations, each following an acknowledged seed write. */

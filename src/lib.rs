@@ -4,7 +4,7 @@
 //! field-update, comment-append, and close transactions, each backed by
 //! per-item locking with a wait budget, durable journaling, recovery, and
 //! canonical `item_hash_version: 3` history compatible with the published
-//! `pm` 2026.11.11 release. Merge operations remain gated on differential
+//! `pm` 2026.11.18 release. Merge operations remain gated on differential
 //! conformance evidence.
 
 pub mod admission;
@@ -19,6 +19,8 @@ pub mod discovery;
 mod error;
 mod history;
 mod identity_probes;
+#[doc(hidden)]
+pub mod invocation;
 mod item;
 mod json_output;
 mod lifecycle_admission;
@@ -37,6 +39,8 @@ mod query_cost;
 mod read_output;
 mod read_projection;
 mod read_session;
+#[doc(hidden)]
+pub mod refusal;
 mod search;
 mod selection;
 pub mod strict_json;
@@ -45,7 +49,7 @@ mod toon_output;
 mod workspace;
 
 pub use collections::CollectionOptions;
-pub use command_line::{parse_command_args, render_pm_command};
+pub use command_line::{parse_command_args, render_pm_command, render_pm_rust_command};
 pub use error::PmRustError;
 pub use history::canonical_metadata_pairs;
 pub use item::{ItemDocument, ItemMetadata, ItemSummary};
@@ -53,9 +57,10 @@ pub use json_output::{ListOutput, stringify_json, write_pretty_json};
 pub use list::ListOptions;
 pub use mutation::{
     CloseFields, CloseItem, CommentItem, CreateItem, CreateResult, MutationResult, OwnershipItem,
-    OwnershipResult, UpdateItem, default_priority, default_status, validate_timestamp,
+    OwnershipResult, UpdateItem, default_priority, default_status, reject_future_timestamp,
+    validate_timestamp,
 };
-pub use mutation::{now_iso as current_timestamp, quote_command_arg};
+pub use mutation::{normalize_mutation_settings, now_iso as current_timestamp, quote_command_arg};
 pub use orientation::{ContextOptions, DepsOptions, HistoryOptions};
 pub use ownership::{
     AuthorIdentity, OwnershipOptions, SelectionOptions, partial_failure as completed_step_failure,
@@ -66,7 +71,7 @@ pub use toon_output::stringify_toon;
 pub use workspace::{ItemFilter, ListResult, Workspace};
 
 /// Published canonical `pm` release used by this compatibility slice.
-pub const COMPATIBLE_PM_VERSION: &str = "2026.11.11";
+pub const COMPATIBLE_PM_VERSION: &str = "2026.11.18";
 
 pub use read_session::{
     ReadSession, ReadSessionLimits, SessionCancellation, SessionPage, SessionReceipt,

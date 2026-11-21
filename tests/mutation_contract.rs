@@ -1596,10 +1596,15 @@ fn ownership_errors_and_journal_recovery_reach_real_consumers()
     fs::rename(&history, &backup)?;
     fs::create_dir(&history)?;
     request.author = "other-agent".to_owned();
-    assert!(matches!(
-        workspace.claim(&request),
-        Err(PmRustError::Io { .. })
-    ));
+    let before = item(directory.path());
+    let Err(PmRustError::OwnershipRefusal { context, .. }) = workspace.claim(&request) else {
+        return Err("expected a foreign claim refusal even without readable history".into());
+    };
+    assert_eq!(context["code"], "already_claimed_by");
+    assert_eq!(context["claim_activity"]["history_unreadable"], true);
+    assert_eq!(context["claim_activity"]["stale_policy"]["stale"], false);
+    assert_eq!(item(directory.path()), before);
+    assert!(history.is_dir());
     request.author = "fixture-agent".to_owned();
     assert!(matches!(
         workspace.release(&request),
@@ -1684,7 +1689,7 @@ fn bounded_ownership_lock_wait_preserves_ownerless_diagnostics_and_bytes()
     fs::write(settings_path, serde_json::to_vec(&settings)?)?;
     fs::write(
         root.join("locks/sample-conv.lock"),
-        serde_json::to_vec(&serde_json::json!({"created_at":TIMESTAMP}))?,
+        serde_json::to_vec(&serde_json::json!({"created_at":pm_rust::current_timestamp()}))?,
     )?;
     let request = OwnershipItem {
         id: "sample-conv".to_owned(),

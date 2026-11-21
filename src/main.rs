@@ -4,9 +4,8 @@ use std::io::{Read, Write};
 use std::path::PathBuf;
 use std::process::ExitCode;
 
-mod invocation;
-mod refusal;
-use invocation::Invocation;
+use pm_rust::invocation::Invocation;
+use pm_rust::refusal;
 
 use clap::Parser;
 use pm_rust::cli::{Cli, CollectionArgs, Command, OwnershipArgs};
@@ -662,6 +661,9 @@ fn run_with_io(
             let workspace = discover()?;
             let identity = scalar_identity(&workspace, author.as_deref())?;
             let author = author.unwrap_or_else(|| identity.author.clone());
+            if fields.release_assignment {
+                pm_rust::reject_future_timestamp(timestamp.as_deref().unwrap_or_default())?;
+            }
             let close_author = author.clone();
             let result = close_payload(
                 &workspace,
@@ -695,32 +697,57 @@ fn run_with_io(
             let mut receipt = result.close_receipt.unwrap_or_default();
             project_close_receipt_scope(&mut receipt, &raw_invocation());
             if fields.release_assignment {
-                let release = identity
-                    .with(|| {
-                        workspace.release(&OwnershipItem {
-                            id: result.item.metadata.id.clone(),
-                            author: close_author,
-                            timestamp: Some(result.item.metadata.updated_at.clone()),
-                            message: fields.message,
-                            force: fields.force,
-                            if_available: false,
-                            provenance_role: Some("implementer".to_owned()),
-                        })
-                    })
-                    .map_err(|error| {
-                        pm_rust::completed_step_failure(error, &result.item.metadata.id, "close")
-                    })?;
-                // Another writer can claim between the separate close and release steps.
-                let changed_count = close_release_changed_field_count(
-                    &result.close_changed_fields,
-                    release.changed_field_count,
+                let release = release_after_close(
+                    &workspace,
+                    &OwnershipItem {
+                        id: result.item.metadata.id.clone(),
+                        author: close_author,
+                        timestamp: Some(result.item.metadata.updated_at.clone()),
+                        message: fields.message,
+                        force: fields.force,
+                        if_available: false,
+                        provenance_role: Some("implementer".to_owned()),
+                    },
+                    identity,
                 );
-                receipt = serde_json::json!({"id":result.item.metadata.id,"action":"close_task","close":receipt,"release":release,"status":result.item.metadata.status,"changed_field_count":changed_count});
+                return release.map_err(Into::into).and_then(|release| {
+                    let reply =
+                        close_release_receipt(&result.close_changed_fields, &receipt, &release);
+                    write_close_receipt(&reply, fields.json)
+                });
             }
             write_close_receipt(&receipt, fields.json)?;
         }
     }
     Ok(())
+}
+
+/// Composes two committed snapshots using the status observed by the last operation.
+fn close_release_receipt(
+    close_fields: &[String],
+    close: &serde_json::Value,
+    release: &pm_rust::OwnershipResult,
+) -> serde_json::Value {
+    let changed_count =
+        close_release_changed_field_count(close_fields, release.changed_field_count);
+    serde_json::json!({"id":release.id,"action":"close_task","close":close,"release":release,"status":release.status,"changed_field_count":changed_count})
+}
+
+/// Releases the assignment after close and reports the durable close if release fails.
+fn release_after_close(
+    workspace: &Workspace,
+    request: &OwnershipItem,
+    identity: AuthorIdentity,
+) -> Result<pm_rust::OwnershipResult, pm_rust::PmRustError> {
+    workspace
+        .release_with_options(
+            request,
+            &OwnershipOptions {
+                identity: Some(identity),
+                ..OwnershipOptions::default()
+            },
+        )
+        .map_err(|error| pm_rust::completed_step_failure(error, &request.id, "close"))
 }
 
 /// Resolves the collection author and renders the published receipt.
@@ -739,26 +766,41 @@ fn run_collection_with_cwd(
     args: CollectionArgs,
     cwd: std::io::Result<PathBuf>,
 ) -> Result<(), Box<dyn std::error::Error>> {
-    let settings: serde_json::Value = pm_rust::strict_json::from_str(&std::fs::read_to_string(
+    let mut settings = pm_rust::strict_json::from_str(&std::fs::read_to_string(
         workspace.pm_root().join("settings.json"),
     )?)?;
-    let identity = mutation_identity(args.author.as_deref(), settings["author_default"].as_str());
-    let result = workspace.collection(
+    let identity = if args.add.is_empty() && args.remove.is_empty() && args.remove_index.is_empty()
+    {
+        None
+    } else {
+        warn_invalid_settings(&mut settings);
+        Some(mutation_identity(
+            args.author.as_deref(),
+            settings["author_default"].as_str(),
+        )?)
+    };
+    let result = workspace.collection_for_cli_with_artifact_cwd(
         &args.id,
         key,
         &pm_rust::CollectionOptions {
             add: args.add,
             remove: args.remove,
             remove_index: args.remove_index,
-            author: identity.author.clone(),
-            identity: Some(identity),
+            author: identity
+                .as_ref()
+                .map(|identity| identity.author.clone())
+                .unwrap_or_default(),
+            identity,
             timestamp: args.timestamp,
             message: args.message,
             force: args.force,
             append_stable: args.append_stable,
             note: args.note,
+            full_history: args.full_history,
+            note_conflict: args.note_conflict,
         },
         &cwd?,
+        args.artifact_cwd.as_deref(),
     )?;
     write_list_to(
         &mut std::io::stdout().lock(),
@@ -867,7 +909,10 @@ fn write_close_toon(
 }
 
 /// Resolves bounded provenance once at the CLI mutation boundary.
-fn mutation_identity(author: Option<&str>, configured: Option<&str>) -> AuthorIdentity {
+fn mutation_identity(
+    author: Option<&str>,
+    configured: Option<&str>,
+) -> Result<AuthorIdentity, pm_rust::PmRustError> {
     let environment = std::env::vars_os()
         .map(|(key, value)| {
             (
@@ -876,7 +921,14 @@ fn mutation_identity(author: Option<&str>, configured: Option<&str>) -> AuthorId
             )
         })
         .collect();
-    AuthorIdentity::resolve(author, configured, &environment).for_collections(&environment)
+    let identity = AuthorIdentity::resolve(author, configured, &environment);
+    let source = match (author, identity.source) {
+        (Some(_), _) => "--author",
+        (None, "asserted") => "PM_AUTHOR",
+        _ => "default_author",
+    };
+    AuthorIdentity::validate_credentials(&identity.author, source)?;
+    Ok(identity.for_collections(&environment))
 }
 
 /// Stamps explicit ownership requests with the published implementer role.
@@ -892,10 +944,8 @@ fn ownership_request(
             reason: "author must not be empty".to_owned(),
         }));
     }
-    let settings: serde_json::Value = pm_rust::strict_json::from_slice(&std::fs::read(
-        workspace.pm_root().join("settings.json"),
-    )?)?;
-    let identity = mutation_identity(args.author.as_deref(), settings["author_default"].as_str());
+    let settings = mutation_settings_for_cli(workspace)?;
+    let identity = mutation_identity(args.author.as_deref(), settings["author_default"].as_str())?;
     let request = OwnershipItem {
         id: args.id.unwrap_or_default(),
         author: identity.author.clone(),
@@ -920,13 +970,45 @@ fn scalar_identity(
     workspace: &Workspace,
     author: Option<&str>,
 ) -> Result<AuthorIdentity, Box<dyn std::error::Error>> {
-    let settings: serde_json::Value = pm_rust::strict_json::from_slice(&std::fs::read(
-        workspace.pm_root().join("settings.json"),
-    )?)?;
+    let settings = mutation_settings_for_cli(workspace)?;
     Ok(mutation_identity(
         author,
         settings["author_default"].as_str(),
-    ))
+    )?)
+}
+
+/// Reports a settings fallback once for a CLI mutation, including composed commands.
+fn mutation_settings_for_cli(
+    workspace: &Workspace,
+) -> Result<serde_json::Value, Box<dyn std::error::Error>> {
+    let mut settings = read_cli_settings(workspace)?;
+    warn_invalid_settings(&mut settings);
+    Ok(settings)
+}
+
+/// Reads the bootstrap author settings with strict JSON admission.
+fn read_cli_settings(
+    workspace: &Workspace,
+) -> Result<serde_json::Value, Box<dyn std::error::Error>> {
+    Ok(pm_rust::strict_json::from_slice(&std::fs::read(
+        workspace.pm_root().join("settings.json"),
+    )?)?)
+}
+
+/// Places fallback warnings on stderr, leaving mutation receipts intact.
+fn warn_invalid_settings(settings: &mut serde_json::Value) {
+    if pm_rust::normalize_mutation_settings(settings) {
+        const CODE: &str = "settings_read_invalid_schema";
+        const MESSAGE: &str = "[pm] warning: settings_read_invalid_schema — invalid settings use defaults; run pm health for remediation.";
+        if json_requested(&raw_invocation()) {
+            eprintln!(
+                "{}",
+                serde_json::json!({"type":"warning","warnings":[CODE],"warning_details":[{"code":CODE,"message":MESSAGE}]})
+            );
+        } else {
+            eprintln!("{MESSAGE}");
+        }
+    }
 }
 
 /// Creates one item, stamping the argv-derived implementer role.
@@ -934,8 +1016,10 @@ fn create_payload(
     workspace: &Workspace,
     mut request: CreateItem,
 ) -> Result<CreateResult, Box<dyn std::error::Error>> {
+    // The writer itself preserves its typed errors for malformed or unreadable settings.
+    let _ = mutation_settings_for_cli(workspace);
     request.provenance_role = Some("implementer".to_owned());
-    mutation_identity(Some(&request.author), None)
+    mutation_identity(Some(&request.author), None)?
         .with(|| workspace.create(request))
         .map_err(Into::into)
 }
@@ -974,10 +1058,13 @@ fn close_payload(
         .map_err(Into::into)
 }
 
-/// Accepts canonical item namespaces emitted by verified retry commands.
+/// Normalizes collection note values and canonical item namespaces for Clap.
 fn native_arguments(mut args: Vec<std::ffi::OsString>) -> Vec<std::ffi::OsString> {
-    // Ordinary commands need no namespace rewrite or second parser definition.
-    if !args.iter().skip(1).any(|arg| arg == "item") {
+    if !args
+        .iter()
+        .skip(1)
+        .any(|arg| arg == "item" || arg == "--note")
+    {
         return args;
     }
     let raw = args
@@ -985,11 +1072,22 @@ fn native_arguments(mut args: Vec<std::ffi::OsString>) -> Vec<std::ffi::OsString
         .skip(1)
         .map(|arg| arg.to_string_lossy().into_owned())
         .collect::<Vec<_>>();
-    if let Some(index) = Invocation::parse(&raw).command.map(|index| index + 1)
+    let invocation = Invocation::parse(&raw);
+    for option in invocation.options.iter().rev() {
+        if option.name == "note"
+            && option.end == option.start + 2
+            && option.value.is_some_and(|value| value.starts_with('-'))
+        {
+            let value = args.remove(option.start + 2);
+            args[option.start + 1].push("=");
+            args[option.start + 1].push(value);
+        }
+    }
+    if let Some(index) = invocation.command.map(|index| index + 1)
         && args.get(index).is_some_and(|arg| arg == "item")
     {
         match args.get(index + 1).and_then(|arg| arg.to_str()) {
-            Some("deps") => {
+            Some("deps" | "docs" | "files" | "test") => {
                 args.remove(index);
             }
             Some("comments") => {
@@ -1056,10 +1154,26 @@ fn json_requested(args: &[String]) -> bool {
 /// Parses the command line and maps success or failure to the process exit code.
 #[allow(clippy::too_many_lines)]
 fn main() -> ExitCode {
+    refusal::with_cli_projection(run_cli)
+}
+
+/// Parses and executes one invocation with isolated refusal credentials.
+#[allow(clippy::too_many_lines)]
+fn run_cli() -> ExitCode {
     let cli = match Cli::try_parse_from(native_arguments(std::env::args_os().collect())) {
         Ok(cli) => cli,
         Err(error) => {
-            let mut args = published_read_arguments(std::env::args_os().skip(1));
+            let raw = raw_invocation();
+            let invocation = Invocation::parse(&raw);
+            // Clap can reject another option before normal identity validation runs.
+            for option in invocation.options {
+                if raw[option.start].split('=').next() == Some("--author")
+                    && let Some(author) = option.value
+                {
+                    let _ = AuthorIdentity::validate_credentials(author, "asserted");
+                }
+            }
+            let mut args = published_read_arguments(&raw);
             let orientation = Invocation::parse(&args)
                 .command
                 .filter(|&index| matches!(args[index].as_str(), "context" | "history" | "deps"));
@@ -1130,7 +1244,7 @@ fn main() -> ExitCode {
             // Keep Clap's bytes and statuses while allowing normal process teardown.
             // Immediate exit bypasses profile finalization on Windows.
             let diagnostic = error.render().to_string();
-            let safe = refusal::diagnostic(&diagnostic, &raw_invocation());
+            let safe = refusal::diagnostic(&diagnostic, &raw);
             if safe == diagnostic {
                 let _ = error.print();
             } else if error.use_stderr() {
@@ -1148,6 +1262,18 @@ fn main() -> ExitCode {
     match run(cli) {
         Ok(()) => ExitCode::SUCCESS,
         Err(error) => {
+            if let Some(pm_rust::PmRustError::IdentityCredentials { identity_source }) =
+                error.downcast_ref::<pm_rust::PmRustError>()
+            {
+                let args = published_read_arguments(std::env::args_os().skip(1));
+                let _ = write_identity_refusal(
+                    &mut std::io::stderr().lock(),
+                    identity_source,
+                    &error.to_string(),
+                    &args,
+                );
+                return ExitCode::from(2);
+            }
             if let Some(refusal) = error.downcast_ref::<pm_rust::discovery::DiscoveryRefusal>() {
                 let payload = serde_json::json!({"ok":false,"refusal":refusal,"exit_code":2});
                 let _ = write_json_to(&mut std::io::stderr().lock(), &payload);
@@ -1284,6 +1410,60 @@ fn complete_refusal(payload: &serde_json::Value, raw: &[String]) -> serde_json::
         ));
     }
     payload
+}
+
+/// Renders identity admission failures without exposing a rejected identity value.
+fn write_identity_refusal(
+    writer: &mut dyn Write,
+    source: &str,
+    detail: &str,
+    args: &[String],
+) -> Result<(), Box<dyn std::error::Error>> {
+    let mut safe_args = args.to_vec();
+    let supplied = Invocation::parse(args)
+        .options
+        .into_iter()
+        .filter(|option| option.name == "author")
+        .filter_map(|option| option.value.map(|value| (option.start, option.end, value)));
+    for (start, end, value) in supplied {
+        let safe = AuthorIdentity::redact_credentials(value);
+        if end == start + 1 {
+            safe_args[start] = format!("--author={safe}");
+        } else {
+            safe_args[start + 1] = safe.into_owned();
+        }
+    }
+    let flag = source.starts_with("--");
+    let setting = if source == "default_author" {
+        "author_default"
+    } else {
+        source
+    };
+    let mut context = serde_json::json!({
+        "code": "invalid_argument_value",
+        "required": format!("Set {setting} to a plain name such as agent-a, without user:[redacted]@ or token@ userinfo."),
+        "next_steps": [refusal::RESTORE, format!("Rerun with {setting} set to a plain name.")]
+    });
+    if flag {
+        context["flag"] = serde_json::json!(source);
+    }
+    let mut payload = ownership_error_json(detail, &context, &safe_args);
+    payload["exit_code"] = serde_json::json!(2);
+    let surface = if flag {
+        source
+    } else {
+        args.first().map_or("command", String::as_str)
+    };
+    payload["refusal"] = serde_json::json!({"surface":surface,"exit_code":2});
+    let mut payload = complete_refusal(&payload, &raw_invocation());
+    if json_requested(args) {
+        write_json_to(writer, &payload)
+    } else {
+        payload["why"] = serde_json::json!(
+            "pm enforces explicit, deterministic contracts for data and command semantics."
+        );
+        write_cursor_refusal_to(writer, &payload)
+    }
 }
 
 /// Writes a command refusal using its requested encoding and published human fallback.
@@ -1674,9 +1854,13 @@ fn collection_error_json(
         result["flag"] = serde_json::json!("id");
         result["value"] = serde_json::json!(id);
     }
-    if context["code"] == "unknown_option" {
+    if let Some(flag) = context["flag"]
+        .as_str()
+        .filter(|_| context["code"] == "unknown_option")
+    {
         result.as_object_mut().map(|map| map.shift_remove("why"));
-        result["refusal"] = serde_json::json!({"surface":"--remove-index","rejected_value":"--remove-index","exit_code":exit_code});
+        result["refusal"] =
+            serde_json::json!({"surface":flag,"rejected_value":flag,"exit_code":exit_code});
     }
     result
 }
@@ -1715,9 +1899,22 @@ fn strip_bootstrap_scope(args: &mut Vec<String>) {
     }
 }
 
-/// Renders canonical recovery arguments with the shared published shell renderer.
+/// Renders recovery arguments with the binary that supports them.
 fn render_recovery(args: &[String]) -> String {
-    pm_rust::render_pm_command(args)
+    let invocation = Invocation::parse(args);
+    let native = invocation.options.iter().any(|option| match option.name {
+        "artifact-cwd" => true,
+        "append-stable" => invocation
+            .command
+            .and_then(|index| args.get(index + usize::from(args[index] == "item")))
+            .is_some_and(|command| command == "docs"),
+        _ => false,
+    });
+    if native {
+        pm_rust::render_pm_rust_command(args)
+    } else {
+        pm_rust::render_pm_command(args)
+    }
 }
 
 /// Adds invocation scope to executable advice while respecting an explicit producer scope.
@@ -1800,8 +1997,10 @@ fn preserve_refusal_scope(payload: &mut serde_json::Value, raw: &[String]) {
         fields.insert(0, serde_json::json!("--pm-path"));
         recovery.insert("provided_fields".to_owned(), serde_json::json!(fields));
     }
-    if payload["code"] == "lock_conflict" {
-        payload["examples"] = serde_json::json!([payload["recovery"]["suggested_retry"]]);
+    if payload["code"] == "lock_conflict"
+        && let Some(retry) = payload["recovery"]["suggested_retry"].as_str()
+    {
+        payload["examples"] = serde_json::json!([retry]);
     }
     if payload["code"] == "close_validation_missing_fields"
         && let Some(scoped) = payload["recovery"]["next_best_command"]
@@ -1934,7 +2133,14 @@ fn ownership_error_json(
         },
         4,
     );
-    for key in ["flag", "value", "claimed_by", "claimed_at", "claim_source"] {
+    for key in [
+        "flag",
+        "value",
+        "claimed_by",
+        "claimed_at",
+        "claim_source",
+        "claim_activity",
+    ] {
         if let Some(value) = context.get(key) {
             payload[key] = value.clone();
         }
@@ -1976,6 +2182,10 @@ fn apply_ownership_guidance(payload: &mut serde_json::Value, context: &serde_jso
             );
             payload["why"] =
                 serde_json::json!("Locking protects item files from concurrent write races.");
+            if context["completed_step"] == "close" {
+                payload["examples"] = serde_json::json!(["pm release --help"]);
+                return;
+            }
             let retry = payload["recovery"]["attempted_command"].clone();
             payload["examples"] = serde_json::json!([retry]);
             payload["recovery"]["suggested_retry"] = retry;
@@ -2199,21 +2409,7 @@ fn write_cursor_refusal_to(
             payload["detail"].as_str().unwrap_or_default()
         ));
     }
-    if let Some(holder) = payload["claimed_by"].as_str() {
-        let holder = if holder.chars().count() > 120 {
-            format!("{}...", holder.chars().take(120).collect::<String>())
-        } else {
-            holder.to_owned()
-        };
-        let since = payload["claimed_at"]
-            .as_str()
-            .filter(|value| !value.is_empty())
-            .map_or_else(String::new, |value| format!(" since {value}"));
-        parts.push(format!(
-            "\nHeld by: {holder} ({}{since})",
-            payload["claim_source"].as_str().unwrap_or("unknown")
-        ));
-    }
+    append_claim_holder(&mut parts, payload);
     append_refusal_why(&mut parts, payload);
     if !close_evidence && let Some(examples) = payload["examples"].as_array() {
         parts.push("\nExamples:".to_owned());
@@ -2266,6 +2462,41 @@ fn write_cursor_refusal_to(
     writer.write_all(format!("{}\n", parts.join("\n")).as_bytes())?;
     writer.flush()?;
     Ok(())
+}
+
+/// Renders the holder and the published stale-policy suffix when available.
+fn append_claim_holder(parts: &mut Vec<String>, payload: &serde_json::Value) {
+    if let Some(holder) = payload["claimed_by"].as_str() {
+        let holder = if holder.chars().count() > 120 {
+            format!("{}...", holder.chars().take(120).collect::<String>())
+        } else {
+            holder.to_owned()
+        };
+        let since = payload["claimed_at"]
+            .as_str()
+            .filter(|value| !value.is_empty())
+            .map_or_else(String::new, |value| format!(" since {value}"));
+        let activity = &payload["claim_activity"];
+        let idle = activity["idle_hours"]
+            .as_i64()
+            .map_or_else(String::new, |hours| {
+                let policy = &activity["stale_policy"];
+                let verdict = if policy["stale"] == true {
+                    "stale"
+                } else {
+                    "active"
+                };
+                format!(
+                    "; idle {hours}h, {verdict} under {}={}",
+                    policy["setting"].as_str().unwrap_or_default(),
+                    policy["threshold_hours"]
+                )
+            });
+        parts.push(format!(
+            "\nHeld by: {holder} ({}{since}){idle}",
+            payload["claim_source"].as_str().unwrap_or("unknown")
+        ));
+    }
 }
 
 /// Appends structured refusal details in the published human indentation.

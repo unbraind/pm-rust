@@ -119,8 +119,12 @@ fn round5_declared_relationship_recovery_corpus() -> Result<(), Box<dyn std::err
             .extra
             .insert("dependencies".to_owned(), deps);
         assert_eq!(
-            unblock(&before, "sample-gate", &json!({"id_prefix":"sample-"})),
-            "pm get sample-own --fields \"blocked_by,dependencies\""
+            unblock(
+                &before,
+                &["sample-gate".to_owned()],
+                &json!({"id_prefix":"sample-"})
+            ),
+            ["pm get sample-own --fields \"blocked_by,dependencies\""]
         );
     }
     before.metadata.extra.remove("blocked_by");
@@ -129,16 +133,24 @@ fn round5_declared_relationship_recovery_corpus() -> Result<(), Box<dyn std::err
         json!([{"id":"sample-gate","kind":"blocked_by"}]),
     );
     assert_eq!(
-        unblock(&before, "sample-gate", &json!({"id_prefix":"sample-"})),
-        "pm update sample-own --dep-remove \"id=sample-gate,kind=blocked_by\""
+        unblock(
+            &before,
+            &["sample-gate".to_owned()],
+            &json!({"id_prefix":"sample-"})
+        ),
+        ["pm update sample-own --dep-remove \"id=sample-gate,kind=blocked_by\""]
     );
     before.metadata.extra.insert(
         "dependencies".to_owned(),
         json!([{"id":"gate","kind":"blocked_by"}]),
     );
     assert_eq!(
-        unblock(&before, "sample-gate", &json!({"id_prefix":"sample-"})),
-        "pm get sample-own --fields \"blocked_by,dependencies\""
+        unblock(
+            &before,
+            &["sample-gate".to_owned()],
+            &json!({"id_prefix":"sample-"})
+        ),
+        ["pm get sample-own --fields \"blocked_by,dependencies\""]
     );
     for id in [".", "..", "../gate", "unknown:gate", "missing"] {
         before.metadata.extra.remove("dependencies");
@@ -348,8 +360,8 @@ fn round5_unverifiable_policy_never_hides_io() -> Result<(), Box<dyn std::error:
         json!([{"id":"other","kind":"related"},{"id":"sample-gate","kind":"blocked_by"}]),
     );
     assert_eq!(
-        unblock(&before, "sample-gate", &settings),
-        "pm update sample-own --dep-remove \"id=sample-gate,kind=blocked_by\""
+        unblock(&before, &["sample-gate".to_owned()], &settings),
+        ["pm update sample-own --dep-remove \"id=sample-gate,kind=blocked_by\""]
     );
     Ok(())
 }
@@ -445,8 +457,8 @@ fn round5_external_and_incomplete_unblock_advice() {
         json!([{"id":"github:fixture/one","kind":"blocked_by"}]),
     );
     assert_eq!(
-        unblock(&before, "github:fixture/one", &settings),
-        "pm update sample-own --dep-remove \"id=github:fixture/one,kind=blocked_by\""
+        unblock(&before, &["github:fixture/one".to_owned()], &settings),
+        ["pm update sample-own --dep-remove \"id=github:fixture/one,kind=blocked_by\""]
     );
     before
         .metadata
@@ -457,8 +469,27 @@ fn round5_external_and_incomplete_unblock_advice() {
         .extra
         .insert("dependencies".to_owned(), json!([{"kind":"blocked_by"}]));
     assert_eq!(
-        unblock(&before, "", &settings),
-        "pm get sample-own --fields \"blocked_by,dependencies\""
+        unblock(&before, &[String::new()], &settings),
+        ["pm get sample-own --fields \"blocked_by,dependencies\""]
+    );
+}
+
+/// A projected dependency ID cannot be replayed as a removal selector.
+#[test]
+fn credential_blocker_unblock_advice_uses_original_id() {
+    let mut before = document("sample-own", "open");
+    let id = "https://fixture:synthetic-secret@example.invalid/issue";
+    before.metadata.extra.insert(
+        "dependencies".to_owned(),
+        json!([{"id":id,"kind":"blocked_by","source_kind":"external"}]),
+    );
+    let advice = unblock(&before, &[id.to_owned()], &json!({"id_prefix":"sample-"}));
+    assert_eq!(
+        advice,
+        [
+            "pm get sample-own --fields \"blocked_by,dependencies\"",
+            "Use the dependency's original ID to remove the blocked_by edge.",
+        ]
     );
 }
 
@@ -662,7 +693,7 @@ fn round15_blocker_advice_shell_round_trip() -> Result<(), Box<dyn std::error::E
         corpus::assert_shell_args(claim, &["pm", "claim", value, "--start"])?;
         decorated.metadata.status = "open".to_owned();
         corpus::assert_shell_args(
-            &unblock(&decorated, value, &json!({})),
+            &unblock(&decorated, &[(*value).to_owned()], &json!({}))[0],
             &["pm", "update", value, "--unset", "blocked_by"],
         )?;
         decorated.metadata.extra.insert(
@@ -671,7 +702,7 @@ fn round15_blocker_advice_shell_round_trip() -> Result<(), Box<dyn std::error::E
         );
         decorated.metadata.extra.remove("blocked_by");
         corpus::assert_shell_args(
-            &unblock(&decorated, "github:gate", &json!({})),
+            &unblock(&decorated, &["github:gate".to_owned()], &json!({}))[0],
             &[
                 "pm",
                 "update",
@@ -685,7 +716,7 @@ fn round15_blocker_advice_shell_round_trip() -> Result<(), Box<dyn std::error::E
             json!([{"id":"sample-gate","kind":"depends_on"}]),
         );
         corpus::assert_shell_args(
-            &unblock(&decorated, "sample-gate", &json!({})),
+            &unblock(&decorated, &["sample-gate".to_owned()], &json!({}))[0],
             &["pm", "get", value, "--fields", "blocked_by,dependencies"],
         )?;
     }

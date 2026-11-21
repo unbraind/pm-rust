@@ -495,6 +495,15 @@ The shared refusal registry now retains every nonempty registered password. Pass
 
 `round9_reprojected_continuation_matches_published` compares native `deliver` with the installed SDK's actual `attachReadOutputContracts` and TOON formatter at their shared producer-snapshot delivery boundary. Both receive the same synthetic snapshot and unchanged options. The unpadded control emits a nonzero output cursor and replays successfully. Adding 104 bytes of filter metadata makes the finalized first pass exceed the 1,000-token budget. The second projection emits a nonzero cursor bound to 21 rows, differing from the initial projection; unchanged replay refuses `read_output_cursor_stale` in both implementations. The test compares complete first result values and TOON bytes, complete successful replay values and bytes, and refusal code/detail. This pins intended published parity for the delivery API; it does not claim a whole-CLI reproduction of that exact synthetic snapshot. No cursor safeguard was changed and no test was ignored.
 
+The final 2026.11.18 conformance test,
+`continuation_matches_published_with_known_exception_1753`, covers the revised
+budget boundary. With 136 characters of filter padding at 1,000 tokens, both
+implementations deliver the same first page. Native delivery accepts the
+unchanged replay and rejects a changed snapshot. The pinned oracle still
+refuses unchanged replay with `read_output_cursor_stale`. The test requires
+that refusal until the known divergence is revisited.
+[unbraind/pm-cli#1753](https://github.com/unbraind/pm-cli/issues/1753)
+
 The roleless-close policy decline remains valid, with stronger evidence. The direct differential covers embedded and legacy `close_status = done`, with no terminal role on `done`, under both force modes, and now compares complete successful item and history bytes without normalization. The stale-ranked unit now runs the published ranked-claim SDK against a second real non-git tracker after capturing the native open candidate and changing its stored status to `done`. Both successful roleless starts and terminal-role refusal controls compare complete item/history bytes, under both force modes. Earlier reports overstated stale-ranked oracle and successful-byte coverage; these assertions supply it explicitly.
 
 The Windows exclusive-handle test now obtains the expected read error through `err().ok_or(...)` while retaining the sharing-violation and admission assertions. Its previous `expect_err` violated the repository's existing `clippy::expect_used` policy.

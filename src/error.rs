@@ -100,6 +100,14 @@ pub enum PmRustError {
         /// Stable explanation suitable for CLI diagnostics.
         reason: String,
     },
+    /// A proposed mutation identity contains URL userinfo.
+    #[error(
+        "{identity_source} must not carry URL credentials: an identity is a name, never a credential."
+    )]
+    IdentityCredentials {
+        /// Name of the input channel, without the rejected value.
+        identity_source: &'static str,
+    },
     /// A validated native item could not be encoded as canonical TOON.
     #[error("could not encode canonical pm item: {reason}")]
     ItemEncoding {

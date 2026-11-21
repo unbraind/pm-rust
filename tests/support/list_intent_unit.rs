@@ -341,7 +341,7 @@ fn final_receipt_boundary_source() -> serde_json::Value {
 #[test]
 fn round5_finalized_receipt_floor_and_adjacent_allow() -> Result<(), Box<dyn std::error::Error>> {
     let source = final_receipt_boundary_source();
-    for (budget, omitted) in [(3236, true), (3237, false)] {
+    for (budget, omitted) in [(3345, true), (3346, false)] {
         let options = ListOptions {
             intent: Some("triage".to_owned()),
             token_budget: Some(budget.to_string()),
@@ -399,6 +399,46 @@ fn round5_second_projection_rechecks_a_valid_snapshot() -> Result<(), Box<dyn st
     assert!(
         matches!(super::deliver(source.into(),&options,&options,Some(3236),None),Err(crate::PmRustError::ReadCursor{code,..}) if code=="read_output_cursor_stale")
     );
+    Ok(())
+}
+
+/// A finalized intent page over the delivery budget exposes recovery instead of its rows.
+#[test]
+fn oversized_final_projection_returns_a_recovery_receipt() -> Result<(), Box<dyn std::error::Error>>
+{
+    let source = final_receipt_boundary_source();
+    let budget = 3345;
+    let options = ListOptions {
+        intent: Some("triage".to_owned()),
+        token_budget: Some(budget.to_string()),
+        limit: Some("43".to_owned()),
+        output_limit: Some("100".to_owned()),
+        full: true,
+        toon: true,
+        ..Default::default()
+    };
+    let first = super::attach(source, &options, budget);
+    let receipt = first["context_intent"].clone();
+    let delivered = super::finalize(first, &options, None)?;
+    assert!(super::settled(&delivered, &receipt, &options).is_some());
+    let mut recovery = options.clone();
+    recovery.output_cursor = Some("cursor-for-original-rows".into());
+    let mut capped = recovery.clone();
+    capped.output_budget = Some(budget.to_string());
+    let outcome =
+        super::verify_projection(delivered.clone(), &receipt, &capped, &capped, budget, None)?;
+    assert_eq!(
+        outcome["output_budget_exceeded"]["reason"],
+        "requested_budget_infeasible"
+    );
+    assert!(outcome.get("items").is_none());
+    let outcome = super::verify_projection(delivered, &receipt, &options, &recovery, budget, None)?;
+    assert_eq!(
+        outcome["budget_exceeded"]["reason"],
+        "effective_budget_infeasible"
+    );
+    assert_eq!(outcome["context_intent"]["result_omitted"], true);
+    assert!(outcome.get("items").is_none());
     Ok(())
 }
 

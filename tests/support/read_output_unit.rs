@@ -422,8 +422,12 @@ fn producer_rebasing_and_disclosure_keep_indices_and_snapshot() {
 fn estimates_and_string_compaction_handle_nested_unicode() {
     let mut value = json!({"rows":["😀".repeat(130),"x".repeat(240),null,3]});
     assert!(compact_strings(&mut value));
-    assert_eq!(value["rows"][0], format!("{}…", "😀".repeat(120)));
+    assert_eq!(
+        value["rows"][0],
+        format!("{}…[+20 chars]", "😀".repeat(120))
+    );
     assert_eq!(value["rows"][1], "x".repeat(240));
+    assert!(!compact_strings(&mut value));
     assert!(!compact_strings(&mut json!([true, null, "short"])));
     let mut measured = crate::ListOutput::from(json!({"read_output":{"estimated_tokens":0}}));
     super::update_output(&mut measured, false);
@@ -627,7 +631,7 @@ fn round5_omission_cursor_policy() -> Result<(), Box<dyn std::error::Error>> {
     Ok(())
 }
 
-/// Item metadata cursor names compact while genuine root continuations remain executable.
+/// Cursor-named item metadata compacts while envelope cursors survive (unbraind/pm-cli#1754).
 #[test]
 fn round7_cursor_metadata_compacts_below_the_envelope() -> Result<(), Box<dyn std::error::Error>> {
     let long = "a".repeat(30_000);
@@ -635,7 +639,10 @@ fn round7_cursor_metadata_compacts_below_the_envelope() -> Result<(), Box<dyn st
     assert!(compact_strings(&mut source));
     for field in ["next_cursor", "output_cursor"] {
         assert_eq!(source[field], long);
-        assert_eq!(source["items"][0][field], format!("{}…", "a".repeat(240)));
+        assert_eq!(
+            source["items"][0][field],
+            format!("{}…[+29760 chars]", "a".repeat(240))
+        );
     }
     let payload = json!({"items":[{"id":"sample-one","next_cursor":long,"output_cursor":long}],"count":1,"total":1,"has_more":false,"next_cursor":null});
     let result = apply(
@@ -650,4 +657,31 @@ fn round7_cursor_metadata_compacts_below_the_envelope() -> Result<(), Box<dyn st
     assert_eq!(result["count"], 1);
     assert!(result.get("output_budget_exceeded").is_none());
     Ok(())
+}
+
+/// Only canonical omission markers can suppress another pass of string compaction.
+#[test]
+fn malformed_omission_markers_still_compact() {
+    for (prefix, count, valid) in [
+        (238, "999".to_owned(), false),
+        (239, "1".to_owned(), false),
+        (239, "2".to_owned(), true),
+        (240, "1".to_owned(), true),
+        (241, "2".to_owned(), false),
+        (240, "9".repeat(30_000), false),
+        (240, usize::MAX.to_string(), false),
+    ] {
+        let mut value = json!(format!("{}…[+{count} chars]", "x".repeat(prefix)));
+        assert_eq!(compact_strings(&mut value), !valid);
+    }
+    for suffix in ["…[+bad", "…[+ chars]", "…[+01 chars]", "…[+1x chars]"] {
+        let prefix = "x".repeat(240);
+        let mut value = json!(format!("{prefix}{suffix}"));
+        assert!(compact_strings(&mut value), "{suffix}");
+        assert_eq!(
+            value,
+            format!("{prefix}…[+{} chars]", suffix.encode_utf16().count())
+        );
+        assert!(!compact_strings(&mut value), "{suffix}");
+    }
 }

@@ -375,28 +375,75 @@ pub(crate) fn deliver(
     let Some(budget) = budget else {
         return finalize(source, requested, continuation);
     };
-    let project = |overhead| -> Result<(ListOutput, Value), PmRustError> {
+    let project = |overhead, delivery: &ListOptions| -> Result<(ListOutput, Value), PmRustError> {
         let projected = if overhead == 0 {
             attach(source.clone(), options, budget)
         } else {
             attach_with_overhead(source.clone(), options, budget, overhead)
         };
         let receipt = projected["context_intent"].clone();
-        Ok((finalize(projected, requested, continuation)?, receipt))
+        Ok((finalize(projected, delivery, continuation)?, receipt))
     };
-    let (first, receipt) = project(0)?;
-    let Some((_, estimated)) = settled(&first, &receipt, requested) else {
-        return Ok(first);
+    let verified = |overhead, delivery: &ListOptions| {
+        let (page, receipt) = project(overhead, delivery)?;
+        verify_projection(page, &receipt, options, delivery, budget, continuation)
     };
+    // Use the same projection and stopping rule for first pages and cursor recovery.
+    let settle = |(first, receipt): (ListOutput, Value), delivery: &ListOptions| {
+        let Some((_, estimated)) = settled(&first, &receipt, delivery) else {
+            return Ok((first, None));
+        };
+        let overhead = overshoot(&receipt, estimated);
+        verified(overhead, delivery).map(|page| {
+            let resumable = page["output_budget_truncation"]["continuations"].is_array();
+            (page, resumable.then_some(overhead))
+        })
+    };
+    match project(0, requested) {
+        Ok(first) => settle(first, requested).map(|(page, _)| page),
+        Err(
+            stale @ PmRustError::ReadCursor {
+                code: "read_output_cursor_stale",
+                ..
+            },
+        ) => {
+            // Intentional divergence from pm-cli 2026.11.18 (unbraind/pm-cli#1753).
+            // Recreate the second projection so unchanged continuations can be replayed.
+            let mut unpaged = requested.clone();
+            unpaged.output_cursor = None;
+            project(0, &unpaged)
+                .and_then(|first| settle(first, &unpaged))
+                .and_then(|(_, overhead)| verified(overhead.ok_or(stale)?, requested))
+        }
+        Err(error) => Err(error),
+    }
+}
+
+/// Returns the verified page or a recovery receipt if finalized overhead still exceeds the budget.
+fn verify_projection(
+    page: ListOutput,
+    receipt: &Value,
+    options: &ListOptions,
+    delivery: &ListOptions,
+    budget: usize,
+    continuation: Option<&str>,
+) -> Result<ListOutput, PmRustError> {
+    if let Some((receipt, estimated)) = settled(&page, receipt, delivery) {
+        return finalize(
+            omitted(receipt, options, budget, estimated),
+            &ListOptions {
+                output_cursor: None,
+                ..delivery.clone()
+            },
+            continuation,
+        );
+    }
+    Ok(page)
+}
+
+/// Measures the extra final envelope cost beyond the intent's initial estimate.
+fn overshoot(receipt: &Value, estimated: usize) -> usize {
     let initial =
         usize::try_from(receipt["estimated_tokens"].as_u64().unwrap_or(0)).unwrap_or(usize::MAX);
-    let (second, receipt) = project(estimated.saturating_sub(initial))?;
-    let Some((receipt, estimated)) = settled(&second, &receipt, requested) else {
-        return Ok(second);
-    };
-    finalize(
-        omitted(receipt, options, budget, estimated),
-        requested,
-        continuation,
-    )
+    estimated.saturating_sub(initial)
 }

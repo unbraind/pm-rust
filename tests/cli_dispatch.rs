@@ -589,6 +589,191 @@ fn close_dispatch_closes_once_and_refuses_repeats() -> Result<(), Box<dyn std::e
     Ok(())
 }
 
+/// A contender between the two CLI steps leaves close durable and suppresses close replay.
+#[cfg(target_os = "linux")]
+#[test]
+#[allow(
+    clippy::too_many_lines,
+    reason = "the interposed release and its durable close assertions share one fixture"
+)]
+fn close_release_contention_reports_only_release_recovery() -> Result<(), Box<dyn std::error::Error>>
+{
+    use rustix::fs::{Mode, OFlags, open};
+    use std::io::Write as _;
+    use std::path::Path;
+    use std::process::Stdio;
+    use std::time::{Duration, Instant};
+
+    let workspace = workspace()?;
+    seed_item(&workspace)?;
+    let root = workspace.path().join(".agents/pm");
+    let item = root.join("tasks/sample-cli.toon");
+    let history = root.join("history/sample-cli.jsonl");
+    let resumed = serde_json::json!({
+        "version":1, "id":"sample-cli", "item_type":"Task",
+        "item_bytes":fs::read_to_string(&item)?, "history_bytes":fs::read_to_string(&history)?,
+    });
+    // Close reads this already-committed create journal under the item lock.
+    let journal = root.join("runtime/transactions/create-sample-cli.json");
+    rustix::fs::mkfifoat(rustix::fs::CWD, &journal, Mode::RUSR | Mode::WUSR)?;
+    let mut child = Command::new(env!("CARGO_BIN_EXE_pm-rust"))
+        .current_dir(workspace.path())
+        .env("PM_LOCK_WAIT_MS", "0")
+        .args([
+            "--pm-path=.agents/pm",
+            "close",
+            "sample-cli",
+            "Done",
+            "--author=cli-agent",
+            "--release-assignment",
+            "--json",
+        ])
+        .stdout(Stdio::piped())
+        .stderr(Stdio::piped())
+        .spawn()?;
+    let mut wait_for_reader = |path: &Path| -> Result<fs::File, Box<dyn std::error::Error>> {
+        let deadline = Instant::now() + Duration::from_secs(15);
+        loop {
+            match open(
+                path,
+                OFlags::WRONLY | OFlags::NONBLOCK | OFlags::CLOEXEC,
+                Mode::empty(),
+            ) {
+                Ok(writer) => return Ok(fs::File::from(writer)),
+                Err(rustix::io::Errno::NXIO) => {}
+                Err(error) => return Err(error.into()),
+            }
+            if child.try_wait()?.is_some() || Instant::now() >= deadline {
+                return Err("close did not reach the expected fixture read".into());
+            }
+            std::thread::sleep(Duration::from_millis(5));
+        }
+    };
+    let interposed = (|| -> Result<fs::File, Box<dyn std::error::Error>> {
+        let mut journal_writer = wait_for_reader(&journal)?;
+        // Pause release when its resolved identity reads session attribution,
+        // after close has published and dropped its gate.
+        let session = root.join("runtime/session.json");
+        rustix::fs::mkfifoat(rustix::fs::CWD, &session, Mode::RUSR | Mode::WUSR)?;
+        journal_writer.write_all(resumed.to_string().as_bytes())?;
+        drop(journal_writer);
+        let mut attribution = wait_for_reader(&session)?;
+        if !fs::read_to_string(&item)?.contains("status: closed") {
+            return Err("release reached session attribution before close committed".into());
+        }
+        let gate = fs::File::options()
+            .read(true)
+            .write(true)
+            .open(root.join("locks/sample-cli.lock.gate-lease"))?;
+        gate.try_lock()?;
+        attribution.write_all(b"{}")?;
+        Ok(gate)
+    })();
+    if interposed.is_err() {
+        let _ = child.kill();
+        let _ = child.wait();
+    }
+    let _gate = interposed?;
+    let deadline = Instant::now() + Duration::from_secs(15);
+    while child.try_wait()?.is_none() {
+        if Instant::now() >= deadline {
+            let _ = child.kill();
+            child.wait()?;
+            return Err("close did not exit after the release encountered the held gate".into());
+        }
+        std::thread::sleep(Duration::from_millis(5));
+    }
+    let output = child.wait_with_output()?;
+    assert_eq!(
+        output.status.code(),
+        Some(4),
+        "{}",
+        String::from_utf8_lossy(&output.stderr)
+    );
+    assert!(output.stdout.is_empty());
+    let receipt: serde_json::Value = serde_json::from_slice(&output.stderr)?;
+    assert_eq!(receipt["code"], "lock_conflict");
+    assert_eq!(
+        receipt["examples"],
+        serde_json::json!(["pm release --help"])
+    );
+    assert!(
+        receipt["recovery"]["attempted_command"]
+            .as_str()
+            .ok_or("attempted command")?
+            .contains("--pm-path .agents/pm")
+    );
+    assert!(receipt["why"].to_string().contains("close completed"));
+    assert!(
+        receipt["required"]
+            .to_string()
+            .contains("retry the release step")
+    );
+    assert!(
+        receipt["recovery"]["attempted_command"]
+            .to_string()
+            .contains("--release-assignment")
+    );
+    for field in ["suggested_retry", "suggested_retry_args"] {
+        assert!(receipt["recovery"].get(field).is_none());
+    }
+    assert!(fs::read_to_string(item)?.contains("status: closed"));
+    let history = fs::read_to_string(history)?;
+    let last: serde_json::Value = serde_json::from_str(history.lines().last().ok_or("history")?)?;
+    assert_eq!(last["op"], "close");
+    Ok(())
+}
+
+/// A future release timestamp refuses before close changes the item or its history.
+#[test]
+fn close_release_refuses_future_timestamp_before_writing() -> Result<(), Box<dyn std::error::Error>>
+{
+    let workspace = workspace()?;
+    seed_item(&workspace)?;
+    expect_ok(&workspace, &["claim", "sample-cli", "--author=cli-agent"])?;
+    let root = workspace.path().join(".agents/pm");
+    let snapshot = || -> std::io::Result<_> {
+        Ok((
+            fs::read(root.join("tasks/sample-cli.toon"))?,
+            fs::read(root.join("history/sample-cli.jsonl"))?,
+        ))
+    };
+    let before = snapshot()?;
+    for (timestamp, expected) in [
+        (
+            "2099-01-01T00:00:00Z",
+            "timestamp must not be in the future",
+        ),
+        (
+            "malformedZ",
+            "timestamp must be a non-empty UTC RFC 3339 value",
+        ),
+        (
+            "malformed",
+            "timestamp must be a non-empty UTC RFC 3339 value",
+        ),
+    ] {
+        let output = pm_rust(
+            &workspace,
+            &[
+                "close",
+                "sample-cli",
+                "Verified",
+                "--author=cli-agent",
+                "--release-assignment",
+                "--timestamp",
+                timestamp,
+                "--json",
+            ],
+        )?;
+        assert_eq!(output.status.code(), Some(2));
+        assert!(output.stdout.is_empty());
+        assert!(String::from_utf8_lossy(&output.stderr).contains(expected));
+        assert_eq!(snapshot()?, before);
+    }
+    Ok(())
+}
+
 /// A non-UTF-8 workspace argument must not panic a cursor refusal.
 /// Linux permits these directory names; macOS rejects them before dispatch.
 /// The argument-publisher unit test exercises invalid bytes on every Unix OS.
@@ -820,14 +1005,15 @@ fn startup_argument_boundaries_are_read_only() -> Result<(), Box<dyn std::error:
     let workspace = workspace()?;
     let settings = workspace.path().join(".agents/pm/settings.json");
     let before = fs::read(&settings)?;
-    for args in [
-        vec![],
-        vec!["item"],
-        vec!["item", "files", "sample-missing"],
-        vec!["assurance", "show", "measurement"],
+    for (args, exit) in [
+        (vec![], 2),
+        (vec!["item"], 2),
+        // Canonical collection commands reach the tracker and report the absent item.
+        (vec!["item", "files", "sample-missing"], 3),
+        (vec!["assurance", "show", "measurement"], 2),
     ] {
         let output = pm_rust(&workspace, &args)?;
-        assert_eq!(output.status.code(), Some(2), "{args:?}");
+        assert_eq!(output.status.code(), Some(exit), "{args:?}");
         assert!(output.stdout.is_empty());
         assert!(!output.stderr.is_empty());
         assert_eq!(fs::read(&settings)?, before);
@@ -912,6 +1098,80 @@ fn parser_diagnostics_redact_credential_bearing_tokens() -> Result<(), Box<dyn s
     Ok(())
 }
 
+/// Parser failures project asserted author credentials even before a workspace is opened.
+#[test]
+fn parser_diagnostics_project_only_actual_author_values() -> Result<(), Box<dyn std::error::Error>>
+{
+    let directory = workspace()?;
+    let marker = "synthetic-marker";
+    let bare = "fixture:synthetic-marker%40example.invalid";
+    for (extra, expected) in [
+        (vec!["--author", bare], "[redacted]"),
+        (
+            vec!["--author=fixture:synthetic-marker@example.invalid"],
+            "[redacted]",
+        ),
+        (
+            vec!["--author=https://fixture:synthetic-marker@example.invalid"],
+            "[redacted]",
+        ),
+        (
+            vec!["--author", "plain-author", "--description", bare],
+            marker,
+        ),
+    ] {
+        let mut args = vec!["create", "--title", "Fixture", "--priority", marker];
+        args.extend(extra);
+        let output = pm_rust(&directory, &args)?;
+        assert_eq!(output.status.code(), Some(2));
+        assert!(output.stdout.is_empty());
+        let stderr = String::from_utf8(output.stderr)?;
+        assert!(
+            stderr.contains(&format!("invalid value '{expected}'")),
+            "{stderr}"
+        );
+        assert_eq!(stderr.contains(marker), expected == marker, "{stderr}");
+    }
+    expect_err(
+        &directory,
+        &[
+            "create",
+            "--title",
+            "Fixture",
+            "--",
+            "--author=fixture:synthetic-marker%40example.invalid",
+        ],
+        "--author=fixture:synthetic-marker%40example.invalid",
+    )?;
+    expect_err(
+        &directory,
+        &[
+            "files",
+            "sample-one",
+            "--add",
+            "--author=fixture:synthetic-marker%40example.invalid",
+            marker,
+        ],
+        "unexpected argument 'synthetic-marker'",
+    )?;
+    expect_err(
+        &directory,
+        &["create", "--title", "Fixture", "--author"],
+        "a value is required for '--author",
+    )?;
+    expect_err(
+        &directory,
+        &[
+            "close",
+            "sample-one",
+            "--author=fixture:synthetic-marker%40example.invalid",
+            "--synthetic-marker",
+        ],
+        "unexpected argument '--[redacted]'",
+    )?;
+    Ok(())
+}
+
 /// Stored credential authorities are withheld in JSON and human foreign-claim refusals.
 #[test]
 fn persisted_holder_credentials_never_reach_refusal_streams()
@@ -920,22 +1180,10 @@ fn persisted_holder_credentials_never_reach_refusal_streams()
         let workspace = workspace()?;
         seed_item(&workspace)?;
         let holder = format!("https://fixture:{secret}@example.invalid");
-        let claimed = Command::new(env!("CARGO_BIN_EXE_pm-rust"))
-            .current_dir(workspace.path())
-            .args([
-                "claim",
-                "sample-cli",
-                "--author",
-                &holder,
-                "--force",
-                "--json",
-            ])
-            .output()?;
-        assert!(
-            claimed.status.success(),
-            "{}",
-            String::from_utf8_lossy(&claimed.stderr)
-        );
+        set_legacy_holder(
+            &workspace.path().join(".agents/pm/tasks/sample-cli.toon"),
+            &holder,
+        )?;
         for format in [vec!["--json"], vec![]] {
             let output = Command::new(env!("CARGO_BIN_EXE_pm-rust"))
                 .current_dir(workspace.path())
@@ -956,6 +1204,17 @@ fn persisted_holder_credentials_never_reach_refusal_streams()
             }
         }
     }
+    Ok(())
+}
+
+/// Places a pre-admission holder in the canonical fixture without using a modern write API.
+fn set_legacy_holder(
+    path: &std::path::Path,
+    holder: &str,
+) -> Result<(), Box<dyn std::error::Error>> {
+    let mut item: serde_json::Value = toon_format::decode_default(&fs::read_to_string(path)?)?;
+    item["assignee"] = serde_json::json!(holder);
+    fs::write(path, toon_format::encode_default(&item)?)?;
     Ok(())
 }
 
@@ -1500,93 +1759,123 @@ fn round11_scoped_close_retry_executes_only_selected_tracker()
 #[path = "support/refusal_corpus.rs"]
 mod refusal_corpus;
 
-/// Stored holders and close retries mirror the shared authority corpus in both refusal formats.
+/// Validates whole-value identity admission and projection of older stored holders.
 #[test]
 fn round11_stored_holder_and_public_retry_boundaries() -> Result<(), Box<dyn std::error::Error>> {
-    exercise_round11_holder_boundaries(None)
+    for (holder, expected) in [
+        (
+            "https://stored and private-token@host.invalid",
+            "https://[redacted]@host.invalid",
+        ),
+        (
+            "https://host.invalid or user@example.invalid",
+            "https://[redacted]@example.invalid",
+        ),
+        (
+            "Context: https://host.invalid/path@ref",
+            "Context:[redacted]@ref",
+        ),
+        (
+            "https://host.invalid/path@ref",
+            "https://host.invalid/path@ref",
+        ),
+        (
+            "https://host.invalid/path user@example.invalid",
+            "https://host.invalid/path user@example.invalid",
+        ),
+    ] {
+        let tracker = workspace()?;
+        seed_item(&tracker)?;
+        let root = tracker.path().join(".agents/pm");
+        let item = root.join("tasks/sample-cli.toon");
+        let history = root.join("history/sample-cli.jsonl");
+        if holder == expected {
+            expect_ok(&tracker, &["claim", "sample-cli", "--author", holder])?;
+        } else {
+            let before = (fs::read(&item)?, fs::read(&history)?);
+            let output = pm_rust(
+                &tracker,
+                &[
+                    "claim",
+                    "sample-cli",
+                    "--author",
+                    holder,
+                    "--force",
+                    "--json",
+                ],
+            )?;
+            assert_eq!(output.status.code(), Some(2));
+            let refusal: serde_json::Value = serde_json::from_slice(&output.stderr)?;
+            assert_eq!(refusal["code"], "invalid_argument_value");
+            assert_eq!((fs::read(&item)?, fs::read(&history)?), before);
+            set_legacy_holder(&item, holder)?;
+        }
+        let before = (fs::read(&item)?, fs::read(&history)?);
+        for json in [false, true] {
+            let mut args = vec!["claim", "sample-cli", "--author", "beta"];
+            if json {
+                args.push("--json");
+            }
+            let output = pm_rust(&tracker, &args)?;
+            assert_eq!(output.status.code(), Some(4));
+            assert!(output.stdout.is_empty());
+            if json {
+                let refusal: serde_json::Value = serde_json::from_slice(&output.stderr)?;
+                assert_eq!(refusal["claimed_by"], expected, "{holder}");
+            } else {
+                let text = String::from_utf8(output.stderr)?;
+                assert!(text.contains(&format!("Held by: {expected}")), "{text}");
+            }
+            assert_eq!((fs::read(&item)?, fs::read(&history)?), before);
+        }
+    }
+    Ok(())
 }
 
-/// Public URL prose keeps the stored display and the same-close retry advice.
+/// The same-close retry preserves public URL prose in positional closing reasons.
 #[test]
 fn round11_public_prose_process_keeps_retry() -> Result<(), Box<dyn std::error::Error>> {
-    exercise_round11_holder_boundaries(Some(false))
-}
-
-/// Runs the shared corpus against real persisted holders without Git or SDK mocks.
-fn exercise_round11_holder_boundaries(
-    private_only: Option<bool>,
-) -> Result<(), Box<dyn std::error::Error>> {
+    let tracker = workspace()?;
+    expect_ok(
+        &tracker,
+        &[
+            "create",
+            "--id",
+            "sample-holder",
+            "--title",
+            "Closing fixture",
+            "--type",
+            "Issue",
+            "--author",
+            "alpha",
+        ],
+    )?;
+    let root = tracker.path().join(".agents/pm");
+    let item = root.join("issues/sample-holder.toon");
+    let history = root.join("history/sample-holder.jsonl");
+    let before = (fs::read(&item)?, fs::read(&history)?);
     let mut mismatches = Vec::new();
     for &(input, expected) in refusal_corpus::AUTHORITIES
         .iter()
         .chain(refusal_corpus::COPIED_PASSWORDS)
     {
         for &prefix in refusal_corpus::DECORATIONS {
-            let tracker = workspace()?;
-            expect_ok(
-                &tracker,
-                &[
-                    "create",
-                    "--id",
-                    "sample-holder",
-                    "--title",
-                    "Stored holder fixture",
-                    "--type",
-                    "Issue",
-                    "--author",
-                    "fixture",
-                ],
-            )?;
-            let holder = format!("{prefix}{input}");
+            let reason = format!("{prefix}{input}");
             let expected = format!("{prefix}{expected}");
-            let private = holder != expected;
-            if private_only.is_some_and(|wanted| wanted != private) {
-                continue;
-            }
-
-            expect_ok(
-                &tracker,
-                &[
-                    "claim",
-                    "sample-holder",
-                    "--author",
-                    &holder,
-                    "--force",
-                    "--json",
-                ],
-            )?;
-            let root = tracker.path().join(".agents/pm");
-            let item = root.join("issues/sample-holder.toon");
-            let history = root.join("history/sample-holder.jsonl");
-            let before = (fs::read(&item)?, fs::read(&history)?);
+            let private = reason != expected;
             for json in [false, true] {
-                let mut claim = vec!["claim", "sample-holder", "--author", "beta"];
-                if json {
-                    claim.push("--json");
-                }
-                let output = pm_rust(&tracker, &claim)?;
-                assert_eq!(output.status.code(), Some(4));
-                assert!(output.stdout.is_empty());
-                let text = String::from_utf8(output.stderr)?;
-                if json {
-                    if serde_json::from_str::<serde_json::Value>(&text)?["claimed_by"] != expected {
-                        mismatches.push(format!("JSON holder: {holder}"));
-                    }
-                } else if !text.contains(&format!("Held by: {expected}")) {
-                    mismatches.push(format!("human holder: {holder}"));
-                }
                 let mut close = vec![
                     "close",
                     "sample-holder",
                     "--author",
-                    holder.as_str(),
+                    "alpha",
                     "--validate-close",
                     "strict",
                 ];
                 if json {
                     close.push("--json");
                 }
-                close.extend(["--", "Closing reason"]);
+                close.extend(["--", &reason]);
                 let output = pm_rust(&tracker, &close)?;
                 assert_eq!(output.status.code(), Some(2));
                 assert!(output.stdout.is_empty());
@@ -1597,15 +1886,15 @@ fn exercise_round11_holder_boundaries(
                     pm_rust::quote_command_arg(&expected)
                 };
                 if !text.contains(&expected) && !text.contains(&encoded) {
-                    mismatches.push(format!("close projection json={json}: {holder}"));
+                    mismatches.push(format!("close projection json={json}: {reason}"));
                 }
                 if json {
                     let payload: serde_json::Value = serde_json::from_str(&text)?;
                     if payload["recovery"].get("suggested_retry").is_none() != private {
-                        mismatches.push(format!("JSON retry: {holder}"));
+                        mismatches.push(format!("JSON retry: {reason}"));
                     }
                 } else if text.contains("Run: pm ") == private {
-                    mismatches.push(format!("human retry: {holder}"));
+                    mismatches.push(format!("human retry: {reason}"));
                 }
                 assert_eq!((fs::read(&item)?, fs::read(&history)?), before);
             }
@@ -1919,6 +2208,799 @@ fn email_boundary_refusals(json: bool, stored: bool) -> Result<(), Box<dyn std::
             }
             assert_eq!((fs::read(&item)?, fs::read(&history)?), original);
         }
+    }
+    Ok(())
+}
+
+/// Listing a collection ignores a private configured writer; edits still refuse before persistence.
+#[test]
+fn legacy_default_author_does_not_block_collection_reads() -> Result<(), Box<dyn std::error::Error>>
+{
+    let tracker = workspace()?;
+    seed_item(&tracker)?;
+    let retained = pm_rust(
+        &tracker,
+        &[
+            "files",
+            "sample-cli",
+            "--add",
+            "retained.rs",
+            "--author",
+            "configured-agent",
+        ],
+    )?;
+    assert!(
+        retained.status.success(),
+        "{}",
+        String::from_utf8_lossy(&retained.stderr)
+    );
+    let root = tracker.path().join(".agents/pm");
+    let path = root.join("settings.json");
+    let mut settings: serde_json::Value = serde_json::from_slice(&fs::read(&path)?)?;
+    settings["author_default"] =
+        serde_json::json!("https://fixture:synthetic-secret@example.invalid");
+    fs::write(&path, settings.to_string())?;
+    let item = root.join("tasks/sample-cli.toon");
+    let history = root.join("history/sample-cli.jsonl");
+    let session = root.join("runtime/session.json");
+    let snapshot = || -> std::io::Result<_> {
+        let state = match fs::read(&session) {
+            Ok(bytes) => Some(bytes),
+            Err(error) if error.kind() == std::io::ErrorKind::NotFound => None,
+            Err(error) => return Err(error),
+        };
+        Ok((fs::read(&item)?, fs::read(&history)?, state))
+    };
+    for (args, exit) in [
+        (vec!["files", "sample-cli", "--json"], 0),
+        (vec!["files", "sample-cli", "--add", "file.rs", "--json"], 2),
+        (
+            vec!["files", "sample-cli", "--remove", "retained.rs", "--json"],
+            2,
+        ),
+        (vec!["claim", "sample-cli", "--json"], 2),
+    ] {
+        let before = snapshot()?;
+        let out = Command::new(env!("CARGO_BIN_EXE_pm-rust"))
+            .current_dir(tracker.path())
+            .env_remove("PM_AUTHOR")
+            .args(&args)
+            .output()?;
+        assert_eq!(out.status.code(), Some(exit));
+        assert!(!String::from_utf8_lossy(&out.stderr).contains("synthetic-secret"));
+        assert_eq!(snapshot()?, before, "{args:?}");
+        if exit == 2 {
+            let refusal: serde_json::Value = serde_json::from_slice(&out.stderr)?;
+            assert!(
+                refusal["required"]
+                    .as_str()
+                    .ok_or("required")?
+                    .contains("Set author_default")
+            );
+            assert!(
+                refusal["next_steps"]
+                    .to_string()
+                    .contains("with author_default set")
+            );
+        }
+    }
+    settings["author_default"] = serde_json::json!("configured-agent");
+    fs::write(path, settings.to_string())?;
+    let output = Command::new(env!("CARGO_BIN_EXE_pm-rust"))
+        .current_dir(tracker.path())
+        .env_remove("PM_AUTHOR")
+        .args(["claim", "sample-cli", "--json"])
+        .output()?;
+    assert!(
+        output.status.success(),
+        "{}",
+        String::from_utf8_lossy(&output.stderr)
+    );
+    let item = pm_rust::Workspace::discover(tracker.path())?.get("sample-cli")?;
+    assert_eq!(item.metadata.extra["assignee"], "configured-agent");
+    Ok(())
+}
+
+/// CLI projection retains the private holder long enough to scrub copied command arguments.
+#[test]
+fn stored_holder_scrubs_copies_in_recovery() -> Result<(), Box<dyn std::error::Error>> {
+    let tracker = workspace()?;
+    seed_item(&tracker)?;
+    for (holder, projected) in [
+        (
+            "https://fixture:synthetic-secret@example.invalid",
+            "https://[redacted]@example.invalid",
+        ),
+        (
+            "custom:fixture:synthetic-secret%40example.invalid",
+            "custom:[redacted]%40example.invalid",
+        ),
+    ] {
+        set_legacy_holder(
+            &tracker.path().join(".agents/pm/tasks/sample-cli.toon"),
+            holder,
+        )?;
+        let output = pm_rust(
+            &tracker,
+            &[
+                "claim",
+                "sample-cli",
+                "--author",
+                "beta",
+                "--message",
+                "copied synthetic-secret",
+                "--json",
+            ],
+        )?;
+        assert_eq!(output.status.code(), Some(4));
+        let receipt: serde_json::Value = serde_json::from_slice(&output.stderr)?;
+        assert_eq!(receipt["claimed_by"], projected);
+        assert!(!receipt.to_string().contains("synthetic-secret"));
+    }
+    Ok(())
+}
+
+/// Replaying the scoped restore command after an indexed removal only lists the remaining rows.
+#[test]
+#[allow(
+    clippy::too_many_lines,
+    reason = "SDK and CLI replay share the same two tracker fixtures"
+)]
+fn collection_restore_after_removal_is_read_only() -> Result<(), Box<dyn std::error::Error>> {
+    let tracker = workspace()?;
+    let elsewhere = workspace()?;
+    seed_item(&tracker)?;
+    seed_item(&elsewhere)?;
+    let root = tracker.path().join(".agents/pm");
+    for (project, commands) in [
+        (&tracker, ["command=first", "command=second"]),
+        (&elsewhere, ["command=unrelated", "command=wrong tracker"]),
+    ] {
+        expect_ok(
+            project,
+            &[
+                "test",
+                "sample-cli",
+                "--add",
+                commands[0],
+                "--add",
+                commands[1],
+                "--author",
+                "fixture",
+            ],
+        )?;
+    }
+    let selected = pm_rust::Workspace::discover(tracker.path())?;
+    let receipt = selected.collection(
+        "sample-cli",
+        "tests",
+        &pm_rust::CollectionOptions {
+            author: "fixture".into(),
+            remove_index: vec!["1".into()],
+            ..Default::default()
+        },
+        tracker.path(),
+    )?;
+    let hint = receipt["omission_receipt"]["omitted_field_groups"][0]["restore_with"]
+        .as_str()
+        .ok_or("read command")?;
+    let args = pm_rust::parse_command_args(hint).ok_or("read arguments")?;
+    assert_eq!(args.len(), 5);
+    assert_eq!(args[..2], ["pm", "--pm-path"]);
+    assert_eq!(args[3..], ["test", "sample-cli"]);
+    assert_eq!(
+        fs::canonicalize(elsewhere.path().join(&args[2]))?,
+        fs::canonicalize(&root)?
+    );
+    let snapshot = || -> std::io::Result<_> {
+        Ok((
+            fs::read(root.join("tasks/sample-cli.toon"))?,
+            fs::read(root.join("history/sample-cli.jsonl"))?,
+        ))
+    };
+    let before = snapshot()?;
+    let read = Command::new(env!("CARGO_BIN_EXE_pm-rust"))
+        .current_dir(elsewhere.path())
+        .args(&args[1..])
+        .arg("--json")
+        .output()?;
+    assert!(read.status.success());
+    let listed: serde_json::Value = serde_json::from_slice(&read.stdout)?;
+    assert_eq!(listed["count"], 1);
+    assert_eq!(listed["tests"][0]["command"], "second");
+    assert_eq!(snapshot()?, before);
+    expect_ok(
+        &tracker,
+        &[
+            "test",
+            "sample-cli",
+            "--add",
+            "command=third",
+            "--author",
+            "fixture",
+        ],
+    )?;
+    let removal = pm_rust(
+        &tracker,
+        &[
+            "test",
+            "sample-cli",
+            "--remove-index",
+            "2",
+            "--author",
+            "fixture",
+            "--json",
+        ],
+    )?;
+    assert!(
+        removal.status.success(),
+        "{}",
+        String::from_utf8_lossy(&removal.stderr)
+    );
+    let receipt: serde_json::Value = serde_json::from_slice(&removal.stdout)?;
+    let group = &receipt["omission_receipt"]["omitted_field_groups"][0];
+    assert_eq!(
+        group["restore_guidance"],
+        "Run this command from the original invocation directory."
+    );
+    let hint = group["restore_with"].as_str().ok_or("relative restore")?;
+    let args = pm_rust::parse_command_args(hint).ok_or("relative read arguments")?;
+    assert_eq!(args[2], ".agents/pm");
+    let read = Command::new(env!("CARGO_BIN_EXE_pm-rust"))
+        .current_dir(tracker.path())
+        .args(&args[1..])
+        .arg("--json")
+        .output()?;
+    assert!(read.status.success());
+    let listed: serde_json::Value = serde_json::from_slice(&read.stdout)?;
+    assert_eq!(listed["tests"][0]["command"], "second");
+    Ok(())
+}
+
+/// Native SDK and CLI note repairs replay from outside the selected operand directory.
+#[test]
+fn native_note_repair_replays_only_in_the_selected_tracker()
+-> Result<(), Box<dyn std::error::Error>> {
+    for (key, path, mode, native_option) in [
+        ("files", "source.rs", "append", None),
+        ("docs", "guide.md", "replace", None),
+        ("files", "cli.rs", "replace", Some("--artifact-cwd=sub")),
+        ("docs", "cli.md", "append", Some("--artifact-cwd=sub")),
+        ("docs", "stable.md", "replace", Some("--append-stable")),
+    ] {
+        let (author, note) = match native_option {
+            None => ("-fixture", "--json"),
+            Some("--append-stable") => ("fixture", "ordinary note"),
+            Some(_) => ("fixture", "-draft"),
+        };
+        let expected_note = if mode == "append" {
+            format!("selected; {note}")
+        } else {
+            note.to_owned()
+        };
+        let cwd = workspace()?;
+        let selected = workspace()?;
+        seed_item(&cwd)?;
+        seed_item(&selected)?;
+        let root = cwd.path().join(".agents/pm");
+        let snapshot = || -> std::io::Result<_> {
+            Ok((
+                fs::read(root.join("tasks/sample-cli.toon"))?,
+                fs::read(root.join("history/sample-cli.jsonl"))?,
+            ))
+        };
+        let before = snapshot()?;
+        let workspace = pm_rust::Workspace::discover(selected.path())?;
+        let invocation = selected.path().join("sub");
+        fs::create_dir(&invocation)?;
+        let invocation = invocation.canonicalize()?;
+        let root_path = format!("sub/{path}");
+        expect_ok(
+            &selected,
+            &[
+                key,
+                "sample-cli",
+                "--add",
+                &format!("path={root_path},note=selected"),
+                "--add",
+                &format!("path={path},note=selected"),
+                "--add",
+                "sub/obsolete.md",
+                "--add",
+                "obsolete.md",
+                "--author=fixture",
+            ],
+        )?;
+        let options = pm_rust::CollectionOptions {
+            add: vec![path.to_owned()],
+            remove: vec!["path=obsolete.md".to_owned()],
+            author: author.to_owned(),
+            note: Some(note.to_owned()),
+            message: native_option.is_none().then(|| "-draft".to_owned()),
+            ..Default::default()
+        };
+        let context = if let Some(flag) = native_option {
+            native_note_cli_conflict(&selected, &invocation, key, flag, &options)?
+        } else {
+            let Err(pm_rust::PmRustError::CommandRefusal { context, .. }) =
+                workspace.collection("sample-cli", key, &options, &invocation)
+            else {
+                return Err("expected an SDK note conflict".into());
+            };
+            context
+        };
+        let command = scoped_note_repair_command(&context, mode, workspace.pm_root(), &invocation)?;
+        let executable = std::path::Path::new(env!("CARGO_BIN_EXE_pm-rust"))
+            .with_file_name(format!("{}{}", command[0], std::env::consts::EXE_SUFFIX));
+        let output = Command::new(executable)
+            .current_dir(cwd.path())
+            .args(&command[1..])
+            .arg("--json")
+            .output()?;
+        assert!(
+            output.status.success(),
+            "{}",
+            String::from_utf8_lossy(&output.stderr)
+        );
+        let receipt: serde_json::Value = serde_json::from_slice(&output.stdout)?;
+        assert_eq!(receipt[key][0]["path"], root_path);
+        assert_eq!(receipt[key][0]["note"], expected_note);
+        assert_eq!(receipt["mutation_receipt"]["removed_count"], 1);
+        assert_repair_metadata(&workspace, &command, &options)?;
+        let item = workspace.get("sample-cli")?;
+        let rows = item.metadata.extra[key].as_array().ok_or("linked rows")?;
+        assert_eq!(rows.len(), 3);
+        for (path, note) in [(path, "selected"), (&root_path, expected_note.as_str())] {
+            assert!(
+                rows.iter()
+                    .any(|row| row["path"] == path && row["note"] == note)
+            );
+        }
+        assert!(rows.iter().any(|row| row["path"] == "obsolete.md"));
+        assert_eq!(snapshot()?, before);
+    }
+    Ok(())
+}
+
+/// Checks that hyphen-leading values survive the command and the resulting history.
+fn assert_repair_metadata(
+    workspace: &pm_rust::Workspace,
+    command: &[String],
+    options: &pm_rust::CollectionOptions,
+) -> Result<(), Box<dyn std::error::Error>> {
+    let history = fs::read_to_string(workspace.pm_root().join("history/sample-cli.jsonl"))?;
+    let last: serde_json::Value =
+        serde_json::from_str(history.lines().last().ok_or("repair history")?)?;
+    assert_eq!(last["author"], options.author);
+    if options.author.starts_with('-') {
+        assert!(command.contains(&format!("--author={}", options.author)));
+        assert!(command.contains(&format!(
+            "--note={}",
+            options.note.as_deref().ok_or("note")?
+        )));
+    }
+    if let Some(message) = &options.message {
+        assert!(command.contains(&format!("--message={message}")));
+        assert_eq!(last["message"], *message);
+    }
+    Ok(())
+}
+
+/// Leaving and reentering the project in the operand base keeps links nested.
+#[test]
+fn artifact_cwd_parent_traversal_preserves_the_operand_base()
+-> Result<(), Box<dyn std::error::Error>> {
+    let project = workspace()?;
+    seed_item(&project)?;
+    fs::create_dir(project.path().join("sub"))?;
+    let name = project
+        .path()
+        .file_name()
+        .and_then(std::ffi::OsStr::to_str)
+        .ok_or("project name")?;
+    let parent_alias = format!("../{name}/sub");
+    for (base, file) in [
+        ("sub", "direct.rs"),
+        (&parent_alias, "via-parent.rs"),
+        ("sub/missing/..", "via-missing.rs"),
+    ] {
+        let output = pm_rust(
+            &project,
+            &[
+                "files",
+                "sample-cli",
+                "--artifact-cwd",
+                base,
+                "--add",
+                file,
+                "--author=fixture",
+                "--json",
+            ],
+        )?;
+        assert!(
+            output.status.success(),
+            "{}",
+            String::from_utf8_lossy(&output.stderr)
+        );
+        let receipt: serde_json::Value = serde_json::from_slice(&output.stdout)?;
+        assert_eq!(receipt["files"][0]["path"], format!("sub/{file}"));
+    }
+    Ok(())
+}
+
+/// Rejects an existing file as the artifact working directory before writing anything.
+#[test]
+fn artifact_cwd_file_refusal_preserves_item_and_history() -> Result<(), Box<dyn std::error::Error>>
+{
+    let project = workspace()?;
+    seed_item(&project)?;
+    fs::write(project.path().join("base.txt"), "file fixture")?;
+    let item = project.path().join(".agents/pm/tasks/sample-cli.toon");
+    let history = project.path().join(".agents/pm/history/sample-cli.jsonl");
+    let before = (fs::read(&item)?, fs::read(&history)?);
+    for base in ["base.txt", "base.txt/sub"] {
+        let output = pm_rust(
+            &project,
+            &[
+                "files",
+                "sample-cli",
+                "--artifact-cwd",
+                base,
+                "--add",
+                "source.rs",
+                "--author=fixture",
+                "--json",
+            ],
+        )?;
+        let stderr = String::from_utf8(output.stderr)?;
+        assert_eq!(output.status.code(), Some(2), "{stderr}");
+        assert!(
+            stderr.contains("--artifact-cwd must name a directory"),
+            "{stderr}"
+        );
+        assert!(output.stdout.is_empty());
+        assert_eq!((fs::read(&item)?, fs::read(&history)?), before);
+    }
+    let output = pm_rust(
+        &project,
+        &[
+            "files",
+            "sample-cli",
+            "--artifact-cwd",
+            "missing/sub",
+            "--add",
+            "source.rs",
+            "--author=fixture",
+            "--json",
+        ],
+    )?;
+    assert!(
+        output.status.success(),
+        "{}",
+        String::from_utf8_lossy(&output.stderr)
+    );
+    let receipt: serde_json::Value = serde_json::from_slice(&output.stdout)?;
+    assert_eq!(receipt["files"][0]["path"], "missing/sub/source.rs");
+    Ok(())
+}
+
+/// A declared flag cannot supply a missing directory, even before an otherwise valid edit.
+#[test]
+fn artifact_cwd_requires_an_attached_flag_shaped_value() -> Result<(), Box<dyn std::error::Error>> {
+    let project = workspace()?;
+    seed_item(&project)?;
+    let root = project.path().join(".agents/pm");
+    let snapshot = || -> std::io::Result<_> {
+        Ok((
+            fs::read(root.join("tasks/sample-cli.toon"))?,
+            fs::read(root.join("history/sample-cli.jsonl"))?,
+        ))
+    };
+    let before = snapshot()?;
+    let add = [
+        "files",
+        "sample-cli",
+        "--add",
+        "source.rs",
+        "--author=fixture",
+    ];
+    for flag in ["--json", "--force", "--help", "-m", "-draft"] {
+        let output = pm_rust(&project, &[&add[..], &["--artifact-cwd", flag]].concat())?;
+        assert_eq!(output.status.code(), Some(2), "{flag}: {:?}", output.stderr);
+        assert!(output.stdout.is_empty());
+        assert_eq!(snapshot()?, before);
+    }
+    let output = pm_rust(
+        &project,
+        &[&add[..], &["--artifact-cwd=--json", "--json"]].concat(),
+    )?;
+    assert!(
+        output.status.success(),
+        "{}",
+        String::from_utf8_lossy(&output.stderr)
+    );
+    let receipt: serde_json::Value = serde_json::from_slice(&output.stdout)?;
+    assert_eq!(receipt["files"][0]["path"], "--json/source.rs");
+    Ok(())
+}
+
+/// The executable preserves collection note values without consuming declared flags.
+#[test]
+fn note_value_boundaries_preserve_declared_flags() -> Result<(), Box<dyn std::error::Error>> {
+    let project = workspace()?;
+    seed_item(&project)?;
+    let root = project.path().join(".agents/pm");
+    let snapshot = || -> std::io::Result<_> {
+        Ok((
+            fs::read(root.join("tasks/sample-cli.toon"))?,
+            fs::read(root.join("history/sample-cli.jsonl"))?,
+        ))
+    };
+    let before = snapshot()?;
+    let add = [
+        "files",
+        "sample-cli",
+        "--add",
+        "source.rs",
+        "--author=fixture",
+    ];
+    for flag in ["--", "--json", "--output-format", "--pm-path", "-m"] {
+        let output = pm_rust(&project, &[&add[..], &["--note", flag]].concat())?;
+        assert_eq!(output.status.code(), Some(2), "{flag}: {:?}", output.stderr);
+        assert!(output.stdout.is_empty());
+        assert_eq!(snapshot()?, before);
+    }
+    for (path, note) in [("dash.rs", "-"), ("source.rs", "plain")] {
+        let output = pm_rust(
+            &project,
+            &[
+                "files",
+                "sample-cli",
+                "--add",
+                path,
+                "--author=fixture",
+                "--note",
+                note,
+                "--json",
+            ],
+        )?;
+        assert!(
+            output.status.success(),
+            "{}",
+            String::from_utf8_lossy(&output.stderr)
+        );
+        let receipt: serde_json::Value = serde_json::from_slice(&output.stdout)?;
+        assert_eq!(receipt["files"][0]["note"], note);
+    }
+    Ok(())
+}
+
+/// Native recovery commands replay the collection namespace carried by the refusal.
+#[test]
+fn native_item_collection_recovery_replays() -> Result<(), Box<dyn std::error::Error>> {
+    for (collection, native_flag) in [
+        ("files", "--artifact-cwd=."),
+        ("docs", "--append-stable"),
+        ("test", "--artifact-cwd=."),
+    ] {
+        let project = workspace()?;
+        let refusal = pm_rust(&project, &[collection, "sample-cli", native_flag, "--json"])?;
+        assert_eq!(
+            refusal.status.code(),
+            Some(3),
+            "{}",
+            String::from_utf8_lossy(&refusal.stderr)
+        );
+        let error: serde_json::Value = serde_json::from_slice(&refusal.stderr)?;
+        let command = error["recovery"]["attempted_command"]
+            .as_str()
+            .ok_or("attempted command")?;
+        let replay = pm_rust::parse_command_args(command).ok_or("replay arguments")?;
+        assert_eq!(
+            replay[..5],
+            ["pm-rust", "--pm-path", ".", "item", collection]
+        );
+        seed_item(&project)?;
+        let result = Command::new(env!("CARGO_BIN_EXE_pm-rust"))
+            .current_dir(project.path())
+            .args(&replay[1..])
+            .output()?;
+        assert!(
+            result.status.success(),
+            "{command}: {}",
+            String::from_utf8_lossy(&result.stderr)
+        );
+        let receipt: serde_json::Value = serde_json::from_slice(&result.stdout)?;
+        assert_eq!(receipt["id"], "sample-cli");
+    }
+    Ok(())
+}
+
+/// Verifies that the printed retry and its argument vector preserve both scopes.
+fn scoped_note_repair_command(
+    context: &serde_json::Value,
+    mode: &str,
+    tracker: &std::path::Path,
+    artifact_cwd: &std::path::Path,
+) -> Result<Vec<String>, Box<dyn std::error::Error>> {
+    assert_eq!(context["code"], "linked_artifact_note_conflict");
+    assert_eq!(
+        context["details"]["conflicts"][0]["existing_note"],
+        "selected"
+    );
+    let advice = &context["next_steps"][usize::from(mode == "replace")];
+    let command = pm_rust::parse_command_args(advice.as_str().ok_or("repair command")?)
+        .ok_or("repair arguments")?;
+    assert_eq!(command[..2], ["pm-rust", "--pm-path"]);
+    assert_eq!(std::path::Path::new(&command[2]), tracker);
+    assert_eq!(command[5], "--artifact-cwd");
+    assert_eq!(std::path::Path::new(&command[6]), artifact_cwd);
+    let append = context["next_steps"][0].as_str().ok_or("append command")?;
+    let append_args = pm_rust::parse_command_args(append).ok_or("append arguments")?;
+    assert_eq!(append_args[..7], command[..7]);
+    assert_eq!(
+        context["recovery"]["suggested_retry_args"],
+        serde_json::json!(append_args[1..])
+    );
+    assert_eq!(context["recovery"]["suggested_retry"], append);
+    Ok(command)
+}
+
+/// Invokes the CLI with a native-only option and an explicit tracker.
+fn native_note_cli_conflict(
+    selected: &tempfile::TempDir,
+    invocation: &std::path::Path,
+    key: &str,
+    flag: &str,
+    options: &pm_rust::CollectionOptions,
+) -> Result<serde_json::Value, Box<dyn std::error::Error>> {
+    let (cwd, scope) = if flag == "--artifact-cwd=sub" {
+        (selected.path(), ".agents/pm")
+    } else {
+        (invocation, "../.agents/pm")
+    };
+    let output = Command::new(env!("CARGO_BIN_EXE_pm-rust"))
+        .current_dir(cwd)
+        .args([
+            "--pm-path",
+            scope,
+            key,
+            "sample-cli",
+            flag,
+            "--add",
+            &options.add[0],
+            "--remove",
+            &options.remove[0],
+            "--note",
+            options.note.as_deref().ok_or("note")?,
+            "--author=fixture",
+            "--json",
+        ])
+        .output()?;
+    assert_eq!(
+        output.status.code(),
+        Some(4),
+        "{}",
+        String::from_utf8_lossy(&output.stderr)
+    );
+    let refusal: serde_json::Value = serde_json::from_slice(&output.stderr)?;
+    assert!(
+        refusal["recovery"]["attempted_command"]
+            .as_str()
+            .ok_or("attempted command")?
+            .starts_with("pm-rust ")
+    );
+    Ok(refusal)
+}
+
+/// A detected session can execute both the refused write and its repair as the same principal.
+#[test]
+fn detected_session_can_replay_note_repair_under_strict_ownership()
+-> Result<(), Box<dyn std::error::Error>> {
+    let tracker = workspace()?;
+    seed_item(&tracker)?;
+    let root = tracker.path().join(".agents/pm");
+    let mut settings: serde_json::Value =
+        serde_json::from_slice(&fs::read(root.join("settings.json"))?)?;
+    settings["governance"] = serde_json::json!({"preset":"strict"});
+    fs::write(root.join("settings.json"), settings.to_string())?;
+    let session = |args: &[&str]| {
+        Command::new(env!("CARGO_BIN_EXE_pm-rust"))
+            .current_dir(tracker.path())
+            .env_remove("PM_AUTHOR")
+            .env_remove("CLAUDE_CODE")
+            .env_remove("CLAUDECODE")
+            .env_remove("CLAUDE_CODE_SESSION_ID")
+            .env("CODEX_THREAD_ID", "test-note-session")
+            .args(args)
+            .output()
+    };
+    let claim = session(&["claim", "sample-cli", "--json"])?;
+    assert!(
+        claim.status.success(),
+        "{}",
+        String::from_utf8_lossy(&claim.stderr)
+    );
+    let item = pm_rust::Workspace::discover(tracker.path())?.get("sample-cli")?;
+    let expected = pm_rust::AuthorIdentity::resolve(
+        None,
+        None,
+        &[("CODEX_THREAD_ID".to_owned(), "test-note-session".to_owned())].into(),
+    );
+    assert!(expected.instance.is_some());
+    assert_eq!(item.metadata.extra["claim_principal"], expected.principal);
+    let initial = session(&[
+        "files",
+        "sample-cli",
+        "--add",
+        "path=x.rs,note=first",
+        "--json",
+    ])?;
+    assert!(
+        initial.status.success(),
+        "{}",
+        String::from_utf8_lossy(&initial.stderr)
+    );
+    let out = session(&[
+        "files",
+        "sample-cli",
+        "--add",
+        "path=x.rs,note=second",
+        "--json",
+    ])?;
+    let error: serde_json::Value = serde_json::from_slice(&out.stderr)?;
+    assert_eq!(error["code"], "linked_artifact_note_conflict");
+    let args: Vec<String> =
+        serde_json::from_value(error["recovery"]["suggested_retry_args"].clone())?;
+    let args = args.iter().map(String::as_str).collect::<Vec<_>>();
+    assert!(
+        !args
+            .iter()
+            .any(|arg| *arg == "--author" || arg.starts_with("--author="))
+    );
+    let repair = session(&args)?;
+    assert!(
+        repair.status.success(),
+        "{}",
+        String::from_utf8_lossy(&repair.stderr)
+    );
+    let after = session(&["files", "sample-cli", "--json"])?;
+    let listed: serde_json::Value = serde_json::from_slice(&after.stdout)?;
+    assert_eq!(listed["files"][0]["note"], "first; second");
+    Ok(())
+}
+
+/// Refusals preserve the selected replay binary after projecting credential-bearing copies.
+#[test]
+fn projected_collection_recovery_keeps_the_selected_binary()
+-> Result<(), Box<dyn std::error::Error>> {
+    let project = workspace()?;
+    seed_item(&project)?;
+    for (scope, binary) in [(&[][..], "pm"), (&["--artifact-cwd", "."][..], "pm-rust")] {
+        let mut args = vec!["files", "sample-cli", "--add", "source.rs"];
+        args.extend_from_slice(scope);
+        args.extend([
+            "--author=https://fixture:synthetic-secret%40example.invalid",
+            "--message",
+            "synthetic-secret public rationale",
+            "--json",
+        ]);
+        let output = pm_rust(&project, &args)?;
+        assert_eq!(output.status.code(), Some(2));
+        assert!(output.stdout.is_empty());
+        let stderr = String::from_utf8(output.stderr)?;
+        assert!(!stderr.contains("synthetic-secret"));
+        let refusal: serde_json::Value = serde_json::from_str(&stderr)?;
+        let command = refusal["recovery"]["attempted_command"]
+            .as_str()
+            .ok_or("command")?;
+        let replay = pm_rust::parse_command_args(command).ok_or("replay arguments")?;
+        assert_eq!(replay[0], binary);
+        assert_eq!(
+            replay.iter().any(|arg| arg == "--artifact-cwd"),
+            !scope.is_empty()
+        );
+        assert!(command.contains("public rationale"));
     }
     Ok(())
 }

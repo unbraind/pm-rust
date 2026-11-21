@@ -1,6 +1,10 @@
 //! Focus ranking, packing, lifecycle and agenda boundary acceptance.
 use super::*;
 use std::fs;
+thread_local! {
+    /// Counts stream opens by the real context reader on this test thread.
+    pub(crate) static HISTORY_READS: std::cell::Cell<usize> = const { std::cell::Cell::new(0) };
+}
 const NOW: &str = "2026-08-22T10:00:00.000Z";
 /// Creates a minimal real tracker and validated lifecycle registry.
 fn workspace() -> Result<(tempfile::TempDir, Workspace, Lifecycle), Box<dyn std::error::Error>> {
@@ -16,6 +20,37 @@ fn workspace() -> Result<(tempfile::TempDir, Workspace, Lifecycle), Box<dyn std:
     let lifecycle = Lifecycle::load(workspace.pm_root())?;
     Ok((root, workspace, lifecycle))
 }
+/// Loads ranking input through the production stream reader.
+fn recency(workspace: &Workspace, row: &Value) -> Result<String, PmRustError> {
+    Ok(super::recency(&records(workspace, text(row, "id"))?, row))
+}
+
+/// Exercises ranking with the same history summaries used by context.
+fn ranked(
+    workspace: &Workspace,
+    rows: &[Value],
+    now: &str,
+    lifecycle: &Lifecycle,
+    author: &str,
+    affinity: &Affinity,
+) -> Result<Vec<(Value, f64)>, PmRustError> {
+    let history = super::context_history(
+        workspace,
+        rows,
+        lifecycle,
+        &json!({}),
+        time::OffsetDateTime::UNIX_EPOCH,
+    )?;
+    Ok(super::ranked(
+        &history.ranks,
+        rows,
+        now,
+        lifecycle,
+        author,
+        affinity,
+    ))
+}
+
 /// Builds metadata with controlled signal and lifecycle inputs.
 fn item(id: &str, status: &str) -> Value {
     json!({"id":id,"title":id,"description":"","type":"Task","status":status,"priority":2,"tags":[],"created_at":NOW,"updated_at":NOW})
@@ -42,6 +77,7 @@ fn custom_progress_receipts_use_active_summary_counts() -> Result<(), Box<dyn st
     let path = workspace.pm_root().join("tasks/sample-progress.toon");
     fs::write(&path, toon_format::encode_default(&row)?)?;
     let before = fs::read(&path)?;
+    HISTORY_READS.set(0);
     let result = workspace.context_with_global(
         &ContextOptions {
             no_extension_health: true,
@@ -50,6 +86,7 @@ fn custom_progress_receipts_use_active_summary_counts() -> Result<(), Box<dyn st
         NOW,
         None,
     )?;
+    assert_eq!(HISTORY_READS.get(), 1);
     assert_eq!(result["summary"]["open"], 0);
     assert_eq!(result["summary"]["in_progress"], 0);
     assert_eq!(result["summary"]["returned_focus"]["in_progress"], 1);
@@ -1534,4 +1571,85 @@ fn round18_late_context_registry_failure_is_read_only() -> Result<(), Box<dyn st
     assert_eq!(fs::read_dir(root)?.count(), 4);
     assert_eq!(fs::read_dir(root.join("schema"))?.count(), 1);
     Ok(())
+}
+
+/// An unowned item with unparseable activity counts as unowned without an idle estimate.
+#[test]
+fn in_progress_counts_keep_ownership_without_a_valid_activity_timestamp()
+-> Result<(), Box<dyn std::error::Error>> {
+    let (_temp, workspace, lifecycle) = workspace()?;
+    let now = time::OffsetDateTime::parse(NOW, &time::format_description::well_known::Rfc3339)?;
+    fs::write(
+        workspace.pm_root().join("history/sample-unknown.jsonl"),
+        [
+            json!({"ts":"unparseable", "op":"history_compact_baseline", "patch":[]}).to_string(),
+            json!({"ts":"2026-08-01T00:00:00Z", "patch":[]}).to_string(),
+        ]
+        .join("\n"),
+    )?;
+    let items = [
+        json!({"id":"sample-unknown","status":"in_progress","updated_at":"unparseable"}),
+        json!({"id":"sample-idle","status":"in_progress","assignee":"alpha","updated_at":"2026-08-20T00:00:00Z"}),
+    ];
+    for (row, counts) in items.iter().zip([(1, 0), (0, 1)]) {
+        let history = super::context_history(
+            &workspace,
+            std::slice::from_ref(row),
+            &lifecycle,
+            &json!({"mutation_guard":{"stale_in_progress_hours":24}}),
+            now,
+        )?;
+        assert_eq!((history.unowned, history.idle), counts);
+    }
+    Ok(())
+}
+
+/// A custom terminal progress status contributes advisory evidence without joining ranking.
+#[test]
+fn terminal_progress_reads_advisory_history_once() -> Result<(), Box<dyn std::error::Error>> {
+    let (_temp, workspace, _) = workspace()?;
+    fs::write(
+        workspace.pm_root().join("settings.json"),
+        r#"{"schema":{"workflow":{"in_progress_status":"closed"}}}"#,
+    )?;
+    let lifecycle = Lifecycle::load(workspace.pm_root())?;
+    let rows = [
+        item("sample-terminal", "closed"),
+        item("sample-other", "canceled"),
+    ];
+    fs::write(
+        workspace.pm_root().join("history/sample-terminal.jsonl"),
+        "invalid",
+    )?;
+    HISTORY_READS.set(0);
+    let snapshot = super::context_history(
+        &workspace,
+        &rows,
+        &lifecycle,
+        &json!({}),
+        time::OffsetDateTime::parse(NOW, &time::format_description::well_known::Rfc3339)?
+            + time::Duration::hours(73),
+    )?;
+    assert!(snapshot.ranks.is_empty());
+    assert_eq!((snapshot.unowned, snapshot.idle), (1, 1));
+    assert_eq!(HISTORY_READS.get(), 1);
+    Ok(())
+}
+
+/// Recency honors stored event classes before applying legacy path classification.
+#[test]
+fn recency_honors_event_classes_and_legacy_paths() {
+    let row = item("sample-one", "open");
+    let entries = [
+        json!({"ts":"2026-08-22T12:00:00Z","op":"update","patch":[{"path":"/body"}]}),
+        json!({"ts":"2026-08-23T00:00:00Z","op":"update","patch":[{"path":7}]}),
+        json!({"ts":"2026-08-23T01:00:00Z","op":"update","patch":[{"path":"/body"},{}]}),
+        json!({"ts":"2026-08-24T00:00:00Z","op":"tests_update","patch":[{"path":"/body"}]}),
+        json!({"ts":"2026-08-25T00:00:00Z","op":"update","patch":[{"path":"/metadata/notes"}]}),
+        json!({"ts":"2026-08-26T00:00:00Z","op":"update","event_class":"maintenance","patch":[{"path":"/body"}]}),
+        json!({"ts":"2026-08-27T00:00:00Z","op":"release","event_class":"substantive"}),
+        json!({"ts":"2026-08-28T00:00:00Z","op":"update","event_class":"substantive","patch":[{}]}),
+    ];
+    assert_eq!(super::recency(&entries, &row), "2026-08-27T00:00:00Z");
+    assert_eq!(super::recency(&entries[..6], &row), "2026-08-22T12:00:00Z");
 }

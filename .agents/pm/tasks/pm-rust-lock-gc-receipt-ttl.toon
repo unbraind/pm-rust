@@ -1,0 +1,15 @@
+id: pm-rust-lock-gc-receipt-ttl
+title: Use the persisted lease TTL when recommending lock GC
+description: "The published 2026.11.18 acquireLock uses the configured TTL for acquisition, then checks the incumbent receipt TTL before recommending GC. A two-hour-old receipt with a 24-hour receipt TTL and a 30-minute acquisition TTL yields stale_lock_requires_override with owner-verified manual guidance. Native guidance checks the receipt shape and timestamp but still recommends GC for this case."
+type: Task
+status: open
+priority: 3
+tags[3]: follow-up,lock,oracle
+created_at: "2026-11-21T00:46:02.834Z"
+updated_at: "2026-11-21T00:46:18.839Z"
+author: codex-sol
+parent: pm-rust-oracle-1118
+files[2]{path,scope}:
+  src/mutation.rs,project
+  tests/claim_release_differential.rs,project
+body: ""
