@@ -1630,10 +1630,11 @@ fn terminal_progress_reads_advisory_history_once() -> Result<(), Box<dyn std::er
         &rows,
         &lifecycle,
         &json!({}),
-        time::OffsetDateTime::UNIX_EPOCH,
+        time::OffsetDateTime::parse(NOW, &time::format_description::well_known::Rfc3339)?
+            + time::Duration::hours(73),
     )?;
     assert!(snapshot.ranks.is_empty());
-    assert_eq!((snapshot.unowned, snapshot.idle), (1, 0));
+    assert_eq!((snapshot.unowned, snapshot.idle), (1, 1));
     assert_eq!(HISTORY_READS.get(), 1);
     Ok(())
 }

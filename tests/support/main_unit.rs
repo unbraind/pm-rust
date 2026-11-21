@@ -2289,6 +2289,18 @@ fn close_lock_retry_tracks_the_failed_step() -> Result<(), Box<dyn std::error::E
             .contains("retry the release step")
     );
     assert!(after_commit["why"].to_string().contains("close completed"));
+    let scoped_args = ["--pm-path", ".agents/pm"]
+        .map(str::to_owned)
+        .into_iter()
+        .chain(args)
+        .collect::<Vec<_>>();
+    let scoped = super::complete_refusal(&after_commit, &scoped_args);
+    assert_eq!(scoped["examples"], after_commit["examples"]);
+    assert_eq!(
+        scoped["recovery"]["normalized_args"],
+        serde_json::json!(scoped_args)
+    );
+    assert!(scoped["recovery"].get("suggested_retry").is_none());
     assert_eq!(fs::read_to_string(path)?, raw);
     assert_eq!(fs::read(history)?, committed);
     Ok(())

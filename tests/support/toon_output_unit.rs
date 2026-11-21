@@ -489,14 +489,31 @@ fn sparse_table_groups_repeated_missing_cells_in_wire_order()
     let (rows, receipt) = super::table(&source, false).ok_or("sparse table")?;
     assert_eq!(rows[0].get("b"), Some(&serde_json::Value::Null));
     assert_eq!(rows[2].get("a"), Some(&serde_json::Value::Null));
-    let wire = toon_format::encode_default(&json!({"items":rows,"items_encoding":receipt}))?;
+    assert_eq!(receipt["absent_rows"].to_string(), r#"{"b":[0,2],"a":[1]}"#);
+
+    let items = json!(
+        (0..30)
+            .map(|index| {
+                let mut row = json!({
+                    "id": index, "title": "long table column",
+                    "status": "open", "type": "Task", "priority": 1
+                });
+                if index > 0 {
+                    row["owner"] = json!(null);
+                }
+                row
+            })
+            .collect::<Vec<_>>()
+    );
+    let wire = super::stringify_toon(&json!({"items":items}).into())?;
+    assert!(wire.contains("items_encoding:"), "{wire}");
+    assert!(wire.contains("absent_rows:"), "{wire}");
     let restored = crate::parse_toon(&wire)?;
-    assert_eq!(restored["items"], source);
-    assert!(restored["items"][0].get("b").is_none());
+    assert_eq!(restored["items"], items);
+    assert!(restored["items"][0].get("owner").is_none());
     assert_eq!(
-        restored["items"][2].get("a"),
+        restored["items"][1].get("owner"),
         Some(&serde_json::Value::Null)
     );
-    assert_eq!(receipt["absent_rows"].to_string(), r#"{"b":[0,2],"a":[1]}"#);
     Ok(())
 }

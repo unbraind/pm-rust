@@ -1964,8 +1964,10 @@ fn preserve_refusal_scope(payload: &mut serde_json::Value, raw: &[String]) {
         fields.insert(0, serde_json::json!("--pm-path"));
         recovery.insert("provided_fields".to_owned(), serde_json::json!(fields));
     }
-    if payload["code"] == "lock_conflict" {
-        payload["examples"] = serde_json::json!([payload["recovery"]["suggested_retry"]]);
+    if payload["code"] == "lock_conflict"
+        && let Some(retry) = payload["recovery"]["suggested_retry"].as_str()
+    {
+        payload["examples"] = serde_json::json!([retry]);
     }
     if payload["code"] == "close_validation_missing_fields"
         && let Some(scoped) = payload["recovery"]["next_best_command"]

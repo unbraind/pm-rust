@@ -5340,7 +5340,7 @@ fn contention_diagnostic_does_not_reclassify_receipt_age() -> Result<(), Box<dyn
 
 /// Callers using receipt age without ownership guidance retain the generic conflict.
 #[test]
-fn expired_receipt_retains_generic_non_ownership_lock_conflict()
+fn malformed_receipt_retains_generic_non_ownership_lock_conflict()
 -> Result<(), Box<dyn std::error::Error>> {
     let (_directory, pm_root) = root("{}")?;
     fs::create_dir_all(pm_root.join("locks"))?;
@@ -5359,6 +5359,52 @@ fn expired_receipt_retains_generic_non_ownership_lock_conflict()
         Err(PmRustError::LockConflict { .. })
     ));
     assert_eq!(fs::read_to_string(path)?, " ");
+    Ok(())
+}
+
+/// Forced receipt-mode acquisition replaces expired leases and preserves fresh leases.
+#[test]
+fn forced_receipt_lock_acquisition_uses_timestamp_expiry() -> Result<(), Box<dyn std::error::Error>>
+{
+    let (_directory, pm_root) = root("{}")?;
+    fs::create_dir_all(pm_root.join("locks"))?;
+    let path = pm_root.join("locks/sample-unit.lock");
+    let expired = serde_json::json!({
+        "id":"sample-unit", "owner":"incumbent", "pid":process::id(),
+        "created_at":"2000-01-01T00:00:00Z", "ttl_seconds":1800, "token":"old"
+    });
+    fs::write(&path, expired.to_string())?;
+    let lock = acquire_lock_attempt(
+        &pm_root,
+        "sample-unit",
+        "fixture",
+        1_800,
+        true,
+        TS,
+        LockAge::Receipt,
+    )?;
+    let replaced: Value = serde_json::from_slice(&fs::read(&path)?)?;
+    assert_eq!(replaced["created_at"], TS);
+    assert_eq!(replaced["owner"], "fixture");
+    drop(lock);
+
+    let mut fresh = expired;
+    fresh["created_at"] = serde_json::json!(TS);
+    let raw = fresh.to_string();
+    fs::write(&path, &raw)?;
+    assert!(matches!(
+        acquire_lock_attempt(
+            &pm_root,
+            "sample-unit",
+            "fixture",
+            1_800,
+            true,
+            TS,
+            LockAge::Receipt,
+        ),
+        Err(PmRustError::LockConflict { .. })
+    ));
+    assert_eq!(fs::read_to_string(path)?, raw);
     Ok(())
 }
 
@@ -6410,17 +6456,19 @@ fn ownership_gate_warning_never_replays_a_committed_command()
             .get("assignee")
             .is_none()
     );
-    for (action, guidance) in [
-        (
-            "claim",
-            claimed["suggestions"][0].as_str().ok_or("claim guidance")?,
-        ),
-        ("release", released.suggestions[0].as_str()),
+    let claim_suggestions: Vec<String> = serde_json::from_value(claimed["suggestions"].clone())?;
+    for (action, suggestions) in [
+        ("claim", &claim_suggestions),
+        ("release", &released.suggestions),
     ] {
-        assert!(guidance.contains(&format!("{action} of {} is saved", item.id)));
-        assert!(guidance.contains("reconcile only the session's active-item attribution"));
-        for unsafe_text in ["retry", "--next", "--assignee-filter", "--force", "pm "] {
-            assert!(!guidance.to_lowercase().contains(unsafe_text));
+        assert!(suggestions.iter().any(|guidance| {
+            guidance.contains(&format!("{action} of {} is saved", item.id))
+                && guidance.contains("reconcile only the session's active-item attribution")
+        }));
+        for guidance in suggestions {
+            for unsafe_text in ["retry", "--next", "--assignee-filter", "--force", "pm "] {
+                assert!(!guidance.to_lowercase().contains(unsafe_text), "{guidance}");
+            }
         }
     }
     Ok(())

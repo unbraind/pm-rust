@@ -294,7 +294,7 @@ struct MutationSettings {
     #[serde(default)]
     governance: OwnershipGovernance,
     #[serde(default)]
-    mutation_guard: claim_activity::MutationGuard,
+    mutation_guard: Option<claim_activity::MutationGuard>,
 }
 
 #[derive(Debug, Default, Deserialize)]
@@ -3102,8 +3102,8 @@ fn ownership_lock_stale(raw: &str, timestamp: &str, ttl_seconds: u64) -> bool {
 }
 
 /// Reports a lock receipt that cannot be used for owner identification or garbage collection.
-fn lock_receipt_warning(raw: &str) -> Option<&'static str> {
-    match crate::strict_json::from_str::<Value>(raw) {
+fn lock_receipt_warning(receipt: &serde_json::Result<Value>) -> Option<&'static str> {
+    match receipt {
         Err(_) => Some("lock_info_invalid_json"),
         Ok(value) => {
             if value["id"].is_string()
@@ -3126,18 +3126,21 @@ fn lock_receipt_warning(raw: &str) -> Option<&'static str> {
 /// Explains an expired incumbent observed while holding the cleanup gate.
 fn stale_ownership_lock_refusal(id: &str, raw: &str) -> PmRustError {
     let path = format!("locks/{id}.lock");
-    let (suffix, cleanup) = match lock_receipt_warning(raw) {
-        Some(warning) => (
-            format!(" ({warning})"),
-            format!(
-                "Remove {path} from the selected tracker once its owner is confirmed gone, then retry the same command. pm gc --scope locks keeps receipts with unreadable metadata."
-            ),
-        ),
-        None => (
-            String::new(),
-            "Run pm gc --scope locks (add --dry-run to preview), then retry the same command."
-                .to_owned(),
-        ),
+    let receipt = crate::strict_json::from_str(raw);
+    let warning = lock_receipt_warning(&receipt);
+    let suffix = warning.map_or_else(String::new, |warning| format!(" ({warning})"));
+    let cleanup = if warning.is_none()
+        && receipt.as_ref().is_ok_and(|value| {
+            value["created_at"]
+                .as_str()
+                .is_some_and(|created| OffsetDateTime::parse(created, &Rfc3339).is_ok())
+        }) {
+        "Run pm gc --scope locks (add --dry-run to preview), then retry the same command."
+            .to_owned()
+    } else {
+        format!(
+            "Remove {path} from the selected tracker once its owner is confirmed gone, then retry the same command. pm gc --scope locks keeps receipts with unreadable or undated metadata."
+        )
     };
     ownership_refusal(
         format!(
@@ -3451,7 +3454,12 @@ pub(crate) fn ownership_item_with_options(
                     &before,
                     &assignee,
                     &timestamp,
-                    settings.mutation_guard.stale_in_progress_hours,
+                    settings
+                        .mutation_guard
+                        .as_ref()
+                        .map_or_else(claim_activity::default_threshold, |guard| {
+                            guard.stale_in_progress_hours
+                        }),
                 );
                 let phrase = ownership_phrase(&evidence, &public_assignee);
                 let activity = &evidence["claim_activity"];
@@ -3858,7 +3866,7 @@ fn session_lock_refusal(
         return error;
     }
     let raw = fs::read_to_string(pm_root.join("locks/session-state.lock")).unwrap_or_default();
-    let warning = lock_receipt_warning(&raw);
+    let warning = lock_receipt_warning(&crate::strict_json::from_str(&raw));
     if warning.is_some() || ownership_lock_stale(&raw, timestamp, ttl_seconds) {
         let suffix = warning.map_or_else(String::new, |warning| format!(" ({warning})"));
         close_refusal(

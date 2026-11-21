@@ -297,6 +297,11 @@ fn golden_checks_survive_missing_published_tools() -> Result<(), Box<dyn std::er
     let package = tempfile::tempdir()?;
     fs::create_dir(package.path().join("dist"))?;
     fs::write(package.path().join("dist/cli.js"), "")?;
+    let oracle: Value = serde_json::from_str(include_str!("oracle/package.json"))?;
+    fs::write(
+        package.path().join("package.json"),
+        serde_json::json!({"version": oracle["dependencies"]["@unbrained/pm-cli"]}).to_string(),
+    )?;
     for (cli, interpreter, notice) in [
         (
             std::path::PathBuf::from("/nonexistent/pm-rust-review-cli"),

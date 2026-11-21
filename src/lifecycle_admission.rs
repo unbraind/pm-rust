@@ -275,7 +275,8 @@ fn read_blocker(path: &Path, canonical: &str) -> Result<ItemDocument, PmRustErro
     Ok(item)
 }
 /// Builds executable unblock advice only when the scalar/edge removal is unambiguous.
-fn unblock(before: &ItemDocument, first: &str, settings: &Value) -> String {
+fn unblock(before: &ItemDocument, open_ids: &[String], settings: &Value) -> Vec<String> {
+    let first = &open_ids[0];
     let prefix = settings["id_prefix"].as_str().unwrap_or("pm-");
     let canonical = |id: &str| {
         let id = id.trim().trim_start_matches('#').to_lowercase();
@@ -311,7 +312,7 @@ fn unblock(before: &ItemDocument, first: &str, settings: &Value) -> String {
             && dep["kind"] != "blocked_by"
             && canonical(dep["id"].as_str().unwrap_or_default()) == canonical(first)
     }) {
-        return inspect();
+        return vec![inspect()];
     }
     if canonical(scalar) == canonical(first)
         && deps
@@ -325,7 +326,12 @@ fn unblock(before: &ItemDocument, first: &str, settings: &Value) -> String {
                     .eq_ignore_ascii_case(scalar.trim())
             })
     {
-        return crate::render_pm_command(["update", &before.metadata.id, "--unset", "blocked_by"]);
+        return vec![crate::render_pm_command([
+            "update",
+            &before.metadata.id,
+            "--unset",
+            "blocked_by",
+        ])];
     }
     let matches: Vec<_> = deps
         .iter()
@@ -341,21 +347,22 @@ fn unblock(before: &ItemDocument, first: &str, settings: &Value) -> String {
     {
         let id = matches[0]["id"].as_str().unwrap_or_default();
         let selector = format!("id={id},kind=blocked_by");
-        if crate::refusal::diagnostic(&selector, &[]) != selector {
-            return format!(
-                "Inspect the dependency with {} and use its original ID to remove the blocked_by edge.",
-                inspect()
-            );
+        if crate::refusal::diagnostic(&selector, open_ids) != selector {
+            return vec![
+                inspect(),
+                "Use the dependency's original ID to remove the blocked_by edge.".to_owned(),
+            ];
         }
-        return crate::render_pm_command([
+        return vec![crate::render_pm_command([
             "update",
             &before.metadata.id,
             "--dep-remove",
             &selector,
-        ]);
+        ])];
     }
-    inspect()
+    vec![inspect()]
 }
+
 /// Implements strict/default, warning, off and explicit-force dependency policies once.
 fn admit_blockers(
     root: &Path,
@@ -409,11 +416,11 @@ fn admit_blockers(
     if open.is_empty() {
         return Ok(vec![]);
     }
-    let ids = open
+    let open_ids = open
         .iter()
-        .filter_map(|row| row["id"].as_str())
-        .collect::<Vec<_>>()
-        .join(",");
+        .map(|row| row["id"].as_str().unwrap_or_default().to_owned())
+        .collect::<Vec<_>>();
+    let ids = open_ids.join(",");
     let id = &before.metadata.id;
     if enforcement == "warn" {
         return Ok(vec![format!("start_with_open_blockers:{id}:{ids}")]);
@@ -425,19 +432,10 @@ fn admit_blockers(
         .iter()
         .filter(|row| row["external"] != true)
         .take(3)
-        .map(|row| {
-            json!(crate::render_pm_command([
-                "get",
-                row["id"].as_str().unwrap_or_default()
-            ]))
-        })
+        .map(|row| crate::render_pm_command(["get", row["id"].as_str().unwrap_or_default()]))
         .collect();
-    steps.push(json!(unblock(
-        before,
-        open[0]["id"].as_str().unwrap_or_default(),
-        settings
-    )));
-    steps.push(json!(crate::render_pm_command(["next"])));
+    steps.extend(unblock(before, &open_ids, settings));
+    steps.push(crate::render_pm_command(["next"]));
     let plural = if open.len() == 1 {
         "its blocker".to_owned()
     } else {

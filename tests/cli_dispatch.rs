@@ -592,6 +592,10 @@ fn close_dispatch_closes_once_and_refuses_repeats() -> Result<(), Box<dyn std::e
 /// A contender between the two CLI steps leaves close durable and suppresses close replay.
 #[cfg(target_os = "linux")]
 #[test]
+#[allow(
+    clippy::too_many_lines,
+    reason = "the interposed release and its durable close assertions share one fixture"
+)]
 fn close_release_contention_reports_only_release_recovery() -> Result<(), Box<dyn std::error::Error>>
 {
     use rustix::fs::{Mode, OFlags, open};
@@ -615,7 +619,7 @@ fn close_release_contention_reports_only_release_recovery() -> Result<(), Box<dy
         .current_dir(workspace.path())
         .env("PM_LOCK_WAIT_MS", "0")
         .args([
-            "--workspace=.",
+            "--pm-path=.agents/pm",
             "close",
             "sample-cli",
             "Done",
@@ -658,6 +662,15 @@ fn close_release_contention_reports_only_release_recovery() -> Result<(), Box<dy
         let _ = child.wait();
     }
     let _gate = interposed?;
+    let deadline = Instant::now() + Duration::from_secs(15);
+    while child.try_wait()?.is_none() {
+        if Instant::now() >= deadline {
+            let _ = child.kill();
+            child.wait()?;
+            return Err("close did not exit after the release encountered the held gate".into());
+        }
+        std::thread::sleep(Duration::from_millis(5));
+    }
     let output = child.wait_with_output()?;
     assert_eq!(
         output.status.code(),
@@ -668,6 +681,16 @@ fn close_release_contention_reports_only_release_recovery() -> Result<(), Box<dy
     assert!(output.stdout.is_empty());
     let receipt: serde_json::Value = serde_json::from_slice(&output.stderr)?;
     assert_eq!(receipt["code"], "lock_conflict");
+    assert_eq!(
+        receipt["examples"],
+        serde_json::json!(["pm release --help"])
+    );
+    assert!(
+        receipt["recovery"]["attempted_command"]
+            .as_str()
+            .ok_or("attempted command")?
+            .contains("--pm-path .agents/pm")
+    );
     assert!(receipt["why"].to_string().contains("close completed"));
     assert!(
         receipt["required"]
@@ -2183,21 +2206,49 @@ fn legacy_default_author_does_not_block_collection_reads() -> Result<(), Box<dyn
 {
     let tracker = workspace()?;
     seed_item(&tracker)?;
+    let retained = pm_rust(
+        &tracker,
+        &[
+            "files",
+            "sample-cli",
+            "--add",
+            "retained.rs",
+            "--author",
+            "configured-agent",
+        ],
+    )?;
+    assert!(
+        retained.status.success(),
+        "{}",
+        String::from_utf8_lossy(&retained.stderr)
+    );
     let root = tracker.path().join(".agents/pm");
     let path = root.join("settings.json");
     let mut settings: serde_json::Value = serde_json::from_slice(&fs::read(&path)?)?;
     settings["author_default"] =
         serde_json::json!("https://fixture:synthetic-secret@example.invalid");
     fs::write(&path, settings.to_string())?;
+    let item = root.join("tasks/sample-cli.toon");
+    let history = root.join("history/sample-cli.jsonl");
+    let session = root.join("runtime/session.json");
+    let snapshot = || -> std::io::Result<_> {
+        let state = match fs::read(&session) {
+            Ok(bytes) => Some(bytes),
+            Err(error) if error.kind() == std::io::ErrorKind::NotFound => None,
+            Err(error) => return Err(error),
+        };
+        Ok((fs::read(&item)?, fs::read(&history)?, state))
+    };
     for (args, exit) in [
         (vec!["files", "sample-cli", "--json"], 0),
         (vec!["files", "sample-cli", "--add", "file.rs", "--json"], 2),
         (
-            vec!["files", "sample-cli", "--remove", "file.rs", "--json"],
+            vec!["files", "sample-cli", "--remove", "retained.rs", "--json"],
             2,
         ),
         (vec!["claim", "sample-cli", "--json"], 2),
     ] {
+        let before = snapshot()?;
         let out = Command::new(env!("CARGO_BIN_EXE_pm-rust"))
             .current_dir(tracker.path())
             .env_remove("PM_AUTHOR")
@@ -2205,6 +2256,7 @@ fn legacy_default_author_does_not_block_collection_reads() -> Result<(), Box<dyn
             .output()?;
         assert_eq!(out.status.code(), Some(exit));
         assert!(!String::from_utf8_lossy(&out.stderr).contains("synthetic-secret"));
+        assert_eq!(snapshot()?, before, "{args:?}");
         if exit == 2 {
             let refusal: serde_json::Value = serde_json::from_slice(&out.stderr)?;
             assert!(
@@ -2837,13 +2889,9 @@ fn detected_session_can_replay_note_repair_under_strict_ownership()
     ])?;
     let error: serde_json::Value = serde_json::from_slice(&out.stderr)?;
     assert_eq!(error["code"], "linked_artifact_note_conflict");
-    let args = error["recovery"]["suggested_retry_args"]
-        .as_array()
-        .ok_or("repair args")?;
-    let args = args
-        .iter()
-        .filter_map(serde_json::Value::as_str)
-        .collect::<Vec<_>>();
+    let args: Vec<String> =
+        serde_json::from_value(error["recovery"]["suggested_retry_args"].clone())?;
+    let args = args.iter().map(String::as_str).collect::<Vec<_>>();
     assert!(
         !args
             .iter()

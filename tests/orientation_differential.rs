@@ -298,6 +298,19 @@ fn context_idle_activity_and_threshold_match_oracle() -> TestResult {
     let driver = orientation_driver(scratch.path(), &published)?;
     for (threshold, updated, history, idle) in [
         ("72", "2026-08-18T00:00:00.000Z", Some("2026-08-22"), 0),
+        ("72", "2026-08-18T00:00:00.000Z", Some("2026-08-18"), 1),
+        (
+            "72",
+            "2026-08-18T00:00:00.000Z",
+            Some("2026-08-19T24:00:00.000Z"),
+            0,
+        ),
+        (
+            "72",
+            "2026-08-18T00:00:00.000Z",
+            Some("2026-08-20T00:00:00.000Z"),
+            0,
+        ),
         ("24", "2026-08-21T04:00:00.000Z", None, 1),
         ("24.0", "2026-08-21T04:00:00.000Z", None, 1),
         ("24e0", "2026-08-21T04:00:00.000Z", None, 1),

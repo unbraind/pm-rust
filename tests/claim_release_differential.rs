@@ -1959,6 +1959,19 @@ fn unpublished_lock_payload_refusals_match_oracle() -> Result<(), Box<dyn std::e
         }
         if payload.is_none_or(|raw| raw.trim().is_empty()) {
             assert_eq!(expected.stderr, actual.stderr);
+        } else {
+            let refusal: serde_json::Value = serde_json::from_slice(&actual.stderr)?;
+            let required = refusal["required"].as_str().ok_or("required")?;
+            assert!(
+                required.contains("then retry the same operation"),
+                "{refusal}"
+            );
+            assert!(required.contains("PM_LOCK_WAIT_MS"), "{refusal}");
+            assert_eq!(
+                refusal["recovery"]["suggested_retry_args"],
+                serde_json::json!(args)
+            );
+            assert!(!refusal.to_string().contains("--force"));
         }
     }
     fs::File::unlock(&lease)?;
@@ -2019,23 +2032,100 @@ fn abandoned_blank_lock_receipts_match_oracle() -> Result<(), Box<dyn std::error
     Ok(())
 }
 
-/// The pinned settings loader accepts whole numeric hours regardless of JSON notation.
+/// A malformed timestamp needs owner-verified cleanup because oracle GC retains the lock.
 #[test]
-fn create_accepts_integral_stale_threshold_notation() -> Result<(), Box<dyn std::error::Error>> {
+fn undated_lock_recovery_matches_oracle_guidance() -> Result<(), Box<dyn std::error::Error>> {
+    let Some(fixture) = Fixture::new("strict")? else {
+        return Ok(());
+    };
+    let raw = r#"{"id":"sample-own","pid":1,"owner":"fixture","created_at":"unknown","ttl_seconds":1800}"#;
+    for root in [fixture.node.path(), fixture.rust.path()] {
+        fs::write(root.join(".agents/pm/locks/sample-own.lock"), raw)?;
+    }
+    let before = fixture.snapshots()?;
+    let args = ["claim", "sample-own", "--author", "alpha", "--json"];
+    for output in [
+        published_run(&fixture.driver, fixture.node.path(), &args)?,
+        native_command(fixture.rust.path(), &args).output()?,
+    ] {
+        assert_eq!(output.status.code(), Some(4));
+        let refusal: serde_json::Value = serde_json::from_slice(&output.stderr)?;
+        assert_eq!(refusal["code"], "stale_lock_requires_override");
+        assert_eq!(refusal["details"]["lock_path"], "locks/sample-own.lock");
+        let guidance = refusal["next_steps"][0]
+            .as_str()
+            .ok_or("cleanup guidance")?;
+        assert!(guidance.starts_with("Remove locks/sample-own.lock"));
+        assert!(guidance.contains("once its owner is confirmed gone"));
+        assert!(guidance.contains("pm gc --scope locks keeps"));
+    }
+    let gc = published_run(
+        &fixture.driver,
+        fixture.node.path(),
+        &["gc", "--scope", "locks", "--json"],
+    )?;
+    assert!(
+        gc.status.success(),
+        "{}",
+        String::from_utf8_lossy(&gc.stderr)
+    );
+    let receipt = String::from_utf8(gc.stdout)?;
+    assert!(receipt.contains("invalid_timestamp"), "{receipt}");
+    assert_eq!(fixture.snapshots()?, before);
+    for root in [fixture.node.path(), fixture.rust.path()] {
+        assert_eq!(
+            fs::read_to_string(root.join(".agents/pm/locks/sample-own.lock"))?,
+            raw
+        );
+    }
+    Ok(())
+}
+
+/// The pinned settings loader accepts a missing or null guard and every optional field.
+#[test]
+#[allow(
+    clippy::too_many_lines,
+    reason = "the settings matrix and durable write assertions stay together"
+)]
+fn create_accepts_mutation_guard_shapes() -> Result<(), Box<dyn std::error::Error>> {
+    use std::fmt::Write as _;
+
     let Some(fixture) = Fixture::new("none")? else {
         return Ok(());
     };
-    for (raw, id) in [("72.0", "sample-decimal"), ("24e0", "sample-exponent")] {
+    for (guard, id) in [
+        (None, "pm-absent"),
+        (Some("null"), "pm-null"),
+        (Some("{}"), "pm-empty"),
+        (Some(r#"{"require_attributed_author":true}"#), "pm-author"),
+        (Some(r#"{"secret_guard":"off"}"#), "pm-off"),
+        (Some(r#"{"secret_guard":"advise"}"#), "pm-advise"),
+        (Some(r#"{"secret_guard":"block"}"#), "pm-block"),
+        (Some(r#"{"stale_in_progress_hours":24}"#), "pm-integer"),
+        (Some(r#"{"stale_in_progress_hours":72.0}"#), "pm-decimal"),
+        (Some(r#"{"stale_in_progress_hours":24e0}"#), "pm-exponent"),
+        (
+            Some(
+                r#"{"require_attributed_author":false,"secret_guard":"block","stale_in_progress_hours":9007199254740991}"#,
+            ),
+            "pm-all",
+        ),
+    ] {
         for root in [fixture.node.path(), fixture.rust.path()] {
             let path = root.join(".agents/pm/settings.json");
             let mut settings: serde_json::Value = serde_json::from_slice(&fs::read(&path)?)?;
-            settings["mutation_guard"]["stale_in_progress_hours"] = serde_json::json!(72);
-            let json = serde_json::to_string(&settings)?;
-            let json = json.replace(
-                "\"stale_in_progress_hours\":72",
-                &format!("\"stale_in_progress_hours\":{raw}"),
-            );
-            fs::write(path, json)?;
+            // Explicit null makes the oracle load all default settings, including the prefix.
+            settings["id_prefix"] = serde_json::json!("pm-");
+            settings
+                .as_object_mut()
+                .ok_or("settings object")?
+                .shift_remove("mutation_guard");
+            let mut wire = settings.to_string();
+            if let Some(guard) = guard {
+                wire.pop();
+                write!(wire, ",\"mutation_guard\":{guard}}}")?;
+            }
+            fs::write(path, wire)?;
         }
         let args = [
             "create",
@@ -2048,16 +2138,19 @@ fn create_accepts_integral_stale_threshold_notation() -> Result<(), Box<dyn std:
             "--author",
             "alpha",
         ];
-        for output in [
-            published_run(&fixture.driver, fixture.node.path(), &args)?,
-            native_command(fixture.rust.path(), &args).output()?,
-        ] {
+        let oracle = published_run(&fixture.driver, fixture.node.path(), &args)?;
+        let native = native_command(fixture.rust.path(), &args).output()?;
+        for output in [&oracle, &native] {
             assert!(
                 output.status.success(),
-                "threshold {raw}: {}",
+                "guard {guard:?}: {}",
                 String::from_utf8_lossy(&output.stderr)
             );
         }
+        assert_eq!(
+            String::from_utf8_lossy(&oracle.stderr).contains("settings_read_invalid_schema"),
+            guard == Some("null")
+        );
         fixture.compare_bytes()?;
     }
     Ok(())
@@ -2915,7 +3008,7 @@ fn external_blocker_removal_guidance_respects_selector_projection()
             let steps = receipt["next_steps"].to_string();
             if private {
                 assert!(!steps.contains("--dep-remove"), "{steps}");
-                assert!(steps.contains("use its original ID"), "{steps}");
+                assert!(steps.contains("original ID"), "{steps}");
                 assert!(!receipt.to_string().contains("synthetic-secret"));
                 assert_eq!(
                     receipt["details"]["open_blockers"][0]["id"],
@@ -2935,6 +3028,75 @@ fn external_blocker_removal_guidance_respects_selector_projection()
         assert_eq!(fixture.snapshots()?, before);
         fixture.compare_bytes()?;
     }
+    Ok(())
+}
+
+/// A second blocker's userinfo cannot corrupt the first selector or redirect an inspection.
+#[test]
+fn scoped_blocker_inspection_survives_cross_blocker_redaction()
+-> Result<(), Box<dyn std::error::Error>> {
+    let Some(fixture) = Fixture::new("none")? else {
+        return Ok(());
+    };
+    let selector = "id=github:demo-token,kind=blocked_by";
+    for dependency in [
+        format!("{selector},source_kind=external"),
+        "id=https://demo-token:synthetic-secret@example.invalid/issue,kind=blocked_by,source_kind=external".to_owned(),
+    ] {
+        prepare(&fixture, &["update", "sample-own", "--dep", &dependency, "--author", "alpha", "--json"])?;
+    }
+    let args = [
+        "claim",
+        "sample-own",
+        "--start",
+        "--author",
+        "alpha",
+        "--json",
+    ];
+    let before = fixture.snapshots()?;
+    let oracle = published_run(&fixture.driver, fixture.node.path(), &args)?;
+    assert_eq!(oracle.status.code(), Some(4));
+    let expected: serde_json::Value = serde_json::from_slice(&oracle.stderr)?;
+    assert_eq!(expected["code"], "start_blocked_by_open_dependency");
+
+    let target = fixture.rust.path().join(".agents/pm");
+    let target = target.to_str().ok_or("tracker path")?;
+    let scoped_args = ["--pm-path", target]
+        .into_iter()
+        .chain(args)
+        .collect::<Vec<_>>();
+    let native = native_command(fixture.node.path(), &scoped_args).output()?;
+    assert_eq!(
+        native.status.code(),
+        Some(4),
+        "{}",
+        String::from_utf8_lossy(&native.stderr)
+    );
+    let actual: serde_json::Value = serde_json::from_slice(&native.stderr)?;
+    assert_eq!(actual["code"], expected["code"]);
+    let steps = actual["next_steps"].as_array().ok_or("guidance")?;
+    let inspect = pm_rust::render_pm_command([
+        "--pm-path",
+        target,
+        "get",
+        "sample-own",
+        "--fields",
+        "blocked_by,dependencies",
+    ]);
+    assert!(
+        steps.windows(2).any(|pair| {
+            pair[0] == inspect
+                && pair[1] == "Use the dependency's original ID to remove the blocked_by edge."
+        }),
+        "{actual}"
+    );
+    assert!(!actual.to_string().contains("--dep-remove"));
+    assert!(!actual.to_string().contains("synthetic-secret"));
+    assert_eq!(
+        actual["details"]["open_blockers"][0]["id"],
+        "github:[redacted]"
+    );
+    assert_eq!(fixture.snapshots()?, before);
     Ok(())
 }
 

@@ -18,16 +18,8 @@ pub(super) struct MutationGuard {
     pub(super) stale_in_progress_hours: i64,
 }
 
-impl Default for MutationGuard {
-    fn default() -> Self {
-        Self {
-            stale_in_progress_hours: default_threshold(),
-        }
-    }
-}
-
 /// Default inactivity threshold for a tracker that has no override.
-const fn default_threshold() -> i64 {
+pub(super) const fn default_threshold() -> i64 {
     72
 }
 
@@ -52,8 +44,33 @@ pub(crate) fn parse_stored_timestamp(value: &str) -> Option<OffsetDateTime> {
     if value.len() == 10 {
         return OffsetDateTime::parse(&format!("{value}T00:00:00Z"), &Rfc3339).ok();
     }
-    let time = OffsetDateTime::parse(value, &Rfc3339).ok()?;
+    let time = OffsetDateTime::parse(value, &Rfc3339)
+        .ok()
+        .or_else(|| parse_end_of_day(value))?;
     Some(time - Duration::nanoseconds(i64::from(time.nanosecond() % 1_000_000)))
+}
+
+/// Normalizes the ISO hour-24 spelling accepted by the published history reader.
+fn parse_end_of_day(value: &str) -> Option<OffsetDateTime> {
+    let (date, clock) = value.split_at_checked(10)?;
+    let clock = clock.strip_prefix(['T', 't'])?.strip_prefix("24:00")?;
+    let zone = if let Some(seconds) = clock.strip_prefix(':') {
+        let rest = seconds.strip_prefix("00")?;
+        if let Some(fraction) = rest.strip_prefix('.') {
+            let zone = fraction.trim_start_matches('0');
+            if zone.len() == fraction.len() {
+                return None;
+            }
+            zone
+        } else {
+            rest
+        }
+    } else {
+        clock
+    };
+    OffsetDateTime::parse(&format!("{date}T00:00:00{zone}"), &Rfc3339)
+        .ok()?
+        .checked_add(Duration::days(1))
 }
 
 /// Reads the inactivity threshold for the context advisory, defaulting unusable settings.

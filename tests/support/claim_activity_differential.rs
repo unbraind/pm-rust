@@ -119,6 +119,34 @@ process.stdout.write(JSON.stringify(results));
     Ok(())
 }
 
+/// End-of-day history accepts zero seconds and fractions, with a valid date and zone.
+#[test]
+fn end_of_day_timestamp_checks_zero_time_and_calendar() {
+    let midnight = super::parse_stored_timestamp("2026-08-07T00:00:00+01:30");
+    assert!(midnight.is_some());
+    for value in [
+        "2026-08-06t24:00+01:30",
+        "2026-08-06T24:00:00+01:30",
+        "2026-08-06T24:00:00.000+01:30",
+    ] {
+        assert_eq!(super::parse_stored_timestamp(value), midnight, "{value}");
+    }
+    for invalid in [
+        "bad",
+        "2026-08-06 24:00:00Z",
+        "2026-08-06T24:01:00Z",
+        "2026-08-06T24:00:01Z",
+        "2026-08-06T24:00:00.Z",
+        "2026-08-06T24:00:00.0001Z",
+        "2026-13-06T24:00:00Z",
+    ] {
+        assert!(
+            super::parse_stored_timestamp(invalid).is_none(),
+            "{invalid}"
+        );
+    }
+}
+
 /// The evidence from original, compacted, rewritten and malformed history remains distinguishable.
 #[test]
 #[allow(
@@ -173,6 +201,34 @@ fn claim_history_provenance_and_activity_match_published() -> TestResult {
             vec![record("claim", "2026-13-02", claim()["patch"].clone())],
             None,
             true,
+            false,
+        ),
+        (
+            "hour-24-work",
+            vec![
+                claim(),
+                record(
+                    "update",
+                    "2026-08-06T24:00:00.000Z",
+                    patch("/metadata/title", json!("New title")),
+                ),
+            ],
+            None,
+            false,
+            false,
+        ),
+        (
+            "equivalent-midnight-work",
+            vec![
+                claim(),
+                record(
+                    "update",
+                    "2026-08-07T00:00:00.000Z",
+                    patch("/metadata/title", json!("New title")),
+                ),
+            ],
+            None,
+            false,
             false,
         ),
         ("recent-work", vec![claim(), substantive], None, false, true),
