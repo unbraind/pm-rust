@@ -22,10 +22,7 @@ fn workspace() -> Result<(tempfile::TempDir, Workspace, Lifecycle), Box<dyn std:
 }
 /// Loads ranking input through the production stream reader.
 fn recency(workspace: &Workspace, row: &Value) -> Result<String, PmRustError> {
-    Ok(super::recency(
-        &mut records(workspace, text(row, "id"))?,
-        row,
-    ))
+    Ok(super::recency(&records(workspace, text(row, "id"))?, row))
 }
 
 /// Exercises ranking with the same history summaries used by context.
@@ -1643,7 +1640,7 @@ fn terminal_progress_reads_advisory_history_once() -> Result<(), Box<dyn std::er
 #[test]
 fn recency_honors_event_classes_and_legacy_paths() {
     let row = item("sample-one", "open");
-    let mut entries = [
+    let entries = [
         json!({"ts":"2026-08-22T12:00:00Z","op":"update","patch":[{"path":"/body"}]}),
         json!({"ts":"2026-08-23T00:00:00Z","op":"update","patch":[{"path":7}]}),
         json!({"ts":"2026-08-23T01:00:00Z","op":"update","patch":[{"path":"/body"},{}]}),
@@ -1653,9 +1650,6 @@ fn recency_honors_event_classes_and_legacy_paths() {
         json!({"ts":"2026-08-27T00:00:00Z","op":"release","event_class":"substantive"}),
         json!({"ts":"2026-08-28T00:00:00Z","op":"update","event_class":"substantive","patch":[{}]}),
     ];
-    assert_eq!(super::recency(&mut entries, &row), "2026-08-27T00:00:00Z");
-    assert_eq!(
-        super::recency(&mut entries[..6], &row),
-        "2026-08-22T12:00:00Z"
-    );
+    assert_eq!(super::recency(&entries, &row), "2026-08-27T00:00:00Z");
+    assert_eq!(super::recency(&entries[..6], &row), "2026-08-22T12:00:00Z");
 }

@@ -1685,6 +1685,10 @@ fn cli_omitted_rows_retain_tracker_root_as_invocation_directory() -> TestResult 
         result["omission_receipt"]["omitted_field_groups"][0]["restore_with"],
         "pm --pm-path .agents/pm files sample-one"
     );
+    assert_eq!(
+        result["omission_receipt"]["omitted_field_groups"][0]["restore_guidance"],
+        "Run this command from the original invocation directory."
+    );
     let other = tempfile::tempdir()?;
     options.add.clear();
     options.remove.push("c.rs".into());

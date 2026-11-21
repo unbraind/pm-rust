@@ -23,20 +23,28 @@ pub(super) const fn default_threshold() -> i64 {
     72
 }
 
-/// Decodes whole JSON numbers within the published positive safe-integer range.
+/// Checks a whole JSON number against the published positive safe-integer range.
+pub(super) fn valid_threshold(value: &Value) -> bool {
+    threshold_hours(value).is_some()
+}
+
+/// Resolves numeric spellings such as 24.0 and 24e0 without rounding fractions.
 #[allow(
     clippy::cast_possible_truncation,
     reason = "the range and whole value are checked"
 )]
+fn threshold_hours(value: &Value) -> Option<i64> {
+    let hours = value.as_f64()?;
+    ((1.0..=9_007_199_254_740_991.0).contains(&hours) && hours.fract() == 0.0)
+        .then_some(hours as i64)
+}
+
+/// Decodes the typed setting after its containing settings document was normalized.
 fn deserialize_threshold<'de, D: serde::Deserializer<'de>>(reader: D) -> Result<i64, D::Error> {
-    let hours = <f64 as serde::Deserialize>::deserialize(reader)?;
-    if (1.0..=9_007_199_254_740_991.0).contains(&hours) && hours.fract() == 0.0 {
-        Ok(hours as i64)
-    } else {
-        Err(serde::de::Error::custom(
-            "expected positive safe integer hours",
-        ))
-    }
+    <Value as serde::Deserialize>::deserialize(reader).and_then(|value| {
+        threshold_hours(&value)
+            .ok_or_else(|| serde::de::Error::custom("expected positive safe integer hours"))
+    })
 }
 
 /// Parses a stored timestamp for activity comparisons.
@@ -44,9 +52,16 @@ pub(crate) fn parse_stored_timestamp(value: &str) -> Option<OffsetDateTime> {
     if value.len() == 10 {
         return OffsetDateTime::parse(&format!("{value}T00:00:00Z"), &Rfc3339).ok();
     }
-    let time = OffsetDateTime::parse(value, &Rfc3339)
-        .ok()
-        .or_else(|| parse_end_of_day(value))?;
+    let clock_end = value.get(16..)?;
+    if clock_end.starts_with(":60") {
+        return None;
+    }
+    let time = if clock_end.starts_with(['Z', 'z', '+', '-']) {
+        OffsetDateTime::parse(&format!("{}:00{clock_end}", &value[..16]), &Rfc3339).ok()
+    } else {
+        OffsetDateTime::parse(value, &Rfc3339).ok()
+    }
+    .or_else(|| parse_end_of_day(value))?;
     Some(time - Duration::nanoseconds(i64::from(time.nanosecond() % 1_000_000)))
 }
 
@@ -75,8 +90,8 @@ fn parse_end_of_day(value: &str) -> Option<OffsetDateTime> {
 
 /// Reads the inactivity threshold for the context advisory, defaulting unusable settings.
 pub(crate) fn context_threshold(settings: &Value) -> i64 {
-    deserialize_threshold(&settings["mutation_guard"]["stale_in_progress_hours"])
-        .unwrap_or_else(|_| default_threshold())
+    threshold_hours(&settings["mutation_guard"]["stale_in_progress_hours"])
+        .unwrap_or_else(default_threshold)
 }
 
 /// Adds the threshold in epoch milliseconds and applies the SDK's Date range.

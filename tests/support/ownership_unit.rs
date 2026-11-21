@@ -135,6 +135,110 @@ fn sdk_lifecycle_succeeds_with_explicit_and_default_identity()
     Ok(())
 }
 
+/// A close's release publishes before a subsequent claim can commit.
+#[test]
+fn close_release_orders_session_cleanup_before_reclaim() -> Result<(), Box<dyn std::error::Error>> {
+    let directory = tempfile::tempdir()?;
+    let root = directory.path().join(".agents/pm");
+    fs::create_dir_all(root.join("tasks"))?;
+    fs::create_dir(root.join("history"))?;
+    fs::write(
+        root.join("settings.json"),
+        r#"{"governance":{"preset":"minimal"}}"#,
+    )?;
+    fs::write(
+        root.join("tasks/sample-one.toon"),
+        r#"id: sample-one
+title: Work
+description: ""
+type: Task
+status: open
+priority: 2
+tags: []
+created_at: "2026-08-22T10:00:00Z"
+updated_at: "2026-08-22T10:00:00Z"
+body: ""
+"#,
+    )?;
+    let workspace = Workspace::discover(&root)?;
+    let request = OwnershipItem {
+        id: "sample-one".to_owned(),
+        author: "alpha".to_owned(),
+        timestamp: Some("2026-08-22T10:00:00Z".to_owned()),
+        message: None,
+        force: false,
+        if_available: false,
+        provenance_role: None,
+    };
+    let mut identity = AuthorIdentity::resolve(Some("alpha"), None, &BTreeMap::new());
+    let key = "0123456789abcdef01234567";
+    identity.principal = format!("alpha#{key}");
+    let options = OwnershipOptions {
+        identity: Some(identity),
+        ..OwnershipOptions::default()
+    };
+    workspace.claim_with_options(&request, &options)?;
+    workspace.close(crate::CloseItem {
+        id: request.id.clone(),
+        author: request.author.clone(),
+        reason: "Completed the first claim".to_owned(),
+        timestamp: request.timestamp.clone(),
+        provenance_role: None,
+        force_stale_lock: false,
+        fields: crate::CloseFields::default(),
+    })?;
+    let parents = workspace.read_parent_index(false)?;
+    let reclaim = OwnershipItem {
+        force: true,
+        ..request.clone()
+    };
+    let mut attribution = Ok(());
+    crate::mutation::ownership_item_with_options(
+        &root,
+        &request,
+        false,
+        &options,
+        &mut || Ok(()),
+        &mut |_, session_gate_held| {
+            assert!(root.join("locks/sample-one.lock.stale-cleanup").is_dir());
+            assert!(
+                workspace
+                    .get(&request.id)
+                    .is_ok_and(|item| !item.metadata.extra.contains_key("assignee"))
+            );
+            let blocked = workspace.claim_with_options(&reclaim, &options);
+            assert!(
+                matches!(blocked, Err(PmRustError::OwnershipRefusal { context, .. }) if context["code"] == "lock_conflict")
+            );
+            attribution = record_semantics(
+                &workspace,
+                &request,
+                &options,
+                false,
+                session_gate_held,
+                &parents,
+            );
+        },
+    )?;
+    attribution?;
+    let session = root.join("runtime/session.json");
+    assert_eq!(
+        serde_json::from_slice::<Value>(&fs::read(&session)?)?,
+        json!({})
+    );
+    workspace.claim_with_options(&reclaim, &options)?;
+    let state: Value = serde_json::from_slice(&fs::read(&session)?)?;
+    assert_eq!(
+        state["semantic_attribution"][key]["active_item_ids"],
+        json!([request.id])
+    );
+    assert_eq!(
+        workspace.get(&request.id)?.metadata.extra["assignee"],
+        "alpha"
+    );
+    Ok(())
+}
+
 /// Session updates cap the active workset, preserve focus, and tolerate lineage cycles.
 #[test]
 fn semantic_worksets_preserve_focus_and_bound_lineage() -> Result<(), Box<dyn std::error::Error>> {
@@ -162,7 +266,7 @@ fn semantic_worksets_preserve_focus_and_bound_lineage() -> Result<(), Box<dyn st
     };
     let options = OwnershipOptions::default();
     let parents = workspace.read_parent_index(false)?;
-    record_semantics(&workspace, &request, &options, true, &parents)?;
+    record_semantics(&workspace, &request, &options, true, false, &parents)?;
     let session = root.join("runtime/session.json");
     let mut state: Value = serde_json::from_slice(&fs::read(&session)?)?;
     let key = format!("author-{}", hex_prefix(b"alpha", 24));
@@ -181,7 +285,7 @@ fn semantic_worksets_preserve_focus_and_bound_lineage() -> Result<(), Box<dyn st
             .collect::<Vec<_>>()
     );
     fs::write(&session, crate::stringify_json(&state, false))?;
-    record_semantics(&workspace, &request, &options, true, &parents)?;
+    record_semantics(&workspace, &request, &options, true, false, &parents)?;
     let state: Value = serde_json::from_slice(&fs::read(&session)?)?;
     let semantic = &state["semantic_attribution"][&key];
     assert_eq!(
@@ -191,7 +295,7 @@ fn semantic_worksets_preserve_focus_and_bound_lineage() -> Result<(), Box<dyn st
     assert_eq!(semantic["evidence"].as_array().map(Vec::len), Some(32));
     assert_eq!(semantic["topic"], "sample-focus");
     assert_eq!(semantic["confidence"], "high");
-    record_semantics(&workspace, &request, &options, false, &parents)?;
+    record_semantics(&workspace, &request, &options, false, false, &parents)?;
     let mut state: Value = serde_json::from_slice(&fs::read(&session)?)?;
     assert_eq!(
         state["semantic_attribution"][&key]["role"],
@@ -199,7 +303,7 @@ fn semantic_worksets_preserve_focus_and_bound_lineage() -> Result<(), Box<dyn st
     );
     state["semantic_attribution"][&key]["active_item_ids"] = json!([]);
     fs::write(&session, crate::stringify_json(&state, false))?;
-    record_semantics(&workspace, &request, &options, false, &parents)?;
+    record_semantics(&workspace, &request, &options, false, false, &parents)?;
     let mut state: Value = serde_json::from_slice(&fs::read(&session)?)?;
     assert_eq!(state["semantic_attribution"][&key]["topic"], "sample-focus");
     state["semantic_attribution"][&key]
@@ -207,13 +311,13 @@ fn semantic_worksets_preserve_focus_and_bound_lineage() -> Result<(), Box<dyn st
         .ok_or("missing semantic object")?
         .remove("focused_item_id");
     fs::write(&session, crate::stringify_json(&state, false))?;
-    record_semantics(&workspace, &request, &options, false, &parents)?;
+    record_semantics(&workspace, &request, &options, false, false, &parents)?;
     let state: Value = serde_json::from_slice(&fs::read(&session)?)?;
     assert!(state.get("semantic_attribution").is_none());
-    record_semantics(&workspace, &request, &options, false, &parents)?;
+    record_semantics(&workspace, &request, &options, false, false, &parents)?;
     let mut missing = request.clone();
     missing.id = "sample-absent".to_owned();
-    assert!(record_semantics(&workspace, &missing, &options, true, &parents).is_err());
+    assert!(record_semantics(&workspace, &missing, &options, true, false, &parents).is_err());
     Ok(())
 }
 
@@ -744,6 +848,7 @@ updated_at: "2026-08-22T10:00:00.000Z"
         },
         &OwnershipOptions::default(),
         true,
+        false,
         &parents,
     )?;
     let state: Value = serde_json::from_slice(&fs::read(root.join("runtime/session.json"))?)?;

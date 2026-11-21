@@ -456,6 +456,8 @@ fn scoped_collection_restore(
         args[0],
         args[1]
     ]));
+    receipt["omission_receipt"]["omitted_field_groups"][0]["restore_guidance"] =
+        json!("Run this command from the original invocation directory.");
     oracle.stdout = render(&receipt)?;
     Ok(oracle)
 }

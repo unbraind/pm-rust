@@ -208,6 +208,10 @@ fn lifecycle_storage_faults_preserve_recovery_evidence() -> Result<(), Box<dyn s
 
 /// Session publication failures never silently undo a completed ownership transaction.
 #[test]
+#[allow(
+    clippy::too_many_lines,
+    reason = "the fault and contention sequence shares one session fixture"
+)]
 fn ownership_session_faults_and_contention_preserve_durable_steps()
 -> Result<(), Box<dyn std::error::Error>> {
     let (_directory, pm_root) = root("{}")?;
@@ -267,35 +271,52 @@ fn ownership_session_faults_and_contention_preserve_durable_steps()
     )?;
     let called = std::cell::Cell::new(false);
     assert!(matches!(
-        mutate_session_state(&pm_root, &mut |_| {
+        mutate_session_state(&pm_root, false, &mut |_| {
             called.set(true);
             Ok(())
         }),
         Err(PmRustError::LockConflict { .. })
     ));
     assert!(!called.get());
+    create_item(
+        &pm_root,
+        CreateItem {
+            id: "sample-contended".to_owned(),
+            ..request()
+        },
+    )?;
+    mutation.id = "sample-contended".to_owned();
     let claim = workspace.claim_with_options(&mutation, &options)?;
     assert_eq!(claim.warnings, ["claim_semantic_attribution_unrecorded"]);
     assert!(claim.suggestions[0].contains("(lock_conflict). Once the lock clears"));
     assert!(claim.suggestions[0].contains("pm gc --scope locks"));
+    assert_eq!(
+        workspace.get(&mutation.id)?.metadata.extra["assignee"],
+        "unit-agent"
+    );
+    let history = fs::read_to_string(pm_root.join("history/sample-contended.jsonl"))?;
+    let event: Value =
+        crate::strict_json::from_str(history.lines().last().ok_or("claim history")?)?;
+    assert_eq!(event["op"], "claim");
+    assert_eq!(fs::read(&session)?, saved_session);
     let release = workspace.release_with_options(&mutation, &options)?;
     assert_eq!(
         release.warnings,
         ["release_semantic_attribution_unrecorded"]
     );
-    assert!(release.suggestions[0].contains("The release of sample-unit is saved"));
+    assert!(release.suggestions[0].contains("The release of sample-contended is saved"));
     assert!(release.suggestions[0].contains("check the session's active-item attribution"));
     assert!(!release.suggestions[0].contains("retry"));
     assert_eq!(fs::read(&session)?, saved_session);
     assert!(
         !workspace
-            .get("sample-unit")?
+            .get(&mutation.id)?
             .metadata
             .extra
             .contains_key("assignee")
     );
     drop(guard);
-    mutate_session_state(&pm_root, &mut |state| {
+    mutate_session_state(&pm_root, false, &mut |state| {
         state.insert("marker".to_owned(), serde_json::json!("published"));
         Ok(())
     })?;
@@ -303,11 +324,90 @@ fn ownership_session_faults_and_contention_preserve_durable_steps()
         serde_json::from_slice::<Value>(&fs::read(&session)?)?["marker"],
         "published"
     );
-    fs::create_dir(pm_root.join("locks/sample-unit.lock"))?;
+    fs::create_dir(pm_root.join("locks/sample-contended.lock"))?;
     assert!(matches!(
         ownership_lock_refusal(&pm_root, &mutation.id, 0),
         PmRustError::Io { .. }
     ));
+    Ok(())
+}
+
+/// A busy cleanup gate prevents ownership from committing a prepared change.
+#[test]
+fn ownership_gate_contention_preserves_item_and_history() -> Result<(), Box<dyn std::error::Error>>
+{
+    let (_directory, pm_root) = root("{}")?;
+    create_item(&pm_root, request())?;
+    let item = pm_root.join("tasks/sample-unit.toon");
+    let history = pm_root.join("history/sample-unit.jsonl");
+    let before = (fs::read(&item)?, fs::read(&history)?);
+    let operation = OwnershipItem {
+        id: "sample-unit".to_owned(),
+        author: "unit-agent".to_owned(),
+        timestamp: Some(TS.to_owned()),
+        message: None,
+        force: false,
+        if_available: false,
+        provenance_role: None,
+    };
+    let mut gate = None;
+    let result = ownership_item_with_options(
+        &pm_root,
+        &operation,
+        true,
+        &crate::OwnershipOptions::default(),
+        &mut || {
+            gate = Some(acquire_cleanup_gate(
+                &pm_root.join("locks"),
+                &operation.id,
+                1800,
+            )?);
+            Ok(())
+        },
+        &mut |_, _| {},
+    );
+    assert!(matches!(result, Err(PmRustError::LockConflict { id }) if id == operation.id));
+    assert_eq!((fs::read(&item)?, fs::read(&history)?), before);
+    assert!(!pm_root.join("runtime/session.json").exists());
+    drop(gate);
+    Ok(())
+}
+
+/// A claim can publish attribution when the item uses the session lock's name.
+#[test]
+fn session_named_item_reuses_its_attribution_gate() -> Result<(), Box<dyn std::error::Error>> {
+    let (_directory, pm_root) = root(r#"{"id_prefix":"session-"}"#)?;
+    let workspace = crate::Workspace::discover(&pm_root)?;
+    workspace.create(CreateItem {
+        id: "session-state".to_owned(),
+        ..request()
+    })?;
+    let ownership = OwnershipItem {
+        id: "session-state".to_owned(),
+        author: "unit-agent".to_owned(),
+        timestamp: Some(TS.to_owned()),
+        message: None,
+        force: false,
+        if_available: false,
+        provenance_role: None,
+    };
+    assert!(workspace.claim(&ownership)?.warnings.is_empty());
+    let session = pm_root.join("runtime/session.json");
+    let state: Value = crate::strict_json::from_slice(&fs::read(&session)?)?;
+    let attribution = state["semantic_attribution"]
+        .as_object()
+        .ok_or("session attribution")?;
+    assert_eq!(attribution.len(), 1);
+    assert_eq!(
+        attribution.values().next().ok_or("session workset")?["active_item_ids"],
+        serde_json::json!(["session-state"])
+    );
+    assert!(workspace.release(&ownership)?.warnings.is_empty());
+    assert_eq!(
+        crate::strict_json::from_slice::<Value>(&fs::read(&session)?)?,
+        serde_json::json!({})
+    );
+    assert!(!pm_root.join("locks/session-state.lock").exists());
     Ok(())
 }
 
@@ -491,7 +591,7 @@ fn validation_rejects_every_unsupported_request_shape() -> Result<(), Box<dyn st
             Err(PmRustError::InvalidCreateRequest { .. })
         ));
     }
-    let (_directory, markdown_root) = root(&settings("sample-", "markdown", 1_800))?;
+    let (_directory, markdown_root) = root(&settings("sample-", "json_markdown", 1_800))?;
     assert!(matches!(
         create_item(&markdown_root, request()),
         Err(PmRustError::InvalidCreateRequest { .. })
@@ -1058,6 +1158,11 @@ fn missing_and_invalid_settings_return_typed_errors() -> Result<(), Box<dyn std:
         Err(PmRustError::Io { .. })
     ));
     fs::write(pm_root.join("settings.json"), "not json")?;
+    assert!(matches!(
+        create_item(&pm_root, request()),
+        Err(PmRustError::InvalidCreateRequest { .. })
+    ));
+    fs::write(pm_root.join("settings.json"), "null")?;
     assert!(matches!(
         create_item(&pm_root, request()),
         Err(PmRustError::InvalidCreateRequest { .. })
@@ -4410,8 +4515,15 @@ fn ownership_refusals_and_interrupted_history_append_remain_recoverable()
         ..crate::OwnershipOptions::default()
     };
     assert_eq!(
-        ownership_item_with_options(&pm_root, &mutation, false, &bypass, &mut || Ok(()))?
-            .changed_field_count,
+        ownership_item_with_options(
+            &pm_root,
+            &mutation,
+            false,
+            &bypass,
+            &mut || Ok(()),
+            &mut |_, _| {}
+        )?
+        .changed_field_count,
         2
     );
     mutation.author = "unit-agent".to_owned();
@@ -4674,6 +4786,72 @@ fn historical_close_keeps_its_lease_while_claim_waits() -> Result<(), Box<dyn st
     Ok(())
 }
 
+/// A successor can reclaim an expired close without letting the old writer publish.
+#[test]
+fn reclaimed_close_cannot_overwrite_successor() -> Result<(), Box<dyn std::error::Error>> {
+    let (_directory, pm_root) = root(r#"{"governance":{"preset":"minimal"}}"#)?;
+    create_item(&pm_root, request())?;
+    let owner_path = pm_root.join("locks/sample-unit.lock");
+    let after_read_root = pm_root.clone();
+    let (saved, committed) = std::sync::mpsc::channel();
+    AFTER_CLOSE_READ.set(Some(Box::new(move || {
+        let successor = (|| -> Result<String, Box<dyn std::error::Error>> {
+            let mut lease: Value = crate::strict_json::from_slice(&fs::read(&owner_path)?)?;
+            lease["created_at"] = serde_json::json!("2000-01-01T00:00:00.000Z");
+            fs::write(&owner_path, lease.to_string())?;
+            let result = close_item(
+                &after_read_root,
+                &after_read_root,
+                CloseItem {
+                    reason: "Successor decision".to_owned(),
+                    ..closure_request()
+                },
+            )?;
+            Ok(result.after_hash)
+        })();
+        assert!(saved.send(successor).is_ok());
+    })));
+    assert!(matches!(
+        close_item(&pm_root, &pm_root, closure_request()),
+        Err(PmRustError::LockConflict { id }) if id == "sample-unit"
+    ));
+    let successor = committed.recv_timeout(Duration::from_secs(1))??;
+    let workspace = crate::Workspace::discover(&pm_root)?;
+    assert_eq!(
+        workspace.get("sample-unit")?.metadata.extra["close_reason"],
+        "Successor decision"
+    );
+    let bytes = fs::read_to_string(pm_root.join("history/sample-unit.jsonl"))?;
+    let records: Vec<Value> = bytes
+        .lines()
+        .map(crate::strict_json::from_str)
+        .collect::<Result<_, _>>()?;
+    assert_eq!(records.len(), 2);
+    assert_eq!(records[1]["before_hash"], records[0]["after_hash"]);
+    assert_eq!(records[1]["after_hash"], successor);
+    assert!(
+        !pm_root
+            .join("runtime/transactions/close-sample-unit.json")
+            .exists()
+    );
+    Ok(())
+}
+
+/// A copied receipt cannot authorize publication through a different owner file.
+#[test]
+fn item_publication_rejects_replaced_file_with_same_receipt()
+-> Result<(), Box<dyn std::error::Error>> {
+    let (_directory, pm_root) = root("{}")?;
+    let lock = acquire_lock(&pm_root, "sample-unit", "alpha", &locks(1800), false, 0)?;
+    fs::rename(&lock.path, lock.path.with_extension("prior"))?;
+    fs::write(&lock.path, &lock.raw)?;
+    assert!(matches!(
+        fence_item(&pm_root, "sample-unit", &lock, 1800),
+        Err(PmRustError::LockConflict { .. })
+    ));
+    Ok(())
+}
+
 /// Closure ownership and predecessor cleanup preserve strict and advisory governance.
 #[test]
 fn closure_ownership_and_predecessor_storage() -> Result<(), Box<dyn std::error::Error>> {
@@ -4697,6 +4875,7 @@ fn closure_ownership_and_predecessor_storage() -> Result<(), Box<dyn std::error:
                 true,
                 &crate::OwnershipOptions::default(),
                 &mut || Ok(()),
+                &mut |_, _| {},
             )?;
             let mut closing = closure_request();
             closing.fields.force = force;
@@ -5935,6 +6114,7 @@ fn historical_claim_uses_a_live_lease() -> Result<(), Box<dyn std::error::Error>
             ));
             Ok(())
         },
+        &mut |_, _| {},
     )?;
     let history = fs::read_to_string(pm_root.join("history/sample-unit.jsonl"))?;
     let claim: Value = serde_json::from_str(history.lines().last().ok_or("claim history")?)?;
@@ -6158,7 +6338,7 @@ fn reclaimed_session_writer_cannot_replace_new_attribution()
         let (resume, resumed) = std::sync::mpsc::channel();
         let root = &pm_root;
         let old = scope.spawn(move || {
-            mutate_session_state(root, &mut |state| {
+            mutate_session_state(root, false, &mut |state| {
                 state.insert("old".into(), Value::Bool(true));
                 assert!(ready.send(()).is_ok());
                 resumed
@@ -6171,7 +6351,7 @@ fn reclaimed_session_writer_cannot_replace_new_attribution()
         let mut receipt: Value = serde_json::from_slice(&fs::read(&lock)?)?;
         receipt["created_at"] = serde_json::json!("2000-01-01T00:00:00Z");
         fs::write(lock, receipt.to_string())?;
-        let new = mutate_session_state(&pm_root, &mut |state| {
+        let new = mutate_session_state(&pm_root, false, &mut |state| {
             state.insert("new".into(), Value::Bool(true));
             Ok(())
         });
@@ -6190,7 +6370,7 @@ fn reclaimed_session_writer_cannot_replace_new_attribution()
     assert_eq!(state, serde_json::json!({"new":true}));
     let (resume, resumed) = std::sync::mpsc::channel::<()>();
     drop(resume);
-    let aborted = mutate_session_state(&pm_root, &mut |snapshot| {
+    let aborted = mutate_session_state(&pm_root, false, &mut |snapshot| {
         snapshot.clear();
         resumed
             .recv()
@@ -6318,7 +6498,7 @@ fn busy_session_publication_gate_preserves_snapshot() -> Result<(), Box<dyn std:
     let original = r#"{"value":"original"}"#;
     fs::write(&session, original)?;
     let mut held = None;
-    let result = mutate_session_state(&pm_root, &mut |state| {
+    let result = mutate_session_state(&pm_root, false, &mut |state| {
         state.insert("value".into(), serde_json::json!("replacement"));
         held = Some(acquire_cleanup_gate(
             &pm_root.join("locks"),
@@ -6353,7 +6533,7 @@ fn busy_session_publication_gate_preserves_snapshot() -> Result<(), Box<dyn std:
     );
     drop(gate);
     let lease = pm_root.join("locks/session-state.lock.gate-lease");
-    let broken = mutate_session_state(&pm_root, &mut |_| {
+    let broken = mutate_session_state(&pm_root, false, &mut |_| {
         assert!(fs::remove_file(&lease).is_ok());
         assert!(fs::create_dir(&lease).is_ok());
         Ok(())
@@ -6377,7 +6557,7 @@ fn session_publication_waits_for_transient_cleanup_gate() -> Result<(), Box<dyn 
 {
     let (_temp, pm_root) = root("{}")?;
     let locks = pm_root.join("locks");
-    let result = mutate_session_state(&pm_root, &mut |state| {
+    let result = mutate_session_state(&pm_root, false, &mut |state| {
         TRANSIENT_PUBLICATION_GATE.replace(Some(acquire_cleanup_gate(
             &locks,
             "session-state",

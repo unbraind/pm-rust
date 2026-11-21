@@ -69,27 +69,44 @@ fn optional(a: &Value, b: &Value, date: bool) -> std::cmp::Ordering {
     }
 }
 /// Returns recency from substantive history, release cohort or creation time.
-fn recency(entries: &mut [Value], item: &Value) -> String {
-    entries.sort_by(|a, b| crate::collation::compare(text(a, "ts"), text(b, "ts")));
-    for entry in entries.iter().rev() {
-        // Legacy records without a patch still supply recency in the published reader.
-        let patch = entry["patch"].as_array().map_or(&[][..], Vec::as_slice);
-        if !crate::history::patch_paths_are_strings(patch) {
-            continue;
-        }
-        let substantive = match entry["event_class"].as_str() {
-            Some("substantive") => true,
-            Some("maintenance") => false,
-            _ => {
-                let paths = patch.iter().filter_map(|row| row["path"].as_str());
-                crate::history::classify_history_paths(text(entry, "op"), paths) == "substantive"
-            }
-        };
-        let timestamp = text(entry, "ts");
-        if substantive && !timestamp.is_empty() {
-            return timestamp.to_owned();
-        }
+fn recency(entries: &[Value], item: &Value) -> String {
+    entries
+        .iter()
+        .filter_map(substantive_history_timestamp)
+        .max_by_key(|timestamp| recency_key(timestamp))
+        .map_or_else(|| release_recency(item), str::to_owned)
+}
+
+/// Equal parsed instants share a rank coordinate regardless of their original offset spelling.
+fn recency_key(timestamp: &str) -> (Option<i128>, String) {
+    let (instant, mut raw) = crate::list::timestamp_key(timestamp);
+    if instant.is_some() {
+        raw.clear();
     }
+    (instant, raw)
+}
+
+/// Keeps the context ranking classification independent of the idle advisory.
+fn substantive_history_timestamp(entry: &Value) -> Option<&str> {
+    // Legacy records without a patch still supply recency in the published reader.
+    let patch = entry["patch"].as_array().map_or(&[][..], Vec::as_slice);
+    if !crate::history::patch_paths_are_strings(patch) {
+        return None;
+    }
+    let substantive = match entry["event_class"].as_str() {
+        Some("substantive") => true,
+        Some("maintenance") => false,
+        _ => {
+            let paths = patch.iter().filter_map(|row| row["path"].as_str());
+            crate::history::classify_history_paths(text(entry, "op"), paths) == "substantive"
+        }
+    };
+    let timestamp = text(entry, "ts");
+    (substantive && !timestamp.is_empty()).then_some(timestamp)
+}
+
+/// Uses the release cohort when no substantive history is available.
+fn release_recency(item: &Value) -> String {
     let release = text(item, "release").trim_start_matches('v');
     let parts: Vec<_> = release.split('.').collect();
     if parts.len() >= 3 {
@@ -1109,8 +1126,8 @@ fn context_history<'a>(
             }
             records(workspace, id).unwrap_or_default()
         } else {
-            let mut history = records(workspace, id)?;
-            recent.push((id, crate::list::timestamp_key(&recency(&mut history, item))));
+            let history = records(workspace, id)?;
+            recent.push((id, recency_key(&recency(&history, item))));
             history
         };
         if !advisory {

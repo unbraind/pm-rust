@@ -600,6 +600,7 @@ fn close_release_contention_reports_only_release_recovery() -> Result<(), Box<dy
 {
     use rustix::fs::{Mode, OFlags, open};
     use std::io::Write as _;
+    use std::path::Path;
     use std::process::Stdio;
     use std::time::{Duration, Instant};
 
@@ -630,31 +631,42 @@ fn close_release_contention_reports_only_release_recovery() -> Result<(), Box<dy
         .stdout(Stdio::piped())
         .stderr(Stdio::piped())
         .spawn()?;
-    let interposed = (|| -> Result<fs::File, Box<dyn std::error::Error>> {
+    let mut wait_for_reader = |path: &Path| -> Result<fs::File, Box<dyn std::error::Error>> {
         let deadline = Instant::now() + Duration::from_secs(15);
-        let mut writer = loop {
+        loop {
             match open(
-                &journal,
+                path,
                 OFlags::WRONLY | OFlags::NONBLOCK | OFlags::CLOEXEC,
                 Mode::empty(),
             ) {
-                Ok(writer) => break fs::File::from(writer),
+                Ok(writer) => return Ok(fs::File::from(writer)),
                 Err(rustix::io::Errno::NXIO) => {}
                 Err(error) => return Err(error.into()),
             }
             if child.try_wait()?.is_some() || Instant::now() >= deadline {
-                return Err("close did not reach journal recovery".into());
+                return Err("close did not reach the expected fixture read".into());
             }
             std::thread::sleep(Duration::from_millis(5));
-        };
-        // Holding the cleanup gate leaves the incumbent close free to commit.
-        // Release's next acquisition will observe this gate held by the contender.
+        }
+    };
+    let interposed = (|| -> Result<fs::File, Box<dyn std::error::Error>> {
+        let mut journal_writer = wait_for_reader(&journal)?;
+        // Pause release when its resolved identity reads session attribution,
+        // after close has published and dropped its gate.
+        let session = root.join("runtime/session.json");
+        rustix::fs::mkfifoat(rustix::fs::CWD, &session, Mode::RUSR | Mode::WUSR)?;
+        journal_writer.write_all(resumed.to_string().as_bytes())?;
+        drop(journal_writer);
+        let mut attribution = wait_for_reader(&session)?;
+        if !fs::read_to_string(&item)?.contains("status: closed") {
+            return Err("release reached session attribution before close committed".into());
+        }
         let gate = fs::File::options()
             .read(true)
             .write(true)
             .open(root.join("locks/sample-cli.lock.gate-lease"))?;
         gate.try_lock()?;
-        writer.write_all(resumed.to_string().as_bytes())?;
+        attribution.write_all(b"{}")?;
         Ok(gate)
     })();
     if interposed.is_err() {
@@ -2330,6 +2342,10 @@ fn stored_holder_scrubs_copies_in_recovery() -> Result<(), Box<dyn std::error::E
 
 /// Replaying the scoped restore command after an indexed removal only lists the remaining rows.
 #[test]
+#[allow(
+    clippy::too_many_lines,
+    reason = "SDK and CLI replay share the same two tracker fixtures"
+)]
 fn collection_restore_after_removal_is_read_only() -> Result<(), Box<dyn std::error::Error>> {
     let tracker = workspace()?;
     let elsewhere = workspace()?;
@@ -2393,6 +2409,51 @@ fn collection_restore_after_removal_is_read_only() -> Result<(), Box<dyn std::er
     assert_eq!(listed["count"], 1);
     assert_eq!(listed["tests"][0]["command"], "second");
     assert_eq!(snapshot()?, before);
+    expect_ok(
+        &tracker,
+        &[
+            "test",
+            "sample-cli",
+            "--add",
+            "command=third",
+            "--author",
+            "fixture",
+        ],
+    )?;
+    let removal = pm_rust(
+        &tracker,
+        &[
+            "test",
+            "sample-cli",
+            "--remove-index",
+            "2",
+            "--author",
+            "fixture",
+            "--json",
+        ],
+    )?;
+    assert!(
+        removal.status.success(),
+        "{}",
+        String::from_utf8_lossy(&removal.stderr)
+    );
+    let receipt: serde_json::Value = serde_json::from_slice(&removal.stdout)?;
+    let group = &receipt["omission_receipt"]["omitted_field_groups"][0];
+    assert_eq!(
+        group["restore_guidance"],
+        "Run this command from the original invocation directory."
+    );
+    let hint = group["restore_with"].as_str().ok_or("relative restore")?;
+    let args = pm_rust::parse_command_args(hint).ok_or("relative read arguments")?;
+    assert_eq!(args[2], ".agents/pm");
+    let read = Command::new(env!("CARGO_BIN_EXE_pm-rust"))
+        .current_dir(tracker.path())
+        .args(&args[1..])
+        .arg("--json")
+        .output()?;
+    assert!(read.status.success());
+    let listed: serde_json::Value = serde_json::from_slice(&read.stdout)?;
+    assert_eq!(listed["tests"][0]["command"], "second");
     Ok(())
 }
 

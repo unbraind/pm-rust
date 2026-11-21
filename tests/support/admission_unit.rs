@@ -1030,14 +1030,13 @@ fn admission_contract_configuration_boundaries() -> TestResult {
     fs::write(workspace.pm_root().join("tasks/extensionless"), "ignored")?;
     let settings = workspace.pm_root().join("settings.json");
     let original = fs::read(&settings)?;
-    for bytes in [
-        b"null".as_slice(),
-        b"{\"locks\":{\"ttl_seconds\":\"bad\"}}".as_slice(),
-    ] {
-        fs::write(&settings, bytes)?;
-        assert!(Source::load(workspace.pm_root()).is_err());
-    }
-    fs::write(&settings, &original)?;
+    fs::write(&settings, "null")?;
+    assert!(Source::load(workspace.pm_root()).is_err());
+    let mut invalid_leaf: Value = serde_json::from_slice(&original)?;
+    invalid_leaf["locks"]["ttl_seconds"] = json!("bad");
+    fs::write(&settings, serde_json::to_vec(&invalid_leaf)?)?;
+    let preview = workspace.preview_item_mutations(&batch(&json!([create("demo-new")]))?)?;
+    assert!(preview.ok, "{:?}", preview.diagnostics);
     let mut changed: Value = serde_json::from_slice(&original)?;
     changed["schema"]["fields"] = json!({"unexpected":"declaration"});
     fs::write(&settings, serde_json::to_vec(&changed)?)?;

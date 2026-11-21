@@ -294,6 +294,7 @@ fn nonempty(value: Option<&str>) -> Option<&str> {
 /// Loads the configured status and workflow schema files over embedded defaults.
 pub(crate) fn runtime_settings(pm_root: &Path) -> Result<Value, PmRustError> {
     let mut settings = read_json(&pm_root.join("settings.json"))?;
+    crate::mutation::normalize_mutation_settings(&mut settings);
     let mut schema = settings["schema"].as_object().cloned().unwrap_or_default();
     for (name, keys) in [
         ("statuses", &["statuses"][..]),
@@ -507,29 +508,7 @@ impl Workspace {
         request: &OwnershipItem,
         options: &OwnershipOptions,
     ) -> Result<OwnershipResult, PmRustError> {
-        let mut parents = BTreeMap::new();
-        let mut receipt = with_identity(self.pm_root(), options, || {
-            crate::mutation::ownership_item_with_options(
-                self.pm_root(),
-                request,
-                true,
-                options,
-                &mut || {
-                    parents = ownership_parents(
-                        self,
-                        request,
-                        options.start || crate::lifecycle_admission::explicit_claim(),
-                    )?;
-                    Ok(())
-                },
-            )
-        })?;
-        if receipt.skipped.is_none()
-            && let Err(error) = record_semantics(self, request, options, true, &parents)
-        {
-            append_attribution_warning(&mut receipt, "claim", &error);
-        }
-        Ok(receipt)
+        self.mutate_ownership(request, options, true)
     }
 
     /// Releases an explicit item with session identity and an optional approved bypass.
@@ -541,23 +520,44 @@ impl Workspace {
         request: &OwnershipItem,
         options: &OwnershipOptions,
     ) -> Result<OwnershipResult, PmRustError> {
-        let mut parents = BTreeMap::new();
-        let mut receipt = with_identity(self.pm_root(), options, || {
+        self.mutate_ownership(request, options, false)
+    }
+
+    /// Validates lineage before commit and publishes attribution while the item is fenced.
+    fn mutate_ownership(
+        &self,
+        request: &OwnershipItem,
+        options: &OwnershipOptions,
+        claim: bool,
+    ) -> Result<OwnershipResult, PmRustError> {
+        let parents = std::cell::RefCell::new(BTreeMap::new());
+        with_identity(self.pm_root(), options, || {
             crate::mutation::ownership_item_with_options(
                 self.pm_root(),
                 request,
-                false,
+                claim,
                 options,
                 &mut || {
-                    parents = ownership_parents(self, request, false)?;
+                    let admitted_start =
+                        claim && (options.start || crate::lifecycle_admission::explicit_claim());
+                    *parents.borrow_mut() = ownership_parents(self, request, admitted_start)?;
                     Ok(())
                 },
+                &mut |receipt, session_gate_held| {
+                    if let Err(error) = record_semantics(
+                        self,
+                        request,
+                        options,
+                        claim,
+                        session_gate_held,
+                        &parents.borrow(),
+                    ) {
+                        let action = if claim { "claim" } else { "release" };
+                        append_attribution_warning(receipt, action, &error);
+                    }
+                },
             )
-        })?;
-        if let Err(error) = record_semantics(self, request, options, false, &parents) {
-            append_attribution_warning(&mut receipt, "release", &error);
-        }
-        Ok(receipt)
+        })
     }
 
     /// Claims first, then starts the item; a failed update preserves the claim.
@@ -692,6 +692,7 @@ fn record_semantics(
     request: &OwnershipItem,
     options: &OwnershipOptions,
     claim: bool,
+    session_gate_held: bool,
     parents: &BTreeMap<String, Option<String>>,
 ) -> Result<(), PmRustError> {
     let principal = options
@@ -713,7 +714,7 @@ fn record_semantics(
         lineage.push(parent.clone());
         current = parents.get(&parent).cloned().flatten();
     }
-    crate::mutation::mutate_session_state(workspace.pm_root(), &mut |state| {
+    crate::mutation::mutate_session_state(workspace.pm_root(), session_gate_held, &mut |state| {
         let key = if let Some(instance) = principal
             .rsplit_once('#')
             .map(|(_, instance)| instance)

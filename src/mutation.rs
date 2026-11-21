@@ -533,28 +533,178 @@ fn invalid_mutation(reason: impl Into<String>) -> PmRustError {
 /// Reads the mutation settings needed to validate and coordinate a create.
 fn read_settings(pm_root: &Path) -> Result<MutationSettings, PmRustError> {
     let path = pm_root.join("settings.json");
-    // `match` instead of `.map_err(..)` avoids per-instantiation closure
-    // functions the coverage gate counts separately.
     let raw = match fs::read_to_string(&path) {
         Ok(raw) => raw,
-        Err(source) => {
-            return Err(PmRustError::Io {
-                path: path.clone(),
-                source,
-            });
-        }
+        Err(source) => return Err(PmRustError::Io { path, source }),
     };
-    match crate::strict_json::from_str(&raw) {
-        Ok(settings) => Ok(settings),
-        Err(error) => Err(invalid(format!("invalid settings.json: {error}"))),
-    }
+    decode_mutation_settings(raw.as_bytes())
+}
+
+/// Resolves invalid values in a strictly decoded settings object.
+fn decode_mutation_settings(bytes: &[u8]) -> Result<MutationSettings, PmRustError> {
+    let mut settings: Value = crate::strict_json::from_slice(bytes)
+        .map_err(|error| invalid(format!("invalid settings.json: {error}")))?;
+    normalize_mutation_settings(&mut settings);
+    serde_json::from_value(settings)
+        .map_err(|error| invalid(format!("invalid settings.json: {error}")))
 }
 
 /// Checks captured settings through the same typed native schema as writers.
 pub(crate) fn validate_preview_settings(bytes: &[u8]) -> Result<(), PmRustError> {
-    crate::strict_json::from_slice::<MutationSettings>(bytes)
-        .map(|_| ())
-        .map_err(|error| invalid(format!("invalid settings.json: {error}")))
+    decode_mutation_settings(bytes).map(|_| ())
+}
+
+/// Replaces invalid scalar settings independently and reports whether a fallback was used.
+///
+/// Callers still validate the outer JSON document. Absent keys retain the defaults
+/// used by native trackers that predate the corresponding settings.
+#[doc(hidden)]
+pub fn normalize_mutation_settings(settings: &mut Value) -> bool {
+    let Some(settings) = settings.as_object_mut() else {
+        return false;
+    };
+    let mut warned = false;
+    for (key, valid, default) in [
+        (
+            "id_prefix",
+            Value::is_string as fn(&Value) -> bool,
+            serde_json::json!("pm-"),
+        ),
+        ("author_default", Value::is_string, serde_json::json!("")),
+        ("item_format", valid_item_format, serde_json::json!("toon")),
+        (
+            "locks",
+            Value::is_object,
+            serde_json::json!({"ttl_seconds":default_lock_ttl(),"wait_ms":3000}),
+        ),
+        ("workflow", Value::is_object, serde_json::json!({})),
+        (
+            "governance",
+            Value::is_object,
+            serde_json::json!({"preset":"minimal"}),
+        ),
+        ("mutation_guard", Value::is_object, serde_json::json!({})),
+    ] {
+        warned |= fallback_setting(settings, key, valid, default);
+    }
+    if let Some(locks) = settings.get_mut("locks").and_then(Value::as_object_mut) {
+        warned |= normalize_lock_number(locks, "ttl_seconds", default_lock_ttl());
+        warned |= normalize_lock_number(locks, "wait_ms", 3000);
+    }
+    if let Some(workflow) = settings.get_mut("workflow").and_then(Value::as_object_mut) {
+        warned |= fallback_setting(
+            workflow,
+            "close_status",
+            Value::is_string,
+            serde_json::json!("closed"),
+        );
+    }
+    if let Some(governance) = settings
+        .get_mut("governance")
+        .and_then(Value::as_object_mut)
+    {
+        for (key, valid, default) in [
+            (
+                "preset",
+                valid_governance_preset as fn(&Value) -> bool,
+                serde_json::json!("minimal"),
+            ),
+            (
+                "force_required_for_stale_lock",
+                Value::is_boolean,
+                Value::Bool(true),
+            ),
+            (
+                "ownership_enforcement",
+                valid_ownership_enforcement,
+                serde_json::json!("warn"),
+            ),
+            ("require_close_reason", Value::is_boolean, Value::Bool(true)),
+        ] {
+            warned |= fallback_setting(governance, key, valid, default);
+        }
+    }
+    if let Some(guard) = settings
+        .get_mut("mutation_guard")
+        .and_then(Value::as_object_mut)
+    {
+        for (key, valid, default) in [
+            (
+                "stale_in_progress_hours",
+                claim_activity::valid_threshold as fn(&Value) -> bool,
+                serde_json::json!(claim_activity::default_threshold()),
+            ),
+            (
+                "require_attributed_author",
+                Value::is_boolean,
+                Value::Bool(false),
+            ),
+            (
+                "secret_guard",
+                valid_secret_guard,
+                serde_json::json!("advise"),
+            ),
+        ] {
+            warned |= fallback_setting(guard, key, valid, default);
+        }
+    }
+    warned
+}
+
+/// Updates an explicitly stored invalid setting, leaving missing settings absent.
+fn fallback_setting(
+    settings: &mut serde_json::Map<String, Value>,
+    key: &str,
+    valid: fn(&Value) -> bool,
+    default: Value,
+) -> bool {
+    if let Some(value) = settings.get_mut(key)
+        && !valid(value)
+    {
+        *value = default;
+        return true;
+    }
+    false
+}
+
+/// Treats integral decimal and exponent spellings as ordinary lock settings.
+#[allow(
+    clippy::cast_possible_truncation,
+    clippy::cast_sign_loss,
+    reason = "only nonnegative safe integers are converted"
+)]
+fn normalize_lock_number(
+    settings: &mut serde_json::Map<String, Value>,
+    key: &str,
+    default: u64,
+) -> bool {
+    let Some(value) = settings.get_mut(key) else {
+        return false;
+    };
+    let number = value
+        .as_f64()
+        .filter(|number| (0.0..=9_007_199_254_740_991.0).contains(number) && number.fract() == 0.0);
+    *value = serde_json::json!(number.map_or(default, |number| number as u64));
+    number.is_none()
+}
+
+fn valid_item_format(value: &Value) -> bool {
+    matches!(value.as_str(), Some("toon" | "json_markdown"))
+}
+
+fn valid_governance_preset(value: &Value) -> bool {
+    matches!(
+        value.as_str(),
+        Some("minimal" | "default" | "strict" | "custom")
+    )
+}
+
+fn valid_ownership_enforcement(value: &Value) -> bool {
+    matches!(value.as_str(), Some("none" | "warn" | "strict"))
+}
+
+fn valid_secret_guard(value: &Value) -> bool {
+    matches!(value.as_str(), Some("off" | "advise" | "block"))
 }
 
 /// Maps a canonical built-in item type to its tracker directory.
@@ -1024,6 +1174,26 @@ fn acquire_lock_attempt(
     );
     let _gate = acquire_cleanup_gate(&locks, id, ttl_seconds)?;
     create_or_reclaim_lock(&path, &raw, id, ttl_seconds, force_stale, timestamp, age)
+}
+
+/// Holds off native lease replacement while the current holder publishes.
+fn fence_item(
+    pm_root: &Path,
+    id: &str,
+    lock: &ItemLock,
+    ttl: u64,
+) -> Result<CleanupGate, PmRustError> {
+    let locks = pm_root.join("locks");
+    let gate = wait_for_lock(id, lock_retry(250), || {
+        acquire_cleanup_gate(&locks, id, ttl)
+    })?;
+    if fs::read_to_string(&lock.path).as_deref().ok() == Some(lock.raw.as_str())
+        && lock_identity_unchanged(&lock.path, lock.observed.as_ref())
+    {
+        Ok(gate)
+    } else {
+        Err(PmRustError::LockConflict { id: id.to_owned() })
+    }
 }
 
 /// Serializes native lock reclamation and session snapshot publication.
@@ -2086,8 +2256,7 @@ pub(crate) fn prepare_create_preview(
     lifecycle: &crate::list_registry::Lifecycle,
     mut request: CreateItem,
 ) -> Result<ItemDocument, PmRustError> {
-    let settings = crate::strict_json::from_slice(settings_bytes)
-        .map_err(|error| invalid(format!("invalid settings.json: {error}")))?;
+    let settings = decode_mutation_settings(settings_bytes)?;
     let (_, _, document) = prepare_create_document(&mut request, &settings, lifecycle)?;
     canonical_item_bytes(&document).map(|_| document)
 }
@@ -2248,8 +2417,7 @@ pub(crate) fn prepare_update_preview(
     mut request: UpdateItem,
 ) -> Result<ItemDocument, PmRustError> {
     let timestamp = validate_mutation_request(&request.author, request.timestamp.as_deref())?;
-    let settings = crate::strict_json::from_slice(settings_bytes)
-        .map_err(|error| invalid(format!("invalid settings.json: {error}")))?;
+    let settings = decode_mutation_settings(settings_bytes)?;
     // Previews never inherit an ambient session: the batch author is the caller.
     let principal = request.author.trim().to_owned();
     let document = prepare_update_document(
@@ -2765,7 +2933,7 @@ pub(crate) fn close_item(
         None => timestamp.clone(),
     };
     settings.locks.age = LockAge::Receipt;
-    let _lock = acquire_lock(
+    let lock = acquire_lock(
         pm_root,
         &request.id,
         &request.author,
@@ -3035,6 +3203,7 @@ pub(crate) fn close_item(
         ));
     }
     receipt["completion"] = completion.clone();
+    let _gate = fence_item(pm_root, &request.id, &lock, settings.locks.ttl_seconds)?;
     let mut result = commit_mutation_with_context(
         pm_root,
         "close",
@@ -3360,6 +3529,7 @@ pub(crate) fn ownership_item(
         claim,
         &crate::OwnershipOptions::default(),
         &mut || Ok(()),
+        &mut |_, _| {},
     )
 }
 
@@ -3371,6 +3541,7 @@ pub(crate) fn ownership_item_with_options(
     claim: bool,
     options: &crate::OwnershipOptions,
     prepare: &mut dyn FnMut() -> Result<(), PmRustError>,
+    publish: &mut dyn FnMut(&mut OwnershipResult, bool),
 ) -> Result<OwnershipResult, PmRustError> {
     let mut settings = read_settings(pm_root)?;
     settings.locks.age = LockAge::OwnershipReceipt;
@@ -3387,7 +3558,7 @@ pub(crate) fn ownership_item_with_options(
         settings.locks.wait_ms,
     );
     let lock_started = Instant::now();
-    let _lock = match acquire_lock(
+    let lock = match acquire_lock(
         pm_root,
         &request.id,
         &request.author,
@@ -3583,9 +3754,17 @@ pub(crate) fn ownership_item_with_options(
     };
     // Refused and skipped contenders never decode unrelated item payloads.
     // Recovery and the target's atomic ownership checks already hold this lock.
-    if skipped.is_none() {
+    let _gate = if skipped.is_none() {
         prepare()?;
-    }
+        Some(fence_item(
+            pm_root,
+            &request.id,
+            &lock,
+            settings.locks.ttl_seconds,
+        )?)
+    } else {
+        None
+    };
     // Claim skips history on no-op; release deliberately records even an empty patch.
     if !claim || changed > 0 {
         document.metadata.updated_at.clone_from(&timestamp);
@@ -3629,7 +3808,7 @@ pub(crate) fn ownership_item_with_options(
             }
         }
     }
-    Ok(OwnershipResult {
+    let mut receipt = OwnershipResult {
         id: document.metadata.id.clone(),
         status: document.metadata.status.clone(),
         item: document,
@@ -3643,7 +3822,13 @@ pub(crate) fn ownership_item_with_options(
         skipped,
         warnings,
         suggestions,
-    })
+    };
+    // Publish derived state in the same order as the durable ownership changes.
+    if receipt.skipped.is_none() {
+        // This item name and the derived session state use the same lock path.
+        publish(&mut receipt, request.id == "session-state");
+    }
+    Ok(receipt)
 }
 
 /// Validates a status transition while retaining unconstrained and no-op workflows.
@@ -3905,11 +4090,23 @@ fn acquire_session_lock(
 /// Mutates derived session attribution under the shared session-state lock.
 pub(crate) fn mutate_session_state(
     pm_root: &Path,
+    session_gate_held: bool,
     update: &mut SessionUpdate<'_>,
 ) -> Result<(), PmRustError> {
     let ttl = default_lock_ttl();
-    let wait = lock_wait_budget(std::env::var("PM_LOCK_WAIT_MS").ok().as_deref(), 3000);
-    let lock = acquire_session_lock(pm_root, ttl, lock_retry(wait), now_iso)?;
+    let lock = if session_gate_held {
+        // An ownership commit for the item named session-state already
+        // holds exactly this lock and its publication gate.
+        None
+    } else {
+        let wait = lock_wait_budget(std::env::var("PM_LOCK_WAIT_MS").ok().as_deref(), 3000);
+        Some(acquire_session_lock(
+            pm_root,
+            ttl,
+            lock_retry(wait),
+            now_iso,
+        )?)
+    };
     let path = pm_root.join("runtime/session.json");
     let mut state = fs::read_to_string(&path)
         .ok()
@@ -3917,8 +4114,9 @@ pub(crate) fn mutate_session_state(
         .unwrap_or_default();
     update(&mut state)?;
     let contents = crate::stringify_json(&Value::Object(state), false);
-    replace_with(&path, &contents, |temporary, path| {
-        publish_session_state(pm_root, lock, ttl, temporary, path)
+    replace_with(&path, &contents, |temporary, path| match lock {
+        Some(lock) => publish_session_state(pm_root, lock, ttl, temporary, path),
+        None => install_session_state(temporary, path),
     })
 }
 
@@ -3968,23 +4166,26 @@ fn publish_session_state(
             serde_json::json!({"code":SESSION_PUBLICATION_CONFLICT}),
         ))
     } else {
-        rename_replacement(temporary, path).and_then(|()| {
-            sync_replacement(path).map_err(|error| {
-                close_refusal(
-                    format!(
-                        "Session attribution was renamed, but its durability is unknown: {error}"
-                    ),
-                    4,
-                    serde_json::json!({"code":SESSION_DURABILITY_UNKNOWN}),
-                )
-            })
-        })
+        install_session_state(temporary, path)
     };
     // Keep the owner receipt until the gate is gone so a crash leaves a
     // receipt that the next writer can reclaim through dead-owner recovery.
     drop(gate);
     drop(lock);
     result
+}
+
+/// Installs the session snapshot while the caller holds its publication gate.
+fn install_session_state(temporary: &Path, path: &Path) -> Result<(), PmRustError> {
+    rename_replacement(temporary, path).and_then(|()| {
+        sync_replacement(path).map_err(|error| {
+            close_refusal(
+                format!("Session attribution was renamed, but its durability is unknown: {error}"),
+                4,
+                serde_json::json!({"code":SESSION_DURABILITY_UNKNOWN}),
+            )
+        })
+    })
 }
 
 /// Journals, writes, and records one completed in-place mutation.

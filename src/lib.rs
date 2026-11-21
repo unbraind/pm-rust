@@ -60,7 +60,7 @@ pub use mutation::{
     OwnershipResult, UpdateItem, default_priority, default_status, reject_future_timestamp,
     validate_timestamp,
 };
-pub use mutation::{now_iso as current_timestamp, quote_command_arg};
+pub use mutation::{normalize_mutation_settings, now_iso as current_timestamp, quote_command_arg};
 pub use orientation::{ContextOptions, DepsOptions, HistoryOptions};
 pub use ownership::{
     AuthorIdentity, OwnershipOptions, SelectionOptions, partial_failure as completed_step_failure,

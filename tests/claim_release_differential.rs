@@ -2097,6 +2097,16 @@ fn create_accepts_mutation_guard_shapes() -> Result<(), Box<dyn std::error::Erro
         (None, "pm-absent"),
         (Some("null"), "pm-null"),
         (Some("{}"), "pm-empty"),
+        (Some(r#"{"stale_in_progress_hours":null}"#), "pm-null-hours"),
+        (Some(r#"{"stale_in_progress_hours":0}"#), "pm-zero-hours"),
+        (
+            Some(r#"{"stale_in_progress_hours":1.5}"#),
+            "pm-fraction-hours",
+        ),
+        (
+            Some(r#"{"stale_in_progress_hours":"72"}"#),
+            "pm-string-hours",
+        ),
         (Some(r#"{"require_attributed_author":true}"#), "pm-author"),
         (Some(r#"{"secret_guard":"off"}"#), "pm-off"),
         (Some(r#"{"secret_guard":"advise"}"#), "pm-advise"),
@@ -2147,11 +2157,171 @@ fn create_accepts_mutation_guard_shapes() -> Result<(), Box<dyn std::error::Erro
                 String::from_utf8_lossy(&output.stderr)
             );
         }
-        assert_eq!(
-            String::from_utf8_lossy(&oracle.stderr).contains("settings_read_invalid_schema"),
-            guard == Some("null")
+        let invalid = matches!(
+            id,
+            "pm-null" | "pm-null-hours" | "pm-zero-hours" | "pm-fraction-hours" | "pm-string-hours"
         );
+        for output in [&oracle, &native] {
+            assert_eq!(
+                String::from_utf8_lossy(&output.stderr).contains("settings_read_invalid_schema"),
+                invalid,
+                "guard {guard:?}"
+            );
+        }
+        if id == "pm-null-hours" {
+            let args = ["claim", id, "--author", "alpha", "--json"];
+            for output in [
+                published_run(&fixture.driver, fixture.node.path(), &args)?,
+                native_command(fixture.rust.path(), &args).output()?,
+            ] {
+                assert!(
+                    output.status.success(),
+                    "{}",
+                    String::from_utf8_lossy(&output.stderr)
+                );
+                let warning: serde_json::Value = serde_json::from_slice(&output.stderr)?;
+                assert_eq!(
+                    warning["warnings"],
+                    serde_json::json!(["settings_read_invalid_schema"])
+                );
+            }
+        }
         fixture.compare_bytes()?;
+    }
+    Ok(())
+}
+
+/// Compare invalid field defaults with the metadata API of the exact published package.
+#[test]
+#[allow(
+    clippy::too_many_lines,
+    reason = "the complete settings matrix shares one oracle process"
+)]
+fn invalid_mutation_setting_defaults_match_published() -> Result<(), Box<dyn std::error::Error>> {
+    use serde_json::{Value, json};
+    let Some(published) = published_cli_or_skip("mutation settings defaults") else {
+        return Ok(());
+    };
+    let root = tempfile::tempdir()?;
+    let driver = root.path().join("settings.mjs");
+    fs::write(
+        &driver,
+        r"
+import { readFileSync, writeFileSync } from 'node:fs';
+import { pathToFileURL } from 'node:url';
+import { join } from 'node:path';
+const { readSettingsWithMetadata } = await import(pathToFileURL(process.argv[2]));
+const { base, cases } = JSON.parse(readFileSync(process.argv[3], 'utf8'));
+const results = [];
+for (const [index, [key, raw]] of cases.entries()) {
+  const path = join(process.argv[4], String(index));
+  const settings = structuredClone(base);
+  const parts = key.split('.');
+  const leaf = parts.pop();
+  const parent = parts.reduce((node, part) => node[part] ??= {}, settings);
+  parent[leaf] = raw;
+  writeFileSync(join(path, 'settings.json'), JSON.stringify(settings));
+  const resolved = await readSettingsWithMetadata(path);
+  results.push({
+    warnings: resolved.warnings,
+    value: [...parts, leaf].reduce((node, part) => node?.[part], resolved.settings)
+  });
+}
+process.stdout.write(JSON.stringify(results));
+",
+    )?;
+    let mut base: Value = serde_json::from_str(include_str!("fixtures/list-settings.json"))?;
+    base["governance"]["preset"] = json!("minimal");
+    let cases = [
+        ("id_prefix", json!("pm-"), true),
+        ("author_default", json!(""), true),
+        ("item_format", json!("toon"), true),
+        ("locks", json!({"ttl_seconds":1800,"wait_ms":3000}), true),
+        ("locks.ttl_seconds", json!(1800), true),
+        ("locks.wait_ms", json!(3000), true),
+        ("workflow", json!({}), true),
+        // The published reader ignores the legacy flat close status. Both paths use closed.
+        ("workflow.close_status", json!("closed"), false),
+        ("governance", json!({"preset":"minimal"}), true),
+        ("governance.preset", json!("minimal"), true),
+        (
+            "governance.force_required_for_stale_lock",
+            json!(true),
+            true,
+        ),
+        ("governance.ownership_enforcement", json!("warn"), true),
+        ("governance.require_close_reason", json!(true), true),
+        ("mutation_guard", json!({}), true),
+        ("mutation_guard.stale_in_progress_hours", json!(72), true),
+        (
+            "mutation_guard.require_attributed_author",
+            json!(false),
+            true,
+        ),
+        ("mutation_guard.secret_guard", json!("advise"), true),
+    ];
+    let checks: Vec<_> = cases
+        .iter()
+        .flat_map(|case| {
+            let mut values = vec![Value::Null, json!([])];
+            match case.0 {
+                "locks.ttl_seconds" => values.push(json!(1.5)),
+                "locks.wait_ms" => values.push(json!(-1)),
+                _ => {}
+            }
+            values.into_iter().map(move |value| (case, value))
+        })
+        .collect();
+    let inputs: Vec<_> = checks
+        .iter()
+        .map(|((key, ..), value)| json!([key, value]))
+        .collect();
+    for index in 0..inputs.len() {
+        fs::create_dir(root.path().join(index.to_string()))?;
+    }
+    let input = root.path().join("inputs.json");
+    fs::write(&input, json!({"base":base,"cases":inputs}).to_string())?;
+    let mut command = published_cli::oracle_command(
+        std::env::var("PM_NODE_INTERPRETER").unwrap_or_else(|_| "node".to_owned()),
+    );
+    mutation_differential::isolate_environment(&mut command);
+    let output = command
+        .arg(driver)
+        .arg(published.package_root.join("dist/core/store/settings.js"))
+        .arg(input)
+        .arg(root.path())
+        .output()?;
+    assert!(
+        output.status.success(),
+        "{}",
+        String::from_utf8_lossy(&output.stderr)
+    );
+    let oracle: Vec<Value> = serde_json::from_slice(&output.stdout)?;
+    assert_eq!(oracle.len(), checks.len());
+    for (((key, expected, oracle_warns), invalid), resolved) in checks.into_iter().zip(oracle) {
+        let pointer = format!("/{}", key.replace('.', "/"));
+        let (parent, leaf) = pointer.rsplit_once('/').ok_or("setting path")?;
+        let mut native = base.clone();
+        native.pointer_mut(parent).ok_or("settings parent")?[leaf] = invalid;
+        assert!(pm_rust::normalize_mutation_settings(&mut native), "{key}");
+        assert_eq!(native.pointer(&pointer), Some(expected), "{key}");
+        assert_eq!(
+            resolved["warnings"] == json!(["settings_read_invalid_schema"]),
+            *oracle_warns,
+            "{key}"
+        );
+        match *key {
+            "governance" => assert_eq!(resolved["value"]["preset"], "minimal"),
+            "governance.force_required_for_stale_lock" => assert_eq!(resolved["value"], false),
+            "governance.ownership_enforcement" => assert_eq!(resolved["value"], "none"),
+            "mutation_guard" => assert_eq!(resolved["value"]["stale_in_progress_hours"], 72),
+            "workflow" => assert_eq!(resolved["value"], json!({"definition_of_done":[]})),
+            "workflow.close_status" => assert!(resolved.get("value").is_none()),
+            _ => assert_eq!(&resolved["value"], expected, "{key}"),
+        }
+        if *key != "id_prefix" {
+            assert_eq!(native["id_prefix"], "demo-");
+        }
     }
     Ok(())
 }

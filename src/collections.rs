@@ -1543,7 +1543,12 @@ fn attach_collection_receipts(
         };
         let name = format!("{key}_history");
         if let Some(scope) = scope {
-            json!([{"name":name,"restore_with":crate::render_pm_command(["--pm-path", &scope, command, id])}])
+            let mut group = json!({"name":name,"restore_with":crate::render_pm_command(["--pm-path", &scope, command, id])});
+            if relative.is_some() {
+                group["restore_guidance"] =
+                    json!("Run this command from the original invocation directory.");
+            }
+            json!([group])
         } else {
             json!([{"name":name,"restore_guidance":format!("Select the original tracker manually and list {key} for {id}. The tracker scope cannot be encoded as UTF-8.")}])
         }

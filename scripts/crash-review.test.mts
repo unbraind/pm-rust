@@ -2,7 +2,7 @@ import { testTime } from './crash-test-depth.mts';
 import assert from 'node:assert/strict';
 import { spawnSync } from 'node:child_process';
 import { createHash } from 'node:crypto';
-import { chmodSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
+import { chmodSync, existsSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join, resolve } from 'node:path';
 import { test } from 'node:test';
@@ -116,6 +116,9 @@ test('session writer recovers after SIGKILL between publication cleanup drops',
     const interrupted = traceClaim(workspace, ['-e', `inject=${syscall}:error=EINTR:signal=SIGKILL:when=${ordinal}`]);
     assert.equal(interrupted.signal, 'SIGKILL', interrupted.stderr.toString());
 
+    const lock = join(workspace, '.agents/pm/locks/session-state.lock');
+    assert.equal(existsSync(`${lock}.stale-cleanup`), false, interrupted.stderr.toString());
+    assert.equal(existsSync(lock), true, interrupted.stderr.toString());
     const session = join(workspace, '.agents/pm/runtime/session.json');
     const claimed = JSON.parse(readFileSync(session, 'utf8'));
     assert.deepEqual(Object.values(claimed.semantic_attribution).map(

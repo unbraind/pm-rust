@@ -766,13 +766,14 @@ fn run_collection_with_cwd(
     args: CollectionArgs,
     cwd: std::io::Result<PathBuf>,
 ) -> Result<(), Box<dyn std::error::Error>> {
-    let settings: serde_json::Value = pm_rust::strict_json::from_str(&std::fs::read_to_string(
+    let mut settings = pm_rust::strict_json::from_str(&std::fs::read_to_string(
         workspace.pm_root().join("settings.json"),
     )?)?;
     let identity = if args.add.is_empty() && args.remove.is_empty() && args.remove_index.is_empty()
     {
         None
     } else {
+        warn_invalid_settings(&mut settings);
         Some(mutation_identity(
             args.author.as_deref(),
             settings["author_default"].as_str(),
@@ -943,9 +944,7 @@ fn ownership_request(
             reason: "author must not be empty".to_owned(),
         }));
     }
-    let settings: serde_json::Value = pm_rust::strict_json::from_slice(&std::fs::read(
-        workspace.pm_root().join("settings.json"),
-    )?)?;
+    let settings = mutation_settings_for_cli(workspace)?;
     let identity = mutation_identity(args.author.as_deref(), settings["author_default"].as_str())?;
     let request = OwnershipItem {
         id: args.id.unwrap_or_default(),
@@ -971,13 +970,45 @@ fn scalar_identity(
     workspace: &Workspace,
     author: Option<&str>,
 ) -> Result<AuthorIdentity, Box<dyn std::error::Error>> {
-    let settings: serde_json::Value = pm_rust::strict_json::from_slice(&std::fs::read(
-        workspace.pm_root().join("settings.json"),
-    )?)?;
+    let settings = mutation_settings_for_cli(workspace)?;
     Ok(mutation_identity(
         author,
         settings["author_default"].as_str(),
     )?)
+}
+
+/// Reports a settings fallback once for a CLI mutation, including composed commands.
+fn mutation_settings_for_cli(
+    workspace: &Workspace,
+) -> Result<serde_json::Value, Box<dyn std::error::Error>> {
+    let mut settings = read_cli_settings(workspace)?;
+    warn_invalid_settings(&mut settings);
+    Ok(settings)
+}
+
+/// Reads the bootstrap author settings with strict JSON admission.
+fn read_cli_settings(
+    workspace: &Workspace,
+) -> Result<serde_json::Value, Box<dyn std::error::Error>> {
+    Ok(pm_rust::strict_json::from_slice(&std::fs::read(
+        workspace.pm_root().join("settings.json"),
+    )?)?)
+}
+
+/// Places fallback warnings on stderr, leaving mutation receipts intact.
+fn warn_invalid_settings(settings: &mut serde_json::Value) {
+    if pm_rust::normalize_mutation_settings(settings) {
+        const CODE: &str = "settings_read_invalid_schema";
+        const MESSAGE: &str = "[pm] warning: settings_read_invalid_schema — invalid settings use defaults; run pm health for remediation.";
+        if json_requested(&raw_invocation()) {
+            eprintln!(
+                "{}",
+                serde_json::json!({"type":"warning","warnings":[CODE],"warning_details":[{"code":CODE,"message":MESSAGE}]})
+            );
+        } else {
+            eprintln!("{MESSAGE}");
+        }
+    }
 }
 
 /// Creates one item, stamping the argv-derived implementer role.
@@ -985,6 +1016,8 @@ fn create_payload(
     workspace: &Workspace,
     mut request: CreateItem,
 ) -> Result<CreateResult, Box<dyn std::error::Error>> {
+    // The writer itself preserves its typed errors for malformed or unreadable settings.
+    let _ = mutation_settings_for_cli(workspace);
     request.provenance_role = Some("implementer".to_owned());
     mutation_identity(Some(&request.author), None)?
         .with(|| workspace.create(request))

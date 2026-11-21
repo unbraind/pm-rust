@@ -133,6 +133,7 @@ fn end_of_day_timestamp_checks_zero_time_and_calendar() {
     }
     for invalid in [
         "bad",
+        "2026-08-0éT00:00Z",
         "2026-08-06 24:00:00Z",
         "2026-08-06T24:01:00Z",
         "2026-08-06T24:00:01Z",
@@ -230,6 +231,48 @@ fn claim_history_provenance_and_activity_match_published() -> TestResult {
             None,
             false,
             false,
+        ),
+        (
+            "minute-precision-work",
+            vec![
+                claim(),
+                record(
+                    "update",
+                    "2026-08-07T00:00Z",
+                    patch("/metadata/title", json!("New title")),
+                ),
+            ],
+            None,
+            false,
+            false,
+        ),
+        (
+            "leap-second-history",
+            vec![
+                claim(),
+                record(
+                    "update",
+                    "2016-12-31T23:59:60Z",
+                    patch("/metadata/title", json!("New title")),
+                ),
+            ],
+            None,
+            true,
+            false,
+        ),
+        (
+            "ordinary-second-history",
+            vec![
+                claim(),
+                record(
+                    "update",
+                    "2016-12-31T23:59:59Z",
+                    patch("/metadata/title", json!("New title")),
+                ),
+            ],
+            None,
+            false,
+            true,
         ),
         ("recent-work", vec![claim(), substantive], None, false, true),
         (
@@ -373,6 +416,7 @@ fn claim_history_provenance_and_activity_match_published() -> TestResult {
             false,
         ),
         ("broken-json", vec![claim()], None, true, false),
+        ("invalid-utf8", vec![], None, true, false),
         (
             "bad-patch-path",
             vec![claim(), record("update", LATER, json!([{"path": 0}]))],
@@ -396,6 +440,9 @@ fn claim_history_provenance_and_activity_match_published() -> TestResult {
                 .append(true)
                 .open(&history)?
                 .write_all(b"{broken\n")?;
+        }
+        if label == "invalid-utf8" {
+            fs::write(&history, [0xff, b'\n'])?;
         }
         let observed = fs::read(&history)?;
         let evidence = super::evidence(&history, &item, HOLDER, NOW, 72);

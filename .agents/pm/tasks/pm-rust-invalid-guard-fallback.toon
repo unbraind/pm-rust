@@ -6,10 +6,21 @@ status: open
 priority: 3
 tags[3]: follow-up,oracle,settings
 created_at: "2026-11-21T00:40:53.312Z"
-updated_at: "2026-11-21T00:41:06.395Z"
+updated_at: "2026-11-21T10:54:24.317Z"
 author: codex-sol
 parent: pm-rust-oracle-1118
-files[2]{path,scope}:
+comments[3]{created_at,author,text}:
+  "2026-11-21T08:44:49.659Z",codex-sol,"The published 2026.11.18 metadata reader reports settings_read_invalid_schema and returns its whole default profile when a validated field is invalid. A scratch create with a null stale threshold succeeded and used the default ID prefix. Round FO defaults invalid native mutation settings independently, preserves valid siblings and keeps strict parsing for malformed or duplicate-key JSON. The legacy flat workflow.close_status is a native compatibility field; the oracle reads schema.workflow.close_status."
+  "2026-11-21T08:58:31.180Z",codex-sol,"The published metadata differential passed for 34 null or invalid values across 17 settings and sections. It verifies the warning and relevant default from the pinned SDK, and checks that native preserves valid sibling values. The CLI emits the warning in text or JSON and the preview uses the same repaired settings as apply."
+  "2026-11-21T09:28:20.061Z",codex-sol,"The settings matrix now includes 36 inputs across the 17 entries in the mutation settings decoder, including a fractional lock lifetime and negative wait. The write differential passed in regular and instrumented builds. It checks durable oracle parity and warning codes for plain create and JSON claim output. The preview regression also passed in both builds."
+files[4]{path,scope}:
+  src/main.rs,project
   src/mutation.rs,project
   src/mutation/claim_activity.rs,project
+  tests/claim_release_differential.rs,project
+tests[2]{command,scope,provenance{author,created_at,source_kind,source_ref}}:
+  PM_RUST_REQUIRE_PUBLISHED_CLI=1 cargo test --locked --all-features --test claim_release_differential invalid_mutation_setting_defaults_match_published,project,codex-sol,"2026-11-21T08:48:58.872Z",local_mutation,fix/oracle-pm-cli-1118
+  PM_RUST_REQUIRE_PUBLISHED_CLI=1 cargo test --locked --all-features --test claim_release_differential create_accepts_mutation_guard_shapes,project,codex-sol,"2026-11-21T08:49:05.959Z",local_mutation,fix/oracle-pm-cli-1118
+docs[1]{path,scope}:
+  docs/COMPATIBILITY.md,project
 body: ""
