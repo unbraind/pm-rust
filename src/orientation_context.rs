@@ -93,8 +93,8 @@ fn rankable_timestamp(timestamp: &str) -> bool {
         && &timestamp.as_bytes()[17..19] != b"60"
         && timestamp.split_once('.').is_none_or(|(_, tail)| {
             tail.bytes()
-                .skip(3)
                 .take_while(u8::is_ascii_digit)
+                .skip(3)
                 .all(|digit| digit == b'0')
         })
 }

@@ -1,6 +1,9 @@
 //! Read-only ownership evidence used in claim conflict receipts.
 
-use std::{fs, io::ErrorKind, path::Path};
+use std::{
+    io::{ErrorKind, Read},
+    path::Path,
+};
 
 use serde_json::{Value, json};
 use time::{Duration, OffsetDateTime, format_description::well_known::Rfc3339};
@@ -70,8 +73,48 @@ pub(crate) fn parse_stored_timestamp(value: &str) -> Option<OffsetDateTime> {
     } else {
         OffsetDateTime::parse(value, &Rfc3339).ok()
     }
-    .or_else(|| parse_end_of_day(value))?;
+    .or_else(|| parse_end_of_day(value))
+    .or_else(|| parse_local_timestamp(value, clock_end))?;
     Some(time - Duration::nanoseconds(i64::from(time.nanosecond() % 1_000_000)))
+}
+
+/// Resolves an offset-free clock in the system time zone with Date's DST behavior.
+fn parse_local_timestamp(value: &str, clock_end: &str) -> Option<OffsetDateTime> {
+    use jiff::tz::AmbiguousOffset;
+
+    if clock_end.contains(['Z', 'z', '+', '-']) {
+        return None;
+    }
+    // Use the existing ISO validation and normalize 24:00 before applying the zone.
+    let utc = if clock_end.is_empty() { ":00Z" } else { "Z" };
+    let normalized = format!("{value}{utc}");
+    let civil = OffsetDateTime::parse(&normalized, &Rfc3339)
+        .ok()
+        .or_else(|| parse_end_of_day(&normalized))?;
+    #[allow(clippy::cast_possible_truncation, reason = "four-digit ISO year")]
+    let year = civil.year() as i16;
+    let local = jiff::civil::DateTime::new(
+        year,
+        u8::from(civil.month()).cast_signed(),
+        civil.day().cast_signed(),
+        civil.hour().cast_signed(),
+        civil.minute().cast_signed(),
+        civil.second().cast_signed(),
+        civil.nanosecond().cast_signed(),
+    );
+    local.ok().and_then(|local| {
+        // The earlier offset selects the first occurrence in a fold and
+        // advances through a gap. Resolve it without narrowing the epoch range.
+        let offset = match jiff::tz::TimeZone::system()
+            .to_ambiguous_timestamp(local)
+            .offset()
+        {
+            AmbiguousOffset::Unambiguous { offset }
+            | AmbiguousOffset::Fold { before: offset, .. }
+            | AmbiguousOffset::Gap { before: offset, .. } => offset,
+        };
+        civil.checked_sub(Duration::seconds(i64::from(offset.seconds())))
+    })
 }
 
 /// Normalizes the ISO hour-24 spelling accepted by the published history reader.
@@ -163,15 +206,28 @@ fn compaction_activity(entry: &Value) -> CompactionActivity<'_> {
 
 /// Reads an entire stream, treating missing streams as empty and broken streams as unjudgeable.
 fn read_history(path: &Path, valid: fn(&Value) -> bool) -> Option<Vec<Value>> {
-    let bytes = match fs::read(path) {
-        Ok(bytes) => bytes,
+    // Published history follows links to regular files. Check the opened handle
+    // so a concurrent replacement with a FIFO cannot block the item lock holder.
+    let mut file = match crate::changes::open_history_stream(path, true) {
+        Ok(file) => file,
         Err(error) if error.kind() == ErrorKind::NotFound => return Some(Vec::new()),
         Err(_) => return None,
     };
+    let metadata = file.metadata();
+    #[cfg(test)]
+    let metadata = crate::changes::inject_io(metadata, 1);
+    if !metadata.ok()?.is_file() {
+        return None;
+    }
+    let mut bytes = Vec::new();
+    let read = file.read_to_end(&mut bytes);
+    #[cfg(test)]
+    let read = crate::changes::inject_io(read, 4);
+    read.ok()?;
     String::from_utf8_lossy(&bytes)
         .lines()
-        .map(|line| line.trim_start_matches('\u{feff}'))
-        .filter(|line| !line.trim().is_empty())
+        .map(crate::history::trim_evidence_line)
+        .filter(|line| !line.is_empty())
         .map(|line| {
             let entry: Value = crate::strict_json::from_str(line).ok()?;
             valid(&entry).then_some(entry)

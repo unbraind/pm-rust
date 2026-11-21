@@ -140,12 +140,28 @@ fn end_of_day_timestamp_checks_zero_time_and_calendar() {
         "2026-08-06T24:00:00.Z",
         "2026-08-06T24:00:00.0001Z",
         "2026-13-06T24:00:00Z",
+        "2026-08-06T25:00:00",
     ] {
         assert!(
             super::parse_stored_timestamp(invalid).is_none(),
             "{invalid}"
         );
     }
+}
+
+/// Unexpected metadata and read faults leave stored claim evidence unjudgeable.
+#[test]
+fn unreadable_claim_history_reports_file_io_faults() -> TestResult {
+    let directory = tempfile::tempdir()?;
+    let history = directory.path().join("item.jsonl");
+    write_stream(&history, &[claim()])?;
+    for fault in [1, 4] {
+        crate::changes::IO_FAILURE.set(fault);
+        let result = super::read_history(&history, |_| true);
+        crate::changes::IO_FAILURE.set(0);
+        assert_eq!(result, None);
+    }
+    Ok(())
 }
 
 /// The evidence from original, compacted, rewritten and malformed history remains distinguishable.
@@ -191,6 +207,14 @@ fn claim_history_provenance_and_activity_match_published() -> TestResult {
     let cases = [
         ("untouched", vec![claim()], None, false, true),
         ("bom-prefixed-claim", vec![claim()], None, false, true),
+        ("bom-padded-claim", vec![claim()], None, false, true),
+        (
+            "non-ecmascript-whitespace",
+            vec![claim()],
+            None,
+            true,
+            false,
+        ),
         (
             "abbreviated-month-activity",
             vec![
@@ -468,6 +492,12 @@ fn claim_history_provenance_and_activity_match_published() -> TestResult {
         fs::create_dir_all(root.join("history"))?;
         let history = root.join("history/demo-claim.jsonl");
         write_stream(&history, &entries)?;
+        if label == "bom-padded-claim" {
+            fs::write(&history, format!(" \u{feff} {} \u{feff} \n", entries[0]))?;
+        }
+        if label == "non-ecmascript-whitespace" {
+            fs::write(&history, format!("{}\u{85}\n", entries[0]))?;
+        }
         if label == "bom-prefixed-claim" {
             fs::write(
                 &history,
@@ -524,6 +554,34 @@ fn claim_history_provenance_and_activity_match_published() -> TestResult {
         native.push(evidence);
     }
     verify_published(directory.path(), &inputs, &native)
+}
+
+/// History symlinks to regular files remain readable, and FIFOs fail promptly.
+#[cfg(unix)]
+#[test]
+fn claim_history_checks_the_opened_file_type() -> TestResult {
+    use rustix::fs::{CWD, Mode, mkfifoat};
+    use std::{os::unix::fs::symlink, sync::mpsc, time::Duration};
+
+    let directory = tempfile::tempdir()?;
+    let regular = directory.path().join("regular.jsonl");
+    write_stream(&regular, &[claim()])?;
+    let link = directory.path().join("link.jsonl");
+    symlink(&regular, &link)?;
+    assert_eq!(super::read_history(&link, |_| true), Some(vec![claim()]));
+    fs::remove_file(&regular)?;
+    assert_eq!(super::read_history(&link, |_| true), Some(Vec::new()));
+    fs::remove_file(&link)?;
+    symlink("link.jsonl", &link)?;
+    assert_eq!(super::read_history(&link, |_| true), None);
+
+    let fifo = directory.path().join("stream.jsonl");
+    mkfifoat(CWD, &fifo, Mode::RUSR | Mode::WUSR)?;
+    let (sender, receiver) = mpsc::channel();
+    let reader = std::thread::spawn(move || sender.send(super::read_history(&fifo, |_| true)));
+    assert_eq!(receiver.recv_timeout(Duration::from_secs(3))?, None);
+    assert!(reader.join().is_ok_and(|result| result.is_ok()));
+    Ok(())
 }
 
 /// Advisory activity skips malformed records and approximates malformed receipts.

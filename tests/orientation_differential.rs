@@ -370,6 +370,9 @@ fn context_focus_recency_matches_history_admission() -> TestResult {
     for (maintenance, winner) in [
         ("2026-08-22", "sample-two"),
         (" 2026-08-22t00:00:00.001000z ", "sample-one"),
+        ("2026-08-21T12:00:00.1+05:30", "sample-one"),
+        ("2026-08-21T12:00:00.100+05:30", "sample-one"),
+        ("2026-08-21T12:00:00.1001+05:30", "sample-two"),
     ] {
         let root = tempfile::tempdir()?;
         assert!(
@@ -384,13 +387,12 @@ fn context_focus_recency_matches_history_admission() -> TestResult {
         let mut middle = item("sample-z", "Task", "open", 2);
         middle["created_at"] = json!("2026-08-18T00:00:00.000Z");
         fixture(root.path(), &[older, newer, middle])?;
-        let events = [
-            json!({"ts":"2026-08-21T00:00:00Z","op":"update","event_class":"substantive","patch":[{}]}),
-            json!({"ts":maintenance,"op":"update","event_class":"maintenance","patch":[]}),
-        ];
+        let substantive = json!({"ts":"2026-08-21T00:00:00Z","op":"update","event_class":"substantive","patch":[{}]});
+        let maintenance =
+            json!({"ts":maintenance,"op":"update","event_class":"maintenance","patch":[]});
         fs::write(
             root.path().join(".agents/pm/history/sample-one.jsonl"),
-            json_lines(&events),
+            format!(" \u{feff}{substantive}\u{feff} \n \u{feff}{maintenance}\u{feff} \n"),
         )?;
         let args = ["context", "--limit", "1", "--json"];
         let expected = oracle(&driver, root.path(), &args)?;

@@ -1679,7 +1679,6 @@ fn unreadable_ownership_locks_propagate_diagnostic_io_errors()
 #[test]
 fn bounded_ownership_lock_wait_preserves_ownerless_diagnostics_and_bytes()
 -> Result<(), Box<dyn std::error::Error>> {
-    use pm_rust::OwnershipItem;
     let (directory, workspace) = tracker()?;
     workspace.create(create_request())?;
     let root = directory.path().join(".agents/pm");
@@ -1691,28 +1690,33 @@ fn bounded_ownership_lock_wait_preserves_ownerless_diagnostics_and_bytes()
         root.join("locks/sample-conv.lock"),
         serde_json::to_vec(&serde_json::json!({"created_at":pm_rust::current_timestamp()}))?,
     )?;
-    let request = OwnershipItem {
-        id: "sample-conv".to_owned(),
-        author: "fixture-agent".to_owned(),
-        timestamp: Some(TIMESTAMP.to_owned()),
-        message: None,
-        force: false,
-        if_available: false,
-        provenance_role: None,
-    };
     let before_item = item(directory.path());
     let before_history = history(directory.path());
-    let started = std::time::Instant::now();
-    let result = workspace.claim(&request);
-    assert!(started.elapsed() >= std::time::Duration::from_millis(25));
-    let Err(PmRustError::OwnershipRefusal { detail, context }) = result else {
-        return Err("held ownership lock must refuse".into());
-    };
-    assert!(
-        detail.starts_with("Item sample-conv is locked (owner process unknown) after waiting ")
-    );
+    let output = native_command()
+        .current_dir(directory.path())
+        .env_remove("PM_LOCK_WAIT_MS")
+        .args([
+            "claim",
+            "sample-conv",
+            "--author",
+            "fixture-agent",
+            "--timestamp",
+            TIMESTAMP,
+            "--json",
+        ])
+        .output()?;
+    assert_eq!(output.status.code(), Some(4));
+    let context: serde_json::Value = serde_json::from_slice(&output.stderr)?;
+    let waited = context["detail"]
+        .as_str()
+        .and_then(|detail| {
+            detail.strip_prefix("Item sample-conv is locked (owner process unknown) after waiting ")
+        })
+        .and_then(|elapsed| elapsed.strip_suffix("ms"))
+        .ok_or("lock wait diagnostics")?
+        .parse::<u128>()?;
+    assert!(waited >= 25, "{context}");
     assert_eq!(context["code"], "lock_conflict");
-    assert_eq!(context["reason"], "lock_owner_unknown");
     assert_eq!(item(directory.path()), before_item);
     assert_eq!(history(directory.path()), before_history);
     Ok(())

@@ -491,6 +491,15 @@ fn credential_blocker_unblock_advice_uses_original_id() {
             "Use the dependency's original ID to remove the blocked_by edge.",
         ]
     );
+    let id = "https://sample-own:synthetic-secret@example.invalid/issue";
+    before.metadata.extra.insert(
+        "dependencies".to_owned(),
+        json!([{"id":id,"kind":"blocked_by","source_kind":"external"}]),
+    );
+    assert_eq!(
+        unblock(&before, &[id.to_owned()], &json!({"id_prefix":"sample-"})),
+        ["Inspect the blocked item's blocked_by and dependencies fields in the selected tracker."]
+    );
 }
 
 /// Closed blockers admit progress, force admits open blockers, and complete missing IDs stay unresolved.

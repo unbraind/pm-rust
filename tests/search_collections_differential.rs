@@ -13,6 +13,91 @@ use mutation_differential::{copy_directory, run_minimal, write_driver};
 type TestResult = Result<(), Box<dyn std::error::Error>>;
 const CLOCK: &str = "2026-08-22T10:00:00.000Z";
 
+/// Collapsed duplicates count as removals, while written entries use persisted multiset equality.
+#[test]
+fn duplicate_artifact_receipts_match_published_storage() -> TestResult {
+    let Some(published) = published_cli::published_cli_or_skip("duplicate linked artifacts") else {
+        return Ok(());
+    };
+    let scratch = tempfile::tempdir()?;
+    let driver = write_driver(scratch.path(), &published)?;
+    let node = tempfile::tempdir()?;
+    let rust = tempfile::tempdir()?;
+    for args in [
+        vec!["init", "sample-", "--defaults"],
+        vec![
+            "create",
+            "--id",
+            "sample-item",
+            "--title",
+            "Links",
+            "--type",
+            "Task",
+            "--author",
+            "alpha",
+        ],
+    ] {
+        let result = oracle(&driver, node.path(), &args)?;
+        assert!(
+            result.status.success(),
+            "{}",
+            String::from_utf8_lossy(&result.stderr)
+        );
+    }
+    let workspace = pm_rust::Workspace::discover(node.path())?;
+    let mut item = workspace.get("sample-item")?;
+    item.metadata.extra.insert(
+        "files".to_owned(),
+        json!([
+            {"path":"linked.rs","scope":"project","note":"restored"},
+            {"path":"linked.rs","scope":"project","note":"last"}
+        ]),
+    );
+    let file = ".agents/pm/tasks/sample-item.toon";
+    fs::write(node.path().join(file), toon_format::encode_default(&item)?)?;
+    copy_directory(&node.path().join(".agents"), &rust.path().join(".agents"))?;
+    let args = [
+        "files",
+        "sample-item",
+        "--add",
+        "path=linked.rs,note=restored",
+        "--note-conflict",
+        "replace",
+        "--author",
+        "alpha",
+        "--json",
+    ];
+    let expected = oracle(&driver, node.path(), &args)?;
+    let actual = native(rust.path(), &args, true)?;
+    assert!(
+        expected.status.success(),
+        "{}",
+        String::from_utf8_lossy(&expected.stderr)
+    );
+    assert!(
+        actual.status.success(),
+        "{}",
+        String::from_utf8_lossy(&actual.stderr)
+    );
+    let receipt: Value = serde_json::from_slice(&expected.stdout)?;
+    assert_eq!(receipt["mutation_receipt"]["changed_count"], 0);
+    assert_eq!(receipt["mutation_receipt"]["removed_count"], 1);
+    assert_eq!(
+        receipt["mutation_receipt"]["link_outcomes"][0]["outcome"],
+        "note_replaced"
+    );
+    let native_receipt: Value = serde_json::from_slice(&actual.stdout)?;
+    for field in ["files", "changed", "total_count", "mutation_receipt"] {
+        assert_eq!(native_receipt[field], receipt[field], "{field}");
+    }
+    let stored = pm_rust::Workspace::discover(rust.path())?.get("sample-item")?;
+    assert_eq!(
+        stored.metadata.extra["files"],
+        json!([{"path":"linked.rs","scope":"project","note":"restored"}])
+    );
+    Ok(())
+}
+
 /// Help advertises note conflict modes only for the collections that accept them.
 #[test]
 fn linked_note_conflict_help_and_test_refusal_match_oracle() -> TestResult {

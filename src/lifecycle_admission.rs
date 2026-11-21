@@ -276,6 +276,13 @@ fn read_blocker(path: &Path, canonical: &str) -> Result<ItemDocument, PmRustErro
 }
 /// Builds executable unblock advice only when the scalar/edge removal is unambiguous.
 fn unblock(before: &ItemDocument, blocker_sources: &[String], settings: &Value) -> Vec<String> {
+    let item_id = &before.metadata.id;
+    if crate::refusal::diagnostic(item_id, blocker_sources) != *item_id {
+        return vec![
+            "Inspect the blocked item's blocked_by and dependencies fields in the selected tracker."
+                .to_owned(),
+        ];
+    }
     let first = &blocker_sources[0];
     let prefix = settings["id_prefix"].as_str().unwrap_or("pm-");
     let canonical = |id: &str| {

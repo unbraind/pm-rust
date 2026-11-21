@@ -259,25 +259,35 @@ struct Cursor {
 }
 
 /// Opens without following replacement symlinks or blocking on a replacement FIFO.
-#[cfg(unix)]
 pub(crate) fn open_history(path: &std::path::Path) -> io::Result<fs::File> {
-    use rustix::fs::{Mode, OFlags, open};
-    open(
-        path,
-        OFlags::RDONLY | OFlags::CLOEXEC | OFlags::NOFOLLOW | OFlags::NONBLOCK,
-        Mode::empty(),
-    )
-    .map(fs::File::from)
-    .map_err(io::Error::from)
+    open_history_stream(path, false)
 }
 
-/// Opens the selected file itself, retaining reparse-point type information.
+/// Opens a history stream without blocking on a FIFO, optionally following symlinks.
+#[cfg(unix)]
+pub(crate) fn open_history_stream(
+    path: &std::path::Path,
+    follow_links: bool,
+) -> io::Result<fs::File> {
+    use rustix::fs::{Mode, OFlags, open};
+    let mut flags = OFlags::RDONLY | OFlags::CLOEXEC | OFlags::NONBLOCK;
+    flags.set(OFlags::NOFOLLOW, !follow_links);
+    open(path, flags, Mode::empty())
+        .map(fs::File::from)
+        .map_err(io::Error::from)
+}
+
+/// Opens the history stream, retaining reparse-point information when following is disabled.
 #[cfg(windows)]
-pub(crate) fn open_history(path: &std::path::Path) -> io::Result<fs::File> {
+pub(crate) fn open_history_stream(
+    path: &std::path::Path,
+    follow_links: bool,
+) -> io::Result<fs::File> {
     use std::os::windows::fs::OpenOptionsExt as _;
+    let flags = if follow_links { 0 } else { 0x0020_0000 };
     fs::OpenOptions::new()
         .read(true)
-        .custom_flags(0x0020_0000)
+        .custom_flags(flags)
         .open(path)
 }
 

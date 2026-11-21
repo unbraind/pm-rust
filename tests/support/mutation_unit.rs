@@ -4961,6 +4961,132 @@ fn reclaimed_collection_reloads_after_fenced_publish_refusal()
     Ok(())
 }
 
+/// A stale scalar or lifecycle writer cannot overwrite a successor's claim.
+#[test]
+fn displaced_scalar_and_lifecycle_writers_preserve_successor()
+-> Result<(), Box<dyn std::error::Error>> {
+    for operation in ["update", "comment", "lifecycle"] {
+        let (_directory, pm_root) = root(&settings("sample-", "toon", 1800))?;
+        create_item(&pm_root, request())?;
+        let workspace = crate::Workspace::discover(&pm_root)?;
+        let successor = OwnershipItem {
+            id: "sample-unit".into(),
+            author: "successor".into(),
+            timestamp: Some(TS.into()),
+            message: None,
+            force: true,
+            if_available: false,
+            provenance_role: None,
+        };
+        let displaced = OwnershipItem {
+            author: "unit-agent".into(),
+            ..successor.clone()
+        };
+        let interposed_workspace = workspace.clone();
+        let lock_path = pm_root.join("locks/sample-unit.lock");
+        let (send, receive) = std::sync::mpsc::channel();
+        AFTER_ITEM_READ.set(Some(Box::new(move || {
+            let reclaimed = (|| -> Result<(), Box<dyn std::error::Error>> {
+                let mut lease: Value = crate::strict_json::from_slice(&fs::read(&lock_path)?)?;
+                lease["created_at"] = serde_json::json!("2000-01-01T00:00:00.000Z");
+                fs::write(&lock_path, lease.to_string())?;
+                interposed_workspace.claim(&successor)?;
+                Ok(())
+            })();
+            assert!(send.send(reclaimed).is_ok());
+        })));
+        let result = match operation {
+            "update" => {
+                let update = serde_json::from_value(serde_json::json!({
+                    "id":displaced.id,"author":displaced.author,"title":"Displaced","timestamp":TS
+                }))?;
+                workspace.update(update).map(|_| ())
+            }
+            "comment" => {
+                let comment = serde_json::from_value(serde_json::json!({
+                    "id":displaced.id,"author":displaced.author,"text":"Displaced","timestamp":TS
+                }))?;
+                workspace.comment(&comment).map(|_| ())
+            }
+            _ => lifecycle_status(
+                &pm_root,
+                &displaced,
+                &crate::OwnershipOptions::default(),
+                true,
+            )
+            .map(|_| ()),
+        };
+        receive.recv_timeout(Duration::from_secs(1))??;
+        assert!(
+            matches!(result, Err(PmRustError::LockConflict { id }) if id == "sample-unit"),
+            "{operation}"
+        );
+        let item = workspace.get("sample-unit")?;
+        assert_eq!(item.metadata.title, "Unit create");
+        assert_eq!(item.metadata.status, "open");
+        assert_eq!(item.metadata.extra["assignee"], "successor");
+        assert!(!item.metadata.extra.contains_key("comments"));
+        assert_eq!(
+            fs::read_to_string(pm_root.join("history/sample-unit.jsonl"))?
+                .lines()
+                .count(),
+            2
+        );
+    }
+    Ok(())
+}
+
+/// A pause update remains saved when the following release hits the recovery fence.
+#[test]
+fn pause_reports_release_conflict_after_status_is_saved() -> Result<(), Box<dyn std::error::Error>>
+{
+    let (_directory, pm_root) = root("{}")?;
+    let mut item = request();
+    item.status = "in_progress".into();
+    create_item(&pm_root, item)?;
+    let workspace = crate::Workspace::discover(&pm_root)?;
+    let request = OwnershipItem {
+        id: "sample-unit".into(),
+        author: "unit-agent".into(),
+        timestamp: Some(TS.into()),
+        message: None,
+        force: true,
+        if_available: false,
+        provenance_role: None,
+    };
+    workspace.claim(&request)?;
+    let locks = pm_root.join("locks");
+    let (send, receive) = std::sync::mpsc::channel();
+    AFTER_ITEM_READ.set(Some(Box::new(move || {
+        BEFORE_FENCED_RECOVERY.set(Some(Box::new(move || {
+            assert!(
+                send.send(acquire_cleanup_gate(&locks, "sample-unit", 1800))
+                    .is_ok()
+            );
+        })));
+    })));
+    let outcome = workspace.pause_task(&request, &crate::OwnershipOptions::default());
+    let _gate = receive.recv_timeout(Duration::from_secs(1))??;
+    let Err(PmRustError::CommandRefusal {
+        context, exit_code, ..
+    }) = outcome
+    else {
+        return Err("expected a partial pause refusal".into());
+    };
+    assert_eq!(exit_code, 4);
+    assert_eq!(context["code"], "lock_conflict");
+    assert_eq!(context["completed_step"], "update");
+    let saved = workspace.get("sample-unit")?;
+    assert_eq!(saved.metadata.status, "open");
+    assert_eq!(saved.metadata.extra["assignee"], "unit-agent");
+    let history = fs::read_to_string(pm_root.join("history/sample-unit.jsonl"))?;
+    let entries: Vec<_> = history.lines().collect();
+    assert_eq!(entries.len(), 3);
+    let last: Value = crate::strict_json::from_str(entries[2])?;
+    assert_eq!(last["op"], "update");
+    Ok(())
+}
+
 /// A release that reaches the recovery fence still reports the completed close.
 #[test]
 fn release_fence_conflict_preserves_completed_close() -> Result<(), Box<dyn std::error::Error>> {
@@ -6931,6 +7057,9 @@ fn ownership_gate_warning_never_replays_a_committed_command()
         "fixture"
     );
 
+    assert!(workspace.claim(&item)?.warnings.is_empty());
+    let session = pm_root.join("runtime/session.json");
+    let saved = fs::read(&session)?;
     item.author = "maintainer".into();
     item.force = true;
     HOLD_PUBLICATION_GATE.set(true);
@@ -6939,6 +7068,7 @@ fn ownership_gate_warning_never_replays_a_committed_command()
         released.warnings,
         ["release_semantic_attribution_unrecorded"]
     );
+    assert_eq!(fs::read(session)?, saved);
     assert!(
         workspace
             .get(&item.id)?

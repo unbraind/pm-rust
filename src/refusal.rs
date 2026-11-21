@@ -700,6 +700,7 @@ pub fn redact(payload: &mut Value, raw: &[String]) {
             && original["recovery"].get("suggested_retry_args").is_none()
             && original["recovery"] == payload["recovery"]
             && original["examples"] == payload["examples"]
+            && original["next_steps"] == payload["next_steps"]
             && raw.iter().all(|token| userinfos(token).is_empty())
         {
             return;
@@ -1362,6 +1363,29 @@ mod tests {
         let mut null = Value::Null;
         redact(&mut null, &[url.to_owned()]);
         assert_eq!(null, Value::Null);
+    }
+
+    /// Holder-only projection warns when a displayed next step loses its operand.
+    #[test]
+    fn stored_holder_projection_warns_when_next_step_changes() {
+        for (operand, changed) in [("sample-own", false), ("synthetic-secret", true)] {
+            let mut payload = json!({
+                "code":"already_claimed_by",
+                "claimed_by":"https://fixture:synthetic-secret@example.invalid",
+                "recovery":{"normalized_args":["claim","sample-own"]},
+                "next_steps":[format!("pm get {operand}")]
+            });
+            redact(&mut payload, &["claim".into(), "sample-own".into()]);
+            assert_eq!(payload["claimed_by"], "https://[redacted]@example.invalid");
+            if changed {
+                assert_eq!(
+                    payload["next_steps"],
+                    json!([RESTORE, crate::render_pm_command(["get", REDACTED])])
+                );
+            } else {
+                assert_eq!(payload["next_steps"], json!(["pm get sample-own"]));
+            }
+        }
     }
 
     /// Stored identities protect copied values without ambient CLI enrollment.

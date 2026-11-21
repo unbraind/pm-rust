@@ -2461,7 +2461,7 @@ pub(crate) fn update_item(
 ) -> Result<MutationResult, PmRustError> {
     let settings = read_settings(pm_root)?;
     let timestamp = validate_mutation_request(&request.author, request.timestamp.as_deref())?;
-    let _lock = acquire_lock(
+    let lock = acquire_lock(
         pm_root,
         &request.id,
         &request.author,
@@ -2472,8 +2472,15 @@ pub(crate) fn update_item(
             settings.locks.wait_ms,
         ),
     )?;
-    let (item_path, history_path, before_document) =
-        recover_and_locate(pm_root, "update", &request.id)?;
+    let (item_path, history_path, before_document) = recover_fenced_item(
+        pm_root,
+        "update",
+        &request.id,
+        &lock,
+        settings.locks.ttl_seconds,
+    )?;
+    #[cfg(test)]
+    tests::after_item_read();
     // The stored document must be read under the lock so no writer ever
     // applies changes to stale bytes.
     let lifecycle = crate::list_registry::Lifecycle::load(pm_root)?;
@@ -2486,6 +2493,7 @@ pub(crate) fn update_item(
         &settings,
         &lifecycle,
     )?;
+    let _gate = fence_item(pm_root, &request.id, &lock, settings.locks.ttl_seconds)?;
     commit_mutation(
         pm_root,
         "update",
@@ -2510,7 +2518,7 @@ pub(crate) fn comment_item(
     if request.text.trim().is_empty() {
         return Err(invalid_mutation("comment text must not be empty"));
     }
-    let _lock = acquire_lock(
+    let lock = acquire_lock(
         pm_root,
         &request.id,
         &request.author,
@@ -2521,8 +2529,15 @@ pub(crate) fn comment_item(
             settings.locks.wait_ms,
         ),
     )?;
-    let (item_path, history_path, before_document) =
-        recover_and_locate(pm_root, "comment", &request.id)?;
+    let (item_path, history_path, before_document) = recover_fenced_item(
+        pm_root,
+        "comment",
+        &request.id,
+        &lock,
+        settings.locks.ttl_seconds,
+    )?;
+    #[cfg(test)]
+    tests::after_item_read();
     validate_scalar_owner(
         &settings,
         &before_document,
@@ -2551,6 +2566,7 @@ pub(crate) fn comment_item(
         .extra
         .insert("comments".to_owned(), Value::Array(comments));
     document.metadata.updated_at.clone_from(&timestamp);
+    let _gate = fence_item(pm_root, &request.id, &lock, settings.locks.ttl_seconds)?;
     commit_mutation(
         pm_root,
         "comment",
@@ -3967,7 +3983,7 @@ pub(crate) fn lifecycle_status(
         |identity| identity.principal.clone(),
     );
     crate::AuthorIdentity::validate_credentials(&principal, "claim_principal")?;
-    let _lock = acquire_lock(
+    let lock = acquire_lock(
         pm_root,
         &request.id,
         &request.author,
@@ -3985,7 +4001,15 @@ pub(crate) fn lifecycle_status(
         ),
         other => other,
     })?;
-    let (item_path, history_path, before) = recover_and_locate(pm_root, "update", &request.id)?;
+    let (item_path, history_path, before) = recover_fenced_item(
+        pm_root,
+        "update",
+        &request.id,
+        &lock,
+        settings.locks.ttl_seconds,
+    )?;
+    #[cfg(test)]
+    tests::after_item_read();
     let owner = ownership_text(&before, "assignee");
     let held_principal = ownership_text(&before, "claim_principal");
     let held_principal = if held_principal.trim().is_empty() {
@@ -4051,6 +4075,7 @@ pub(crate) fn lifecycle_status(
     let item = if changed == 0 {
         before
     } else {
+        let _gate = fence_item(pm_root, &request.id, &lock, settings.locks.ttl_seconds)?;
         commit_mutation(
             pm_root,
             "update",

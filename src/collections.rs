@@ -1173,7 +1173,7 @@ pub(crate) fn reconcile_artifact_notes(
 pub(crate) struct CollectionChange {
     /// Whether the persisted collection changed at all.
     pub(crate) changed: bool,
-    /// Count of exact selectors that removed a row.
+    /// Count of stored rows removed by selectors or duplicate collapse.
     pub(crate) removed: usize,
     /// Entries added or rewritten, in stored order.
     pub(crate) written: Vec<Value>,
@@ -1230,6 +1230,7 @@ pub(crate) fn merge(
             rows.push(row.clone());
         }
     }
+    let collapsed = current.len() - rows.len();
     for add in &edit.adds {
         let existing = rows.iter_mut().find(|row| {
             if key == "tests" {
@@ -1270,7 +1271,7 @@ pub(crate) fn merge(
         })
         .map(|(_, row)| row)
         .collect();
-    let removed = before - rows.len();
+    let removed = collapsed + before - rows.len();
     if key != "tests" && !stable {
         rows.sort_by(|a, b| {
             crate::collation::compare(

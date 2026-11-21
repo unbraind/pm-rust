@@ -837,7 +837,7 @@ pub fn partial_failure(error: PmRustError, id: &str, completed: &str) -> PmRustE
         steps.extend(original.clone());
     }
     context["item_id"] = json!(id);
-    if completed == "close" {
+    if matches!(completed, "close" | "update") {
         context["completed_step"] = json!(completed);
         if context["code"] == "stale_lock_requires_override" {
             let retry_release = json!(
@@ -850,9 +850,15 @@ pub fn partial_failure(error: PmRustError, id: &str, completed: &str) -> PmRustE
             }
             context["required"] = retry_release;
         } else if context["code"] == "lock_conflict" {
-            context["required"] = json!(
-                "Wait for the lock to clear, then retry the release step with the original identity and applicable release options."
-            );
+            context["required"] = if completed == "update" {
+                json!(
+                    "Wait for the lock to clear and verify current ownership before retrying only release with the applicable identity and options."
+                )
+            } else {
+                json!(
+                    "Wait for the lock to clear, then retry the release step with the original identity and applicable release options."
+                )
+            };
         }
     }
     context["why"] = json!(format!(

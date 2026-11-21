@@ -2388,6 +2388,47 @@ fn close_release_fence_conflict_preserves_cli_recovery() -> Result<(), Box<dyn s
     Ok(())
 }
 
+/// Release contention after a completed pause update leaves no full-command retry.
+#[test]
+fn pause_release_fence_conflict_suppresses_forced_pause_replay()
+-> Result<(), Box<dyn std::error::Error>> {
+    let lock = pm_rust::PmRustError::LockConflict {
+        id: "sample-one".to_owned(),
+    };
+    let pm_rust::PmRustError::CommandRefusal {
+        detail,
+        context,
+        exit_code,
+    } = pm_rust::completed_step_failure(lock, "sample-one", "update")
+    else {
+        return Err("expected a partial release refusal".into());
+    };
+    assert_eq!(context["completed_step"], "update");
+    let args = ["release", "sample-one", "--pause", "--force", "--json"].map(str::to_owned);
+    let receipt = super::command_error_json(&detail, &context, &args, exit_code);
+    assert_eq!(receipt["code"], "lock_conflict");
+    assert_eq!(receipt["recovery"]["completed_step"], "update");
+    assert_eq!(receipt["recovery"]["retry_after_ms"], 250);
+    assert!(receipt["recovery"].get("suggested_retry_args").is_none());
+    assert!(receipt["recovery"].get("suggested_retry").is_none());
+    assert_eq!(
+        receipt["examples"],
+        serde_json::json!(["pm release --help"])
+    );
+    assert!(receipt["required"].as_str().is_some_and(|required| {
+        required.contains("verify current ownership before retrying only release")
+    }));
+
+    let before_update = super::command_error_json(
+        &detail,
+        &serde_json::json!({"code":"lock_conflict"}),
+        &args,
+        exit_code,
+    );
+    assert!(before_update["recovery"]["suggested_retry_args"].is_array());
+    Ok(())
+}
+
 /// Stale-lock cleanup after close stays scoped and leads only to the release step.
 fn assert_close_stale_release_recovery(
     workspace: &Workspace,

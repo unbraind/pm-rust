@@ -178,6 +178,11 @@ pub(crate) fn classify_history_event(operation: &str, patch: &[HistoryPatch]) ->
     classify_history_paths(operation, patch.iter().map(|change| change.path.as_str()))
 }
 
+/// Trims the ECMAScript whitespace used by the published history evidence reader.
+pub(crate) fn trim_evidence_line(line: &str) -> &str {
+    line.trim_matches(|ch: char| ch == '\u{feff}' || (ch != '\u{85}' && ch.is_whitespace()))
+}
+
 /// Checks that every supplied patch row has a string path.
 pub(crate) fn patch_paths_are_strings(patch: &[Value]) -> bool {
     patch.iter().all(|row| row["path"].is_string())

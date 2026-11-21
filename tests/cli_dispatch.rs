@@ -598,9 +598,8 @@ fn close_dispatch_closes_once_and_refuses_repeats() -> Result<(), Box<dyn std::e
 )]
 fn close_release_contention_reports_only_release_recovery() -> Result<(), Box<dyn std::error::Error>>
 {
-    use rustix::fs::{Mode, OFlags, open};
+    use rustix::fs::Mode;
     use std::io::Write as _;
-    use std::path::Path;
     use std::process::Stdio;
     use std::time::{Duration, Instant};
 
@@ -631,33 +630,15 @@ fn close_release_contention_reports_only_release_recovery() -> Result<(), Box<dy
         .stdout(Stdio::piped())
         .stderr(Stdio::piped())
         .spawn()?;
-    let mut wait_for_reader = |path: &Path| -> Result<fs::File, Box<dyn std::error::Error>> {
-        let deadline = Instant::now() + Duration::from_secs(15);
-        loop {
-            match open(
-                path,
-                OFlags::WRONLY | OFlags::NONBLOCK | OFlags::CLOEXEC,
-                Mode::empty(),
-            ) {
-                Ok(writer) => return Ok(fs::File::from(writer)),
-                Err(rustix::io::Errno::NXIO) => {}
-                Err(error) => return Err(error.into()),
-            }
-            if child.try_wait()?.is_some() || Instant::now() >= deadline {
-                return Err("close did not reach the expected fixture read".into());
-            }
-            std::thread::sleep(Duration::from_millis(5));
-        }
-    };
     let interposed = (|| -> Result<fs::File, Box<dyn std::error::Error>> {
-        let mut journal_writer = wait_for_reader(&journal)?;
+        let mut journal_writer = wait_for_fifo_reader(&mut child, &journal)?;
         // Pause release when its resolved identity reads session attribution,
         // after close has published and dropped its gate.
         let session = root.join("runtime/session.json");
         rustix::fs::mkfifoat(rustix::fs::CWD, &session, Mode::RUSR | Mode::WUSR)?;
         journal_writer.write_all(resumed.to_string().as_bytes())?;
         drop(journal_writer);
-        let mut attribution = wait_for_reader(&session)?;
+        let mut attribution = wait_for_fifo_reader(&mut child, &session)?;
         if !fs::read_to_string(&item)?.contains("status: closed") {
             return Err("release reached session attribution before close committed".into());
         }
@@ -721,6 +702,119 @@ fn close_release_contention_reports_only_release_recovery() -> Result<(), Box<dy
     let history = fs::read_to_string(history)?;
     let last: serde_json::Value = serde_json::from_str(history.lines().last().ok_or("history")?)?;
     assert_eq!(last["op"], "close");
+    Ok(())
+}
+
+/// Bounded writer acquisition for a known child filesystem read.
+#[cfg(target_os = "linux")]
+fn wait_for_fifo_reader(
+    child: &mut std::process::Child,
+    path: &std::path::Path,
+) -> Result<fs::File, Box<dyn std::error::Error>> {
+    use rustix::fs::{Mode, OFlags, open};
+    use std::time::{Duration, Instant};
+
+    let deadline = Instant::now() + Duration::from_secs(15);
+    loop {
+        match open(
+            path,
+            OFlags::WRONLY | OFlags::NONBLOCK | OFlags::CLOEXEC,
+            Mode::empty(),
+        ) {
+            Ok(writer) => return Ok(fs::File::from(writer)),
+            Err(rustix::io::Errno::NXIO) => {}
+            Err(error) => return Err(error.into()),
+        }
+        if child.try_wait()?.is_some() || Instant::now() >= deadline {
+            return Err("child did not reach the expected fixture read".into());
+        }
+        std::thread::sleep(Duration::from_millis(5));
+    }
+}
+
+/// A real forced pause reports its saved update when release hits a held lease gate.
+#[cfg(target_os = "linux")]
+#[test]
+fn pause_release_contention_reports_only_release_recovery() -> Result<(), Box<dyn std::error::Error>>
+{
+    use rustix::fs::{CWD, Mode, mkfifoat};
+    use std::io::Write as _;
+    use std::process::Stdio;
+
+    let tracker = workspace()?;
+    seed_item(&tracker)?;
+    expect_ok(
+        &tracker,
+        &["claim", "sample-cli", "--start", "--author=cli-agent"],
+    )?;
+    let root = tracker.path().join(".agents/pm");
+    let first = root.join("runtime/session.json");
+    let second = root.join("runtime/release-session.json");
+    fs::remove_file(&first)?;
+    for path in [&first, &second] {
+        mkfifoat(CWD, path, Mode::RUSR | Mode::WUSR)?;
+    }
+    let mut child = Command::new(env!("CARGO_BIN_EXE_pm-rust"))
+        .current_dir(tracker.path())
+        .env("PM_LOCK_WAIT_MS", "0")
+        .args([
+            "release",
+            "sample-cli",
+            "--pause",
+            "--force",
+            "--author=cli-agent",
+            "--json",
+        ])
+        .stdout(Stdio::piped())
+        .stderr(Stdio::piped())
+        .spawn()?;
+    let interposed = (|| -> Result<fs::File, Box<dyn std::error::Error>> {
+        let mut before_update = wait_for_fifo_reader(&mut child, &first)?;
+        fs::rename(&second, &first)?;
+        before_update.write_all(b"{}")?;
+        drop(before_update);
+        let mut before_release = wait_for_fifo_reader(&mut child, &first)?;
+        let gate = fs::File::options()
+            .read(true)
+            .write(true)
+            .open(root.join("locks/sample-cli.lock.gate-lease"))?;
+        gate.try_lock()?;
+        before_release.write_all(b"{}")?;
+        Ok(gate)
+    })();
+    if interposed.is_err() {
+        let _ = child.kill();
+        let _ = child.wait();
+    }
+    let _gate = interposed?;
+    let deadline = std::time::Instant::now() + std::time::Duration::from_secs(15);
+    while child.try_wait()?.is_none() {
+        if std::time::Instant::now() >= deadline {
+            child.kill()?;
+            child.wait()?;
+            return Err("pause did not exit after its release encountered the held gate".into());
+        }
+        std::thread::sleep(std::time::Duration::from_millis(5));
+    }
+    let output = child.wait_with_output()?;
+    assert_eq!(
+        output.status.code(),
+        Some(4),
+        "{}",
+        String::from_utf8_lossy(&output.stderr)
+    );
+    let receipt: serde_json::Value = serde_json::from_slice(&output.stderr)?;
+    assert_eq!(receipt["code"], "lock_conflict");
+    assert_eq!(receipt["recovery"]["completed_step"], "update");
+    assert_eq!(receipt["recovery"]["retry_after_ms"], 250);
+    assert!(receipt["recovery"].get("suggested_retry_args").is_none());
+    assert!(
+        receipt["required"]
+            .as_str()
+            .is_some_and(|text| text.contains("verify current ownership"))
+    );
+    let stored = fs::read_to_string(root.join("tasks/sample-cli.toon"))?;
+    assert!(stored.contains("status: open") && stored.contains("assignee: cli-agent"));
     Ok(())
 }
 

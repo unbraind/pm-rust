@@ -2598,6 +2598,135 @@ fn stale_foreign_claim_refusal_matches_published() -> Result<(), Box<dyn std::er
     Ok(())
 }
 
+/// Legacy activity clocks use Date's local time and DST disambiguation.
+#[test]
+fn offset_free_claim_activity_matches_published_local_time()
+-> Result<(), Box<dyn std::error::Error>> {
+    let earlier = "2026-08-18T10:00:00.000Z";
+    let Some(fixture) = Fixture::new_at("none", earlier)? else {
+        return Ok(());
+    };
+    let claim = published_command(
+        &fixture.driver,
+        fixture.node.path(),
+        &["claim", "sample-own", "--author", "alpha", "--json"],
+    )
+    .env("FIXED_CLOCK", earlier)
+    .output()?;
+    assert!(
+        claim.status.success(),
+        "{}",
+        String::from_utf8_lossy(&claim.stderr)
+    );
+    let stream = ".agents/pm/history/sample-own.jsonl";
+    let baseline = fs::read_to_string(fixture.node.path().join(stream))?;
+    copy_directory(
+        &fixture.node.path().join(".agents"),
+        &fixture.rust.path().join(".agents"),
+    )?;
+    let args = ["claim", "sample-own", "--author", "beta", "--json"];
+    for (local, explicit) in [
+        ("2026-08-21T01:15", "2026-08-21T01:15:00-04:00"),
+        ("2026-08-21T01:15:00.1234", "2026-08-21T01:15:00.123-04:00"),
+        ("2026-08-20T24:00", "2026-08-21T00:00:00-04:00"),
+        ("2026-11-01T01:30:00", "2026-11-01T01:30:00-04:00"),
+        ("2027-03-14T02:30:00", "2027-03-14T03:30:00-04:00"),
+        ("9999-12-31T12:00:00", "9999-12-31T12:00:00-05:00"),
+        ("2026-08-21", "2026-08-21T00:00:00Z"),
+    ] {
+        let evidence = |timestamp| -> Result<serde_json::Value, Box<dyn std::error::Error>> {
+            let entry = serde_json::json!({"ts":timestamp,"op":"update","event_class":"substantive","patch":[]});
+            for root in [fixture.node.path(), fixture.rust.path()] {
+                fs::write(root.join(stream), format!("{baseline}{entry}\n"))?;
+            }
+            let node = published_command(&fixture.driver, fixture.node.path(), &args)
+                .env("TZ", "America/New_York")
+                .output()?;
+            let native = native_command(fixture.rust.path(), &args)
+                .env("TZ", "America/New_York")
+                .output()?;
+            assert_eq!(node.status.code(), Some(4));
+            assert_eq!(native.status.code(), Some(4));
+            assert_eq!(
+                String::from_utf8_lossy(&native.stderr),
+                String::from_utf8_lossy(&node.stderr),
+                "{timestamp}"
+            );
+            let receipt: serde_json::Value = serde_json::from_slice(&native.stderr)?;
+            let activity = &receipt["claim_activity"];
+            assert_eq!(activity["last_activity_at"], timestamp);
+            assert_eq!(activity["stale_policy"]["stale"], false);
+            assert!(activity.get("history_unreadable").is_none());
+            Ok(activity["stale_policy"]["eligible_at"].clone())
+        };
+        let eligible = evidence(local)?;
+        assert!(eligible.is_string());
+        assert_eq!(eligible, evidence(explicit)?, "{local}");
+    }
+    Ok(())
+}
+
+/// Unusable streams and Date's range limit retain the published claim diagnostics.
+#[cfg(unix)]
+#[test]
+fn claim_history_boundaries_match_published_refusals() -> Result<(), Box<dyn std::error::Error>> {
+    let Some(fixture) = Fixture::new("none")? else {
+        return Ok(());
+    };
+    fixture.step(&["claim", "sample-own", "--author", "alpha", "--json"])?;
+    let history = ".agents/pm/history/sample-own.jsonl";
+    let baseline = fs::read(fixture.node.path().join(history))?;
+    let args = ["claim", "sample-own", "--author", "beta", "--json"];
+    let compare = || -> Result<serde_json::Value, Box<dyn std::error::Error>> {
+        let oracle = published_run(&fixture.driver, fixture.node.path(), &args)?;
+        let actual = native_command(fixture.rust.path(), &args).output()?;
+        assert_eq!(actual.status.code(), Some(4));
+        assert_eq!(actual.status.code(), oracle.status.code());
+        assert_eq!(actual.stderr, oracle.stderr);
+        Ok(serde_json::from_slice(&actual.stderr)?)
+    };
+    for case in [
+        "cycle",
+        "directory",
+        "invalid fraction",
+        "invalid local hour",
+    ] {
+        for root in [fixture.node.path(), fixture.rust.path()] {
+            let stream = root.join(history);
+            if stream.is_dir() {
+                fs::remove_dir(&stream)?;
+            } else {
+                fs::remove_file(&stream)?;
+            }
+            match case {
+                "cycle" => std::os::unix::fs::symlink("sample-own.jsonl", stream)?,
+                "directory" => fs::create_dir(stream)?,
+                "invalid fraction" => fs::write(
+                    stream,
+                    r#"{"ts":"2026-08-22T24:00:00.Z","op":"update","patch":[]}"#,
+                )?,
+                _ => fs::write(
+                    stream,
+                    r#"{"ts":"2026-08-22T25:00:00","op":"update","patch":[]}"#,
+                )?,
+            }
+        }
+        assert_eq!(compare()?["claim_activity"]["history_unreadable"], true);
+    }
+    for root in [fixture.node.path(), fixture.rust.path()] {
+        fs::write(root.join(history), &baseline)?;
+        let path = root.join(".agents/pm/settings.json");
+        let mut settings: serde_json::Value = serde_json::from_slice(&fs::read(&path)?)?;
+        settings["mutation_guard"]["stale_in_progress_hours"] =
+            serde_json::json!(3_000_000_000_u64);
+        fs::write(path, serde_json::to_vec(&settings)?)?;
+    }
+    let activity = &compare()?["claim_activity"];
+    assert!(activity.get("history_unreadable").is_none());
+    assert!(activity["stale_policy"]["eligible_at"].is_null());
+    Ok(())
+}
+
 /// The CLI refuses private explicit and environment authors before altering a tracker.
 #[test]
 fn credential_author_sources_refuse_without_writes() -> Result<(), Box<dyn std::error::Error>> {
@@ -3470,6 +3599,63 @@ fn blocker_title_projection_withdraws_removal_command() -> Result<(), Box<dyn st
         )?;
     }
     assert_scoped_blocker_inspection(&fixture)
+}
+
+/// A blocker credential that projects the target ID suppresses the executable inspection.
+#[test]
+fn scoped_blocker_inspection_withdraws_projected_item_operand()
+-> Result<(), Box<dyn std::error::Error>> {
+    let Some(fixture) = Fixture::new("none")? else {
+        return Ok(());
+    };
+    prepare(
+        &fixture,
+        &[
+            "update",
+            "sample-own",
+            "--dep",
+            "id=https://sample-own:synthetic-secret@example.invalid/issue,kind=blocked_by,source_kind=external",
+            "--author",
+            "alpha",
+            "--json",
+        ],
+    )?;
+    let args = [
+        "claim",
+        "sample-own",
+        "--start",
+        "--author",
+        "alpha",
+        "--json",
+    ];
+    let before = fixture.snapshots()?;
+    let node = published_run(&fixture.driver, fixture.node.path(), &args)?;
+    let native = native_command(
+        fixture.rust.path(),
+        &["--pm-path", ".agents/pm"]
+            .into_iter()
+            .chain(args)
+            .collect::<Vec<_>>(),
+    )
+    .output()?;
+    assert_eq!(node.status.code(), Some(4));
+    assert_eq!(native.status.code(), Some(4));
+    let expected: serde_json::Value = serde_json::from_slice(&node.stderr)?;
+    let actual: serde_json::Value = serde_json::from_slice(&native.stderr)?;
+    assert_eq!(actual["code"], expected["code"]);
+    let steps = actual["next_steps"].as_array().ok_or("blocker guidance")?;
+    assert!(steps.iter().any(|step| step == "Inspect the blocked item's blocked_by and dependencies fields in the selected tracker."));
+    assert!(
+        !actual["next_steps"].to_string().contains("--dep-remove"),
+        "{actual}"
+    );
+    assert!(
+        !actual["next_steps"].to_string().contains("--fields"),
+        "{actual}"
+    );
+    assert!(!actual.to_string().contains("synthetic-secret"));
+    assert_eq!(fixture.snapshots()?, before);
+    Ok(())
 }
 
 /// Checks atomic refusal and inspection replay across both tracker selections.

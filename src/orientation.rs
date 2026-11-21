@@ -178,7 +178,7 @@ fn read_records(workspace: &Workspace, id: &str, lossy: bool) -> Result<Vec<Valu
     let mut result = Vec::new();
     for (index, line) in raw.lines().enumerate() {
         let line = if lossy {
-            line.trim_start_matches('\u{feff}').trim()
+            crate::history::trim_evidence_line(line)
         } else {
             line.trim()
         };
