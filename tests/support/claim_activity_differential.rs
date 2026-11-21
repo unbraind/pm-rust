@@ -560,7 +560,6 @@ fn claim_history_provenance_and_activity_match_published() -> TestResult {
 #[cfg(unix)]
 #[test]
 fn claim_history_checks_the_opened_file_type() -> TestResult {
-    use rustix::fs::{CWD, Mode, mkfifoat};
     use std::{os::unix::fs::symlink, sync::mpsc, time::Duration};
 
     let directory = tempfile::tempdir()?;
@@ -576,7 +575,14 @@ fn claim_history_checks_the_opened_file_type() -> TestResult {
     assert_eq!(super::read_history(&link, |_| true), None);
 
     let fifo = directory.path().join("stream.jsonl");
-    mkfifoat(CWD, &fifo, Mode::RUSR | Mode::WUSR)?;
+    assert!(
+        std::process::Command::new("mkfifo")
+            .arg("-m")
+            .arg("600")
+            .arg(&fifo)
+            .status()?
+            .success()
+    );
     let (sender, receiver) = mpsc::channel();
     let reader = std::thread::spawn(move || sender.send(super::read_history(&fifo, |_| true)));
     assert_eq!(receiver.recv_timeout(Duration::from_secs(3))?, None);
