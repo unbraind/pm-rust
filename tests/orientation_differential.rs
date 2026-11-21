@@ -307,6 +307,7 @@ fn context_focus_recency_uses_latest_instant() -> TestResult {
         &[
             item("sample-one", "Task", "open", 2),
             item("sample-two", "Task", "open", 2),
+            item("sample-z", "Task", "open", 2),
         ],
     )?;
     for (id, timestamps) in [
@@ -315,6 +316,7 @@ fn context_focus_recency_uses_latest_instant() -> TestResult {
             &["2026-08-21T12:00:00Z", "2026-08-21T14:00:00+05:00"][..],
         ),
         ("sample-two", &["2026-08-21T11:00:00Z"][..]),
+        ("sample-z", &["2026-08-21T10:00:00Z"][..]),
     ] {
         let events: Vec<_> = timestamps
             .iter()
@@ -341,6 +343,19 @@ fn context_focus_recency_uses_latest_instant() -> TestResult {
     assert_eq!(value["low_level"][0]["id"], "sample-one");
     assert_eq!(value["low_level"][1]["id"], "sample-two");
     compare(&expected, &native(root.path(), &args)?, &args);
+
+    // Selecting the later spelling would leave only the 09:00 UTC event.
+    let history = root.path().join(".agents/pm/history/sample-one.jsonl");
+    let events = fs::read_to_string(&history)?;
+    fs::write(&history, events.lines().last().ok_or("offset event")?)?;
+    let output = native(root.path(), &args)?;
+    assert!(
+        output.status.success(),
+        "{}",
+        String::from_utf8_lossy(&output.stderr)
+    );
+    let with_earlier_instant: Value = serde_json::from_slice(&output.stdout)?;
+    assert_eq!(with_earlier_instant["low_level"][0]["id"], "sample-two");
     Ok(())
 }
 
@@ -364,7 +379,7 @@ fn context_idle_activity_and_threshold_match_oracle() -> TestResult {
         (
             "72",
             "2026-08-18T00:00:00.000Z",
-            Some("2026-08-19T24:00:00.000Z"),
+            Some("+002026-08-19T24:00:00.000Z"),
             0,
         ),
         (

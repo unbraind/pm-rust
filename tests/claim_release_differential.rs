@@ -426,9 +426,12 @@ fn active_and_stale_lock_refusals_and_force_match_published()
                 }))?,
             )?;
         }
-        fixture.step(&["claim", "sample-own", "--author", "alpha", "--json"])?;
+        let args = ["claim", "sample-own", "--author", "alpha", "--json"];
         if clock == active {
+            fixture.step(&args)?;
             fixture.step(&["claim", "--next", "--author", "alpha", "--json"])?;
+        } else {
+            assert_expired_lock_cleanup_scope(&fixture, &args)?;
         }
         fixture.step(&[
             "claim",
@@ -457,6 +460,77 @@ fn active_and_stale_lock_refusals_and_force_match_published()
     fixture.step(&["claim", "sample-own", "--author", "alpha", "--json"])?;
     fixture.verify()?;
     Ok(())
+}
+
+/// The native cleanup command can preview expired receipts in the explicitly selected tracker.
+fn assert_expired_lock_cleanup_scope(
+    fixture: &Fixture,
+    args: &[&str],
+) -> Result<(), Box<dyn std::error::Error>> {
+    let target = fixture.rust.path().join(".agents/pm");
+    let target = target.to_str().ok_or("tracker path")?;
+    let oracle = published_run(&fixture.driver, fixture.node.path(), args)?;
+    let native = native_command(
+        fixture.node.path(),
+        &["--pm-path", target]
+            .into_iter()
+            .chain(args.iter().copied())
+            .collect::<Vec<_>>(),
+    )
+    .output()?;
+    let scoped = pm_rust::render_pm_command(["--pm-path", target, "gc", "--scope", "locks"]);
+    assert_eq!(oracle.status.code(), Some(4));
+    assert_eq!(native.status.code(), Some(4));
+    let expected: serde_json::Value = serde_json::from_slice(&oracle.stderr)?;
+    let actual: serde_json::Value = serde_json::from_slice(&native.stderr)?;
+    for key in ["code", "detail", "required", "details"] {
+        assert_eq!(actual[key], expected[key], "{key}");
+    }
+    assert_eq!(actual["code"], "stale_lock_requires_override");
+    assert!(
+        expected["next_steps"][0]
+            .as_str()
+            .ok_or("oracle cleanup")?
+            .contains("pm gc --scope locks")
+    );
+    assert_eq!(actual["next_steps"][0], scoped);
+    assert!(
+        actual["next_steps"][1]
+            .as_str()
+            .ok_or("preview")?
+            .contains("--dry-run")
+    );
+    assert!(
+        actual["next_steps"][2]
+            .as_str()
+            .ok_or("retry")?
+            .contains("retry the same command")
+    );
+    let mut preview = pm_rust::parse_command_args(&scoped).ok_or("scoped cleanup command")?;
+    preview.extend(["--dry-run".to_owned(), "--json".to_owned()]);
+    let preview: Vec<_> = preview.iter().skip(1).map(String::as_str).collect();
+    let output = published_run(&fixture.driver, fixture.node.path(), &preview)?;
+    assert!(
+        output.status.success(),
+        "{}",
+        String::from_utf8_lossy(&output.stderr)
+    );
+    assert!(String::from_utf8_lossy(&output.stdout).contains("sample-own"));
+    assert!(
+        fixture
+            .node
+            .path()
+            .join(".agents/pm/locks/sample-own.lock")
+            .is_file()
+    );
+    assert!(
+        fixture
+            .rust
+            .path()
+            .join(".agents/pm/locks/sample-own.lock")
+            .is_file()
+    );
+    fixture.compare_bytes()
 }
 
 /// Runs a fixture preparation through the real oracle and mirrors its durable tracker.
@@ -2578,6 +2652,139 @@ fn credential_author_sources_refuse_without_writes() -> Result<(), Box<dyn std::
     fixture.compare_bytes()
 }
 
+/// A path at-sign must not prevent redaction of a short authority password copied into argv.
+#[test]
+fn environment_identity_projects_short_authority_password() -> Result<(), Box<dyn std::error::Error>>
+{
+    let Some(fixture) = Fixture::new("strict")? else {
+        return Ok(());
+    };
+    let before = fixture.snapshots()?;
+    let args = ["claim", "sample-own", "--message", "pw", "--json"];
+    let author = "https://fixture:pw@example.invalid/users/@fixture";
+    let published = published_command(&fixture.driver, fixture.node.path(), &args)
+        .env("PM_AUTHOR", author)
+        .output()?;
+    let native = native_command(fixture.rust.path(), &args)
+        .env("PM_AUTHOR", author)
+        .output()?;
+    for output in [&published, &native] {
+        assert_eq!(output.status.code(), Some(2));
+        assert!(output.stdout.is_empty());
+    }
+    let refusal: serde_json::Value = serde_json::from_slice(&native.stderr)?;
+    assert!(
+        refusal["recovery"]["attempted_command"]
+            .as_str()
+            .ok_or("attempted command")?
+            .contains("[redacted]")
+    );
+    assert!(!String::from_utf8_lossy(&native.stderr).contains("pw"));
+    assert_eq!(fixture.snapshots()?, before);
+    Ok(())
+}
+
+/// A resolved SDK collection identity is subject to the oracle's author admission policy.
+#[test]
+fn sdk_collection_identity_must_be_credential_free() -> Result<(), Box<dyn std::error::Error>> {
+    let Some(fixture) = Fixture::new("strict")? else {
+        return Ok(());
+    };
+    let credential = "https://fixture:synthetic-secret@example.invalid";
+    let expected = published_run(
+        &fixture.driver,
+        fixture.node.path(),
+        &[
+            "files",
+            "sample-own",
+            "--add",
+            "example.rs",
+            "--author",
+            credential,
+            "--json",
+        ],
+    )?;
+    assert_eq!(expected.status.code(), Some(2));
+    assert!(!String::from_utf8_lossy(&expected.stderr).contains("synthetic-secret"));
+    let before = fixture.snapshots()?;
+    let workspace = pm_rust::Workspace::discover(fixture.rust.path())?;
+    let env = std::collections::BTreeMap::new();
+    let resolved = pm_rust::AuthorIdentity::resolve(Some(credential), None, &env);
+    let clean = pm_rust::AuthorIdentity::resolve(Some("fixture"), None, &env);
+    let identities = [
+        (
+            pm_rust::AuthorIdentity {
+                principal: clean.principal.clone(),
+                ..resolved.clone()
+            },
+            "asserted",
+        ),
+        (
+            pm_rust::AuthorIdentity {
+                principal: resolved.principal,
+                ..clean
+            },
+            "claim_principal",
+        ),
+    ];
+    for (identity, expected_source) in identities {
+        let mut options = pm_rust::CollectionOptions {
+            add: vec!["example.rs".to_owned()],
+            author: "fixture".to_owned(),
+            identity: Some(identity),
+            ..Default::default()
+        };
+        assert!(matches!(
+            workspace.collection("sample-own", "files", &options, fixture.rust.path()),
+            Err(pm_rust::PmRustError::IdentityCredentials { identity_source }) if identity_source == expected_source
+        ));
+        options.add.clear();
+        workspace.collection("sample-own", "files", &options, fixture.rust.path())?;
+    }
+    assert_eq!(fixture.snapshots()?, before);
+    Ok(())
+}
+
+/// A forced release only edits the releasing principal's attribution.
+#[test]
+fn forced_foreign_release_preserves_prior_holder_workset() -> Result<(), Box<dyn std::error::Error>>
+{
+    let Some(fixture) = Fixture::new("strict")? else {
+        return Ok(());
+    };
+    let session = fixture.rust.path().join(".agents/pm/runtime/session.json");
+    fixture.step(&["claim", "sample-own", "--author", "fixture", "--json"])?;
+    let before = fs::read(&session)?;
+    let state: serde_json::Value = serde_json::from_slice(&before)?;
+    let attribution = state["semantic_attribution"]
+        .as_object()
+        .ok_or("fixture workset")?;
+    assert_eq!(attribution.len(), 1);
+    assert_eq!(
+        attribution.values().next().ok_or("fixture attribution")?["active_item_ids"],
+        serde_json::json!(["sample-own"])
+    );
+    fixture.step(&[
+        "release",
+        "sample-own",
+        "--author",
+        "maintainer",
+        "--force",
+        "--json",
+    ])?;
+    assert_eq!(fs::read(session)?, before);
+    let workspace = pm_rust::Workspace::discover(fixture.rust.path())?;
+    assert!(
+        workspace
+            .get("sample-own")?
+            .metadata
+            .extra
+            .get("assignee")
+            .is_none()
+    );
+    Ok(())
+}
+
 /// Registry-defined terminal states refuse atomic starts under the claim lock without writes.
 #[test]
 fn atomic_start_rejects_configured_terminal_status_like_oracle()
@@ -3208,10 +3415,10 @@ fn scoped_blocker_inspection_survives_cross_blocker_redaction()
     let Some(fixture) = Fixture::new("none")? else {
         return Ok(());
     };
-    let selector = "id=github:demo-token,kind=blocked_by";
+    let selector = "id=github:get,kind=blocked_by";
     for dependency in [
         format!("{selector},source_kind=external"),
-        "id=https://demo-token:synthetic-secret@example.invalid/issue,kind=blocked_by,source_kind=external".to_owned(),
+        "id=https://get:synthetic-secret@example.invalid/issue,kind=blocked_by,source_kind=external".to_owned(),
     ] {
         prepare(&fixture, &["update", "sample-own", "--dep", &dependency, "--author", "alpha", "--json"])?;
     }

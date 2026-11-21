@@ -20,6 +20,9 @@ mod windows_acl;
 const TS: &str = "2026-08-07T10:06:30.183Z";
 
 thread_local! {
+    /// Interposes a successor after acquisition and before fenced journal recovery.
+    static BEFORE_FENCED_RECOVERY: std::cell::RefCell<Option<Box<dyn FnOnce()>>> = const { std::cell::RefCell::new(None) };
+
     /// Pauses one close after it has read the item while holding its lease.
     static AFTER_CLOSE_READ: std::cell::RefCell<Option<Box<dyn FnOnce()>>> = const { std::cell::RefCell::new(None) };
 
@@ -38,6 +41,13 @@ thread_local! {
 
     /// Holds a real gate until publication observes contention on this thread.
     static TRANSIENT_PUBLICATION_GATE: std::cell::RefCell<Option<CleanupGate>> = const { std::cell::RefCell::new(None) };
+}
+
+/// Interposes the recovery race only on the requesting thread.
+pub(super) fn before_fenced_recovery() {
+    if let Some(hook) = BEFORE_FENCED_RECOVERY.take() {
+        hook();
+    }
 }
 
 /// Runs the close contention fixture only on the requesting thread.
@@ -408,6 +418,50 @@ fn session_named_item_reuses_its_attribution_gate() -> Result<(), Box<dyn std::e
         serde_json::json!({})
     );
     assert!(!pm_root.join("locks/session-state.lock").exists());
+
+    let legacy_id = "Session-State";
+    let original_path = pm_root.join("tasks/session-state.toon");
+    let legacy_path = pm_root.join("tasks/Session-State.toon");
+    let serialized = fs::read_to_string(&original_path)?;
+    fs::remove_file(original_path)?;
+    fs::write(legacy_path, serialized.replace("session-state", legacy_id))?;
+    let ownership = OwnershipItem {
+        id: legacy_id.to_owned(),
+        ..ownership
+    };
+    assert!(workspace.claim(&ownership)?.warnings.is_empty());
+    let state: Value = crate::strict_json::from_slice(&fs::read(&session)?)?;
+    assert_eq!(
+        state["semantic_attribution"]
+            .as_object()
+            .and_then(|values| values.values().next())
+            .ok_or("legacy session workset")?["active_item_ids"],
+        serde_json::json!([legacy_id])
+    );
+    assert!(workspace.release(&ownership)?.warnings.is_empty());
+    Ok(())
+}
+
+/// Gate reuse follows the inode even when an alternate spelling resolves through an alias.
+#[cfg(unix)]
+#[test]
+fn session_gate_identity_distinguishes_aliases_from_distinct_paths()
+-> Result<(), Box<dyn std::error::Error>> {
+    let (_temp, pm_root) = root("{}")?;
+    let locks = pm_root.join("locks");
+    fs::create_dir(&locks)?;
+    let item = acquire_cleanup_gate(&locks, "Session-State", 1800)?;
+    let session = locks.join("session-state.lock.stale-cleanup");
+    if session.exists() {
+        assert!(item.protects_session_state());
+        return Ok(());
+    }
+    {
+        let _session = acquire_cleanup_gate(&locks, "session-state", 1800)?;
+        assert!(!item.protects_session_state());
+    }
+    std::os::unix::fs::symlink(&item.path, &session)?;
+    assert!(item.protects_session_state());
     Ok(())
 }
 
@@ -4837,6 +4891,74 @@ fn reclaimed_close_cannot_overwrite_successor() -> Result<(), Box<dyn std::error
     Ok(())
 }
 
+/// A displaced closer or claimant leaves the successor's pending history entry alone.
+#[test]
+fn reclaimed_item_lease_cannot_replay_successor_journal() -> Result<(), Box<dyn std::error::Error>>
+{
+    for closing in [true, false] {
+        let (_temp, pm_root) = root(r#"{"governance":{"preset":"minimal"}}"#)?;
+        create_item(&pm_root, request())?;
+        let item = pm_root.join("tasks/sample-unit.toon");
+        let history = pm_root.join("history/sample-unit.jsonl");
+        let journal = pm_root.join("runtime/transactions/update-sample-unit.json");
+        let history_before = fs::read(&history)?;
+        let interposed_root = pm_root.clone();
+        let after_item = fs::read_to_string(&item)?.replace("Unit create", "Successor title");
+        let successor_entry = "{\"op\":\"update\"}\n";
+        let written_item = after_item.clone();
+        let (saved, observed) = std::sync::mpsc::channel();
+        BEFORE_FENCED_RECOVERY.set(Some(Box::new(move || {
+            let result = (|| -> Result<_, Box<dyn std::error::Error>> {
+                let lease_path = interposed_root.join("locks/sample-unit.lock");
+                let mut lease: Value = crate::strict_json::from_slice(&fs::read(&lease_path)?)?;
+                lease["created_at"] = serde_json::json!("2000-01-01T00:00:00.000Z");
+                fs::write(lease_path, lease.to_string())?;
+                let successor = acquire_lock(
+                    &interposed_root,
+                    "sample-unit",
+                    "successor",
+                    &LockSettings {
+                        age: LockAge::Receipt,
+                        ..locks(1800)
+                    },
+                    true,
+                    0,
+                )?;
+                write_mutation_journal(&interposed_root, "update", &written_item, successor_entry)?;
+                fs::write(interposed_root.join("tasks/sample-unit.toon"), written_item)?;
+                Ok(successor)
+            })();
+            assert!(saved.send(result).is_ok());
+        })));
+        let result = if closing {
+            close_item(&pm_root, &pm_root, closure_request()).map(|_| ())
+        } else {
+            let claim = OwnershipItem {
+                id: "sample-unit".to_owned(),
+                author: "fixture".to_owned(),
+                timestamp: Some(TS.to_owned()),
+                message: None,
+                force: false,
+                if_available: false,
+                provenance_role: None,
+            };
+            ownership_item(&pm_root, &claim, true).map(|_| ())
+        };
+        let successor = observed.recv_timeout(Duration::from_secs(1))??;
+        assert!(matches!(result, Err(PmRustError::LockConflict { id }) if id == "sample-unit"));
+        assert!(journal.is_file());
+        assert_eq!(fs::read_to_string(&item)?, after_item);
+        assert_eq!(fs::read(&history)?, history_before);
+        recover_fenced_item(&pm_root, "update", "sample-unit", &successor, 1800)?;
+        assert!(!journal.exists());
+        assert_eq!(
+            fs::read(&history)?,
+            [history_before.as_slice(), successor_entry.as_bytes()].concat()
+        );
+    }
+    Ok(())
+}
+
 /// A copied receipt cannot authorize publication through a different owner file.
 #[test]
 fn item_publication_rejects_replaced_file_with_same_receipt()
@@ -6198,7 +6320,7 @@ fn skipped_claim_redacts_legacy_result_without_writing() -> Result<(), Box<dyn s
 /// Direct create and update reject private author values before lock or history writes.
 #[test]
 fn credential_authors_cannot_enter_native_mutations() -> Result<(), Box<dyn std::error::Error>> {
-    let (_temp, pm_root) = root(&settings("sample-", "toon", 1800))?;
+    let (temp, pm_root) = root(&settings("sample-", "toon", 1800))?;
     let author = "https://fixture:synthetic-secret@example.invalid".to_owned();
     let mut create = request();
     create.author.clone_from(&author);
@@ -6211,7 +6333,8 @@ fn credential_authors_cannot_enter_native_mutations() -> Result<(), Box<dyn std:
     assert!(!pm_root.join("tasks/sample-unit.toon").exists());
     let outcome = create_item(&pm_root, request())?;
     let history = pm_root.join("history/sample-unit.jsonl");
-    let before = fs::read(&history)?;
+    let item = pm_root.join("tasks/sample-unit.toon");
+    let before = (fs::read(&item)?, fs::read(&history)?);
     assert!(matches!(
         update_item(
             &pm_root,
@@ -6225,7 +6348,39 @@ fn credential_authors_cannot_enter_native_mutations() -> Result<(), Box<dyn std:
             identity_source: "--author"
         })
     ));
-    assert_eq!(fs::read(history)?, before);
+    assert_eq!((fs::read(&item)?, fs::read(&history)?), before);
+
+    let workspace = crate::Workspace::discover(&pm_root)?;
+    let env = std::collections::BTreeMap::new();
+    let clean = crate::AuthorIdentity::resolve(Some("fixture"), None, &env);
+    for (identity, source) in [
+        (
+            crate::AuthorIdentity {
+                author: author.clone(),
+                ..clean.clone()
+            },
+            "asserted",
+        ),
+        (
+            crate::AuthorIdentity {
+                principal: author,
+                ..clean
+            },
+            "claim_principal",
+        ),
+    ] {
+        let options = crate::CollectionOptions {
+            add: vec!["source.rs".to_owned()],
+            author: "fixture".to_owned(),
+            identity: Some(identity),
+            ..Default::default()
+        };
+        assert!(matches!(
+            workspace.collection("sample-unit", "files", &options, temp.path()),
+            Err(PmRustError::IdentityCredentials { identity_source }) if identity_source == source
+        ));
+        assert_eq!((fs::read(&item)?, fs::read(&history)?), before);
+    }
     Ok(())
 }
 

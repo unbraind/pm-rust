@@ -1202,6 +1202,14 @@ struct CleanupGate {
     _lease: GateLease,
 }
 
+impl CleanupGate {
+    /// Checks whether this item gate also protects session state on the tracker filesystem.
+    fn protects_session_state(&self) -> bool {
+        let session = self.path.with_file_name("session-state.lock.stale-cleanup");
+        lock_identity_unchanged(&session, GateObservation::read(&self.path).ok().as_ref())
+    }
+}
+
 impl Drop for CleanupGate {
     fn drop(&mut self) {
         let _ = fs::remove_dir(&self.path);
@@ -2023,6 +2031,20 @@ fn recover_and_locate(
         locate_item(pm_root, id)
             .map(|(_item_path, before_document)| (item_path, history_path, before_document))
     })
+}
+
+/// Fences recovery writes against lease replacement, then releases the gate for validation.
+fn recover_fenced_item(
+    pm_root: &Path,
+    operation: &str,
+    id: &str,
+    lock: &ItemLock,
+    ttl: u64,
+) -> Result<(PathBuf, PathBuf, ItemDocument), PmRustError> {
+    #[cfg(test)]
+    tests::before_fenced_recovery();
+    let _gate = fence_item(pm_root, id, lock, ttl)?;
+    recover_and_locate(pm_root, operation, id)
 }
 
 /// Locates the single stored document for one stable identifier.
@@ -2946,7 +2968,13 @@ pub(crate) fn close_item(
             settings.locks.wait_ms,
         ),
     )?;
-    let (item_path, history_path, before) = recover_and_locate(pm_root, "close", &request.id)?;
+    let (item_path, history_path, before) = recover_fenced_item(
+        pm_root,
+        "close",
+        &request.id,
+        &lock,
+        settings.locks.ttl_seconds,
+    )?;
     #[cfg(test)]
     tests::after_close_read();
     if (crate::list::terminal(&before.metadata.status)
@@ -3292,33 +3320,39 @@ fn lock_receipt_warning(receipt: &serde_json::Result<Value>) -> Option<&'static 
     }
 }
 
+/// Retry advice for stale locks before any part of a command has committed.
+pub(crate) const RETRY_STALE_LOCK: &str = "Remove the expired lease, then retry the same command.";
+
 /// Explains an expired incumbent observed while holding the cleanup gate.
 fn stale_ownership_lock_refusal(id: &str, raw: &str) -> PmRustError {
     let path = format!("locks/{id}.lock");
     let receipt = crate::strict_json::from_str(raw);
     let warning = lock_receipt_warning(&receipt);
     let suffix = warning.map_or_else(String::new, |warning| format!(" ({warning})"));
-    let cleanup = if warning.is_none()
+    let mut steps = if warning.is_none()
         && receipt.as_ref().is_ok_and(|value| {
             value["created_at"]
                 .as_str()
                 .is_some_and(|created| OffsetDateTime::parse(created, &Rfc3339).is_ok())
         }) {
-        "Run pm gc --scope locks (add --dry-run to preview), then retry the same command."
-            .to_owned()
+        vec![
+            "pm gc --scope locks".to_owned(),
+            "Add --dry-run to preview cleanup.".to_owned(),
+        ]
     } else {
-        format!(
-            "Remove {path} from the selected tracker once its owner is confirmed gone, then retry the same command. pm gc --scope locks keeps receipts with unreadable or undated metadata."
-        )
+        vec![format!(
+            "Remove {path} from the selected tracker once its owner is confirmed gone. pm gc --scope locks keeps receipts with unreadable or undated metadata."
+        )]
     };
+    steps.push(RETRY_STALE_LOCK.to_owned());
     ownership_refusal(
         format!(
             "Lock {id} is stale{suffix}; remove the expired lease, or rerun with --force where this command accepts it"
         ),
         serde_json::json!({
             "code": "stale_lock_requires_override",
-            "required": "Remove the expired lease, then retry the same command.",
-            "next_steps": [cleanup],
+            "required": RETRY_STALE_LOCK,
+            "next_steps": steps,
             "why": format!("The lease in {path} is past its TTL, and force_required_for_stale_lock keeps an expired lease until it is removed explicitly."),
             "details": {"lock_id":id,"lock_path":path}
         }),
@@ -3366,6 +3400,10 @@ pub(crate) fn collection_item(
 ) -> Result<(ItemDocument, crate::collections::CollectionChange), PmRustError> {
     let mut settings = read_settings(pm_root)?;
     let timestamp = validate_mutation_request(&options.author, options.timestamp.as_deref())?;
+    if let Some(identity) = &options.identity {
+        crate::AuthorIdentity::validate_credentials(&identity.author, identity.source)?;
+        crate::AuthorIdentity::validate_credentials(&identity.principal, "claim_principal")?;
+    }
     settings.locks.age = LockAge::OwnershipReceipt;
     let wait_ms = lock_wait_budget(
         std::env::var("PM_LOCK_WAIT_MS").ok().as_deref(),
@@ -3580,7 +3618,13 @@ pub(crate) fn ownership_item_with_options(
         }
         Err(error) => return Err(error),
     };
-    let (item_path, history_path, before) = recover_and_locate(pm_root, operation, &request.id)?;
+    let (item_path, history_path, before) = recover_fenced_item(
+        pm_root,
+        operation,
+        &request.id,
+        &lock,
+        settings.locks.ttl_seconds,
+    )?;
     let assignee = ownership_text(&before, "assignee");
     let principal = ownership_text(&before, "claim_principal");
     let public_assignee = crate::AuthorIdentity::redact_credentials(&assignee);
@@ -3754,7 +3798,7 @@ pub(crate) fn ownership_item_with_options(
     };
     // Refused and skipped contenders never decode unrelated item payloads.
     // Recovery and the target's atomic ownership checks already hold this lock.
-    let _gate = if skipped.is_none() {
+    let gate = if skipped.is_none() {
         prepare()?;
         Some(fence_item(
             pm_root,
@@ -3825,8 +3869,11 @@ pub(crate) fn ownership_item_with_options(
     };
     // Publish derived state in the same order as the durable ownership changes.
     if receipt.skipped.is_none() {
-        // This item name and the derived session state use the same lock path.
-        publish(&mut receipt, request.id == "session-state");
+        publish(
+            &mut receipt,
+            gate.as_ref()
+                .is_some_and(CleanupGate::protects_session_state),
+        );
     }
     Ok(receipt)
 }

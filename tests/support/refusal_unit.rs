@@ -48,12 +48,46 @@ fn stored_holder_recovery_preserves_only_clean_replays() {
         if allowed {
             assert_eq!(payload["recovery"], clean);
             assert!(payload.get("examples").is_none());
+            assert!(
+                !payload["next_steps"]
+                    .as_array()
+                    .into_iter()
+                    .flatten()
+                    .any(|step| step.as_str().is_some_and(|step| step.contains(RESTORE)))
+            );
         } else {
             assert_eq!(payload["next_steps"][0], RESTORE);
             assert!(payload["recovery"].get("suggested_retry").is_none());
             assert!(payload["recovery"].get("suggested_retry_args").is_none());
         }
     }
+}
+
+/// Standalone command syntax survives even when a credential matches the verb.
+#[test]
+fn recovery_steps_project_arguments_and_preserve_command_syntax() {
+    let args = ["get", "get", "--fields", "title"];
+    let mut payload = json!({"next_steps":[
+        crate::render_pm_command(args),
+        crate::render_pm_rust_command(args),
+        "pm get \"<id>",
+        17
+    ]});
+    redact(
+        &mut payload,
+        &["https://get:fixture-secret@example.invalid".to_owned()],
+    );
+    let safe = ["get", "[redacted]", "--fields", "title"];
+    assert_eq!(
+        payload["next_steps"],
+        json!([
+            RESTORE,
+            crate::render_pm_command(safe),
+            crate::render_pm_rust_command(safe),
+            "pm [redacted] \"<id>",
+            17
+        ])
+    );
 }
 
 /// Encoded rejection spans stay scoped and preserve the native command renderer.

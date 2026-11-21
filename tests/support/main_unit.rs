@@ -2301,8 +2301,54 @@ fn close_lock_retry_tracks_the_failed_step() -> Result<(), Box<dyn std::error::E
         serde_json::json!(scoped_args)
     );
     assert!(scoped["recovery"].get("suggested_retry").is_none());
-    assert_eq!(fs::read_to_string(path)?, raw);
+    assert_eq!(fs::read_to_string(&path)?, raw);
+
+    assert_close_stale_release_recovery(&workspace, &request, &path, &raw, &scoped_args)?;
     assert_eq!(fs::read(history)?, committed);
+    Ok(())
+}
+
+/// Stale-lock cleanup after close stays scoped and leads only to the release step.
+fn assert_close_stale_release_recovery(
+    workspace: &Workspace,
+    request: &OwnershipItem,
+    path: &std::path::Path,
+    raw: &str,
+    scoped_args: &[String],
+) -> Result<(), Box<dyn std::error::Error>> {
+    for created in ["2000-01-01T00:00:00.000Z", "unknown"] {
+        let mut expired: serde_json::Value = serde_json::from_str(raw)?;
+        expired["created_at"] = serde_json::json!(created);
+        fs::write(path, expired.to_string())?;
+        let identity = AuthorIdentity::resolve(Some("alpha"), None, &BTreeMap::new());
+        let Some(pm_rust::PmRustError::CommandRefusal {
+            detail,
+            exit_code,
+            context,
+        }) = super::release_after_close(workspace, request, identity).err()
+        else {
+            return Err("expected a stale-lock release refusal after close".into());
+        };
+        assert_eq!(context["code"], "stale_lock_requires_override");
+        assert_eq!(context["completed_step"], "close");
+        let payload = super::command_error_json(&detail, &context, scoped_args, exit_code);
+        let payload = super::complete_refusal(&payload, scoped_args);
+        let steps = payload["next_steps"].to_string();
+        assert!(steps.contains("retry only release"), "{payload}");
+        assert!(!steps.contains("retry the same command"), "{payload}");
+        if created == "unknown" {
+            assert!(
+                steps.contains("once its owner is confirmed gone"),
+                "{payload}"
+            );
+        } else {
+            assert!(
+                steps.contains("pm --pm-path .agents/pm gc --scope locks"),
+                "{payload}"
+            );
+        }
+        assert!(payload["recovery"].get("suggested_retry_args").is_none());
+    }
     Ok(())
 }
 

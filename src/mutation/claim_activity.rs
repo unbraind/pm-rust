@@ -1,6 +1,6 @@
 //! Read-only ownership evidence used in claim conflict receipts.
 
-use std::path::Path;
+use std::{fs, io::ErrorKind, path::Path};
 
 use serde_json::{Value, json};
 use time::{Duration, OffsetDateTime, format_description::well_known::Rfc3339};
@@ -49,6 +49,9 @@ fn deserialize_threshold<'de, D: serde::Deserializer<'de>>(reader: D) -> Result<
 
 /// Parses a stored timestamp for activity comparisons.
 pub(crate) fn parse_stored_timestamp(value: &str) -> Option<OffsetDateTime> {
+    // The published Date reader also accepts four-digit years spelled with a
+    // positive sign and six digits. Compare the normalized spelling only.
+    let value = value.strip_prefix("+00").unwrap_or(value);
     if value.len() == 10 {
         return OffsetDateTime::parse(&format!("{value}T00:00:00Z"), &Rfc3339).ok();
     }
@@ -154,9 +157,12 @@ fn compaction_activity(entry: &Value) -> CompactionActivity<'_> {
 
 /// Reads an entire stream, treating missing streams as empty and broken streams as unjudgeable.
 fn read_history(path: &Path, valid: fn(&Value) -> bool) -> Option<Vec<Value>> {
-    super::read_optional(path)
-        .ok()?
-        .unwrap_or_default()
+    let bytes = match fs::read(path) {
+        Ok(bytes) => bytes,
+        Err(error) if error.kind() == ErrorKind::NotFound => return Some(Vec::new()),
+        Err(_) => return None,
+    };
+    String::from_utf8_lossy(&bytes)
         .lines()
         .filter(|line| !line.trim().is_empty())
         .map(|line| {

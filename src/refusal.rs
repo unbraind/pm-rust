@@ -30,10 +30,17 @@ pub fn with_cli_projection<T>(run: impl FnOnce() -> T) -> T {
 }
 
 /// Keeps a rejected identity's sensitive span available for CLI recovery projection.
-pub(crate) fn enroll_identity_span(span: &str) {
+pub(crate) fn enroll_rejected_identity(identity: &str, span: &str) {
     CLI_USERINFO.with_borrow_mut(|scope| {
         if let Some(enrolled) = scope {
             enrolled.push(span.to_owned());
+            // The admission span can extend past the URL authority. Enroll its
+            // userinfo independently so short copies of the password are masked.
+            enrolled.extend(
+                userinfos(identity)
+                    .into_iter()
+                    .map(|(start, end)| identity[start..end].to_owned()),
+            );
         }
     });
 }
@@ -458,6 +465,26 @@ impl Credentials {
         }
     }
 
+    /// Projects executable advice without changing its verb or option names.
+    fn next_steps(&self, steps: &mut [Value]) {
+        for step in steps {
+            if let Some(text) = step.as_str()
+                && let Some((binary @ ("pm" | "pm-rust"), command)) = text.split_once(' ')
+                && let Some(args) = crate::parse_command_args(command)
+            {
+                let mut values: Vec<_> = args.into_iter().map(Value::String).collect();
+                let (verb, options) = Self::fixed_arguments(&values);
+                self.arguments(&mut values, &verb, &options);
+                *step = Value::String(crate::command_line::render_command(
+                    binary,
+                    values.iter().filter_map(Value::as_str),
+                ));
+            } else {
+                self.value(step, false, false, false);
+            }
+        }
+    }
+
     /// Leaves a reported option name intact when the invocation identifies it as fixed.
     fn provided_fields(&self, fields: &mut [Value], options: &[(usize, String)]) {
         for field in fields {
@@ -514,6 +541,7 @@ impl Credentials {
                         (true, "normalized_args", Some(args)) => {
                             self.arguments(args, &command, &options);
                         }
+                        (true, "next_steps", Some(steps)) => self.next_steps(steps),
                         (true, "provided_fields", Some(fields)) => {
                             self.provided_fields(fields, &options);
                         }

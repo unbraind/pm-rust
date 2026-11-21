@@ -205,12 +205,26 @@ fn claim_history_provenance_and_activity_match_published() -> TestResult {
             false,
         ),
         (
-            "hour-24-work",
+            "expanded-year-work",
             vec![
                 claim(),
                 record(
                     "update",
-                    "2026-08-06T24:00:00.000Z",
+                    "+002026-08-06T10:00:00.000Z",
+                    patch("/metadata/title", json!("New title")),
+                ),
+            ],
+            None,
+            false,
+            false,
+        ),
+        (
+            "expanded-hour-24-work",
+            vec![
+                claim(),
+                record(
+                    "update",
+                    "+002026-08-06T24:00:00.000Z",
                     patch("/metadata/title", json!("New title")),
                 ),
             ],
@@ -416,7 +430,9 @@ fn claim_history_provenance_and_activity_match_published() -> TestResult {
             false,
         ),
         ("broken-json", vec![claim()], None, true, false),
+        ("history-is-directory", vec![], None, true, false),
         ("invalid-utf8", vec![], None, true, false),
+        ("lossy-claim-message", vec![claim()], None, false, true),
         (
             "bad-patch-path",
             vec![claim(), record("update", LATER, json!([{"path": 0}]))],
@@ -444,7 +460,23 @@ fn claim_history_provenance_and_activity_match_published() -> TestResult {
         if label == "invalid-utf8" {
             fs::write(&history, [0xff, b'\n'])?;
         }
-        let observed = fs::read(&history)?;
+        if label == "history-is-directory" {
+            fs::remove_file(&history)?;
+            fs::create_dir(&history)?;
+        }
+        if label == "lossy-claim-message" {
+            let raw = fs::read_to_string(&history)?;
+            let closing = raw.trim_end().strip_suffix('}').ok_or("claim record")?;
+            let bytes = [
+                closing.as_bytes(),
+                b",\"message\":\"old ",
+                &[0xff],
+                b"\"}\n",
+            ]
+            .concat();
+            fs::write(&history, bytes)?;
+        }
+        let observed = fs::read(&history).ok();
         let evidence = super::evidence(&history, &item, HOLDER, NOW, 72);
         assert_eq!(
             evidence["claim_activity"]["unproven_activity"],
@@ -460,7 +492,10 @@ fn claim_history_provenance_and_activity_match_published() -> TestResult {
             evidence["claim_activity"]["stale_policy"]["stale"], stale,
             "{label}"
         );
-        assert_eq!(fs::read(&history)?, observed, "{label}");
+        if label == "lossy-claim-message" {
+            assert_eq!(evidence["claimed_at"], CLAIMED);
+        }
+        assert_eq!(fs::read(&history).ok(), observed, "{label}");
         inputs.push(json!({"label":label,"root":root,"id":"demo-claim","holder":HOLDER,"updated_at":BEFORE,"threshold_hours":72,"now":NOW}));
         native.push(evidence);
     }

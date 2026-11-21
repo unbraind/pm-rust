@@ -46,7 +46,7 @@ impl AuthorIdentity {
     ) -> Result<(), PmRustError> {
         let identity = identity.trim();
         if let Some((start, end)) = identity_userinfo(identity) {
-            crate::refusal::enroll_identity_span(&identity[start..end]);
+            crate::refusal::enroll_rejected_identity(identity, &identity[start..end]);
             return Err(PmRustError::IdentityCredentials { identity_source });
         }
         Ok(())
@@ -835,7 +835,17 @@ pub fn partial_failure(error: PmRustError, id: &str, completed: &str) -> PmRustE
     context["item_id"] = json!(id);
     if completed == "close" {
         context["completed_step"] = json!(completed);
-        if context["code"] == "lock_conflict" {
+        if context["code"] == "stale_lock_requires_override" {
+            let retry_release = json!(
+                "Remove the expired lease, then retry only release with the original identity and applicable release options."
+            );
+            for step in &mut steps {
+                if *step == crate::mutation::RETRY_STALE_LOCK {
+                    *step = retry_release.clone();
+                }
+            }
+            context["required"] = retry_release;
+        } else if context["code"] == "lock_conflict" {
             context["required"] = json!(
                 "Wait for the lock to clear, then retry the release step with the original identity and applicable release options."
             );
