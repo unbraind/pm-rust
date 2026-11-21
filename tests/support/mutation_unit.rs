@@ -7058,8 +7058,6 @@ fn ownership_gate_warning_never_replays_a_committed_command()
     );
 
     assert!(workspace.claim(&item)?.warnings.is_empty());
-    let session = pm_root.join("runtime/session.json");
-    let saved = fs::read(&session)?;
     item.author = "maintainer".into();
     item.force = true;
     HOLD_PUBLICATION_GATE.set(true);
@@ -7068,7 +7066,6 @@ fn ownership_gate_warning_never_replays_a_committed_command()
         released.warnings,
         ["release_semantic_attribution_unrecorded"]
     );
-    assert_eq!(fs::read(session)?, saved);
     assert!(
         workspace
             .get(&item.id)?
@@ -7092,6 +7089,21 @@ fn ownership_gate_warning_never_replays_a_committed_command()
             }
         }
     }
+
+    // The owner's release changes their existing attribution when publication succeeds.
+    item.id = unclaimed.to_owned();
+    item.force = false;
+    assert!(workspace.claim(&item)?.warnings.is_empty());
+    let session = pm_root.join("runtime/session.json");
+    let saved = fs::read(&session)?;
+    HOLD_PUBLICATION_GATE.set(true);
+    assert_eq!(
+        workspace.release(&item)?.warnings,
+        ["release_semantic_attribution_unrecorded"]
+    );
+    assert_eq!(fs::read(&session)?, saved);
+    assert!(workspace.release(&item)?.warnings.is_empty());
+    assert_ne!(fs::read(session)?, saved);
     Ok(())
 }
 
