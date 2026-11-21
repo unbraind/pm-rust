@@ -1,7 +1,7 @@
 //! Context ranking, focus packing, optional sections and omission receipts.
 mod sections;
 use crate::list_registry::Lifecycle;
-use crate::orientation::{invalid, numeric, records};
+use crate::orientation::{context_records, invalid, numeric};
 use crate::{ContextOptions, ListOutput, PmRustError, Workspace};
 use serde_json::{Value, json};
 use std::collections::{BTreeMap, BTreeSet};
@@ -70,11 +70,33 @@ fn optional(a: &Value, b: &Value, date: bool) -> std::cmp::Ordering {
 }
 /// Returns recency from substantive history, release cohort or creation time.
 fn recency(entries: &[Value], item: &Value) -> String {
+    if !entries
+        .iter()
+        .all(|entry| rankable_timestamp(text(entry, "ts")))
+    {
+        return release_recency(item);
+    }
     entries
         .iter()
         .filter_map(substantive_history_timestamp)
         .max_by_key(|timestamp| recency_key(timestamp))
         .map_or_else(|| release_recency(item), str::to_owned)
+}
+
+/// Applies the event index's millisecond-precision RFC 3339 admission rule.
+fn rankable_timestamp(timestamp: &str) -> bool {
+    use time::{OffsetDateTime, format_description::well_known::Rfc3339};
+
+    let timestamp = timestamp.trim();
+    OffsetDateTime::parse(timestamp, &Rfc3339).is_ok()
+        && matches!(timestamp.as_bytes()[10], b'T' | b't')
+        && &timestamp.as_bytes()[17..19] != b"60"
+        && timestamp.split_once('.').is_none_or(|(_, tail)| {
+            tail.bytes()
+                .skip(3)
+                .take_while(u8::is_ascii_digit)
+                .all(|digit| digit == b'0')
+        })
 }
 
 /// Equal parsed instants share a rank coordinate regardless of their original offset spelling.
@@ -88,21 +110,20 @@ fn recency_key(timestamp: &str) -> (Option<i128>, String) {
 
 /// Keeps the context ranking classification independent of the idle advisory.
 fn substantive_history_timestamp(entry: &Value) -> Option<&str> {
-    // Legacy records without a patch still supply recency in the published reader.
-    let patch = entry["patch"].as_array().map_or(&[][..], Vec::as_slice);
-    if !crate::history::patch_paths_are_strings(patch) {
-        return None;
-    }
     let substantive = match entry["event_class"].as_str() {
         Some("substantive") => true,
         Some("maintenance") => false,
         _ => {
+            // Legacy records without a patch still supply recency in the published reader.
+            let patch = entry["patch"].as_array().map_or(&[][..], Vec::as_slice);
+            if !crate::history::patch_paths_are_strings(patch) {
+                return None;
+            }
             let paths = patch.iter().filter_map(|row| row["path"].as_str());
             crate::history::classify_history_paths(text(entry, "op"), paths) == "substantive"
         }
     };
-    let timestamp = text(entry, "ts");
-    (substantive && !timestamp.is_empty()).then_some(timestamp)
+    substantive.then(|| text(entry, "ts").trim())
 }
 
 /// Uses the release cohort when no substantive history is available.
@@ -1124,9 +1145,9 @@ fn context_history<'a>(
             if !advisory {
                 continue;
             }
-            records(workspace, id).unwrap_or_default()
+            context_records(workspace, id).unwrap_or_default()
         } else {
-            let history = records(workspace, id)?;
+            let history = context_records(workspace, id)?;
             recent.push((id, recency_key(&recency(&history, item))));
             history
         };

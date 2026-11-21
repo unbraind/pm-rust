@@ -190,6 +190,24 @@ fn claim_history_provenance_and_activity_match_published() -> TestResult {
     reclassified["event_class"] = json!("substantive");
     let cases = [
         ("untouched", vec![claim()], None, false, true),
+        ("bom-prefixed-claim", vec![claim()], None, false, true),
+        (
+            "abbreviated-month-activity",
+            vec![
+                claim(),
+                record("update", "2026-08", substantive["patch"].clone()),
+            ],
+            None,
+            false,
+            true,
+        ),
+        (
+            "abbreviated-year-claim",
+            vec![record("claim", "2026", claim()["patch"].clone())],
+            None,
+            false,
+            true,
+        ),
         (
             "date-only-claim",
             vec![record("claim", "2026-08-02", claim()["patch"].clone())],
@@ -450,6 +468,12 @@ fn claim_history_provenance_and_activity_match_published() -> TestResult {
         fs::create_dir_all(root.join("history"))?;
         let history = root.join("history/demo-claim.jsonl");
         write_stream(&history, &entries)?;
+        if label == "bom-prefixed-claim" {
+            fs::write(
+                &history,
+                [b"\xef\xbb\xbf".as_slice(), &fs::read(&history)?].concat(),
+            )?;
+        }
         if label == "broken-json" {
             use std::io::Write as _;
             fs::OpenOptions::new()
@@ -464,7 +488,7 @@ fn claim_history_provenance_and_activity_match_published() -> TestResult {
             fs::remove_file(&history)?;
             fs::create_dir(&history)?;
         }
-        if label == "lossy-claim-message" {
+        if matches!(label, "bom-prefixed-claim" | "lossy-claim-message") {
             let raw = fs::read_to_string(&history)?;
             let closing = raw.trim_end().strip_suffix('}').ok_or("claim record")?;
             let bytes = [

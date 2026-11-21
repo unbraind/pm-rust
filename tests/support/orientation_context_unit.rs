@@ -22,7 +22,10 @@ fn workspace() -> Result<(tempfile::TempDir, Workspace, Lifecycle), Box<dyn std:
 }
 /// Loads ranking input through the production stream reader.
 fn recency(workspace: &Workspace, row: &Value) -> Result<String, PmRustError> {
-    Ok(super::recency(&records(workspace, text(row, "id"))?, row))
+    Ok(super::recency(
+        &context_records(workspace, text(row, "id"))?,
+        row,
+    ))
 }
 
 /// Exercises ranking with the same history summaries used by context.
@@ -1650,6 +1653,27 @@ fn recency_honors_event_classes_and_legacy_paths() {
         json!({"ts":"2026-08-27T00:00:00Z","op":"release","event_class":"substantive"}),
         json!({"ts":"2026-08-28T00:00:00Z","op":"update","event_class":"substantive","patch":[{}]}),
     ];
-    assert_eq!(super::recency(&entries, &row), "2026-08-27T00:00:00Z");
+    assert_eq!(super::recency(&entries, &row), "2026-08-28T00:00:00Z");
     assert_eq!(super::recency(&entries[..6], &row), "2026-08-22T12:00:00Z");
+}
+
+/// Every row must satisfy the index's timestamp grammar before recency is used.
+#[test]
+fn recency_rejects_unindexable_maintenance_timestamps() {
+    let row = item("sample-one", "open");
+    let recent = json!({"ts":"2026-08-28T00:00:00Z","event_class":"substantive"});
+    for (timestamp, expected) in [
+        ("2026-08-29", NOW),
+        ("2026-08-29 00:00:00Z", NOW),
+        ("2016-12-31T23:59:60Z", NOW),
+        ("2026-08-29T00:00:00.0000000001Z", NOW),
+        (" 2026-08-29t00:00:00.001000z ", "2026-08-28T00:00:00Z"),
+    ] {
+        let maintenance = json!({"ts":timestamp,"event_class":"maintenance"});
+        assert_eq!(
+            super::recency(&[recent.clone(), maintenance], &row),
+            expected,
+            "{timestamp}"
+        );
+    }
 }

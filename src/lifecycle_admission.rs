@@ -275,8 +275,8 @@ fn read_blocker(path: &Path, canonical: &str) -> Result<ItemDocument, PmRustErro
     Ok(item)
 }
 /// Builds executable unblock advice only when the scalar/edge removal is unambiguous.
-fn unblock(before: &ItemDocument, open_ids: &[String], settings: &Value) -> Vec<String> {
-    let first = &open_ids[0];
+fn unblock(before: &ItemDocument, blocker_sources: &[String], settings: &Value) -> Vec<String> {
+    let first = &blocker_sources[0];
     let prefix = settings["id_prefix"].as_str().unwrap_or("pm-");
     let canonical = |id: &str| {
         let id = id.trim().trim_start_matches('#').to_lowercase();
@@ -347,7 +347,7 @@ fn unblock(before: &ItemDocument, open_ids: &[String], settings: &Value) -> Vec<
     {
         let id = matches[0]["id"].as_str().unwrap_or_default();
         let selector = format!("id={id},kind=blocked_by");
-        if crate::refusal::diagnostic(&selector, open_ids) != selector {
+        if crate::refusal::diagnostic(&selector, blocker_sources) != selector {
             return vec![
                 inspect(),
                 "Use the dependency's original ID to remove the blocked_by edge.".to_owned(),
@@ -434,7 +434,14 @@ fn admit_blockers(
         .take(3)
         .map(|row| crate::render_pm_command(["get", row["id"].as_str().unwrap_or_default()]))
         .collect();
-    steps.extend(unblock(before, &open_ids, settings));
+    let mut blocker_sources = open_ids;
+    blocker_sources.extend(
+        open.iter()
+            .flat_map(|row| [row["title"].as_str(), row["status"].as_str()])
+            .flatten()
+            .map(str::to_owned),
+    );
+    steps.extend(unblock(before, &blocker_sources, settings));
     steps.push(crate::render_pm_command(["next"]));
     let plural = if open.len() == 1 {
         "its blocker".to_owned()

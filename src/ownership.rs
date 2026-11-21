@@ -816,6 +816,10 @@ pub fn partial_failure(error: PmRustError, id: &str, completed: &str) -> PmRustE
     let detail = error.to_string();
     let (exit_code, mut context) = match error {
         PmRustError::OwnershipRefusal { context, .. } => (4, context),
+        PmRustError::LockConflict { .. } => (
+            4,
+            json!({"code":"lock_conflict","recovery":{"retry_after_ms":250}}),
+        ),
         PmRustError::CommandRefusal {
             exit_code, context, ..
         } => (exit_code, context),

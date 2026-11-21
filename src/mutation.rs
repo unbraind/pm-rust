@@ -592,7 +592,8 @@ pub fn normalize_mutation_settings(settings: &mut Value) -> bool {
         warned |= normalize_lock_number(locks, "wait_ms", 3000);
     }
     if let Some(workflow) = settings.get_mut("workflow").and_then(Value::as_object_mut) {
-        warned |= fallback_setting(
+        // The published settings reader ignores this legacy native field.
+        fallback_setting(
             workflow,
             "close_status",
             Value::is_string,
@@ -2976,7 +2977,7 @@ pub(crate) fn close_item(
         settings.locks.ttl_seconds,
     )?;
     #[cfg(test)]
-    tests::after_close_read();
+    tests::after_item_read();
     if (crate::list::terminal(&before.metadata.status)
         || before.metadata.status == settings.workflow.close_status)
         && !request.fields.force
@@ -3410,7 +3411,7 @@ pub(crate) fn collection_item(
         settings.locks.wait_ms,
     );
     let started = Instant::now();
-    let _lock = acquire_lock(
+    let lock = acquire_lock(
         pm_root,
         id,
         &options.author,
@@ -3437,10 +3438,14 @@ pub(crate) fn collection_item(
         _ => "tests_add",
     };
     let (item_path, history_path, before) =
-        recover_and_locate(pm_root, operation, id).map_err(|error| match error {
-            PmRustError::ItemNotFound { .. } => crate::collections::missing(pm_root, id),
-            error => error,
-        })?;
+        recover_fenced_item(pm_root, operation, id, &lock, settings.locks.ttl_seconds).map_err(
+            |error| match error {
+                PmRustError::ItemNotFound { .. } => crate::collections::missing(pm_root, id),
+                error => error,
+            },
+        )?;
+    #[cfg(test)]
+    tests::after_item_read();
     let owner = ownership_text(&before, "assignee");
     let principal = ownership_text(&before, "claim_principal");
     let caller_principal = options.identity.as_ref().map_or_else(
@@ -3538,6 +3543,7 @@ pub(crate) fn collection_item(
             .insert(key.to_owned(), Value::Array(rows));
     }
     document.metadata.updated_at.clone_from(&timestamp);
+    let _gate = fence_item(pm_root, id, &lock, settings.locks.ttl_seconds)?;
     let result = commit_mutation(
         pm_root,
         operation,

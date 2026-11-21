@@ -965,11 +965,7 @@ fn note_conflict_refusal(
         context["required"] = json!(
             "Run the repair in the original detected session with --note-conflict append or replace, or retry through the SDK with the original AuthorIdentity and the chosen note conflict policy."
         );
-    } else if options
-        .identity
-        .as_ref()
-        .is_some_and(|identity| identity.principal != options.author.trim())
-    {
+    } else if crate::ownership::caller_principal(&options.author) != options.author.trim() {
         let guidance = "Retry through the SDK with the original AuthorIdentity and set note_conflict to append or replace to preserve the ownership principal.";
         context["required"] = json!(guidance);
         context["next_steps"] = json!([guidance]);

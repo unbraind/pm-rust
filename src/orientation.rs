@@ -148,6 +148,16 @@ fn history_filename(id: &str) -> Result<(), PmRustError> {
 
 /// Reads raw JSONL without changing or auto-creating a stream.
 pub(crate) fn records(workspace: &Workspace, id: &str) -> Result<Vec<Value>, PmRustError> {
+    read_records(workspace, id, false)
+}
+
+/// Reads context evidence with the published UTF-8 replacement semantics.
+pub(crate) fn context_records(workspace: &Workspace, id: &str) -> Result<Vec<Value>, PmRustError> {
+    read_records(workspace, id, true)
+}
+
+/// Shares JSONL validation between strict history and lossy context evidence.
+fn read_records(workspace: &Workspace, id: &str, lossy: bool) -> Result<Vec<Value>, PmRustError> {
     history_filename(id)?;
     #[cfg(test)]
     crate::orientation_context::tests::HISTORY_READS.with(|count| count.set(count.get() + 1));
@@ -155,14 +165,23 @@ pub(crate) fn records(workspace: &Workspace, id: &str) -> Result<Vec<Value>, PmR
         .pm_root()
         .join("history")
         .join(format!("{id}.jsonl"));
-    let raw = match fs::read_to_string(&path) {
+    let read = if lossy {
+        fs::read(&path).map(|bytes| String::from_utf8_lossy(&bytes).into_owned())
+    } else {
+        fs::read_to_string(&path)
+    };
+    let raw = match read {
         Ok(raw) => raw,
         Err(error) if error.kind() == std::io::ErrorKind::NotFound => return Ok(Vec::new()),
         Err(source) => return Err(PmRustError::Io { path, source }),
     };
     let mut result = Vec::new();
     for (index, line) in raw.lines().enumerate() {
-        let line = line.trim();
+        let line = if lossy {
+            line.trim_start_matches('\u{feff}').trim()
+        } else {
+            line.trim()
+        };
         if line.is_empty() {
             continue;
         }

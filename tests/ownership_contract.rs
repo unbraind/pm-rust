@@ -52,6 +52,30 @@ fn request(author: &str) -> OwnershipItem {
     }
 }
 
+/// A legacy holder's authority credentials are private even when its path has an at sign.
+#[test]
+fn sdk_claim_masks_short_copies_of_the_legacy_holder_password() -> TestResult {
+    let (_directory, workspace) = fixture()?;
+    let path = workspace.pm_root().join("tasks/sample-one.toon");
+    let history = workspace.pm_root().join("history/sample-one.jsonl");
+    let mut item: Value = toon_format::decode_default(&fs::read_to_string(&path)?)?;
+    item["assignee"] = json!("https://fixture:one@example.invalid/path@tail.test");
+    let stored = toon_format::encode_default(&item)?;
+    fs::write(&path, &stored)?;
+    let before = fs::read(&history)?;
+    let Err(PmRustError::OwnershipRefusal { detail, context }) = workspace.claim(&request("beta"))
+    else {
+        return Err("expected a foreign-holder refusal".into());
+    };
+    assert_eq!(context["code"], "already_claimed_by");
+    assert_eq!(context["claimed_by"], "https://[redacted]@tail.test");
+    assert_eq!(context["item_id"], "sample-[redacted]");
+    assert!(!detail.contains("sample-one"), "{detail}");
+    assert_eq!(fs::read_to_string(path)?, stored);
+    assert_eq!(fs::read(history)?, before);
+    Ok(())
+}
+
 /// An object-state publication fault cannot undo committed ownership metadata.
 #[test]
 fn session_publication_faults_preserve_completed_ownership() -> TestResult {

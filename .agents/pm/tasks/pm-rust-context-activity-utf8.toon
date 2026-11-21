@@ -1,0 +1,16 @@
+id: pm-rust-context-activity-utf8
+title: Decode readable UTF-8 replacement in retained context activity
+description: "A scratch tracker with a valid history row containing an invalid UTF-8 byte inside its quoted message reproduces a separate retained-activity mismatch. Published pm-cli 2026.11.18 runs context --depth standard --json with exit 0 and includes the replacement character in the activity row. Native exits 2 because src/orientation_context/sections.rs::activity_entries uses the strict history reader. Round FU covers the independent focus and idle history read."
+type: Task
+status: open
+priority: 3
+tags[3]: follow-up,history,orientation
+created_at: "2026-11-21T17:45:51.004Z"
+updated_at: "2026-11-21T17:47:13.407Z"
+author: codex-sol
+acceptance_criteria: Compare the standard-depth activity response with the pinned CLI and preserve strict UTF-8 validation for the explicit history command.
+parent: pm-rust-s6j4
+files[2]{path,scope}:
+  src/orientation_context/sections.rs,project
+  src/orientation.rs,project
+body: ""

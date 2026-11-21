@@ -359,6 +359,108 @@ fn context_focus_recency_uses_latest_instant() -> TestResult {
     Ok(())
 }
 
+/// Focus validates the whole stream and trusts stored classes before legacy classification.
+#[test]
+fn context_focus_recency_matches_history_admission() -> TestResult {
+    let Some(published) = published_cli::published_cli_or_skip("focus history admission") else {
+        return Ok(());
+    };
+    let scratch = tempfile::tempdir()?;
+    let driver = orientation_driver(scratch.path(), &published)?;
+    for (maintenance, winner) in [
+        ("2026-08-22", "sample-two"),
+        (" 2026-08-22t00:00:00.001000z ", "sample-one"),
+    ] {
+        let root = tempfile::tempdir()?;
+        assert!(
+            oracle(&driver, root.path(), &["init", "sample-", "--defaults"])?
+                .status
+                .success()
+        );
+        let mut older = item("sample-one", "Task", "open", 2);
+        older["created_at"] = json!("2026-08-17T00:00:00.000Z");
+        let mut newer = item("sample-two", "Task", "open", 2);
+        newer["created_at"] = json!("2026-08-19T00:00:00.000Z");
+        let mut middle = item("sample-z", "Task", "open", 2);
+        middle["created_at"] = json!("2026-08-18T00:00:00.000Z");
+        fixture(root.path(), &[older, newer, middle])?;
+        let events = [
+            json!({"ts":"2026-08-21T00:00:00Z","op":"update","event_class":"substantive","patch":[{}]}),
+            json!({"ts":maintenance,"op":"update","event_class":"maintenance","patch":[]}),
+        ];
+        fs::write(
+            root.path().join(".agents/pm/history/sample-one.jsonl"),
+            json_lines(&events),
+        )?;
+        let args = ["context", "--limit", "1", "--json"];
+        let expected = oracle(&driver, root.path(), &args)?;
+        assert!(
+            expected.status.success(),
+            "{}",
+            String::from_utf8_lossy(&expected.stderr)
+        );
+        let value: Value = serde_json::from_slice(&expected.stdout)?;
+        assert_eq!(value["low_level"][0]["id"], winner);
+        compare(&expected, &native(root.path(), &args)?, &args);
+    }
+    Ok(())
+}
+
+/// Configured terminal progress uses readable activity despite lossy UTF-8 decoding.
+#[test]
+fn terminal_context_idle_uses_lossy_history_activity() -> TestResult {
+    let Some(published) = published_cli::published_cli_or_skip("terminal progress activity") else {
+        return Ok(());
+    };
+    let root = tempfile::tempdir()?;
+    let driver = orientation_driver(root.path(), &published)?;
+    assert!(
+        oracle(&driver, root.path(), &["init", "sample-", "--defaults"])?
+            .status
+            .success()
+    );
+    let pm = root.path().join(".agents/pm");
+    let settings_path = pm.join("settings.json");
+    let mut settings: Value = serde_json::from_slice(&fs::read(&settings_path)?)?;
+    let workflow = json!({"open_status":"open","in_progress_status":"closed"});
+    settings["schema"]["workflow"] = workflow.clone();
+    fs::write(settings_path, settings.to_string())?;
+    fs::write(
+        pm.join("schema/workflows.json"),
+        json!({"workflow":workflow}).to_string(),
+    )?;
+    let mut row = item("sample-terminal", "Task", "closed", 1);
+    row["created_at"] = json!("2026-08-17T00:00:00.000Z");
+    row["updated_at"] = json!("2026-08-18T00:00:00.000Z");
+    fixture(root.path(), &[row])?;
+    let history = pm.join("history/sample-terminal.jsonl");
+    let bytes = b"{\"op\":\"update\",\"ts\":\"2026-08-22T00:00:00Z\",\"event_class\":\"substantive\",\"patch\":[],\"message\":\"old \xff\"}\n";
+    fs::write(&history, bytes)?;
+    let args = ["context", "--json"];
+    let expected = oracle(&driver, root.path(), &args)?;
+    assert!(
+        expected.status.success(),
+        "{}",
+        String::from_utf8_lossy(&expected.stderr)
+    );
+    let value: Value = serde_json::from_slice(&expected.stdout)?;
+    assert_eq!(value["summary"]["in_progress_unowned"], 1);
+    assert_eq!(
+        value["summary"]["in_progress_idle"]
+            .as_u64()
+            .unwrap_or_default(),
+        0
+    );
+    compare(&expected, &native(root.path(), &args)?, &args);
+    assert!(
+        !native(root.path(), &["history", "sample-terminal", "--json"])?
+            .status
+            .success()
+    );
+    assert_eq!(fs::read(history)?, bytes);
+    Ok(())
+}
+
 /// Context matches the pinned SDK for date-only history and integral settings syntax.
 #[test]
 fn context_idle_activity_and_threshold_match_oracle() -> TestResult {
@@ -368,6 +470,7 @@ fn context_idle_activity_and_threshold_match_oracle() -> TestResult {
     let scratch = tempfile::tempdir()?;
     let driver = orientation_driver(scratch.path(), &published)?;
     for (threshold, updated, history, idle) in [
+        ("600", "2026-07-01T00:00:00.000Z", Some("2026-08"), 0),
         ("72", "2026-08-18T00:00:00.000Z", Some("2026-08-22"), 0),
         (
             "72",

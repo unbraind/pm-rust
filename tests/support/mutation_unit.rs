@@ -23,8 +23,8 @@ thread_local! {
     /// Interposes a successor after acquisition and before fenced journal recovery.
     static BEFORE_FENCED_RECOVERY: std::cell::RefCell<Option<Box<dyn FnOnce()>>> = const { std::cell::RefCell::new(None) };
 
-    /// Pauses one close after it has read the item while holding its lease.
-    static AFTER_CLOSE_READ: std::cell::RefCell<Option<Box<dyn FnOnce()>>> = const { std::cell::RefCell::new(None) };
+    /// Pauses one writer after it has read the item while holding its lease.
+    static AFTER_ITEM_READ: std::cell::RefCell<Option<Box<dyn FnOnce()>>> = const { std::cell::RefCell::new(None) };
 
     /// Counts entries that actually reach the locator's live metadata boundary.
     pub(crate) static LOCATOR_METADATA_ENTRIES: std::cell::Cell<usize> = const { std::cell::Cell::new(0) };
@@ -50,9 +50,9 @@ pub(super) fn before_fenced_recovery() {
     }
 }
 
-/// Runs the close contention fixture only on the requesting thread.
-pub(super) fn after_close_read() {
-    if let Some(hook) = AFTER_CLOSE_READ.take() {
+/// Runs the contention fixture only on the requesting thread.
+pub(super) fn after_item_read() {
+    if let Some(hook) = AFTER_ITEM_READ.take() {
         hook();
     }
 }
@@ -4800,7 +4800,7 @@ fn historical_close_keeps_its_lease_while_claim_waits() -> Result<(), Box<dyn st
         let (resume, paused) = std::sync::mpsc::channel::<()>();
         let root = &pm_root;
         let writer = scope.spawn(move || {
-            AFTER_CLOSE_READ.set(Some(Box::new(move || {
+            AFTER_ITEM_READ.set(Some(Box::new(move || {
                 let _ = ready.send(());
                 let _ = paused.recv();
             })));
@@ -4848,7 +4848,7 @@ fn reclaimed_close_cannot_overwrite_successor() -> Result<(), Box<dyn std::error
     let owner_path = pm_root.join("locks/sample-unit.lock");
     let after_read_root = pm_root.clone();
     let (saved, committed) = std::sync::mpsc::channel();
-    AFTER_CLOSE_READ.set(Some(Box::new(move || {
+    AFTER_ITEM_READ.set(Some(Box::new(move || {
         let successor = (|| -> Result<String, Box<dyn std::error::Error>> {
             let mut lease: Value = crate::strict_json::from_slice(&fs::read(&owner_path)?)?;
             lease["created_at"] = serde_json::json!("2000-01-01T00:00:00.000Z");
@@ -4891,11 +4891,152 @@ fn reclaimed_close_cannot_overwrite_successor() -> Result<(), Box<dyn std::error
     Ok(())
 }
 
-/// A displaced closer or claimant leaves the successor's pending history entry alone.
+/// A successor collection commit survives the displaced writer and its later retry.
+#[test]
+fn reclaimed_collection_reloads_after_fenced_publish_refusal()
+-> Result<(), Box<dyn std::error::Error>> {
+    let (directory, pm_root) =
+        root(r#"{"governance":{"preset":"minimal"},"locks":{"ttl_seconds":1}}"#)?;
+    let created = create_item(&pm_root, request())?;
+    let workspace = crate::Workspace::discover(&pm_root)?;
+    let operation = |path: &str| crate::CollectionOptions {
+        author: "fixture".to_owned(),
+        timestamp: Some(TS.to_owned()),
+        add: vec![path.to_owned()],
+        ..crate::CollectionOptions::default()
+    };
+    let first = operation("first.rs");
+    let successor = operation("successor.rs");
+    let interposed_root = pm_root.clone();
+    let interposed_workspace = workspace.clone();
+    let interposed_cwd = directory.path().to_owned();
+    let (saved, committed) = std::sync::mpsc::channel();
+    AFTER_ITEM_READ.set(Some(Box::new(move || {
+        let result = (|| -> Result<_, Box<dyn std::error::Error>> {
+            let path = interposed_root.join("locks/sample-unit.lock");
+            let mut lease: Value = crate::strict_json::from_slice(&fs::read(&path)?)?;
+            lease["created_at"] = serde_json::json!("2000-01-01T00:00:00.000Z");
+            fs::write(path, lease.to_string())?;
+            Ok(interposed_workspace.collection(
+                "sample-unit",
+                "files",
+                &successor,
+                &interposed_cwd,
+            )?)
+        })();
+        assert!(saved.send(result).is_ok());
+    })));
+    assert!(matches!(
+        workspace.collection("sample-unit", "files", &first, directory.path()),
+        Err(PmRustError::LockConflict { id }) if id == "sample-unit"
+    ));
+    let successor = committed.recv_timeout(Duration::from_secs(1))??;
+    assert_eq!(successor["files"][0]["path"], "successor.rs");
+    assert_eq!(
+        workspace.get("sample-unit")?.metadata.extra["files"],
+        successor["files"]
+    );
+    let history = pm_root.join("history/sample-unit.jsonl");
+    assert_eq!(fs::read_to_string(&history)?.lines().count(), 2);
+    let retried = workspace.collection("sample-unit", "files", &first, directory.path())?;
+    assert_eq!(retried["mutation_receipt"]["changed_count"], 1);
+    let stored = workspace.get("sample-unit")?.metadata.extra["files"].clone();
+    assert_eq!(stored.as_array().map(Vec::len), Some(2));
+    assert_eq!(stored[0]["path"], "first.rs");
+    assert_eq!(stored[1]["path"], "successor.rs");
+    let records: Vec<Value> = fs::read_to_string(history)?
+        .lines()
+        .map(crate::strict_json::from_str)
+        .collect::<Result<_, _>>()?;
+    assert_eq!(records.len(), 3);
+    assert_eq!(records[1]["before_hash"], created.after_hash);
+    assert_eq!(records[2]["before_hash"], records[1]["after_hash"]);
+    assert_eq!(records[1]["ts"], TS);
+    assert_eq!(records[2]["ts"], TS);
+    assert!(
+        !pm_root
+            .join("runtime/transactions/files_add-sample-unit.json")
+            .exists()
+    );
+    Ok(())
+}
+
+/// A release that reaches the recovery fence still reports the completed close.
+#[test]
+fn release_fence_conflict_preserves_completed_close() -> Result<(), Box<dyn std::error::Error>> {
+    let (_directory, pm_root) = root("{}")?;
+    let workspace = crate::Workspace::discover(&pm_root)?;
+    create_item(&pm_root, request())?;
+    let closing = closure_request();
+    let claim = OwnershipItem {
+        id: closing.id.clone(),
+        author: closing.author.clone(),
+        timestamp: Some(TS.to_owned()),
+        message: None,
+        force: false,
+        if_available: false,
+        provenance_role: None,
+    };
+    workspace.claim(&claim)?;
+    workspace.close(closing)?;
+    let history = pm_root.join("history/sample-unit.jsonl");
+    let before = fs::read(&history)?;
+    let locks = pm_root.join("locks");
+    let (held, observed) = std::sync::mpsc::channel();
+    BEFORE_FENCED_RECOVERY.set(Some(Box::new(move || {
+        assert!(
+            held.send(acquire_cleanup_gate(&locks, "sample-unit", 1800))
+                .is_ok()
+        );
+    })));
+    let error = workspace
+        .release(&claim)
+        .err()
+        .ok_or("expected release fence conflict")?;
+    let gate = observed.recv_timeout(Duration::from_secs(1))??;
+    assert!(matches!(&error, PmRustError::LockConflict { id } if id == "sample-unit"));
+    let PmRustError::CommandRefusal {
+        exit_code, context, ..
+    } = crate::completed_step_failure(error, "sample-unit", "close")
+    else {
+        return Err("expected a partial release refusal".into());
+    };
+    assert_eq!(exit_code, 4);
+    assert_eq!(context["code"], "lock_conflict");
+    assert_eq!(context["completed_step"], "close");
+    assert!(
+        context["required"]
+            .as_str()
+            .ok_or("release guidance")?
+            .contains("retry the release step")
+    );
+    assert!(
+        context["next_steps"][0]
+            .as_str()
+            .ok_or("inspection guidance")?
+            .contains("pm history sample-unit")
+    );
+    assert_eq!(fs::read(&history)?, before);
+    let closed = workspace.get("sample-unit")?;
+    assert_eq!(closed.metadata.status, "closed");
+    assert!(!closed.metadata.extra.contains_key("assignee"));
+    drop(gate);
+    assert!(
+        !workspace
+            .release(&claim)?
+            .item
+            .metadata
+            .extra
+            .contains_key("assignee")
+    );
+    Ok(())
+}
+
+/// Displaced writers leave the successor's pending history entry alone.
 #[test]
 fn reclaimed_item_lease_cannot_replay_successor_journal() -> Result<(), Box<dyn std::error::Error>>
 {
-    for closing in [true, false] {
+    for operation in ["close", "claim", "files"] {
         let (_temp, pm_root) = root(r#"{"governance":{"preset":"minimal"}}"#)?;
         create_item(&pm_root, request())?;
         let item = pm_root.join("tasks/sample-unit.toon");
@@ -4930,19 +5071,34 @@ fn reclaimed_item_lease_cannot_replay_successor_journal() -> Result<(), Box<dyn 
             })();
             assert!(saved.send(result).is_ok());
         })));
-        let result = if closing {
-            close_item(&pm_root, &pm_root, closure_request()).map(|_| ())
-        } else {
-            let claim = OwnershipItem {
-                id: "sample-unit".to_owned(),
-                author: "fixture".to_owned(),
-                timestamp: Some(TS.to_owned()),
-                message: None,
-                force: false,
-                if_available: false,
-                provenance_role: None,
-            };
-            ownership_item(&pm_root, &claim, true).map(|_| ())
+        let result = match operation {
+            "close" => close_item(&pm_root, &pm_root, closure_request()).map(|_| ()),
+            "claim" => ownership_item(
+                &pm_root,
+                &OwnershipItem {
+                    id: "sample-unit".to_owned(),
+                    author: "fixture".to_owned(),
+                    timestamp: Some(TS.to_owned()),
+                    message: None,
+                    force: false,
+                    if_available: false,
+                    provenance_role: None,
+                },
+                true,
+            )
+            .map(|_| ()),
+            _ => crate::Workspace::discover(&pm_root)?
+                .collection(
+                    "sample-unit",
+                    "files",
+                    &crate::CollectionOptions {
+                        author: "fixture".to_owned(),
+                        add: vec!["source.rs".to_owned()],
+                        ..crate::CollectionOptions::default()
+                    },
+                    &pm_root,
+                )
+                .map(|_| ()),
         };
         let successor = observed.recv_timeout(Duration::from_secs(1))??;
         assert!(matches!(result, Err(PmRustError::LockConflict { id }) if id == "sample-unit"));

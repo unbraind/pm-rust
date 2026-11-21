@@ -52,8 +52,14 @@ pub(crate) fn parse_stored_timestamp(value: &str) -> Option<OffsetDateTime> {
     // The published Date reader also accepts four-digit years spelled with a
     // positive sign and six digits. Compare the normalized spelling only.
     let value = value.strip_prefix("+00").unwrap_or(value);
-    if value.len() == 10 {
-        return OffsetDateTime::parse(&format!("{value}T00:00:00Z"), &Rfc3339).ok();
+    let suffix = match value.len() {
+        4 => "-01-01T00:00:00Z",
+        7 => "-01T00:00:00Z",
+        10 => "T00:00:00Z",
+        _ => "",
+    };
+    if !suffix.is_empty() {
+        return OffsetDateTime::parse(&format!("{value}{suffix}"), &Rfc3339).ok();
     }
     let clock_end = value.get(16..)?;
     if clock_end.starts_with(":60") {
@@ -164,6 +170,7 @@ fn read_history(path: &Path, valid: fn(&Value) -> bool) -> Option<Vec<Value>> {
     };
     String::from_utf8_lossy(&bytes)
         .lines()
+        .map(|line| line.trim_start_matches('\u{feff}'))
         .filter(|line| !line.trim().is_empty())
         .map(|line| {
             let entry: Value = crate::strict_json::from_str(line).ok()?;

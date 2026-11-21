@@ -2206,6 +2206,10 @@ fn round5_close_release_receipt_counts_an_intervening_claim()
 
 /// Closing is safe to retry only while the close step has not committed.
 #[test]
+#[allow(
+    clippy::too_many_lines,
+    reason = "one fixture follows the close boundary through release-only recovery"
+)]
 fn close_lock_retry_tracks_the_failed_step() -> Result<(), Box<dyn std::error::Error>> {
     let temp = tempfile::tempdir()?;
     let root = temp.path().join(".agents/pm");
@@ -2222,6 +2226,7 @@ fn close_lock_retry_tracks_the_failed_step() -> Result<(), Box<dyn std::error::E
     let request: OwnershipItem = serde_json::from_value(serde_json::json!({
         "id":"sample-one","author":"alpha","force":false,"if_available":false
     }))?;
+    workspace.claim(&request)?;
     let identity = AuthorIdentity::resolve(Some("alpha"), None, &BTreeMap::new());
     let args = [
         "close",
@@ -2252,7 +2257,14 @@ fn close_lock_retry_tracks_the_failed_step() -> Result<(), Box<dyn std::error::E
         serde_json::json!(args)
     );
     fs::remove_file(&path)?;
-    assert_eq!(workspace.close(close)?.item.metadata.status, "closed");
+    let closed = workspace.close(close)?.item;
+    assert_eq!(closed.metadata.status, "closed");
+    assert!(!closed.metadata.extra.contains_key("assignee"));
+    // Simulate an assignment made between the close and release steps.
+    workspace.claim(&OwnershipItem {
+        force: true,
+        ..request.clone()
+    })?;
     let history = root.join("history/sample-one.jsonl");
     let committed = fs::read(&history)?;
     fs::write(&path, &raw)?;
@@ -2304,7 +2316,75 @@ fn close_lock_retry_tracks_the_failed_step() -> Result<(), Box<dyn std::error::E
     assert_eq!(fs::read_to_string(&path)?, raw);
 
     assert_close_stale_release_recovery(&workspace, &request, &path, &raw, &scoped_args)?;
-    assert_eq!(fs::read(history)?, committed);
+    assert_eq!(fs::read(&history)?, committed);
+    assert_eq!(
+        workspace.get("sample-one")?.metadata.extra["assignee"],
+        "alpha"
+    );
+    fs::remove_file(path)?;
+    let released = workspace.release(&request)?;
+    assert_eq!(released.item.metadata.status, "closed");
+    assert!(!released.item.metadata.extra.contains_key("assignee"));
+    let after = fs::read_to_string(history)?;
+    let release = after
+        .as_bytes()
+        .strip_prefix(committed.as_slice())
+        .ok_or("unchanged history prefix")?;
+    let entries = std::str::from_utf8(release)?.lines().collect::<Vec<_>>();
+    assert_eq!(entries.len(), 1);
+    let entry: serde_json::Value = serde_json::from_str(entries[0])?;
+    assert_eq!(entry["op"], "release");
+    Ok(())
+}
+
+/// A typed fence conflict uses the release-only CLI envelope after close commits.
+#[test]
+fn close_release_fence_conflict_preserves_cli_recovery() -> Result<(), Box<dyn std::error::Error>> {
+    let error = pm_rust::completed_step_failure(
+        pm_rust::PmRustError::LockConflict {
+            id: "sample-one".to_owned(),
+        },
+        "sample-one",
+        "close",
+    );
+    let pm_rust::PmRustError::CommandRefusal {
+        detail,
+        context,
+        exit_code,
+    } = error
+    else {
+        return Err("expected a partial release refusal".into());
+    };
+    assert_eq!(context["completed_step"], "close");
+    let args = [
+        "close",
+        "sample-one",
+        "Done",
+        "--release-assignment",
+        "--json",
+    ]
+    .map(str::to_owned);
+    let receipt = super::command_error_json(&detail, &context, &args, exit_code);
+    assert_eq!(receipt["code"], "lock_conflict");
+    assert_eq!(receipt["exit_code"], 4);
+    assert!(
+        receipt["why"]
+            .as_str()
+            .ok_or("completed step")?
+            .contains("close completed")
+    );
+    assert_eq!(receipt["recovery"]["retry_after_ms"], 250);
+    assert!(receipt["recovery"].get("suggested_retry_args").is_none());
+    assert_eq!(
+        receipt["examples"],
+        serde_json::json!(["pm release --help"])
+    );
+    assert!(
+        receipt["required"]
+            .as_str()
+            .ok_or("release guidance")?
+            .contains("retry the release step")
+    );
     Ok(())
 }
 

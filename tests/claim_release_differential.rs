@@ -509,27 +509,29 @@ fn assert_expired_lock_cleanup_scope(
     let mut preview = pm_rust::parse_command_args(&scoped).ok_or("scoped cleanup command")?;
     preview.extend(["--dry-run".to_owned(), "--json".to_owned()]);
     let preview: Vec<_> = preview.iter().skip(1).map(String::as_str).collect();
+    let working_lock = fixture.node.path().join(".agents/pm/locks/sample-own.lock");
+    let other_lock = working_lock.with_file_name("sample-other.lock");
+    let original = fs::read(&working_lock)?;
+    let mut other: serde_json::Value = serde_json::from_slice(&original)?;
+    other["id"] = serde_json::json!("sample-other");
+    let other_raw = serde_json::to_vec(&other)?;
+    fs::write(&other_lock, &other_raw)?;
+    fs::remove_file(&working_lock)?;
+    let target_lock = fixture.rust.path().join(".agents/pm/locks/sample-own.lock");
+    let target_raw = fs::read(&target_lock)?;
     let output = published_run(&fixture.driver, fixture.node.path(), &preview)?;
     assert!(
         output.status.success(),
         "{}",
         String::from_utf8_lossy(&output.stderr)
     );
-    assert!(String::from_utf8_lossy(&output.stdout).contains("sample-own"));
-    assert!(
-        fixture
-            .node
-            .path()
-            .join(".agents/pm/locks/sample-own.lock")
-            .is_file()
-    );
-    assert!(
-        fixture
-            .rust
-            .path()
-            .join(".agents/pm/locks/sample-own.lock")
-            .is_file()
-    );
+    let preview = String::from_utf8_lossy(&output.stdout);
+    assert!(preview.contains("sample-own"), "{preview}");
+    assert!(!preview.contains("sample-other"), "{preview}");
+    assert_eq!(fs::read(&other_lock)?, other_raw);
+    assert_eq!(fs::read(&target_lock)?, target_raw);
+    fs::write(&working_lock, original)?;
+    fs::remove_file(other_lock)?;
     fixture.compare_bytes()
 }
 
@@ -2377,7 +2379,11 @@ process.stdout.write(JSON.stringify(results));
         let (parent, leaf) = pointer.rsplit_once('/').ok_or("setting path")?;
         let mut native = base.clone();
         native.pointer_mut(parent).ok_or("settings parent")?[leaf] = invalid;
-        assert!(pm_rust::normalize_mutation_settings(&mut native), "{key}");
+        assert_eq!(
+            pm_rust::normalize_mutation_settings(&mut native),
+            *oracle_warns,
+            "{key}"
+        );
         assert_eq!(native.pointer(&pointer), Some(expected), "{key}");
         assert_eq!(
             resolved["warnings"] == json!(["settings_read_invalid_schema"]),
@@ -3422,6 +3428,52 @@ fn scoped_blocker_inspection_survives_cross_blocker_redaction()
     ] {
         prepare(&fixture, &["update", "sample-own", "--dep", &dependency, "--author", "alpha", "--json"])?;
     }
+    assert_scoped_blocker_inspection(&fixture)
+}
+
+/// A local blocker's title can supply credentials copied by an external selector.
+#[test]
+fn blocker_title_projection_withdraws_removal_command() -> Result<(), Box<dyn std::error::Error>> {
+    let Some(fixture) = Fixture::new("none")? else {
+        return Ok(());
+    };
+    prepare(
+        &fixture,
+        &[
+            "create",
+            "--id",
+            "sample-gate",
+            "--title",
+            "Review https://review-token:synthetic-secret@example.invalid",
+            "--type",
+            "Task",
+            "--author",
+            "alpha",
+            "--json",
+        ],
+    )?;
+    for dependency in [
+        "id=github:review-token,kind=blocked_by,source_kind=external",
+        "id=sample-gate,kind=blocked_by",
+    ] {
+        prepare(
+            &fixture,
+            &[
+                "update",
+                "sample-own",
+                "--dep",
+                dependency,
+                "--author",
+                "alpha",
+                "--json",
+            ],
+        )?;
+    }
+    assert_scoped_blocker_inspection(&fixture)
+}
+
+/// Checks atomic refusal and inspection replay across both tracker selections.
+fn assert_scoped_blocker_inspection(fixture: &Fixture) -> Result<(), Box<dyn std::error::Error>> {
     let args = [
         "claim",
         "sample-own",

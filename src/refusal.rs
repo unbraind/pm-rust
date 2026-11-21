@@ -291,6 +291,11 @@ impl Credentials {
             && let Some((start, end)) = crate::ownership::identity_userinfo(holder)
         {
             spans.push(holder[start..end].to_owned());
+            spans.extend(
+                userinfos(holder)
+                    .into_iter()
+                    .map(|(start, end)| holder[start..end].to_owned()),
+            );
         }
         spans
     }

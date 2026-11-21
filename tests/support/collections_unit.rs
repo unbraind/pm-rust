@@ -612,6 +612,31 @@ fn artifact_note_repair_uses_the_original_detected_session() -> TestResult {
     options.identity = Some(owner);
     let result = workspace.collection("sample-one", "files", &options, root)?;
     assert_eq!(result["files"][0]["note"], "Stored; Incoming");
+
+    // A scope without CollectionOptions.identity still provides a session principal.
+    let scope = options.identity.take().ok_or("original identity")?;
+    options.add = vec!["path=a.rs,note=Scoped".into()];
+    options.note_conflict = None;
+    let Err(PmRustError::CommandRefusal { context, .. }) =
+        scope.with(|| workspace.collection("sample-one", "files", &options, root))
+    else {
+        return Err("expected a note conflict for the scoped owner".into());
+    };
+    assert_eq!(context["code"], "linked_artifact_note_conflict");
+    assert!(context.get("recovery").is_none());
+    assert!(
+        context["next_steps"][0]
+            .as_str()
+            .ok_or("repair guidance")?
+            .contains("SDK with the original AuthorIdentity")
+    );
+    options.note_conflict = Some("append".into());
+    assert!(matches!(
+        workspace.collection("sample-one", "files", &options, root),
+        Err(PmRustError::OwnershipRefusal { context, .. }) if context["code"] == "ownership_conflict"
+    ));
+    let result = scope.with(|| workspace.collection("sample-one", "files", &options, root))?;
+    assert_eq!(result["files"][0]["note"], "Stored; Incoming; Scoped");
     Ok(())
 }
 
