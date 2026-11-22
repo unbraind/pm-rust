@@ -39,6 +39,9 @@ thread_local! {
     /// Simulates a successor lease after an ownership mutation commits.
     static REPLACE_SESSION_LEASE: std::cell::Cell<bool> = const { std::cell::Cell::new(false) };
 
+    /// Holds a real item gate until the first contended publication attempt.
+    static TRANSIENT_ITEM_GATE: std::cell::RefCell<Option<CleanupGate>> = const { std::cell::RefCell::new(None) };
+
     /// Holds a real gate until publication observes contention on this thread.
     static TRANSIENT_PUBLICATION_GATE: std::cell::RefCell<Option<CleanupGate>> = const { std::cell::RefCell::new(None) };
 }
@@ -60,6 +63,14 @@ pub(super) fn after_item_read() {
 /// Releases the test gate only after an acquisition attempt returns contention.
 pub(super) fn release_session_publication_gate() {
     drop(TRANSIENT_PUBLICATION_GATE.take());
+}
+
+/// Releases the item gate after observing contention and the caller's retry budget.
+pub(super) fn release_item_publication_gate(wait_ms: u64) {
+    if let Some(gate) = TRANSIENT_ITEM_GATE.take() {
+        assert_eq!(wait_ms, 2000);
+        drop(gate);
+    }
 }
 
 /// Changes the on-disk lease exactly once, immediately before the publication fence.
@@ -364,7 +375,7 @@ fn ownership_gate_contention_preserves_item_and_history() -> Result<(), Box<dyn 
     let result = ownership_item_with_options(
         &pm_root,
         &operation,
-        true,
+        crate::ownership::OwnershipAction::Claim,
         &crate::OwnershipOptions::default(),
         &mut || {
             gate = Some(acquire_cleanup_gate(
@@ -3058,8 +3069,28 @@ fn every_mutation_validates_settings_author_and_existence() -> Result<(), Box<dy
     Ok(())
 }
 
+/// Blank legacy close settings fall back silently when closing a real item.
 #[test]
+fn blank_legacy_close_status_is_ignored() -> Result<(), Box<dyn std::error::Error>> {
+    for value in ["", " \t\u{feff}"] {
+        let settings = serde_json::json!({"workflow":{"close_status":value}});
+        let (_directory, pm_root) = root(&settings.to_string())?;
+        create_item(&pm_root, request())?;
+        let closed = close_item(&pm_root, &pm_root, closure_request())?;
+        assert_eq!(closed.item.metadata.status, "closed");
+        let receipt = closed.close_receipt.ok_or("missing close receipt")?;
+        assert_eq!(receipt["status"], "closed");
+        assert!(
+            !receipt["warnings"]
+                .to_string()
+                .contains("settings_read_invalid_schema")
+        );
+    }
+    Ok(())
+}
+
 /// Covers closing canceled items and configured custom close statuses.
+#[test]
 fn close_refuses_canceled_and_honors_configured_close_statuses()
 -> Result<(), Box<dyn std::error::Error>> {
     // A canceled item refuses a second terminal transition.
@@ -4573,7 +4604,7 @@ fn ownership_refusals_and_interrupted_history_append_remain_recoverable()
         ownership_item_with_options(
             &pm_root,
             &mutation,
-            false,
+            crate::ownership::OwnershipAction::Release,
             &bypass,
             &mut || Ok(()),
             &mut |_, _| {}
@@ -5088,6 +5119,74 @@ fn pause_reports_release_conflict_after_status_is_saved() -> Result<(), Box<dyn 
     Ok(())
 }
 
+/// Releasing after close preserves a same-principal update committed between the steps.
+#[test]
+fn release_after_close_uses_the_locked_revision_timestamp() -> Result<(), Box<dyn std::error::Error>>
+{
+    let (_directory, pm_root) = root("{}")?;
+    let workspace = crate::Workspace::discover(&pm_root)?;
+    create_item(&pm_root, request())?;
+    let closing = closure_request();
+    let owner = OwnershipItem {
+        id: closing.id.clone(),
+        author: closing.author.clone(),
+        timestamp: Some(TS.to_owned()),
+        message: None,
+        force: false,
+        if_available: false,
+        provenance_role: None,
+    };
+    workspace.claim(&owner)?;
+    let closed = workspace.close(closing)?;
+    assert_eq!(closed.item.metadata.updated_at, TS);
+    let newer = "2026-10-14T12:34:56.789Z";
+    workspace.update(serde_json::from_value(serde_json::json!({
+        "id": owner.id,
+        "author": owner.author,
+        "timestamp": newer,
+        "title": "Intervening title"
+    }))?)?;
+    let released =
+        workspace.release_after_close_with_options(&owner, &crate::OwnershipOptions::default())?;
+    assert_eq!(released.item.metadata.updated_at, newer);
+    assert_eq!(released.item.metadata.title, "Intervening title");
+    assert!(!released.item.metadata.extra.contains_key("assignee"));
+    let history = fs::read_to_string(pm_root.join("history/sample-unit.jsonl"))?;
+    let entry: Value =
+        crate::strict_json::from_str(history.lines().last().ok_or("release history")?)?;
+    assert_eq!(entry["op"], "release");
+    assert_eq!(entry["ts"], newer);
+
+    let item_path = pm_root.join("tasks/sample-unit.toon");
+    let history_path = pm_root.join("history/sample-unit.jsonl");
+    for (stored, expected) in [
+        ("2026-10-14T12:34:56.789+01:00", "UTC RFC 3339"),
+        ("9999-01-01T00:00:00Z", "must not be in the future"),
+    ] {
+        let mut legacy = released.item.clone();
+        legacy.metadata.updated_at = stored.to_owned();
+        let item_bytes = canonical_item_bytes(&legacy)?;
+        fs::write(&item_path, &item_bytes)?;
+        let error = workspace
+            .release_after_close_with_options(&owner, &crate::OwnershipOptions::default())
+            .err()
+            .ok_or("expected a refusal for the later stored timestamp")?;
+        assert!(error.to_string().contains(expected), "{error}");
+        assert_eq!(fs::read_to_string(&item_path)?, item_bytes);
+        assert_eq!(fs::read_to_string(&history_path)?, history);
+    }
+    fs::write(&item_path, canonical_item_bytes(&released.item)?)?;
+    let same_revision = workspace.release_after_close_with_options(
+        &OwnershipItem {
+            timestamp: Some(newer.to_owned()),
+            ..owner
+        },
+        &crate::OwnershipOptions::default(),
+    )?;
+    assert_eq!(same_revision.item.metadata.updated_at, newer);
+    Ok(())
+}
+
 /// A release that reaches the recovery fence still reports the completed close.
 #[test]
 fn release_fence_conflict_preserves_completed_close() -> Result<(), Box<dyn std::error::Error>> {
@@ -5240,19 +5339,29 @@ fn reclaimed_item_lease_cannot_replay_successor_journal() -> Result<(), Box<dyn 
     Ok(())
 }
 
-/// An item writer already holding the lease can wait through a slow gate contender.
+/// The acquisition loop consumes its bounded wait before reporting a live conflict.
+#[test]
+fn contended_item_acquisition_waits_before_refusing() -> Result<(), Box<dyn std::error::Error>> {
+    let (_directory, pm_root) = root("{}")?;
+    let _owner = acquire_lock(&pm_root, "sample-unit", "writer", &locks(1800), false, 0)?;
+    let started = std::time::Instant::now();
+    assert!(matches!(
+        acquire_lock(&pm_root, "sample-unit", "other", &locks(1800), false, 25),
+        Err(PmRustError::LockConflict { .. })
+    ));
+    assert!(started.elapsed() >= Duration::from_millis(25));
+    Ok(())
+}
+
+/// An item writer already holding the lease retries a contended publication fence.
 #[test]
 fn item_publication_uses_the_mutation_lock_wait_budget() -> Result<(), Box<dyn std::error::Error>> {
     let (_directory, pm_root) = root("{}")?;
     let owner = acquire_lock(&pm_root, "sample-unit", "writer", &locks(1800), false, 2000)?;
     let gate = acquire_cleanup_gate(&pm_root.join("locks"), "sample-unit", 1800)?;
-    thread::scope(|scope| {
-        scope.spawn(move || {
-            thread::sleep(Duration::from_millis(500));
-            drop(gate);
-        });
-        fence_item(&pm_root, "sample-unit", &owner, 1800).map(|_| ())
-    })?;
+    TRANSIENT_ITEM_GATE.set(Some(gate));
+    let _fence = fence_item(&pm_root, "sample-unit", &owner, 1800)?;
+    assert!(TRANSIENT_ITEM_GATE.take().is_none());
     Ok(())
 }
 
@@ -5291,7 +5400,7 @@ fn closure_ownership_and_predecessor_storage() -> Result<(), Box<dyn std::error:
             ownership_item_with_options(
                 &pm_root,
                 &owner,
-                true,
+                crate::ownership::OwnershipAction::Claim,
                 &crate::OwnershipOptions::default(),
                 &mut || Ok(()),
                 &mut |_, _| {},
@@ -6519,7 +6628,7 @@ fn historical_claim_uses_a_live_lease() -> Result<(), Box<dyn std::error::Error>
     ownership_item_with_options(
         &pm_root,
         &holder,
-        true,
+        crate::ownership::OwnershipAction::Claim,
         &crate::OwnershipOptions::default(),
         &mut || {
             let raw = read_optional(&pm_root.join("locks/sample-unit.lock"))?

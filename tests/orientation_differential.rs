@@ -348,7 +348,7 @@ fn context_progress_and_blank_assignees_match_oracle() -> TestResult {
     Ok(())
 }
 
-/// Blank workflow fields select the default open role, unless `in_progress` is defined.
+/// Unset workflow fields select the default open role, unless `in_progress` is defined.
 #[test]
 fn context_blank_workflow_resolves_default_open_before_progress() -> TestResult {
     let Some(published) = published_cli::published_cli_or_skip("default open context progress")
@@ -357,7 +357,8 @@ fn context_blank_workflow_resolves_default_open_before_progress() -> TestResult 
     };
     let scratch = tempfile::tempdir()?;
     let driver = orientation_driver(scratch.path(), &published)?;
-    for include_progress in [false, true] {
+    for (include_progress, omitted) in [(false, false), (true, false), (false, true), (true, true)]
+    {
         let root = tempfile::tempdir()?;
         assert!(
             oracle(&driver, root.path(), &["init", "sample-", "--defaults"])?
@@ -381,15 +382,23 @@ fn context_blank_workflow_resolves_default_open_before_progress() -> TestResult 
         }
         let workflow = json!({"open_status":" ","in_progress_status":" "});
         settings["schema"]["statuses"] = json!(statuses);
-        settings["schema"]["workflow"] = workflow.clone();
+        if omitted {
+            settings["schema"]
+                .as_object_mut()
+                .ok_or("schema settings")?
+                .remove("workflow");
+            fs::remove_file(pm.join("schema/workflows.json"))?;
+        } else {
+            settings["schema"]["workflow"] = workflow.clone();
+            fs::write(
+                pm.join("schema/workflows.json"),
+                json!({"workflow":workflow}).to_string(),
+            )?;
+        }
         fs::write(path, settings.to_string())?;
         fs::write(
             pm.join("schema/statuses.json"),
             json!({"statuses":statuses}).to_string(),
-        )?;
-        fs::write(
-            pm.join("schema/workflows.json"),
-            json!({"workflow":workflow}).to_string(),
         )?;
         fixture(root.path(), &rows)?;
         let args = ["context", "--json"];
@@ -567,10 +576,18 @@ fn context_focus_recency_matches_history_admission() -> TestResult {
         ("\u{feff}2026-08-22T00:00:00Z\u{feff}", "sample-one"),
         ("2026-08-21T12:00:00+0530", "sample-two"),
     ];
-    for (maintenance, winner, legacy) in stored_class_cases
+    for (maintenance, winner, legacy, created_at) in stored_class_cases
         .into_iter()
-        .map(|(timestamp, winner)| (timestamp, winner, false))
-        .chain([("2026-08-22T00:00:00Z", "sample-one", true)])
+        .map(|(timestamp, winner)| (timestamp, winner, false, "2026-08-17T00:00:00.000Z"))
+        .chain([
+            (
+                "2026-08-22T00:00:00Z",
+                "sample-one",
+                true,
+                "2026-08-17T00:00:00.000Z",
+            ),
+            ("2026-08-22", "sample-one", false, "2026-08-20"),
+        ])
     {
         let root = tempfile::tempdir()?;
         assert!(
@@ -579,7 +596,7 @@ fn context_focus_recency_matches_history_admission() -> TestResult {
                 .success()
         );
         let mut older = item("sample-one", "Task", "open", 2);
-        older["created_at"] = json!("2026-08-17T00:00:00.000Z");
+        older["created_at"] = json!(created_at);
         let mut newer = item("sample-two", "Task", "open", 2);
         newer["created_at"] = json!("2026-08-19T00:00:00.000Z");
         let mut middle = item("sample-z", "Task", "open", 2);

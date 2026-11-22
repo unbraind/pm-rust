@@ -127,7 +127,7 @@ fn substantive_history_timestamp(entry: &Value) -> Option<&str> {
     substantive.then(|| crate::history::trim_evidence_line(text(entry, "ts")))
 }
 
-/// Uses the release cohort when no substantive history is available.
+/// Falls back to the release cohort, then to the item's creation date.
 fn release_recency(item: &Value) -> String {
     let release = text(item, "release").trim_start_matches('v');
     let parts: Vec<_> = release.split('.').collect();
@@ -138,7 +138,14 @@ fn release_recency(item: &Value) -> String {
             return candidate;
         }
     }
-    text(item, "created_at").to_owned()
+    let created_at = text(item, "created_at");
+    if created_at.len() == 10 {
+        let midnight = format!("{created_at}T00:00:00.000Z");
+        if crate::validate_timestamp(&midnight).is_ok() {
+            return midnight;
+        }
+    }
+    created_at.to_owned()
 }
 /// Validated semantic and usage affinity resolved for one context reader.
 #[derive(Default)]

@@ -478,19 +478,21 @@ fn round5_external_and_incomplete_unblock_advice() {
 #[test]
 fn credential_blocker_unblock_advice_uses_original_id() {
     let mut before = document("sample-own", "open");
-    let id = "https://fixture:synthetic-secret@example.invalid/issue";
-    before.metadata.extra.insert(
-        "dependencies".to_owned(),
-        json!([{"id":id,"kind":"blocked_by","source_kind":"external"}]),
-    );
-    let advice = unblock(&before, &[id.to_owned()], &json!({"id_prefix":"sample-"}));
-    assert_eq!(
-        advice,
-        [
-            "pm get sample-own --fields \"blocked_by,dependencies\"",
-            "Use the dependency's original ID to remove the blocked_by edge.",
-        ]
-    );
+    for separator in ["@", "%40"] {
+        let id = format!("https://fixture:synthetic-secret{separator}example.invalid/issue");
+        before.metadata.extra.insert(
+            "dependencies".to_owned(),
+            json!([{"id":id,"kind":"blocked_by","source_kind":"external"}]),
+        );
+        let advice = unblock(&before, &[id], &json!({"id_prefix":"sample-"}));
+        assert_eq!(
+            advice,
+            [
+                "pm get sample-own --fields \"blocked_by,dependencies\"",
+                "Use the dependency's original ID to remove the blocked_by edge.",
+            ]
+        );
+    }
     let id = "https://sample-own:synthetic-secret@example.invalid/issue";
     before.metadata.extra.insert(
         "dependencies".to_owned(),

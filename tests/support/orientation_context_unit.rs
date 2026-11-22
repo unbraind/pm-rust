@@ -1132,7 +1132,7 @@ fn configured_roles_and_extension_cap() -> Result<(), Box<dyn std::error::Error>
     assert!(extension_health(&workspace, &json!({}), None)?.is_none());
     fs::write(
         workspace.pm_root().join("settings.json"),
-        r#"{"schema":{"statuses":[{"id":"waiting","roles":["blocked"]}]}}"#,
+        r#"{"schema":{"statuses":[{"id":"waiting","roles":["blocked"]}],"workflow":{"in_progress_status":"in_progress"}}}"#,
     )?;
     let lifecycle = Lifecycle::load(workspace.pm_root())?;
     assert_eq!(status_rank(&item("sample-one", "waiting"), &lifecycle), 5);
@@ -1676,4 +1676,14 @@ fn recency_rejects_unindexable_maintenance_timestamps() {
             "{timestamp}"
         );
     }
+}
+
+/// Only valid calendar dates in item metadata are promoted to midnight.
+#[test]
+fn creation_date_fallback_validates_calendar_date() {
+    let mut row = item("sample-one", "open");
+    row["created_at"] = json!("2026-08-20");
+    assert_eq!(super::release_recency(&row), "2026-08-20T00:00:00.000Z");
+    row["created_at"] = json!("2026-02-29");
+    assert_eq!(super::release_recency(&row), "2026-02-29");
 }

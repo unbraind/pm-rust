@@ -79,12 +79,12 @@ impl Lifecycle {
         let configured_progress = workflow["in_progress_status"]
             .as_str()
             .or_else(|| schema["workflow"]["in_progress_status"].as_str())
-            .unwrap_or("in_progress");
+            .unwrap_or_default();
         let progress = token(crate::history::trim_evidence_line(configured_progress));
         let configured_open = workflow["open_status"]
             .as_str()
             .or_else(|| schema["workflow"]["open_status"].as_str())
-            .unwrap_or(if progress.is_empty() { "" } else { "open" });
+            .unwrap_or_default();
         let open = token(crate::history::trim_evidence_line(configured_open));
         let open = if open.is_empty() {
             let first = ordered_status(&definitions, "default_open");

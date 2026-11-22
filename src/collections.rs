@@ -264,6 +264,9 @@ fn resolve_artifact_cwd(path: &Path, root: &Path) -> Result<PathBuf, PmRustError
     let mut normalized = PathBuf::new();
     for component in absolute.components() {
         if component == Component::ParentDir {
+            // A Windows verbatim join can erase a file prefix without traversing it.
+            #[cfg(windows)]
+            validate_artifact_directory(&normalized)?;
             // Traversal from an existing symlink starts at its target directory.
             match normalized.join("..").canonicalize() {
                 Ok(parent) => normalized = parent,
@@ -999,14 +1002,17 @@ fn note_conflict_refusal(
     };
     let native = retry_scope.is_some();
     let append = note_retry_args(base_args.clone(), options, "append", native);
+    if append.iter().any(|arg| arg.contains('\0')) {
+        let guidance = "Retry through the SDK with the original arguments and set note_conflict to append or replace. Command arguments cannot contain NUL.";
+        context["required"] = json!(guidance);
+        context["next_steps"] = json!([guidance]);
+        context["details"] = json!({"conflicts":conflicts});
+        return refusal(detail, 4, context);
+    }
     let append_command = crate::command_line::render_command(binary, &append);
-    let next_steps = json!([
-        append_command,
-        crate::command_line::render_command(
-            binary,
-            note_retry_args(base_args, options, "replace", native)
-        )
-    ]);
+    let replace = note_retry_args(base_args, options, "replace", native);
+    let replace_command = crate::command_line::render_command(binary, &replace);
+    let next_steps = json!([append_command, replace_command]);
     context["next_steps"] = next_steps.clone();
     context["recovery"] = json!({"suggested_retry":append_command,"suggested_retry_args":append});
     context["details"] = json!({"conflicts":conflicts});

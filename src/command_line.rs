@@ -46,12 +46,27 @@ where
 /// backslash runs stay literal; unquoted whitespace separates arguments.
 #[must_use]
 pub fn parse_command_args(text: &str) -> Option<Vec<String>> {
+    parse_args(text, false)
+}
+
+/// Decodes recovery advice only when it contains a single shell command.
+#[doc(hidden)]
+#[must_use]
+pub fn parse_recovery_command(text: &str) -> Option<Vec<String>> {
+    parse_args(text, true)
+}
+
+/// Shares quoting rules while distinguishing multiline text from executable advice.
+fn parse_args(text: &str, single_command: bool) -> Option<Vec<String>> {
     let mut chars = text.chars().peekable();
     let mut args = Vec::new();
     let mut arg = String::new();
     let mut quote = None;
     let mut started = false;
     while let Some(ch) = chars.next() {
+        if single_command && quote.is_none() && matches!(ch, '\r' | '\n') {
+            return None;
+        }
         if quote.is_none() && matches!(ch, ' ' | '\t' | '\n') {
             if started {
                 args.push(std::mem::take(&mut arg));

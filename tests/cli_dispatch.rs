@@ -601,7 +601,6 @@ fn close_release_contention_reports_only_release_recovery() -> Result<(), Box<dy
     use rustix::fs::Mode;
     use std::io::Write as _;
     use std::process::Stdio;
-    use std::time::{Duration, Instant};
 
     let caller = workspace()?;
     let selected = workspace()?;
@@ -659,16 +658,7 @@ fn close_release_contention_reports_only_release_recovery() -> Result<(), Box<dy
         let _ = child.wait();
     }
     let _gate = interposed?;
-    let deadline = Instant::now() + Duration::from_secs(15);
-    while child.try_wait()?.is_none() {
-        if Instant::now() >= deadline {
-            let _ = child.kill();
-            child.wait()?;
-            return Err("close did not exit after the release encountered the held gate".into());
-        }
-        std::thread::sleep(Duration::from_millis(5));
-    }
-    let output = child.wait_with_output()?;
+    let output = wait_for_child_output(child, "close with contended release")?;
     assert_eq!(
         output.status.code(),
         Some(4),
@@ -765,6 +755,94 @@ fn wait_for_fifo_reader(
     }
 }
 
+/// Drains both pipes even while the command is waiting for its exit status.
+#[cfg(target_os = "linux")]
+fn wait_for_child_output(
+    mut child: std::process::Child,
+    operation: &str,
+) -> Result<std::process::Output, Box<dyn std::error::Error>> {
+    use std::{
+        io::Read,
+        time::{Duration, Instant},
+    };
+
+    fn drain(mut pipe: impl Read) -> std::io::Result<Vec<u8>> {
+        let mut bytes = Vec::new();
+        pipe.read_to_end(&mut bytes)?;
+        Ok(bytes)
+    }
+    let output = child.stdout.take().ok_or("missing stdout pipe")?;
+    let errors = child.stderr.take().ok_or("missing stderr pipe")?;
+    std::thread::scope(|scope| {
+        let stdout = scope.spawn(move || drain(output));
+        let stderr = scope.spawn(move || drain(errors));
+        let deadline = Instant::now() + Duration::from_secs(15);
+        let status = loop {
+            match child.try_wait() {
+                Ok(Some(status)) => break status,
+                Ok(None) if Instant::now() < deadline => {
+                    std::thread::sleep(Duration::from_millis(5));
+                }
+                result => {
+                    let _ = child.kill();
+                    child.wait()?;
+                    result?;
+                    return Err(format!("{operation} did not exit before the deadline").into());
+                }
+            }
+        };
+        Ok(std::process::Output {
+            status,
+            stdout: stdout.join().map_err(|_| "stdout reader panicked")??,
+            stderr: stderr.join().map_err(|_| "stderr reader panicked")??,
+        })
+    })
+}
+
+/// Output from both pipes can exceed the capacity of a Linux pipe.
+#[cfg(target_os = "linux")]
+#[test]
+fn contention_fixture_drains_both_child_pipes() -> Result<(), Box<dyn std::error::Error>> {
+    use std::process::Stdio;
+
+    let child = Command::new("sh")
+        .args([
+            "-c",
+            "head -c 1048576 /dev/zero && head -c 1048576 /dev/zero >&2",
+        ])
+        .stdout(Stdio::piped())
+        .stderr(Stdio::piped())
+        .spawn()?;
+    let output = wait_for_child_output(child, "large output fixture")?;
+    assert!(output.status.success());
+    assert_eq!(output.stdout.len(), 1_048_576);
+    assert_eq!(output.stderr.len(), 1_048_576);
+    Ok(())
+}
+
+/// Checks that inspecting a committed step selects the same explicit tracker.
+#[cfg(target_os = "linux")]
+fn assert_partial_inspection_scope(
+    receipt: &serde_json::Value,
+    scope: &str,
+) -> Result<(), Box<dyn std::error::Error>> {
+    let steps = receipt["next_steps"]
+        .as_array()
+        .ok_or("partial recovery steps")?;
+    for (step, action) in steps.iter().zip(["get", "history"]) {
+        let arguments = step
+            .as_str()
+            .and_then(pm_rust::parse_command_args)
+            .ok_or("partial inspection command")?;
+        assert_eq!(arguments, ["pm", "--pm-path", scope, action, "sample-cli"]);
+    }
+    assert_eq!(
+        steps[2],
+        "Inspect the persisted state before retrying the failed step."
+    );
+    Ok(())
+}
+
 /// A real forced pause reports its saved update when release hits a held lease gate.
 #[cfg(target_os = "linux")]
 #[test]
@@ -774,6 +852,7 @@ fn pause_release_contention_reports_only_release_recovery() -> Result<(), Box<dy
     use std::io::Write as _;
     use std::process::Stdio;
 
+    let caller = workspace()?;
     let tracker = workspace()?;
     seed_item(&tracker)?;
     expect_ok(
@@ -781,6 +860,7 @@ fn pause_release_contention_reports_only_release_recovery() -> Result<(), Box<dy
         &["claim", "sample-cli", "--start", "--author=cli-agent"],
     )?;
     let root = tracker.path().join(".agents/pm");
+    let scope = root.to_str().ok_or("selected tracker path")?;
     let first = root.join("runtime/session.json");
     let second = root.join("runtime/release-session.json");
     fs::remove_file(&first)?;
@@ -788,9 +868,11 @@ fn pause_release_contention_reports_only_release_recovery() -> Result<(), Box<dy
         mkfifoat(CWD, path, Mode::RUSR | Mode::WUSR)?;
     }
     let mut child = Command::new(env!("CARGO_BIN_EXE_pm-rust"))
-        .current_dir(tracker.path())
+        .current_dir(caller.path())
         .env("PM_LOCK_WAIT_MS", "0")
         .args([
+            "--pm-path",
+            scope,
             "release",
             "sample-cli",
             "--pause",
@@ -820,16 +902,7 @@ fn pause_release_contention_reports_only_release_recovery() -> Result<(), Box<dy
         let _ = child.wait();
     }
     let _gate = interposed?;
-    let deadline = std::time::Instant::now() + std::time::Duration::from_secs(15);
-    while child.try_wait()?.is_none() {
-        if std::time::Instant::now() >= deadline {
-            child.kill()?;
-            child.wait()?;
-            return Err("pause did not exit after its release encountered the held gate".into());
-        }
-        std::thread::sleep(std::time::Duration::from_millis(5));
-    }
-    let output = child.wait_with_output()?;
+    let output = wait_for_child_output(child, "pause with contended release")?;
     assert_eq!(
         output.status.code(),
         Some(4),
@@ -839,6 +912,7 @@ fn pause_release_contention_reports_only_release_recovery() -> Result<(), Box<dy
     let receipt: serde_json::Value = serde_json::from_slice(&output.stderr)?;
     assert_eq!(receipt["code"], "lock_conflict");
     assert_eq!(receipt["recovery"]["completed_step"], "update");
+    assert_partial_inspection_scope(&receipt, scope)?;
     assert_eq!(receipt["recovery"]["retry_after_ms"], 250);
     assert!(receipt["recovery"].get("suggested_retry_args").is_none());
     assert!(
@@ -857,12 +931,9 @@ fn pause_release_contention_reports_only_release_recovery() -> Result<(), Box<dy
 fn forced_start_contention_reports_only_status_recovery() -> Result<(), Box<dyn std::error::Error>>
 {
     use rustix::fs::{CWD, Mode, mkfifoat};
-    use std::{
-        io::Write as _,
-        process::Stdio,
-        time::{Duration, Instant},
-    };
+    use std::{io::Write as _, process::Stdio};
 
+    let caller = workspace()?;
     let tracker = workspace()?;
     seed_item(&tracker)?;
     expect_ok(
@@ -870,6 +941,7 @@ fn forced_start_contention_reports_only_status_recovery() -> Result<(), Box<dyn 
         &["claim", "sample-cli", "--author=previous-holder"],
     )?;
     let root = tracker.path().join(".agents/pm");
+    let scope = root.to_str().ok_or("selected tracker path")?;
     let first = root.join("runtime/session.json");
     let second = root.join("runtime/start-session.json");
     fs::remove_file(&first)?;
@@ -883,9 +955,11 @@ fn forced_start_contention_reports_only_status_recovery() -> Result<(), Box<dyn 
         .open(root.join("locks/session-state.lock.gate-lease"))?;
     session_gate.try_lock()?;
     let mut child = Command::new(env!("CARGO_BIN_EXE_pm-rust"))
-        .current_dir(tracker.path())
+        .current_dir(caller.path())
         .env("PM_LOCK_WAIT_MS", "0")
         .args([
+            "--pm-path",
+            scope,
             "start-task",
             "sample-cli",
             "--force",
@@ -914,18 +988,7 @@ fn forced_start_contention_reports_only_status_recovery() -> Result<(), Box<dyn 
         let _ = child.wait();
     }
     let _item_gate = interposed?;
-    let deadline = Instant::now() + Duration::from_secs(15);
-    while child.try_wait()?.is_none() {
-        if Instant::now() >= deadline {
-            child.kill()?;
-            child.wait()?;
-            return Err(
-                "start did not exit after its status step encountered the held gate".into(),
-            );
-        }
-        std::thread::sleep(Duration::from_millis(5));
-    }
-    let output = child.wait_with_output()?;
+    let output = wait_for_child_output(child, "start with contended status update")?;
     assert_eq!(
         output.status.code(),
         Some(4),
@@ -936,6 +999,7 @@ fn forced_start_contention_reports_only_status_recovery() -> Result<(), Box<dyn 
     let receipt: serde_json::Value = serde_json::from_slice(&output.stderr)?;
     assert_eq!(receipt["code"], "lock_conflict");
     assert_eq!(receipt["recovery"]["completed_step"], "claim");
+    assert_partial_inspection_scope(&receipt, scope)?;
     assert!(receipt["recovery"].get("suggested_retry_args").is_none());
     assert!(receipt["recovery"].get("suggested_retry").is_none());
     let stored = fs::read_to_string(root.join("tasks/sample-cli.toon"))?;

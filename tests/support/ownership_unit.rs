@@ -196,7 +196,7 @@ body: ""
     crate::mutation::ownership_item_with_options(
         &root,
         &request,
-        false,
+        crate::ownership::OwnershipAction::Release,
         &options,
         &mut || Ok(()),
         &mut |_, session_gate_held| {
@@ -629,13 +629,14 @@ fn partial_failures_keep_policy_context_and_persisted_step() {
                 .as_str()
                 .is_some_and(|why| why.starts_with("update completed for sample-own"))
         );
-        assert!(
-            context["next_steps"][0]
-                .as_str()
-                .is_some_and(|step| step.contains("pm history sample-own"))
+        assert_eq!(context["next_steps"][0], "pm get sample-own");
+        assert_eq!(context["next_steps"][1], "pm history sample-own");
+        assert_eq!(
+            context["next_steps"][2],
+            "Inspect the persisted state before retrying the failed step."
         );
         if exit == 4 {
-            assert_eq!(context["next_steps"][1], "Original step.");
+            assert_eq!(context["next_steps"][3], "Original step.");
             assert!(
                 context["why"]
                     .as_str()
@@ -986,16 +987,12 @@ fn round15_partial_failure_advice_shell_round_trip() -> Result<(), Box<dyn std::
         let PmRustError::CommandRefusal { context, .. } = error else {
             return Err("partial refusal".into());
         };
-        let step = context["next_steps"][0]
-            .as_str()
-            .ok_or("step")?
-            .strip_prefix("Inspect the persisted state with ")
-            .ok_or("prefix")?
-            .strip_suffix(" before retrying the failed step.")
-            .ok_or("suffix")?;
-        let (get, history) = step.split_once(" and ").ok_or("two commands")?;
-        corpus::assert_shell_args(get, &["pm", "get", value])?;
-        corpus::assert_shell_args(history, &["pm", "history", value])?;
+        for (index, verb) in ["get", "history"].into_iter().enumerate() {
+            let command = context["next_steps"][index]
+                .as_str()
+                .ok_or("inspection step")?;
+            corpus::assert_shell_args(command, &["pm", verb, value])?;
+        }
     }
     Ok(())
 }

@@ -1631,6 +1631,77 @@ fn sdk_note_conflict_requires_original_note_after_redaction() -> TestResult {
     Ok(())
 }
 
+/// An SDK message with NUL can be replayed only through the SDK.
+#[test]
+fn sdk_note_conflict_with_nul_message_has_no_cli_replay() -> TestResult {
+    let (directory, workspace) = tracker()?;
+    let mut options = CollectionOptions {
+        author: "fixture".into(),
+        add: vec!["path=source.rs,note=first".into()],
+        ..Default::default()
+    };
+    workspace.collection("sample-one", "files", &options, directory.path())?;
+    options.add = vec!["path=source.rs,note=second".into()];
+    options.message = Some("before\0after".into());
+    let Err(PmRustError::CommandRefusal {
+        context,
+        exit_code: 4,
+        ..
+    }) = workspace.collection("sample-one", "files", &options, directory.path())
+    else {
+        return Err("expected a note conflict".into());
+    };
+    assert!(context.get("recovery").is_none());
+    assert_eq!(context["next_steps"], json!([context["required"]]));
+    assert!(
+        context["required"]
+            .as_str()
+            .is_some_and(|step| step.starts_with("Retry through the SDK"))
+    );
+    assert_eq!(
+        workspace.get("sample-one")?.metadata.extra["files"][0]["note"],
+        "first"
+    );
+    options.note_conflict = Some("append".into());
+    workspace.collection("sample-one", "files", &options, directory.path())?;
+    assert_eq!(
+        workspace.get("sample-one")?.metadata.extra["files"][0]["note"],
+        "first; second"
+    );
+    Ok(())
+}
+
+/// A verbatim Windows parent component cannot conceal a file and redirect a removal.
+#[cfg(windows)]
+#[test]
+fn sdk_verbatim_parent_refuses_file_prefix_before_removal() -> TestResult {
+    let (directory, workspace) = tracker()?;
+    let project = directory.path().canonicalize()?;
+    std::fs::write(project.join("base.txt"), "regular file")?;
+    let options = CollectionOptions {
+        author: "fixture".into(),
+        add: vec!["source.rs".into()],
+        ..Default::default()
+    };
+    workspace.collection("sample-one", "files", &options, &project)?;
+    let remove = CollectionOptions {
+        add: vec![],
+        remove: vec!["source.rs".into()],
+        ..options
+    };
+    // Construct the raw path without PathBuf::push normalizing its parent component.
+    let file_parent = format!(r"{}\base.txt\..", project.display());
+    assert!(matches!(
+        workspace.collection("sample-one", "files", &remove, Path::new(&file_parent)),
+        Err(PmRustError::CommandRefusal { exit_code: 2, .. })
+    ));
+    assert_eq!(
+        workspace.get("sample-one")?.metadata.extra["files"][0]["path"],
+        "source.rs"
+    );
+    Ok(())
+}
+
 /// An SDK retry cannot substitute a different path for a non-UTF-8 tracker.
 #[cfg(target_os = "linux")]
 #[test]

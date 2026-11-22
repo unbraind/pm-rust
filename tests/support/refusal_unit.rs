@@ -90,6 +90,30 @@ fn recovery_steps_project_arguments_and_preserve_command_syntax() {
     );
 }
 
+/// Projection preserves spacing and multiline guidance when its arguments stay public.
+#[test]
+fn public_recovery_steps_keep_their_original_text() {
+    let steps = ["pm get    first", "pm get first\npm get second"];
+    let mut payload = json!({
+        "code":"already_claimed_by",
+        "claimed_by":"https://fixture:synthetic-secret@example.invalid",
+        "next_steps":steps
+    });
+    redact(&mut payload, &[]);
+    assert_eq!(payload["next_steps"], json!(steps));
+
+    let multiline = "pm get first\npm get https://fixture:synthetic-secret@example.invalid";
+    let mut payload = json!({"next_steps":[multiline]});
+    redact(&mut payload, &[]);
+    assert_eq!(
+        payload["next_steps"],
+        json!([
+            RESTORE,
+            "pm get first\npm get https://[redacted]@example.invalid"
+        ])
+    );
+}
+
 /// A credential may coincide with delimiter syntax or an option value.
 #[test]
 fn recovery_projection_preserves_only_the_parsed_delimiter() {

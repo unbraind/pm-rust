@@ -740,7 +740,7 @@ fn release_after_close(
     identity: AuthorIdentity,
 ) -> Result<pm_rust::OwnershipResult, pm_rust::PmRustError> {
     workspace
-        .release_with_options(
+        .release_after_close_with_options(
             request,
             &OwnershipOptions {
                 identity: Some(identity),
@@ -1920,7 +1920,7 @@ fn render_recovery(args: &[String]) -> String {
 /// Adds invocation scope to executable advice while respecting an explicit producer scope.
 fn scope_recovery_command(command: &str, scope: &[String]) -> Option<String> {
     command.strip_prefix("pm ")?;
-    let Some(mut args) = pm_rust::parse_command_args(command) else {
+    let Some(mut args) = pm_rust::parse_recovery_command(command) else {
         return Some(
             "Recovery advice could not be decoded safely; inspect command help before retrying."
                 .to_owned(),

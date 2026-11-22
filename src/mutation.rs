@@ -598,7 +598,11 @@ pub fn normalize_mutation_settings(settings: &mut Value) -> bool {
         fallback_setting(
             workflow,
             "close_status",
-            Value::is_string,
+            |value| {
+                value
+                    .as_str()
+                    .is_some_and(|status| !crate::history::trim_evidence_line(status).is_empty())
+            },
             serde_json::json!("closed"),
         );
     }
@@ -1191,8 +1195,14 @@ fn fence_item(
     let locks = pm_root.join("locks");
     // Other writers can briefly hold this gate while checking our lease.
     // Preserve the existing short wait for immediate-acquisition callers.
-    let gate = wait_for_lock(id, lock_retry(lock.wait_ms.max(250)), || {
-        acquire_cleanup_gate(&locks, id, ttl)
+    let wait_ms = lock.wait_ms.max(250);
+    let gate = wait_for_lock(id, lock_retry(wait_ms), || {
+        let result = acquire_cleanup_gate(&locks, id, ttl);
+        #[cfg(test)]
+        if matches!(result, Err(PmRustError::LockConflict { .. })) {
+            tests::release_item_publication_gate(wait_ms);
+        }
+        result
     })?;
     if fs::read_to_string(&lock.path).as_deref().ok() == Some(lock.raw.as_str())
         && lock_identity_unchanged(&lock.path, lock.observed.as_ref())
@@ -3631,7 +3641,11 @@ pub(crate) fn ownership_item(
     ownership_item_with_options(
         pm_root,
         request,
-        claim,
+        if claim {
+            crate::ownership::OwnershipAction::Claim
+        } else {
+            crate::ownership::OwnershipAction::Release
+        },
         &crate::OwnershipOptions::default(),
         &mut || Ok(()),
         &mut |_, _| {},
@@ -3643,7 +3657,7 @@ pub(crate) fn ownership_item(
 pub(crate) fn ownership_item_with_options(
     pm_root: &Path,
     request: &OwnershipItem,
-    claim: bool,
+    action: crate::ownership::OwnershipAction,
     options: &crate::OwnershipOptions,
     prepare: &mut dyn FnMut() -> Result<(), PmRustError>,
     publish: &mut dyn FnMut(&mut OwnershipResult, bool),
@@ -3657,6 +3671,7 @@ pub(crate) fn ownership_item_with_options(
         |identity| identity.principal.clone(),
     );
     crate::AuthorIdentity::validate_credentials(&caller_principal, "claim_principal")?;
+    let claim = action == crate::ownership::OwnershipAction::Claim;
     let operation = if claim { "claim" } else { "release" };
     let wait_ms = lock_wait_budget(
         std::env::var("PM_LOCK_WAIT_MS").ok().as_deref(),
@@ -3878,13 +3893,23 @@ pub(crate) fn ownership_item_with_options(
     };
     // Claim skips history on no-op; release deliberately records even an empty patch.
     if !claim || changed > 0 {
-        document.metadata.updated_at.clone_from(&timestamp);
+        let timestamp = if action == crate::ownership::OwnershipAction::ReleaseAfterClose
+            && OffsetDateTime::parse(&before.metadata.updated_at, &Rfc3339).ok()
+                > OffsetDateTime::parse(&timestamp, &Rfc3339).ok()
+        {
+            validate_timestamp(&before.metadata.updated_at)?;
+            reject_future_timestamp(&before.metadata.updated_at)?;
+            &before.metadata.updated_at
+        } else {
+            &timestamp
+        };
+        document.metadata.updated_at.clone_from(timestamp);
         document = commit_mutation(
             pm_root,
             operation,
             &before,
             document,
-            &timestamp,
+            timestamp,
             &request.author,
             request.provenance_role.as_deref(),
             request.message.as_deref(),

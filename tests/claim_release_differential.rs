@@ -1035,15 +1035,38 @@ fn failed_start_preserves_claim_and_published_recovery_receipt()
             )?,
         )?;
     }
-    fixture.step(&[
-        "claim",
-        "sample-own",
-        "--start",
-        "--author",
-        "alpha",
-        "--json",
-    ])?;
-    fixture.step(&["claim", "sample-own", "--start", "--author", "alpha"])?;
+    let oracle_step = "Inspect the persisted state with pm get sample-own and pm history sample-own before retrying the failed step.";
+    let native_steps = [
+        "pm get sample-own",
+        "pm history sample-own",
+        "Inspect the persisted state before retrying the failed step.",
+    ];
+    for json in [true, false] {
+        let mut args = vec!["claim", "sample-own", "--start", "--author", "alpha"];
+        if json {
+            args.push("--json");
+        }
+        let oracle = published_run(&fixture.driver, fixture.node.path(), &args)?;
+        let native = native_command(fixture.rust.path(), &args).output()?;
+        assert_eq!(oracle.status.code(), Some(2));
+        assert_eq!(native.status.code(), oracle.status.code());
+        assert_eq!(native.stdout, oracle.stdout);
+        let (original, projected) = if json {
+            (
+                format!("\"{oracle_step}\""),
+                format!("\"{}\"", native_steps.join("\",\n    \"")),
+            )
+        } else {
+            (oracle_step.to_owned(), native_steps.join("\n  - "))
+        };
+        let expected = String::from_utf8(oracle.stderr)?;
+        assert_eq!(expected.matches(&original).count(), 1);
+        assert_eq!(
+            String::from_utf8(native.stderr)?,
+            expected.replacen(&original, &projected, 1)
+        );
+        fixture.compare_bytes()?;
+    }
     let history = fs::read_to_string(
         fixture
             .rust
@@ -3582,15 +3605,14 @@ fn start_declared_blocker_variants_match_published_bytes() -> Result<(), Box<dyn
 #[test]
 fn external_blocker_removal_guidance_respects_selector_projection()
 -> Result<(), Box<dyn std::error::Error>> {
-    for private in [false, true] {
+    for separator in [None, Some("@"), Some("%40")] {
         let Some(fixture) = Fixture::new("none")? else {
             return Ok(());
         };
-        let id = if private {
-            "https://fixture:synthetic-secret@example.invalid/issue"
-        } else {
-            "https://example.invalid/issue"
-        };
+        let id = separator.map_or_else(
+            || "https://example.invalid/issue".to_owned(),
+            |separator| format!("https://fixture:synthetic-secret{separator}example.invalid/issue"),
+        );
         let selector = format!("id={id},kind=blocked_by");
         let dependency = format!("{selector},source_kind=external");
         prepare(
@@ -3646,13 +3668,13 @@ fn external_blocker_removal_guidance_respects_selector_projection()
         };
         for receipt in [&native, &context] {
             let steps = receipt["next_steps"].to_string();
-            if private {
+            if let Some(separator) = separator {
                 assert!(!steps.contains("--dep-remove"), "{steps}");
                 assert!(steps.contains("original ID"), "{steps}");
                 assert!(!receipt.to_string().contains("synthetic-secret"));
                 assert_eq!(
                     receipt["details"]["open_blockers"][0]["id"],
-                    "https://[redacted]@example.invalid/issue"
+                    format!("https://[redacted]{separator}example.invalid/issue")
                 );
             } else {
                 assert_eq!(receipt["next_steps"], oracle["next_steps"]);
@@ -3662,7 +3684,7 @@ fn external_blocker_removal_guidance_respects_selector_projection()
                 );
             }
         }
-        if private {
+        if separator.is_some() {
             assert!(!detail.contains("synthetic-secret"));
         }
         assert_eq!(fixture.snapshots()?, before);

@@ -498,6 +498,17 @@ pub struct SelectionOptions {
     pub start: bool,
 }
 
+/// Selects the mutation and its timestamp policy under the item lock.
+#[derive(Clone, Copy, PartialEq, Eq)]
+pub(crate) enum OwnershipAction {
+    /// Acquire an assignment.
+    Claim,
+    /// Release an assignment at the supplied timestamp.
+    Release,
+    /// Release an assignment after a separately committed close.
+    ReleaseAfterClose,
+}
+
 impl Workspace {
     /// Claims an explicit item with detected session identity or SDK handoff controls.
     ///
@@ -508,7 +519,7 @@ impl Workspace {
         request: &OwnershipItem,
         options: &OwnershipOptions,
     ) -> Result<OwnershipResult, PmRustError> {
-        self.mutate_ownership(request, options, true)
+        self.mutate_ownership(request, options, OwnershipAction::Claim)
     }
 
     /// Releases an explicit item with session identity and an optional approved bypass.
@@ -520,7 +531,20 @@ impl Workspace {
         request: &OwnershipItem,
         options: &OwnershipOptions,
     ) -> Result<OwnershipResult, PmRustError> {
-        self.mutate_ownership(request, options, false)
+        self.mutate_ownership(request, options, OwnershipAction::Release)
+    }
+
+    /// Releases the assignment while preserving any newer intervening item revision.
+    ///
+    /// # Errors
+    /// Returns validation, lock, ownership or durable storage failures.
+    #[doc(hidden)]
+    pub fn release_after_close_with_options(
+        &self,
+        request: &OwnershipItem,
+        options: &OwnershipOptions,
+    ) -> Result<OwnershipResult, PmRustError> {
+        self.mutate_ownership(request, options, OwnershipAction::ReleaseAfterClose)
     }
 
     /// Validates lineage before commit and publishes attribution while the item is fenced.
@@ -528,14 +552,15 @@ impl Workspace {
         &self,
         request: &OwnershipItem,
         options: &OwnershipOptions,
-        claim: bool,
+        action: OwnershipAction,
     ) -> Result<OwnershipResult, PmRustError> {
+        let claim = action == OwnershipAction::Claim;
         let parents = std::cell::RefCell::new(BTreeMap::new());
         with_identity(self.pm_root(), options, || {
             crate::mutation::ownership_item_with_options(
                 self.pm_root(),
                 request,
-                claim,
+                action,
                 options,
                 &mut || {
                     let admitted_start =
@@ -830,13 +855,12 @@ pub fn partial_failure(error: PmRustError, id: &str, completed: &str) -> PmRustE
         .map_or(String::new(), |why| format!(" {why}"));
     let get = crate::render_pm_command(["get", id]);
     let history = crate::render_pm_command(["history", id]);
-    let mut steps = if completed == "close" {
-        vec![json!(get), json!(history)]
-    } else {
-        vec![json!(format!(
-            "Inspect the persisted state with {get} and {history} before retrying the failed step."
-        ))]
-    };
+    let mut steps = vec![json!(get), json!(history)];
+    if completed != "close" {
+        steps.push(json!(
+            "Inspect the persisted state before retrying the failed step."
+        ));
+    }
     if let Some(original) = context["next_steps"].as_array() {
         steps.extend(original.clone());
     }

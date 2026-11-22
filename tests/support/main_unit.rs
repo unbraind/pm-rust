@@ -2101,6 +2101,10 @@ fn round5_historical_comment_receipt_preserves_scalar_rows()
 
 /// A real intervening claim contributes ownership fields to the two-step close receipt only once.
 #[test]
+#[allow(
+    clippy::too_many_lines,
+    reason = "one fixture checks the close receipt across release, an intervening claim, and reopen"
+)]
 fn round5_close_release_receipt_counts_an_intervening_claim()
 -> Result<(), Box<dyn std::error::Error>> {
     let temp = tempfile::tempdir()?;
@@ -2145,8 +2149,17 @@ fn round5_close_release_receipt_counts_an_intervening_claim()
         if_available: false,
         provenance_role: None,
     };
-    let release = workspace.release(&request)?;
+    let close_release = OwnershipItem {
+        timestamp: Some(closed.item.metadata.updated_at.clone()),
+        ..request.clone()
+    };
+    let identity = || AuthorIdentity::resolve(Some(&request.author), None, &BTreeMap::new());
+    let release = super::release_after_close(&workspace, &close_release, identity())?;
     assert_eq!(release.changed_field_count, 0);
+    assert_eq!(
+        release.item.metadata.updated_at,
+        closed.item.metadata.updated_at
+    );
     assert_eq!(
         super::close_release_changed_field_count(
             &closed.close_changed_fields,
@@ -2155,8 +2168,12 @@ fn round5_close_release_receipt_counts_an_intervening_claim()
         4
     );
     workspace.claim(&request)?;
-    let release = workspace.release(&request)?;
+    let release = super::release_after_close(&workspace, &close_release, identity())?;
     assert_eq!(release.changed_field_count, 2);
+    assert_eq!(
+        Some(&release.item.metadata.updated_at),
+        request.timestamp.as_ref()
+    );
     assert_eq!(
         super::close_release_changed_field_count(
             &closed.close_changed_fields,

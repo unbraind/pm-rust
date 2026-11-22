@@ -181,6 +181,12 @@ fn userinfos(text: &str) -> Vec<(usize, usize)> {
                 .then(|| candidate.rfind('@'))
                 .flatten()
         });
+        // A percent-encoded separator in an authority with a password is private too.
+        let end = end.or_else(|| {
+            let authority = authority.split(whitespace).next().unwrap_or_default();
+            let (userinfo, _) = authority.rsplit_once("%40")?;
+            userinfo.contains(':').then_some(userinfo.len())
+        });
         let Some(end) = end.filter(|end| *end > 0) else {
             continue;
         };
@@ -485,15 +491,15 @@ impl Credentials {
         for step in steps {
             if let Some(text) = step.as_str()
                 && let Some((binary @ ("pm" | "pm-rust"), command)) = text.split_once(' ')
-                && let Some(args) = crate::parse_command_args(command)
+                && let Some(args) = crate::command_line::parse_recovery_command(command)
             {
-                let mut values: Vec<_> = args.into_iter().map(Value::String).collect();
+                let mut values: Vec<_> = args.iter().cloned().map(Value::String).collect();
                 let fixed = Self::fixed_arguments(&values);
                 self.arguments(&mut values, &fixed);
-                *step = Value::String(crate::command_line::render_command(
-                    binary,
-                    values.iter().filter_map(Value::as_str),
-                ));
+                let projected = || values.iter().filter_map(Value::as_str);
+                if !projected().eq(args.iter().map(String::as_str)) {
+                    *step = Value::String(crate::command_line::render_command(binary, projected()));
+                }
             } else {
                 self.value(step, false, false, false);
             }
