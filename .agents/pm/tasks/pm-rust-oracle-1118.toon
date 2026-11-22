@@ -6,7 +6,7 @@ status: open
 priority: 1
 tags[6]: "gh:unbraind/pm-cli#1753","gh:unbraind/pm-cli#1754","gh:unbraind/pm-cli#1757","gh:unbraind/pm-rust#176","gh:unbraind/pm-rust#181",oracle
 created_at: "2026-11-18T09:41:09.150Z"
-updated_at: "2026-11-22T01:40:28.431Z"
+updated_at: "2026-11-22T01:49:39.356Z"
 author: codex-sol
 parent: pm-rust-u4al
 comments[79]{created_at,author,text}:
@@ -185,7 +185,7 @@ files[47]:
     scope: project
   - path: tests/support/toon_output_unit.rs
     scope: project
-tests[105]{command,scope,provenance{author,created_at,source_kind,source_ref}}:
+tests[106]{command,scope,provenance{author,created_at,source_kind,source_ref}}:
   PM_RUST_REQUIRE_PUBLISHED_CLI=1 cargo test --locked --all-targets --all-features --no-fail-fast,project,codex-sol,"2026-11-18T09:58:16.490Z",local_mutation,fix/oracle-pm-cli-1118
   cargo fmt --all -- --check,project,codex-sol,"2026-11-18T09:58:23.289Z",local_mutation,fix/oracle-pm-cli-1118
   cargo clippy --locked --all-targets --all-features -- -D warnings,project,codex-sol,"2026-11-18T10:10:28.550Z",local_mutation,fix/oracle-pm-cli-1118
@@ -291,6 +291,7 @@ tests[105]{command,scope,provenance{author,created_at,source_kind,source_ref}}:
   PM_RUST_REQUIRE_PUBLISHED_CLI=1 cargo test --locked --all-features --lib --bin pm-rust --test cli_dispatch --test ownership_contract --test claim_release_differential --test search_collections_differential --test mutation_contract --test orientation_differential,project,codex-sol,"2026-11-21T20:39:31.873Z",local_mutation,fix/oracle-pm-cli-1118
   PM_RUST_REQUIRE_PUBLISHED_CLI=1 cargo test --locked --all-features --lib --test cli_dispatch --test ownership_contract --test claim_release_differential --test search_collections_differential --test orientation_differential,project,codex-sol,"2026-11-21T23:34:25.901Z",local_mutation,fix/oracle-pm-cli-1118
   PM_RUST_REQUIRE_PUBLISHED_CLI=1 cargo test --locked --all-features --test cli_dispatch --test ownership_contract --test claim_release_differential --test search_collections_differential --test orientation_differential --no-fail-fast,project,codex-sol,"2026-11-22T00:23:19.751Z",local_mutation,fix/oracle-pm-cli-1118
+  PM_RUST_REQUIRE_PUBLISHED_CLI=1 cargo test --locked --all-features --test orientation_differential,project,codex-sol,"2026-11-22T01:44:58.072Z",local_mutation,fix/oracle-pm-cli-1118
 docs[11]:
   - path: .github/workflows/ci.yml
     scope: project

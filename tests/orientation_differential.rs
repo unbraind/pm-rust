@@ -475,7 +475,6 @@ fn terminal_context_history_file_types(
     history: &Path,
     regular: &Output,
 ) -> TestResult {
-    use rustix::fs::{CWD, Mode, mkfifoat};
     use std::process::Stdio;
     use std::time::{Duration, Instant};
 
@@ -488,7 +487,13 @@ fn terminal_context_history_file_types(
     let fallback = oracle(driver, root, &args)?;
     let value: Value = serde_json::from_slice(&fallback.stdout)?;
     assert_eq!(value["summary"]["in_progress_idle"], 1);
-    mkfifoat(CWD, history, Mode::RUSR | Mode::WUSR)?;
+    assert!(
+        Command::new("mkfifo")
+            .args(["-m", "600"])
+            .arg(history)
+            .status()?
+            .success()
+    );
     let mut child = native_invocation(root, &args)
         .stdout(Stdio::piped())
         .stderr(Stdio::piped())
