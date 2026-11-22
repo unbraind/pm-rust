@@ -256,7 +256,6 @@ fn artifacts(expected: &Path, actual: &Path) -> TestResult {
 }
 
 /// Creates the root link and the competing link that a relative removal can select.
-#[cfg(unix)]
 fn seed_linked_files(driver: &Path, project: &Path, other_path: &str) -> TestResult {
     for args in [
         vec!["init", "sample-", "--defaults"],
