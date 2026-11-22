@@ -2112,8 +2112,10 @@ fn round11_public_prose_process_keeps_retry() -> Result<(), Box<dyn std::error::
                 }
                 if json {
                     let payload: serde_json::Value = serde_json::from_str(&text)?;
-                    if payload["recovery"].get("suggested_retry").is_none() != private {
-                        mismatches.push(format!("JSON retry: {reason}"));
+                    for key in ["suggested_retry", "suggested_retry_args"] {
+                        if payload["recovery"].get(key).is_none() != private {
+                            mismatches.push(format!("JSON {key}: {reason}"));
+                        }
                     }
                 } else if text.contains("Run: pm ") == private {
                     mismatches.push(format!("human retry: {reason}"));

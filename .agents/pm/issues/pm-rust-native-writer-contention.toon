@@ -6,13 +6,21 @@ status: open
 priority: 2
 tags[3]: ci,concurrency,follow-up
 created_at: "2026-11-22T09:07:52.881Z"
-updated_at: "2026-11-22T09:07:58.177Z"
+updated_at: "2026-11-22T10:19:59.393Z"
 author: codex-sol
 acceptance_criteria: "Identify whether the refusal originates in acquisition, the 250 ms publication gate wait, or the receipt identity check. Verify admitted writes and their history under equivalent contention on the affected runner."
 parent: pm-rust-oracle-1118
-files[2]{path,scope}:
+comments[2]{created_at,author,text}:
+  "2026-11-22T10:06:47.044Z",codex-sol,Round GH confirmed the Windows failure took 14.26 seconds despite the 60-second acquisition budget. A local fixture holding the item publication gate for 500 ms reproduced lock_conflict after lease acquisition because the fence used a separate 250 ms wait. The proposed fix carries the configured wait into both item fences while retaining the existing short minimum and receipt identity checks.
+  "2026-11-22T10:19:46.990Z",codex-sol,"The targeted regression returned LockConflict before the fence change and passed with the configured wait. PM_RUST_REQUIRE_PUBLISHED_CLI=1 cargo test --locked --all-features --test concurrency_contract -- --test-threads=1 passed 20 of 20 complete runs on Linux. Each stress run still requires all 150 writes, exact markers, and an intact history chain. Exact-head macOS and Windows CI remains the platform validation."
+files[3]{path,scope}:
   src/mutation.rs,project
   tests/concurrency_contract.rs,project
-tests[1]{command,scope,provenance{author,created_at,source_kind,source_ref}}:
+  tests/support/mutation_unit.rs,project
+tests[3]{command,scope,provenance{author,created_at,source_kind,source_ref}}:
   PM_RUST_REQUIRE_PUBLISHED_CLI=1 cargo test --locked --all-features --test concurrency_contract,project,codex-sol,"2026-11-22T09:07:58.107Z",local_mutation,fix/oracle-pm-cli-1118
+  PM_RUST_REQUIRE_PUBLISHED_CLI=1 cargo test --locked --all-features --lib item_publication_uses_the_mutation_lock_wait_budget,project,codex-sol,"2026-11-22T10:08:24.384Z",local_mutation,fix/oracle-pm-cli-1118
+  PM_RUST_REQUIRE_PUBLISHED_CLI=1 cargo test --locked --all-features --test concurrency_contract -- --test-threads=1,project,codex-sol,"2026-11-22T10:08:24.384Z",local_mutation,fix/oracle-pm-cli-1118
+docs[1]{path,scope}:
+  docs/NATIVE_PARITY_2026_10_21.md,project
 body: ""

@@ -348,6 +348,79 @@ fn context_progress_and_blank_assignees_match_oracle() -> TestResult {
     Ok(())
 }
 
+/// Blank workflow fields select the default open role, unless `in_progress` is defined.
+#[test]
+fn context_blank_workflow_resolves_default_open_before_progress() -> TestResult {
+    let Some(published) = published_cli::published_cli_or_skip("default open context progress")
+    else {
+        return Ok(());
+    };
+    let scratch = tempfile::tempdir()?;
+    let driver = orientation_driver(scratch.path(), &published)?;
+    for include_progress in [false, true] {
+        let root = tempfile::tempdir()?;
+        assert!(
+            oracle(&driver, root.path(), &["init", "sample-", "--defaults"])?
+                .status
+                .success()
+        );
+        let pm = root.path().join(".agents/pm");
+        let path = pm.join("settings.json");
+        let mut settings: Value = serde_json::from_slice(&fs::read(&path)?)?;
+        let mut statuses = vec![
+            json!({"id":"alpha","order":1,"roles":["active"]}),
+            json!({"id":"queued","order":2,"roles":["active","default_open"]}),
+        ];
+        let mut rows = vec![item("sample-alpha", "Task", "alpha", 1)];
+        rows[0]["assignee"] = json!("another-agent");
+        rows.push(item("sample-queued", "Task", "queued", 2));
+        if include_progress {
+            statuses.push(json!({"id":"in_progress","order":3,"roles":["active"]}));
+            rows.push(item("sample-working", "Task", "in_progress", 3));
+            rows.push(item("sample-working-two", "Task", "in_progress", 3));
+        }
+        let workflow = json!({"open_status":" ","in_progress_status":" "});
+        settings["schema"]["statuses"] = json!(statuses);
+        settings["schema"]["workflow"] = workflow.clone();
+        fs::write(path, settings.to_string())?;
+        fs::write(
+            pm.join("schema/statuses.json"),
+            json!({"statuses":statuses}).to_string(),
+        )?;
+        fs::write(
+            pm.join("schema/workflows.json"),
+            json!({"workflow":workflow}).to_string(),
+        )?;
+        fixture(root.path(), &rows)?;
+        let args = ["context", "--json"];
+        let expected = oracle(&driver, root.path(), &args)?;
+        assert!(
+            expected.status.success(),
+            "{}",
+            String::from_utf8_lossy(&expected.stderr)
+        );
+        let result: Value = serde_json::from_slice(&expected.stdout)?;
+        assert_eq!(
+            result["summary"]["in_progress_unowned"],
+            if include_progress { 2 } else { 1 }
+        );
+        let actual = native(root.path(), &args)?;
+        assert!(
+            actual.status.success(),
+            "{}",
+            String::from_utf8_lossy(&actual.stderr)
+        );
+        let actual: Value = serde_json::from_slice(&actual.stdout)?;
+        for field in ["open", "in_progress", "in_progress_unowned"] {
+            assert_eq!(
+                actual["summary"][field], result["summary"][field],
+                "{field}"
+            );
+        }
+    }
+    Ok(())
+}
+
 /// If the preferred statuses are absent, activity uses the registry's first active role.
 #[test]
 fn context_blank_progress_falls_back_to_ordered_active_role() -> TestResult {

@@ -1330,6 +1330,7 @@ fn filesystem_failures_are_typed_and_atomic_temps_are_cleaned()
         path: lock_root.join("missing.lock"),
         raw: "missing".to_owned(),
         observed: None,
+        wait_ms: 0,
     };
     drop(missing_guard);
     Ok(())
@@ -5239,6 +5240,22 @@ fn reclaimed_item_lease_cannot_replay_successor_journal() -> Result<(), Box<dyn 
     Ok(())
 }
 
+/// An item writer already holding the lease can wait through a slow gate contender.
+#[test]
+fn item_publication_uses_the_mutation_lock_wait_budget() -> Result<(), Box<dyn std::error::Error>> {
+    let (_directory, pm_root) = root("{}")?;
+    let owner = acquire_lock(&pm_root, "sample-unit", "writer", &locks(1800), false, 2000)?;
+    let gate = acquire_cleanup_gate(&pm_root.join("locks"), "sample-unit", 1800)?;
+    thread::scope(|scope| {
+        scope.spawn(move || {
+            thread::sleep(Duration::from_millis(500));
+            drop(gate);
+        });
+        fence_item(&pm_root, "sample-unit", &owner, 1800).map(|_| ())
+    })?;
+    Ok(())
+}
+
 /// A copied receipt cannot authorize publication through a different owner file.
 #[test]
 fn item_publication_rejects_replaced_file_with_same_receipt()
@@ -6927,6 +6944,61 @@ fn item_acquisition_honors_the_session_lease() -> Result<(), Box<dyn std::error:
         drop(incumbent);
         assert!(lock.path.exists());
     }
+    Ok(())
+}
+
+/// Alternate names honor the session TTL only when they resolve to the same lease.
+#[cfg(any(unix, windows))]
+#[test]
+fn item_acquisition_recognizes_an_aliased_session_lease() -> Result<(), Box<dyn std::error::Error>>
+{
+    let (_temp, pm_root) = root("{}")?;
+    let incumbent = acquire_session_lock(&pm_root, 1800, lock_retry(0), || TS.to_owned())?;
+    let raw = fs::read(&incumbent.path)?;
+    File::options()
+        .write(true)
+        .open(&incumbent.path)?
+        .set_modified(SystemTime::now() - Duration::from_secs(61))?;
+    let alias = incumbent.path.with_file_name("Session-State.lock");
+    if !alias.exists() {
+        fs::hard_link(&incumbent.path, &alias)?;
+    }
+    let after_item_ttl = "2026-08-07T10:07:31.183Z";
+    for age in [
+        LockAge::Modified,
+        LockAge::Receipt,
+        LockAge::OwnershipReceipt,
+    ] {
+        assert!(matches!(
+            acquire_lock_attempt(
+                &pm_root,
+                "Session-State",
+                "writer",
+                60,
+                true,
+                after_item_ttl,
+                age
+            ),
+            Err(PmRustError::LockConflict { .. })
+        ));
+        assert_eq!(fs::read(&alias)?, raw);
+        assert_eq!(fs::read(&incumbent.path)?, raw);
+    }
+
+    let distinct = incumbent.path.with_file_name("distinct.lock");
+    fs::write(&distinct, &raw)?;
+    let lock = acquire_lock_attempt(
+        &pm_root,
+        "distinct",
+        "writer",
+        60,
+        true,
+        after_item_ttl,
+        LockAge::Receipt,
+    )?;
+    assert_eq!(lock.path, distinct);
+    assert_ne!(fs::read(&distinct)?, raw);
+    assert_eq!(fs::read(&incumbent.path)?, raw);
     Ok(())
 }
 

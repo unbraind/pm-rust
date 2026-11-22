@@ -851,15 +851,9 @@ pub fn partial_failure(error: PmRustError, id: &str, completed: &str) -> PmRustE
     if matches!(completed, "close" | "update") {
         context["completed_step"] = json!(completed);
         if context["code"] == "stale_lock_requires_override" {
-            let retry_release = if completed == "update" {
-                json!(
-                    "Remove the expired lease, then verify current ownership before retrying only release with the original identity and applicable release options. If the original assignment is gone or has changed, stop."
-                )
-            } else {
-                json!(
-                    "Remove the expired lease, then retry only release with the original identity and applicable release options."
-                )
-            };
+            let retry_release = json!(
+                "Remove the expired lease, then verify current ownership before retrying only release with the original identity and applicable release options. If the original assignment is gone or has changed, stop."
+            );
             for step in &mut steps {
                 if *step == crate::mutation::RETRY_STALE_LOCK {
                     *step = retry_release.clone();
@@ -873,7 +867,7 @@ pub fn partial_failure(error: PmRustError, id: &str, completed: &str) -> PmRustE
                 )
             } else {
                 json!(
-                    "Wait for the lock to clear, then retry the release step with the original identity and applicable release options."
+                    "Wait for the lock to clear and verify current ownership before you retry the release step with the original identity and applicable release options. If the original assignment is gone or has changed, stop."
                 )
             };
         }

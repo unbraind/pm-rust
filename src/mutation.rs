@@ -394,6 +394,8 @@ struct ItemLock {
     path: PathBuf,
     raw: String,
     observed: Option<GateObservation>,
+    /// Configured contention wait for publication while this item lease is held.
+    wait_ms: u64,
 }
 
 /// Releases a kernel gate lease independently of inherited file descriptors.
@@ -1084,7 +1086,7 @@ fn acquire_lock(
             "id must use ASCII letters, digits, and interior hyphens",
         ));
     }
-    wait_for_lock(id, lock_retry(wait_ms), || {
+    let mut lock = wait_for_lock(id, lock_retry(wait_ms), || {
         // All item writers share these leases. Mutation timestamps belong to history.
         acquire_lock_attempt(
             pm_root,
@@ -1095,7 +1097,9 @@ fn acquire_lock(
             &now_iso(),
             locks.age,
         )
-    })
+    })?;
+    lock.wait_ms = wait_ms;
+    Ok(lock)
 }
 
 /// Waits before retrying lock contention while the fixed budget remains.
@@ -1185,7 +1189,9 @@ fn fence_item(
     ttl: u64,
 ) -> Result<CleanupGate, PmRustError> {
     let locks = pm_root.join("locks");
-    let gate = wait_for_lock(id, lock_retry(250), || {
+    // Other writers can briefly hold this gate while checking our lease.
+    // Preserve the existing short wait for immediate-acquisition callers.
+    let gate = wait_for_lock(id, lock_retry(lock.wait_ms.max(250)), || {
         acquire_cleanup_gate(&locks, id, ttl)
     })?;
     if fs::read_to_string(&lock.path).as_deref().ok() == Some(lock.raw.as_str())
@@ -1364,20 +1370,24 @@ fn create_or_reclaim_lock(
             });
         }
     };
+    // Alternate item IDs can name the same lease on case-insensitive filesystems.
+    let shared_session =
+        lock_identity_unchanged(&path.with_file_name("session-state.lock"), Some(&observed));
     // Linux also decodes ordinary receipts to check for confirmed dead owners.
     #[cfg(target_os = "linux")]
     let receipt = crate::strict_json::from_str(&existing_raw);
     #[cfg(not(target_os = "linux"))]
-    let receipt = if age == LockAge::Modified && id != "session-state" {
+    let receipt = if age == LockAge::Modified && !shared_session {
         Ok(Value::Null)
     } else {
         crate::strict_json::from_str(&existing_raw)
     };
     let entry = receipt.as_ref().unwrap_or(&Value::Null);
-    // The item ID and the session publisher share this exact lease path.
-    let shared_ttl = (id == "session-state")
-        .then(|| recorded_lock_ttl(&receipt))
-        .flatten();
+    let shared_ttl = if shared_session {
+        recorded_lock_ttl(&receipt)
+    } else {
+        None
+    };
     let stale = if age == LockAge::Modified && shared_ttl.is_none() {
         let modified = observed.metadata.modified().unwrap_or(UNIX_EPOCH);
         SystemTime::now()
@@ -1549,6 +1559,7 @@ fn write_lock_file(mut file: File, path: &Path, raw: &str) -> Result<ItemLock, P
         path: path.to_path_buf(),
         raw: raw.to_owned(),
         observed,
+        wait_ms: 0,
     })
 }
 

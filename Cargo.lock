@@ -674,6 +674,7 @@ dependencies = [
  "icu_collator",
  "icu_locale",
  "jiff",
+ "jiff-tzdb",
  "predicates",
  "proptest",
  "rustix",

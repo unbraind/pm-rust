@@ -59,6 +59,29 @@ fn configured_roles_and_defaults() -> Result<(), Box<dyn std::error::Error>> {
     Ok(())
 }
 
+/// Unset workflow preferences retain the registry's fallback order without an open role.
+#[test]
+fn unset_open_without_a_default_role_uses_the_registry_fallback() {
+    for (statuses, expected) in [
+        (
+            json!([{"id":"draft","order":0},{"id":"open","order":1}]),
+            "open",
+        ),
+        (
+            json!([{"id":"later","order":2},{"id":"first","order":1}]),
+            "first",
+        ),
+        (json!([{"roles":["active"]}]), ""),
+    ] {
+        let settings = json!({"schema":{
+            "statuses":statuses, "workflow":{"in_progress_status":" "}
+        }});
+        let registry = Lifecycle::from_values(&settings, &Value::Null, &Value::Null);
+        assert_eq!(registry.open_status(), expected);
+        assert_eq!(registry.activity_progress_status(), expected);
+    }
+}
+
 /// Optional arrays/objects merge over embedded definitions, while invalid JSON is ignored.
 #[test]
 fn schema_files_extend_and_override() -> Result<(), Box<dyn std::error::Error>> {

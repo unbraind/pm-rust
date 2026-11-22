@@ -2300,6 +2300,11 @@ fn close_lock_retry_tracks_the_failed_step() -> Result<(), Box<dyn std::error::E
             .to_string()
             .contains("retry the release step")
     );
+    let required = after_commit["required"]
+        .as_str()
+        .ok_or("release guidance")?;
+    assert!(required.contains("verify current ownership"));
+    assert!(required.contains("If the original assignment is gone or has changed, stop."));
     assert!(after_commit["why"].to_string().contains("close completed"));
     let scoped_args = ["--pm-path", ".agents/pm"]
         .map(str::to_owned)
@@ -2530,7 +2535,12 @@ fn assert_close_stale_release_recovery(
         let payload = super::command_error_json(&detail, &context, scoped_args, exit_code);
         let payload = super::complete_refusal(&payload, scoped_args);
         let steps = payload["next_steps"].to_string();
-        assert!(steps.contains("retry only release"), "{payload}");
+        assert!(steps.contains("retrying only release"), "{payload}");
+        assert!(steps.contains("verify current ownership"), "{payload}");
+        assert!(
+            steps.contains("If the original assignment is gone or has changed, stop."),
+            "{payload}"
+        );
         assert!(!steps.contains("retry the same command"), "{payload}");
         if created == "unknown" {
             assert!(

@@ -76,17 +76,31 @@ impl Lifecycle {
             .unwrap_or(&schema["type_workflows"])
             .clone();
         let workflow = workflow.get("workflow").unwrap_or(workflow);
-        let progress = workflow["in_progress_status"]
+        let configured_progress = workflow["in_progress_status"]
             .as_str()
             .or_else(|| schema["workflow"]["in_progress_status"].as_str())
             .unwrap_or("in_progress");
-        let open = token(
-            workflow["open_status"]
-                .as_str()
-                .or_else(|| schema["workflow"]["open_status"].as_str())
-                .unwrap_or("open"),
-        );
-        let progress = token(crate::history::trim_evidence_line(progress));
+        let progress = token(crate::history::trim_evidence_line(configured_progress));
+        let configured_open = workflow["open_status"]
+            .as_str()
+            .or_else(|| schema["workflow"]["open_status"].as_str())
+            .unwrap_or(if progress.is_empty() { "" } else { "open" });
+        let open = token(crate::history::trim_evidence_line(configured_open));
+        let open = if open.is_empty() {
+            let first = ordered_status(&definitions, "default_open");
+            if let Some((id, _)) = first.filter(|(_, (value, _))| has_role(value, "default_open")) {
+                id.clone()
+            } else {
+                ["open", "in_progress", "draft"]
+                    .into_iter()
+                    .find(|id| definitions.contains_key(*id))
+                    .or(first.map(|(id, _)| id.as_str()))
+                    .unwrap_or_default()
+                    .to_owned()
+            }
+        } else {
+            open
+        };
         let progress = if progress.is_empty() {
             progress_fallback(&definitions, &open)
         } else {
@@ -193,18 +207,24 @@ fn progress_fallback(definitions: &BTreeMap<String, (Value, f64)>, open: &str) -
     {
         return preferred.to_owned();
     }
-    definitions
-        .iter()
-        .min_by(
-            |(left_id, (left, left_order)), (right_id, (right, right_order))| {
-                has_role(right, "active")
-                    .cmp(&has_role(left, "active"))
-                    .then_with(|| left_order.total_cmp(right_order))
-                    .then_with(|| crate::collation::compare(left_id, right_id))
-            },
-        )
+    ordered_status(definitions, "active")
         .map(|(id, _)| id.clone())
         .unwrap_or_default()
+}
+
+/// Selects the first definition with the requested role, or the first definition overall.
+fn ordered_status<'a>(
+    definitions: &'a BTreeMap<String, (Value, f64)>,
+    role: &str,
+) -> Option<(&'a String, &'a (Value, f64))> {
+    definitions.iter().min_by(
+        |(left_id, (left, left_order)), (right_id, (right, right_order))| {
+            has_role(right, role)
+                .cmp(&has_role(left, role))
+                .then_with(|| left_order.total_cmp(right_order))
+                .then_with(|| crate::collation::compare(left_id, right_id))
+        },
+    )
 }
 
 #[cfg(test)]

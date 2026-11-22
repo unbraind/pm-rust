@@ -130,6 +130,7 @@ fn end_of_day_timestamp_checks_zero_time_and_calendar() {
         "2026-08-06T24:00:00.000+01:30",
         "2026-08-06T24:00+0130",
         "2026-08-06T24:00:00.000+0130",
+        "2026-08-06 24:00:00+01:30",
     ] {
         assert_eq!(super::parse_stored_timestamp(value), midnight, "{value}");
     }
@@ -138,7 +139,7 @@ fn end_of_day_timestamp_checks_zero_time_and_calendar() {
         "2026-08-0éT00:00Z",
         "2026-08-06X24:00:00Z",
         "2026-08-06T24:00:00+01x0",
-        "2026-08-06 24:00:00Z",
+        "2026-08-06 24:01:00Z",
         "2026-08-06T24:01:00Z",
         "2026-08-06T24:00:01Z",
         "2026-08-06T24:00:00.Z",
@@ -152,6 +153,7 @@ fn end_of_day_timestamp_checks_zero_time_and_calendar() {
         );
     }
     assert!(super::parse_end_of_day("2026-08-0éT00:00Z").is_none());
+    assert!(super::parse_end_of_day("2026-08-06X24:00:00Z").is_none());
 }
 
 /// Stored activity accepts the Date range and normalizes the date before the clock.
@@ -190,15 +192,25 @@ fn stored_date_ranges_and_rollover() {
 }
 
 /// Extended local clocks keep the historical or future offset of their original year.
-#[cfg(unix)]
 #[test]
-fn stored_expanded_local_clocks_keep_the_original_era() {
-    let vienna = || jiff::tz::TimeZone::get("Europe/Vienna").unwrap_or(jiff::tz::TimeZone::UTC);
+fn stored_expanded_local_clocks_keep_the_original_era() -> TestResult {
+    use std::sync::OnceLock;
+
+    static VIENNA: OnceLock<jiff::tz::TimeZone> = OnceLock::new();
+    let (name, tzif) = jiff_tzdb::get("Europe/Vienna").ok_or("bundled Vienna zone")?;
+    let _ = VIENNA.set(jiff::tz::TimeZone::tzif(name, tzif)?);
+    let vienna = || {
+        VIENNA
+            .get()
+            .cloned()
+            .unwrap_or_else(|| unreachable!("fixture initialized"))
+    };
     for (local, utc) in [
         ("-000001-01-01T00:00:00", "-000002-12-31T22:54:39Z"),
         ("0000-01-01T00:00:00", "-000001-12-31T22:54:39Z"),
         ("+010000-01-01T00:00:00", "9999-12-31T23:00:00Z"),
         ("+010000-01-01T00:00", "9999-12-31T23:00:00Z"),
+        ("+010000-07-01T00:00", "+010000-06-30T22:00:00Z"),
     ] {
         let expected = super::parse_stored_timestamp(utc);
         assert!(expected.is_some(), "{utc}");
@@ -208,6 +220,7 @@ fn stored_expanded_local_clocks_keep_the_original_era() {
             "{local}"
         );
     }
+    Ok(())
 }
 
 /// An unusable comparison clock leaves the recorded activity and eligibility readable.
@@ -372,6 +385,20 @@ fn claim_history_provenance_and_activity_match_published() -> TestResult {
                 record(
                     "update",
                     "+002026-08-06T24:00:00.000Z",
+                    patch("/metadata/title", json!("New title")),
+                ),
+            ],
+            None,
+            false,
+            false,
+        ),
+        (
+            "space-hour-24-work",
+            vec![
+                claim(),
+                record(
+                    "update",
+                    "2026-08-06 24:00:00Z",
                     patch("/metadata/title", json!("New title")),
                 ),
             ],
@@ -651,6 +678,16 @@ fn claim_history_provenance_and_activity_match_published() -> TestResult {
             evidence["claim_activity"]["stale_policy"]["stale"], stale,
             "{label}"
         );
+        if matches!(
+            label,
+            "expanded-hour-24-work" | "space-hour-24-work" | "equivalent-midnight-work"
+        ) {
+            assert_eq!(
+                evidence["claim_activity"]["stale_policy"]["eligible_at"],
+                "2026-08-10T00:00:00.000Z",
+                "{label}"
+            );
+        }
         if label == "lossy-claim-message" {
             assert_eq!(evidence["claimed_at"], CLAIMED);
         }
