@@ -5136,11 +5136,9 @@ fn release_fence_conflict_preserves_completed_close() -> Result<(), Box<dyn std:
             .ok_or("release guidance")?
             .contains("retry the release step")
     );
-    assert!(
-        context["next_steps"][0]
-            .as_str()
-            .ok_or("inspection guidance")?
-            .contains("pm history sample-unit")
+    assert_eq!(
+        context["next_steps"],
+        serde_json::json!(["pm get sample-unit", "pm history sample-unit"])
     );
     assert_eq!(fs::read(&history)?, before);
     let closed = workspace.get("sample-unit")?;

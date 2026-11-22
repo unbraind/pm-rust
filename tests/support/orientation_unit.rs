@@ -60,6 +60,38 @@ fn workspace() -> Result<(tempfile::TempDir, Workspace), Box<dyn std::error::Err
     let workspace = Workspace::discover(root.path())?;
     Ok((root, workspace))
 }
+/// Context preserves the path and source when an opened history stream fails.
+#[test]
+fn context_history_reports_open_handle_faults() -> Result<(), Box<dyn std::error::Error>> {
+    let (_root, workspace) = workspace()?;
+    let path = workspace.pm_root().join("history/sample-one.jsonl");
+    let bytes = b"{\"op\":\"update\"}\n";
+    fs::write(&path, bytes)?;
+    for stage in [1, 4] {
+        let previous = crate::changes::IO_FAILURE.replace(stage);
+        let result = context_records(&workspace, "sample-one");
+        crate::changes::IO_FAILURE.set(previous);
+        assert!(matches!(
+            result,
+            Err(PmRustError::Io { path: actual, source })
+                if actual == path && source.to_string() == "injected OS failure"
+        ));
+        assert_eq!(fs::read(&path)?, bytes);
+    }
+    #[cfg(unix)]
+    {
+        let directory = workspace.pm_root().join("history/sample-directory.jsonl");
+        fs::create_dir(&directory)?;
+        assert!(matches!(
+            context_records(&workspace, "sample-directory"),
+            Err(PmRustError::Io { path, source })
+                if path == directory && source.to_string() == "history stream is not a regular file"
+        ));
+        assert!(directory.is_dir());
+    }
+    Ok(())
+}
+
 /// Builds a complete item and isolated history genesis without replacing filesystem calls.
 fn genesis() -> Value {
     let metadata = json!({"id":"sample-one","title":"One","description":"","type":"Task","status":"open","priority":2,"tags":[],"created_at":"2026-08-22T10:00:00.000Z","updated_at":"2026-08-22T10:00:00.000Z"});

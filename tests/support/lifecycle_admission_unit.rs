@@ -502,6 +502,32 @@ fn credential_blocker_unblock_advice_uses_original_id() {
     );
 }
 
+/// A projected blocker ID receives manual guidance through the SDK admission boundary.
+#[test]
+fn local_blocker_inspection_omits_projected_operand() -> Result<(), Box<dyn std::error::Error>> {
+    let (_temp, root, mut before) = disk()?;
+    before.metadata.extra.insert(
+        "dependencies".to_owned(),
+        json!([
+            {"id":"sample-gate","kind":"blocked_by"},
+            {"id":"https://sample-gate:synthetic-secret@example.invalid/issue","kind":"blocked_by","source_kind":"external"}
+        ]),
+    );
+    let refused = context(admission(&root, &before, false, Phase::AtomicStart))?;
+    assert_eq!(refused["code"], "start_blocked_by_open_dependency");
+    let steps = refused["next_steps"].as_array().ok_or("blocker guidance")?;
+    assert_eq!(
+        steps[0],
+        "Inspect the local blocker using its original ID in the selected tracker."
+    );
+    assert!(!steps.iter().any(|step| {
+        step.as_str()
+            .and_then(crate::parse_command_args)
+            .is_some_and(|args| args.len() == 3 && args[1] == "get")
+    }));
+    Ok(())
+}
+
 /// Closed blockers admit progress, force admits open blockers, and complete missing IDs stay unresolved.
 #[test]
 fn round5_closed_and_force_open_blockers_use_shared_policy()

@@ -373,6 +373,8 @@ fn context_focus_recency_matches_history_admission() -> TestResult {
         ("2026-08-21T12:00:00.1+05:30", "sample-one"),
         ("2026-08-21T12:00:00.100+05:30", "sample-one"),
         ("2026-08-21T12:00:00.1001+05:30", "sample-two"),
+        ("\u{feff}2026-08-22T00:00:00Z\u{feff}", "sample-one"),
+        ("2026-08-21T12:00:00+0530", "sample-two"),
     ] {
         let root = tempfile::tempdir()?;
         assert!(
@@ -387,7 +389,7 @@ fn context_focus_recency_matches_history_admission() -> TestResult {
         let mut middle = item("sample-z", "Task", "open", 2);
         middle["created_at"] = json!("2026-08-18T00:00:00.000Z");
         fixture(root.path(), &[older, newer, middle])?;
-        let substantive = json!({"ts":"2026-08-21T00:00:00Z","op":"update","event_class":"substantive","patch":[{}]});
+        let substantive = json!({"ts":"\u{feff}2026-08-21T00:00:00Z\u{feff}","op":"update","event_class":"substantive","patch":[{}]});
         let maintenance =
             json!({"ts":maintenance,"op":"update","event_class":"maintenance","patch":[]});
         fs::write(
@@ -459,7 +461,48 @@ fn terminal_context_idle_uses_lossy_history_activity() -> TestResult {
             .status
             .success()
     );
-    assert_eq!(fs::read(history)?, bytes);
+    assert_eq!(fs::read(&history)?, bytes);
+    #[cfg(unix)]
+    terminal_context_history_file_types(root.path(), &driver, &history, &expected)?;
+    Ok(())
+}
+
+/// Context follows regular symlinks and falls back promptly when a terminal stream is a FIFO.
+#[cfg(unix)]
+fn terminal_context_history_file_types(
+    root: &Path,
+    driver: &Path,
+    history: &Path,
+    regular: &Output,
+) -> TestResult {
+    use rustix::fs::{CWD, Mode, mkfifoat};
+    use std::process::Stdio;
+    use std::time::{Duration, Instant};
+
+    let args = ["context", "--json"];
+    let saved = root.join("retained-history.jsonl");
+    fs::rename(history, &saved)?;
+    std::os::unix::fs::symlink(&saved, history)?;
+    compare(regular, &native(root, &args)?, &args);
+    fs::remove_file(history)?;
+    let fallback = oracle(driver, root, &args)?;
+    let value: Value = serde_json::from_slice(&fallback.stdout)?;
+    assert_eq!(value["summary"]["in_progress_idle"], 1);
+    mkfifoat(CWD, history, Mode::RUSR | Mode::WUSR)?;
+    let mut child = native_invocation(root, &args)
+        .stdout(Stdio::piped())
+        .stderr(Stdio::piped())
+        .spawn()?;
+    let deadline = Instant::now() + Duration::from_secs(5);
+    while child.try_wait()?.is_none() {
+        if Instant::now() >= deadline {
+            child.kill()?;
+            child.wait()?;
+            return Err("context blocked on a terminal history FIFO".into());
+        }
+        std::thread::sleep(Duration::from_millis(5));
+    }
+    compare(&fallback, &child.wait_with_output()?, &args);
     Ok(())
 }
 
@@ -491,6 +534,12 @@ fn context_idle_activity_and_threshold_match_oracle() -> TestResult {
             "72",
             "2026-08-18T00:00:00.000Z",
             Some("2026-08-20T00:00:00.000Z"),
+            0,
+        ),
+        (
+            "72",
+            "2026-08-18T00:00:00.000Z",
+            Some("2026-08-22T10:00:00+0530"),
             0,
         ),
         ("24", "2026-08-21T04:00:00.000Z", None, 1),
@@ -844,6 +893,11 @@ fn oracle(driver: &Path, root: &Path, args: &[&str]) -> Result<Output, Box<dyn s
 }
 /// Executes one native invocation with the same isolated application environment.
 fn native(root: &Path, args: &[&str]) -> Result<Output, std::io::Error> {
+    native_invocation(root, args).output()
+}
+
+/// Configures the native command for both direct execution and bounded tests.
+fn native_invocation(root: &Path, args: &[&str]) -> Command {
     let mut command = Command::new(env!("CARGO_BIN_EXE_pm-rust"));
     command.current_dir(root);
     mutation_differential::isolate_environment(&mut command);
@@ -854,7 +908,7 @@ fn native(root: &Path, args: &[&str]) -> Result<Output, std::io::Error> {
     if args[0] == "context" {
         command.args(["--timestamp", CLOCK]);
     }
-    command.output()
+    command
 }
 /// Requires exact stdout, stderr and process status, including refusal bytes.
 fn compare(expected: &Output, actual: &Output, args: &[&str]) {

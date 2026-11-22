@@ -156,6 +156,27 @@ pub(crate) fn context_records(workspace: &Workspace, id: &str) -> Result<Vec<Val
     read_records(workspace, id, true)
 }
 
+/// Reads a regular context history stream without blocking on a FIFO.
+fn read_context_history(path: &std::path::Path) -> std::io::Result<String> {
+    use std::io::Read as _;
+
+    let mut file = crate::changes::open_history_stream(path, true)?;
+    let metadata = file.metadata();
+    #[cfg(test)]
+    let metadata = crate::changes::inject_io(metadata, 1);
+    if !metadata?.is_file() {
+        return Err(std::io::Error::other(
+            "history stream is not a regular file",
+        ));
+    }
+    let mut bytes = Vec::new();
+    let read = file.read_to_end(&mut bytes);
+    #[cfg(test)]
+    let read = crate::changes::inject_io(read, 4);
+    read?;
+    Ok(String::from_utf8_lossy(&bytes).into_owned())
+}
+
 /// Shares JSONL validation between strict history and lossy context evidence.
 fn read_records(workspace: &Workspace, id: &str, lossy: bool) -> Result<Vec<Value>, PmRustError> {
     history_filename(id)?;
@@ -166,7 +187,7 @@ fn read_records(workspace: &Workspace, id: &str, lossy: bool) -> Result<Vec<Valu
         .join("history")
         .join(format!("{id}.jsonl"));
     let read = if lossy {
-        fs::read(&path).map(|bytes| String::from_utf8_lossy(&bytes).into_owned())
+        read_context_history(&path)
     } else {
         fs::read_to_string(&path)
     };

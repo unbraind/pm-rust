@@ -603,9 +603,12 @@ fn close_release_contention_reports_only_release_recovery() -> Result<(), Box<dy
     use std::process::Stdio;
     use std::time::{Duration, Instant};
 
-    let workspace = workspace()?;
-    seed_item(&workspace)?;
-    let root = workspace.path().join(".agents/pm");
+    let caller = workspace()?;
+    let selected = workspace()?;
+    seed_item(&caller)?;
+    seed_item(&selected)?;
+    let root = selected.path().join(".agents/pm");
+    let scope = root.to_str().ok_or("selected tracker path")?;
     let item = root.join("tasks/sample-cli.toon");
     let history = root.join("history/sample-cli.jsonl");
     let resumed = serde_json::json!({
@@ -616,10 +619,11 @@ fn close_release_contention_reports_only_release_recovery() -> Result<(), Box<dy
     let journal = root.join("runtime/transactions/create-sample-cli.json");
     rustix::fs::mkfifoat(rustix::fs::CWD, &journal, Mode::RUSR | Mode::WUSR)?;
     let mut child = Command::new(env!("CARGO_BIN_EXE_pm-rust"))
-        .current_dir(workspace.path())
+        .current_dir(caller.path())
         .env("PM_LOCK_WAIT_MS", "0")
         .args([
-            "--pm-path=.agents/pm",
+            "--pm-path",
+            scope,
             "close",
             "sample-cli",
             "Done",
@@ -682,7 +686,7 @@ fn close_release_contention_reports_only_release_recovery() -> Result<(), Box<dy
         receipt["recovery"]["attempted_command"]
             .as_str()
             .ok_or("attempted command")?
-            .contains("--pm-path .agents/pm")
+            .contains(scope)
     );
     assert!(receipt["why"].to_string().contains("close completed"));
     assert!(
@@ -702,6 +706,35 @@ fn close_release_contention_reports_only_release_recovery() -> Result<(), Box<dy
     let history = fs::read_to_string(history)?;
     let last: serde_json::Value = serde_json::from_str(history.lines().last().ok_or("history")?)?;
     assert_eq!(last["op"], "close");
+    assert!(
+        fs::read_to_string(caller.path().join(".agents/pm/tasks/sample-cli.toon"))?
+            .contains("status: open")
+    );
+    let steps = receipt["next_steps"]
+        .as_array()
+        .ok_or("close recovery steps")?;
+    for name in ["get", "history"] {
+        let args = ["pm", "--pm-path", scope, name, "sample-cli"];
+        let inspection = steps
+            .iter()
+            .filter_map(serde_json::Value::as_str)
+            .filter_map(pm_rust::parse_command_args)
+            .find(|step| step == &args)
+            .ok_or("scoped inspection command")?;
+        let mut command = Command::new(env!("CARGO_BIN_EXE_pm-rust"));
+        command.current_dir(caller.path()).args(&inspection[1..]);
+        if name == "history" {
+            command.arg("--json");
+        }
+        let inspected = command.output()?;
+        assert!(inspected.status.success(), "{inspected:?}");
+        let inspected: serde_json::Value = serde_json::from_slice(&inspected.stdout)?;
+        if name == "get" {
+            assert_eq!(inspected["status"], "closed");
+        } else {
+            assert_eq!(inspected["compact_history"][0]["op"], "close");
+        }
+    }
     Ok(())
 }
 

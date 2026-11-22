@@ -87,7 +87,7 @@ fn recency(entries: &[Value], item: &Value) -> String {
 fn rankable_timestamp(timestamp: &str) -> bool {
     use time::{OffsetDateTime, format_description::well_known::Rfc3339};
 
-    let timestamp = timestamp.trim();
+    let timestamp = crate::history::trim_evidence_line(timestamp);
     OffsetDateTime::parse(timestamp, &Rfc3339).is_ok()
         && matches!(timestamp.as_bytes()[10], b'T' | b't')
         && &timestamp.as_bytes()[17..19] != b"60"
@@ -123,7 +123,7 @@ fn substantive_history_timestamp(entry: &Value) -> Option<&str> {
             crate::history::classify_history_paths(text(entry, "op"), paths) == "substantive"
         }
     };
-    substantive.then(|| text(entry, "ts").trim())
+    substantive.then(|| crate::history::trim_evidence_line(text(entry, "ts")))
 }
 
 /// Uses the release cohort when no substantive history is available.

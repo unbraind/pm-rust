@@ -435,12 +435,6 @@ fn admit_blockers(
     if force {
         return Ok(vec![format!("start_blocker_override:{id}:{ids}")]);
     }
-    let mut steps: Vec<_> = open
-        .iter()
-        .filter(|row| row["external"] != true)
-        .take(3)
-        .map(|row| crate::render_pm_command(["get", row["id"].as_str().unwrap_or_default()]))
-        .collect();
     let mut blocker_sources = open_ids;
     blocker_sources.extend(
         open.iter()
@@ -448,6 +442,21 @@ fn admit_blockers(
             .flatten()
             .map(str::to_owned),
     );
+    let mut steps = Vec::new();
+    let mut needs_manual_inspection = false;
+    for row in open.iter().filter(|row| row["external"] != true).take(3) {
+        let blocker_id = row["id"].as_str().unwrap_or_default();
+        if crate::refusal::diagnostic(blocker_id, &blocker_sources) == blocker_id {
+            steps.push(crate::render_pm_command(["get", blocker_id]));
+        } else {
+            needs_manual_inspection = true;
+        }
+    }
+    if needs_manual_inspection {
+        steps.push(
+            "Inspect the local blocker using its original ID in the selected tracker.".to_owned(),
+        );
+    }
     steps.extend(unblock(before, &blocker_sources, settings));
     steps.push(crate::render_pm_command(["next"]));
     let plural = if open.len() == 1 {

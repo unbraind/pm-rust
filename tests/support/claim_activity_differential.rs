@@ -128,12 +128,16 @@ fn end_of_day_timestamp_checks_zero_time_and_calendar() {
         "2026-08-06t24:00+01:30",
         "2026-08-06T24:00:00+01:30",
         "2026-08-06T24:00:00.000+01:30",
+        "2026-08-06T24:00+0130",
+        "2026-08-06T24:00:00.000+0130",
     ] {
         assert_eq!(super::parse_stored_timestamp(value), midnight, "{value}");
     }
     for invalid in [
         "bad",
         "2026-08-0éT00:00Z",
+        "2026-08-06X24:00:00Z",
+        "2026-08-06T24:00:00+01x0",
         "2026-08-06 24:00:00Z",
         "2026-08-06T24:01:00Z",
         "2026-08-06T24:00:01Z",
@@ -147,6 +151,7 @@ fn end_of_day_timestamp_checks_zero_time_and_calendar() {
             "{invalid}"
         );
     }
+    assert!(super::parse_end_of_day("2026-08-0éT00:00Z").is_none());
 }
 
 /// Unexpected metadata and read faults leave stored claim evidence unjudgeable.

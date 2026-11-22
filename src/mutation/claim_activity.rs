@@ -65,6 +65,29 @@ pub(crate) fn parse_stored_timestamp(value: &str) -> Option<OffsetDateTime> {
         return OffsetDateTime::parse(&format!("{value}{suffix}"), &Rfc3339).ok();
     }
     let clock_end = value.get(16..)?;
+    // The published Date parser accepts ISO separators and legacy one-byte
+    // delimiters. The RFC 3339 parser alone also accepts arbitrary letters.
+    let separator = value.as_bytes()[10];
+    if !(1..=b' ').contains(&separator) && !b"TtZz!\"#$%&'*,./:;<=>?@".contains(&separator) {
+        return None;
+    }
+    let normalized;
+    let value = if clock_end
+        .as_bytes()
+        .last_chunk::<5>()
+        .is_some_and(|offset| {
+            matches!(offset[0], b'+' | b'-') && offset[1..].iter().all(u8::is_ascii_digit)
+        }) {
+        normalized = format!(
+            "{}:{}",
+            &value[..value.len() - 2],
+            &value[value.len() - 2..]
+        );
+        normalized.as_str()
+    } else {
+        value
+    };
+    let clock_end = &value[16..];
     if clock_end.starts_with(":60") {
         return None;
     }

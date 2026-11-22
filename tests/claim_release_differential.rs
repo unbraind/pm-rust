@@ -2386,7 +2386,10 @@ process.stdout.write(JSON.stringify(results));
         );
         assert_eq!(native.pointer(&pointer), Some(expected), "{key}");
         assert_eq!(
-            resolved["warnings"] == json!(["settings_read_invalid_schema"]),
+            resolved["warnings"]
+                .as_array()
+                .ok_or("published settings warnings")?
+                .contains(&json!("settings_read_invalid_schema")),
             *oracle_warns,
             "{key}"
         );
@@ -2595,6 +2598,42 @@ fn stale_foreign_claim_refusal_matches_published() -> Result<(), Box<dyn std::er
         receipt["claim_activity"]["stale_policy"]["eligible_at"],
         "2026-08-21T10:00:00.000Z"
     );
+
+    let stream = ".agents/pm/history/sample-own.jsonl";
+    let baseline = fs::read_to_string(fixture.node.path().join(stream))?;
+    for (timestamp, readable) in [
+        ("2026-08-18T11:00:00Z", true),
+        ("2026-08-18X11:00:00Z", false),
+        ("2026-08-18T11:00:00+05x0", false),
+    ] {
+        let entry = serde_json::json!({
+            "ts":timestamp, "op":"update", "event_class":"substantive", "patch":[]
+        });
+        for dir in [&fixture.node, &fixture.rust] {
+            fs::write(dir.path().join(stream), format!("{baseline}{entry}\n"))?;
+        }
+        let before = fixture.snapshots()?;
+        let oracle = published_run(&fixture.driver, fixture.node.path(), &args)?;
+        assert_eq!(oracle.status.code(), Some(4));
+        let receipt: serde_json::Value = serde_json::from_slice(&oracle.stderr)?;
+        assert_eq!(receipt["claim_activity"]["stale_policy"]["stale"], readable);
+        assert_eq!(
+            receipt["claim_activity"]["history_unreadable"],
+            if readable {
+                serde_json::Value::Null
+            } else {
+                true.into()
+            }
+        );
+        assert_eq!(
+            receipt["next_steps"]
+                .to_string()
+                .contains("--takeover-stale"),
+            readable
+        );
+        fixture.step(&args)?;
+        assert_eq!(fixture.snapshots()?, before);
+    }
     Ok(())
 }
 
@@ -2633,6 +2672,10 @@ fn offset_free_claim_activity_matches_published_local_time()
         ("2027-03-14T02:30:00", "2027-03-14T03:30:00-04:00"),
         ("9999-12-31T12:00:00", "9999-12-31T12:00:00-05:00"),
         ("2026-08-21", "2026-08-21T00:00:00Z"),
+        ("2026-08-21 01:15:00Z", "2026-08-21t01:15:00Z"),
+        ("2026-08-21T10:00:00+0530", "2026-08-21T10:00:00+05:30"),
+        ("2026-08-21T01:15-0400", "2026-08-21T01:15:00-04:00"),
+        ("2026-08-20T24:00+0530", "2026-08-21T00:00:00+05:30"),
     ] {
         let evidence = |timestamp| -> Result<serde_json::Value, Box<dyn std::error::Error>> {
             let entry = serde_json::json!({"ts":timestamp,"op":"update","event_class":"substantive","patch":[]});
@@ -3558,6 +3601,110 @@ fn scoped_blocker_inspection_survives_cross_blocker_redaction()
         prepare(&fixture, &["update", "sample-own", "--dep", &dependency, "--author", "alpha", "--json"])?;
     }
     assert_scoped_blocker_inspection(&fixture)
+}
+
+/// A blocker ID that doubles as userinfo must never become a projected command operand.
+#[test]
+fn projected_local_blocker_ids_withdraw_only_the_affected_inspection()
+-> Result<(), Box<dyn std::error::Error>> {
+    let Some(fixture) = Fixture::new("none")? else {
+        return Ok(());
+    };
+    for id in ["sample-gate", "sample-visible"] {
+        prepare(
+            &fixture,
+            &[
+                "create",
+                "--id",
+                id,
+                "--title",
+                "Open gate",
+                "--type",
+                "Task",
+                "--author",
+                "alpha",
+                "--json",
+            ],
+        )?;
+    }
+    for dependency in [
+        "id=sample-gate,kind=blocked_by",
+        "id=sample-visible,kind=blocked_by",
+        "id=https://sample-gate:synthetic-secret@example.invalid/issue,kind=blocked_by,source_kind=external",
+    ] {
+        prepare(
+            &fixture,
+            &[
+                "update",
+                "sample-own",
+                "--dep",
+                dependency,
+                "--author",
+                "alpha",
+                "--json",
+            ],
+        )?;
+    }
+    let args = [
+        "claim",
+        "sample-own",
+        "--start",
+        "--author",
+        "alpha",
+        "--json",
+    ];
+    let before = fixture.snapshots()?;
+    let expected = published_run(&fixture.driver, fixture.node.path(), &args)?;
+    assert_eq!(expected.status.code(), Some(4));
+    let expected: serde_json::Value = serde_json::from_slice(&expected.stderr)?;
+    assert_eq!(expected["code"], "start_blocked_by_open_dependency");
+    assert!(
+        expected["next_steps"]
+            .to_string()
+            .contains("pm get sample-visible")
+    );
+    let actual = native_command(
+        fixture.rust.path(),
+        &["--pm-path", ".agents/pm"]
+            .into_iter()
+            .chain(args)
+            .collect::<Vec<_>>(),
+    )
+    .output()?;
+    assert_eq!(actual.status.code(), Some(4));
+    let actual: serde_json::Value = serde_json::from_slice(&actual.stderr)?;
+    assert_eq!(actual["code"], expected["code"]);
+    assert!(
+        actual["details"]["open_blockers"]
+            .as_array()
+            .ok_or("open blockers")?
+            .iter()
+            .any(|row| row["id"] == "[redacted]")
+    );
+    let steps = actual["next_steps"].as_array().ok_or("blocker guidance")?;
+    let inspections: Vec<_> = steps
+        .iter()
+        .filter_map(serde_json::Value::as_str)
+        .filter_map(pm_rust::parse_command_args)
+        .filter(|args| args.get(3).is_some_and(|arg| arg == "get") && args.len() == 5)
+        .collect();
+    assert_eq!(
+        inspections,
+        vec![vec![
+            "pm",
+            "--pm-path",
+            ".agents/pm",
+            "get",
+            "sample-visible"
+        ]]
+    );
+    assert!(
+        steps.iter().any(|step| step
+            == "Inspect the local blocker using its original ID in the selected tracker.")
+    );
+    assert!(!actual.to_string().contains("synthetic-secret"));
+    assert_eq!(fixture.snapshots()?, before);
+    Ok(())
 }
 
 /// A local blocker's title can supply credentials copied by an external selector.
