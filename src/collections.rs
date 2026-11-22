@@ -257,12 +257,43 @@ fn structured(raw: &str, test: bool) -> bool {
 
 /// Maps external aliases into the project while retaining logical paths that point outside.
 fn resolve_artifact_cwd(path: &Path, root: &Path) -> Result<PathBuf, PmRustError> {
+    resolve_artifact_cwd_with_override(path, None, root)
+}
+
+/// Keeps relative parent components separate until their preceding directories are traversed.
+fn resolve_artifact_cwd_with_override(
+    base: &Path,
+    override_path: Option<&Path>,
+    root: &Path,
+) -> Result<PathBuf, PmRustError> {
+    let has_relative_parent = |path: &Path| {
+        #[cfg(windows)]
+        if matches!(path.components().next(), Some(Component::Prefix(_))) {
+            return false;
+        }
+        !path.has_root() && path.components().any(|part| part == Component::ParentDir)
+    };
+    let joined;
+    let (path, suffix) = match override_path {
+        Some(path) if !base.as_os_str().is_empty() && has_relative_parent(path) => {
+            // Joining onto a Windows verbatim base would collapse `link/..` here.
+            (base, Some(path))
+        }
+        Some(path) => {
+            joined = base.join(path);
+            (joined.as_path(), None)
+        }
+        None => (base, None),
+    };
     let absolute = std::path::absolute(path).map_err(|source| PmRustError::Io {
         path: path.to_path_buf(),
         source,
     })?;
     let mut normalized = PathBuf::new();
-    for component in absolute.components() {
+    for component in absolute
+        .components()
+        .chain(suffix.into_iter().flat_map(Path::components))
+    {
         if component == Component::ParentDir {
             // A Windows verbatim join erases the parent component before traversal.
             #[cfg(windows)]
@@ -1404,10 +1435,7 @@ impl Workspace {
             || (key == "docs" && options.append_stable);
         let artifact_cwd = needs_native
             .then(|| {
-                resolve_artifact_cwd(
-                    &cwd.join(artifact_cwd.unwrap_or(Path::new(""))),
-                    self.artifact_project_root(),
-                )
+                resolve_artifact_cwd_with_override(cwd, artifact_cwd, self.artifact_project_root())
             })
             .transpose()?;
         let retry_scope = artifact_cwd
@@ -1567,7 +1595,9 @@ fn attach_collection_receipts(
         };
         let name = format!("{key}_history");
         if let Some(scope) = scope {
-            let mut group = json!({"name":name,"restore_with":crate::render_pm_command(["--pm-path", &scope, command, id])});
+            let scope_args = crate::pm_path_args(&scope);
+            let args = scope_args.iter().map(String::as_str).chain([command, id]);
+            let mut group = json!({"name":name,"restore_with":crate::render_pm_command(args)});
             if relative.is_some() {
                 group["restore_guidance"] =
                     json!("Run this command from the original invocation directory.");

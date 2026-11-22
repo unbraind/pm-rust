@@ -1680,12 +1680,28 @@ fn recency_rejects_unindexable_maintenance_timestamps() {
     }
 }
 
+/// An unparsed recency key retains its input and sorts below the epoch.
+#[test]
+fn invalid_recency_key_retains_its_raw_coordinate() {
+    let invalid = "2026-02-29";
+    let key = super::recency_key(invalid);
+    assert_eq!(key, (None, invalid.to_owned()));
+    assert!(key < super::recency_key("1970-01-01T00:00:00.000Z"));
+}
+
 /// Only valid calendar dates in item metadata are promoted to midnight.
 #[test]
 fn creation_date_fallback_validates_calendar_date() {
     let mut row = item("sample-one", "open");
     row["created_at"] = json!("2026-08-20");
     assert_eq!(super::release_recency(&row), "2026-08-20T00:00:00.000Z");
-    row["created_at"] = json!("2026-02-29");
-    assert_eq!(super::release_recency(&row), "2026-02-29");
+    row["created_at"] = json!(" 2026-08-20T01:00:00.001+01:00 ");
+    assert_eq!(
+        super::release_recency(&row),
+        "2026-08-20T01:00:00.001+01:00"
+    );
+    for created in ["2026-02-29", "0000-02-29", "2026-08-20T00:00:00.0001Z"] {
+        row["created_at"] = json!(created);
+        assert_eq!(super::release_recency(&row), "1970-01-01T00:00:00.000Z");
+    }
 }

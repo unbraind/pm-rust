@@ -214,15 +214,21 @@ fn parse_local_timestamp(
 /// Normalizes the ISO hour-24 spelling accepted by the published history reader.
 fn parse_end_of_day(value: &str) -> Option<OffsetDateTime> {
     let (date, clock) = value.split_at_checked(10)?;
+    let legacy = clock.starts_with(' ');
     let clock = clock.strip_prefix(['T', 't', ' '])?.strip_prefix("24:00")?;
     let zone = if let Some(seconds) = clock.strip_prefix(':') {
         let rest = seconds.strip_prefix("00")?;
         if let Some(fraction) = rest.strip_prefix('.') {
-            let zone = fraction.trim_start_matches('0');
-            if zone.len() == fraction.len() {
+            let digits = fraction.bytes().take_while(u8::is_ascii_digit).count();
+            let precision = if legacy { digits.min(3) } else { digits };
+            if digits == 0
+                || fraction.as_bytes()[..precision]
+                    .iter()
+                    .any(|&digit| digit != b'0')
+            {
                 return None;
             }
-            zone
+            &fraction[digits..]
         } else {
             rest
         }

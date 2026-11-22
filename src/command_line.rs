@@ -1,5 +1,16 @@
 //! Argument-vector construction for executable recovery advice.
 
+/// Builds bootstrap arguments that preserve a flag-shaped tracker path.
+#[doc(hidden)]
+#[must_use]
+pub fn pm_path_args(path: &str) -> Vec<String> {
+    if path.starts_with('-') && path != "-" {
+        vec![format!("--pm-path={path}")]
+    } else {
+        vec!["--pm-path".to_owned(), path.to_owned()]
+    }
+}
+
 /// Renders a complete pm invocation, quoting every supplied argument.
 #[must_use]
 pub fn render_pm_command<I, S>(args: I) -> String

@@ -593,6 +593,12 @@ fn context_focus_recency_matches_history_admission() -> TestResult {
                 "2026-08-17T00:00:00.000Z",
             ),
             ("2026-08-22", "sample-one", false, "2026-08-20"),
+            (
+                "2026-08-22",
+                "sample-two",
+                false,
+                "2026-08-20T00:00:00.0001Z",
+            ),
         ])
     {
         let root = tempfile::tempdir()?;

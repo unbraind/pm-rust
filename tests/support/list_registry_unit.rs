@@ -71,7 +71,6 @@ fn unset_open_without_a_default_role_uses_the_registry_fallback() {
             json!([{"id":"later","order":2},{"id":"first","order":1}]),
             "first",
         ),
-        (json!([{"roles":["active"]}]), ""),
     ] {
         let settings = json!({"schema":{
             "statuses":statuses, "workflow":{"in_progress_status":" "}
@@ -80,6 +79,25 @@ fn unset_open_without_a_default_role_uses_the_registry_fallback() {
         assert_eq!(registry.open_status(), expected);
         assert_eq!(registry.activity_progress_status(), expected);
     }
+}
+
+/// Blank IDs cannot become defaults and unusable embedded registries retain the built-ins.
+#[test]
+fn unusable_status_definitions_do_not_supply_workflow_defaults() {
+    let built_in_open = defaults()[1].clone();
+    let blank = json!({"id":" \u{feff} ","roles":["default_open"],"order":-10});
+    for statuses in [json!([built_in_open, blank]), json!([{"roles":["active"]}])] {
+        let settings = json!({"schema":{"statuses":statuses}});
+        let sidecar = json!([{"id":"custom","roles":["active"]}]);
+        let registry = Lifecycle::from_values(&settings, &sidecar, &Value::Null);
+        assert_eq!(registry.open_status(), "open");
+        assert!(registry.known("custom"));
+        assert!(!registry.known(""));
+    }
+    let settings = json!({"schema":{"statuses":[{"roles":["active"]}]}});
+    let registry = Lifecycle::from_values(&settings, &Value::Null, &Value::Null);
+    assert_eq!(registry.open_status(), "open");
+    assert_eq!(registry.activity_progress_status(), "in_progress");
 }
 
 /// Optional arrays/objects merge over embedded definitions, while invalid JSON is ignored.

@@ -40,27 +40,20 @@ impl Lifecycle {
     /// Resolves an already captured schema through the native registry normalizer.
     pub(crate) fn from_values(settings: &Value, external: &Value, workflow: &Value) -> Self {
         let schema = &settings["schema"];
-        let mut statuses = schema["statuses"].as_array().cloned().unwrap_or_default();
-        if statuses.is_empty() {
-            statuses = defaults();
+        let mut definitions = BTreeMap::new();
+        extend_statuses(
+            &mut definitions,
+            schema["statuses"].as_array().into_iter().flatten().cloned(),
+        );
+        if definitions.is_empty() {
+            extend_statuses(&mut definitions, defaults());
         }
         if let Some(entries) = external.as_array().or_else(|| {
             external["statuses"]
                 .as_array()
                 .or(external["definitions"].as_array())
         }) {
-            statuses.extend(entries.iter().cloned());
-        }
-        let mut definitions = BTreeMap::new();
-        for (index, definition) in statuses.into_iter().enumerate() {
-            if let Some(id) = definition["id"].as_str() {
-                #[allow(
-                    clippy::cast_precision_loss,
-                    reason = "status arrays fit the precise range"
-                )]
-                let order = definition["order"].as_f64().unwrap_or(index as f64);
-                definitions.insert(token(id), (definition, order));
-            }
+            extend_statuses(&mut definitions, entries.iter().cloned());
         }
         let mut aliases = BTreeMap::new();
         for (id, (definition, _)) in &definitions {
@@ -189,6 +182,30 @@ impl Lifecycle {
             "in_progress" => self.canonical(status) == self.progress,
             _ => self.canonical(status) == self.canonical(selected),
         }
+    }
+}
+
+/// Adds usable status definitions, retaining their configured or positional precedence.
+fn extend_statuses(
+    definitions: &mut BTreeMap<String, (Value, f64)>,
+    statuses: impl IntoIterator<Item = Value>,
+) {
+    let offset = definitions.len();
+    for (index, definition) in statuses.into_iter().enumerate() {
+        let id = token(crate::history::trim_evidence_line(
+            definition["id"].as_str().unwrap_or_default(),
+        ));
+        if id.is_empty() {
+            continue;
+        }
+        #[allow(
+            clippy::cast_precision_loss,
+            reason = "status arrays fit the precise range"
+        )]
+        let order = definition["order"]
+            .as_f64()
+            .unwrap_or((offset + index) as f64);
+        definitions.insert(id, (definition, order));
     }
 }
 

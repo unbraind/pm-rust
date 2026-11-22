@@ -1091,6 +1091,8 @@ fn acquire_lock(
         ));
     }
     let mut lock = wait_for_lock(id, lock_retry(wait_ms), || {
+        #[cfg(test)]
+        tests::ITEM_LOCK_ATTEMPTS.with(|attempts| attempts.set(attempts.get() + 1));
         // All item writers share these leases. Mutation timestamps belong to history.
         acquire_lock_attempt(
             pm_root,
@@ -3894,9 +3896,12 @@ pub(crate) fn ownership_item_with_options(
     // Claim skips history on no-op; release deliberately records even an empty patch.
     if !claim || changed > 0 {
         let timestamp = if action == crate::ownership::OwnershipAction::ReleaseAfterClose
-            && OffsetDateTime::parse(&before.metadata.updated_at, &Rfc3339).ok()
-                > OffsetDateTime::parse(&timestamp, &Rfc3339).ok()
-        {
+            && OffsetDateTime::parse(&before.metadata.updated_at, &Rfc3339)
+                .ok()
+                .is_none_or(|stored| {
+                    Some(stored) > OffsetDateTime::parse(&timestamp, &Rfc3339).ok()
+                }) {
+            // A revision whose clock cannot be compared must stay available for repair.
             validate_timestamp(&before.metadata.updated_at)?;
             &before.metadata.updated_at
         } else {
@@ -4273,8 +4278,12 @@ pub(crate) fn mutate_session_state(
     };
     let path = pm_root.join("runtime/session.json");
     let mut state = match fs::read_to_string(&path) {
-        Ok(text) => crate::strict_json::from_str::<serde_json::Map<String, Value>>(&text)
-            .unwrap_or_default(),
+        Ok(text) => crate::strict_json::from_str::<serde_json::Map<String, Value>>(&text).map_err(
+            |source| PmRustError::Io {
+                path: path.clone(),
+                source: std::io::Error::new(std::io::ErrorKind::InvalidData, source),
+            },
+        )?,
         Err(source) if source.kind() == std::io::ErrorKind::NotFound => serde_json::Map::new(),
         Err(source) => return Err(PmRustError::Io { path, source }),
     };

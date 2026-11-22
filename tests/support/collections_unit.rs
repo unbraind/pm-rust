@@ -1516,6 +1516,33 @@ fn sdk_note_retry_resolves_the_caller_directory() -> TestResult {
     Ok(())
 }
 
+/// Absolute and relative-parent CLI overrides both select the intended artifact directory.
+#[test]
+fn cli_artifact_overrides_preserve_directory_selection() -> TestResult {
+    let (directory, workspace) = tracker()?;
+    let project = directory.path().canonicalize()?;
+    let sub = project.join("sub");
+    std::fs::create_dir_all(sub.join("deep"))?;
+    for (override_path, file) in [
+        (sub.as_path(), "absolute.rs"),
+        (Path::new("sub/deep/.."), "relative.rs"),
+    ] {
+        let receipt = workspace.collection_for_cli_with_artifact_cwd(
+            "sample-one",
+            "files",
+            &CollectionOptions {
+                author: "fixture".to_owned(),
+                add: vec![file.to_owned()],
+                ..CollectionOptions::default()
+            },
+            &project,
+            Some(override_path),
+        )?;
+        assert_eq!(receipt["files"][0]["path"], format!("sub/{file}"));
+    }
+    Ok(())
+}
+
 /// An alias of the project root preserves the logical suffix for replay.
 #[cfg(unix)]
 #[test]
@@ -1734,6 +1761,27 @@ fn sdk_verbatim_directory_link_parent_removes_the_target_parent_link() -> TestRe
     assert_eq!(
         item.metadata.extra["files"],
         json!([{"path":"source.rs","scope":"project"}])
+    );
+    workspace.collection(
+        "sample-one",
+        "files",
+        &CollectionOptions {
+            add: vec!["vendor/source.rs".into()],
+            remove: vec![],
+            ..remove.clone()
+        },
+        &project,
+    )?;
+    workspace.collection_for_cli_with_artifact_cwd(
+        "sample-one",
+        "files",
+        &remove,
+        &project,
+        Some(Path::new(r"link\..")),
+    )?;
+    assert_eq!(
+        workspace.get("sample-one")?.metadata.extra["files"],
+        item.metadata.extra["files"]
     );
     Ok(())
 }

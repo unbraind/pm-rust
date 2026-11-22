@@ -50,7 +50,8 @@ mod workspace;
 
 pub use collections::CollectionOptions;
 pub use command_line::{
-    parse_command_args, parse_recovery_command, render_pm_command, render_pm_rust_command,
+    parse_command_args, parse_recovery_command, pm_path_args, render_pm_command,
+    render_pm_rust_command,
 };
 pub use error::PmRustError;
 pub use history::canonical_metadata_pairs;

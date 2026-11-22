@@ -1887,13 +1887,7 @@ fn raw_invocation() -> Vec<String> {
 fn invocation_scope(raw: &[String]) -> Vec<String> {
     Invocation::parse(raw)
         .scope()
-        .map_or_else(Vec::new, |path| {
-            if path.starts_with('-') && path != "-" {
-                vec![format!("--pm-path={path}")]
-            } else {
-                vec!["--pm-path".to_owned(), path.to_owned()]
-            }
-        })
+        .map_or_else(Vec::new, pm_rust::pm_path_args)
 }
 
 /// Removes only bootstrap scope options while retaining every command value verbatim.

@@ -140,14 +140,17 @@ fn release_recency(item: &Value) -> String {
             return candidate;
         }
     }
-    let created_at = text(item, "created_at");
-    if created_at.len() == 10 {
-        let midnight = format!("{created_at}T00:00:00.000Z");
-        if crate::validate_timestamp(&midnight).is_ok() {
-            return midnight;
-        }
+    let created_at = crate::history::trim_evidence_line(text(item, "created_at"));
+    let candidate = if created_at.len() == 10 {
+        format!("{created_at}T00:00:00.000Z")
+    } else {
+        created_at.to_owned()
+    };
+    if rankable_timestamp(&candidate) {
+        candidate
+    } else {
+        "1970-01-01T00:00:00.000Z".to_owned()
     }
-    created_at.to_owned()
 }
 /// Validated semantic and usage affinity resolved for one context reader.
 #[derive(Default)]

@@ -274,6 +274,15 @@ fn read_blocker(path: &Path, canonical: &str) -> Result<ItemDocument, PmRustErro
     crate::item::validate_file_identity(path, &item)?;
     Ok(item)
 }
+
+/// Provides a plain inspection command when projection would change a field operand.
+fn manual_unblock(item_id: &str) -> Vec<String> {
+    vec![
+        crate::render_pm_command(["get", item_id]),
+        "Review this item's relationships and remove obsolete links.".to_owned(),
+    ]
+}
+
 /// Builds executable unblock advice only when the scalar/edge removal is unambiguous.
 fn unblock(before: &ItemDocument, blocker_sources: &[String], settings: &Value) -> Vec<String> {
     let item_id = &before.metadata.id;
@@ -306,20 +315,23 @@ fn unblock(before: &ItemDocument, blocker_sources: &[String], settings: &Value) 
         .get("blocked_by")
         .and_then(Value::as_str)
         .unwrap_or_default();
+    let replayable = |operand| crate::refusal::diagnostic(operand, blocker_sources) == operand;
     let inspect = || {
-        crate::render_pm_command([
-            "get",
-            &before.metadata.id,
-            "--fields",
-            "blocked_by,dependencies",
-        ])
+        let fields = "blocked_by,dependencies";
+        if replayable(fields) {
+            vec![crate::render_pm_command([
+                "get", item_id, "--fields", fields,
+            ])]
+        } else {
+            manual_unblock(item_id)
+        }
     };
     if deps.iter().any(|dep| {
         blocking_kind(dep["kind"].as_str().unwrap_or_default())
             && dep["kind"] != "blocked_by"
             && canonical(dep["id"].as_str().unwrap_or_default()) == canonical(first)
     }) {
-        return vec![inspect()];
+        return inspect();
     }
     if canonical(scalar) == canonical(first)
         && deps
@@ -333,12 +345,16 @@ fn unblock(before: &ItemDocument, blocker_sources: &[String], settings: &Value) 
                     .eq_ignore_ascii_case(scalar.trim())
             })
     {
-        return vec![crate::render_pm_command([
-            "update",
-            &before.metadata.id,
-            "--unset",
-            "blocked_by",
-        ])];
+        return if replayable("blocked_by") {
+            vec![crate::render_pm_command([
+                "update",
+                item_id,
+                "--unset",
+                "blocked_by",
+            ])]
+        } else {
+            manual_unblock(item_id)
+        };
     }
     let matches: Vec<_> = deps
         .iter()
@@ -354,11 +370,11 @@ fn unblock(before: &ItemDocument, blocker_sources: &[String], settings: &Value) 
     {
         let id = matches[0]["id"].as_str().unwrap_or_default();
         let selector = format!("id={id},kind=blocked_by");
-        if crate::refusal::diagnostic(&selector, blocker_sources) != selector {
-            return vec![
-                inspect(),
-                "Use the dependency's original ID to remove the blocked_by edge.".to_owned(),
-            ];
+        if !replayable(&selector) {
+            let mut steps = inspect();
+            steps
+                .push("Use the dependency's original ID to remove the blocked_by edge.".to_owned());
+            return steps;
         }
         return vec![crate::render_pm_command([
             "update",
@@ -367,7 +383,7 @@ fn unblock(before: &ItemDocument, blocker_sources: &[String], settings: &Value) 
             &selector,
         ])];
     }
-    vec![inspect()]
+    inspect()
 }
 
 /// Implements strict/default, warning, off and explicit-force dependency policies once.

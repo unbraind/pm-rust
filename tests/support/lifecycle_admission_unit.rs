@@ -530,6 +530,44 @@ fn local_blocker_inspection_omits_projected_operand() -> Result<(), Box<dyn std:
     Ok(())
 }
 
+/// Fixed field operands that projection would mask produce a runnable plain inspection step.
+#[test]
+fn projected_blocker_field_operands_use_plain_inspection() -> Result<(), Box<dyn std::error::Error>>
+{
+    for password in ["dependencies", "blocked_by"] {
+        let (_temp, root, mut before) = disk()?;
+        let mut blocker = document("sample-gate", "open");
+        blocker.metadata.title = format!("https://fixture:{password}@example.invalid/issue");
+        fs::write(
+            root.join("tasks/sample-gate.toon"),
+            toon_format::encode_default(&blocker)?,
+        )?;
+        if password == "dependencies" {
+            before.metadata.extra.insert(
+                "dependencies".to_owned(),
+                json!([{"id":"sample-gate","kind":"depends_on"}]),
+            );
+        } else {
+            before
+                .metadata
+                .extra
+                .insert("blocked_by".to_owned(), json!("sample-gate"));
+        }
+        let refused = context(admission(&root, &before, false, Phase::AtomicStart))?;
+        assert_eq!(refused["code"], "start_blocked_by_open_dependency");
+        assert_eq!(
+            refused["next_steps"],
+            json!([
+                "pm get sample-gate",
+                "pm get sample-own",
+                "Review this item's relationships and remove obsolete links.",
+                "pm next",
+            ])
+        );
+    }
+    Ok(())
+}
+
 /// Closed blockers admit progress, force admits open blockers, and complete missing IDs stay unresolved.
 #[test]
 fn round5_closed_and_force_open_blockers_use_shared_policy()

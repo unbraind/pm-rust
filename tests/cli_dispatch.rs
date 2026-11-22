@@ -2775,6 +2775,82 @@ fn collection_restore_after_removal_is_read_only() -> Result<(), Box<dyn std::er
     Ok(())
 }
 
+/// A relative tracker scope that looks like an option survives receipt replay.
+#[test]
+fn collection_restore_attaches_hyphen_leading_scope() -> Result<(), Box<dyn std::error::Error>> {
+    let source = workspace()?;
+    seed_item(&source)?;
+    expect_ok(
+        &source,
+        &[
+            "test",
+            "sample-cli",
+            "--add",
+            "command=first",
+            "--add",
+            "command=second",
+            "--author",
+            "fixture",
+        ],
+    )?;
+    let parent = tempfile::tempdir()?;
+    let selected = parent.path().join("-selected");
+    fs::rename(source.path(), &selected)?;
+    let run = |args: &[&str]| {
+        Command::new(env!("CARGO_BIN_EXE_pm-rust"))
+            .current_dir(parent.path())
+            .args(args)
+            .arg("--json")
+            .output()
+    };
+    let removed = run(&[
+        "--pm-path=-selected/.agents/pm",
+        "test",
+        "sample-cli",
+        "--remove-index",
+        "1",
+        "--author",
+        "fixture",
+    ])?;
+    assert!(
+        removed.status.success(),
+        "{}",
+        String::from_utf8_lossy(&removed.stderr)
+    );
+    let receipt: serde_json::Value = serde_json::from_slice(&removed.stdout)?;
+    let group = &receipt["omission_receipt"]["omitted_field_groups"][0];
+    assert_eq!(
+        group["restore_guidance"],
+        "Run this command from the original invocation directory."
+    );
+    let args =
+        pm_rust::parse_command_args(group["restore_with"].as_str().ok_or("restore command")?)
+            .ok_or("restore arguments")?;
+    assert_eq!(
+        args,
+        ["pm", "--pm-path=-selected/.agents/pm", "test", "sample-cli"]
+    );
+    let root = selected.join(".agents/pm");
+    let snapshot = || -> std::io::Result<_> {
+        Ok((
+            fs::read(root.join("tasks/sample-cli.toon"))?,
+            fs::read(root.join("history/sample-cli.jsonl"))?,
+        ))
+    };
+    let before = snapshot()?;
+    let listed = run(&args[1..].iter().map(String::as_str).collect::<Vec<_>>())?;
+    assert!(
+        listed.status.success(),
+        "{}",
+        String::from_utf8_lossy(&listed.stderr)
+    );
+    let listed: serde_json::Value = serde_json::from_slice(&listed.stdout)?;
+    assert_eq!(listed["count"], 1);
+    assert_eq!(listed["tests"][0]["command"], "second");
+    assert_eq!(snapshot()?, before);
+    Ok(())
+}
+
 /// Native SDK and CLI note repairs replay from outside the selected operand directory.
 #[test]
 fn native_note_repair_replays_only_in_the_selected_tracker()

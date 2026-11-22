@@ -1,0 +1,15 @@
+id: pm-rust-status-token-edge-hyphens
+title: Match status token normalization at hyphen boundaries
+description: "The pm-cli 2026.11.18 runtime registry resolves a configured status ID of --- to _ and can select it as the workflow default. The native token helper drops empty split parts and normalizes that same ID to the empty string. Round GN filters empty native IDs before default selection. Verify the behavior for both registry definitions and selectors, including leading and trailing hyphens, while preserving relationship-kind normalization."
+type: Issue
+status: open
+priority: 3
+tags[3]: follow-up,oracle,schema
+created_at: "2026-11-22T18:33:14.992Z"
+updated_at: "2026-11-22T18:33:20.783Z"
+author: codex-sol
+acceptance_criteria: A fixture compares the pinned status registry and native lifecycle with punctuation-only and edge-hyphen IDs and ordinary status aliases.
+parent: pm-rust-oracle-1118
+files[1]{path,scope}:
+  src/list_registry.rs,project
+body: ""

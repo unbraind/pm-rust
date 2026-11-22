@@ -5081,6 +5081,75 @@ fn round14_minimal_workflow_case(action: &str) -> Result<(), Box<dyn std::error:
     Ok(())
 }
 
+/// Pause uses a readable open status when invalid rows cannot define a workflow default.
+#[test]
+fn pause_ignores_unusable_status_definitions_like_oracle() -> Result<(), Box<dyn std::error::Error>>
+{
+    for blank in [false, true] {
+        let Some(fixture) = Fixture::new("none")? else {
+            return Ok(());
+        };
+        for root in [fixture.node.path(), fixture.rust.path()] {
+            let pm = root.join(".agents/pm");
+            let path = pm.join("settings.json");
+            let mut settings: serde_json::Value = serde_json::from_slice(&fs::read(&path)?)?;
+            settings["schema"]["workflow"] = serde_json::json!({});
+            let files = settings["schema"]["files"]
+                .as_object_mut()
+                .ok_or("schema files")?;
+            files.shift_remove("statuses");
+            files.shift_remove("workflows");
+            if blank {
+                settings["schema"]["statuses"]
+                    .as_array_mut()
+                    .ok_or("status definitions")?
+                    .push(serde_json::json!({"id":" ","roles":["default_open"],"order":-10}));
+            } else {
+                settings["schema"]["statuses"] = serde_json::json!([{"roles":["active"]}]);
+            }
+            fs::write(path, serde_json::to_vec_pretty(&settings)?)?;
+            for sidecar in ["schema/statuses.json", "schema/workflows.json"] {
+                fs::remove_file(pm.join(sidecar))?;
+            }
+        }
+        let native = pm_rust::Workspace::discover(fixture.rust.path())?;
+        let request = pm_rust::OwnershipItem {
+            id: "sample-own".to_owned(),
+            author: "alpha".to_owned(),
+            timestamp: Some(CLOCK.to_owned()),
+            message: None,
+            force: false,
+            if_available: false,
+            provenance_role: None,
+        };
+        let options = pm_rust::OwnershipOptions::default();
+        for (action, status) in [("start", "in_progress"), ("pause", "open")] {
+            let expected = published_run(
+                &fixture.driver,
+                fixture.node.path(),
+                &["__workflow_receipt", action, &request.id],
+            )?;
+            assert!(
+                expected.status.success(),
+                "{}",
+                String::from_utf8_lossy(&expected.stderr)
+            );
+            assert_eq!(
+                serde_json::from_slice::<serde_json::Value>(&expected.stdout)?,
+                serde_json::json!({"ok":true})
+            );
+            if action == "start" {
+                native.start_task(&request, &options)?;
+            } else {
+                native.pause_task(&request, &options)?;
+            }
+            fixture.compare_bytes()?;
+            assert_eq!(native.get(&request.id)?.metadata.status, status);
+        }
+    }
+    Ok(())
+}
+
 /// Published pause accepts both forms of absent workflow sidecar.
 #[test]
 fn round14_missing_workflow_pause_matches_oracle() -> Result<(), Box<dyn std::error::Error>> {

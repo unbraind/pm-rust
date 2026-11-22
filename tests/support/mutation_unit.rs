@@ -29,6 +29,9 @@ thread_local! {
     /// Counts entries that actually reach the locator's live metadata boundary.
     pub(crate) static LOCATOR_METADATA_ENTRIES: std::cell::Cell<usize> = const { std::cell::Cell::new(0) };
 
+    /// Counts actual item lock acquisitions on this test thread.
+    pub(super) static ITEM_LOCK_ATTEMPTS: std::cell::Cell<usize> = const { std::cell::Cell::new(0) };
+
     /// Injects a failure only at the selected target's post-rename sync.
     #[cfg(unix)]
     pub(super) static FAIL_PARENT_SYNC: std::cell::RefCell<Option<PathBuf>> = const { std::cell::RefCell::new(None) };
@@ -5160,16 +5163,18 @@ fn release_after_close_uses_the_locked_revision_timestamp() -> Result<(), Box<dy
     let item_path = pm_root.join("tasks/sample-unit.toon");
     let history_path = pm_root.join("history/sample-unit.jsonl");
     let mut legacy = released.item.clone();
-    legacy.metadata.updated_at = "2026-10-14T12:34:56.789+01:00".into();
-    let item_bytes = canonical_item_bytes(&legacy)?;
-    fs::write(&item_path, &item_bytes)?;
-    let error = workspace
-        .release_after_close_with_options(&owner, &crate::OwnershipOptions::default())
-        .err()
-        .ok_or("expected a refusal for the later stored timestamp")?;
-    assert!(error.to_string().contains("UTC RFC 3339"), "{error}");
-    assert_eq!(fs::read_to_string(&item_path)?, item_bytes);
-    assert_eq!(fs::read_to_string(&history_path)?, history);
+    for timestamp in ["2026-10-14T12:34:56.789+01:00", "2026-10-14"] {
+        legacy.metadata.updated_at = timestamp.into();
+        let item_bytes = canonical_item_bytes(&legacy)?;
+        fs::write(&item_path, &item_bytes)?;
+        let error = workspace
+            .release_after_close_with_options(&owner, &crate::OwnershipOptions::default())
+            .err()
+            .ok_or("expected a refusal for the later stored timestamp")?;
+        assert!(error.to_string().contains("UTC RFC 3339"), "{error}");
+        assert_eq!(fs::read_to_string(&item_path)?, item_bytes);
+        assert_eq!(fs::read_to_string(&history_path)?, history);
+    }
     fs::write(&item_path, canonical_item_bytes(&released.item)?)?;
     let same_revision = workspace.release_after_close_with_options(
         &OwnershipItem {
@@ -6383,19 +6388,15 @@ fn stale_owner_disappearance_is_contention_not_a_write_failure()
 #[test]
 fn resolved_zero_wait_budget_is_used_without_rereading_settings()
 -> Result<(), Box<dyn std::error::Error>> {
-    let (_directory, pm_root) = root(&mutation_settings(0))?;
+    let (_directory, pm_root) = root(&mutation_settings(2_000))?;
     create_item(&pm_root, request())?;
-    let configured = LockSettings {
-        wait_ms: 2_000,
-        ..locks(1_800)
-    };
+    let configured = read_settings(&pm_root)?.locks;
+    assert_eq!(configured.wait_ms, 2_000);
     let held = acquire_lock(&pm_root, "sample-unit", "holder", &configured, false, 0)?;
-    // Keep the incumbent held for the entire attempt, independent of thread scheduling.
-    // Re-reading the configured budget would wait the full two seconds.
-    let started = Instant::now();
+    ITEM_LOCK_ATTEMPTS.set(0);
     let outcome = acquire_lock(&pm_root, "sample-unit", "contender", &configured, false, 0);
     assert!(matches!(outcome, Err(PmRustError::LockConflict { .. })));
-    assert!(started.elapsed() < Duration::from_millis(1_000));
+    assert_eq!(ITEM_LOCK_ATTEMPTS.get(), 1);
     drop(held);
     Ok(())
 }
@@ -7243,6 +7244,53 @@ fn expired_session_lease_refuses_its_own_staged_write() -> Result<(), Box<dyn st
             if detail.contains("lease expired") && context["code"] == SESSION_PUBLICATION_CONFLICT)
     );
     assert!(!path.exists());
+    Ok(())
+}
+
+/// A truncated session snapshot survives both committed ownership mutations.
+#[test]
+fn committed_ownership_preserves_invalid_session_snapshot() -> Result<(), Box<dyn std::error::Error>>
+{
+    let (_temp, pm_root) = root(&settings("sample-", "toon", 1800))?;
+    create_item(&pm_root, request())?;
+    let workspace = crate::Workspace::discover(&pm_root)?;
+    let session = pm_root.join("runtime/session.json");
+    let truncated = br#"{"focused_item":"sample-other","semantic_attribution":{"#;
+    fs::write(&session, truncated)?;
+    let request = OwnershipItem {
+        id: "sample-unit".into(),
+        author: "fixture".into(),
+        timestamp: Some(TS.into()),
+        message: None,
+        force: false,
+        if_available: false,
+        provenance_role: None,
+    };
+    let history = pm_root.join("history/sample-unit.jsonl");
+    for action in ["claim", "release"] {
+        let result = if action == "claim" {
+            workspace.claim(&request)?
+        } else {
+            workspace.release(&request)?
+        };
+        assert_eq!(
+            result.warnings,
+            [format!("{action}_semantic_attribution_unrecorded")]
+        );
+        assert!(result.suggestions[0].contains("is saved"));
+        assert_eq!(fs::read(&session)?, truncated);
+        assert_eq!(
+            workspace
+                .get("sample-unit")?
+                .metadata
+                .extra
+                .contains_key("assignee"),
+            action == "claim"
+        );
+        let lines = fs::read_to_string(&history)?;
+        let record: Value = crate::strict_json::from_str(lines.lines().last().ok_or("history")?)?;
+        assert_eq!(record["op"], action);
+    }
     Ok(())
 }
 

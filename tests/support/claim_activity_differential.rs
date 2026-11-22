@@ -131,6 +131,7 @@ fn end_of_day_timestamp_checks_zero_time_and_calendar() {
         "2026-08-06T24:00+0130",
         "2026-08-06T24:00:00.000+0130",
         "2026-08-06 24:00:00+01:30",
+        "2026-08-06 24:00:00.0001+01:30",
     ] {
         assert_eq!(super::parse_stored_timestamp(value), midnight, "{value}");
     }
@@ -146,6 +147,7 @@ fn end_of_day_timestamp_checks_zero_time_and_calendar() {
         "2026-08-06T24:00.000",
         "2026-08-06T24:00:00.Z",
         "2026-08-06T24:00:00.0001Z",
+        "2026-08-06 24:00:00.001Z",
         "2026-13-06T24:00:00Z",
         "2026-08-06T25:00:00",
     ] {
@@ -421,6 +423,34 @@ fn claim_history_provenance_and_activity_match_published() -> TestResult {
             ],
             None,
             false,
+            false,
+        ),
+        (
+            "space-hour-24-fraction-work",
+            vec![
+                claim(),
+                record(
+                    "update",
+                    "2026-08-06 24:00:00.0001Z",
+                    patch("/metadata/title", json!("New title")),
+                ),
+            ],
+            None,
+            false,
+            false,
+        ),
+        (
+            "iso-hour-24-fraction-work",
+            vec![
+                claim(),
+                record(
+                    "update",
+                    "2026-08-06T24:00:00.0001Z",
+                    patch("/metadata/title", json!("New title")),
+                ),
+            ],
+            None,
+            true,
             false,
         ),
         (
