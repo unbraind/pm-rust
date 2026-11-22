@@ -50,6 +50,12 @@ fn configured_roles_and_defaults() -> Result<(), Box<dyn std::error::Error>> {
     assert!(registry.terminal("done"));
     assert!(registry.terminal("abandoned"));
     assert!(registry.terminal("archived"));
+
+    let directory = fixture(&json!({"schema":{"workflow":{"in_progress_status":" "}}}))?;
+    assert_eq!(
+        Lifecycle::load(directory.path())?.activity_progress_status(),
+        "in_progress"
+    );
     Ok(())
 }
 

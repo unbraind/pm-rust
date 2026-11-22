@@ -340,8 +340,6 @@ enum LockAge {
     Receipt,
     /// Ownership and collection commands also explain an expired incumbent.
     OwnershipReceipt,
-    /// The shared session lease can also be held by an item with a different TTL.
-    SessionReceipt,
 }
 
 #[derive(Debug, Deserialize)]
@@ -1366,31 +1364,26 @@ fn create_or_reclaim_lock(
             });
         }
     };
-    let modified = observed.metadata.modified().unwrap_or(UNIX_EPOCH);
-    let stale = match age {
-        LockAge::Modified => {
-            SystemTime::now()
-                .duration_since(modified)
-                .unwrap_or_default()
-                > Duration::from_secs(ttl_seconds)
-        }
-        LockAge::Receipt | LockAge::OwnershipReceipt => {
-            ownership_lock_stale(&existing_raw, timestamp, ttl_seconds)
-        }
-        LockAge::SessionReceipt => session_lock_stale(
-            &crate::strict_json::from_str(&existing_raw),
-            timestamp,
-            ttl_seconds,
-        ),
+    let receipt = crate::strict_json::from_str(&existing_raw);
+    let entry = receipt.as_ref().unwrap_or(&Value::Null);
+    // The item ID and the session publisher share this exact lease path.
+    let shared_ttl = (id == "session-state")
+        .then(|| recorded_lock_ttl(&receipt))
+        .flatten();
+    let stale = if age == LockAge::Modified && shared_ttl.is_none() {
+        let modified = observed.metadata.modified().unwrap_or(UNIX_EPOCH);
+        SystemTime::now()
+            .duration_since(modified)
+            .unwrap_or_default()
+            > Duration::from_secs(ttl_seconds)
+    } else {
+        lock_entry_stale(entry, timestamp, shared_ttl.unwrap_or(ttl_seconds))
     };
     #[cfg(target_os = "linux")]
-    {
-        let existing: Value = crate::strict_json::from_str(&existing_raw).unwrap_or(Value::Null);
-        if confirmed_dead_owner(&existing) {
-            record_dead_owner(path, &existing)?;
-            return remove_stale_lock(path, &existing_raw, Some(&observed), id)
-                .and_then(|()| create_lock_file(path, raw, id));
-        }
+    if confirmed_dead_owner(entry) {
+        record_dead_owner(path, entry)?;
+        return remove_stale_lock(path, &existing_raw, Some(&observed), id)
+            .and_then(|()| create_lock_file(path, raw, id));
     }
     if stale {
         if force_stale {
@@ -1398,7 +1391,7 @@ fn create_or_reclaim_lock(
                 .and_then(|()| create_lock_file(path, raw, id));
         }
         if age == LockAge::OwnershipReceipt {
-            return Err(stale_ownership_lock_refusal(id, &existing_raw));
+            return Err(stale_ownership_lock_refusal(id, &receipt, timestamp));
         }
     }
     Err(PmRustError::LockConflict { id: id.to_owned() })
@@ -3307,7 +3300,7 @@ fn ownership_phrase(evidence: &Value, assignee: &str) -> String {
     )
 }
 
-/// Uses the published lock payload clock, including malformed-lock expiry.
+/// Decodes the publisher's own lease before checking its expiry.
 fn ownership_lock_stale(raw: &str, timestamp: &str, ttl_seconds: u64) -> bool {
     lock_entry_stale(
         &crate::strict_json::from_str(raw).unwrap_or(Value::Null),
@@ -3355,25 +3348,43 @@ fn lock_receipt_warning(receipt: &serde_json::Result<Value>) -> Option<&'static 
 /// Retry advice for stale locks before any part of a command has committed.
 pub(crate) const RETRY_STALE_LOCK: &str = "Remove the expired lease, then retry the same command.";
 
+/// Checks GC eligibility using the receipt's own timestamp and TTL.
+#[allow(
+    clippy::cast_precision_loss,
+    reason = "the published GC compares JavaScript numbers"
+)]
+fn gc_can_remove_lock(receipt: &Value, timestamp: &str) -> bool {
+    let created = receipt["created_at"]
+        .as_str()
+        .and_then(claim_activity::parse_stored_timestamp);
+    let now = claim_activity::parse_stored_timestamp(timestamp);
+    created
+        .zip(now)
+        .zip(receipt["ttl_seconds"].as_f64())
+        .is_some_and(|((created, now), ttl)| (now - created) as f64 > ttl * 1_000.0)
+}
+
 /// Explains an expired incumbent observed while holding the cleanup gate.
-fn stale_ownership_lock_refusal(id: &str, raw: &str) -> PmRustError {
+fn stale_ownership_lock_refusal(
+    id: &str,
+    receipt: &serde_json::Result<Value>,
+    timestamp: &str,
+) -> PmRustError {
     let path = format!("locks/{id}.lock");
-    let receipt = crate::strict_json::from_str(raw);
-    let warning = lock_receipt_warning(&receipt);
+    let warning = lock_receipt_warning(receipt);
     let suffix = warning.map_or_else(String::new, |warning| format!(" ({warning})"));
     let mut steps = if warning.is_none()
-        && receipt.as_ref().is_ok_and(|value| {
-            value["created_at"]
-                .as_str()
-                .is_some_and(|created| OffsetDateTime::parse(created, &Rfc3339).is_ok())
-        }) {
+        && receipt
+            .as_ref()
+            .is_ok_and(|value| gc_can_remove_lock(value, timestamp))
+    {
         vec![
             "pm gc --scope locks".to_owned(),
             "Add --dry-run to preview cleanup.".to_owned(),
         ]
     } else {
         vec![format!(
-            "Remove {path} from the selected tracker once its owner is confirmed gone. pm gc --scope locks keeps receipts with unreadable or undated metadata."
+            "Remove {path} from the selected tracker once its owner is confirmed gone. pm gc --scope locks keeps receipts with unreadable or undated metadata or whose own TTL has not elapsed."
         )]
     };
     steps.push(RETRY_STALE_LOCK.to_owned());
@@ -3546,13 +3557,13 @@ pub(crate) fn collection_item(
             retry_scope,
         )?
     };
-    let (rows, removed) = crate::collections::merge(
+    let (rows, removed, matched) = crate::collections::merge(
         key,
         &current,
         &edit,
         key == "files" && options.append_stable,
     );
-    if key == "tests" && (!edit.removes.is_empty() || !edit.indices.is_empty()) && removed == 0 {
+    if key == "tests" && (!edit.removes.is_empty() || !edit.indices.is_empty()) && matched == 0 {
         return Err(crate::collections::refusal(
             "No linked tests matched the requested removal selector",
             3,
@@ -3560,7 +3571,7 @@ pub(crate) fn collection_item(
         ));
     }
     let mutation =
-        crate::collections::CollectionChange::between(&current, &rows, removed, outcomes);
+        crate::collections::CollectionChange::between(&current, &rows, removed, matched, outcomes);
     if !mutation.changed {
         return Ok((before, mutation));
     }
@@ -4133,20 +4144,18 @@ fn relative_to_tracker(pm_root: &Path, path: &Path) -> PathBuf {
     }
 }
 
-/// Uses the incumbent's TTL for the shared lease, with the default for invalid receipts.
-fn session_lock_stale(
-    receipt: &serde_json::Result<Value>,
-    timestamp: &str,
-    default_ttl: u64,
-) -> bool {
-    let entry = receipt.as_ref().unwrap_or(&Value::Null);
-    let ttl = receipt
+/// Returns the recorded TTL only for a valid shared lease receipt.
+fn recorded_lock_ttl(receipt: &serde_json::Result<Value>) -> Option<u64> {
+    receipt
         .as_ref()
         .ok()
         .filter(|_| lock_receipt_warning(receipt).is_none())
+        .filter(|entry| {
+            entry["created_at"]
+                .as_str()
+                .is_some_and(|created| OffsetDateTime::parse(created, &Rfc3339).is_ok())
+        })
         .and_then(|entry| entry["ttl_seconds"].as_u64())
-        .unwrap_or(default_ttl);
-    lock_entry_stale(entry, timestamp, ttl)
 }
 
 /// Preserves I/O and active-lock failures while explaining expired session locks.
@@ -4162,7 +4171,9 @@ fn session_lock_refusal(
     let raw = fs::read_to_string(pm_root.join("locks/session-state.lock")).unwrap_or_default();
     let receipt = crate::strict_json::from_str(&raw);
     let warning = lock_receipt_warning(&receipt);
-    if warning.is_some() || session_lock_stale(&receipt, timestamp, ttl_seconds) {
+    let entry = receipt.as_ref().unwrap_or(&Value::Null);
+    let ttl = recorded_lock_ttl(&receipt).unwrap_or(ttl_seconds);
+    if warning.is_some() || lock_entry_stale(entry, timestamp, ttl) {
         let suffix = warning.map_or_else(String::new, |warning| format!(" ({warning})"));
         close_refusal(
             format!(
@@ -4191,7 +4202,7 @@ fn acquire_session_lock(
             ttl_seconds,
             true,
             &now(),
-            LockAge::SessionReceipt,
+            LockAge::Receipt,
         )
     })
     .map_err(|error| session_lock_refusal(pm_root, error, &now(), ttl_seconds))

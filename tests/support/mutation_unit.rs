@@ -6884,6 +6884,90 @@ fn session_acquisition_honors_the_incumbent_ttl() -> Result<(), Box<dyn std::err
     Ok(())
 }
 
+/// Item writers respect a longer session lease on the shared lock path.
+#[test]
+fn item_acquisition_honors_the_session_lease() -> Result<(), Box<dyn std::error::Error>> {
+    for age in [
+        LockAge::Modified,
+        LockAge::Receipt,
+        LockAge::OwnershipReceipt,
+    ] {
+        let (_temp, pm_root) = root("{}")?;
+        let incumbent = acquire_session_lock(&pm_root, 1800, lock_retry(0), || TS.to_owned())?;
+        let path = &incumbent.path;
+        let raw = fs::read(path)?;
+        for timestamp in ["2026-08-07T10:07:31.183Z", "2026-08-07T10:36:30.183Z"] {
+            assert!(matches!(
+                acquire_lock_attempt(
+                    &pm_root,
+                    "session-state",
+                    "unit-agent",
+                    60,
+                    true,
+                    timestamp,
+                    age
+                ),
+                Err(PmRustError::LockConflict { .. })
+            ));
+            assert_eq!(fs::read(path)?, raw);
+        }
+        let expired = "2026-08-07T10:36:30.184Z";
+        let lock = acquire_lock_attempt(
+            &pm_root,
+            "session-state",
+            "unit-agent",
+            60,
+            true,
+            expired,
+            age,
+        )?;
+        let receipt: Value = serde_json::from_slice(&fs::read(&lock.path)?)?;
+        assert_eq!(receipt["ttl_seconds"], 60);
+        assert_eq!(receipt["owner"], "unit-agent");
+        drop(incumbent);
+        assert!(lock.path.exists());
+    }
+    Ok(())
+}
+
+/// Unusable shared receipts retain each writer's original expiry fallback.
+#[test]
+fn unusable_shared_receipt_uses_the_original_expiry_clock() -> Result<(), Box<dyn std::error::Error>>
+{
+    let (_temp, pm_root) = root("{}")?;
+    let incumbent = acquire_session_lock(&pm_root, 1800, lock_retry(0), || TS.to_owned())?;
+    let path = &incumbent.path;
+    let mut receipt: Value = serde_json::from_slice(&fs::read(path)?)?;
+    receipt["created_at"] = serde_json::json!("unknown");
+    let raw = serde_json::to_vec(&receipt)?;
+    fs::write(path, &raw)?;
+    assert!(matches!(
+        acquire_lock_attempt(
+            &pm_root,
+            "session-state",
+            "unit-agent",
+            60,
+            true,
+            TS,
+            LockAge::Modified
+        ),
+        Err(PmRustError::LockConflict { .. })
+    ));
+    assert_eq!(fs::read(path)?, raw);
+    let replacement = acquire_lock_attempt(
+        &pm_root,
+        "session-state",
+        "unit-agent",
+        60,
+        true,
+        TS,
+        LockAge::Receipt,
+    )?;
+    let replaced: Value = serde_json::from_slice(&fs::read(&replacement.path)?)?;
+    assert_eq!(replaced["owner"], "unit-agent");
+    Ok(())
+}
+
 /// A status fence refusal leaves the earlier forced start claim durable.
 #[test]
 fn forced_start_records_its_durable_claim_on_status_fence_conflict()

@@ -90,6 +90,38 @@ fn recovery_steps_project_arguments_and_preserve_command_syntax() {
     );
 }
 
+/// A credential may coincide with delimiter syntax or an option value.
+#[test]
+fn recovery_projection_preserves_only_the_parsed_delimiter() {
+    let delimiter = ["get", "--", "sample-own"];
+    let value = ["files", "sample-own", "--add", "--", "--", "--"];
+    let mut payload = json!({
+        "next_steps":[crate::render_pm_command(delimiter), crate::render_pm_command(value)],
+        "recovery":{"normalized_args": value}
+    });
+    redact(
+        &mut payload,
+        &["https://fixture:--@example.invalid".to_owned()],
+    );
+    let safe = [
+        "files",
+        "sample-own",
+        "--add",
+        "[redacted]",
+        "--",
+        "[redacted]",
+    ];
+    assert_eq!(
+        payload["next_steps"],
+        json!([
+            RESTORE,
+            crate::render_pm_command(delimiter),
+            crate::render_pm_command(safe),
+        ])
+    );
+    assert_eq!(payload["recovery"]["normalized_args"], json!(safe));
+}
+
 /// Encoded rejection spans stay scoped and preserve the native command renderer.
 #[test]
 fn encoded_identity_projection_preserves_native_recovery() {

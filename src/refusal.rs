@@ -259,6 +259,17 @@ fn windows_spelling(span: &str) -> String {
     output
 }
 
+/// Syntax positions that remain intact when projecting executable guidance.
+#[derive(Default)]
+struct FixedArguments {
+    /// The command verb, including the item namespace if present.
+    command: std::ops::Range<usize>,
+    /// Real option positions and their original spellings.
+    options: Vec<(usize, String)>,
+    /// The option delimiter when it was not consumed as a value.
+    delimiter: Option<usize>,
+}
+
 /// Bounded registered credential fragments prevent re-escaped userinfo echoes.
 struct Credentials {
     /// Whether the original invocation carried URL userinfo.
@@ -431,7 +442,7 @@ impl Credentials {
     }
 
     /// Identifies the command and declared option spellings without mistaking values for flags.
-    fn fixed_arguments(values: &[Value]) -> (std::ops::Range<usize>, Vec<(usize, String)>) {
+    fn fixed_arguments(values: &[Value]) -> FixedArguments {
         let args = values
             .iter()
             .map(|value| value.as_str().unwrap_or_default().to_owned())
@@ -447,24 +458,23 @@ impl Credentials {
                 (option.start, name.to_owned())
             })
             .collect();
-        (invocation.command_tokens, options)
+        FixedArguments {
+            command: invocation.command_tokens,
+            options,
+            delimiter: invocation.delimiter,
+        }
     }
 
     /// Projects argument values while preserving declared commands and option names.
-    fn arguments(
-        &self,
-        values: &mut [Value],
-        command: &std::ops::Range<usize>,
-        options: &[(usize, String)],
-    ) {
-        let mut options = options.iter().peekable();
+    fn arguments(&self, values: &mut [Value], fixed: &FixedArguments) {
+        let mut options = fixed.options.iter().peekable();
         for (index, value) in values.iter_mut().enumerate() {
             if let Some((_, name)) = options.next_if(|(start, _)| *start == index) {
                 if let Some((_, attached)) = value.as_str().and_then(|token| token.split_once('='))
                 {
                     *value = Value::String(format!("{name}={}", self.text(attached, true)));
                 }
-            } else if !command.contains(&index) {
+            } else if !fixed.command.contains(&index) && fixed.delimiter != Some(index) {
                 self.value(value, true, false, false);
             }
         }
@@ -478,8 +488,8 @@ impl Credentials {
                 && let Some(args) = crate::parse_command_args(command)
             {
                 let mut values: Vec<_> = args.into_iter().map(Value::String).collect();
-                let (verb, options) = Self::fixed_arguments(&values);
-                self.arguments(&mut values, &verb, &options);
+                let fixed = Self::fixed_arguments(&values);
+                self.arguments(&mut values, &fixed);
                 *step = Value::String(crate::command_line::render_command(
                     binary,
                     values.iter().filter_map(Value::as_str),
@@ -509,11 +519,10 @@ impl Credentials {
                 }
             }
             Value::Object(values) => {
-                let (command, options) =
-                    match values.get("normalized_args").and_then(Value::as_array) {
-                        Some(args) if schema => Self::fixed_arguments(args),
-                        _ => (0..0, Vec::new()),
-                    };
+                let fixed = match values.get("normalized_args").and_then(Value::as_array) {
+                    Some(args) if schema => Self::fixed_arguments(args),
+                    _ => FixedArguments::default(),
+                };
                 let mut projected = serde_json::Map::new();
                 for (key, mut value) in std::mem::take(values) {
                     if schema
@@ -544,11 +553,11 @@ impl Credentials {
                     }
                     match (schema, key.as_str(), value.as_array_mut()) {
                         (true, "normalized_args", Some(args)) => {
-                            self.arguments(args, &command, &options);
+                            self.arguments(args, &fixed);
                         }
                         (true, "next_steps", Some(steps)) => self.next_steps(steps),
                         (true, "provided_fields", Some(fields)) => {
-                            self.provided_fields(fields, &options);
+                            self.provided_fields(fields, &fixed.options);
                         }
                         _ => {
                             let token = token

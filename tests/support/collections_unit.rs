@@ -313,7 +313,7 @@ fn merging_preserves_unselected_rows() -> TestResult {
         ..CollectionOptions::default()
     };
     let edit = prepare("files", &options, cwd, cwd)?;
-    let (rows, removed) = merge(
+    let (rows, removed, _) = merge(
         "files",
         &[json!({"path":"b","scope":"project","note":"old"})],
         &edit,
@@ -333,7 +333,7 @@ fn merging_preserves_unselected_rows() -> TestResult {
         ..CollectionOptions::default()
     };
     let edit = prepare("tests", &options, cwd, cwd)?;
-    let (rows, removed) = merge(
+    let (rows, removed, _) = merge(
         "tests",
         &[
             json!({"command":"one","path":"a","scope":"project"}),
@@ -354,11 +354,11 @@ fn merging_preserves_unselected_rows() -> TestResult {
         cwd,
         cwd,
     )?;
-    let (rows, removed) = merge("tests", &rows, &edit, false);
+    let (rows, removed, _) = merge("tests", &rows, &edit, false);
     assert_eq!(removed, 1);
     assert!(rows.is_empty());
     let edit = prepare("files", &CollectionOptions::default(), cwd, cwd)?;
-    let (rows, _) = merge(
+    let (rows, _, _) = merge(
         "files",
         &[
             json!({"path":"x","scope":"project","note":"old"}),
@@ -380,7 +380,7 @@ fn merging_preserves_unselected_rows() -> TestResult {
         cwd,
         cwd,
     )?;
-    let (rows, removed) = merge("docs", &rows, &edit, false);
+    let (rows, removed, _) = merge("docs", &rows, &edit, false);
     assert_eq!(removed, 0);
     assert_eq!(
         rows.iter()
@@ -405,7 +405,7 @@ fn merging_preserves_unselected_rows() -> TestResult {
         cwd,
         cwd,
     )?;
-    let (rows, removed) = merge(
+    let (rows, removed, _) = merge(
         "tests",
         &[
             json!({"command":"keep","scope":"project"}),
@@ -427,7 +427,7 @@ fn merging_preserves_unselected_rows() -> TestResult {
             cwd,
             cwd,
         )?;
-        let (rows, removed) = merge(
+        let (rows, removed, _) = merge(
             "tests",
             &[json!({"command":raw,"scope":"project"})],
             &edit,
@@ -448,6 +448,29 @@ fn tracker() -> Result<(tempfile::TempDir, Workspace), Box<dyn std::error::Error
     let workspace = Workspace::discover(root.path())?;
     workspace.create(serde_json::from_value(json!({"id":"sample-one","title":"One","type":"Task","author":"fixture","timestamp":"2026-08-22T10:00:00.000Z"}))?)?;
     Ok((root, workspace))
+}
+
+/// Requires both executable note repair choices before inspecting their shared arguments.
+fn note_repair_commands(context: &Value) -> Result<Vec<Vec<String>>, Box<dyn std::error::Error>> {
+    let steps = context["next_steps"].as_array().ok_or("repair commands")?;
+    let commands = steps
+        .iter()
+        .map(|step| {
+            crate::parse_command_args(step.as_str().ok_or("repair command")?)
+                .ok_or("repair arguments")
+        })
+        .collect::<Result<Vec<_>, _>>()?;
+    assert_eq!(commands.len(), 2);
+    let mut modes = Vec::with_capacity(commands.len());
+    for args in &commands {
+        let mut flags = args.windows(2).filter(|pair| pair[0] == "--note-conflict");
+        let mode = &flags.next().ok_or("note conflict mode")?[1];
+        assert!(flags.next().is_none(), "{args:?}");
+        modes.push(mode.as_str());
+    }
+    modes.sort_unstable();
+    assert_eq!(modes, ["append", "replace"]);
+    Ok(commands)
 }
 
 /// Refusing a conflicting note preserves storage and explicit append projects only the edited link.
@@ -474,9 +497,7 @@ fn artifact_note_conflicts_preserve_storage_and_report_explicit_append() -> Test
         return Err("expected a linked artifact note conflict".into());
     };
     assert_eq!(context["code"], "linked_artifact_note_conflict");
-    for command in context["next_steps"].as_array().ok_or("repairs")? {
-        let args =
-            crate::parse_command_args(command.as_str().ok_or("command")?).ok_or("arguments")?;
+    for args in note_repair_commands(&context)? {
         assert!(
             args.windows(2)
                 .any(|pair| pair == ["--timestamp", "2026-08-22T10:00:00.000Z"])
@@ -495,9 +516,7 @@ fn artifact_note_conflicts_preserve_storage_and_report_explicit_append() -> Test
     else {
         return Err("expected detected session conflict".into());
     };
-    for repair in context["next_steps"].as_array().ok_or("repairs")? {
-        let args =
-            crate::parse_command_args(repair.as_str().ok_or("command")?).ok_or("arguments")?;
+    for args in note_repair_commands(&context)? {
         assert!(
             !args
                 .iter()
@@ -1518,6 +1537,14 @@ fn artifact_cwd_resolves_root_alias_without_following_its_suffix() -> TestResult
         resolve_artifact_cwd(&external_missing, project)?,
         external_missing
     );
+    std::os::unix::fs::symlink("loop", project.join("loop"))?;
+    std::os::unix::fs::symlink("missing", project.join("dangling"))?;
+    for base in ["loop/..", "loop/sub", "dangling/.."] {
+        assert!(matches!(
+            resolve_artifact_cwd(&project.join(base), project),
+            Err(PmRustError::CommandRefusal { exit_code: 2, .. })
+        ));
+    }
     Ok(())
 }
 
@@ -1556,10 +1583,7 @@ fn cli_note_repair_identifies_other_native_only_options() -> TestResult {
             return Err("expected a note conflict".into());
         };
         assert_eq!(context["code"], "linked_artifact_note_conflict");
-        let steps = context["next_steps"].as_array().ok_or("repair commands")?;
-        for step in steps {
-            let command = step.as_str().ok_or("repair command")?;
-            let args = crate::parse_command_args(command).ok_or("repair arguments")?;
+        for args in note_repair_commands(&context)? {
             assert_eq!(args[..2], ["pm-rust", "--pm-path"]);
             assert!(args.iter().any(|arg| arg == flag));
             assert_eq!(args[5], "--artifact-cwd");

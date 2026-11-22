@@ -9,7 +9,7 @@ use crate::PmRustError;
 /// Lifecycle definitions and workflow selected for one complete list read.
 pub(crate) struct Lifecycle {
     /// Normalized status definitions, keyed by canonical identity.
-    definitions: BTreeMap<String, Value>,
+    definitions: BTreeMap<String, (Value, f64)>,
     /// Alias tokens mapped to canonical status identities.
     aliases: BTreeMap<String, String>,
     /// Configured in-progress status used by lifecycle buckets.
@@ -52,13 +52,18 @@ impl Lifecycle {
             statuses.extend(entries.iter().cloned());
         }
         let mut definitions = BTreeMap::new();
-        for definition in statuses {
+        for (index, definition) in statuses.into_iter().enumerate() {
             if let Some(id) = definition["id"].as_str() {
-                definitions.insert(token(id), definition);
+                #[allow(
+                    clippy::cast_precision_loss,
+                    reason = "status arrays fit the precise range"
+                )]
+                let order = definition["order"].as_f64().unwrap_or(index as f64);
+                definitions.insert(token(id), (definition, order));
             }
         }
         let mut aliases = BTreeMap::new();
-        for (id, definition) in &definitions {
+        for (id, (definition, _)) in &definitions {
             aliases.insert(id.clone(), id.clone());
             for alias in definition["aliases"].as_array().into_iter().flatten() {
                 if let Some(alias) = alias.as_str() {
@@ -75,24 +80,31 @@ impl Lifecycle {
             .as_str()
             .or_else(|| schema["workflow"]["in_progress_status"].as_str())
             .unwrap_or("in_progress");
+        let open = token(
+            workflow["open_status"]
+                .as_str()
+                .or_else(|| schema["workflow"]["open_status"].as_str())
+                .unwrap_or("open"),
+        );
+        let progress = token(crate::history::trim_evidence_line(progress));
+        let progress = if progress.is_empty() {
+            progress_fallback(&definitions, &open)
+        } else {
+            progress
+        };
         Self {
             type_workflows,
             hierarchy: Hierarchy::new(&settings["schema"]["relationship_kinds"]),
             definitions,
             aliases,
-            progress: token(progress),
+            progress,
             close: token(
                 workflow["close_status"]
                     .as_str()
                     .or_else(|| schema["workflow"]["close_status"].as_str())
                     .unwrap_or("closed"),
             ),
-            open: token(
-                workflow["open_status"]
-                    .as_str()
-                    .or_else(|| schema["workflow"]["open_status"].as_str())
-                    .unwrap_or("open"),
-            ),
+            open,
         }
     }
 
@@ -139,11 +151,7 @@ impl Lifecycle {
     pub(crate) fn role(&self, status: &str, role: &str) -> bool {
         self.definitions
             .get(&self.canonical(status))
-            .is_some_and(|definition| {
-                definition["roles"]
-                    .as_array()
-                    .is_some_and(|roles| roles.iter().any(|entry| entry == role))
-            })
+            .is_some_and(|(definition, _)| has_role(definition, role))
     }
 
     /// Classifies all three published terminal roles.
@@ -167,6 +175,58 @@ impl Lifecycle {
             "in_progress" => self.canonical(status) == self.progress,
             _ => self.canonical(status) == self.canonical(selected),
         }
+    }
+}
+
+/// Checks the declared roles on a status definition.
+fn has_role(definition: &Value, role: &str) -> bool {
+    definition["roles"]
+        .as_array()
+        .is_some_and(|roles| roles.iter().any(|entry| entry == role))
+}
+
+/// Selects the published active fallback for an unset progress setting.
+fn progress_fallback(definitions: &BTreeMap<String, (Value, f64)>, open: &str) -> String {
+    if let Some(preferred) = ["in_progress", open]
+        .into_iter()
+        .find(|status| definitions.contains_key(*status))
+    {
+        return preferred.to_owned();
+    }
+    definitions
+        .iter()
+        .min_by(
+            |(left_id, (left, left_order)), (right_id, (right, right_order))| {
+                has_role(right, "active")
+                    .cmp(&has_role(left, "active"))
+                    .then_with(|| left_order.total_cmp(right_order))
+                    .then_with(|| crate::collation::compare(left_id, right_id))
+            },
+        )
+        .map(|(id, _)| id.clone())
+        .unwrap_or_default()
+}
+
+#[cfg(test)]
+mod activity_progress_tests {
+    use super::*;
+
+    #[test]
+    fn blank_progress_falls_back_to_the_ordered_active_role() {
+        let settings = json!({"schema":{
+            "statuses":[
+                {"id":"zeta","order":10,"roles":["active"]},
+                {"id":"alpha","order":10,"roles":["active"]},
+                {"id":"closed","order":1,"roles":["terminal"]},
+                {"id":"later","order":20,"roles":["active"]}
+            ],
+            "workflow":{"in_progress_status":" ", "open_status":"absent"}
+        }});
+        assert_eq!(
+            Lifecycle::from_values(&settings, &Value::Null, &Value::Null)
+                .activity_progress_status(),
+            "alpha"
+        );
     }
 }
 

@@ -265,32 +265,19 @@ fn resolve_artifact_cwd(path: &Path, root: &Path) -> Result<PathBuf, PmRustError
     for component in absolute.components() {
         if component == Component::ParentDir {
             // Traversal from an existing symlink starts at its target directory.
-            if let Ok(parent) = normalized.join("..").canonicalize() {
-                normalized = parent;
-            } else {
-                normalized.pop();
+            match normalized.join("..").canonicalize() {
+                Ok(parent) => normalized = parent,
+                Err(error) if error.kind() == std::io::ErrorKind::NotFound => {
+                    validate_artifact_directory(&normalized)?;
+                    normalized.pop();
+                }
+                Err(_) => return Err(artifact_cwd_refusal()),
             }
         } else {
             normalized.push(component.as_os_str());
         }
     }
-    // The nearest existing ancestor must be a directory, including on platforms
-    // that report a file in an intermediate component as a missing path.
-    let directory =
-        normalized
-            .ancestors()
-            .find_map(|candidate| match std::fs::metadata(candidate) {
-                Ok(metadata) => Some(metadata.is_dir()),
-                Err(error) if error.kind() == std::io::ErrorKind::NotADirectory => Some(false),
-                Err(_) => None,
-            });
-    if directory == Some(false) {
-        return Err(refusal(
-            "--artifact-cwd must name a directory",
-            2,
-            json!({}),
-        ));
-    }
+    validate_artifact_directory(&normalized)?;
     if normalized.starts_with(root) {
         return Ok(normalized);
     }
@@ -305,6 +292,26 @@ fn resolve_artifact_cwd(path: &Path, root: &Path) -> Result<PathBuf, PmRustError
         }
     }
     Ok(normalized)
+}
+
+/// A missing suffix is usable if its nearest filesystem entry resolves to a directory.
+fn validate_artifact_directory(path: &Path) -> Result<(), PmRustError> {
+    let directory =
+        path.ancestors()
+            .find_map(|candidate| match std::fs::symlink_metadata(candidate) {
+                Ok(_) => Some(std::fs::metadata(candidate).is_ok_and(|metadata| metadata.is_dir())),
+                Err(error) if error.kind() == std::io::ErrorKind::NotFound => None,
+                Err(_) => Some(false),
+            });
+    if directory == Some(false) {
+        return Err(artifact_cwd_refusal());
+    }
+    Ok(())
+}
+
+/// Refuses an artifact base that cannot be traversed as a directory.
+fn artifact_cwd_refusal() -> PmRustError {
+    refusal("--artifact-cwd must name a directory", 2, json!({}))
 }
 
 /// Anchors a relative artifact reference at the invocation directory.
@@ -1175,6 +1182,8 @@ pub(crate) struct CollectionChange {
     pub(crate) changed: bool,
     /// Count of stored rows removed by selectors or duplicate collapse.
     pub(crate) removed: usize,
+    /// Count of rows selected for removal, including transient additions.
+    pub(crate) matched_removals: usize,
     /// Entries added or rewritten, in stored order.
     pub(crate) written: Vec<Value>,
     /// Per-argument linked artifact outcomes.
@@ -1187,6 +1196,7 @@ impl CollectionChange {
         current: &[Value],
         rows: &[Value],
         removed: usize,
+        matched_removals: usize,
         outcomes: Vec<Value>,
     ) -> Self {
         let mut unmatched: Vec<_> = current.iter().collect();
@@ -1205,19 +1215,20 @@ impl CollectionChange {
         Self {
             changed: current != rows,
             removed,
+            matched_removals,
             written,
             outcomes,
         }
     }
 }
 
-/// Applies additions and removals to the latest locked collection.
+/// Applies additions and removals, returning rows, stored removals and selector matches.
 pub(crate) fn merge(
     key: &str,
     current: &[Value],
     edit: &Edit,
     stable: bool,
-) -> (Vec<Value>, usize) {
+) -> (Vec<Value>, usize, usize) {
     let mut rows = Vec::<Value>::new();
     for row in current {
         if key != "tests"
@@ -1230,7 +1241,7 @@ pub(crate) fn merge(
             rows.push(row.clone());
         }
     }
-    let collapsed = current.len() - rows.len();
+    let stored = rows.len();
     for add in &edit.adds {
         let existing = rows.iter_mut().find(|row| {
             if key == "tests" {
@@ -1256,22 +1267,24 @@ pub(crate) fn merge(
         }
     }
     let before = rows.len();
-    rows = rows
-        .into_iter()
-        .enumerate()
-        .filter(|(i, row)| {
-            !edit.indices.contains(&(i + 1))
-                && !edit.removes.iter().any(|(kind, value)| {
-                    if kind == "either" {
-                        row["command"] == *value || row["path"] == *value
-                    } else {
-                        row[kind] == *value
-                    }
-                })
-        })
-        .map(|(_, row)| row)
-        .collect();
-    let removed = collapsed + before - rows.len();
+    let mut index = 0;
+    let mut stored_kept = 0;
+    rows.retain(|row| {
+        let was_stored = index < stored;
+        index += 1;
+        let keep = !edit.indices.contains(&index)
+            && !edit.removes.iter().any(|(kind, value)| {
+                if kind == "either" {
+                    row["command"] == *value || row["path"] == *value
+                } else {
+                    row[kind] == *value
+                }
+            });
+        stored_kept += usize::from(was_stored & keep);
+        keep
+    });
+    let matched = before - rows.len();
+    let removed = current.len() - stored_kept;
     if key != "tests" && !stable {
         rows.sort_by(|a, b| {
             crate::collation::compare(
@@ -1286,7 +1299,7 @@ pub(crate) fn merge(
             })
         });
     }
-    (rows, removed)
+    (rows, removed, matched)
 }
 
 fn refuse_collection_option(command: &str, flag: &str, candidates: &[&str]) -> PmRustError {
@@ -1473,8 +1486,8 @@ impl Workspace {
         let changed = mutation.changed;
         let mut result = if key == "tests" {
             let mut result = json!({"ok":true,"id":document.metadata.id,"tests":rows,"run_results":[],"changed":changed,"count":count});
-            if mutation.removed > 0 {
-                result["removed"] = json!(mutation.removed);
+            if mutation.matched_removals > 0 {
+                result["removed"] = json!(mutation.matched_removals);
             }
             result
         } else {

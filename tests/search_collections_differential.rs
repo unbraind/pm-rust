@@ -423,6 +423,49 @@ fn artifact_cwd_traverses_the_symlink_target_parent() -> TestResult {
     artifacts(&pm_root, &rust.path().join(".agents/pm"))
 }
 
+/// Removing only a newly added test matches the selector without removing a stored row.
+#[test]
+fn linked_test_removal_counts_only_stored_rows() -> TestResult {
+    let Some(published) = published_cli::published_cli_or_skip("transient linked test removals")
+    else {
+        return Ok(());
+    };
+    let scratch = tempfile::tempdir()?;
+    let driver = write_driver(scratch.path(), &published)?;
+    let node = tempfile::tempdir()?;
+    let rust = tempfile::tempdir()?;
+    seed_linked_files(&driver, node.path(), "sub/source.rs")?;
+    copy_directory(&node.path().join(".agents"), &rust.path().join(".agents"))?;
+    let args = [
+        "test",
+        "sample-item",
+        "--add",
+        "command=cargo fmt",
+        "--remove-index",
+        "1",
+        "--author",
+        "alpha",
+        "--json",
+    ];
+    let expected = oracle(&driver, node.path(), &args)?;
+    assert!(
+        expected.status.success(),
+        "{}",
+        String::from_utf8_lossy(&expected.stderr)
+    );
+    let receipt: Value = serde_json::from_slice(&expected.stdout)?;
+    assert_eq!(receipt["changed"], false);
+    assert_eq!(receipt["removed"], 1);
+    assert_eq!(receipt["mutation_receipt"]["removed_count"], 0);
+    assert_eq!(receipt["tests"], json!([]));
+    let actual = native(rust.path(), &args, true)?;
+    output(&expected, &actual, &args);
+    artifacts(
+        &node.path().join(".agents/pm"),
+        &rust.path().join(".agents/pm"),
+    )
+}
+
 /// An external alias selects the same project-relative link in the native SDK and published CLI.
 #[cfg(unix)]
 #[test]

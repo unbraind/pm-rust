@@ -1156,7 +1156,8 @@ fn context_history<'a>(
         if !advisory {
             continue;
         }
-        unowned += usize::from(text(item, "assignee").trim().is_empty());
+        unowned +=
+            usize::from(crate::history::trim_evidence_line(text(item, "assignee")).is_empty());
         let activity = std::iter::once(text(item, "updated_at"))
             .chain(history.iter().filter_map(claim_activity::activity))
             .filter_map(claim_activity::parse_stored_timestamp)

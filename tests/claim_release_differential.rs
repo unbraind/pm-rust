@@ -2157,6 +2157,74 @@ fn undated_lock_recovery_matches_oracle_guidance() -> Result<(), Box<dyn std::er
     Ok(())
 }
 
+/// Acquisition uses the configured TTL, while GC uses the incumbent's receipt TTL.
+#[test]
+fn stale_lock_cleanup_respects_the_recorded_ttl() -> Result<(), Box<dyn std::error::Error>> {
+    let Some(fixture) = Fixture::new("strict")? else {
+        return Ok(());
+    };
+    let now = time::OffsetDateTime::now_utc();
+    let format = &time::format_description::well_known::Rfc3339;
+    let now_text = now.format(format)?;
+    let created = (now - time::Duration::hours(2)).format(format)?;
+    let args = ["claim", "sample-own", "--author", "alpha", "--json"];
+    let before = fixture.snapshots()?;
+    for (ttl, gc_eligible) in [(86_400, false), (1_800, true)] {
+        let raw = serde_json::to_vec(&serde_json::json!({
+            "id":"sample-own", "pid":1, "owner":"fixture",
+            "created_at":created, "ttl_seconds":ttl, "token":"fixture-lease"
+        }))?;
+        let lock = ".agents/pm/locks/sample-own.lock";
+        for root in [fixture.node.path(), fixture.rust.path()] {
+            fs::write(root.join(lock), &raw)?;
+        }
+        let expected = published_command(&fixture.driver, fixture.node.path(), &args)
+            .env("FIXED_CLOCK", &now_text)
+            .output()?;
+        let actual = native_command(fixture.rust.path(), &args).output()?;
+        for output in [&expected, &actual] {
+            assert_eq!(
+                output.status.code(),
+                Some(4),
+                "{}",
+                String::from_utf8_lossy(&output.stderr)
+            );
+            let refusal: serde_json::Value = serde_json::from_slice(&output.stderr)?;
+            assert_eq!(refusal["code"], "stale_lock_requires_override");
+            let guidance = refusal["next_steps"][0]
+                .as_str()
+                .ok_or("cleanup guidance")?;
+            assert_eq!(
+                guidance.starts_with("pm gc --scope locks")
+                    || guidance.starts_with("Run pm gc --scope locks"),
+                gc_eligible,
+                "{refusal}"
+            );
+            assert_eq!(
+                guidance.contains("once its owner is confirmed gone"),
+                !gc_eligible,
+                "{refusal}"
+            );
+        }
+        let gc = published_command(
+            &fixture.driver,
+            fixture.node.path(),
+            &["gc", "--scope", "locks", "--json"],
+        )
+        .env("FIXED_CLOCK", &now_text)
+        .output()?;
+        assert!(
+            gc.status.success(),
+            "{}",
+            String::from_utf8_lossy(&gc.stderr)
+        );
+        assert_eq!(fixture.node.path().join(lock).exists(), !gc_eligible);
+        assert_eq!(fs::read(fixture.rust.path().join(lock))?, raw);
+        assert_eq!(fixture.snapshots()?, before);
+    }
+    Ok(())
+}
+
 /// The pinned settings loader accepts a missing or null guard and every optional field.
 #[test]
 #[allow(
@@ -2900,7 +2968,7 @@ fn sdk_collection_identity_must_be_credential_free() -> Result<(), Box<dyn std::
         (
             pm_rust::AuthorIdentity {
                 principal: resolved.principal,
-                ..clean
+                ..clean.clone()
             },
             "claim_principal",
         ),
@@ -2920,6 +2988,23 @@ fn sdk_collection_identity_must_be_credential_free() -> Result<(), Box<dyn std::
         workspace.collection("sample-own", "files", &options, fixture.rust.path())?;
     }
     assert_eq!(fixture.snapshots()?, before);
+
+    let clean_options = pm_rust::CollectionOptions {
+        add: vec!["example.rs".to_owned()],
+        author: "fixture".to_owned(),
+        identity: Some(clean),
+        ..Default::default()
+    };
+    let receipt =
+        workspace.collection("sample-own", "files", &clean_options, fixture.rust.path())?;
+    assert_eq!(
+        receipt["files"],
+        serde_json::json!([{"path":"example.rs","scope":"project"}])
+    );
+    assert_eq!(
+        workspace.get("sample-own")?.metadata.extra["files"],
+        receipt["files"]
+    );
     Ok(())
 }
 
@@ -3610,7 +3695,7 @@ fn projected_local_blocker_ids_withdraw_only_the_affected_inspection()
     let Some(fixture) = Fixture::new("none")? else {
         return Ok(());
     };
-    for id in ["sample-gate", "sample-visible"] {
+    for id in ["sample-visible", "sample-withheld"] {
         prepare(
             &fixture,
             &[
@@ -3627,10 +3712,11 @@ fn projected_local_blocker_ids_withdraw_only_the_affected_inspection()
             ],
         )?;
     }
+    // The visible blocker sorts first, so the unblock advice is an exact edge removal.
     for dependency in [
-        "id=sample-gate,kind=blocked_by",
         "id=sample-visible,kind=blocked_by",
-        "id=https://sample-gate:synthetic-secret@example.invalid/issue,kind=blocked_by,source_kind=external",
+        "id=sample-withheld,kind=blocked_by",
+        "id=ssh://sample-withheld:synthetic-secret@example.invalid/issue,kind=blocked_by,source_kind=external",
     ] {
         prepare(
             &fixture,
@@ -3686,7 +3772,7 @@ fn projected_local_blocker_ids_withdraw_only_the_affected_inspection()
         .iter()
         .filter_map(serde_json::Value::as_str)
         .filter_map(pm_rust::parse_command_args)
-        .filter(|args| args.get(3).is_some_and(|arg| arg == "get") && args.len() == 5)
+        .filter(|args| is_get_command(args))
         .collect();
     assert_eq!(
         inspections,
@@ -3705,6 +3791,19 @@ fn projected_local_blocker_ids_withdraw_only_the_affected_inspection()
     assert!(!actual.to_string().contains("synthetic-secret"));
     assert_eq!(fixture.snapshots()?, before);
     Ok(())
+}
+
+/// Identifies inspections before checking their complete command arguments.
+fn is_get_command(args: &[String]) -> bool {
+    let Some((binary, args)) = args.split_first() else {
+        return false;
+    };
+    let invocation = pm_rust::invocation::Invocation::parse(args);
+    matches!(binary.as_str(), "pm" | "pm-rust")
+        && invocation.command.is_some_and(|index| {
+            args[index] == "get"
+                || (args[index] == "item" && args.get(index + 1).is_some_and(|arg| arg == "get"))
+        })
 }
 
 /// A local blocker's title can supply credentials copied by an external selector.

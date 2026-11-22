@@ -2107,6 +2107,9 @@ fn round11_public_prose_process_keeps_retry() -> Result<(), Box<dyn std::error::
                 if !text.contains(&expected) && !text.contains(&encoded) {
                     mismatches.push(format!("close projection json={json}: {reason}"));
                 }
+                if private {
+                    assert_private_close_text_withheld(&text, &reason, input)?;
+                }
                 if json {
                     let payload: serde_json::Value = serde_json::from_str(&text)?;
                     if payload["recovery"].get("suggested_retry").is_none() != private {
@@ -2120,6 +2123,32 @@ fn round11_public_prose_process_keeps_retry() -> Result<(), Box<dyn std::error::
         }
     }
     assert!(mismatches.is_empty(), "{}", mismatches.join("\n"));
+    Ok(())
+}
+
+/// Checks the entire refusal for raw and serialized credential fragments.
+fn assert_private_close_text_withheld(
+    stderr: &str,
+    reason: &str,
+    input: &str,
+) -> Result<(), Box<dyn std::error::Error>> {
+    let (_, url) = input.split_once("://").ok_or("private fixture URL")?;
+    let (userinfo, _) = url.split_once("@host.invalid").ok_or("private userinfo")?;
+    let mut fragments = vec![reason, input, userinfo];
+    if let Some((user, password)) = userinfo.split_once(':') {
+        fragments.extend([user, password].into_iter().filter(|part| part.len() >= 6));
+    }
+    for fragment in fragments {
+        let serialized = serde_json::to_string(fragment)?;
+        let escaped = serialized.trim_matches('"');
+        let quoted = pm_rust::quote_command_arg(fragment);
+        for spelling in [fragment, escaped, quoted.as_str()] {
+            assert!(
+                !stderr.contains(spelling),
+                "close refusal leaked {spelling:?}: {stderr}"
+            );
+        }
+    }
     Ok(())
 }
 
@@ -2843,6 +2872,62 @@ fn artifact_cwd_parent_traversal_preserves_the_operand_base()
         );
         let receipt: serde_json::Value = serde_json::from_slice(&output.stdout)?;
         assert_eq!(receipt["files"][0]["path"], format!("sub/{file}"));
+    }
+    Ok(())
+}
+
+/// A traversal error must not redirect a removal to a different artifact base.
+#[cfg(unix)]
+#[test]
+fn artifact_cwd_symlink_loop_refusal_preserves_root_link() -> Result<(), Box<dyn std::error::Error>>
+{
+    let project = workspace()?;
+    seed_item(&project)?;
+    expect_ok(
+        &project,
+        &[
+            "files",
+            "sample-cli",
+            "--add",
+            "source.rs",
+            "--author=fixture",
+        ],
+    )?;
+    std::os::unix::fs::symlink("loop", project.path().join("loop"))?;
+    std::os::unix::fs::symlink("missing", project.path().join("dangling"))?;
+    assert!(project.path().join("loop/..").canonicalize().is_err());
+    let root = project.path().join(".agents/pm");
+    let item = root.join("tasks/sample-cli.toon");
+    let history = root.join("history/sample-cli.jsonl");
+    let before = (fs::read(&item)?, fs::read(&history)?);
+    for base in [
+        "loop/..",
+        "loop",
+        "loop/sub",
+        "dangling/..",
+        "dangling/sub/..",
+    ] {
+        let output = pm_rust(
+            &project,
+            &[
+                "files",
+                "sample-cli",
+                "--artifact-cwd",
+                base,
+                "--remove",
+                "source.rs",
+                "--author=fixture",
+                "--json",
+            ],
+        )?;
+        let stderr = String::from_utf8(output.stderr)?;
+        assert_eq!(output.status.code(), Some(2), "{stderr}");
+        assert!(
+            stderr.contains("--artifact-cwd must name a directory"),
+            "{stderr}"
+        );
+        assert!(output.stdout.is_empty());
+        assert_eq!((fs::read(&item)?, fs::read(&history)?), before);
     }
     Ok(())
 }

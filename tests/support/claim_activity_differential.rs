@@ -283,6 +283,34 @@ fn claim_history_provenance_and_activity_match_published() -> TestResult {
     reclassified["event_class"] = json!("substantive");
     let cases = [
         ("untouched", vec![claim()], None, false, true),
+        (
+            "legacy-http-date-update",
+            vec![
+                claim(),
+                record(
+                    "update",
+                    "Thu, 06 Aug 2026 10:00:00 GMT",
+                    substantive["patch"].clone(),
+                ),
+            ],
+            None,
+            false,
+            false,
+        ),
+        (
+            "equivalent-iso-update",
+            vec![
+                claim(),
+                record(
+                    "update",
+                    "2026-08-06T10:00:00Z",
+                    substantive["patch"].clone(),
+                ),
+            ],
+            None,
+            false,
+            false,
+        ),
         ("bom-prefixed-claim", vec![claim()], None, false, true),
         ("bom-padded-claim", vec![claim()], None, false, true),
         (

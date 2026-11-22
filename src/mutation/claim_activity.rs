@@ -71,7 +71,12 @@ fn date_part(value: &str) -> Option<(u8, &str)> {
 
 /// Parses a stored timestamp as epoch milliseconds for activity comparisons.
 pub(crate) fn parse_stored_timestamp(value: &str) -> Option<i64> {
-    parse_stored_timestamp_in_zone(value, TimeZone::system)
+    parse_stored_timestamp_in_zone(value, TimeZone::system).or_else(|| {
+        jiff::fmt::rfc2822::DateTimeParser::new()
+            .parse_timestamp(value)
+            .ok()
+            .map(jiff::Timestamp::as_millisecond)
+    })
 }
 
 /// Resolves offset-free clocks in the supplied zone when the stored value needs it.

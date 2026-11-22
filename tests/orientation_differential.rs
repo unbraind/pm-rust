@@ -288,6 +288,124 @@ fn context_non_active_progress_matches_oracle() -> TestResult {
     Ok(())
 }
 
+/// The progress advisory uses the published fallback and ECMAScript blank assignees.
+#[test]
+fn context_progress_and_blank_assignees_match_oracle() -> TestResult {
+    let Some(published) = published_cli::published_cli_or_skip("context progress fallback") else {
+        return Ok(());
+    };
+    let scratch = tempfile::tempdir()?;
+    let driver = orientation_driver(scratch.path(), &published)?;
+    let root = tempfile::tempdir()?;
+    assert!(
+        oracle(&driver, root.path(), &["init", "sample-", "--defaults"])?
+            .status
+            .success()
+    );
+    let pm = root.path().join(".agents/pm");
+    let path = pm.join("settings.json");
+    let mut settings: Value = serde_json::from_slice(&fs::read(&path)?)?;
+    let rows: Vec<_> = [
+        ("sample-bom", "\u{feff}"),
+        ("sample-empty", ""),
+        ("sample-owned", "alpha"),
+        ("sample-next-line", "\u{85}"),
+    ]
+    .into_iter()
+    .map(|(id, assignee)| {
+        let mut row = item(id, "Task", "in_progress", 1);
+        row["assignee"] = json!(assignee);
+        row
+    })
+    .collect();
+    fixture(root.path(), &rows)?;
+    for (progress, expected_count) in [("  ", Some(2)), ("in_progress", Some(2)), ("unknown", None)]
+    {
+        let workflow = json!({"open_status":"open", "in_progress_status":progress});
+        settings["schema"]["workflow"] = workflow.clone();
+        fs::write(&path, settings.to_string())?;
+        fs::write(
+            pm.join("schema/workflows.json"),
+            json!({"workflow":workflow}).to_string(),
+        )?;
+        let args = ["context", "--json"];
+        let expected = oracle(&driver, root.path(), &args)?;
+        let actual = native(root.path(), &args)?;
+        for result in [expected, actual] {
+            assert!(
+                result.status.success(),
+                "{}",
+                String::from_utf8_lossy(&result.stderr)
+            );
+            let result: Value = serde_json::from_slice(&result.stdout)?;
+            assert_eq!(
+                result["summary"]["in_progress_unowned"].as_u64(),
+                expected_count,
+                "{progress:?}"
+            );
+        }
+    }
+    Ok(())
+}
+
+/// If the preferred statuses are absent, activity uses the registry's first active role.
+#[test]
+fn context_blank_progress_falls_back_to_ordered_active_role() -> TestResult {
+    let Some(published) = published_cli::published_cli_or_skip("ordered context progress fallback")
+    else {
+        return Ok(());
+    };
+    let scratch = tempfile::tempdir()?;
+    let driver = orientation_driver(scratch.path(), &published)?;
+    let root = tempfile::tempdir()?;
+    assert!(
+        oracle(&driver, root.path(), &["init", "sample-", "--defaults"])?
+            .status
+            .success()
+    );
+    let pm = root.path().join(".agents/pm");
+    let settings_path = pm.join("settings.json");
+    let mut settings: Value = serde_json::from_slice(&fs::read(&settings_path)?)?;
+    let statuses = json!([
+        {"id":"zeta","order":10,"roles":["active"]},
+        {"id":"alpha","order":10,"roles":["active"]},
+        {"id":"closed","order":1,"roles":["terminal"]},
+        {"id":"later","order":20,"roles":["active"]}
+    ]);
+    let workflow = json!({"open_status":"absent","in_progress_status":" "});
+    settings["schema"]["statuses"] = statuses.clone();
+    settings["schema"]["workflow"] = workflow.clone();
+    fs::write(&settings_path, settings.to_string())?;
+    fs::write(
+        pm.join("schema/statuses.json"),
+        json!({"statuses":statuses}).to_string(),
+    )?;
+    fs::write(
+        pm.join("schema/workflows.json"),
+        json!({"workflow":workflow}).to_string(),
+    )?;
+    fixture(
+        root.path(),
+        &[
+            item("sample-first", "Task", "alpha", 1),
+            item("sample-other", "Task", "zeta", 2),
+            item("sample-later", "Task", "later", 3),
+        ],
+    )?;
+    let args = ["context", "--json"];
+    let expected = oracle(&driver, root.path(), &args)?;
+    assert!(
+        expected.status.success(),
+        "{}",
+        String::from_utf8_lossy(&expected.stderr)
+    );
+    let result: Value = serde_json::from_slice(&expected.stdout)?;
+    assert_eq!(result["summary"]["in_progress_unowned"], 1);
+    assert_eq!(result["summary"]["in_progress"], 1);
+    compare(&expected, &native(root.path(), &args)?, &args);
+    Ok(())
+}
+
 /// Context ranks by the latest substantive instant even when offsets reverse text order.
 #[test]
 fn context_focus_recency_uses_latest_instant() -> TestResult {
@@ -532,6 +650,18 @@ fn context_idle_activity_and_threshold_match_oracle() -> TestResult {
     for (threshold, updated, history, idle) in [
         ("600", "2026-07-01T00:00:00.000Z", Some("2026-08"), 0),
         ("72", "2026-08-18T00:00:00.000Z", Some("2026-08-22"), 0),
+        (
+            "72",
+            "2026-08-18T00:00:00.000Z",
+            Some("Sat, 22 Aug 2026 00:00:00 GMT"),
+            0,
+        ),
+        (
+            "72",
+            "2026-08-18T00:00:00.000Z",
+            Some("2026-08-22T00:00:00Z"),
+            0,
+        ),
         (
             "72",
             "2026-08-18T00:00:00.000Z",

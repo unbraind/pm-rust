@@ -25,6 +25,8 @@ pub struct Invocation<'a> {
     pub command: Option<usize>,
     /// Indices of the recognized command name, including its optional item namespace.
     pub(crate) command_tokens: std::ops::Range<usize>,
+    /// Position of the delimiter when it ends option parsing.
+    pub(crate) delimiter: Option<usize>,
     /// Actual option occurrences before the argument delimiter.
     pub options: Vec<OptionToken<'a>>,
 }
@@ -62,12 +64,14 @@ impl<'a> Invocation<'a> {
         let mut result = Self {
             command: None,
             command_tokens: 0..0,
+            delimiter: None,
             options: Vec::new(),
         };
         let mut command = definition();
         let mut index = 0;
         while let Some(token) = args.get(index) {
             if token == "--" {
+                result.delimiter = Some(index);
                 break;
             }
             if token.starts_with('-') && token != "-" {

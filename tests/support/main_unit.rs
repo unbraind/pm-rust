@@ -2425,7 +2425,42 @@ fn pause_release_fence_conflict_suppresses_forced_pause_replay()
         &args,
         exit_code,
     );
-    assert!(before_update["recovery"]["suggested_retry_args"].is_array());
+    assert_eq!(
+        before_update["recovery"]["suggested_retry_args"],
+        serde_json::json!(args)
+    );
+
+    let stale = pm_rust::PmRustError::OwnershipRefusal {
+        detail: "Expired lease".to_owned(),
+        context: serde_json::json!({
+            "code":"stale_lock_requires_override",
+            "next_steps":["pm gc --scope locks", "Remove the expired lease, then retry the same command."]
+        }),
+    };
+    let pm_rust::PmRustError::CommandRefusal {
+        detail,
+        context,
+        exit_code,
+    } = pm_rust::completed_step_failure(stale, "sample-one", "update")
+    else {
+        return Err("expected partial stale-lock refusal".into());
+    };
+    let receipt = super::command_error_json(&detail, &context, &args, exit_code);
+    assert_eq!(receipt["code"], "stale_lock_requires_override");
+    assert_eq!(context["completed_step"], "update");
+    assert!(receipt["recovery"].get("suggested_retry_args").is_none());
+    assert!(receipt["recovery"].get("suggested_retry").is_none());
+    let guidance = receipt["required"].as_str().ok_or("ownership guidance")?;
+    assert!(guidance.contains("verify current ownership before retrying only release"));
+    assert!(guidance.contains("If the original assignment is gone or has changed, stop."));
+    let steps = receipt["next_steps"].as_array().ok_or("cleanup steps")?;
+    assert!(steps.contains(&serde_json::json!("pm gc --scope locks")));
+    assert!(steps.contains(&serde_json::json!(guidance)));
+    assert!(!steps.iter().any(|step| {
+        step.as_str()
+            .unwrap_or_default()
+            .contains("retry the same command")
+    }));
     Ok(())
 }
 
