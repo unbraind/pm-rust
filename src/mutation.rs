@@ -1364,7 +1364,15 @@ fn create_or_reclaim_lock(
             });
         }
     };
+    // Linux also decodes ordinary receipts to check for confirmed dead owners.
+    #[cfg(target_os = "linux")]
     let receipt = crate::strict_json::from_str(&existing_raw);
+    #[cfg(not(target_os = "linux"))]
+    let receipt = if age == LockAge::Modified && id != "session-state" {
+        Ok(Value::Null)
+    } else {
+        crate::strict_json::from_str(&existing_raw)
+    };
     let entry = receipt.as_ref().unwrap_or(&Value::Null);
     // The item ID and the session publisher share this exact lease path.
     let shared_ttl = (id == "session-state")
