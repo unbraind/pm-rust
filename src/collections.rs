@@ -264,11 +264,19 @@ fn resolve_artifact_cwd(path: &Path, root: &Path) -> Result<PathBuf, PmRustError
     let mut normalized = PathBuf::new();
     for component in absolute.components() {
         if component == Component::ParentDir {
-            // A Windows verbatim join can erase a file prefix without traversing it.
+            // A Windows verbatim join erases the parent component before traversal.
             #[cfg(windows)]
-            validate_artifact_directory(&normalized)?;
+            let parent = {
+                validate_artifact_directory(&normalized)?;
+                normalized.canonicalize().map(|mut directory| {
+                    directory.pop();
+                    directory
+                })
+            };
             // Traversal from an existing symlink starts at its target directory.
-            match normalized.join("..").canonicalize() {
+            #[cfg(not(windows))]
+            let parent = normalized.join("..").canonicalize();
+            match parent {
                 Ok(parent) => normalized = parent,
                 Err(error) if error.kind() == std::io::ErrorKind::NotFound => {
                     validate_artifact_directory(&normalized)?;

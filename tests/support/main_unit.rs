@@ -2439,6 +2439,7 @@ fn pause_release_fence_conflict_suppresses_forced_pause_replay()
     );
     assert!(receipt["required"].as_str().is_some_and(|required| {
         required.contains("verify current ownership before retrying only release")
+            && required.contains("If the original assignment is gone or has changed, stop.")
     }));
 
     let before_update = super::command_error_json(

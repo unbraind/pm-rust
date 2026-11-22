@@ -67,6 +67,10 @@ fn parse_args(text: &str, single_command: bool) -> Option<Vec<String>> {
         if single_command && quote.is_none() && matches!(ch, '\r' | '\n') {
             return None;
         }
+        #[cfg(windows)]
+        if single_command && quote.is_none() && matches!(ch, '&' | '|' | '<' | '>' | '(' | ')') {
+            return None;
+        }
         if quote.is_none() && matches!(ch, ' ' | '\t' | '\n') {
             if started {
                 args.push(std::mem::take(&mut arg));

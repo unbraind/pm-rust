@@ -142,6 +142,8 @@ fn end_of_day_timestamp_checks_zero_time_and_calendar() {
         "2026-08-06 24:01:00Z",
         "2026-08-06T24:01:00Z",
         "2026-08-06T24:00:01Z",
+        "2026-08-06T24:00.000Z",
+        "2026-08-06T24:00.000",
         "2026-08-06T24:00:00.Z",
         "2026-08-06T24:00:00.0001Z",
         "2026-13-06T24:00:00Z",
@@ -154,6 +156,11 @@ fn end_of_day_timestamp_checks_zero_time_and_calendar() {
     }
     assert!(super::parse_end_of_day("2026-08-0éT00:00Z").is_none());
     assert!(super::parse_end_of_day("2026-08-06X24:00:00Z").is_none());
+    let utc_end = super::parse_stored_timestamp("2026-08-07T00:00:00Z");
+    assert!(utc_end.is_some());
+    for value in ["2026-08-06T24:00Z", "2026-08-06T24:00:00.000Z"] {
+        assert_eq!(super::parse_stored_timestamp(value), utc_end, "{value}");
+    }
 }
 
 /// Stored activity accepts the Date range and normalizes the date before the clock.
@@ -390,6 +397,16 @@ fn claim_history_provenance_and_activity_match_published() -> TestResult {
             ],
             None,
             false,
+            false,
+        ),
+        (
+            "fractional-minute-hour-24-maintenance",
+            vec![
+                claim(),
+                record("update", "2026-08-03T24:00.000Z", json!([])),
+            ],
+            None,
+            true,
             false,
         ),
         (

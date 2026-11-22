@@ -1667,6 +1667,8 @@ fn recency_rejects_unindexable_maintenance_timestamps() {
         ("2026-08-29 00:00:00Z", NOW),
         ("2016-12-31T23:59:60Z", NOW),
         ("2026-08-29T00:00:00.0000000001Z", NOW),
+        ("0000-02-29T00:00:00Z", NOW),
+        ("0000-02-28T00:00:00Z", "2026-08-28T00:00:00Z"),
         (" 2026-08-29t00:00:00.001000z ", "2026-08-28T00:00:00Z"),
     ] {
         let maintenance = json!({"ts":timestamp,"event_class":"maintenance"});

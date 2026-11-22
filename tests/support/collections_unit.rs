@@ -1702,6 +1702,42 @@ fn sdk_verbatim_parent_refuses_file_prefix_before_removal() -> TestResult {
     Ok(())
 }
 
+/// A verbatim Windows path traverses a directory link before removing its parent component.
+#[cfg(windows)]
+#[test]
+fn sdk_verbatim_directory_link_parent_removes_the_target_parent_link() -> TestResult {
+    let (directory, workspace) = tracker()?;
+    let project = directory.path().canonicalize()?;
+    let target = project.join(r"vendor\deep");
+    std::fs::create_dir_all(&target)?;
+    let link = project.join("link");
+    match std::os::windows::fs::symlink_dir(&target, &link) {
+        // ERROR_PRIVILEGE_NOT_HELD on hosts without developer mode.
+        Err(error) if error.raw_os_error() == Some(1314) => return Ok(()),
+        result => result?,
+    }
+    let options = CollectionOptions {
+        author: "fixture".into(),
+        add: vec!["source.rs".into(), "vendor/source.rs".into()],
+        ..Default::default()
+    };
+    workspace.collection("sample-one", "files", &options, &project)?;
+    let remove = CollectionOptions {
+        add: vec![],
+        remove: vec!["source.rs".into()],
+        ..options
+    };
+    let mut spelling = link.into_os_string();
+    spelling.push(r"\..");
+    workspace.collection("sample-one", "files", &remove, Path::new(&spelling))?;
+    let item = workspace.get("sample-one")?;
+    assert_eq!(
+        item.metadata.extra["files"],
+        json!([{"path":"source.rs","scope":"project"}])
+    );
+    Ok(())
+}
+
 /// An SDK retry cannot substitute a different path for a non-UTF-8 tracker.
 #[cfg(target_os = "linux")]
 #[test]

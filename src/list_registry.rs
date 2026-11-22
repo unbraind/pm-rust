@@ -194,9 +194,12 @@ impl Lifecycle {
 
 /// Checks the declared roles on a status definition.
 fn has_role(definition: &Value, role: &str) -> bool {
-    definition["roles"]
-        .as_array()
-        .is_some_and(|roles| roles.iter().any(|entry| entry == role))
+    definition["roles"].as_array().is_some_and(|roles| {
+        roles
+            .iter()
+            .filter_map(Value::as_str)
+            .any(|entry| crate::history::trim_evidence_line(entry) == role)
+    })
 }
 
 /// Selects the published active fallback for an unset progress setting.

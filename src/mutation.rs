@@ -3898,7 +3898,6 @@ pub(crate) fn ownership_item_with_options(
                 > OffsetDateTime::parse(&timestamp, &Rfc3339).ok()
         {
             validate_timestamp(&before.metadata.updated_at)?;
-            reject_future_timestamp(&before.metadata.updated_at)?;
             &before.metadata.updated_at
         } else {
             &timestamp
@@ -4273,10 +4272,12 @@ pub(crate) fn mutate_session_state(
         )?)
     };
     let path = pm_root.join("runtime/session.json");
-    let mut state = fs::read_to_string(&path)
-        .ok()
-        .and_then(|text| crate::strict_json::from_str::<serde_json::Map<String, Value>>(&text).ok())
-        .unwrap_or_default();
+    let mut state = match fs::read_to_string(&path) {
+        Ok(text) => crate::strict_json::from_str::<serde_json::Map<String, Value>>(&text)
+            .unwrap_or_default(),
+        Err(source) if source.kind() == std::io::ErrorKind::NotFound => serde_json::Map::new(),
+        Err(source) => return Err(PmRustError::Io { path, source }),
+    };
     update(&mut state)?;
     let contents = crate::stringify_json(&Value::Object(state), false);
     replace_with(&path, &contents, |temporary, path| match lock {

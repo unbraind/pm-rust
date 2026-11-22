@@ -1442,7 +1442,7 @@ fn parser_diagnostics_project_only_actual_author_values() -> Result<(), Box<dyn 
         &["create", "--title", "Fixture", "--author"],
         "a value is required for '--author",
     )?;
-    expect_err(
+    let output = pm_rust(
         &directory,
         &[
             "close",
@@ -1450,8 +1450,12 @@ fn parser_diagnostics_project_only_actual_author_values() -> Result<(), Box<dyn 
             "--author=fixture:synthetic-marker%40example.invalid",
             "--synthetic-marker",
         ],
-        "unexpected argument '--[redacted]'",
     )?;
+    assert_eq!(output.status.code(), Some(2));
+    let stderr = String::from_utf8(output.stderr)?;
+    assert!(stderr.contains("unexpected argument '--[redacted]'"));
+    assert!(!stderr.contains(bare), "{stderr}");
+    assert!(!stderr.contains(marker), "{stderr}");
     Ok(())
 }
 
@@ -2872,6 +2876,97 @@ fn native_note_repair_replays_only_in_the_selected_tracker()
         }
         assert!(rows.iter().any(|row| row["path"] == "obsolete.md"));
         assert_eq!(snapshot()?, before);
+    }
+    Ok(())
+}
+
+/// An OS-only tracker spelling cannot produce note repairs for a different tracker.
+#[cfg(target_os = "linux")]
+#[test]
+fn note_conflict_with_non_utf8_scope_withholds_replay() -> Result<(), Box<dyn std::error::Error>> {
+    use std::ffi::{OsStr, OsString};
+    use std::os::unix::ffi::OsStrExt as _;
+
+    let parent = tempfile::tempdir()?;
+    let raw_scope = OsStr::from_bytes(b"./selected-\xff");
+    let utf8_scope = "./selected-\u{fffd}";
+    for scope in [raw_scope, OsStr::new(utf8_scope)] {
+        let fixture = workspace()?;
+        seed_item(&fixture)?;
+        expect_ok(
+            &fixture,
+            &[
+                "files",
+                "sample-cli",
+                "--add",
+                "path=source.rs,note=first",
+                "--author=fixture",
+            ],
+        )?;
+        fs::rename(fixture.keep(), parent.path().join(scope))?;
+    }
+    let refusal = |scope: &[&OsStr], extra: &[&str]| {
+        Command::new(env!("CARGO_BIN_EXE_pm-rust"))
+            .current_dir(parent.path())
+            .args(scope)
+            .args([
+                "files",
+                "sample-cli",
+                "--add",
+                "path=source.rs,note=second",
+                "--author=fixture",
+                "--json",
+            ])
+            .args(extra)
+            .output()
+    };
+    let mut attached = OsString::from("--pm-path=");
+    attached.push(raw_scope);
+    for scope in [
+        &[OsStr::new("--pm-path"), raw_scope][..],
+        &[attached.as_os_str()][..],
+    ] {
+        let output = refusal(scope, &[])?;
+        assert_eq!(output.status.code(), Some(4));
+        let error: serde_json::Value = serde_json::from_slice(&output.stderr)?;
+        assert_eq!(error["code"], "linked_artifact_note_conflict");
+        assert!(error.get("recovery").is_none(), "{error}");
+        assert!(
+            error["next_steps"][0]
+                .as_str()
+                .is_some_and(|step| step.contains("UTF-8"))
+        );
+        assert_eq!(
+            error["next_steps"]
+                .as_array()
+                .ok_or("manual guidance")?
+                .len(),
+            1
+        );
+    }
+
+    let other_error = refusal(
+        &[OsStr::new("--pm-path"), raw_scope],
+        &["--note-conflict", "invalid"],
+    )?;
+    assert_eq!(other_error.status.code(), Some(2));
+    let other_error: serde_json::Value = serde_json::from_slice(&other_error.stderr)?;
+    assert_eq!(other_error["code"], "invalid_argument_value");
+
+    let control = refusal(&[OsStr::new("--pm-path"), OsStr::new(utf8_scope)], &[])?;
+    assert_eq!(control.status.code(), Some(4));
+    let control: serde_json::Value = serde_json::from_slice(&control.stderr)?;
+    let retry = control["recovery"]["suggested_retry_args"]
+        .as_array()
+        .ok_or("UTF-8 retry")?;
+    assert_eq!(retry[0], "--pm-path");
+    assert_eq!(retry[1], utf8_scope);
+    for scope in [raw_scope, OsStr::new(utf8_scope)] {
+        let selected = pm_rust::Workspace::discover(&parent.path().join(scope))?;
+        assert_eq!(
+            selected.get("sample-cli")?.metadata.extra["files"][0]["note"],
+            "first"
+        );
     }
     Ok(())
 }

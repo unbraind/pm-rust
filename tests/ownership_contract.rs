@@ -681,3 +681,20 @@ fn scoped_detected_principal_covers_all_ownership_comparisons() -> TestResult {
     );
     Ok(())
 }
+
+/// A read failure on a replaceable session file preserves its bytes and the saved claim.
+#[test]
+fn session_read_error_preserves_the_existing_snapshot() -> TestResult {
+    let (_directory, workspace) = fixture()?;
+    let session = workspace.pm_root().join("runtime/session.json");
+    let existing = b"{\"unrelated\":\"\xff\"}";
+    fs::write(&session, existing)?;
+    let claim = workspace.claim(&request("alpha"))?;
+    assert_eq!(claim.warnings, ["claim_semantic_attribution_unrecorded"]);
+    assert_eq!(
+        workspace.get("sample-one")?.metadata.extra["assignee"],
+        "alpha"
+    );
+    assert_eq!(fs::read(session)?, existing);
+    Ok(())
+}

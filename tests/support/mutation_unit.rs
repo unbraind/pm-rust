@@ -5159,22 +5159,17 @@ fn release_after_close_uses_the_locked_revision_timestamp() -> Result<(), Box<dy
 
     let item_path = pm_root.join("tasks/sample-unit.toon");
     let history_path = pm_root.join("history/sample-unit.jsonl");
-    for (stored, expected) in [
-        ("2026-10-14T12:34:56.789+01:00", "UTC RFC 3339"),
-        ("9999-01-01T00:00:00Z", "must not be in the future"),
-    ] {
-        let mut legacy = released.item.clone();
-        legacy.metadata.updated_at = stored.to_owned();
-        let item_bytes = canonical_item_bytes(&legacy)?;
-        fs::write(&item_path, &item_bytes)?;
-        let error = workspace
-            .release_after_close_with_options(&owner, &crate::OwnershipOptions::default())
-            .err()
-            .ok_or("expected a refusal for the later stored timestamp")?;
-        assert!(error.to_string().contains(expected), "{error}");
-        assert_eq!(fs::read_to_string(&item_path)?, item_bytes);
-        assert_eq!(fs::read_to_string(&history_path)?, history);
-    }
+    let mut legacy = released.item.clone();
+    legacy.metadata.updated_at = "2026-10-14T12:34:56.789+01:00".into();
+    let item_bytes = canonical_item_bytes(&legacy)?;
+    fs::write(&item_path, &item_bytes)?;
+    let error = workspace
+        .release_after_close_with_options(&owner, &crate::OwnershipOptions::default())
+        .err()
+        .ok_or("expected a refusal for the later stored timestamp")?;
+    assert!(error.to_string().contains("UTC RFC 3339"), "{error}");
+    assert_eq!(fs::read_to_string(&item_path)?, item_bytes);
+    assert_eq!(fs::read_to_string(&history_path)?, history);
     fs::write(&item_path, canonical_item_bytes(&released.item)?)?;
     let same_revision = workspace.release_after_close_with_options(
         &OwnershipItem {
@@ -5187,7 +5182,66 @@ fn release_after_close_uses_the_locked_revision_timestamp() -> Result<(), Box<dy
     Ok(())
 }
 
-/// A release that reaches the recovery fence still reports the completed close.
+/// A future collection edit can coexist with the independently validated release clock.
+#[test]
+fn release_after_close_preserves_a_future_collection_revision()
+-> Result<(), Box<dyn std::error::Error>> {
+    let (directory, pm_root) = root("{}")?;
+    let workspace = crate::Workspace::discover(&pm_root)?;
+    create_item(&pm_root, request())?;
+    let closing = closure_request();
+    let release = OwnershipItem {
+        id: closing.id.clone(),
+        author: closing.author.clone(),
+        timestamp: Some(TS.to_owned()),
+        message: None,
+        force: false,
+        if_available: false,
+        provenance_role: None,
+    };
+    let options = crate::OwnershipOptions::default();
+    workspace.claim(&release)?;
+    workspace.close(closing)?;
+    let future = "9999-01-01T00:00:00Z";
+    workspace.collection(
+        &release.id,
+        "files",
+        &crate::CollectionOptions {
+            author: release.author.clone(),
+            timestamp: Some(future.to_owned()),
+            add: vec!["source.rs".to_owned()],
+            ..Default::default()
+        },
+        directory.path(),
+    )?;
+    let before = workspace.get(&release.id)?;
+    assert_eq!(before.metadata.updated_at, future);
+    let error = workspace
+        .release_after_close_with_options(
+            &OwnershipItem {
+                timestamp: Some(future.to_owned()),
+                ..release.clone()
+            },
+            &options,
+        )
+        .err()
+        .ok_or("caller-supplied future release clock must be rejected")?;
+    assert!(error.to_string().contains("must not be in the future"));
+    assert_eq!(workspace.get(&release.id)?, before);
+
+    let saved = workspace.release_after_close_with_options(&release, &options)?;
+    assert_eq!(saved.item.metadata.updated_at, future);
+    assert_eq!(
+        saved.item.metadata.extra["files"],
+        before.metadata.extra["files"]
+    );
+    assert!(!saved.item.metadata.extra.contains_key("assignee"));
+    let session = fs::read_to_string(pm_root.join("runtime/session.json"))?;
+    assert!(!session.contains("sample-unit"));
+    Ok(())
+}
+
+/// The composed release refuses at the recovery fence and can be retried alone.
 #[test]
 fn release_fence_conflict_preserves_completed_close() -> Result<(), Box<dyn std::error::Error>> {
     let (_directory, pm_root) = root("{}")?;
@@ -5203,10 +5257,14 @@ fn release_fence_conflict_preserves_completed_close() -> Result<(), Box<dyn std:
         if_available: false,
         provenance_role: None,
     };
+    let options = crate::OwnershipOptions::default();
     workspace.claim(&claim)?;
     workspace.close(closing)?;
     let history = pm_root.join("history/sample-unit.jsonl");
-    let before = fs::read(&history)?;
+    let before = fs::read_to_string(&history)?;
+    let session = pm_root.join("runtime/session.json");
+    let workset = fs::read_to_string(&session)?;
+    assert!(workset.contains(r#""active_item_ids":["sample-unit"]"#));
     let locks = pm_root.join("locks");
     let (held, observed) = std::sync::mpsc::channel();
     BEFORE_FENCED_RECOVERY.set(Some(Box::new(move || {
@@ -5215,44 +5273,25 @@ fn release_fence_conflict_preserves_completed_close() -> Result<(), Box<dyn std:
                 .is_ok()
         );
     })));
-    let error = workspace
-        .release(&claim)
-        .err()
-        .ok_or("expected release fence conflict")?;
+    let result = workspace.release_after_close_with_options(&claim, &options);
     let gate = observed.recv_timeout(Duration::from_secs(1))??;
-    assert!(matches!(&error, PmRustError::LockConflict { id } if id == "sample-unit"));
-    let PmRustError::CommandRefusal {
-        exit_code, context, ..
-    } = crate::completed_step_failure(error, "sample-unit", "close")
-    else {
-        return Err("expected a partial release refusal".into());
-    };
-    assert_eq!(exit_code, 4);
-    assert_eq!(context["code"], "lock_conflict");
-    assert_eq!(context["completed_step"], "close");
-    assert!(
-        context["required"]
-            .as_str()
-            .ok_or("release guidance")?
-            .contains("retry the release step")
-    );
-    assert_eq!(
-        context["next_steps"],
-        serde_json::json!(["pm get sample-unit", "pm history sample-unit"])
-    );
-    assert_eq!(fs::read(&history)?, before);
-    let closed = workspace.get("sample-unit")?;
-    assert_eq!(closed.metadata.status, "closed");
-    assert!(!closed.metadata.extra.contains_key("assignee"));
+    assert!(matches!(result, Err(PmRustError::LockConflict { id }) if id == "sample-unit"));
+    assert_eq!(fs::read_to_string(&history)?, before);
+    assert_eq!(fs::read_to_string(&session)?, workset);
+    assert_eq!(workspace.get("sample-unit")?.metadata.status, "closed");
+
     drop(gate);
-    assert!(
-        !workspace
-            .release(&claim)?
-            .item
-            .metadata
-            .extra
-            .contains_key("assignee")
-    );
+    let released = workspace.release_after_close_with_options(&claim, &options)?;
+    assert_eq!(released.item.metadata.updated_at, TS);
+    assert!(!fs::read_to_string(session)?.contains("sample-unit"));
+    let after = fs::read_to_string(history)?;
+    let mut appended = after
+        .strip_prefix(&before)
+        .ok_or("close history changed")?
+        .lines();
+    let release: Value = crate::strict_json::from_str(appended.next().ok_or("release event")?)?;
+    assert_eq!(release["op"], "release");
+    assert!(appended.next().is_none());
     Ok(())
 }
 

@@ -229,6 +229,9 @@ fn parse_end_of_day(value: &str) -> Option<OffsetDateTime> {
     } else {
         clock
     };
+    if !zone.starts_with(['Z', 'z', '+', '-']) {
+        return None;
+    }
     OffsetDateTime::parse(&format!("{date}T00:00:00{zone}"), &Rfc3339)
         .ok()?
         .checked_add(Duration::days(1))

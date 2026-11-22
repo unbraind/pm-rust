@@ -175,18 +175,20 @@ fn userinfos(text: &str) -> Vec<(usize, usize)> {
         let boundary = candidate.find(['/', '?', '#']).unwrap_or(candidate.len());
         let authority = &candidate[..boundary];
         let before_slash = &candidate[..candidate.find('/').unwrap_or(candidate.len())];
-        let end = authority.rfind('@').or_else(|| {
-            before_slash
-                .contains(':')
-                .then(|| candidate.rfind('@'))
-                .flatten()
-        });
-        // A percent-encoded separator in an authority with a password is private too.
-        let end = end.or_else(|| {
-            let authority = authority.split(whitespace).next().unwrap_or_default();
-            let (userinfo, _) = authority.rsplit_once("%40")?;
-            userinfo.contains(':').then_some(userinfo.len())
-        });
+        let end = authority
+            .rfind('@')
+            .or_else(|| {
+                // A percent-encoded separator in an authority with a password is private too.
+                let authority = authority.split(whitespace).next().unwrap_or_default();
+                let (userinfo, _) = authority.rsplit_once("%40")?;
+                userinfo.contains(':').then_some(userinfo.len())
+            })
+            .or_else(|| {
+                before_slash
+                    .contains(':')
+                    .then(|| candidate.rfind('@'))
+                    .flatten()
+            });
         let Some(end) = end.filter(|end| *end > 0) else {
             continue;
         };
@@ -720,7 +722,7 @@ pub fn redact(payload: &mut Value, raw: &[String]) {
         {
             return;
         }
-        if let Some(recovery) = payload["recovery"].as_object_mut() {
+        if let Some(recovery) = payload.get_mut("recovery").and_then(Value::as_object_mut) {
             recovery.shift_remove("suggested_retry");
             recovery.shift_remove("suggested_retry_args");
         }

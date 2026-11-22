@@ -887,7 +887,7 @@ pub fn partial_failure(error: PmRustError, id: &str, completed: &str) -> PmRustE
         } else if context["code"] == "lock_conflict" {
             context["required"] = if completed == "update" {
                 json!(
-                    "Wait for the lock to clear and verify current ownership before retrying only release with the applicable identity and options."
+                    "Wait for the lock to clear and verify current ownership before retrying only release with the original identity and applicable release options. If the original assignment is gone or has changed, stop."
                 )
             } else {
                 json!(

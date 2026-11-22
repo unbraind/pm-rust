@@ -396,6 +396,10 @@ fn context_blank_workflow_resolves_default_open_before_progress() -> TestResult 
             )?;
         }
         fs::write(path, settings.to_string())?;
+        // Embedded settings validate role names before the optional file is loaded.
+        if !include_progress && omitted {
+            statuses[1]["roles"][1] = json!(" default_open ");
+        }
         fs::write(
             pm.join("schema/statuses.json"),
             json!({"statuses":statuses}).to_string(),
@@ -575,6 +579,8 @@ fn context_focus_recency_matches_history_admission() -> TestResult {
         ("2026-08-21T12:00:00.1001+05:30", "sample-two"),
         ("\u{feff}2026-08-22T00:00:00Z\u{feff}", "sample-one"),
         ("2026-08-21T12:00:00+0530", "sample-two"),
+        ("0000-02-28T00:00:00Z", "sample-one"),
+        ("0000-02-29T00:00:00Z", "sample-two"),
     ];
     for (maintenance, winner, legacy, created_at) in stored_class_cases
         .into_iter()

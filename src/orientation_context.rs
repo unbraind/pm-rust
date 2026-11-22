@@ -89,6 +89,8 @@ fn rankable_timestamp(timestamp: &str) -> bool {
 
     let timestamp = crate::history::trim_evidence_line(timestamp);
     OffsetDateTime::parse(timestamp, &Rfc3339).is_ok()
+        // The published index's Date.UTC month check treats year zero as 1900.
+        && !timestamp.starts_with("0000-02-29")
         && matches!(timestamp.as_bytes()[10], b'T' | b't')
         && &timestamp.as_bytes()[17..19] != b"60"
         && timestamp.split_once('.').is_none_or(|(_, tail)| {

@@ -157,23 +157,20 @@ fn encoded_identity_projection_preserves_native_recovery() {
             }
         })
     };
-    super::with_cli_projection(|| {
-        assert!(
-            crate::AuthorIdentity::validate_credentials(
-                "https://fixture:fixture-only-password%40example.invalid",
-                "--author"
-            )
-            .is_err()
-        );
-        let mut payload = refused();
-        redact(&mut payload, &[]);
-        let recovery = &payload["recovery"];
-        assert_eq!(recovery["normalized_args"][5], "[redacted] public text");
-        assert_eq!(
-            recovery["attempted_command"],
-            "pm-rust files sample-own --artifact-cwd . --message \"[redacted] public text\""
-        );
-    });
+    for tail in ["", "/path@ref", "?q=@ref", "#@ref"] {
+        super::with_cli_projection(|| {
+            let identity = format!("https://fixture:fixture-only-password%40example.invalid{tail}");
+            assert!(crate::AuthorIdentity::validate_credentials(&identity, "--author").is_err());
+            let mut payload = refused();
+            redact(&mut payload, &[]);
+            let recovery = &payload["recovery"];
+            assert_eq!(recovery["normalized_args"][5], "[redacted] public text");
+            assert_eq!(
+                recovery["attempted_command"],
+                "pm-rust files sample-own --artifact-cwd . --message \"[redacted] public text\""
+            );
+        });
+    }
     let mut payload = refused();
     redact(&mut payload, &[]);
     assert_eq!(payload, refused());

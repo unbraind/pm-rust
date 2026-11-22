@@ -1259,6 +1259,8 @@ fn run_cli() -> ExitCode {
             };
         }
     };
+    // Keep the parsed OS path for replay safety before diagnostics project argv lossily.
+    let tracker_scope_is_utf8 = cli.workspace.to_str().is_some();
     match run(cli) {
         Ok(()) => ExitCode::SUCCESS,
         Err(error) => {
@@ -1312,7 +1314,15 @@ fn run_cli() -> ExitCode {
             }) = error.downcast_ref::<pm_rust::PmRustError>()
             {
                 let args = published_read_arguments(std::env::args_os().skip(1));
-                let payload = command_error_json(detail, context, &args, *exit_code);
+                let mut payload = command_error_json(detail, context, &args, *exit_code);
+                if !tracker_scope_is_utf8 && context["code"] == "linked_artifact_note_conflict" {
+                    payload
+                        .as_object_mut()
+                        .and_then(|fields| fields.shift_remove("recovery"));
+                    payload["next_steps"] = serde_json::json!([
+                        "Repeat the original request with the same tracker selected and choose --note-conflict append or replace. The tracker path cannot be encoded as UTF-8 retry arguments."
+                    ]);
+                }
                 let mut stderr = std::io::stderr().lock();
                 let _ = write_command_refusal_to(&mut stderr, detail, context, &args, &payload);
                 return ExitCode::from(*exit_code);
@@ -1953,7 +1963,10 @@ fn preserve_refusal_scope(payload: &mut serde_json::Value, raw: &[String]) {
             }
         }
     }
-    let Some(recovery) = payload["recovery"].as_object_mut() else {
+    let Some(recovery) = payload
+        .get_mut("recovery")
+        .and_then(serde_json::Value::as_object_mut)
+    else {
         return;
     };
     for (args_key, command_key) in [
