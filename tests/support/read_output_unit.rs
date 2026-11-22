@@ -229,6 +229,25 @@ fn amount_limit_rebases_only_advertised_producer_boundaries()
     Ok(())
 }
 
+/// An explicitly unbounded replay skips the intent's delivery ceiling.
+#[test]
+fn unbounded_intent_replay_retains_the_remaining_rows() -> Result<(), Box<dyn std::error::Error>> {
+    let mut source = crate::ListOutput::from(envelope(3, 0));
+    source.value["context_intent"] = json!({"token_budget":1,"declaration_feasible":true});
+    let options = ListOptions {
+        output_budget: Some("unbounded".to_owned()),
+        output_cursor: Some(crate::pagination::encode(
+            &json!({"v":1,"c":"list","p":"items","o":1,"n":3,"f":source.row_fingerprint()}),
+        )),
+        ..ListOptions::default()
+    };
+    let page = super::apply(source, &options)?;
+    assert_eq!(page["count"], 2);
+    assert!(page.get("output_budget_truncation").is_none());
+    assert!(page.get("output_budget_exceeded").is_none());
+    Ok(())
+}
+
 #[test]
 fn amount_and_alias_receipts_preserve_requested_dimensions()
 -> Result<(), Box<dyn std::error::Error>> {
@@ -359,6 +378,7 @@ fn producer_rebasing_and_disclosure_keep_indices_and_snapshot() {
         fingerprint: "snap".to_owned(),
         producer: Some(producer),
         existing: false,
+        intent_feasible: None,
     };
     let mut result = envelope(2, 0);
     result["read_output"] = json!({"rows_compacted":true,"compacted_row_paths":["items"]});
@@ -493,6 +513,7 @@ fn multiple_collections_and_resumed_budgets_preserve_receipts()
             json!({"version":1,"fingerprint":"fp","after_id":"demo-0002","after_index":9}),
         ),
         existing: true,
+        intent_feasible: None,
     };
     let mut result = envelope(2, 0);
     result["read_output"] = json!({"rows_compacted":true,"compacted_row_paths":["items"]});

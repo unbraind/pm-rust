@@ -154,6 +154,78 @@ fn end_of_day_timestamp_checks_zero_time_and_calendar() {
     assert!(super::parse_end_of_day("2026-08-0éT00:00Z").is_none());
 }
 
+/// Stored activity accepts the Date range and normalizes the date before the clock.
+#[test]
+fn stored_date_ranges_and_rollover() {
+    for (spelling, canonical) in [
+        ("2026-08T00:00:00Z", "2026-08-01T00:00:00Z"),
+        ("2026T00:00:00Z", "2026-01-01T00:00:00Z"),
+        ("2026-02-30T10:00:00+0130", "2026-03-02T08:30:00Z"),
+        ("2026-02-30", "2026-03-02T00:00:00Z"),
+        ("0000-01-01T00:00:00+01:00", "-000001-12-31T23:00:00Z"),
+        ("+010000-02-29T24:00:00Z", "+010000-03-01T00:00:00Z"),
+    ] {
+        let expected = super::parse_stored_timestamp(canonical);
+        assert!(expected.is_some(), "{canonical}");
+        assert_eq!(
+            super::parse_stored_timestamp(spelling),
+            expected,
+            "{spelling}"
+        );
+    }
+    for (value, date) in [
+        ("-271821-04-20T00:00:00.000Z", Some(-super::DATE_LIMIT_MS)),
+        ("+275760-09-13T00:00:00.000Z", Some(super::DATE_LIMIT_MS)),
+        ("-271821-04-19T23:59:59.999Z", None),
+        ("+275760-09-13T00:00:00.001Z", None),
+        ("-000000-01-01T00:00:00Z", None),
+        ("2026-08-01T", None),
+        ("2026-02-00T10:00:00Z", None),
+        ("2026-02-32T10:00:00Z", None),
+        ("2026-+2T10:00:00Z", None),
+        ("2026-0éT10:00:00Z", None),
+    ] {
+        assert_eq!(super::parse_stored_timestamp(value), date, "{value}");
+    }
+}
+
+/// Extended local clocks keep the historical or future offset of their original year.
+#[cfg(unix)]
+#[test]
+fn stored_expanded_local_clocks_keep_the_original_era() {
+    let vienna = || jiff::tz::TimeZone::get("Europe/Vienna").unwrap_or(jiff::tz::TimeZone::UTC);
+    for (local, utc) in [
+        ("-000001-01-01T00:00:00", "-000002-12-31T22:54:39Z"),
+        ("0000-01-01T00:00:00", "-000001-12-31T22:54:39Z"),
+        ("+010000-01-01T00:00:00", "9999-12-31T23:00:00Z"),
+        ("+010000-01-01T00:00", "9999-12-31T23:00:00Z"),
+    ] {
+        let expected = super::parse_stored_timestamp(utc);
+        assert!(expected.is_some(), "{utc}");
+        assert_eq!(
+            super::parse_stored_timestamp_in_zone(local, vienna),
+            expected,
+            "{local}"
+        );
+    }
+}
+
+/// An unusable comparison clock leaves the recorded activity and eligibility readable.
+#[test]
+fn invalid_comparison_clock_preserves_recorded_claim_evidence() -> TestResult {
+    let directory = tempfile::tempdir()?;
+    let history = directory.path().join("item.jsonl");
+    write_stream(&history, &[claim()])?;
+    let item = document(BEFORE)?;
+    let evidence = super::evidence(&history, &item, HOLDER, "invalid clock", 72);
+    assert_eq!(evidence["claimed_at"], CLAIMED);
+    assert_eq!(
+        evidence["claim_activity"]["stale_policy"]["eligible_at"],
+        "2026-08-05T10:00:00.000Z"
+    );
+    Ok(())
+}
+
 /// Unexpected metadata and read faults leave stored claim evidence unjudgeable.
 #[test]
 fn unreadable_claim_history_reports_file_io_faults() -> TestResult {
@@ -555,6 +627,130 @@ fn claim_history_provenance_and_activity_match_published() -> TestResult {
             assert_eq!(evidence["claimed_at"], CLAIMED);
         }
         assert_eq!(fs::read(&history).ok(), observed, "{label}");
+        inputs.push(json!({"label":label,"root":root,"id":"demo-claim","holder":HOLDER,"updated_at":BEFORE,"threshold_hours":72,"now":NOW}));
+        native.push(evidence);
+    }
+    verify_published(directory.path(), &inputs, &native)
+}
+
+/// Compares extended dates, holder trimming and numeric patch keys to the installed SDK.
+#[test]
+#[allow(
+    clippy::too_many_lines,
+    reason = "The table keeps the pinned history cases together"
+)]
+fn stored_claim_edge_cases_match_published() -> TestResult {
+    let directory = tempfile::tempdir()?;
+    let item = document(BEFORE)?;
+    let assignee = |value| patch("/metadata/assignee", json!(value));
+    let mut reanchored = record(
+        "comment_add",
+        LATER,
+        patch("/metadata/value", json!({"10":"b","2":"a"})),
+    );
+    // Output of the locked SDK's hashHistoryPatch for this exact patch.
+    reanchored["reanchor_evidence"] = json!([{
+        "patch_hash":"86980f000989ee5fec8b5badd172abea6650e76d54351dbe72d129b6415a290c"
+    }]);
+    let mut changed = reanchored.clone();
+    changed["patch"][0]["value"]["2"] = json!("changed");
+    let cases = [
+        (
+            "early-expanded",
+            vec![
+                record("update", "-000001-01-01T00:00:00Z", json!([])),
+                claim(),
+            ],
+            Some(CLAIMED),
+            true,
+        ),
+        (
+            "late-expanded",
+            vec![record("claim", "+010000-01-01T00:00:00Z", assignee(HOLDER))],
+            Some("+010000-01-01T00:00:00Z"),
+            false,
+        ),
+        (
+            "minimum-date",
+            vec![record("claim", "-271821-04-20T00:00:00Z", assignee(HOLDER))],
+            Some("-271821-04-20T00:00:00Z"),
+            true,
+        ),
+        (
+            "maximum-date",
+            vec![record("claim", "+275760-09-13T00:00:00Z", assignee(HOLDER))],
+            Some("+275760-09-13T00:00:00Z"),
+            false,
+        ),
+        (
+            "abbreviated-month-clock",
+            vec![record("claim", "2026-08T00:00:00Z", assignee(HOLDER))],
+            Some("2026-08T00:00:00Z"),
+            true,
+        ),
+        (
+            "abbreviated-year-clock",
+            vec![record("claim", "2026T00:00:00Z", assignee(HOLDER))],
+            Some("2026T00:00:00Z"),
+            true,
+        ),
+        (
+            "rollover",
+            vec![record("claim", "2026-02-30T10:00:00Z", assignee(HOLDER))],
+            Some("2026-02-30T10:00:00Z"),
+            true,
+        ),
+        (
+            "outside-day-range",
+            vec![claim(), record("update", "2026-02-32T10:00:00Z", json!([]))],
+            None,
+            false,
+        ),
+        ("ordinary-holder", vec![claim()], Some(CLAIMED), true),
+        (
+            "non-js-holder-space",
+            vec![record("claim", CLAIMED, assignee("alpha\u{85}"))],
+            None,
+            false,
+        ),
+        (
+            "js-holder-space",
+            vec![record("claim", CLAIMED, assignee("\u{feff}alpha "))],
+            Some(CLAIMED),
+            true,
+        ),
+        (
+            "matching-reanchor",
+            vec![claim(), reanchored],
+            Some(CLAIMED),
+            true,
+        ),
+        (
+            "changed-reanchor",
+            vec![claim(), changed],
+            Some(CLAIMED),
+            false,
+        ),
+    ];
+    let mut inputs = Vec::new();
+    let mut native = Vec::new();
+    for (label, entries, claimed, stale) in cases {
+        let root = directory.path().join(label);
+        fs::create_dir_all(root.join("history"))?;
+        let history = root.join("history/demo-claim.jsonl");
+        write_stream(&history, &entries)?;
+        let evidence = super::evidence(&history, &item, HOLDER, NOW, 72);
+        assert_eq!(evidence["claimed_at"], json!(claimed), "{label}");
+        assert_eq!(
+            evidence["claim_activity"]["stale_policy"]["stale"], stale,
+            "{label}"
+        );
+        if label == "changed-reanchor" {
+            assert_eq!(
+                evidence["claim_activity"]["unproven_activity"],
+                "rewritten_history"
+            );
+        }
         inputs.push(json!({"label":label,"root":root,"id":"demo-claim","holder":HOLDER,"updated_at":BEFORE,"threshold_hours":72,"now":NOW}));
         native.push(evidence);
     }

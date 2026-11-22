@@ -841,6 +841,13 @@ pub fn partial_failure(error: PmRustError, id: &str, completed: &str) -> PmRustE
         steps.extend(original.clone());
     }
     context["item_id"] = json!(id);
+    if completed == "claim" && context["code"] == "lock_conflict" {
+        context["completed_step"] = json!(completed);
+        context["recovery"]["retry_after_ms"] = json!(250);
+        context["required"] = json!(
+            "Wait for the lock to clear, verify that the original claim still holds, and finish only the status transition."
+        );
+    }
     if matches!(completed, "close" | "update") {
         context["completed_step"] = json!(completed);
         if context["code"] == "stale_lock_requires_override" {

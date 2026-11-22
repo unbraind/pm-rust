@@ -340,6 +340,8 @@ enum LockAge {
     Receipt,
     /// Ownership and collection commands also explain an expired incumbent.
     OwnershipReceipt,
+    /// The shared session lease can also be held by an item with a different TTL.
+    SessionReceipt,
 }
 
 #[derive(Debug, Deserialize)]
@@ -1375,6 +1377,11 @@ fn create_or_reclaim_lock(
         LockAge::Receipt | LockAge::OwnershipReceipt => {
             ownership_lock_stale(&existing_raw, timestamp, ttl_seconds)
         }
+        LockAge::SessionReceipt => session_lock_stale(
+            &crate::strict_json::from_str(&existing_raw),
+            timestamp,
+            ttl_seconds,
+        ),
     };
     #[cfg(target_os = "linux")]
     {
@@ -3302,7 +3309,15 @@ fn ownership_phrase(evidence: &Value, assignee: &str) -> String {
 
 /// Uses the published lock payload clock, including malformed-lock expiry.
 fn ownership_lock_stale(raw: &str, timestamp: &str, ttl_seconds: u64) -> bool {
-    let entry: Value = crate::strict_json::from_str(raw).unwrap_or(Value::Null);
+    lock_entry_stale(
+        &crate::strict_json::from_str(raw).unwrap_or(Value::Null),
+        timestamp,
+        ttl_seconds,
+    )
+}
+
+/// Compares a decoded lock receipt's creation time against the supplied TTL.
+fn lock_entry_stale(entry: &Value, timestamp: &str, ttl_seconds: u64) -> bool {
     let created = entry["created_at"].as_str().unwrap_or_default();
     match OffsetDateTime::parse(created, &Rfc3339) {
         Ok(created) => {
@@ -4118,6 +4133,22 @@ fn relative_to_tracker(pm_root: &Path, path: &Path) -> PathBuf {
     }
 }
 
+/// Uses the incumbent's TTL for the shared lease, with the default for invalid receipts.
+fn session_lock_stale(
+    receipt: &serde_json::Result<Value>,
+    timestamp: &str,
+    default_ttl: u64,
+) -> bool {
+    let entry = receipt.as_ref().unwrap_or(&Value::Null);
+    let ttl = receipt
+        .as_ref()
+        .ok()
+        .filter(|_| lock_receipt_warning(receipt).is_none())
+        .and_then(|entry| entry["ttl_seconds"].as_u64())
+        .unwrap_or(default_ttl);
+    lock_entry_stale(entry, timestamp, ttl)
+}
+
 /// Preserves I/O and active-lock failures while explaining expired session locks.
 fn session_lock_refusal(
     pm_root: &Path,
@@ -4129,8 +4160,9 @@ fn session_lock_refusal(
         return error;
     }
     let raw = fs::read_to_string(pm_root.join("locks/session-state.lock")).unwrap_or_default();
-    let warning = lock_receipt_warning(&crate::strict_json::from_str(&raw));
-    if warning.is_some() || ownership_lock_stale(&raw, timestamp, ttl_seconds) {
+    let receipt = crate::strict_json::from_str(&raw);
+    let warning = lock_receipt_warning(&receipt);
+    if warning.is_some() || session_lock_stale(&receipt, timestamp, ttl_seconds) {
         let suffix = warning.map_or_else(String::new, |warning| format!(" ({warning})"));
         close_refusal(
             format!(
@@ -4159,7 +4191,7 @@ fn acquire_session_lock(
             ttl_seconds,
             true,
             &now(),
-            LockAge::Receipt,
+            LockAge::SessionReceipt,
         )
     })
     .map_err(|error| session_lock_refusal(pm_root, error, &now(), ttl_seconds))

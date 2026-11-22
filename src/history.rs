@@ -483,8 +483,36 @@ fn escape_pointer(key: &str) -> String {
 /// Lowercase hexadecimal digits, indexed by the nibble they encode.
 const HEX_DIGITS: [u8; 16] = *b"0123456789abcdef";
 
+/// Orders JavaScript array-index property names before all other object keys.
+fn json_index(key: &str) -> u32 {
+    key.parse::<u32>()
+        .ok()
+        .filter(|index| index.to_string() == key)
+        .unwrap_or(u32::MAX)
+}
+
+/// Computes the published SHA-256 digest of a reanchored patch.
+pub(crate) fn hash_history_patch(patch: &Value) -> String {
+    let mut output = String::new();
+    encode_stable_json(patch, &mut output, |left, right| {
+        json_index(left)
+            .cmp(&json_index(right))
+            .then_with(|| left.encode_utf16().cmp(right.encode_utf16()))
+    });
+    sha256_digest(output.as_bytes())
+}
+
 /// Appends recursively key-sorted compact JSON for stable hashing.
 pub(crate) fn stable_json(value: &Value, output: &mut String) {
+    encode_stable_json(value, output, str::cmp);
+}
+
+/// Uses the selected key order while sharing the scalar and array encoding.
+fn encode_stable_json(
+    value: &Value,
+    output: &mut String,
+    key_order: fn(&str, &str) -> std::cmp::Ordering,
+) {
     match value {
         Value::Array(entries) => {
             output.push('[');
@@ -492,14 +520,14 @@ pub(crate) fn stable_json(value: &Value, output: &mut String) {
                 if index > 0 {
                     output.push(',');
                 }
-                stable_json(entry, output);
+                encode_stable_json(entry, output, key_order);
             }
             output.push(']');
         }
         Value::Object(entries) => {
             output.push('{');
             let mut keys: Vec<&String> = entries.keys().collect();
-            keys.sort();
+            keys.sort_unstable_by(|left, right| key_order(left, right));
             for (index, key) in keys.into_iter().enumerate() {
                 if index > 0 {
                     output.push(',');
@@ -507,7 +535,7 @@ pub(crate) fn stable_json(value: &Value, output: &mut String) {
                 let encoded = serde_json::to_string(key).unwrap_or_default();
                 output.push_str(&encoded);
                 output.push(':');
-                stable_json(&entries[key], output);
+                encode_stable_json(&entries[key], output, key_order);
             }
             output.push('}');
         }

@@ -5,8 +5,9 @@ use std::{
     path::Path,
 };
 
+use jiff::tz::TimeZone;
 use serde_json::{Value, json};
-use time::{Duration, OffsetDateTime, format_description::well_known::Rfc3339};
+use time::{Date, Duration, Month, OffsetDateTime, format_description::well_known::Rfc3339};
 
 use crate::item::ItemDocument;
 
@@ -50,20 +51,77 @@ fn deserialize_threshold<'de, D: serde::Deserializer<'de>>(reader: D) -> Result<
     })
 }
 
-/// Parses a stored timestamp for activity comparisons.
-pub(crate) fn parse_stored_timestamp(value: &str) -> Option<OffsetDateTime> {
-    // The published Date reader also accepts four-digit years spelled with a
-    // positive sign and six digits. Compare the normalized spelling only.
-    let value = value.strip_prefix("+00").unwrap_or(value);
-    let suffix = match value.len() {
-        4 => "-01-01T00:00:00Z",
-        7 => "-01T00:00:00Z",
-        10 => "T00:00:00Z",
-        _ => "",
+/// ECMAScript Date's inclusive epoch-millisecond bounds.
+const DATE_LIMIT_MS: i64 = 8_640_000_000_000_000;
+/// Gregorian dates repeat every 400 years.
+const CYCLE_MS: i64 = 146_097 * 86_400_000;
+
+/// Splits off an optional two-digit ISO month or day.
+fn date_part(value: &str) -> Option<(u8, &str)> {
+    let Some(value) = value.strip_prefix('-') else {
+        return Some((1, value));
     };
-    if !suffix.is_empty() {
-        return OffsetDateTime::parse(&format!("{value}{suffix}"), &Rfc3339).ok();
+    let (digits, tail) = value.split_at_checked(2)?;
+    if !digits.bytes().all(|byte| byte.is_ascii_digit()) {
+        return None;
     }
+    let digits = digits.as_bytes();
+    Some(((digits[0] - b'0') * 10 + (digits[1] - b'0'), tail))
+}
+
+/// Parses a stored timestamp as epoch milliseconds for activity comparisons.
+pub(crate) fn parse_stored_timestamp(value: &str) -> Option<i64> {
+    parse_stored_timestamp_in_zone(value, TimeZone::system)
+}
+
+/// Resolves offset-free clocks in the supplied zone when the stored value needs it.
+fn parse_stored_timestamp_in_zone(value: &str, zone: fn() -> TimeZone) -> Option<i64> {
+    let expanded = value.starts_with(['+', '-']);
+    let (year, tail) = value.split_at_checked(if expanded { 7 } else { 4 })?;
+    if year == "-000000" {
+        return None;
+    }
+    let year = year.parse::<i32>().ok()?;
+    let (month, tail) = date_part(tail)?;
+    let (day, clock) = date_part(tail)?;
+    if !(1..=31).contains(&day) {
+        return None;
+    }
+
+    // Shift extended and boundary years into a complete Gregorian cycle where
+    // the calendar library can also apply day rollover and UTC offsets.
+    let cycles = if (1..=9998).contains(&year) {
+        0
+    } else {
+        (year - 2000).div_euclid(400)
+    };
+    let date = Month::try_from(month)
+        .ok()
+        .and_then(|month| Date::from_calendar_date(year - cycles * 400, month, 1).ok())?
+        + Duration::days(i64::from(day) - 1);
+    let clock = if clock.is_empty() {
+        "T00:00:00Z"
+    } else {
+        clock
+    };
+    let time = parse_stored_clock(&format!("{date}{clock}"), cycles * 400, zone)?;
+    let millis = epoch_millis(time) + i64::from(cycles) * CYCLE_MS;
+    (-DATE_LIMIT_MS..=DATE_LIMIT_MS)
+        .contains(&millis)
+        .then_some(millis)
+}
+
+/// Converts the parsed clock to milliseconds, discarding sub-millisecond precision.
+pub(crate) fn epoch_millis(time: OffsetDateTime) -> i64 {
+    time.unix_timestamp() * 1000 + i64::from(time.millisecond())
+}
+
+/// Parses a clock after its date has been normalized.
+fn parse_stored_clock(
+    value: &str,
+    year_offset: i32,
+    zone: fn() -> TimeZone,
+) -> Option<OffsetDateTime> {
     let clock_end = value.get(16..)?;
     // The published Date parser accepts ISO separators and legacy one-byte
     // delimiters. The RFC 3339 parser alone also accepts arbitrary letters.
@@ -91,18 +149,22 @@ pub(crate) fn parse_stored_timestamp(value: &str) -> Option<OffsetDateTime> {
     if clock_end.starts_with(":60") {
         return None;
     }
-    let time = if clock_end.starts_with(['Z', 'z', '+', '-']) {
+    if clock_end.starts_with(['Z', 'z', '+', '-']) {
         OffsetDateTime::parse(&format!("{}:00{clock_end}", &value[..16]), &Rfc3339).ok()
     } else {
         OffsetDateTime::parse(value, &Rfc3339).ok()
     }
     .or_else(|| parse_end_of_day(value))
-    .or_else(|| parse_local_timestamp(value, clock_end))?;
-    Some(time - Duration::nanoseconds(i64::from(time.nanosecond() % 1_000_000)))
+    .or_else(|| parse_local_timestamp(value, clock_end, year_offset, zone))
 }
 
 /// Resolves an offset-free clock in the system time zone with Date's DST behavior.
-fn parse_local_timestamp(value: &str, clock_end: &str) -> Option<OffsetDateTime> {
+fn parse_local_timestamp(
+    value: &str,
+    clock_end: &str,
+    year_offset: i32,
+    zone: fn() -> TimeZone,
+) -> Option<OffsetDateTime> {
     use jiff::tz::AmbiguousOffset;
 
     if clock_end.contains(['Z', 'z', '+', '-']) {
@@ -114,10 +176,17 @@ fn parse_local_timestamp(value: &str, clock_end: &str) -> Option<OffsetDateTime>
     let civil = OffsetDateTime::parse(&normalized, &Rfc3339)
         .ok()
         .or_else(|| parse_end_of_day(&normalized))?;
-    #[allow(clippy::cast_possible_truncation, reason = "four-digit ISO year")]
-    let year = civil.year() as i16;
+    // Resolve the offset in the original era. Years beyond Jiff's range use
+    // a Gregorian-equivalent year in the same historical or projected rules.
+    let year = civil.year() + year_offset;
+    let zone_year = year.rem_euclid(400) + 400 * year.div_euclid(400).clamp(-24, 23);
+    #[allow(
+        clippy::cast_possible_truncation,
+        reason = "the year is between -9600 and 9599"
+    )]
+    let zone_year = zone_year as i16;
     let local = jiff::civil::DateTime::new(
-        year,
+        zone_year,
         u8::from(civil.month()).cast_signed(),
         civil.day().cast_signed(),
         civil.hour().cast_signed(),
@@ -128,10 +197,7 @@ fn parse_local_timestamp(value: &str, clock_end: &str) -> Option<OffsetDateTime>
     local.ok().and_then(|local| {
         // The earlier offset selects the first occurrence in a fold and
         // advances through a gap. Resolve it without narrowing the epoch range.
-        let offset = match jiff::tz::TimeZone::system()
-            .to_ambiguous_timestamp(local)
-            .offset()
-        {
+        let offset = match zone().to_ambiguous_timestamp(local).offset() {
             AmbiguousOffset::Unambiguous { offset }
             | AmbiguousOffset::Fold { before: offset, .. }
             | AmbiguousOffset::Gap { before: offset, .. } => offset,
@@ -170,11 +236,7 @@ pub(crate) fn context_threshold(settings: &Value) -> i64 {
 }
 
 /// Adds the threshold in epoch milliseconds and applies the SDK's Date range.
-fn eligible_at(time: OffsetDateTime, threshold: i64) -> Option<String> {
-    const DATE_LIMIT_MS: i64 = 8_640_000_000_000_000;
-    // Leap days repeat every 400 years in the proleptic Gregorian calendar.
-    const CYCLE_MS: i64 = 146_097 * 86_400_000;
-    let activity_ms = time.unix_timestamp() * 1000 + i64::from(time.millisecond());
+fn eligible_at(activity_ms: i64, threshold: i64) -> Option<String> {
     let millis = threshold.checked_mul(3_600_000)?.checked_add(activity_ms)?;
     if !(-DATE_LIMIT_MS..=DATE_LIMIT_MS).contains(&millis) {
         return None;
@@ -280,7 +342,8 @@ fn ownership_index(history: &[Value], assignee: &str) -> Option<usize> {
         .iter()
         .rev()
         .find_map(|entry| patches(entry).find(|row| row["path"] == "/metadata/assignee"))?;
-    (previous["value"].as_str()?.trim() == assignee.trim()).then_some(index)
+    let trim = crate::history::trim_evidence_line;
+    (trim(previous["value"].as_str()?) == trim(assignee)).then_some(index)
 }
 
 /// Iterates over a validated record's patch entries.
@@ -326,9 +389,7 @@ fn unproven(history: &[Value], index: Option<usize>) -> Option<&'static str> {
             });
         }
         if let Some(evidence) = entry.get("reanchor_evidence") {
-            let mut canonical = String::new();
-            crate::history::stable_json(&entry["patch"], &mut canonical);
-            let hash = crate::history::sha256_digest(canonical.as_bytes());
+            let hash = crate::history::hash_history_patch(&entry["patch"]);
             if evidence
                 .as_array()
                 .is_none_or(|rows| rows.iter().any(|row| row["patch_hash"] != hash))
@@ -349,7 +410,7 @@ fn rewritten_operation(op: &Value) -> bool {
 }
 
 /// Finds workspace history changes at or after the claim timestamp.
-fn workspace_restored(history_path: &Path, claimed_at: OffsetDateTime) -> bool {
+fn workspace_restored(history_path: &Path, claimed_at: i64) -> bool {
     read_history(&history_path.with_file_name("_workspace.jsonl"), |entry| {
         record_fields(entry).is_some()
     })
@@ -399,8 +460,9 @@ pub(super) fn evidence(
             Some((_, time)) if time >= candidate.1 => latest,
             _ => Some(candidate),
         });
-    let now = parse_stored_timestamp(timestamp).unwrap_or_else(OffsetDateTime::now_utc);
-    let elapsed = |time: OffsetDateTime| (now - time).whole_hours().max(0);
+    let now = parse_stored_timestamp(timestamp)
+        .unwrap_or_else(|| epoch_millis(OffsetDateTime::now_utc()));
+    let elapsed = |millis: i64| ((now - millis) / 3_600_000).max(0);
     let idle = last.map(|(_, time)| elapsed(time));
     let claimed = since.and_then(parse_stored_timestamp);
     let threshold = threshold.max(1);

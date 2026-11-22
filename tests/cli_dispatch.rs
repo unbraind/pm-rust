@@ -851,6 +851,98 @@ fn pause_release_contention_reports_only_release_recovery() -> Result<(), Box<dy
     Ok(())
 }
 
+/// Interposes contention after the forced claim commits while the status step prepares.
+#[cfg(target_os = "linux")]
+#[test]
+fn forced_start_contention_reports_only_status_recovery() -> Result<(), Box<dyn std::error::Error>>
+{
+    use rustix::fs::{CWD, Mode, mkfifoat};
+    use std::{
+        io::Write as _,
+        process::Stdio,
+        time::{Duration, Instant},
+    };
+
+    let tracker = workspace()?;
+    seed_item(&tracker)?;
+    expect_ok(
+        &tracker,
+        &["claim", "sample-cli", "--author=previous-holder"],
+    )?;
+    let root = tracker.path().join(".agents/pm");
+    let first = root.join("runtime/session.json");
+    let second = root.join("runtime/start-session.json");
+    fs::remove_file(&first)?;
+    for path in [&first, &second] {
+        mkfifoat(CWD, path, Mode::RUSR | Mode::WUSR)?;
+    }
+    // Keep derived attribution from replacing the FIFO between the two identity reads.
+    let session_gate = fs::File::options()
+        .read(true)
+        .write(true)
+        .open(root.join("locks/session-state.lock.gate-lease"))?;
+    session_gate.try_lock()?;
+    let mut child = Command::new(env!("CARGO_BIN_EXE_pm-rust"))
+        .current_dir(tracker.path())
+        .env("PM_LOCK_WAIT_MS", "0")
+        .args([
+            "start-task",
+            "sample-cli",
+            "--force",
+            "--author=cli-agent",
+            "--json",
+        ])
+        .stdout(Stdio::piped())
+        .stderr(Stdio::piped())
+        .spawn()?;
+    let interposed = (|| -> Result<fs::File, Box<dyn std::error::Error>> {
+        let mut before_claim = wait_for_fifo_reader(&mut child, &first)?;
+        fs::rename(&second, &first)?;
+        before_claim.write_all(b"{}")?;
+        drop(before_claim);
+        let mut before_status = wait_for_fifo_reader(&mut child, &first)?;
+        let gate = fs::File::options()
+            .read(true)
+            .write(true)
+            .open(root.join("locks/sample-cli.lock.gate-lease"))?;
+        gate.try_lock()?;
+        before_status.write_all(b"{}")?;
+        Ok(gate)
+    })();
+    if interposed.is_err() {
+        let _ = child.kill();
+        let _ = child.wait();
+    }
+    let _item_gate = interposed?;
+    let deadline = Instant::now() + Duration::from_secs(15);
+    while child.try_wait()?.is_none() {
+        if Instant::now() >= deadline {
+            child.kill()?;
+            child.wait()?;
+            return Err(
+                "start did not exit after its status step encountered the held gate".into(),
+            );
+        }
+        std::thread::sleep(Duration::from_millis(5));
+    }
+    let output = child.wait_with_output()?;
+    assert_eq!(
+        output.status.code(),
+        Some(4),
+        "{}",
+        String::from_utf8_lossy(&output.stderr)
+    );
+    assert!(output.stdout.is_empty());
+    let receipt: serde_json::Value = serde_json::from_slice(&output.stderr)?;
+    assert_eq!(receipt["code"], "lock_conflict");
+    assert_eq!(receipt["recovery"]["completed_step"], "claim");
+    assert!(receipt["recovery"].get("suggested_retry_args").is_none());
+    assert!(receipt["recovery"].get("suggested_retry").is_none());
+    let stored = fs::read_to_string(root.join("tasks/sample-cli.toon"))?;
+    assert!(stored.contains("status: open") && stored.contains("assignee: cli-agent"));
+    Ok(())
+}
+
 /// A future release timestamp refuses before close changes the item or its history.
 #[test]
 fn close_release_refuses_future_timestamp_before_writing() -> Result<(), Box<dyn std::error::Error>>

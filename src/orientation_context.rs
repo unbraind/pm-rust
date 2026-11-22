@@ -116,11 +116,12 @@ fn substantive_history_timestamp(entry: &Value) -> Option<&str> {
         _ => {
             // Legacy records without a patch still supply recency in the published reader.
             let patch = entry["patch"].as_array().map_or(&[][..], Vec::as_slice);
-            if !crate::history::patch_paths_are_strings(patch) {
+            let op = text(entry, "op");
+            if op == "update" && !crate::history::patch_paths_are_strings(patch) {
                 return None;
             }
             let paths = patch.iter().filter_map(|row| row["path"].as_str());
-            crate::history::classify_history_paths(text(entry, "op"), paths) == "substantive"
+            crate::history::classify_history_paths(op, paths) == "substantive"
         }
     };
     substantive.then(|| crate::history::trim_evidence_line(text(entry, "ts")))
@@ -1133,6 +1134,7 @@ fn context_history<'a>(
 ) -> Result<ContextHistory<'a>, PmRustError> {
     use crate::mutation::claim_activity;
     let threshold = claim_activity::context_threshold(settings);
+    let now = claim_activity::epoch_millis(now);
     let progress = lifecycle.activity_progress_status();
     let mut recent = Vec::new();
     let mut unowned = 0;
@@ -1160,7 +1162,7 @@ fn context_history<'a>(
             .filter_map(claim_activity::parse_stored_timestamp)
             .max();
         if let Some(activity) = activity
-            && (now - activity).whole_hours() >= threshold
+            && (now - activity) / 3_600_000 >= threshold
         {
             idle += 1;
         }

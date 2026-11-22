@@ -6852,6 +6852,71 @@ fn session_acquisition_refreshes_the_clock_on_retry() -> Result<(), Box<dyn std:
     Ok(())
 }
 
+/// Reclaiming the session lock preserves a live item's longer lease.
+#[test]
+fn session_acquisition_honors_the_incumbent_ttl() -> Result<(), Box<dyn std::error::Error>> {
+    let (_temp, pm_root) = root("{}")?;
+    let incumbent = acquire_lock_attempt(
+        &pm_root,
+        "session-state",
+        "unit-agent",
+        7200,
+        false,
+        TS,
+        LockAge::Receipt,
+    )?;
+    let raw = fs::read(&incumbent.path)?;
+    let after_default = "2026-08-07T10:36:31.183Z";
+    let path = &incumbent.path;
+    assert!(matches!(
+        acquire_session_lock(&pm_root, 1800, lock_retry(0), || after_default.to_owned()),
+        Err(PmRustError::LockConflict { .. })
+    ));
+    assert_eq!(fs::read(path)?, raw);
+    let replacement = acquire_session_lock(&pm_root, 1800, lock_retry(0), || {
+        "2026-08-07T12:06:31.183Z".to_owned()
+    })?;
+    let receipt: Value = serde_json::from_slice(&fs::read(&replacement.path)?)?;
+    assert_eq!(receipt["ttl_seconds"], 1800);
+    assert_eq!(receipt["owner"], "session-state");
+    drop(incumbent);
+    assert!(replacement.path.exists());
+    Ok(())
+}
+
+/// A status fence refusal leaves the earlier forced start claim durable.
+#[test]
+fn forced_start_records_its_durable_claim_on_status_fence_conflict()
+-> Result<(), Box<dyn std::error::Error>> {
+    let (_directory, pm_root) = root(&settings("sample-", "toon", 1800))?;
+    create_item(&pm_root, request())?;
+    let workspace = crate::Workspace::discover(&pm_root)?;
+    let request = OwnershipItem {
+        id: "sample-unit".into(),
+        author: "alpha".into(),
+        timestamp: Some(TS.into()),
+        message: None,
+        force: true,
+        if_available: false,
+        provenance_role: None,
+    };
+    let lock_path = pm_root.join("locks/sample-unit.lock");
+    BEFORE_FENCED_RECOVERY.set(Some(Box::new(move || {
+        BEFORE_FENCED_RECOVERY.set(Some(Box::new(move || {
+            assert!(fs::write(lock_path, "replacement lease").is_ok());
+        })));
+    })));
+    let result = workspace.start_task(&request, &crate::OwnershipOptions::default());
+    assert!(
+        matches!(result, Err(PmRustError::CommandRefusal { context, .. })
+        if context["code"] == "lock_conflict" && context["completed_step"] == "claim")
+    );
+    let item = workspace.get("sample-unit")?;
+    assert_eq!(item.metadata.extra["assignee"], "alpha");
+    assert_eq!(item.metadata.status, "open");
+    Ok(())
+}
+
 /// Even an unreclaimed session lease cannot authorize publication beyond its TTL.
 #[test]
 fn expired_session_lease_refuses_its_own_staged_write() -> Result<(), Box<dyn std::error::Error>> {

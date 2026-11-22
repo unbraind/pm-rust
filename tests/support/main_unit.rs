@@ -2429,6 +2429,46 @@ fn pause_release_fence_conflict_suppresses_forced_pause_replay()
     Ok(())
 }
 
+/// A forced start is retryable only while its claim has yet to commit.
+#[test]
+fn start_fence_conflict_suppresses_forced_claim_replay() -> Result<(), Box<dyn std::error::Error>> {
+    let lock = pm_rust::PmRustError::LockConflict {
+        id: "sample-one".to_owned(),
+    };
+    let pm_rust::PmRustError::CommandRefusal {
+        detail,
+        context,
+        exit_code,
+    } = pm_rust::completed_step_failure(lock, "sample-one", "claim")
+    else {
+        return Err("expected a partial start refusal".into());
+    };
+    assert_eq!(context["completed_step"], "claim");
+    let args = ["start-task", "sample-one", "--force", "--json"].map(str::to_owned);
+    let receipt = super::command_error_json(&detail, &context, &args, exit_code);
+    assert_eq!(receipt["code"], "lock_conflict");
+    assert_eq!(receipt["recovery"]["completed_step"], "claim");
+    assert_eq!(receipt["recovery"]["retry_after_ms"], 250);
+    assert!(receipt["recovery"].get("suggested_retry_args").is_none());
+    assert!(receipt["recovery"].get("suggested_retry").is_none());
+    assert_eq!(receipt["examples"], serde_json::json!(["pm update --help"]));
+    assert!(receipt["required"].as_str().is_some_and(|required| {
+        required.contains("verify that the original claim still holds")
+            && required.contains("only the status transition")
+    }));
+    let before_claim = super::command_error_json(
+        &detail,
+        &serde_json::json!({"code":"lock_conflict"}),
+        &args,
+        exit_code,
+    );
+    assert_eq!(
+        before_claim["recovery"]["suggested_retry_args"],
+        serde_json::json!(args)
+    );
+    Ok(())
+}
+
 /// Stale-lock cleanup after close stays scoped and leads only to the release step.
 fn assert_close_stale_release_recovery(
     workspace: &Workspace,

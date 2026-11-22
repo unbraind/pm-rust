@@ -2182,6 +2182,13 @@ fn apply_ownership_guidance(payload: &mut serde_json::Value, context: &serde_jso
             );
             payload["why"] =
                 serde_json::json!("Locking protects item files from concurrent write races.");
+            if context["completed_step"] == "claim" {
+                payload["examples"] = serde_json::json!(["pm update --help"]);
+                payload["recovery"]["completed_step"] = context["completed_step"].clone();
+                payload["recovery"]["retry_after_ms"] =
+                    context["recovery"]["retry_after_ms"].clone();
+                return;
+            }
             if matches!(context["completed_step"].as_str(), Some("close" | "update")) {
                 payload["examples"] = serde_json::json!(["pm release --help"]);
                 if context["completed_step"] == "update" {

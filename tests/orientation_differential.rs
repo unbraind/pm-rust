@@ -367,7 +367,7 @@ fn context_focus_recency_matches_history_admission() -> TestResult {
     };
     let scratch = tempfile::tempdir()?;
     let driver = orientation_driver(scratch.path(), &published)?;
-    for (maintenance, winner) in [
+    let stored_class_cases = [
         ("2026-08-22", "sample-two"),
         (" 2026-08-22t00:00:00.001000z ", "sample-one"),
         ("2026-08-21T12:00:00.1+05:30", "sample-one"),
@@ -375,7 +375,12 @@ fn context_focus_recency_matches_history_admission() -> TestResult {
         ("2026-08-21T12:00:00.1001+05:30", "sample-two"),
         ("\u{feff}2026-08-22T00:00:00Z\u{feff}", "sample-one"),
         ("2026-08-21T12:00:00+0530", "sample-two"),
-    ] {
+    ];
+    for (maintenance, winner, legacy) in stored_class_cases
+        .into_iter()
+        .map(|(timestamp, winner)| (timestamp, winner, false))
+        .chain([("2026-08-22T00:00:00Z", "sample-one", true)])
+    {
         let root = tempfile::tempdir()?;
         assert!(
             oracle(&driver, root.path(), &["init", "sample-", "--defaults"])?
@@ -389,7 +394,12 @@ fn context_focus_recency_matches_history_admission() -> TestResult {
         let mut middle = item("sample-z", "Task", "open", 2);
         middle["created_at"] = json!("2026-08-18T00:00:00.000Z");
         fixture(root.path(), &[older, newer, middle])?;
-        let substantive = json!({"ts":"\u{feff}2026-08-21T00:00:00Z\u{feff}","op":"update","event_class":"substantive","patch":[{}]});
+        let timestamp = "\u{feff}2026-08-21T00:00:00Z\u{feff}";
+        let substantive = if legacy {
+            json!({"ts":timestamp,"op":"comment_add","patch":[{}]})
+        } else {
+            json!({"ts":timestamp,"op":"update","event_class":"substantive","patch":[{}]})
+        };
         let maintenance =
             json!({"ts":maintenance,"op":"update","event_class":"maintenance","patch":[]});
         fs::write(

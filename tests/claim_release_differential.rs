@@ -3600,7 +3600,7 @@ fn scoped_blocker_inspection_survives_cross_blocker_redaction()
     ] {
         prepare(&fixture, &["update", "sample-own", "--dep", &dependency, "--author", "alpha", "--json"])?;
     }
-    assert_scoped_blocker_inspection(&fixture)
+    assert_scoped_blocker_inspection(&fixture, "github:get")
 }
 
 /// A blocker ID that doubles as userinfo must never become a projected command operand.
@@ -3745,7 +3745,7 @@ fn blocker_title_projection_withdraws_removal_command() -> Result<(), Box<dyn st
             ],
         )?;
     }
-    assert_scoped_blocker_inspection(&fixture)
+    assert_scoped_blocker_inspection(&fixture, "github:review-token")
 }
 
 /// A blocker credential that projects the target ID suppresses the executable inspection.
@@ -3806,7 +3806,10 @@ fn scoped_blocker_inspection_withdraws_projected_item_operand()
 }
 
 /// Checks atomic refusal and inspection replay across both tracker selections.
-fn assert_scoped_blocker_inspection(fixture: &Fixture) -> Result<(), Box<dyn std::error::Error>> {
+fn assert_scoped_blocker_inspection(
+    fixture: &Fixture,
+    selected_blocker: &str,
+) -> Result<(), Box<dyn std::error::Error>> {
     let args = [
         "claim",
         "sample-own",
@@ -3815,11 +3818,52 @@ fn assert_scoped_blocker_inspection(fixture: &Fixture) -> Result<(), Box<dyn std
         "alpha",
         "--json",
     ];
-    let before = fixture.snapshots()?;
+    let baseline = fixture.snapshots()?;
     let oracle = published_run(&fixture.driver, fixture.node.path(), &args)?;
     assert_eq!(oracle.status.code(), Some(4));
     let expected: serde_json::Value = serde_json::from_slice(&oracle.stderr)?;
     assert_eq!(expected["code"], "start_blocked_by_open_dependency");
+
+    assert_eq!(fixture.snapshots()?, baseline);
+    let removal = format!("id={selected_blocker},kind=blocked_by,source_kind=external");
+    let working_change = published_run(
+        &fixture.driver,
+        fixture.node.path(),
+        &[
+            "update",
+            "sample-own",
+            "--dep-remove",
+            &removal,
+            "--dep",
+            "id=github:working-only,kind=blocked_by,source_kind=external",
+            "--author",
+            "alpha",
+            "--json",
+        ],
+    )?;
+    assert!(
+        working_change.status.success(),
+        "{}",
+        String::from_utf8_lossy(&working_change.stderr)
+    );
+    let before = fixture.snapshots()?;
+    assert_eq!(before[1], baseline[1]);
+    let working = native_command(fixture.node.path(), &args).output()?;
+    assert_eq!(working.status.code(), Some(4));
+    let working: serde_json::Value = serde_json::from_slice(&working.stderr)?;
+    let blockers = working["details"]["open_blockers"]
+        .as_array()
+        .ok_or("working blockers")?;
+    assert!(
+        blockers
+            .iter()
+            .any(|row| row["id"] == "github:working-only")
+    );
+    assert!(
+        blockers
+            .iter()
+            .all(|row| row["id"] != selected_blocker && row["id"] != "github:[redacted]")
+    );
 
     let target = fixture.rust.path().join(".agents/pm");
     let target = target.to_str().ok_or("tracker path")?;
@@ -3857,6 +3901,13 @@ fn assert_scoped_blocker_inspection(fixture: &Fixture) -> Result<(), Box<dyn std
     assert_eq!(
         actual["details"]["open_blockers"][0]["id"],
         "github:[redacted]"
+    );
+    assert!(
+        actual["details"]["open_blockers"]
+            .as_array()
+            .ok_or("selected blockers")?
+            .iter()
+            .all(|row| row["id"] != "github:working-only")
     );
     assert_eq!(fixture.snapshots()?, before);
     Ok(())
