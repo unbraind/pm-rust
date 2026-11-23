@@ -1,0 +1,14 @@
+id: pm-rust-orientation-history-file-type
+title: Check opened history file types in native orientation reads
+description: "src/orientation.rs read_records opens context and standalone history streams through filesystem readers that can wait on a nonregular stream. Round FW protects the claim evidence reader while preserving its regular-file symlink behavior. Assess nonblocking opened-handle checks for orientation and preserve the strict standalone decoding, lossy context decoding, and missing-file behavior."
+type: Task
+status: open
+priority: 3
+tags[2]: follow-up,history
+created_at: "2026-11-21T21:06:40.986Z"
+updated_at: "2026-11-21T21:06:40.986Z"
+author: codex-sol
+parent: pm-rust-oracle-1118
+files[1]{path,scope}:
+  src/orientation.rs,project
+body: ""

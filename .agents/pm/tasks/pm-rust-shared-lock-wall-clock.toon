@@ -1,0 +1,26 @@
+id: pm-rust-shared-lock-wall-clock
+title: Use a wall clock for remaining shared item-lock writers
+description: Separate item-lock receipt timestamps from historical mutation timestamps on the remaining native write paths.
+type: Task
+status: open
+priority: 2
+tags[3]: follow-up,lock,oracle
+created_at: "2026-11-20T13:41:46.041Z"
+updated_at: "2026-11-20T23:35:35.567Z"
+author: codex-sol
+acceptance_criteria: "Cross-command contention uses current lease timestamps, typed expiry remains intact, and durable history retains the supplied timestamp."
+parent: pm-rust-oracle-1118
+comments[3]{created_at,author,text}:
+  "2026-11-20T21:12:32.676Z",codex-sol,The pinned oracle constructs receipts with nowIso() and checks their age with Date.now(). Native receipt creation now samples the wall clock inside the shared acquisition attempt for all item writers. A regression pauses a historical close after its read and checks that a claim cannot take its live lease.
+  "2026-11-20T21:25:14.868Z",codex-sol,"All item writers now acquire on wall time. Close, start and pause retain the receipt TTL policy, claim and release retain typed stale receipts, and create, update and comment retain filesystem-age checks. The historical-close regression verifies the waiting claim preserves the incumbent lease and before-image and the close retains a continuous history chain."
+  "2026-11-20T23:35:31.772Z",codex-sol,"Round FG validated the cross-command lease test and the published live-lock and expired-lock oracle cases. The full local test run passed and the merged LLVM gate measured 100% lines, functions, regions and branches. This item is open for orchestrator verification."
+files[3]{path,scope}:
+  src/mutation.rs,project
+  tests/claim_release_differential.rs,project
+  tests/support/mutation_unit.rs,project
+tests[2]{command,scope,provenance{author,created_at,source_kind,source_ref}}:
+  "PM_RUST_REQUIRE_PUBLISHED_CLI=1 cargo test --locked --all-features --lib mutation::tests::historical_close_keeps_its_lease_while_claim_waits",project,codex-sol,"2026-11-20T21:21:07.910Z",local_mutation,fix/oracle-pm-cli-1118
+  PM_RUST_REQUIRE_PUBLISHED_CLI=1 cargo test --locked --all-features --test claim_release_differential active_and_stale_lock_refusals_and_force_match_published,project,codex-sol,"2026-11-20T21:21:13.058Z",local_mutation,fix/oracle-pm-cli-1118
+docs[1]{path,scope}:
+  docs/OWNERSHIP_PARITY_2026_10_7.md,project
+body: "Round EZ covers ownership and linked collection leases. In src/mutation.rs, the remaining LockAge::Modified and LockAge::Receipt item writers still write the supplied mutation timestamp into LockPayload.created_at. They share locks with ownership commands, so a strict contender can read an apparently expired timestamp while one of those writes is live. The published pm-cli 2026.11.18 core lock module creates receipts with nowIso() and checks expiry with Date.now(). Add cross-command regression cases that hold a historical writer past the first contender attempt."

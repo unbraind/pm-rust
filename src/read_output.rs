@@ -33,23 +33,47 @@ pub(crate) fn compact_strings(value: &mut Value) -> bool {
     compact_strings_at(value, true)
 }
 
-/// Protects only the root cursor envelope while compacting identically named item metadata.
+/// Recognizes the published suffix so repeated budgeting preserves the original omitted count.
+fn already_compacted(text: &str) -> bool {
+    let Some((prefix, omitted)) = text.rsplit_once("…[+") else {
+        return false;
+    };
+    let Some(digits) = omitted.strip_suffix(" chars]") else {
+        return false;
+    };
+    let units = prefix.encode_utf16().count();
+    matches!(units, 239 | 240)
+        && digits.starts_with(['1', '2', '3', '4', '5', '6', '7', '8', '9'])
+        && digits
+            .parse::<usize>()
+            .ok()
+            .and_then(|n| units.checked_add(n))
+            .is_some_and(|total| total > 240)
+}
+
+/// Protects root continuation tokens while compacting item metadata.
 fn compact_strings_at(value: &mut Value, envelope: bool) -> bool {
     match value {
-        Value::String(text) if text.encode_utf16().count() > 240 => {
+        Value::String(text) if text.encode_utf16().count() > 240 && !already_compacted(text) => {
             let units = text.encode_utf16().take(240).collect::<Vec<_>>();
             let end = if (0xd800..=0xdbff).contains(&units[239]) {
                 239
             } else {
                 240
             };
-            *text = format!("{}…", String::from_utf16_lossy(&units[..end]));
+            let omitted = text.encode_utf16().count() - end;
+            *text = format!(
+                "{}…[+{omitted} chars]",
+                String::from_utf16_lossy(&units[..end])
+            );
             true
         }
         Value::Array(rows) => rows.iter_mut().fold(false, |changed, row| {
             compact_strings_at(row, false) | changed
         }),
         Value::Object(map) => map.iter_mut().fold(false, |changed, (key, row)| {
+            // Intentional divergence from pm-cli 2026.11.18 (unbraind/pm-cli#1754).
+            // Cursor names inside item metadata still follow the ordinary string budget.
             (!(key == "focus_row_states"
                 || (envelope && matches!(key.as_str(), "next_cursor" | "output_cursor")))
                 && compact_strings_at(row, false))
@@ -120,6 +144,8 @@ struct Continuation {
     producer: Option<Value>,
     /// Whether the producer cursor was already continuing this page.
     existing: bool,
+    /// Original declaration feasibility for sizing replay candidates independently.
+    intent_feasible: Option<bool>,
 }
 
 /// Moves an advertised producer boundary to the last row actually delivered.
@@ -309,7 +335,7 @@ pub(crate) fn apply_command(
         crate::toon_output::validate(&result)?;
     }
     let amount = bound(options.output_limit.as_deref())?;
-    let budget = if options.output_budget.is_some() {
+    let mut budget = if options.output_budget.is_some() {
         bound(options.output_budget.as_deref())?
     } else if options.full || options.no_truncate || options.token_budget.is_some() {
         None
@@ -330,6 +356,15 @@ pub(crate) fn apply_command(
         result.value["read_output"]["result_omitted"] = json!(true);
         update_output(&mut result, options.toon);
         return Ok(result);
+    }
+    // A replay is bound to the rows validated above. Account for the intent's
+    // budget here so its final receipt cannot trigger a different row projection.
+    if cursor.is_some()
+        && options.output_budget.as_deref() != Some("unbounded")
+        && let Some(intent_budget) = result["context_intent"]["token_budget"].as_u64()
+    {
+        let cap = usize::try_from(intent_budget).unwrap_or(usize::MAX);
+        budget = Some(budget.map_or(cap, |limit| limit.min(cap)));
     }
     let amount_binds = amount.is_some_and(|limit| {
         original_rows
@@ -387,7 +422,7 @@ pub(crate) fn apply_command(
         result.value["count"] = json!(result["items"].as_array().map_or(0, Vec::len));
     }
     result.value["read_output"] = receipt_for(options, default_budget, command);
-    update_output(&mut result, options.toon);
+    refresh_list_budget(&mut result, options.toon, state.intent_feasible);
     if let Some(budget) = budget
         && measure(&result, options.toon) > budget
     {
@@ -398,6 +433,16 @@ pub(crate) fn apply_command(
         crate::list_intent::stabilize(&mut result, options.toon);
     }
     Ok(result)
+}
+
+/// Measures both receipts together when the cursor has fixed the row projection.
+fn refresh_list_budget(result: &mut ListOutput, toon: bool, intent_feasible: Option<bool>) {
+    if let Some(feasible) = intent_feasible {
+        result.value["context_intent"]["declaration_feasible"] = json!(feasible);
+        crate::list_intent::stabilize(result, toon);
+    } else {
+        update_output(result, toon);
+    }
 }
 
 /// Retains an array prefix and updates producer row limits before finalization.
@@ -444,6 +489,8 @@ fn capture(result: &Value, options: &ListOptions, cursor: Option<&Value>) -> Con
         ),
         producer,
         existing,
+        intent_feasible: cursor
+            .and_then(|_| result["context_intent"]["declaration_feasible"].as_bool()),
     }
 }
 
@@ -452,11 +499,10 @@ fn compact_collections(
     result: &mut ListOutput,
     toon: bool,
     budget: usize,
-    mut finalize: impl FnMut(&mut Value),
+    mut finalize: impl FnMut(&mut ListOutput),
 ) {
     for _ in 0..64 {
-        finalize(&mut result.value);
-        update_output(result, toon);
+        finalize(result);
         if measure(result, toon) <= budget {
             break;
         }
@@ -493,8 +539,7 @@ fn compact_collections(
         while low <= high {
             let middle = usize::midpoint(low, high);
             retain(&mut result.value, pointer, &values, middle);
-            finalize(&mut result.value);
-            update_output(result, toon);
+            finalize(result);
             if measure(result, toon) <= budget {
                 retained = middle;
                 low = middle + 1;
@@ -518,9 +563,9 @@ fn compact_rows(
 ) {
     let unbounded_amount = options.output_limit.as_deref() == Some("unbounded");
     let toon = options.toon;
-    compact_collections(result, toon, budget, |value| {
+    compact_collections(result, toon, budget, |page| {
         finalize(
-            value,
+            &mut page.value,
             state,
             budget,
             source,
@@ -528,6 +573,7 @@ fn compact_rows(
             measured,
             unbounded_amount,
         );
+        refresh_list_budget(page, toon, state.intent_feasible);
     });
     finalize(
         &mut result.value,
@@ -538,7 +584,7 @@ fn compact_rows(
         measured,
         unbounded_amount,
     );
-    update_output(result, toon);
+    refresh_list_budget(result, toon, state.intent_feasible);
 }
 
 /// Compacts content and discloses a snapshot-bound continuation or omission.
@@ -786,8 +832,17 @@ pub(crate) fn apply_orientation(
     if measured > budget {
         let changed = compact_strings(&mut result.value);
         result.value["read_output"]["strings_compacted"] = json!(changed);
-        compact_collections(&mut result, options.toon, budget, |value| {
-            finalize_orientation(value, &states, budget, source, &hints, measured, command);
+        compact_collections(&mut result, options.toon, budget, |page| {
+            finalize_orientation(
+                &mut page.value,
+                &states,
+                budget,
+                source,
+                &hints,
+                measured,
+                command,
+            );
+            update_output(page, options.toon);
         });
         update_output(&mut result, options.toon);
         if measure(&result, options.toon) > budget {

@@ -1,0 +1,16 @@
+id: pm-rust-native-journal-integer-hash
+title: Recover pending native journals with exact-integer before-image hashes
+description: "Round GR reproduced an upgrade boundary in a scratch tracker. With 9007199254740993 in the live item and a prior v1 update journal whose before_item_hash retained those digits, native update exited 2 with RecoveryConflict and retained the journal. The same fixture with the rounded digest of 9007199254740992 rolled forward. The committed-history verifier fix does not change journal recovery."
+type: Issue
+status: open
+priority: 2
+tags[3]: follow-up,history,recovery
+created_at: "2026-11-23T11:04:55.686Z"
+updated_at: "2026-11-23T11:05:07.818Z"
+author: codex-sol
+acceptance_criteria: Replay a valid pre-publication journal from an earlier native writer while refusing unrelated live bytes and preserving the audited append-only history.
+parent: pm-rust-oracle-1118
+files[2]{path,scope}:
+  src/history.rs,project
+  src/mutation.rs,project
+body: ""

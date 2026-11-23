@@ -9,7 +9,7 @@ use crate::PmRustError;
 /// Lifecycle definitions and workflow selected for one complete list read.
 pub(crate) struct Lifecycle {
     /// Normalized status definitions, keyed by canonical identity.
-    definitions: BTreeMap<String, Value>,
+    definitions: BTreeMap<String, (Value, f64)>,
     /// Alias tokens mapped to canonical status identities.
     aliases: BTreeMap<String, String>,
     /// Configured in-progress status used by lifecycle buckets.
@@ -40,25 +40,23 @@ impl Lifecycle {
     /// Resolves an already captured schema through the native registry normalizer.
     pub(crate) fn from_values(settings: &Value, external: &Value, workflow: &Value) -> Self {
         let schema = &settings["schema"];
-        let mut statuses = schema["statuses"].as_array().cloned().unwrap_or_default();
-        if statuses.is_empty() {
-            statuses = defaults();
+        let mut definitions = BTreeMap::new();
+        extend_statuses(
+            &mut definitions,
+            schema["statuses"].as_array().into_iter().flatten().cloned(),
+        );
+        if definitions.is_empty() {
+            extend_statuses(&mut definitions, defaults());
         }
         if let Some(entries) = external.as_array().or_else(|| {
             external["statuses"]
                 .as_array()
                 .or(external["definitions"].as_array())
         }) {
-            statuses.extend(entries.iter().cloned());
-        }
-        let mut definitions = BTreeMap::new();
-        for definition in statuses {
-            if let Some(id) = definition["id"].as_str() {
-                definitions.insert(token(id), definition);
-            }
+            extend_statuses(&mut definitions, entries.iter().cloned());
         }
         let mut aliases = BTreeMap::new();
-        for (id, definition) in &definitions {
+        for (id, (definition, _)) in &definitions {
             aliases.insert(id.clone(), id.clone());
             for alias in definition["aliases"].as_array().into_iter().flatten() {
                 if let Some(alias) = alias.as_str() {
@@ -71,28 +69,49 @@ impl Lifecycle {
             .unwrap_or(&schema["type_workflows"])
             .clone();
         let workflow = workflow.get("workflow").unwrap_or(workflow);
-        let progress = workflow["in_progress_status"]
+        let configured_progress = workflow["in_progress_status"]
             .as_str()
             .or_else(|| schema["workflow"]["in_progress_status"].as_str())
-            .unwrap_or("in_progress");
+            .unwrap_or_default();
+        let progress = token(crate::history::trim_evidence_line(configured_progress));
+        let configured_open = workflow["open_status"]
+            .as_str()
+            .or_else(|| schema["workflow"]["open_status"].as_str())
+            .unwrap_or_default();
+        let open = token(crate::history::trim_evidence_line(configured_open));
+        let open = if open.is_empty() {
+            let first = ordered_status(&definitions, "default_open");
+            if let Some((id, _)) = first.filter(|(_, (value, _))| has_role(value, "default_open")) {
+                id.clone()
+            } else {
+                ["open", "in_progress", "draft"]
+                    .into_iter()
+                    .find(|id| definitions.contains_key(*id))
+                    .or(first.map(|(id, _)| id.as_str()))
+                    .unwrap_or_default()
+                    .to_owned()
+            }
+        } else {
+            open
+        };
+        let progress = if progress.is_empty() {
+            progress_fallback(&definitions, &open)
+        } else {
+            progress
+        };
         Self {
             type_workflows,
             hierarchy: Hierarchy::new(&settings["schema"]["relationship_kinds"]),
             definitions,
             aliases,
-            progress: token(progress),
+            progress,
             close: token(
                 workflow["close_status"]
                     .as_str()
                     .or_else(|| schema["workflow"]["close_status"].as_str())
                     .unwrap_or("closed"),
             ),
-            open: token(
-                workflow["open_status"]
-                    .as_str()
-                    .or_else(|| schema["workflow"]["open_status"].as_str())
-                    .unwrap_or("open"),
-            ),
+            open,
         }
     }
 
@@ -115,6 +134,11 @@ impl Lifecycle {
         }
     }
 
+    /// Resolves the progress alias for activity advisories independent of list buckets.
+    pub(crate) fn activity_progress_status(&self) -> String {
+        self.canonical(&self.progress)
+    }
+
     /// Returns the canonical configured open status for pause transitions.
     pub(crate) fn open_status(&self) -> String {
         self.canonical(&self.open)
@@ -134,11 +158,7 @@ impl Lifecycle {
     pub(crate) fn role(&self, status: &str, role: &str) -> bool {
         self.definitions
             .get(&self.canonical(status))
-            .is_some_and(|definition| {
-                definition["roles"]
-                    .as_array()
-                    .is_some_and(|roles| roles.iter().any(|entry| entry == role))
-            })
+            .is_some_and(|(definition, _)| has_role(definition, role))
     }
 
     /// Classifies all three published terminal roles.
@@ -162,6 +182,124 @@ impl Lifecycle {
             "in_progress" => self.canonical(status) == self.progress,
             _ => self.canonical(status) == self.canonical(selected),
         }
+    }
+}
+
+/// Adds usable status definitions, retaining their configured or positional precedence.
+fn extend_statuses(
+    definitions: &mut BTreeMap<String, (Value, f64)>,
+    statuses: impl IntoIterator<Item = Value>,
+) {
+    let offset = definitions.len();
+    for (index, definition) in statuses.into_iter().enumerate() {
+        let id = token(crate::history::trim_evidence_line(
+            definition["id"].as_str().unwrap_or_default(),
+        ));
+        if id.is_empty() {
+            continue;
+        }
+        #[allow(
+            clippy::cast_precision_loss,
+            reason = "status arrays fit the precise range"
+        )]
+        let order = definition["order"]
+            .as_f64()
+            .unwrap_or((offset + index) as f64);
+        definitions.insert(id, (definition, order));
+    }
+}
+
+/// Checks the declared roles on a status definition.
+fn has_role(definition: &Value, role: &str) -> bool {
+    definition["roles"].as_array().is_some_and(|roles| {
+        roles
+            .iter()
+            .filter_map(Value::as_str)
+            .any(|entry| crate::history::trim_evidence_line(entry) == role)
+    })
+}
+
+/// Selects the published active fallback for an unset progress setting.
+fn progress_fallback(definitions: &BTreeMap<String, (Value, f64)>, open: &str) -> String {
+    if let Some(preferred) = ["in_progress", open]
+        .into_iter()
+        .find(|status| definitions.contains_key(*status))
+    {
+        return preferred.to_owned();
+    }
+    ordered_status(definitions, "active")
+        .map(|(id, _)| id.clone())
+        .unwrap_or_default()
+}
+
+/// Selects the first definition with the requested role, or the first definition overall.
+#[allow(
+    clippy::float_cmp,
+    reason = "the published registry compares order numbers with JavaScript equality"
+)]
+fn ordered_status<'a>(
+    definitions: &'a BTreeMap<String, (Value, f64)>,
+    role: &str,
+) -> Option<(&'a String, &'a (Value, f64))> {
+    definitions.iter().min_by(
+        |(left_id, (left, left_order)), (right_id, (right, right_order))| {
+            has_role(right, role)
+                .cmp(&has_role(left, role))
+                .then_with(|| {
+                    // The published registry compares orders numerically, where
+                    // `-0.0` and `0` are equal, so numerically equal orders reach
+                    // the ID tie-breaker instead of `total_cmp`'s zero ordering.
+                    if left_order == right_order {
+                        std::cmp::Ordering::Equal
+                    } else {
+                        left_order.total_cmp(right_order)
+                    }
+                })
+                .then_with(|| crate::collation::compare(left_id, right_id))
+        },
+    )
+}
+
+#[cfg(test)]
+mod activity_progress_tests {
+    use super::*;
+
+    #[test]
+    fn blank_progress_falls_back_to_the_ordered_active_role() {
+        let settings = json!({"schema":{
+            "statuses":[
+                {"id":"zeta","order":10,"roles":["active"]},
+                {"id":"alpha","order":10,"roles":["active"]},
+                {"id":"closed","order":1,"roles":["terminal"]},
+                {"id":"later","order":20,"roles":["active"]}
+            ],
+            "workflow":{"in_progress_status":" ", "open_status":"absent"}
+        }});
+        assert_eq!(
+            Lifecycle::from_values(&settings, &Value::Null, &Value::Null)
+                .activity_progress_status(),
+            "alpha"
+        );
+    }
+
+    #[test]
+    fn negative_zero_order_ties_with_zero_before_the_id_tie_breaker() {
+        // The published registry treats -0.0 and 0 as the same order, so the
+        // selection falls to the ID tie-breaker instead of `total_cmp`, which
+        // orders -0.0 first and would pick zeta.
+        let settings = json!({"schema":{
+            "statuses":[
+                {"id":"zeta","order":-0.0,"roles":["active"]},
+                {"id":"alpha","order":0,"roles":["active"]},
+                {"id":"closed","order":1,"roles":["terminal"]}
+            ],
+            "workflow":{"in_progress_status":" ", "open_status":"absent"}
+        }});
+        assert_eq!(
+            Lifecycle::from_values(&settings, &Value::Null, &Value::Null)
+                .activity_progress_status(),
+            "alpha"
+        );
     }
 }
 

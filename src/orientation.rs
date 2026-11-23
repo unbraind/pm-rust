@@ -1,6 +1,7 @@
 //! Native session orientation reads and their explicit compatibility boundaries.
 
 use crate::collections::refusal;
+use crate::history::NumberEncoding;
 use crate::{ListOutput, PmRustError, Workspace};
 use serde_json::{Value, json};
 use std::fs;
@@ -148,19 +149,61 @@ fn history_filename(id: &str) -> Result<(), PmRustError> {
 
 /// Reads raw JSONL without changing or auto-creating a stream.
 pub(crate) fn records(workspace: &Workspace, id: &str) -> Result<Vec<Value>, PmRustError> {
+    read_records(workspace, id, false)
+}
+
+/// Reads context evidence with the published UTF-8 replacement semantics.
+pub(crate) fn context_records(workspace: &Workspace, id: &str) -> Result<Vec<Value>, PmRustError> {
+    read_records(workspace, id, true)
+}
+
+/// Reads a regular context history stream without blocking on a FIFO.
+fn read_context_history(path: &std::path::Path) -> std::io::Result<String> {
+    use std::io::Read as _;
+
+    let mut file = crate::changes::open_history_stream(path, true)?;
+    let metadata = file.metadata();
+    #[cfg(test)]
+    let metadata = crate::changes::inject_io(metadata, 1);
+    if !metadata?.is_file() {
+        return Err(std::io::Error::other(
+            "history stream is not a regular file",
+        ));
+    }
+    let mut bytes = Vec::new();
+    let read = file.read_to_end(&mut bytes);
+    #[cfg(test)]
+    let read = crate::changes::inject_io(read, 4);
+    read?;
+    Ok(String::from_utf8_lossy(&bytes).into_owned())
+}
+
+/// Shares JSONL validation between strict history and lossy context evidence.
+fn read_records(workspace: &Workspace, id: &str, lossy: bool) -> Result<Vec<Value>, PmRustError> {
     history_filename(id)?;
+    #[cfg(test)]
+    crate::orientation_context::tests::HISTORY_READS.with(|count| count.set(count.get() + 1));
     let path = workspace
         .pm_root()
         .join("history")
         .join(format!("{id}.jsonl"));
-    let raw = match fs::read_to_string(&path) {
+    let read = if lossy {
+        read_context_history(&path)
+    } else {
+        fs::read_to_string(&path)
+    };
+    let raw = match read {
         Ok(raw) => raw,
         Err(error) if error.kind() == std::io::ErrorKind::NotFound => return Ok(Vec::new()),
         Err(source) => return Err(PmRustError::Io { path, source }),
     };
     let mut result = Vec::new();
     for (index, line) in raw.lines().enumerate() {
-        let line = line.trim();
+        let line = if lossy {
+            crate::history::trim_evidence_line(line)
+        } else {
+            line.trim()
+        };
         if line.is_empty() {
             continue;
         }
@@ -284,9 +327,21 @@ impl Workspace {
 
 /// Computes a recursively sorted canonical JSON digest.
 fn digest(value: &Value) -> String {
-    let mut serialized = String::new();
-    crate::history::stable_json(value, &mut serialized);
-    crate::history::sha256_digest(serialized.as_bytes())
+    history_digest(value, "sha256", NumberEncoding::JavaScript)
+}
+
+/// Identifies the history formats written by native versions with exact integer hashes.
+fn exact_integer_encoding(entry: &Value) -> Option<NumberEncoding> {
+    match (
+        entry["item_hash_version"].as_f64(),
+        entry["record_hash_version"].as_f64(),
+        entry["hash_algorithm"].as_str(),
+    ) {
+        (Some(2.0 | 3.0), None, None) | (Some(3.0), Some(1.0), None | Some("sha256")) => {
+            Some(NumberEncoding::ExactIntegers)
+        }
+        _ => None,
+    }
 }
 
 /// Verifies the record envelope before applying any untrusted patch.
@@ -307,11 +362,15 @@ fn record_error(entry: &Value) -> Option<&'static str> {
             canonical
                 .as_object_mut()
                 .map(|object| object.shift_remove("record_hash"));
-            (history_digest(
-                &canonical,
-                entry["hash_algorithm"].as_str().unwrap_or("sha256"),
-            ) != *hash)
-                .then_some("record_hash_mismatch")
+            let algorithm = entry["hash_algorithm"].as_str().unwrap_or("sha256");
+            let matches = [
+                Some(NumberEncoding::JavaScript),
+                exact_integer_encoding(entry),
+            ]
+            .into_iter()
+            .flatten()
+            .any(|numbers| history_digest(&canonical, algorithm, numbers) == *hash);
+            (!matches).then_some("record_hash_mismatch")
         }
         _ => Some("incomplete_record_hash_envelope"),
     }
@@ -540,12 +599,12 @@ fn apply_patch(document: &mut Value, changes: &Value) -> Option<()> {
     (document["metadata"].is_object() && document["body"].is_string()).then_some(())
 }
 
-/// Computes the selected published history digest algorithm.
-fn history_digest(value: &Value, algorithm: &str) -> String {
+/// Computes a history digest using the selected algorithm and number encoding.
+fn history_digest(value: &Value, algorithm: &str, numbers: NumberEncoding) -> String {
+    let mut serialized = String::new();
+    crate::history::stable_json_with_numbers(value, &mut serialized, numbers);
     if algorithm == "sha512" {
         use sha2::Digest;
-        let mut serialized = String::new();
-        crate::history::stable_json(value, &mut serialized);
         let mut hex = String::with_capacity(128);
         for byte in sha2::Sha512::digest(serialized.as_bytes()) {
             use std::fmt::Write;
@@ -553,12 +612,18 @@ fn history_digest(value: &Value, algorithm: &str) -> String {
         }
         hex
     } else {
-        digest(value)
+        crate::history::sha256_digest(serialized.as_bytes())
     }
 }
 
 /// Hashes canonical replay metadata for one retained history epoch.
-fn replay_hash(document: &Value, version: u64, legacy: bool, algorithm: &str) -> String {
+fn replay_hash(
+    document: &Value,
+    version: u64,
+    legacy: bool,
+    algorithm: &str,
+    numbers: NumberEncoding,
+) -> String {
     let mut metadata = document["metadata"].clone();
     if metadata
         .as_object()
@@ -574,6 +639,7 @@ fn replay_hash(document: &Value, version: u64, legacy: bool, algorithm: &str) ->
             return history_digest(
                 &json!({"replay_fallback":true,"metadata":metadata,"body":document["body"]}),
                 algorithm,
+                numbers,
             );
         }
     }
@@ -619,6 +685,7 @@ fn replay_hash(document: &Value, version: u64, legacy: bool, algorithm: &str) ->
     history_digest(
         &json!({"front_matter":metadata,"body":document["body"]}),
         algorithm,
+        numbers,
     )
 }
 
@@ -684,25 +751,30 @@ fn verify_records(entries: &[Value], current: Option<&crate::ItemDocument>) -> V
         let algorithm = entry["hash_algorithm"].as_str().unwrap_or("sha256");
         let mut before_matches = false;
         let mut matched = None;
-        for version in candidates {
+        let encodings = [
+            Some(NumberEncoding::JavaScript),
+            exact_integer_encoding(entry),
+        ];
+        'epochs: for version in candidates {
             for legacy in [false, true] {
                 if legacy && version != 2 {
                     continue;
                 }
-                let before_hash = replay_hash(&before, version, legacy, algorithm);
-                let after_hash = replay_hash(&replay, version, legacy, algorithm);
-                before_matches |= before_hash == entry["before_hash"];
-                if before_hash == entry["before_hash"] && after_hash == entry["after_hash"] {
-                    matched = Some(version);
-                    break;
+                // Both hashes in a record must use the same encoding. The
+                // next record can hash this same replay state differently.
+                for numbers in encodings.into_iter().flatten() {
+                    let before_hash = replay_hash(&before, version, legacy, algorithm, numbers);
+                    let after_hash = replay_hash(&replay, version, legacy, algorithm, numbers);
+                    before_matches |= before_hash == entry["before_hash"];
+                    if before_hash == entry["before_hash"] && after_hash == entry["after_hash"] {
+                        matched = Some((version, numbers));
+                        break 'epochs;
+                    }
                 }
             }
-            if matched.is_some() {
-                break;
-            }
         }
-        if let Some(version) = matched {
-            detected = Some(version);
+        if let Some((version, numbers)) = matched {
+            detected = Some((version, numbers));
             authoritative = entry
                 .get("item_hash_version")
                 .map(|_| version)
@@ -721,13 +793,22 @@ fn verify_records(entries: &[Value], current: Option<&crate::ItemDocument>) -> V
         .last()
         .and_then(|entry| entry.get("after_hash"))
         .cloned();
-    let current_hash=current.map(|item|{
-        if verified && let Some(version)=detected {
-            let replay=json!({"metadata":Value::Object(crate::history::canonical_metadata_pairs(&item.metadata).into_iter().collect()),"body":item.body});
-            let algorithm=entries.last().and_then(|entry|entry["hash_algorithm"].as_str()).unwrap_or("sha256");
-            let primary=replay_hash(&replay,version,false,algorithm);
-            if version==2{let legacy=replay_hash(&replay,version,true,algorithm);if latest.as_ref()==Some(&json!(legacy)){return legacy;}}
-            return primary;
+    let current_hash = current.map(|item| {
+        if verified && let Some((version, numbers)) = detected {
+            let replay = json!({"metadata": Value::Object(
+                crate::history::canonical_metadata_pairs(&item.metadata).into_iter().collect()
+            ), "body": item.body});
+            let algorithm = entries
+                .last()
+                .and_then(|entry| entry["hash_algorithm"].as_str())
+                .unwrap_or("sha256");
+            if version == 2 {
+                let legacy = replay_hash(&replay, version, true, algorithm, numbers);
+                if latest.as_ref() == Some(&json!(legacy)) {
+                    return legacy;
+                }
+            }
+            return replay_hash(&replay, version, false, algorithm, numbers);
         }
         crate::history::document_hash(&crate::history::OrderedDocument::from_document(item))
     });

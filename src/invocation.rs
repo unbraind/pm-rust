@@ -1,10 +1,10 @@
 //! Lossless option boundaries shared by bootstrap, dispatch and refusal projection.
+use crate::cli::Cli;
 use clap::CommandFactory;
-use pm_rust::cli::Cli;
 use std::sync::OnceLock;
 
 /// One real option, excluding positionals and values that resemble flags.
-pub(super) struct OptionToken<'a> {
+pub struct OptionToken<'a> {
     /// Canonical long spelling, including aliases resolved through the CLI definition.
     pub name: &'a str,
     /// First physical argv index occupied by the option.
@@ -15,12 +15,18 @@ pub(super) struct OptionToken<'a> {
     pub value: Option<&'a str>,
     /// Whether this option precedes the command.
     pub bootstrap: bool,
+    /// Whether this spelling is fixed by the native or published CLI.
+    pub(crate) declared: bool,
 }
 
 /// Parsed boundaries retain original argv positions without interpreting positional data.
-pub(super) struct Invocation<'a> {
+pub struct Invocation<'a> {
     /// The first command token, after consuming bootstrap option values.
     pub command: Option<usize>,
+    /// Indices of the recognized command name, including its optional item namespace.
+    pub(crate) command_tokens: std::ops::Range<usize>,
+    /// Position of the delimiter when it ends option parsing.
+    pub(crate) delimiter: Option<usize>,
     /// Actual option occurrences before the argument delimiter.
     pub options: Vec<OptionToken<'a>>,
 }
@@ -35,17 +41,37 @@ fn definition() -> &'static clap::Command {
     })
 }
 
+/// Resolves a long name, alias or exact short spelling in one parser scope.
+fn declared_option<'a>(command: &'a clap::Command, spelling: &str) -> Option<&'a clap::Arg> {
+    command.get_arguments().find(|argument| {
+        argument
+            .get_long()
+            .is_some_and(|name| spelling.strip_prefix("--") == Some(name))
+            || argument.get_all_aliases().is_some_and(|aliases| {
+                aliases
+                    .iter()
+                    .any(|name| spelling.strip_prefix("--") == Some(*name))
+            })
+            || argument
+                .get_short()
+                .is_some_and(|name| spelling == format!("-{name}"))
+    })
+}
+
 impl<'a> Invocation<'a> {
     /// Parses declared boundaries; a standalone `--` ends options unless consumed as a value.
     pub fn parse(args: &'a [String]) -> Self {
         let mut result = Self {
             command: None,
+            command_tokens: 0..0,
+            delimiter: None,
             options: Vec::new(),
         };
         let mut command = definition();
         let mut index = 0;
         while let Some(token) = args.get(index) {
             if token == "--" {
+                result.delimiter = Some(index);
                 break;
             }
             if token.starts_with('-') && token != "-" {
@@ -53,19 +79,7 @@ impl<'a> Invocation<'a> {
                 let (spelling, attached) = token
                     .split_once('=')
                     .map_or((token.as_str(), None), |(name, value)| (name, Some(value)));
-                let argument = command.get_arguments().find(|argument| {
-                    argument
-                        .get_long()
-                        .is_some_and(|name| spelling.strip_prefix("--") == Some(name))
-                        || argument.get_all_aliases().is_some_and(|aliases| {
-                            aliases
-                                .iter()
-                                .any(|name| spelling.strip_prefix("--") == Some(*name))
-                        })
-                        || argument
-                            .get_short()
-                            .is_some_and(|name| spelling == format!("-{name}"))
-                });
+                let argument = declared_option(command, spelling);
                 let name = argument
                     .and_then(clap::Arg::get_long)
                     .unwrap_or(spelling.trim_start_matches('-'));
@@ -87,7 +101,17 @@ impl<'a> Invocation<'a> {
                             break;
                         };
                         if next.starts_with('-') && next != "-" && !allow_hyphen {
-                            break;
+                            let spelling =
+                                next.split_once('=').map_or(next.as_str(), |(name, _)| name);
+                            // Notes accept free text beginning with a hyphen, up to declared options.
+                            if name != "note"
+                                || spelling == "--"
+                                || spelling == "--output-format"
+                                || declared_option(command, spelling).is_some()
+                                || declared_option(definition(), spelling).is_some()
+                            {
+                                break;
+                            }
                         }
                         value.get_or_insert(next.as_str());
                         index += 1;
@@ -103,6 +127,7 @@ impl<'a> Invocation<'a> {
                     end: index,
                     value,
                     bootstrap: result.command.is_none(),
+                    declared: argument.is_some() || shared_value,
                 });
                 continue;
             }
@@ -118,6 +143,7 @@ impl<'a> Invocation<'a> {
                     definition().find_subcommand(if name == "comments" { "comment" } else { name })
                 {
                     command = subcommand;
+                    result.command_tokens = index..index + 1 + usize::from(token == "item");
                 }
             }
             index += 1;
@@ -126,6 +152,7 @@ impl<'a> Invocation<'a> {
     }
 
     /// Explicit tracker scope is meaningful only before the command.
+    #[must_use]
     pub fn scope(&self) -> Option<&'a str> {
         self.options
             .iter()
@@ -134,6 +161,7 @@ impl<'a> Invocation<'a> {
     }
 
     /// Whether this physical argv index is a real author/output control.
+    #[must_use]
     pub fn is_identity_or_format(&self, index: usize) -> bool {
         self.options.iter().any(|option| {
             option.start == index && matches!(option.name, "author" | "json" | "output-format")

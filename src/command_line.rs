@@ -1,5 +1,16 @@
 //! Argument-vector construction for executable recovery advice.
 
+/// Builds bootstrap arguments that preserve a flag-shaped tracker path.
+#[doc(hidden)]
+#[must_use]
+pub fn pm_path_args(path: &str) -> Vec<String> {
+    if path.starts_with('-') && path != "-" {
+        vec![format!("--pm-path={path}")]
+    } else {
+        vec!["--pm-path".to_owned(), path.to_owned()]
+    }
+}
+
 /// Renders a complete pm invocation, quoting every supplied argument.
 #[must_use]
 pub fn render_pm_command<I, S>(args: I) -> String
@@ -7,8 +18,28 @@ where
     I: IntoIterator<Item = S>,
     S: AsRef<str>,
 {
+    render_command("pm", args)
+}
+
+/// Renders a recovery command whose arguments require the native binary.
+#[doc(hidden)]
+#[must_use]
+pub fn render_pm_rust_command<I, S>(args: I) -> String
+where
+    I: IntoIterator<Item = S>,
+    S: AsRef<str>,
+{
+    render_command("pm-rust", args)
+}
+
+/// Quotes arguments for the selected recovery executable.
+pub(crate) fn render_command<I, S>(binary: &str, args: I) -> String
+where
+    I: IntoIterator<Item = S>,
+    S: AsRef<str>,
+{
     format!(
-        "pm {}",
+        "{binary} {}",
         args.into_iter()
             .map(|arg| crate::quote_command_arg(arg.as_ref()))
             .collect::<Vec<_>>()
@@ -26,12 +57,31 @@ where
 /// backslash runs stay literal; unquoted whitespace separates arguments.
 #[must_use]
 pub fn parse_command_args(text: &str) -> Option<Vec<String>> {
+    parse_args(text, false)
+}
+
+/// Decodes recovery advice only when it contains a single shell command.
+#[doc(hidden)]
+#[must_use]
+pub fn parse_recovery_command(text: &str) -> Option<Vec<String>> {
+    parse_args(text, true)
+}
+
+/// Shares quoting rules while distinguishing multiline text from executable advice.
+fn parse_args(text: &str, single_command: bool) -> Option<Vec<String>> {
     let mut chars = text.chars().peekable();
     let mut args = Vec::new();
     let mut arg = String::new();
     let mut quote = None;
     let mut started = false;
     while let Some(ch) = chars.next() {
+        if single_command && quote.is_none() && matches!(ch, '\r' | '\n') {
+            return None;
+        }
+        #[cfg(windows)]
+        if single_command && quote.is_none() && matches!(ch, '&' | '|' | '<' | '>' | '(' | ')') {
+            return None;
+        }
         if quote.is_none() && matches!(ch, ' ' | '\t' | '\n') {
             if started {
                 args.push(std::mem::take(&mut arg));

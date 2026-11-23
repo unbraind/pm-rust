@@ -1,0 +1,16 @@
+id: pm-rust-legacy-hour24-separators
+title: Match legacy separators in stored end-of-day timestamps
+description: "The published 2026.11.18 SDK accepts a stored update timestamp of 2026-08-06,24:00:00Z and calculates eligibility from August 7 midnight. The native end-of-day parser recognizes T, t and space. Verify alternate delimiters against the pinned SDK before expanding stored timestamp parity."
+type: Issue
+status: open
+priority: 3
+tags[3]: follow-up,history,oracle
+created_at: "2026-11-22T11:04:20.026Z"
+updated_at: "2026-11-22T11:04:23.571Z"
+author: codex-sol
+acceptance_criteria: Compare accepted and rejected legacy separators at hour 24 in the native and published SDK activity evidence.
+parent: pm-rust-oracle-1118
+files[2]{path,scope}:
+  src/mutation/claim_activity.rs,project
+  tests/support/claim_activity_differential.rs,project
+body: ""

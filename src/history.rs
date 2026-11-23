@@ -175,6 +175,24 @@ pub(crate) struct HistoryEntry<'a> {
 
 /// Classifies the published operation and patch contract without hiding unknown work.
 pub(crate) fn classify_history_event(operation: &str, patch: &[HistoryPatch]) -> &'static str {
+    classify_history_paths(operation, patch.iter().map(|change| change.path.as_str()))
+}
+
+/// Trims the ECMAScript whitespace used by the published history evidence reader.
+pub(crate) fn trim_evidence_line(line: &str) -> &str {
+    line.trim_matches(|ch: char| ch == '\u{feff}' || (ch != '\u{85}' && ch.is_whitespace()))
+}
+
+/// Checks that every supplied patch row has a string path.
+pub(crate) fn patch_paths_are_strings(patch: &[Value]) -> bool {
+    patch.iter().all(|row| row["path"].is_string())
+}
+
+/// Classifies decoded history paths without constructing a new patch.
+pub(crate) fn classify_history_paths<'a>(
+    operation: &str,
+    patch: impl Iterator<Item = &'a str>,
+) -> &'static str {
     /// Published operations whose semantics are always maintenance.
     const MAINTENANCE_OPERATIONS: &[&str] = &[
         "docs_add",
@@ -185,11 +203,13 @@ pub(crate) fn classify_history_event(operation: &str, patch: &[HistoryPatch]) ->
         "history_compact_baseline",
         "history_redact",
         "history_repair",
+        "history_salvage",
         "normalize",
         "release",
         "test_run_track",
         "tests_add",
         "tests_remove",
+        "tests_update",
         "update_audit",
         "update_ownership_bypass",
     ];
@@ -233,13 +253,14 @@ pub(crate) fn classify_history_event(operation: &str, patch: &[HistoryPatch]) ->
         "value",
         "why_now",
     ];
+    let mut patch = patch.peekable();
     if MAINTENANCE_OPERATIONS.contains(&operation) {
         return "maintenance";
     }
     if operation == "update"
-        && !patch.is_empty()
-        && patch.iter().all(|change| {
-            let mut segments = change.path.split('/').filter(|part| !part.is_empty());
+        && patch.peek().is_some()
+        && patch.all(|path| {
+            let mut segments = path.split('/').filter(|part| !part.is_empty());
             matches!(segments.next(), Some("metadata" | "front_matter"))
                 && segments
                     .next()
@@ -462,8 +483,60 @@ fn escape_pointer(key: &str) -> String {
 /// Lowercase hexadecimal digits, indexed by the nibble they encode.
 const HEX_DIGITS: [u8; 16] = *b"0123456789abcdef";
 
-/// Appends recursively key-sorted compact JSON for stable hashing.
+/// Orders JavaScript array-index property names before all other object keys.
+fn json_index(key: &str) -> u32 {
+    key.parse::<u32>()
+        .ok()
+        .filter(|index| index.to_string() == key)
+        .unwrap_or(u32::MAX)
+}
+
+/// Computes the published SHA-256 digest of a reanchored patch.
+pub(crate) fn hash_history_patch(patch: &Value) -> String {
+    let mut output = String::new();
+    encode_stable_json(
+        patch,
+        &mut output,
+        NumberEncoding::JavaScript,
+        |left, right| {
+            json_index(left)
+                .cmp(&json_index(right))
+                .then_with(|| left.encode_utf16().cmp(right.encode_utf16()))
+        },
+    );
+    sha256_digest(output.as_bytes())
+}
+
+/// Number encoding used in canonical history hashes.
+#[derive(Clone, Copy)]
+pub(crate) enum NumberEncoding {
+    /// Published JavaScript number semantics.
+    JavaScript,
+    /// Integer digits retained by earlier native writers.
+    ExactIntegers,
+}
+
+/// Appends recursively key-sorted compact JSON for new history hashes.
 pub(crate) fn stable_json(value: &Value, output: &mut String) {
+    stable_json_with_numbers(value, output, NumberEncoding::JavaScript);
+}
+
+/// Appends canonical history JSON using the selected number encoding.
+pub(crate) fn stable_json_with_numbers(
+    value: &Value,
+    output: &mut String,
+    numbers: NumberEncoding,
+) {
+    encode_stable_json(value, output, numbers, str::cmp);
+}
+
+/// Uses the selected key order while sharing the scalar and array encoding.
+fn encode_stable_json(
+    value: &Value,
+    output: &mut String,
+    numbers: NumberEncoding,
+    key_order: fn(&str, &str) -> std::cmp::Ordering,
+) {
     match value {
         Value::Array(entries) => {
             output.push('[');
@@ -471,14 +544,14 @@ pub(crate) fn stable_json(value: &Value, output: &mut String) {
                 if index > 0 {
                     output.push(',');
                 }
-                stable_json(entry, output);
+                encode_stable_json(entry, output, numbers, key_order);
             }
             output.push(']');
         }
         Value::Object(entries) => {
             output.push('{');
             let mut keys: Vec<&String> = entries.keys().collect();
-            keys.sort();
+            keys.sort_unstable_by(|left, right| key_order(left, right));
             for (index, key) in keys.into_iter().enumerate() {
                 if index > 0 {
                     output.push(',');
@@ -486,11 +559,17 @@ pub(crate) fn stable_json(value: &Value, output: &mut String) {
                 let encoded = serde_json::to_string(key).unwrap_or_default();
                 output.push_str(&encoded);
                 output.push(':');
-                stable_json(&entries[key], output);
+                encode_stable_json(&entries[key], output, numbers, key_order);
             }
             output.push('}');
         }
-        Value::Number(number) => output.push_str(&javascript_number(number)),
+        Value::Number(number) => {
+            let encoded = match numbers {
+                NumberEncoding::ExactIntegers if !number.is_f64() => number.to_string(),
+                _ => javascript_number(number),
+            };
+            output.push_str(&encoded);
+        }
         scalar => {
             let encoded = serde_json::to_string(scalar).unwrap_or_default();
             output.push_str(&encoded);
@@ -507,19 +586,22 @@ pub(crate) fn stable_json(value: &Value, output: &mut String) {
 /// item carrying a float in its metadata, which reads downstream as a corrupt
 /// history chain rather than as a formatting disagreement.
 ///
-/// Integers retain their stored representation. Floats use ECMAScript's
-/// shortest decimal representation, including its exponent thresholds and zero.
+/// Integers within the JavaScript safe range keep their stored digits.
+/// The published CLI parses every stored patch and document as a JavaScript
+/// number, so integers outside that range already exist there only as the
+/// rounded double `JSON.stringify` prints, and the two runtimes must render
+/// them identically or reanchor digests diverge.
 ///
 /// @param number - The decoded JSON number.
 /// @returns The number formatted as `JSON.stringify` would format it.
 pub(crate) fn javascript_number(number: &serde_json::Number) -> String {
-    let Some(float) = number
-        .as_f64()
-        .filter(|_| number.as_i64().is_none() && number.as_u64().is_none())
-    else {
-        return number.to_string();
-    };
-    javascript_float(float)
+    if let Some(exact) = number
+        .as_i64()
+        .filter(|exact| exact.unsigned_abs() <= 9_007_199_254_740_991)
+    {
+        return exact.to_string();
+    }
+    javascript_float(number.as_f64().unwrap_or_default())
 }
 
 /// Renders one finite double the way `JSON.stringify` renders it.

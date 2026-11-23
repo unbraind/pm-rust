@@ -1,0 +1,18 @@
+id: pm-rust-refusal-projection-whitespace
+title: Mirror the published refusal projection for whitespace-adjacent credential layouts
+description: "The native refusal-projection URL scanner (src/refusal.rs userinfos) and the published CLI token-wise redaction (dist/core/shared/url-credentials.js redactUrlCredentialsInText) disagree on three whitespace-adjacent layouts, verified against the pinned 2026.11.18 oracle: (1) a space in the user part with an encoded separator ('user :pass%40evil.com') - the oracle masks the password token while native keeps it, because the percent-encoded fallback splits the authority at whitespace and keeps only the first segment; (2) a scheme-less credential in prose with an encoded separator ('host.invalid/path user:pass%40evil.com') - the oracle masks while native scans only from URL schemes; (3) a space inside the password with a literal separator ('user:pa ss@evil.com') - the oracle keeps the text unchanged while native masks up to the @. A fix must keep every corpus case in tests/support/refusal_corpus.rs and the differential refusal suites byte-identical."
+type: Issue
+status: open
+priority: 2
+tags[3]: follow-up,oracle,refusal-projection
+created_at: "2026-11-23T06:22:59.015Z"
+updated_at: "2026-11-23T08:05:40.508Z"
+author: pi-glm
+acceptance_criteria: Compare the native and published redaction for each whitespace-adjacent layout and close every divergence with corpus and differential coverage.
+parent: pm-rust-oracle-1118
+comments[1]{created_at,author,text}:
+  "2026-11-23T08:05:40.503Z",codex-sol,"Reproduced all three recorded divergences using synthetic stored blocker titles and the full start-task refusal. The exact Round GP input with whitespace in the password before %40 produced identical refusal bytes. Both also kept the public URL followed by an email. The existing literal-at redaction protects stored text in native output, so coordinate that difference with the published CLI before choosing a parity change."
+files[2]{path,scope}:
+  src/refusal.rs,project
+  tests/support/refusal_corpus.rs,project
+body: ""

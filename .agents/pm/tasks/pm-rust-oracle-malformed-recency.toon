@@ -1,0 +1,14 @@
+id: pm-rust-oracle-malformed-recency
+title: Track published context failure on malformed history patch paths
+description: "With the pinned pm-cli 2026.11.18, context exits 0 on a clean synthetic tracker. Adding an update record with a patch object lacking path makes context exit 1 with unknown_error while stale-work skips that record. Native orientation now ignores invalid recency evidence. Check whether a later published release handles malformed paths consistently and extend the differential when it does."
+type: Task
+status: open
+priority: 3
+tags[3]: follow-up,oracle,orientation
+created_at: "2026-11-20T06:08:42.071Z"
+updated_at: "2026-11-20T10:17:14.759Z"
+author: codex-sol
+parent: pm-rust-oracle-1118
+comments[1]{created_at,author,text}:
+  "2026-11-20T10:17:14.754Z",codex-sol,"Round EV verified the well-formed date-only history and threshold cases against the pinned CLI. Native context still ignores malformed patch paths during recency selection, as covered by recency_honors_event_classes_and_legacy_paths. The published malformed-recency issue from Round ER remains tracked here for a later oracle version."
+body: ""

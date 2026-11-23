@@ -58,7 +58,7 @@ fn toon_wire_shapes_preserve_values_and_disclose_sparse_cells()
     );
     assert_eq!(
         encoding,
-        json!({"json_columns":["tags"],"absent":[[0,"parent"]]})
+        json!({"json_columns":["tags"],"absent_rows":{"parent":[0]}})
     );
     let brief = json!({"items":[],"count":0,"total":0,"has_more":false,"truncated":false,"projection":{"mode":"brief","fields":["id","status","type","title"]},"completeness":{"status":"complete","unreadable_item_count":0,"unreadable_directory_count":0},"sorting":{"sort":"default"},"omission_receipt":{"has_omissions":true,"omitted_field_group_count":1,"omitted_field_groups":[{"name":"full_item_fields","restore_with":"--full"}]}});
     assert_eq!(
@@ -154,10 +154,7 @@ fn raw_overrides_refuse_toon_without_panicking() {
 /// Verifies scalar and nested read coercion without changing numeric strings.
 fn assert_read_number_domain() -> Result<(), Box<dyn std::error::Error>> {
     use super::{render, table};
-    assert_eq!(
-        table(&json!([{}]), false),
-        Some((json!([{}]), json!({"json_columns":[],"absent":[]})))
-    );
+    assert_eq!(table(&json!([{}]), false), Some((json!([{}]), json!({}))));
     let (rows, _) = table(
         &json!([{"nested":[9_007_199_254_740_993_u64]},{"nested":[9_007_199_254_740_992_u64]}]),
         false,
@@ -415,4 +412,108 @@ fn round5_equivalent_field_filter_echoes() {
         &json!({"filters":{"fields":"id,title"},"projection":{"mode":"fields","fields":["id"]},"items":[{"id":"one"}]}),
     );
     assert_eq!(map["filters"]["fields"], "id,title");
+}
+
+/// Omission receipts keep per-group instructions when they cannot share a shorter hint.
+#[test]
+fn omission_receipts_preserve_distinct_and_explicit_restore_hints() {
+    let single = json!({"omitted_field_groups":[{"name":"a","restore_with":"a"}]});
+    let rows = super::render(&single, 1);
+    let named = super::render(&super::project_omission(&single).unwrap_or_default(), 1);
+    assert!(rows.len() <= named.len(), "{rows}\n{named}");
+    assert_eq!(
+        super::render(&json!({"omission_receipt": single}), 0),
+        format!("omission_receipt:\n{rows}")
+    );
+    let shared = json!({"has_omissions":true,"omitted_field_group_count":3,"omitted_field_groups":[
+        {"name":"progress","restore_with":"--section progress"},
+        {"name":"dependencies","restore_with":"--section dependencies"},
+        {"name":"activity","restore_with":"--section activity"},
+    ]});
+    let rows = super::render(&shared, 1);
+    let named = super::render(&super::project_omission(&shared).unwrap_or_default(), 1);
+    for expected in ["progress", "dependencies", "activity", "--section <name>"] {
+        assert!(named.contains(expected), "{named}");
+    }
+    assert!(named.len() < rows.len(), "{rows}\n{named}");
+    assert_eq!(
+        super::render(&json!({"omission_receipt": shared}), 0),
+        format!("omission_receipt:\n{named}")
+    );
+    for receipt in [
+        json!({"restore_with":"choose a section","omitted_field_groups":[{"name":"one","restore_with":"--section one"}]}),
+        json!({"omitted_field_groups":[{"name":"one","restore_with":"--section one"},{"name":"two","restore_with":"--field two"}]}),
+    ] {
+        let rendered = super::render(&json!({"omission_receipt": receipt}), 0);
+        assert_eq!(
+            rendered,
+            format!("omission_receipt:\n{}", super::render(&receipt, 1))
+        );
+        assert!(rendered.contains("--section one"));
+    }
+}
+
+/// Receipts with custom shapes keep their original values when they cannot project.
+#[test]
+fn custom_omission_receipts_preserve_unrecognized_shapes() {
+    for receipt in [
+        json!("custom summary"),
+        json!({"custom":"summary"}),
+        json!({"omitted_field_groups":"custom summary"}),
+        json!({"omitted_field_groups":[]}),
+        json!({"omitted_field_groups":["custom group"]}),
+        json!({"omitted_field_groups":[{"restore_with":"--section one","other":true}]}),
+        json!({"omitted_field_groups":[{"name":"","restore_with":"--section one"}]}),
+        json!({"omitted_field_groups":[{"name":"one","other":true}]}),
+        json!({"omitted_field_groups":[{"name":"one","restore_with":false}]}),
+        json!({"omitted_field_groups":[{"name":"one","restore_with":"--full"}]}),
+    ] {
+        assert_eq!(super::project_omission(&receipt), None);
+        let rendered = super::render(&json!({"omission_receipt": receipt}), 0);
+        assert!(rendered.contains("omission_receipt"));
+        if receipt.is_object() {
+            assert!(rendered.contains(super::render(&receipt, 1).trim()));
+        }
+    }
+}
+
+/// A sparse table records every absent row in the order of its first missing cell.
+#[test]
+fn sparse_table_groups_repeated_missing_cells_in_wire_order()
+-> Result<(), Box<dyn std::error::Error>> {
+    let source = json!([
+        {"id":"one","a":"first"},
+        {"id":"two","b":"second"},
+        {"id":"three","a":null}
+    ]);
+    let (rows, receipt) = super::table(&source, false).ok_or("sparse table")?;
+    assert_eq!(rows[0].get("b"), Some(&serde_json::Value::Null));
+    assert_eq!(rows[2].get("a"), Some(&serde_json::Value::Null));
+    assert_eq!(receipt["absent_rows"].to_string(), r#"{"b":[0,2],"a":[1]}"#);
+
+    let items = json!(
+        (0..30)
+            .map(|index| {
+                let mut row = json!({
+                    "id": index, "title": "long table column",
+                    "status": "open", "type": "Task", "priority": 1
+                });
+                if index > 0 {
+                    row["owner"] = json!(null);
+                }
+                row
+            })
+            .collect::<Vec<_>>()
+    );
+    let wire = super::stringify_toon(&json!({"items":items}).into())?;
+    assert!(wire.contains("items_encoding:"), "{wire}");
+    assert!(wire.contains("absent_rows:"), "{wire}");
+    let restored = crate::parse_toon(&wire)?;
+    assert_eq!(restored["items"], items);
+    assert!(restored["items"][0].get("owner").is_none());
+    assert_eq!(
+        restored["items"][1].get("owner"),
+        Some(&serde_json::Value::Null)
+    );
+    Ok(())
 }

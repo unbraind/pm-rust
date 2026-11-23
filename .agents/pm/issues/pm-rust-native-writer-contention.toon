@@ -1,0 +1,26 @@
+id: pm-rust-native-writer-contention
+title: Diagnose native writer lock conflicts in cross-platform CI
+description: "The existing 50-writer native comment stress test returned lock_conflict on Windows quick shard 1 at 7aa7f9965232ab92e0655e76df607e3ddff2f468. The job was 137153185318 in run 45004486025. The test finished in 14.26 seconds with a configured 60-second acquisition wait. macOS returned the same refusal on fdc1185 and 60456b3, then passed on 7aa7f99. Windows shard 2 passed, as did the merged Linux coverage gate.\n\nThe older issues pm-rust-b6ey and pm-rust-kgfh cover wait-budget exhaustion and diagnostic classification. The current refusal has no verified cause yet."
+type: Issue
+status: open
+priority: 2
+tags[3]: ci,concurrency,follow-up
+created_at: "2026-11-22T09:07:52.881Z"
+updated_at: "2026-11-22T10:19:59.393Z"
+author: codex-sol
+acceptance_criteria: "Identify whether the refusal originates in acquisition, the 250 ms publication gate wait, or the receipt identity check. Verify admitted writes and their history under equivalent contention on the affected runner."
+parent: pm-rust-oracle-1118
+comments[2]{created_at,author,text}:
+  "2026-11-22T10:06:47.044Z",codex-sol,Round GH confirmed the Windows failure took 14.26 seconds despite the 60-second acquisition budget. A local fixture holding the item publication gate for 500 ms reproduced lock_conflict after lease acquisition because the fence used a separate 250 ms wait. The proposed fix carries the configured wait into both item fences while retaining the existing short minimum and receipt identity checks.
+  "2026-11-22T10:19:46.990Z",codex-sol,"The targeted regression returned LockConflict before the fence change and passed with the configured wait. PM_RUST_REQUIRE_PUBLISHED_CLI=1 cargo test --locked --all-features --test concurrency_contract -- --test-threads=1 passed 20 of 20 complete runs on Linux. Each stress run still requires all 150 writes, exact markers, and an intact history chain. Exact-head macOS and Windows CI remains the platform validation."
+files[3]{path,scope}:
+  src/mutation.rs,project
+  tests/concurrency_contract.rs,project
+  tests/support/mutation_unit.rs,project
+tests[3]{command,scope,provenance{author,created_at,source_kind,source_ref}}:
+  PM_RUST_REQUIRE_PUBLISHED_CLI=1 cargo test --locked --all-features --test concurrency_contract,project,codex-sol,"2026-11-22T09:07:58.107Z",local_mutation,fix/oracle-pm-cli-1118
+  PM_RUST_REQUIRE_PUBLISHED_CLI=1 cargo test --locked --all-features --lib item_publication_uses_the_mutation_lock_wait_budget,project,codex-sol,"2026-11-22T10:08:24.384Z",local_mutation,fix/oracle-pm-cli-1118
+  PM_RUST_REQUIRE_PUBLISHED_CLI=1 cargo test --locked --all-features --test concurrency_contract -- --test-threads=1,project,codex-sol,"2026-11-22T10:08:24.384Z",local_mutation,fix/oracle-pm-cli-1118
+docs[1]{path,scope}:
+  docs/NATIVE_PARITY_2026_10_21.md,project
+body: ""

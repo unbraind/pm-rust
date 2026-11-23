@@ -20,6 +20,42 @@ impl Workspace {
     }
 }
 
+/// A whole-value identity guard accepts plain names and redacts rejected URL userinfo.
+#[test]
+fn identity_credentials_distinguish_public_paths_and_userinfo() {
+    for identity in [
+        "agent-a",
+        "contact@example.invalid",
+        "https://example.invalid/@scope/pkg",
+    ] {
+        assert!(AuthorIdentity::validate_credentials(identity, "--author").is_ok());
+        assert_eq!(AuthorIdentity::redact_credentials(identity), identity);
+    }
+    for (identity, projected) in [
+        (
+            "https://fixture:fake-value@example.invalid",
+            "https://[redacted]@example.invalid",
+        ),
+        (
+            "https://fixture:fake value://tail@example.invalid",
+            "https://[redacted]@example.invalid",
+        ),
+        (
+            "https:fixture%40example.invalid",
+            "https:[redacted]%40example.invalid",
+        ),
+    ] {
+        let failure = AuthorIdentity::validate_credentials(identity, "PM_AUTHOR");
+        assert!(matches!(
+            failure,
+            Err(PmRustError::IdentityCredentials {
+                identity_source: "PM_AUTHOR"
+            })
+        ));
+        assert_eq!(AuthorIdentity::redact_credentials(identity), projected);
+    }
+}
+
 /// Native SDK composition supports explicit identity, default identity and idempotent start.
 #[test]
 fn sdk_lifecycle_succeeds_with_explicit_and_default_identity()
@@ -99,6 +135,110 @@ fn sdk_lifecycle_succeeds_with_explicit_and_default_identity()
     Ok(())
 }
 
+/// A close's release publishes before a subsequent claim can commit.
+#[test]
+fn close_release_orders_session_cleanup_before_reclaim() -> Result<(), Box<dyn std::error::Error>> {
+    let directory = tempfile::tempdir()?;
+    let root = directory.path().join(".agents/pm");
+    fs::create_dir_all(root.join("tasks"))?;
+    fs::create_dir(root.join("history"))?;
+    fs::write(
+        root.join("settings.json"),
+        r#"{"governance":{"preset":"minimal"}}"#,
+    )?;
+    fs::write(
+        root.join("tasks/sample-one.toon"),
+        r#"id: sample-one
+title: Work
+description: ""
+type: Task
+status: open
+priority: 2
+tags: []
+created_at: "2026-08-22T10:00:00Z"
+updated_at: "2026-08-22T10:00:00Z"
+body: ""
+"#,
+    )?;
+    let workspace = Workspace::discover(&root)?;
+    let request = OwnershipItem {
+        id: "sample-one".to_owned(),
+        author: "alpha".to_owned(),
+        timestamp: Some("2026-08-22T10:00:00Z".to_owned()),
+        message: None,
+        force: false,
+        if_available: false,
+        provenance_role: None,
+    };
+    let mut identity = AuthorIdentity::resolve(Some("alpha"), None, &BTreeMap::new());
+    let key = "0123456789abcdef01234567";
+    identity.principal = format!("alpha#{key}");
+    let options = OwnershipOptions {
+        identity: Some(identity),
+        ..OwnershipOptions::default()
+    };
+    workspace.claim_with_options(&request, &options)?;
+    workspace.close(crate::CloseItem {
+        id: request.id.clone(),
+        author: request.author.clone(),
+        reason: "Completed the first claim".to_owned(),
+        timestamp: request.timestamp.clone(),
+        provenance_role: None,
+        force_stale_lock: false,
+        fields: crate::CloseFields::default(),
+    })?;
+    let parents = workspace.read_parent_index(false)?;
+    let reclaim = OwnershipItem {
+        force: true,
+        ..request.clone()
+    };
+    let mut attribution = Ok(());
+    crate::mutation::ownership_item_with_options(
+        &root,
+        &request,
+        crate::ownership::OwnershipAction::Release,
+        &options,
+        &mut || Ok(()),
+        &mut |_, session_gate_held| {
+            assert!(root.join("locks/sample-one.lock.stale-cleanup").is_dir());
+            assert!(
+                workspace
+                    .get(&request.id)
+                    .is_ok_and(|item| !item.metadata.extra.contains_key("assignee"))
+            );
+            let blocked = workspace.claim_with_options(&reclaim, &options);
+            assert!(
+                matches!(blocked, Err(PmRustError::OwnershipRefusal { context, .. }) if context["code"] == "lock_conflict")
+            );
+            attribution = record_semantics(
+                &workspace,
+                &request,
+                &options,
+                false,
+                session_gate_held,
+                &parents,
+            );
+        },
+    )?;
+    attribution?;
+    let session = root.join("runtime/session.json");
+    assert_eq!(
+        serde_json::from_slice::<Value>(&fs::read(&session)?)?,
+        json!({})
+    );
+    workspace.claim_with_options(&reclaim, &options)?;
+    let state: Value = serde_json::from_slice(&fs::read(&session)?)?;
+    assert_eq!(
+        state["semantic_attribution"][key]["active_item_ids"],
+        json!([request.id])
+    );
+    assert_eq!(
+        workspace.get(&request.id)?.metadata.extra["assignee"],
+        "alpha"
+    );
+    Ok(())
+}
+
 /// Session updates cap the active workset, preserve focus, and tolerate lineage cycles.
 #[test]
 fn semantic_worksets_preserve_focus_and_bound_lineage() -> Result<(), Box<dyn std::error::Error>> {
@@ -126,7 +266,7 @@ fn semantic_worksets_preserve_focus_and_bound_lineage() -> Result<(), Box<dyn st
     };
     let options = OwnershipOptions::default();
     let parents = workspace.read_parent_index(false)?;
-    record_semantics(&workspace, &request, &options, true, &parents)?;
+    record_semantics(&workspace, &request, &options, true, false, &parents)?;
     let session = root.join("runtime/session.json");
     let mut state: Value = serde_json::from_slice(&fs::read(&session)?)?;
     let key = format!("author-{}", hex_prefix(b"alpha", 24));
@@ -145,7 +285,7 @@ fn semantic_worksets_preserve_focus_and_bound_lineage() -> Result<(), Box<dyn st
             .collect::<Vec<_>>()
     );
     fs::write(&session, crate::stringify_json(&state, false))?;
-    record_semantics(&workspace, &request, &options, true, &parents)?;
+    record_semantics(&workspace, &request, &options, true, false, &parents)?;
     let state: Value = serde_json::from_slice(&fs::read(&session)?)?;
     let semantic = &state["semantic_attribution"][&key];
     assert_eq!(
@@ -155,7 +295,7 @@ fn semantic_worksets_preserve_focus_and_bound_lineage() -> Result<(), Box<dyn st
     assert_eq!(semantic["evidence"].as_array().map(Vec::len), Some(32));
     assert_eq!(semantic["topic"], "sample-focus");
     assert_eq!(semantic["confidence"], "high");
-    record_semantics(&workspace, &request, &options, false, &parents)?;
+    record_semantics(&workspace, &request, &options, false, false, &parents)?;
     let mut state: Value = serde_json::from_slice(&fs::read(&session)?)?;
     assert_eq!(
         state["semantic_attribution"][&key]["role"],
@@ -163,7 +303,7 @@ fn semantic_worksets_preserve_focus_and_bound_lineage() -> Result<(), Box<dyn st
     );
     state["semantic_attribution"][&key]["active_item_ids"] = json!([]);
     fs::write(&session, crate::stringify_json(&state, false))?;
-    record_semantics(&workspace, &request, &options, false, &parents)?;
+    record_semantics(&workspace, &request, &options, false, false, &parents)?;
     let mut state: Value = serde_json::from_slice(&fs::read(&session)?)?;
     assert_eq!(state["semantic_attribution"][&key]["topic"], "sample-focus");
     state["semantic_attribution"][&key]
@@ -171,13 +311,13 @@ fn semantic_worksets_preserve_focus_and_bound_lineage() -> Result<(), Box<dyn st
         .ok_or("missing semantic object")?
         .remove("focused_item_id");
     fs::write(&session, crate::stringify_json(&state, false))?;
-    record_semantics(&workspace, &request, &options, false, &parents)?;
+    record_semantics(&workspace, &request, &options, false, false, &parents)?;
     let state: Value = serde_json::from_slice(&fs::read(&session)?)?;
     assert!(state.get("semantic_attribution").is_none());
-    record_semantics(&workspace, &request, &options, false, &parents)?;
+    record_semantics(&workspace, &request, &options, false, false, &parents)?;
     let mut missing = request.clone();
     missing.id = "sample-absent".to_owned();
-    assert!(record_semantics(&workspace, &missing, &options, true, &parents).is_err());
+    assert!(record_semantics(&workspace, &missing, &options, true, false, &parents).is_err());
     Ok(())
 }
 
@@ -489,13 +629,14 @@ fn partial_failures_keep_policy_context_and_persisted_step() {
                 .as_str()
                 .is_some_and(|why| why.starts_with("update completed for sample-own"))
         );
-        assert!(
-            context["next_steps"][0]
-                .as_str()
-                .is_some_and(|step| step.contains("pm history sample-own"))
+        assert_eq!(context["next_steps"][0], "pm get sample-own");
+        assert_eq!(context["next_steps"][1], "pm history sample-own");
+        assert_eq!(
+            context["next_steps"][2],
+            "Inspect the persisted state before retrying the failed step."
         );
         if exit == 4 {
-            assert_eq!(context["next_steps"][1], "Original step.");
+            assert_eq!(context["next_steps"][3], "Original step.");
             assert!(
                 context["why"]
                     .as_str()
@@ -708,6 +849,7 @@ updated_at: "2026-08-22T10:00:00.000Z"
         },
         &OwnershipOptions::default(),
         true,
+        false,
         &parents,
     )?;
     let state: Value = serde_json::from_slice(&fs::read(root.join("runtime/session.json"))?)?;
@@ -845,16 +987,12 @@ fn round15_partial_failure_advice_shell_round_trip() -> Result<(), Box<dyn std::
         let PmRustError::CommandRefusal { context, .. } = error else {
             return Err("partial refusal".into());
         };
-        let step = context["next_steps"][0]
-            .as_str()
-            .ok_or("step")?
-            .strip_prefix("Inspect the persisted state with ")
-            .ok_or("prefix")?
-            .strip_suffix(" before retrying the failed step.")
-            .ok_or("suffix")?;
-        let (get, history) = step.split_once(" and ").ok_or("two commands")?;
-        corpus::assert_shell_args(get, &["pm", "get", value])?;
-        corpus::assert_shell_args(history, &["pm", "history", value])?;
+        for (index, verb) in ["get", "history"].into_iter().enumerate() {
+            let command = context["next_steps"][index]
+                .as_str()
+                .ok_or("inspection step")?;
+            corpus::assert_shell_args(command, &["pm", verb, value])?;
+        }
     }
     Ok(())
 }
@@ -882,4 +1020,40 @@ fn round17_runtime_duplicate_status_precedence() -> Result<(), Box<dyn std::erro
         assert_eq!(captured.terminal("open"), role == "terminal");
     }
     Ok(())
+}
+
+/// The identity projection leaves public paths and addresses intact and removes private userinfo.
+#[test]
+fn identity_redaction_keeps_path_and_authority_boundaries() {
+    for (input, expected) in [
+        ("agent:work", "agent:work"),
+        ("agent@example.invalid:work", "agent@example.invalid:work"),
+        (
+            "custom://fixture@example.invalid",
+            "custom://[redacted]@example.invalid",
+        ),
+        ("https://@example.invalid", "https://@example.invalid"),
+        (
+            "see https://example.invalid/@scope/pkg",
+            "see https://example.invalid/@scope/pkg",
+        ),
+        (
+            "https://example.invalid/@scope/pkg\n",
+            "https://[redacted]@scope/pkg\n",
+        ),
+        (
+            "https://example.invalid//path@ref",
+            "https://[redacted]@ref",
+        ),
+        (
+            "https://example.invalid/path:kind@ref",
+            "https://[redacted]@ref",
+        ),
+    ] {
+        assert_eq!(
+            AuthorIdentity::redact_credentials(input),
+            expected,
+            "{input}"
+        );
+    }
 }

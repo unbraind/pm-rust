@@ -52,6 +52,30 @@ fn request(author: &str) -> OwnershipItem {
     }
 }
 
+/// A legacy holder's authority credentials are private even when its path has an at sign.
+#[test]
+fn sdk_claim_masks_short_copies_of_the_legacy_holder_password() -> TestResult {
+    let (_directory, workspace) = fixture()?;
+    let path = workspace.pm_root().join("tasks/sample-one.toon");
+    let history = workspace.pm_root().join("history/sample-one.jsonl");
+    let mut item: Value = toon_format::decode_default(&fs::read_to_string(&path)?)?;
+    item["assignee"] = json!("https://fixture:one@example.invalid/path@tail.test");
+    let stored = toon_format::encode_default(&item)?;
+    fs::write(&path, &stored)?;
+    let before = fs::read(&history)?;
+    let Err(PmRustError::OwnershipRefusal { detail, context }) = workspace.claim(&request("beta"))
+    else {
+        return Err("expected a foreign-holder refusal".into());
+    };
+    assert_eq!(context["code"], "already_claimed_by");
+    assert_eq!(context["claimed_by"], "https://[redacted]@tail.test");
+    assert_eq!(context["item_id"], "sample-[redacted]");
+    assert!(!detail.contains("sample-one"), "{detail}");
+    assert_eq!(fs::read_to_string(path)?, stored);
+    assert_eq!(fs::read(history)?, before);
+    Ok(())
+}
+
 /// An object-state publication fault cannot undo committed ownership metadata.
 #[test]
 fn session_publication_faults_preserve_completed_ownership() -> TestResult {
@@ -68,10 +92,15 @@ fn session_publication_faults_preserve_completed_ownership() -> TestResult {
         workspace.get("sample-one")?.metadata.extra["assignee"],
         "alpha"
     );
-    assert!(matches!(
-        workspace.release(&alpha),
-        Err(PmRustError::Io { .. })
-    ));
+    let release = workspace.release(&alpha)?;
+    assert_eq!(
+        release.warnings,
+        ["release_semantic_attribution_unrecorded"]
+    );
+    assert!(
+        release.suggestions[0]
+            .contains("check and reconcile the session's active-item attribution")
+    );
     assert!(
         !workspace
             .get("sample-one")?
@@ -82,13 +111,18 @@ fn session_publication_faults_preserve_completed_ownership() -> TestResult {
     fs::remove_dir(&session)?;
     let lock = root.join("locks/session-state.lock");
     let held = serde_json::to_vec(
-        &json!({"created_at":pm_rust::current_timestamp(), "owner":"fixture-holder"}),
+        &json!({"id":"session-state", "pid":1, "created_at":pm_rust::current_timestamp(), "owner":"fixture-holder", "ttl_seconds":1800}),
     )?;
     fs::write(&lock, &held)?;
-    assert_eq!(
-        workspace.claim(&alpha)?.warnings,
-        ["claim_semantic_attribution_unrecorded"]
-    );
+    let claim = workspace.claim(&alpha)?;
+    assert_eq!(claim.warnings, ["claim_semantic_attribution_unrecorded"]);
+    let advice = &claim.suggestions[0];
+    assert!(advice.contains("The claim of sample-one is saved"));
+    assert!(advice.contains("Once the lock clears"));
+    assert!(advice.contains("active-item attribution against current ownership"));
+    assert!(advice.contains("pm gc --scope locks"));
+    assert!(!advice.contains("retry"));
+    assert!(!session.exists());
     assert_eq!(fs::read(&lock)?, held);
     assert_eq!(
         workspace.get("sample-one")?.metadata.extra["assignee"],
@@ -100,6 +134,55 @@ fn session_publication_faults_preserve_completed_ownership() -> TestResult {
             .count(),
         4
     );
+    fs::remove_file(lock)?;
+    assert!(!session.exists());
+    Ok(())
+}
+
+/// A session destination I/O error leaves the saved release visible.
+#[test]
+fn release_reconciles_stale_session_attribution_after_io_failure() -> TestResult {
+    let (_directory, workspace) = fixture()?;
+    let root = workspace.pm_root();
+    let alpha = request("alpha");
+    assert!(workspace.claim(&alpha)?.warnings.is_empty());
+    let session = root.join("runtime/session.json");
+    let saved = fs::read(&session)?;
+    let state: Value = serde_json::from_slice(&saved)?;
+    assert!(
+        state["semantic_attribution"]
+            .as_object()
+            .ok_or("attribution")?
+            .values()
+            .any(|attribution| attribution["active_item_ids"] == json!(["sample-one"]))
+    );
+
+    let backup = session.with_extension("saved");
+    fs::rename(&session, &backup)?;
+    fs::create_dir(&session)?;
+    let release = workspace.release(&alpha)?;
+    assert_eq!(
+        release.warnings,
+        ["release_semantic_attribution_unrecorded"]
+    );
+    let advice = &release.suggestions[0];
+    assert!(advice.contains("release of sample-one is saved"));
+    assert!(advice.contains("After fixing the session update failure"));
+    assert!(advice.contains(
+        "check and reconcile the session's active-item attribution against current ownership"
+    ));
+    assert!(!advice.contains("retry"));
+    assert!(
+        !workspace
+            .get("sample-one")?
+            .metadata
+            .extra
+            .contains_key("assignee")
+    );
+    let history = fs::read_to_string(root.join("history/sample-one.jsonl"))?;
+    let entry: Value = serde_json::from_str(history.lines().last().ok_or("release history")?)?;
+    assert_eq!(entry["op"], "release");
+    fs::remove_dir(&session)?;
     Ok(())
 }
 
@@ -596,5 +679,22 @@ fn scoped_detected_principal_covers_all_ownership_comparisons() -> TestResult {
             .extra
             .contains_key("claim_principal")
     );
+    Ok(())
+}
+
+/// A read failure on a replaceable session file preserves its bytes and the saved claim.
+#[test]
+fn session_read_error_preserves_the_existing_snapshot() -> TestResult {
+    let (_directory, workspace) = fixture()?;
+    let session = workspace.pm_root().join("runtime/session.json");
+    let existing = b"{\"unrelated\":\"\xff\"}";
+    fs::write(&session, existing)?;
+    let claim = workspace.claim(&request("alpha"))?;
+    assert_eq!(claim.warnings, ["claim_semantic_attribution_unrecorded"]);
+    assert_eq!(
+        workspace.get("sample-one")?.metadata.extra["assignee"],
+        "alpha"
+    );
+    assert_eq!(fs::read(session)?, existing);
     Ok(())
 }

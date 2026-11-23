@@ -36,6 +36,33 @@ pub struct AuthorIdentity {
 }
 
 impl AuthorIdentity {
+    /// Refuses URL userinfo in an identity before a mutation can persist it.
+    ///
+    /// # Errors
+    /// Returns [`PmRustError::IdentityCredentials`] for a credential-bearing identity.
+    pub fn validate_credentials(
+        identity: &str,
+        identity_source: &'static str,
+    ) -> Result<(), PmRustError> {
+        let identity = identity.trim();
+        if let Some((start, end)) = identity_userinfo(identity) {
+            crate::refusal::enroll_rejected_identity(identity, &identity[start..end]);
+            return Err(PmRustError::IdentityCredentials { identity_source });
+        }
+        Ok(())
+    }
+
+    /// Redacts possible URL userinfo in a single asserted or historic identity.
+    #[must_use]
+    pub fn redact_credentials(identity: &str) -> std::borrow::Cow<'_, str> {
+        match identity_userinfo(identity) {
+            Some((start, end)) => {
+                format!("{}[redacted]{}", &identity[..start], &identity[end..]).into()
+            }
+            None => identity.into(),
+        }
+    }
+
     /// Resolves explicit author, environment author, configured author, then harness.
     #[must_use]
     #[allow(clippy::too_many_lines)]
@@ -208,6 +235,57 @@ impl Drop for RestoreAttribution {
     }
 }
 
+/// Locates possible userinfo in an identity using the published whole-value rule.
+pub(crate) fn identity_userinfo(identity: &str) -> Option<(usize, usize)> {
+    let colon = identity.find(':')?;
+    let at = identity
+        .rfind('@')
+        .into_iter()
+        .chain(identity.rfind("%40"))
+        .max()?;
+    if colon >= at {
+        return None;
+    }
+    let tail = &identity[colon + 1..at];
+    let slashes = tail
+        .bytes()
+        .take_while(|byte| matches!(byte, b'/' | b'\\'))
+        .count();
+    let start = colon + 1 + slashes.min(2);
+    if start == at || public_identity_url(identity, colon) {
+        return None;
+    }
+    Some((start, at))
+}
+
+/// Recognizes public scoped-package and blob URLs whose path contains an at sign.
+fn public_identity_url(identity: &str, colon: usize) -> bool {
+    let scheme = identity[..colon]
+        .rsplit(|ch: char| !ch.is_ascii_alphanumeric() && !matches!(ch, '+' | '.' | '-'))
+        .next()
+        .unwrap_or_default();
+    if !["http", "https", "ws", "wss", "ftp"]
+        .iter()
+        .any(|known| scheme.eq_ignore_ascii_case(known))
+        || identity.contains(['\t', '\n', '\r'])
+    {
+        return false;
+    }
+    let Some((authority, path)) = identity[colon + 1..]
+        .trim_start_matches(['/', '\\'])
+        .split_once('/')
+    else {
+        return false;
+    };
+    !authority.contains([':', '@', '%'])
+        && !path.starts_with(['/', '\\'])
+        && !path.contains([':', '%'])
+        && !path
+            .as_bytes()
+            .windows(2)
+            .any(|pair| pair.iter().all(|byte| matches!(byte, b'/' | b'\\')))
+}
+
 /// Returns a trimmed nonempty identity signal.
 fn nonempty(value: Option<&str>) -> Option<&str> {
     value.map(str::trim).filter(|value| !value.is_empty())
@@ -216,6 +294,7 @@ fn nonempty(value: Option<&str>) -> Option<&str> {
 /// Loads the configured status and workflow schema files over embedded defaults.
 pub(crate) fn runtime_settings(pm_root: &Path) -> Result<Value, PmRustError> {
     let mut settings = read_json(&pm_root.join("settings.json"))?;
+    crate::mutation::normalize_mutation_settings(&mut settings);
     let mut schema = settings["schema"].as_object().cloned().unwrap_or_default();
     for (name, keys) in [
         ("statuses", &["statuses"][..]),
@@ -419,6 +498,17 @@ pub struct SelectionOptions {
     pub start: bool,
 }
 
+/// Selects the mutation and its timestamp policy under the item lock.
+#[derive(Clone, Copy, PartialEq, Eq)]
+pub(crate) enum OwnershipAction {
+    /// Acquire an assignment.
+    Claim,
+    /// Release an assignment at the supplied timestamp.
+    Release,
+    /// Release an assignment after a separately committed close.
+    ReleaseAfterClose,
+}
+
 impl Workspace {
     /// Claims an explicit item with detected session identity or SDK handoff controls.
     ///
@@ -429,31 +519,7 @@ impl Workspace {
         request: &OwnershipItem,
         options: &OwnershipOptions,
     ) -> Result<OwnershipResult, PmRustError> {
-        let mut parents = BTreeMap::new();
-        let mut receipt = with_identity(self.pm_root(), options, || {
-            crate::mutation::ownership_item_with_options(
-                self.pm_root(),
-                request,
-                true,
-                options,
-                &mut || {
-                    parents = ownership_parents(
-                        self,
-                        request,
-                        options.start || crate::lifecycle_admission::explicit_claim(),
-                    )?;
-                    Ok(())
-                },
-            )
-        })?;
-        if receipt.skipped.is_none()
-            && record_semantics(self, request, options, true, &parents).is_err()
-        {
-            receipt
-                .warnings
-                .push("claim_semantic_attribution_unrecorded".to_owned());
-        }
-        Ok(receipt)
+        self.mutate_ownership(request, options, OwnershipAction::Claim)
     }
 
     /// Releases an explicit item with session identity and an optional approved bypass.
@@ -465,21 +531,58 @@ impl Workspace {
         request: &OwnershipItem,
         options: &OwnershipOptions,
     ) -> Result<OwnershipResult, PmRustError> {
-        let mut parents = BTreeMap::new();
-        let receipt = with_identity(self.pm_root(), options, || {
+        self.mutate_ownership(request, options, OwnershipAction::Release)
+    }
+
+    /// Releases the assignment while preserving any newer intervening item revision.
+    ///
+    /// # Errors
+    /// Returns validation, lock, ownership or durable storage failures.
+    #[doc(hidden)]
+    pub fn release_after_close_with_options(
+        &self,
+        request: &OwnershipItem,
+        options: &OwnershipOptions,
+    ) -> Result<OwnershipResult, PmRustError> {
+        self.mutate_ownership(request, options, OwnershipAction::ReleaseAfterClose)
+    }
+
+    /// Validates lineage before commit and publishes attribution while the item is fenced.
+    fn mutate_ownership(
+        &self,
+        request: &OwnershipItem,
+        options: &OwnershipOptions,
+        action: OwnershipAction,
+    ) -> Result<OwnershipResult, PmRustError> {
+        let claim = action == OwnershipAction::Claim;
+        let parents = std::cell::RefCell::new(BTreeMap::new());
+        with_identity(self.pm_root(), options, || {
             crate::mutation::ownership_item_with_options(
                 self.pm_root(),
                 request,
-                false,
+                action,
                 options,
                 &mut || {
-                    parents = ownership_parents(self, request, false)?;
+                    let admitted_start =
+                        claim && (options.start || crate::lifecycle_admission::explicit_claim());
+                    *parents.borrow_mut() = ownership_parents(self, request, admitted_start)?;
                     Ok(())
                 },
+                &mut |receipt, session_gate_held| {
+                    if let Err(error) = record_semantics(
+                        self,
+                        request,
+                        options,
+                        claim,
+                        session_gate_held,
+                        &parents.borrow(),
+                    ) {
+                        let action = if claim { "claim" } else { "release" };
+                        append_attribution_warning(receipt, action, &error);
+                    }
+                },
             )
-        })?;
-        record_semantics(self, request, options, false, &parents)?;
-        Ok(receipt)
+        })
     }
 
     /// Claims first, then starts the item; a failed update preserves the claim.
@@ -493,13 +596,11 @@ impl Workspace {
     ) -> Result<Value, PmRustError> {
         // The published SDK refuses this option before the claim step.
         if request.if_available {
-            return Err(PmRustError::CommandRefusal {
-                detail:
-                    "--start cannot be combined with --next or --if-available for an explicit item"
-                        .to_owned(),
-                exit_code: 2,
-                context: json!({"code":"invalid_argument_value","required":"Remove --next and --if-available when starting an explicit item.","next_steps":["Remove --next and --if-available, keep the explicit item ID and other supplied arguments, then retry."]}),
-            });
+            return Err(crate::collections::refusal(
+                "--start cannot be combined with --next or --if-available for an explicit item",
+                2,
+                json!({"code":"invalid_argument_value","required":"Remove --next and --if-available when starting an explicit item.","next_steps":["Remove --next and --if-available, keep the explicit item ID and other supplied arguments, then retry."]}),
+            ));
         }
         crate::lifecycle_admission::with_explicit_start(|| {
             let mut claim_options = options.clone();
@@ -564,12 +665,59 @@ fn ownership_parents(
     Ok(parents)
 }
 
+/// Reports a derived-state failure after the ownership mutation has already committed.
+pub(crate) fn append_attribution_warning(
+    receipt: &mut OwnershipResult,
+    action: &str,
+    error: &PmRustError,
+) {
+    let cause = match error {
+        PmRustError::CommandRefusal { context, .. } => {
+            context["code"].as_str().unwrap_or("unexpected_error")
+        }
+        PmRustError::LockConflict { .. } => "lock_conflict",
+        _ => "unexpected_error",
+    };
+    let (status, detail) = match cause {
+        crate::mutation::SESSION_PUBLICATION_CONFLICT => (
+            "unrecorded",
+            format!(
+                "was not updated ({cause}). To recover, reconcile only the session's active-item attribution for this item against current ownership."
+            ),
+        ),
+        "lock_conflict" => (
+            "unrecorded",
+            "was not updated (lock_conflict). Once the lock clears, check the session's active-item attribution against current ownership and reconcile it if needed. If pm health reports a stale lock, remove it with pm gc --scope locks.".to_owned(),
+        ),
+        crate::mutation::SESSION_DURABILITY_UNKNOWN => (
+            "durability_unknown",
+            format!(
+                "may already be visible, and its durability is unknown ({cause}). Check the session's active-item attribution for this item against current ownership and reconcile it only if needed."
+            ),
+        ),
+        _ => (
+            "unrecorded",
+            format!(
+                "was not updated ({cause}). After fixing the session update failure, check and reconcile the session's active-item attribution against current ownership."
+            ),
+        ),
+    };
+    receipt
+        .warnings
+        .push(format!("{action}_semantic_attribution_{status}"));
+    receipt.suggestions.push(format!(
+        "The {action} of {} is saved, but the session attribution that names this agent's active work {detail}",
+        receipt.id,
+    ));
+}
+
 /// Stores ownership-derived role and topic for later attribution resolution.
 fn record_semantics(
     workspace: &Workspace,
     request: &OwnershipItem,
     options: &OwnershipOptions,
     claim: bool,
+    session_gate_held: bool,
     parents: &BTreeMap<String, Option<String>>,
 ) -> Result<(), PmRustError> {
     let principal = options
@@ -578,16 +726,6 @@ fn record_semantics(
         .map_or(request.author.as_str(), |identity| {
             identity.principal.as_str()
         });
-    let key = if let Some(instance) = principal
-        .rsplit_once('#')
-        .map(|(_, instance)| instance)
-        .filter(|instance| {
-            instance.len() == 24 && instance.bytes().all(|byte| byte.is_ascii_hexdigit())
-        }) {
-        instance.to_owned()
-    } else {
-        format!("author-{}", hex_prefix(principal.as_bytes(), 24))
-    };
     let Some(mut current) = parents.get(&request.id).cloned() else {
         return Err(PmRustError::ItemNotFound {
             id: request.id.clone(),
@@ -601,7 +739,17 @@ fn record_semantics(
         lineage.push(parent.clone());
         current = parents.get(&parent).cloned().flatten();
     }
-    crate::mutation::mutate_session_state(workspace.pm_root(), |state| {
+    crate::mutation::mutate_session_state(workspace.pm_root(), session_gate_held, &mut |state| {
+        let key = if let Some(instance) = principal
+            .rsplit_once('#')
+            .map(|(_, instance)| instance)
+            .filter(|instance| {
+                instance.len() == 24 && instance.bytes().all(|byte| byte.is_ascii_hexdigit())
+            }) {
+            instance.to_owned()
+        } else {
+            format!("author-{}", hex_prefix(principal.as_bytes(), 24))
+        };
         let mut attribution = state
             .get("semantic_attribution")
             .and_then(Value::as_object)
@@ -656,6 +804,7 @@ fn record_semantics(
                 Value::Object(attribution),
             );
         }
+        Ok(())
     })
 }
 
@@ -692,6 +841,10 @@ pub fn partial_failure(error: PmRustError, id: &str, completed: &str) -> PmRustE
     let detail = error.to_string();
     let (exit_code, mut context) = match error {
         PmRustError::OwnershipRefusal { context, .. } => (4, context),
+        PmRustError::LockConflict { .. } => (
+            4,
+            json!({"code":"lock_conflict","recovery":{"retry_after_ms":250}}),
+        ),
         PmRustError::CommandRefusal {
             exit_code, context, ..
         } => (exit_code, context),
@@ -700,24 +853,54 @@ pub fn partial_failure(error: PmRustError, id: &str, completed: &str) -> PmRustE
     let original_why = context["why"]
         .as_str()
         .map_or(String::new(), |why| format!(" {why}"));
-    let mut steps = vec![json!(format!(
-        "Inspect the persisted state with {} and {} before retrying the failed step.",
-        crate::render_pm_command(["get", id]),
-        crate::render_pm_command(["history", id])
-    ))];
+    let get = crate::render_pm_command(["get", id]);
+    let history = crate::render_pm_command(["history", id]);
+    let mut steps = vec![json!(get), json!(history)];
+    if completed != "close" {
+        steps.push(json!(
+            "Inspect the persisted state before retrying the failed step."
+        ));
+    }
     if let Some(original) = context["next_steps"].as_array() {
         steps.extend(original.clone());
     }
     context["item_id"] = json!(id);
+    if completed == "claim" && context["code"] == "lock_conflict" {
+        context["completed_step"] = json!(completed);
+        context["recovery"]["retry_after_ms"] = json!(250);
+        context["required"] = json!(
+            "Wait for the lock to clear, verify that the original claim still holds, and finish only the status transition."
+        );
+    }
+    if matches!(completed, "close" | "update") {
+        context["completed_step"] = json!(completed);
+        if context["code"] == "stale_lock_requires_override" {
+            let retry_release = json!(
+                "Remove the expired lease, then verify current ownership before retrying only release with the original identity and applicable release options. If the original assignment is gone or has changed, stop."
+            );
+            for step in &mut steps {
+                if *step == crate::mutation::RETRY_STALE_LOCK {
+                    *step = retry_release.clone();
+                }
+            }
+            context["required"] = retry_release;
+        } else if context["code"] == "lock_conflict" {
+            context["required"] = if completed == "update" {
+                json!(
+                    "Wait for the lock to clear and verify current ownership before retrying only release with the original identity and applicable release options. If the original assignment is gone or has changed, stop."
+                )
+            } else {
+                json!(
+                    "Wait for the lock to clear and verify current ownership before you retry the release step with the original identity and applicable release options. If the original assignment is gone or has changed, stop."
+                )
+            };
+        }
+    }
     context["why"] = json!(format!(
         "{completed} completed for {id} before the following step failed. No rollback was performed.{original_why}"
     ));
     context["next_steps"] = json!(steps);
-    PmRustError::CommandRefusal {
-        detail,
-        exit_code,
-        context,
-    }
+    crate::collections::refusal(detail, exit_code, context)
 }
 
 #[cfg(test)]

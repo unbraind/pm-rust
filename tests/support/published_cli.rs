@@ -23,15 +23,6 @@ pub struct PublishedCli {
     pub entry: PathBuf,
 }
 
-/// Locates the published Node CLI through the environment, locked oracle or common prefixes.
-///
-/// `PM_NODE_CLI` may point at the package root or directly at an entry script;
-/// otherwise the lockfile-installed oracle is preferred before probing each
-/// directory on `PATH` for a `pm` launcher resolving
-/// inside an `@unbrained/pm-cli` installation. The entry script is validated
-/// before returning so a misconfigured `PM_NODE_CLI` produces an explicit skip
-/// notice rather than a confusing downstream assertion failure.
-#[allow(clippy::module_name_repetitions)]
 /// Panics when a required published CLI is absent, otherwise returns `None`.
 ///
 /// Both differential suites degrade to a printed skip when no published CLI is
@@ -46,56 +37,58 @@ pub fn published_cli_or_skip(context: &str) -> Option<PublishedCli> {
     assert!(
         std::env::var("PM_RUST_REQUIRE_PUBLISHED_CLI").is_err(),
         "{context} requires the published Node pm CLI, but none was found and \
-         PM_RUST_REQUIRE_PUBLISHED_CLI is set. Install it and point PM_NODE_CLI at it.",
+         PM_RUST_REQUIRE_PUBLISHED_CLI is set. Run npm ci --prefix tests/oracle --ignore-scripts \
+         or point PM_NODE_CLI at a matching installation.",
     );
-    println!("skip: no published Node pm CLI found (set PM_NODE_CLI to enable)");
+    println!(
+        "skip: no published Node pm CLI found at the pinned version (run npm ci --prefix tests/oracle --ignore-scripts)"
+    );
     None
 }
 
+/// Accepts a package only when its entry and version match the locked oracle.
+fn pinned_cli(package_root: PathBuf) -> Option<PublishedCli> {
+    let entry = package_root.join("dist/cli.js");
+    if !entry.is_file() {
+        return None;
+    }
+    let pin: serde_json::Value =
+        serde_json::from_str(include_str!("../oracle/package.json")).ok()?;
+    let installed: serde_json::Value =
+        serde_json::from_slice(&fs::read(package_root.join("package.json")).ok()?).ok()?;
+    let version = pin["dependencies"]["@unbrained/pm-cli"].as_str()?;
+    if installed["version"] != version {
+        eprintln!(
+            "Ignoring published Node pm CLI version {} (expected {version})",
+            installed["version"]
+        );
+        return None;
+    }
+    Some(PublishedCli {
+        package_root,
+        entry,
+    })
+}
+
+/// Locates the locked published Node CLI through an explicit override, local install or PATH.
+#[allow(clippy::module_name_repetitions)]
 pub fn locate_published_cli() -> Option<PublishedCli> {
     if let Ok(value) = std::env::var("PM_NODE_CLI") {
-        // Canonicalized: a relative PM_NODE_CLI otherwise yields relative
-        // package_root and entry, and a consumer that runs a child with a
-        // different working directory cannot resolve either.
-        let path = match PathBuf::from(&value).canonicalize() {
-            Ok(absolute) => absolute,
-            Err(_) => PathBuf::from(value),
-        };
-        let entry = path.join("dist/cli.js");
-        if path.is_dir() && entry.is_file() {
-            return Some(PublishedCli {
-                package_root: path,
-                entry,
-            });
+        // Canonicalize before consumers use a different working directory.
+        let path = PathBuf::from(value).canonicalize().ok()?;
+        if path.is_dir() {
+            return pinned_cli(path);
         }
-        // An explicit entry script implies its package root two levels up, but
-        // only `dist/cli.js` is that entry. Checking merely that the sibling
-        // `dist/cli.js` exists accepted any other file under `dist`, so a value
-        // such as `dist/cli-bundle/sdk.js` was returned as `entry` and the
-        // conformance driver then ran the wrong file.
-        if path.is_file()
-            && path.file_name().is_some_and(|name| name == "cli.js")
-            && path
-                .parent()
-                .is_some_and(|dir| dir.file_name().is_some_and(|name| name == "dist"))
-            && let Some(root) = path.parent().and_then(Path::parent)
-            && root.join("dist/cli.js").is_file()
-        {
-            return Some(PublishedCli {
-                package_root: root.to_path_buf(),
-                entry: path,
-            });
+        // Only dist/cli.js is the executable entry, even if other dist files exist.
+        if path.ends_with("dist/cli.js") {
+            return pinned_cli(path.parent()?.parent()?.to_path_buf());
         }
         return None;
     }
     let package_root = PathBuf::from(env!("CARGO_MANIFEST_DIR"))
         .join("tests/oracle/node_modules/@unbrained/pm-cli");
-    let entry = package_root.join("dist/cli.js");
-    if entry.is_file() {
-        return Some(PublishedCli {
-            package_root,
-            entry,
-        });
+    if let Some(cli) = pinned_cli(package_root) {
+        return Some(cli);
     }
     let path_variable = std::env::var("PATH").ok()?;
     for directory in std::env::split_paths(&path_variable) {
@@ -114,14 +107,9 @@ pub fn locate_published_cli() -> Option<PublishedCli> {
                     .parent()
                     .and_then(Path::file_name)
                     .is_some_and(|name| name == "@unbrained")
+                && let Some(cli) = pinned_cli(ancestor)
             {
-                let entry = ancestor.join("dist/cli.js");
-                if entry.is_file() {
-                    return Some(PublishedCli {
-                        package_root: ancestor.clone(),
-                        entry,
-                    });
-                }
+                return Some(cli);
             }
         }
     }

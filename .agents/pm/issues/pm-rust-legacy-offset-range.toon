@@ -1,0 +1,16 @@
+id: pm-rust-legacy-offset-range
+title: Match out-of-range offsets in legacy stored timestamps
+description: "Pinned pm-cli 2026.11.18 reads a stored claim at 2026-08-06 10:00:00+24. Native reports history_unreadable and omits claimed_at for the same record. Legacy Date also accepts +2400 and +24:00 as the same instant, while the ISO T forms are invalid. Round GP covers ordinary bare two-digit offsets. The broader legacy offset normalization exceeds that finding."
+type: Issue
+status: open
+priority: 3
+tags[3]: follow-up,history,oracle
+created_at: "2026-11-23T08:06:42.979Z"
+updated_at: "2026-11-23T08:06:58.479Z"
+author: codex-sol
+acceptance_criteria: "Compare stored-history evidence for +24, +2400, and +24:00 with the pinned SDK. Preserve ISO refusals and ordinary offsets."
+parent: pm-rust-oracle-1118
+files[2]{path,scope}:
+  src/mutation/claim_activity.rs,project
+  tests/support/claim_activity_differential.rs,project
+body: ""

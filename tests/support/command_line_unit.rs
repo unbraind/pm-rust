@@ -97,3 +97,19 @@ fn round19_windows_decoder_edges() {
     assert_eq!(parse_command_args(r#"pm a\\"b"#), None);
     assert_eq!(parse_command_args(r#"pm "a\\"b""#), None);
 }
+
+/// Strict Windows recovery accepts quoted operators only as argument data.
+#[cfg(windows)]
+#[test]
+fn windows_recovery_rejects_unquoted_command_operators() {
+    for operator in ["&&", "&", "||", "|", "<", ">", "(", ")"] {
+        let unquoted = format!("pm get first {operator} pm get second");
+        assert!(parse_recovery_command(&unquoted).is_none(), "{unquoted}");
+        assert!(parse_command_args(&unquoted).is_some(), "{unquoted}");
+        let quoted = format!(r#"pm get "{operator}""#);
+        assert_eq!(
+            parse_recovery_command(&quoted),
+            Some(["pm", "get", operator].map(str::to_owned).to_vec())
+        );
+    }
+}

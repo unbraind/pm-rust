@@ -313,7 +313,7 @@ fn merging_preserves_unselected_rows() -> TestResult {
         ..CollectionOptions::default()
     };
     let edit = prepare("files", &options, cwd, cwd)?;
-    let (rows, removed) = merge(
+    let (rows, removed, _) = merge(
         "files",
         &[json!({"path":"b","scope":"project","note":"old"})],
         &edit,
@@ -333,7 +333,7 @@ fn merging_preserves_unselected_rows() -> TestResult {
         ..CollectionOptions::default()
     };
     let edit = prepare("tests", &options, cwd, cwd)?;
-    let (rows, removed) = merge(
+    let (rows, removed, _) = merge(
         "tests",
         &[
             json!({"command":"one","path":"a","scope":"project"}),
@@ -354,11 +354,11 @@ fn merging_preserves_unselected_rows() -> TestResult {
         cwd,
         cwd,
     )?;
-    let (rows, removed) = merge("tests", &rows, &edit, false);
+    let (rows, removed, _) = merge("tests", &rows, &edit, false);
     assert_eq!(removed, 1);
     assert!(rows.is_empty());
     let edit = prepare("files", &CollectionOptions::default(), cwd, cwd)?;
-    let (rows, _) = merge(
+    let (rows, _, _) = merge(
         "files",
         &[
             json!({"path":"x","scope":"project","note":"old"}),
@@ -380,7 +380,7 @@ fn merging_preserves_unselected_rows() -> TestResult {
         cwd,
         cwd,
     )?;
-    let (rows, removed) = merge("docs", &rows, &edit, false);
+    let (rows, removed, _) = merge("docs", &rows, &edit, false);
     assert_eq!(removed, 0);
     assert_eq!(
         rows.iter()
@@ -405,7 +405,7 @@ fn merging_preserves_unselected_rows() -> TestResult {
         cwd,
         cwd,
     )?;
-    let (rows, removed) = merge(
+    let (rows, removed, _) = merge(
         "tests",
         &[
             json!({"command":"keep","scope":"project"}),
@@ -427,7 +427,7 @@ fn merging_preserves_unselected_rows() -> TestResult {
             cwd,
             cwd,
         )?;
-        let (rows, removed) = merge(
+        let (rows, removed, _) = merge(
             "tests",
             &[json!({"command":raw,"scope":"project"})],
             &edit,
@@ -448,6 +448,271 @@ fn tracker() -> Result<(tempfile::TempDir, Workspace), Box<dyn std::error::Error
     let workspace = Workspace::discover(root.path())?;
     workspace.create(serde_json::from_value(json!({"id":"sample-one","title":"One","type":"Task","author":"fixture","timestamp":"2026-08-22T10:00:00.000Z"}))?)?;
     Ok((root, workspace))
+}
+
+/// Requires both executable note repair choices before inspecting their shared arguments.
+fn note_repair_commands(context: &Value) -> Result<Vec<Vec<String>>, Box<dyn std::error::Error>> {
+    let steps = context["next_steps"].as_array().ok_or("repair commands")?;
+    let commands = steps
+        .iter()
+        .map(|step| {
+            crate::parse_command_args(step.as_str().ok_or("repair command")?)
+                .ok_or("repair arguments")
+        })
+        .collect::<Result<Vec<_>, _>>()?;
+    assert_eq!(commands.len(), 2);
+    let mut modes = Vec::with_capacity(commands.len());
+    for args in &commands {
+        let mut flags = args.windows(2).filter(|pair| pair[0] == "--note-conflict");
+        let mode = &flags.next().ok_or("note conflict mode")?[1];
+        assert!(flags.next().is_none(), "{args:?}");
+        modes.push(mode.as_str());
+    }
+    modes.sort_unstable();
+    assert_eq!(modes, ["append", "replace"]);
+    Ok(commands)
+}
+
+/// Refusing a conflicting note preserves storage and explicit append projects only the edited link.
+#[test]
+fn artifact_note_conflicts_preserve_storage_and_report_explicit_append() -> TestResult {
+    let (directory, workspace) = tracker()?;
+    let root = directory.path();
+    let mut options = CollectionOptions {
+        author: "fixture".to_owned(),
+        timestamp: Some("2026-08-22T10:00:00.000Z".to_owned()),
+        add: vec!["path=a.rs,note=Stored".to_owned(), "b.rs".to_owned()],
+        ..CollectionOptions::default()
+    };
+    workspace.collection("sample-one", "files", &options, root)?;
+    let item = workspace.pm_root().join("tasks/sample-one.toon");
+    let history = workspace.pm_root().join("history/sample-one.jsonl");
+    let item_bytes = std::fs::read(&item)?;
+    let history_bytes = std::fs::read(&history)?;
+
+    options.add = vec!["path=a.rs,note=Incoming".to_owned()];
+    let Err(PmRustError::CommandRefusal { context, .. }) =
+        workspace.collection("sample-one", "files", &options, root)
+    else {
+        return Err("expected a linked artifact note conflict".into());
+    };
+    assert_eq!(context["code"], "linked_artifact_note_conflict");
+    for args in note_repair_commands(&context)? {
+        assert!(
+            args.windows(2)
+                .any(|pair| pair == ["--timestamp", "2026-08-22T10:00:00.000Z"])
+        );
+        assert!(args.windows(2).any(|pair| pair == ["--author", "fixture"]));
+    }
+    let mut detected = options.clone();
+    detected.timestamp = None;
+    detected.identity = Some(crate::AuthorIdentity::resolve(
+        None,
+        None,
+        &std::collections::BTreeMap::from([("CODEX_THREAD_ID".into(), "sample-session".into())]),
+    ));
+    let Err(PmRustError::CommandRefusal { context, .. }) =
+        workspace.collection("sample-one", "files", &detected, root)
+    else {
+        return Err("expected detected session conflict".into());
+    };
+    for args in note_repair_commands(&context)? {
+        assert!(
+            !args
+                .iter()
+                .any(|token| token == "--timestamp" || token == "--author")
+        );
+    }
+    assert_eq!(std::fs::read(item)?, item_bytes);
+    assert_eq!(std::fs::read(history)?, history_bytes);
+
+    options.note_conflict = Some("append".to_owned());
+    let result = workspace.collection("sample-one", "files", &options, root)?;
+    assert_eq!(
+        result["files"],
+        json!([{"path":"a.rs","scope":"project","note":"Stored; Incoming"}])
+    );
+    assert_eq!(result["total_count"], 2);
+    assert_eq!(
+        result["mutation_receipt"]["link_outcomes"][0]["outcome"],
+        "note_appended"
+    );
+    options.add = vec!["path=a.rs,note=Next".to_owned()];
+    workspace.collection("sample-one", "files", &options, root)?;
+    options.add = vec!["path=a.rs,note=Stored; Incoming".to_owned()];
+    let replay = workspace.collection("sample-one", "files", &options, root)?;
+    assert_eq!(replay["changed"], false);
+    assert_eq!(
+        replay["mutation_receipt"]["link_outcomes"][0]["outcome"],
+        "unchanged"
+    );
+    options.note_conflict = Some("REPLACE".to_owned());
+    options.full_history = true;
+    options.add = vec!["path=a.rs,note=Replacement".to_owned(); 2];
+    let replaced = workspace.collection("sample-one", "files", &options, root)?;
+    assert_eq!(replaced["count"], 2);
+    assert_eq!(
+        replaced["mutation_receipt"]["link_outcomes"],
+        json!([{"path":"a.rs","scope":"project","outcome":"note_replaced"}])
+    );
+    options.add = vec!["path=b.rs,note=New rationale".to_owned()];
+    let added = workspace.collection("sample-one", "files", &options, root)?;
+    assert_eq!(added["files"][1]["note"], "New rationale");
+    assert_eq!(
+        added["mutation_receipt"]["link_outcomes"][0]["outcome"],
+        "note_added"
+    );
+    options.add.clear();
+    options.note_conflict = None;
+    options.remove = vec!["a.rs".to_owned(), "b.rs".to_owned()];
+    let removed = workspace.collection("sample-one", "files", &options, root)?;
+    assert_eq!(removed["changed"], true);
+    assert_eq!(removed["count"], 0);
+    Ok(())
+}
+
+/// A note repair under strict ownership requires the session that holds the item.
+#[test]
+fn artifact_note_repair_uses_the_original_detected_session() -> TestResult {
+    let (directory, workspace) = tracker()?;
+    let root = directory.path();
+    std::fs::write(
+        workspace.pm_root().join("settings.json"),
+        r#"{"governance":{"preset":"strict"}}"#,
+    )?;
+    let identity = |session: &str| {
+        crate::AuthorIdentity::resolve(
+            None,
+            None,
+            &std::collections::BTreeMap::from([("CODEX_THREAD_ID".into(), session.into())]),
+        )
+    };
+    let owner = identity("session-a");
+    let other = identity("session-b");
+    assert_eq!(owner.author, other.author);
+    workspace.claim_with_options(
+        &crate::OwnershipItem {
+            id: "sample-one".into(),
+            author: owner.author.clone(),
+            timestamp: None,
+            message: None,
+            force: false,
+            if_available: false,
+            provenance_role: None,
+        },
+        &crate::OwnershipOptions {
+            identity: Some(owner.clone()),
+            ..crate::OwnershipOptions::default()
+        },
+    )?;
+    let mut options = CollectionOptions {
+        author: owner.author.clone(),
+        identity: Some(owner.clone()),
+        add: vec!["path=a.rs,note=Stored".into()],
+        ..CollectionOptions::default()
+    };
+    workspace.collection("sample-one", "files", &options, root)?;
+    options.add = vec!["path=a.rs,note=Incoming".into()];
+    let Err(PmRustError::CommandRefusal { context, .. }) =
+        workspace.collection("sample-one", "files", &options, root)
+    else {
+        return Err("expected note conflict in the original session".into());
+    };
+    assert_eq!(context["code"], "linked_artifact_note_conflict");
+    let guidance = context["required"].as_str().ok_or("repair requirements")?;
+    assert!(guidance.contains("original detected session"));
+    assert!(guidance.contains("original AuthorIdentity"));
+    options.note_conflict = Some("append".into());
+    options.identity = Some(other);
+    assert!(matches!(
+        workspace.collection("sample-one", "files", &options, root),
+        Err(PmRustError::OwnershipRefusal { context, .. }) if context["code"] == "ownership_conflict"
+    ));
+    options.identity = Some(owner);
+    let result = workspace.collection("sample-one", "files", &options, root)?;
+    assert_eq!(result["files"][0]["note"], "Stored; Incoming");
+
+    // A scope without CollectionOptions.identity still provides a session principal.
+    let scope = options.identity.take().ok_or("original identity")?;
+    options.add = vec!["path=a.rs,note=Scoped".into()];
+    options.note_conflict = None;
+    let Err(PmRustError::CommandRefusal { context, .. }) =
+        scope.with(|| workspace.collection("sample-one", "files", &options, root))
+    else {
+        return Err("expected a note conflict for the scoped owner".into());
+    };
+    assert_eq!(context["code"], "linked_artifact_note_conflict");
+    assert!(context.get("recovery").is_none());
+    assert!(
+        context["next_steps"][0]
+            .as_str()
+            .ok_or("repair guidance")?
+            .contains("SDK with the original AuthorIdentity")
+    );
+    options.note_conflict = Some("append".into());
+    assert!(matches!(
+        workspace.collection("sample-one", "files", &options, root),
+        Err(PmRustError::OwnershipRefusal { context, .. }) if context["code"] == "ownership_conflict"
+    ));
+    let result = scope.with(|| workspace.collection("sample-one", "files", &options, root))?;
+    assert_eq!(result["files"][0]["note"], "Stored; Incoming; Scoped");
+    Ok(())
+}
+
+/// An SDK repair retains an asserted identity that a fallback CLI author cannot reproduce.
+#[test]
+fn artifact_note_repair_requires_the_asserted_sdk_principal() -> TestResult {
+    let (directory, workspace) = tracker()?;
+    std::fs::write(
+        workspace.pm_root().join("settings.json"),
+        r#"{"governance":{"preset":"strict"}}"#,
+    )?;
+    workspace.claim(&crate::OwnershipItem {
+        id: "sample-one".into(),
+        author: "owner".into(),
+        timestamp: None,
+        message: None,
+        force: false,
+        if_available: false,
+        provenance_role: None,
+    })?;
+    let mut options = CollectionOptions {
+        add: vec!["path=a.rs,note=Stored".into()],
+        author: "fallback".into(),
+        identity: Some(crate::AuthorIdentity::resolve(
+            Some("owner"),
+            None,
+            &std::collections::BTreeMap::default(),
+        )),
+        ..Default::default()
+    };
+    let root = directory.path();
+    workspace.collection("sample-one", "files", &options, root)?;
+    options.add = vec!["path=a.rs,note=Incoming".into()];
+    let Err(PmRustError::CommandRefusal { context, .. }) =
+        workspace.collection("sample-one", "files", &options, root)
+    else {
+        return Err("expected a note conflict for the asserted owner".into());
+    };
+    assert_eq!(context["code"], "linked_artifact_note_conflict");
+    assert!(context.get("recovery").is_none());
+    assert!(
+        context["required"]
+            .as_str()
+            .ok_or("repair guidance")?
+            .contains("original AuthorIdentity")
+    );
+
+    options.note_conflict = Some("append".into());
+    let mut fallback = options.clone();
+    fallback.identity = None;
+    assert!(matches!(
+        workspace.collection("sample-one", "files", &fallback, root),
+        Err(PmRustError::OwnershipRefusal { context, .. }) if context["code"] == "ownership_conflict"
+    ));
+    let result = workspace.collection("sample-one", "files", &options, root)?;
+    assert_eq!(result["files"][0]["note"], "Stored; Incoming");
+    Ok(())
 }
 
 /// Read-only lists, no-op edits, missing entries and I/O failures preserve authoritative state.
@@ -606,10 +871,10 @@ fn collection_ownership_and_lock_boundaries() -> TestResult {
             root.join("settings.json"),
             json!({"locks":{"wait_ms":wait}}).to_string(),
         )?;
-        std::fs::write(&lock,json!({"id":"sample-one","pid":1,"owner":"holder","token":"fixture","created_at":"2026-08-22T10:00:00.000Z","ttl_seconds":1800}).to_string())?;
+        std::fs::write(&lock,json!({"id":"sample-one","pid":1,"owner":"holder","token":"fixture","created_at":crate::current_timestamp(),"ttl_seconds":1800}).to_string())?;
         assert!(matches!(
             workspace.collection("sample-one", "files", &options, cwd),
-            Err(PmRustError::OwnershipRefusal { .. })
+            Err(PmRustError::OwnershipRefusal { context, .. }) if context["code"] == "lock_conflict"
         ));
         std::fs::remove_file(&lock)?;
     }
@@ -760,7 +1025,7 @@ fn linked_test_sdk_transactions_preserve_authoritative_bytes() -> TestResult {
     options.add.clear();
     options.remove_index = vec!["1".to_owned()];
     let result = workspace.collection("sample-one", "tests", &options, root)?;
-    assert_eq!(result["removed"], 1);
+    assert_eq!(result["mutation_receipt"]["removed_count"], 1);
     assert_eq!(result["count"], 0);
     assert!(
         !workspace
@@ -778,7 +1043,7 @@ fn linked_test_sdk_transactions_preserve_authoritative_bytes() -> TestResult {
     options.add.clear();
     options.remove = vec!["command=one".to_owned()];
     assert_eq!(
-        workspace.collection("sample-one", "tests", &options, root)?["removed"],
+        workspace.collection("sample-one", "tests", &options, root)?["mutation_receipt"]["removed_count"],
         1
     );
     options.remove.clear();
@@ -972,5 +1237,790 @@ fn sdk_collection_git_source_ignores_hook_repository() -> TestResult {
         String::from_utf8_lossy(&output.stderr)
     );
     assert!(String::from_utf8_lossy(&output.stdout).contains("test result: ok. 1 passed;"));
+    Ok(())
+}
+
+/// Explicit note policies refuse invalid values, missing additions and linked-test use.
+#[test]
+fn sdk_note_policy_refusals_are_read_only() -> TestResult {
+    let (directory, workspace) = tracker()?;
+    let path = workspace.pm_root().join("history/sample-one.jsonl");
+    let before = std::fs::read(&path)?;
+    for (key, mode, add, expected) in [
+        (
+            "files",
+            "invalid",
+            vec!["source.rs".to_owned()],
+            "invalid_argument_value",
+        ),
+        ("files", "append", vec![], "missing_required_argument"),
+        (
+            "tests",
+            "replace",
+            vec!["command=cargo fmt".to_owned()],
+            "unknown_option",
+        ),
+    ] {
+        let options = CollectionOptions {
+            author: "fixture".to_owned(),
+            add,
+            note_conflict: Some(mode.to_owned()),
+            ..CollectionOptions::default()
+        };
+        let Err(PmRustError::CommandRefusal { context, .. }) =
+            workspace.collection("sample-one", key, &options, directory.path())
+        else {
+            return Err(format!("expected a {key} note policy refusal").into());
+        };
+        assert_eq!(context["code"], expected);
+    }
+    assert_eq!(std::fs::read(path)?, before);
+    Ok(())
+}
+
+/// Each in-batch conflict is described and the retry retains nonconflicting options.
+#[test]
+fn sdk_note_conflict_retry_preserves_the_request() -> TestResult {
+    let (directory, workspace) = tracker()?;
+    let item = workspace.pm_root().join("tasks/sample-one.toon");
+    let history = workspace.pm_root().join("history/sample-one.jsonl");
+    let before = (std::fs::read(&item)?, std::fs::read(&history)?);
+    for (key, path, append_stable) in [("docs", "guide.md", false), ("files", "source.rs", true)] {
+        let options = CollectionOptions {
+            author: "fixture".to_owned(),
+            add: ["first", "second", "third"]
+                .map(|note| format!("path={path},note={note}"))
+                .to_vec(),
+            remove: vec!["unrelated.md".to_owned()],
+            note: Some("fallback".to_owned()),
+            force: true,
+            append_stable,
+            full_history: true,
+            message: Some("Link rationale".to_owned()),
+            ..CollectionOptions::default()
+        };
+        let Err(PmRustError::CommandRefusal { context, .. }) =
+            workspace.collection("sample-one", key, &options, directory.path())
+        else {
+            return Err(format!("expected an in-batch {key} conflict").into());
+        };
+        assert_eq!(context["code"], "linked_artifact_note_conflict");
+        let rows = context["details"]["conflicts"]
+            .as_array()
+            .ok_or("conflict rows")?;
+        assert_eq!(rows.len(), 2);
+        assert!(rows.iter().all(|row| row["source"] == "this_write"));
+        let path_first = format!("path={path},note=first");
+        let path_second = format!("path={path},note=second");
+        let path_third = format!("path={path},note=third");
+        let mut expected = vec![
+            key,
+            "sample-one",
+            "--add",
+            &path_first,
+            "--add",
+            &path_second,
+            "--add",
+            &path_third,
+            "--remove",
+            "unrelated.md",
+            "--note",
+            "fallback",
+            "--note-conflict",
+            "append",
+            "--force",
+        ];
+        if append_stable {
+            expected.push("--append-stable");
+        }
+        expected.extend([
+            "--full-history",
+            "--message",
+            "Link rationale",
+            "--author",
+            "fixture",
+        ]);
+        let native_retry = context["recovery"]["suggested_retry_args"]
+            .as_array()
+            .ok_or("SDK retry arguments")?;
+        assert_eq!(
+            json!(&native_retry[..5]),
+            json!([
+                "--pm-path",
+                workspace.pm_root(),
+                key,
+                "sample-one",
+                "--artifact-cwd"
+            ])
+        );
+        assert_eq!(
+            Path::new(native_retry[5].as_str().ok_or("artifact directory")?),
+            workspace.artifact_project_root()
+        );
+        assert_eq!(json!(&native_retry[6..]), json!(&expected[2..]));
+
+        let Err(PmRustError::CommandRefusal { context, .. }) =
+            workspace.collection_for_cli("sample-one", key, &options, directory.path())
+        else {
+            return Err(format!("expected a CLI {key} conflict").into());
+        };
+        assert_eq!(context["recovery"]["suggested_retry_args"], json!(expected));
+    }
+    assert_eq!((std::fs::read(item)?, std::fs::read(history)?), before);
+    Ok(())
+}
+
+/// A public refusal with a projected note withholds executable retry fields.
+#[test]
+fn projected_note_conflicts_withhold_retries() -> TestResult {
+    let (directory, workspace) = tracker()?;
+    let root = directory.path();
+    workspace.collection(
+        "sample-one",
+        "files",
+        &CollectionOptions {
+            author: "fixture".to_owned(),
+            add: vec!["path=source.rs,note=stored".to_owned()],
+            ..CollectionOptions::default()
+        },
+        root,
+    )?;
+    let options = CollectionOptions {
+        author: "fixture".to_owned(),
+        add: vec!["source.rs".to_owned()],
+        note: Some("https://fixture:synthetic-marker@example.invalid".to_owned()),
+        ..CollectionOptions::default()
+    };
+    for (result, guidance) in [
+        (
+            workspace.collection_for_cli("sample-one", "files", &options, root),
+            crate::refusal::RESTORE,
+        ),
+        (
+            workspace.collection("sample-one", "files", &options, root),
+            "Supply the original note",
+        ),
+    ] {
+        let Err(PmRustError::CommandRefusal {
+            detail,
+            context,
+            exit_code,
+        }) = result
+        else {
+            return Err("expected note conflict".into());
+        };
+        assert_eq!(exit_code, 4);
+        assert_eq!(context["code"], "linked_artifact_note_conflict");
+        assert!(context["recovery"].get("suggested_retry").is_none());
+        assert!(context["recovery"].get("suggested_retry_args").is_none());
+        assert!(
+            context["next_steps"][0]
+                .as_str()
+                .is_some_and(|step| step.contains(guidance))
+        );
+        assert!(!detail.contains("synthetic-marker"));
+        assert!(!context.to_string().contains("synthetic-marker"));
+        assert_eq!(
+            context["details"]["conflicts"][0]["requested_note"],
+            "https://[redacted]@example.invalid"
+        );
+    }
+    Ok(())
+}
+
+/// Leading-hyphen notes use one token for both replay binaries.
+#[test]
+fn note_repair_arguments_preserve_leading_hyphens() {
+    let options = CollectionOptions {
+        author: "-fixture".to_owned(),
+        note: Some("--json".to_owned()),
+        message: Some("-rationale".to_owned()),
+        ..CollectionOptions::default()
+    };
+    for mode in ["append", "replace"] {
+        assert_eq!(
+            note_retry_args(Vec::new(), &options, mode, true),
+            [
+                "--note=--json",
+                "--note-conflict",
+                mode,
+                "--message=-rationale",
+                "--author=-fixture"
+            ]
+        );
+        assert_eq!(
+            note_retry_args(Vec::new(), &options, mode, false),
+            [
+                "--note=--json",
+                "--note-conflict",
+                mode,
+                "--message",
+                "-rationale",
+                "--author",
+                "-fixture"
+            ]
+        );
+    }
+}
+
+/// SDK repair guidance captures the absolute operand base at the time of the conflict.
+#[test]
+fn sdk_note_retry_resolves_the_caller_directory() -> TestResult {
+    let (directory, workspace) = tracker()?;
+    let options = CollectionOptions {
+        author: "fixture".to_owned(),
+        add: ["first", "second"]
+            .map(|note| format!("path=source.rs,note={note}"))
+            .to_vec(),
+        ..CollectionOptions::default()
+    };
+    let missing = directory.path().join("missing").join("..");
+    let present = directory.path().join(".agents").join("..");
+    let project = directory.path().canonicalize()?;
+    for (cwd, expected) in [
+        (Path::new("."), std::env::current_dir()?),
+        (&missing, project.clone()),
+        (&present, project),
+    ] {
+        let Err(PmRustError::CommandRefusal { context, .. }) =
+            workspace.collection("sample-one", "files", &options, cwd)
+        else {
+            return Err("expected an SDK note conflict".into());
+        };
+        let retry = &context["recovery"]["suggested_retry_args"];
+        assert_eq!(retry[4], "--artifact-cwd");
+        let resolved = Path::new(retry[5].as_str().ok_or("artifact directory")?);
+        assert!(resolved.is_absolute());
+        assert_eq!(resolved, expected);
+    }
+    assert!(matches!(
+        workspace.collection("sample-one", "files", &options, Path::new("")),
+        Err(PmRustError::Io { .. })
+    ));
+    let file = directory.path().join("base.txt");
+    std::fs::write(&file, "file fixture")?;
+    assert!(matches!(
+        workspace.collection("sample-one", "files", &options, &file),
+        Err(PmRustError::CommandRefusal { exit_code: 2, .. })
+    ));
+    assert!(matches!(
+        workspace.collection_for_cli_with_artifact_cwd(
+            "sample-one",
+            "files",
+            &options,
+            Path::new(""),
+            Some(Path::new("")),
+        ),
+        Err(PmRustError::Io { .. })
+    ));
+    Ok(())
+}
+
+/// Absolute and relative-parent CLI overrides both select the intended artifact directory.
+#[test]
+fn cli_artifact_overrides_preserve_directory_selection() -> TestResult {
+    let (directory, workspace) = tracker()?;
+    let project = directory.path().canonicalize()?;
+    let sub = project.join("sub");
+    std::fs::create_dir_all(sub.join("deep"))?;
+    for (override_path, file) in [
+        (sub.as_path(), "absolute.rs"),
+        (Path::new("sub/deep/.."), "relative.rs"),
+    ] {
+        let receipt = workspace.collection_for_cli_with_artifact_cwd(
+            "sample-one",
+            "files",
+            &CollectionOptions {
+                author: "fixture".to_owned(),
+                add: vec![file.to_owned()],
+                ..CollectionOptions::default()
+            },
+            &project,
+            Some(override_path),
+        )?;
+        assert_eq!(receipt["files"][0]["path"], format!("sub/{file}"));
+    }
+    Ok(())
+}
+
+/// An alias of the project root preserves the logical suffix for replay.
+#[cfg(unix)]
+#[test]
+fn artifact_cwd_resolves_root_alias_without_following_its_suffix() -> TestResult {
+    let (directory, workspace) = tracker()?;
+    let aliases = tempfile::tempdir()?;
+    let alias = aliases.path().join("alias");
+    std::os::unix::fs::symlink(directory.path(), &alias)?;
+    std::os::unix::fs::symlink(aliases.path(), directory.path().join("vendor"))?;
+    let project = workspace.artifact_project_root();
+    for suffix in ["vendor", "missing"] {
+        assert_eq!(
+            resolve_artifact_cwd(&alias.join(suffix), project)?,
+            project.join(suffix)
+        );
+    }
+    let external_missing = aliases.path().canonicalize()?.join("missing/sub");
+    assert_eq!(
+        resolve_artifact_cwd(&external_missing, project)?,
+        external_missing
+    );
+    std::os::unix::fs::symlink("loop", project.join("loop"))?;
+    std::os::unix::fs::symlink("missing", project.join("dangling"))?;
+    for base in ["loop/..", "loop/sub", "dangling/.."] {
+        assert!(matches!(
+            resolve_artifact_cwd(&project.join(base), project),
+            Err(PmRustError::CommandRefusal { exit_code: 2, .. })
+        ));
+    }
+    Ok(())
+}
+
+/// Native-only options keep their values and receive a native repair command.
+#[test]
+fn cli_note_repair_identifies_other_native_only_options() -> TestResult {
+    let (_directory, workspace) = tracker()?;
+    let cwd = workspace
+        .pm_root()
+        .ancestors()
+        .nth(2)
+        .ok_or("tracker project")?;
+    for (key, timestamp, append_stable, artifact_cwd, flag) in [
+        (
+            "files",
+            Some("2026-08-22T10:00:00.000Z"),
+            false,
+            None,
+            "--timestamp",
+        ),
+        ("docs", None, true, None, "--append-stable"),
+        ("files", None, false, Some(Path::new(".")), "--artifact-cwd"),
+    ] {
+        let options = CollectionOptions {
+            author: "fixture".to_owned(),
+            add: ["first", "second"]
+                .map(|note| format!("path=resource.md,note={note}"))
+                .to_vec(),
+            timestamp: timestamp.map(str::to_owned),
+            append_stable,
+            ..CollectionOptions::default()
+        };
+        let Err(PmRustError::CommandRefusal { context, .. }) = workspace
+            .collection_for_cli_with_artifact_cwd("sample-one", key, &options, cwd, artifact_cwd)
+        else {
+            return Err("expected a note conflict".into());
+        };
+        assert_eq!(context["code"], "linked_artifact_note_conflict");
+        for args in note_repair_commands(&context)? {
+            assert_eq!(args[..2], ["pm-rust", "--pm-path"]);
+            assert!(args.iter().any(|arg| arg == flag));
+            assert_eq!(args[5], "--artifact-cwd");
+            assert_eq!(Path::new(&args[6]), cwd);
+        }
+    }
+    Ok(())
+}
+
+/// A redacted requested note cannot turn into executable SDK guidance.
+#[test]
+fn sdk_note_conflict_requires_original_note_after_redaction() -> TestResult {
+    let (directory, workspace) = tracker()?;
+    let mut options = CollectionOptions {
+        author: "fixture".into(),
+        add: vec!["path=source.rs,note=first".into()],
+        ..Default::default()
+    };
+    workspace.collection("sample-one", "files", &options, directory.path())?;
+    options.add = vec!["source.rs".into()];
+    options.note = Some("See https://fixture:synthetic-secret@example.invalid".into());
+    let Err(PmRustError::CommandRefusal { context, .. }) =
+        workspace.collection("sample-one", "files", &options, directory.path())
+    else {
+        return Err("expected a note conflict".into());
+    };
+    assert!(context.get("recovery").is_none());
+    assert_eq!(
+        context["details"]["conflicts"][0]["requested_note"],
+        "See https://[redacted]@example.invalid"
+    );
+    let steps = context["next_steps"].as_array().ok_or("guidance")?;
+    assert_eq!(steps.len(), 1);
+    assert!(
+        steps[0]
+            .as_str()
+            .ok_or("step")?
+            .contains("Supply the original note")
+    );
+    assert!(!steps[0].to_string().contains("[redacted]"));
+    assert_eq!(
+        workspace.get("sample-one")?.metadata.extra["files"][0]["note"],
+        "first"
+    );
+    Ok(())
+}
+
+/// An SDK message with NUL can be replayed only through the SDK.
+#[test]
+fn sdk_note_conflict_with_nul_message_has_no_cli_replay() -> TestResult {
+    let (directory, workspace) = tracker()?;
+    let mut options = CollectionOptions {
+        author: "fixture".into(),
+        add: vec!["path=source.rs,note=first".into()],
+        ..Default::default()
+    };
+    workspace.collection("sample-one", "files", &options, directory.path())?;
+    options.add = vec!["path=source.rs,note=second".into()];
+    options.message = Some("before\0after".into());
+    let Err(PmRustError::CommandRefusal {
+        context,
+        exit_code: 4,
+        ..
+    }) = workspace.collection("sample-one", "files", &options, directory.path())
+    else {
+        return Err("expected a note conflict".into());
+    };
+    assert!(context.get("recovery").is_none());
+    assert_eq!(context["next_steps"], json!([context["required"]]));
+    assert!(
+        context["required"]
+            .as_str()
+            .is_some_and(|step| step.starts_with("Retry through the SDK"))
+    );
+    assert_eq!(
+        workspace.get("sample-one")?.metadata.extra["files"][0]["note"],
+        "first"
+    );
+    options.note_conflict = Some("append".into());
+    workspace.collection("sample-one", "files", &options, directory.path())?;
+    assert_eq!(
+        workspace.get("sample-one")?.metadata.extra["files"][0]["note"],
+        "first; second"
+    );
+    Ok(())
+}
+
+/// A verbatim Windows parent component cannot conceal a file and redirect a removal.
+#[cfg(windows)]
+#[test]
+fn sdk_verbatim_parent_refuses_file_prefix_before_removal() -> TestResult {
+    let (directory, workspace) = tracker()?;
+    let project = directory.path().canonicalize()?;
+    std::fs::write(project.join("base.txt"), "regular file")?;
+    let options = CollectionOptions {
+        author: "fixture".into(),
+        add: vec!["source.rs".into()],
+        ..Default::default()
+    };
+    workspace.collection("sample-one", "files", &options, &project)?;
+    let remove = CollectionOptions {
+        add: vec![],
+        remove: vec!["source.rs".into()],
+        ..options
+    };
+    // Construct the raw path without PathBuf::push normalizing its parent component.
+    let file_parent = format!(r"{}\base.txt\..", project.display());
+    assert!(matches!(
+        workspace.collection("sample-one", "files", &remove, Path::new(&file_parent)),
+        Err(PmRustError::CommandRefusal { exit_code: 2, .. })
+    ));
+    assert_eq!(
+        workspace.get("sample-one")?.metadata.extra["files"][0]["path"],
+        "source.rs"
+    );
+    Ok(())
+}
+
+/// A non-verbatim Windows parent component cannot conceal a file and redirect a removal.
+#[cfg(windows)]
+#[test]
+fn sdk_non_verbatim_parent_refuses_file_prefix_before_removal() -> TestResult {
+    let (directory, workspace) = tracker()?;
+    let project = directory.path().canonicalize()?;
+    std::fs::write(project.join("base.txt"), "regular file")?;
+    let options = CollectionOptions {
+        author: "fixture".into(),
+        add: vec!["source.rs".into()],
+        ..Default::default()
+    };
+    workspace.collection("sample-one", "files", &options, &project)?;
+    let item = workspace.pm_root().join("tasks/sample-one.toon");
+    let history = workspace.pm_root().join("history/sample-one.jsonl");
+    let before = (std::fs::read(&item)?, std::fs::read(&history)?);
+    let remove = CollectionOptions {
+        add: vec![],
+        remove: vec!["source.rs".into()],
+        ..options
+    };
+    // `std::path::absolute` collapses `base.txt\..` on this spelling, so the
+    // resolver must keep the parent component to validate `base.txt` itself.
+    let non_verbatim = project
+        .as_os_str()
+        .to_string_lossy()
+        .trim_start_matches(r"\\?\")
+        .to_string();
+    let file_parent = format!(r"{}\base.txt\..", non_verbatim);
+    assert!(matches!(
+        workspace.collection("sample-one", "files", &remove, Path::new(&file_parent)),
+        Err(PmRustError::CommandRefusal { exit_code: 2, .. })
+    ));
+    assert_eq!((std::fs::read(&item)?, std::fs::read(&history)?), before);
+    // A traversal that never leaves the project still removes the project link
+    // when every retained parent component resolves to a directory.
+    std::fs::create_dir_all(project.join("sub"))?;
+    let directory_parent = format!(r"{}\sub\..", non_verbatim);
+    workspace.collection("sample-one", "files", &remove, Path::new(&directory_parent))?;
+    assert!(
+        !workspace
+            .get("sample-one")?
+            .metadata
+            .extra
+            .contains_key("files")
+    );
+    Ok(())
+}
+#[cfg(windows)]
+#[test]
+fn sdk_verbatim_directory_link_parent_removes_the_target_parent_link() -> TestResult {
+    let (directory, workspace) = tracker()?;
+    let project = directory.path().canonicalize()?;
+    let target = project.join(r"vendor\deep");
+    std::fs::create_dir_all(&target)?;
+    let link = project.join("link");
+    match std::os::windows::fs::symlink_dir(&target, &link) {
+        // ERROR_PRIVILEGE_NOT_HELD on hosts without developer mode.
+        Err(error) if error.raw_os_error() == Some(1314) => return Ok(()),
+        result => result?,
+    }
+    let options = CollectionOptions {
+        author: "fixture".into(),
+        add: vec!["source.rs".into(), "vendor/source.rs".into()],
+        ..Default::default()
+    };
+    workspace.collection("sample-one", "files", &options, &project)?;
+    let remove = CollectionOptions {
+        add: vec![],
+        remove: vec!["source.rs".into()],
+        ..options
+    };
+    let mut spelling = link.into_os_string();
+    spelling.push(r"\..");
+    workspace.collection("sample-one", "files", &remove, Path::new(&spelling))?;
+    let item = workspace.get("sample-one")?;
+    assert_eq!(
+        item.metadata.extra["files"],
+        json!([{"path":"source.rs","scope":"project"}])
+    );
+    workspace.collection(
+        "sample-one",
+        "files",
+        &CollectionOptions {
+            add: vec!["vendor/source.rs".into()],
+            remove: vec![],
+            ..remove.clone()
+        },
+        &project,
+    )?;
+    workspace.collection_for_cli_with_artifact_cwd(
+        "sample-one",
+        "files",
+        &remove,
+        &project,
+        Some(Path::new(r"link\..")),
+    )?;
+    assert_eq!(
+        workspace.get("sample-one")?.metadata.extra["files"],
+        item.metadata.extra["files"]
+    );
+    Ok(())
+}
+
+/// An SDK retry cannot substitute a different path for a non-UTF-8 tracker.
+#[cfg(target_os = "linux")]
+#[test]
+fn sdk_note_conflict_with_non_utf8_tracker_has_no_replay_command() -> TestResult {
+    use std::os::unix::ffi::OsStrExt as _;
+
+    let (directory, _) = tracker()?;
+    let parent = tempfile::tempdir()?;
+    let target = parent
+        .path()
+        .join(std::ffi::OsStr::from_bytes(b"selected-\xff"));
+    std::fs::rename(directory.path(), &target)?;
+    let workspace = Workspace::discover(&target)?;
+    let options = CollectionOptions {
+        author: "fixture".to_owned(),
+        add: vec![
+            "path=source.rs,note=first".to_owned(),
+            "path=source.rs,note=second".to_owned(),
+        ],
+        ..Default::default()
+    };
+    let Err(PmRustError::CommandRefusal { context, .. }) =
+        workspace.collection("sample-one", "files", &options, parent.path())
+    else {
+        return Err("expected a note conflict".into());
+    };
+    assert_eq!(context["code"], "linked_artifact_note_conflict");
+    assert!(context.get("recovery").is_none());
+    assert!(
+        context["next_steps"][0]
+            .as_str()
+            .ok_or("repair guidance")?
+            .contains("UTF-8")
+    );
+    assert_eq!(context["details"]["conflicts"][0]["path"], "source.rs");
+
+    let mut options = CollectionOptions {
+        author: "fixture".into(),
+        add: vec!["keep.rs".into(), "relative.rs".into(), "absolute.rs".into()],
+        ..Default::default()
+    };
+    workspace.collection("sample-one", "files", &options, &target)?;
+    options.add.clear();
+    let outside = tempfile::tempdir()?;
+    for (cwd, removed) in [
+        (parent.path(), "relative.rs"),
+        (outside.path(), "absolute.rs"),
+    ] {
+        options.remove = vec![removed.into()];
+        let receipt = if removed == "relative.rs" {
+            workspace.collection_for_cli("sample-one", "files", &options, cwd)?
+        } else {
+            workspace.collection("sample-one", "files", &options, cwd)?
+        };
+        assert_eq!(
+            receipt["total_count"],
+            if removed == "relative.rs" { 2 } else { 1 }
+        );
+        let group = &receipt["omission_receipt"]["omitted_field_groups"][0];
+        assert_eq!(group["name"], "files_history");
+        assert!(group.get("restore_with").is_none());
+        assert!(
+            group["restore_guidance"]
+                .as_str()
+                .ok_or("manual restore guidance")?
+                .contains("UTF-8")
+        );
+    }
+    Ok(())
+}
+
+/// CLI callers retain relative restore commands, including when invoked from the tracker itself.
+#[test]
+fn cli_omitted_rows_retain_tracker_root_as_invocation_directory() -> TestResult {
+    let (_directory, workspace) = tracker()?;
+    let mut options = CollectionOptions {
+        author: "fixture".into(),
+        add: vec!["a.rs".into(), "b.rs".into()],
+        ..Default::default()
+    };
+    workspace.collection("sample-one", "files", &options, workspace.pm_root())?;
+    options.add.clear();
+    options.remove.push("a.rs".into());
+    let result =
+        workspace.collection_for_cli("sample-one", "files", &options, workspace.pm_root())?;
+    assert_eq!(
+        result["omission_receipt"]["omitted_field_groups"][0]["restore_with"],
+        "pm --pm-path . files sample-one"
+    );
+    let project = workspace
+        .pm_root()
+        .parent()
+        .and_then(Path::parent)
+        .ok_or("project")?;
+    let alias = project.join("scratch").join("..");
+    std::fs::create_dir(project.join("scratch"))?;
+    options.remove.clear();
+    options.add.push("c.rs".into());
+    let result = workspace.collection_for_cli("sample-one", "files", &options, &alias)?;
+    assert_eq!(
+        result["omission_receipt"]["omitted_field_groups"][0]["restore_with"],
+        "pm --pm-path .agents/pm files sample-one"
+    );
+    assert_eq!(
+        result["omission_receipt"]["omitted_field_groups"][0]["restore_guidance"],
+        "Run this command from the original invocation directory."
+    );
+    let other = tempfile::tempdir()?;
+    options.add.clear();
+    options.remove.push("c.rs".into());
+    let result = workspace.collection_for_cli("sample-one", "files", &options, other.path())?;
+    let hint = result["omission_receipt"]["omitted_field_groups"][0]["restore_with"]
+        .as_str()
+        .ok_or("scope")?;
+    let args = crate::parse_command_args(hint).ok_or("read command")?;
+    assert_eq!(args.len(), 5);
+    assert_eq!(args[3..], ["files", "sample-one"]);
+    assert_eq!(
+        other.path().join(&args[2]).canonicalize()?,
+        workspace.pm_root().canonicalize()?
+    );
+    Ok(())
+}
+
+/// Listing and linked-test operations have no artifact operand base to resolve.
+#[test]
+fn sdk_collection_reads_ignore_the_artifact_base() -> TestResult {
+    let (directory, workspace) = tracker()?;
+    let file = directory.path().join("base.txt");
+    std::fs::write(&file, "file fixture")?;
+    let listed = CollectionOptions::default();
+    for key in ["files", "docs", "tests"] {
+        let expected = workspace.collection("sample-one", key, &listed, directory.path())?;
+        for unused in [Path::new(""), file.as_path()] {
+            assert_eq!(
+                workspace.collection("sample-one", key, &listed, unused)?,
+                expected
+            );
+        }
+    }
+    let tests = CollectionOptions {
+        author: "fixture".into(),
+        add: vec!["command=fixture".into()],
+        ..Default::default()
+    };
+    assert_eq!(
+        workspace.collection("sample-one", "tests", &tests, Path::new(""))?["count"],
+        1
+    );
+    Ok(())
+}
+
+/// Removing through a project alias targets the logical link even if its directory is a symlink.
+#[cfg(unix)]
+#[test]
+fn project_alias_removal_preserves_internal_directory_symlinks() -> TestResult {
+    let (directory, workspace) = tracker()?;
+    let aliases = tempfile::tempdir()?;
+    let alias = aliases.path().join("project");
+    let direct = aliases.path().join("subdirectory");
+    let project = directory.path();
+    let vendor = project.join("vendor");
+    let shared = project.join("shared");
+    std::fs::create_dir(&shared)?;
+    std::os::unix::fs::symlink(project, &alias)?;
+    std::os::unix::fs::symlink(&shared, &vendor)?;
+    std::os::unix::fs::symlink(&shared, &direct)?;
+    let add = CollectionOptions {
+        author: "fixture".into(),
+        add: vec!["vendor/source.rs".into(), "shared/source.rs".into()],
+        ..Default::default()
+    };
+    let remove = CollectionOptions {
+        author: "fixture".into(),
+        remove: vec!["source.rs".into()],
+        full_history: true,
+        ..Default::default()
+    };
+    for (cwd, expected) in [
+        (alias.join("vendor"), "shared/source.rs"),
+        (vendor, "shared/source.rs"),
+        (direct, "vendor/source.rs"),
+    ] {
+        workspace.collection("sample-one", "files", &add, project)?;
+        let receipt = workspace.collection("sample-one", "files", &remove, &cwd)?;
+        assert_eq!(receipt["mutation_receipt"]["removed_count"], 1);
+        assert_eq!(receipt["files"][0]["path"], expected);
+        assert_eq!(receipt["count"], 1);
+    }
     Ok(())
 }

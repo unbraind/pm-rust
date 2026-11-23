@@ -1,0 +1,19 @@
+id: pm-rust-windows-artifact-cwd-parent
+title: Verify ordinary Windows artifact paths before parent normalization
+description: "Rust 1.90 std::path::absolute calls GetFullPathNameW for ordinary Windows paths. That call can collapse a parent component before resolve_artifact_cwd can inspect the supplied file prefix. Round GJ covers Windows verbatim paths, whose parent component reaches the Rust join. Rust reference: https://github.com/rust-lang/rust/blob/1.90.0/library/std/src/sys/path/windows.rs#L173-L195"
+type: Issue
+status: open
+priority: 3
+tags[3]: collections,follow-up,windows
+created_at: "2026-11-22T12:23:22.732Z"
+updated_at: "2026-11-23T10:54:43.574Z"
+author: codex-sol
+acceptance_criteria: "Verify the ordinary-path case in a Windows temp tracker and preserve drive-relative paths, directory aliases, and genuinely missing suffixes."
+parent: pm-rust-oracle-1118
+comments[2]{created_at,author,text}:
+  "2026-11-23T08:08:53.940Z",codex-sol,Round GP retains the parent component for ordinary drive-absolute paths and checks the item and history bytes on refusal. The x86_64-pc-windows-gnu cross-check passed. The regression still needs Windows runtime confirmation.
+  "2026-11-23T10:54:43.574Z",codex-sol,"On f5fa7e7, the Windows shard passed the refusal and unchanged-byte assertions. It panicked after the valid directory-parent removal because the test indexed files after the last link disappeared. Round GR checks that the field is removed, as commit_mutation stores the collection. The revised assertion is pending Windows CI."
+files[2]{path,scope}:
+  src/collections.rs,project
+  tests/support/collections_unit.rs,project
+body: ""

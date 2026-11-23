@@ -280,9 +280,577 @@ fn context_non_active_progress_matches_oracle() -> TestResult {
                 let result: Value = serde_json::from_slice(&expected.stdout)?;
                 assert_eq!(result["summary"]["open"], active_count);
                 assert_eq!(result["summary"]["in_progress"], 0);
+                assert_eq!(result["summary"]["in_progress_unowned"], 2);
             }
             compare(&expected, &native(root.path(), &args)?, &args);
         }
+    }
+    Ok(())
+}
+
+/// The progress advisory uses the published fallback and ECMAScript blank assignees.
+#[test]
+fn context_progress_and_blank_assignees_match_oracle() -> TestResult {
+    let Some(published) = published_cli::published_cli_or_skip("context progress fallback") else {
+        return Ok(());
+    };
+    let scratch = tempfile::tempdir()?;
+    let driver = orientation_driver(scratch.path(), &published)?;
+    let root = tempfile::tempdir()?;
+    assert!(
+        oracle(&driver, root.path(), &["init", "sample-", "--defaults"])?
+            .status
+            .success()
+    );
+    let pm = root.path().join(".agents/pm");
+    let path = pm.join("settings.json");
+    let mut settings: Value = serde_json::from_slice(&fs::read(&path)?)?;
+    let rows: Vec<_> = [
+        ("sample-bom", "\u{feff}"),
+        ("sample-empty", ""),
+        ("sample-owned", "alpha"),
+        ("sample-next-line", "\u{85}"),
+    ]
+    .into_iter()
+    .map(|(id, assignee)| {
+        let mut row = item(id, "Task", "in_progress", 1);
+        row["assignee"] = json!(assignee);
+        row
+    })
+    .collect();
+    fixture(root.path(), &rows)?;
+    for (progress, expected_count) in [("  ", Some(2)), ("in_progress", Some(2)), ("unknown", None)]
+    {
+        let workflow = json!({"open_status":"open", "in_progress_status":progress});
+        settings["schema"]["workflow"] = workflow.clone();
+        fs::write(&path, settings.to_string())?;
+        fs::write(
+            pm.join("schema/workflows.json"),
+            json!({"workflow":workflow}).to_string(),
+        )?;
+        let args = ["context", "--json"];
+        let expected = oracle(&driver, root.path(), &args)?;
+        let actual = native(root.path(), &args)?;
+        for result in [expected, actual] {
+            assert!(
+                result.status.success(),
+                "{}",
+                String::from_utf8_lossy(&result.stderr)
+            );
+            let result: Value = serde_json::from_slice(&result.stdout)?;
+            // `as_u64() == None` would also accept an explicit null or a string;
+            // the advisory output omits the key entirely when nothing is in progress.
+            if expected_count.is_some() {
+                assert_eq!(
+                    result["summary"]["in_progress_unowned"].as_u64(),
+                    expected_count,
+                    "{progress:?}"
+                );
+            } else {
+                assert!(
+                    result["summary"].get("in_progress_unowned").is_none(),
+                    "{progress:?}: {}",
+                    result["summary"]
+                );
+            }
+        }
+    }
+    Ok(())
+}
+
+/// Unset workflow fields select the default open role, unless `in_progress` is defined.
+#[test]
+fn context_blank_workflow_resolves_default_open_before_progress() -> TestResult {
+    let Some(published) = published_cli::published_cli_or_skip("default open context progress")
+    else {
+        return Ok(());
+    };
+    let scratch = tempfile::tempdir()?;
+    let driver = orientation_driver(scratch.path(), &published)?;
+    for (include_progress, omitted) in [(false, false), (true, false), (false, true), (true, true)]
+    {
+        let root = tempfile::tempdir()?;
+        assert!(
+            oracle(&driver, root.path(), &["init", "sample-", "--defaults"])?
+                .status
+                .success()
+        );
+        let pm = root.path().join(".agents/pm");
+        let path = pm.join("settings.json");
+        let mut settings: Value = serde_json::from_slice(&fs::read(&path)?)?;
+        let mut statuses = vec![
+            json!({"id":"alpha","order":1,"roles":["active"]}),
+            json!({"id":"queued","order":2,"roles":["active","default_open"]}),
+        ];
+        let mut rows = vec![item("sample-alpha", "Task", "alpha", 1)];
+        rows[0]["assignee"] = json!("another-agent");
+        rows.push(item("sample-queued", "Task", "queued", 2));
+        if include_progress {
+            statuses.push(json!({"id":"in_progress","order":3,"roles":["active"]}));
+            rows.push(item("sample-working", "Task", "in_progress", 3));
+            rows.push(item("sample-working-two", "Task", "in_progress", 3));
+        }
+        let workflow = json!({"open_status":" ","in_progress_status":" "});
+        settings["schema"]["statuses"] = json!(statuses);
+        if omitted {
+            settings["schema"]
+                .as_object_mut()
+                .ok_or("schema settings")?
+                .remove("workflow");
+            fs::remove_file(pm.join("schema/workflows.json"))?;
+        } else {
+            settings["schema"]["workflow"] = workflow.clone();
+            fs::write(
+                pm.join("schema/workflows.json"),
+                json!({"workflow":workflow}).to_string(),
+            )?;
+        }
+        fs::write(path, settings.to_string())?;
+        // Embedded settings validate role names before the optional file is loaded.
+        if !include_progress && omitted {
+            statuses[1]["roles"][1] = json!(" default_open ");
+        }
+        fs::write(
+            pm.join("schema/statuses.json"),
+            json!({"statuses":statuses}).to_string(),
+        )?;
+        fixture(root.path(), &rows)?;
+        let args = ["context", "--json"];
+        let expected = oracle(&driver, root.path(), &args)?;
+        assert!(
+            expected.status.success(),
+            "{}",
+            String::from_utf8_lossy(&expected.stderr)
+        );
+        let result: Value = serde_json::from_slice(&expected.stdout)?;
+        assert_eq!(
+            result["summary"]["in_progress_unowned"],
+            if include_progress { 2 } else { 1 }
+        );
+        let actual = native(root.path(), &args)?;
+        assert!(
+            actual.status.success(),
+            "{}",
+            String::from_utf8_lossy(&actual.stderr)
+        );
+        let actual: Value = serde_json::from_slice(&actual.stdout)?;
+        for field in ["open", "in_progress", "in_progress_unowned"] {
+            assert_eq!(
+                actual["summary"][field], result["summary"][field],
+                "{field}"
+            );
+        }
+    }
+    Ok(())
+}
+
+/// If the preferred statuses are absent, activity uses the registry's first active role.
+#[test]
+fn context_blank_progress_falls_back_to_ordered_active_role() -> TestResult {
+    let Some(published) = published_cli::published_cli_or_skip("ordered context progress fallback")
+    else {
+        return Ok(());
+    };
+    let scratch = tempfile::tempdir()?;
+    let driver = orientation_driver(scratch.path(), &published)?;
+    let root = tempfile::tempdir()?;
+    assert!(
+        oracle(&driver, root.path(), &["init", "sample-", "--defaults"])?
+            .status
+            .success()
+    );
+    let pm = root.path().join(".agents/pm");
+    let settings_path = pm.join("settings.json");
+    let mut settings: Value = serde_json::from_slice(&fs::read(&settings_path)?)?;
+    let statuses = json!([
+        {"id":"zeta","order":10,"roles":["active"]},
+        {"id":"alpha","order":10,"roles":["active"]},
+        {"id":"closed","order":1,"roles":["terminal"]},
+        {"id":"later","order":20,"roles":["active"]}
+    ]);
+    let workflow = json!({"open_status":"absent","in_progress_status":" "});
+    settings["schema"]["statuses"] = statuses.clone();
+    settings["schema"]["workflow"] = workflow.clone();
+    fs::write(&settings_path, settings.to_string())?;
+    fs::write(
+        pm.join("schema/statuses.json"),
+        json!({"statuses":statuses}).to_string(),
+    )?;
+    fs::write(
+        pm.join("schema/workflows.json"),
+        json!({"workflow":workflow}).to_string(),
+    )?;
+    fixture(
+        root.path(),
+        &[
+            item("sample-first", "Task", "alpha", 1),
+            item("sample-other", "Task", "zeta", 2),
+            item("sample-later", "Task", "later", 3),
+        ],
+    )?;
+    let args = ["context", "--json"];
+    let expected = oracle(&driver, root.path(), &args)?;
+    assert!(
+        expected.status.success(),
+        "{}",
+        String::from_utf8_lossy(&expected.stderr)
+    );
+    let result: Value = serde_json::from_slice(&expected.stdout)?;
+    assert_eq!(result["summary"]["in_progress_unowned"], 1);
+    assert_eq!(result["summary"]["in_progress"], 1);
+    compare(&expected, &native(root.path(), &args)?, &args);
+    Ok(())
+}
+
+/// Context ranks by the latest substantive instant even when offsets reverse text order.
+#[test]
+fn context_focus_recency_uses_latest_instant() -> TestResult {
+    let Some(published) = published_cli::published_cli_or_skip("mixed offset focus recency") else {
+        return Ok(());
+    };
+    let scratch = tempfile::tempdir()?;
+    let driver = orientation_driver(scratch.path(), &published)?;
+    let root = tempfile::tempdir()?;
+    assert!(
+        oracle(&driver, root.path(), &["init", "sample-", "--defaults"])?
+            .status
+            .success()
+    );
+    fixture(
+        root.path(),
+        &[
+            item("sample-one", "Task", "open", 2),
+            item("sample-two", "Task", "open", 2),
+            item("sample-z", "Task", "open", 2),
+        ],
+    )?;
+    for (id, timestamps) in [
+        (
+            "sample-one",
+            &["2026-08-21T12:00:00Z", "2026-08-21T14:00:00+05:00"][..],
+        ),
+        ("sample-two", &["2026-08-21T11:00:00Z"][..]),
+        ("sample-z", &["2026-08-21T10:00:00Z"][..]),
+    ] {
+        let events: Vec<_> = timestamps
+            .iter()
+            .map(|ts| {
+                json!({
+                    "op":"update", "ts":ts, "event_class":"substantive",
+                    "patch":[{"op":"replace", "path":"/metadata/title", "value":"Updated title"}]
+                })
+            })
+            .collect();
+        fs::write(
+            root.path().join(format!(".agents/pm/history/{id}.jsonl")),
+            json_lines(&events),
+        )?;
+    }
+    let args = ["context", "--json"];
+    let expected = oracle(&driver, root.path(), &args)?;
+    assert!(
+        expected.status.success(),
+        "{}",
+        String::from_utf8_lossy(&expected.stderr)
+    );
+    let value: Value = serde_json::from_slice(&expected.stdout)?;
+    assert_eq!(value["low_level"][0]["id"], "sample-one");
+    assert_eq!(value["low_level"][1]["id"], "sample-two");
+    compare(&expected, &native(root.path(), &args)?, &args);
+
+    // Selecting the later spelling would leave only the 09:00 UTC event.
+    let history = root.path().join(".agents/pm/history/sample-one.jsonl");
+    let events = fs::read_to_string(&history)?;
+    fs::write(&history, events.lines().last().ok_or("offset event")?)?;
+    let output = native(root.path(), &args)?;
+    assert!(
+        output.status.success(),
+        "{}",
+        String::from_utf8_lossy(&output.stderr)
+    );
+    let with_earlier_instant: Value = serde_json::from_slice(&output.stdout)?;
+    assert_eq!(with_earlier_instant["low_level"][0]["id"], "sample-two");
+    Ok(())
+}
+
+/// Focus validates the whole stream and trusts stored classes before legacy classification.
+#[test]
+fn context_focus_recency_matches_history_admission() -> TestResult {
+    let Some(published) = published_cli::published_cli_or_skip("focus history admission") else {
+        return Ok(());
+    };
+    let scratch = tempfile::tempdir()?;
+    let driver = orientation_driver(scratch.path(), &published)?;
+    let stored_class_cases = [
+        ("2026-08-22", "sample-two"),
+        (" 2026-08-22t00:00:00.001000z ", "sample-one"),
+        ("2026-08-21T12:00:00.1+05:30", "sample-one"),
+        ("2026-08-21T12:00:00.100+05:30", "sample-one"),
+        ("2026-08-21T12:00:00.1001+05:30", "sample-two"),
+        ("\u{feff}2026-08-22T00:00:00Z\u{feff}", "sample-one"),
+        ("2026-08-21T12:00:00+0530", "sample-two"),
+        ("0000-02-28T00:00:00Z", "sample-one"),
+        ("0000-02-29T00:00:00Z", "sample-two"),
+    ];
+    for (maintenance, winner, legacy, created_at) in stored_class_cases
+        .into_iter()
+        .map(|(timestamp, winner)| (timestamp, winner, false, "2026-08-17T00:00:00.000Z"))
+        .chain([
+            (
+                "2026-08-22T00:00:00Z",
+                "sample-one",
+                true,
+                "2026-08-17T00:00:00.000Z",
+            ),
+            ("2026-08-22", "sample-one", false, "2026-08-20"),
+            (
+                "2026-08-22",
+                "sample-two",
+                false,
+                "2026-08-20T00:00:00.0001Z",
+            ),
+        ])
+    {
+        let root = tempfile::tempdir()?;
+        assert!(
+            oracle(&driver, root.path(), &["init", "sample-", "--defaults"])?
+                .status
+                .success()
+        );
+        let mut older = item("sample-one", "Task", "open", 2);
+        older["created_at"] = json!(created_at);
+        let mut newer = item("sample-two", "Task", "open", 2);
+        newer["created_at"] = json!("2026-08-19T00:00:00.000Z");
+        let mut middle = item("sample-z", "Task", "open", 2);
+        middle["created_at"] = json!("2026-08-18T00:00:00.000Z");
+        fixture(root.path(), &[older, newer, middle])?;
+        let timestamp = "\u{feff}2026-08-21T00:00:00Z\u{feff}";
+        let substantive = if legacy {
+            json!({"ts":timestamp,"op":"comment_add","patch":[{}]})
+        } else {
+            json!({"ts":timestamp,"op":"update","event_class":"substantive","patch":[{}]})
+        };
+        let maintenance =
+            json!({"ts":maintenance,"op":"update","event_class":"maintenance","patch":[]});
+        fs::write(
+            root.path().join(".agents/pm/history/sample-one.jsonl"),
+            format!(" \u{feff}{substantive}\u{feff} \n \u{feff}{maintenance}\u{feff} \n"),
+        )?;
+        let args = ["context", "--limit", "1", "--json"];
+        let expected = oracle(&driver, root.path(), &args)?;
+        assert!(
+            expected.status.success(),
+            "{}",
+            String::from_utf8_lossy(&expected.stderr)
+        );
+        let value: Value = serde_json::from_slice(&expected.stdout)?;
+        assert_eq!(value["low_level"][0]["id"], winner);
+        compare(&expected, &native(root.path(), &args)?, &args);
+    }
+    Ok(())
+}
+
+/// Configured terminal progress uses readable activity despite lossy UTF-8 decoding.
+#[test]
+fn terminal_context_idle_uses_lossy_history_activity() -> TestResult {
+    let Some(published) = published_cli::published_cli_or_skip("terminal progress activity") else {
+        return Ok(());
+    };
+    let root = tempfile::tempdir()?;
+    let driver = orientation_driver(root.path(), &published)?;
+    assert!(
+        oracle(&driver, root.path(), &["init", "sample-", "--defaults"])?
+            .status
+            .success()
+    );
+    let pm = root.path().join(".agents/pm");
+    let settings_path = pm.join("settings.json");
+    let mut settings: Value = serde_json::from_slice(&fs::read(&settings_path)?)?;
+    let workflow = json!({"open_status":"open","in_progress_status":"closed"});
+    settings["schema"]["workflow"] = workflow.clone();
+    fs::write(settings_path, settings.to_string())?;
+    fs::write(
+        pm.join("schema/workflows.json"),
+        json!({"workflow":workflow}).to_string(),
+    )?;
+    let mut row = item("sample-terminal", "Task", "closed", 1);
+    row["created_at"] = json!("2026-08-17T00:00:00.000Z");
+    row["updated_at"] = json!("2026-08-18T00:00:00.000Z");
+    fixture(root.path(), &[row])?;
+    let history = pm.join("history/sample-terminal.jsonl");
+    let bytes = b"{\"op\":\"update\",\"ts\":\"2026-08-22T00:00:00Z\",\"event_class\":\"substantive\",\"patch\":[],\"message\":\"old \xff\"}\n";
+    fs::write(&history, bytes)?;
+    let args = ["context", "--json"];
+    let expected = oracle(&driver, root.path(), &args)?;
+    assert!(
+        expected.status.success(),
+        "{}",
+        String::from_utf8_lossy(&expected.stderr)
+    );
+    let value: Value = serde_json::from_slice(&expected.stdout)?;
+    assert_eq!(value["summary"]["in_progress_unowned"], 1);
+    assert_eq!(
+        value["summary"]["in_progress_idle"]
+            .as_u64()
+            .unwrap_or_default(),
+        0
+    );
+    compare(&expected, &native(root.path(), &args)?, &args);
+    assert!(
+        !native(root.path(), &["history", "sample-terminal", "--json"])?
+            .status
+            .success()
+    );
+    assert_eq!(fs::read(&history)?, bytes);
+    #[cfg(unix)]
+    terminal_context_history_file_types(root.path(), &driver, &history, &expected)?;
+    Ok(())
+}
+
+/// Context follows regular symlinks and falls back promptly when a terminal stream is a FIFO.
+#[cfg(unix)]
+fn terminal_context_history_file_types(
+    root: &Path,
+    driver: &Path,
+    history: &Path,
+    regular: &Output,
+) -> TestResult {
+    use std::process::Stdio;
+    use std::time::{Duration, Instant};
+
+    let args = ["context", "--json"];
+    let saved = root.join("retained-history.jsonl");
+    fs::rename(history, &saved)?;
+    std::os::unix::fs::symlink(&saved, history)?;
+    compare(regular, &native(root, &args)?, &args);
+    fs::remove_file(history)?;
+    let fallback = oracle(driver, root, &args)?;
+    let value: Value = serde_json::from_slice(&fallback.stdout)?;
+    assert_eq!(value["summary"]["in_progress_idle"], 1);
+    assert!(
+        Command::new("mkfifo")
+            .args(["-m", "600"])
+            .arg(history)
+            .status()?
+            .success()
+    );
+    let mut child = native_invocation(root, &args)
+        .stdout(Stdio::piped())
+        .stderr(Stdio::piped())
+        .spawn()?;
+    let deadline = Instant::now() + Duration::from_secs(5);
+    while child.try_wait()?.is_none() {
+        if Instant::now() >= deadline {
+            child.kill()?;
+            child.wait()?;
+            return Err("context blocked on a terminal history FIFO".into());
+        }
+        std::thread::sleep(Duration::from_millis(5));
+    }
+    compare(&fallback, &child.wait_with_output()?, &args);
+    Ok(())
+}
+
+/// Context matches the pinned SDK for date-only history and integral settings syntax.
+#[test]
+fn context_idle_activity_and_threshold_match_oracle() -> TestResult {
+    let Some(published) = published_cli::published_cli_or_skip("context idle evidence") else {
+        return Ok(());
+    };
+    let scratch = tempfile::tempdir()?;
+    let driver = orientation_driver(scratch.path(), &published)?;
+    for (threshold, updated, history, idle) in [
+        ("600", "2026-07-01T00:00:00.000Z", Some("2026-08"), 0),
+        ("72", "2026-08-18T00:00:00.000Z", Some("2026-08-22"), 0),
+        (
+            "72",
+            "2026-08-18T00:00:00.000Z",
+            Some("Sat, 22 Aug 2026 00:00:00 GMT"),
+            0,
+        ),
+        (
+            "72",
+            "2026-08-18T00:00:00.000Z",
+            Some("2026-08-22T00:00:00Z"),
+            0,
+        ),
+        (
+            "72",
+            "2026-08-18T00:00:00.000Z",
+            Some("2026-08-22T00:00Z"),
+            0,
+        ),
+        ("72", "2026-08-18T00:00:00.000Z", Some("2026-08-18"), 1),
+        (
+            "72",
+            "2026-08-18T00:00:00.000Z",
+            Some("+002026-08-19T24:00:00.000Z"),
+            0,
+        ),
+        (
+            "72",
+            "2026-08-18T00:00:00.000Z",
+            Some("2026-08-20T00:00:00.000Z"),
+            0,
+        ),
+        (
+            "72",
+            "2026-08-18T00:00:00.000Z",
+            Some("2026-08-22T10:00:00+0530"),
+            0,
+        ),
+        ("24", "2026-08-21T04:00:00.000Z", None, 1),
+        ("24.0", "2026-08-21T04:00:00.000Z", None, 1),
+        ("24e0", "2026-08-21T04:00:00.000Z", None, 1),
+    ] {
+        let root = tempfile::tempdir()?;
+        assert!(
+            oracle(&driver, root.path(), &["init", "sample-", "--defaults"])?
+                .status
+                .success()
+        );
+        let pm = root.path().join(".agents/pm");
+        let settings_path = pm.join("settings.json");
+        let mut settings: Value = serde_json::from_slice(&fs::read(&settings_path)?)?;
+        settings["mutation_guard"]["stale_in_progress_hours"] = json!(72);
+        fs::write(
+            &settings_path,
+            settings.to_string().replace(
+                "\"stale_in_progress_hours\":72",
+                &format!("\"stale_in_progress_hours\":{threshold}"),
+            ),
+        )?;
+        let mut row = item("sample-activity", "Task", "in_progress", 1);
+        row["created_at"] = json!("2026-08-17T00:00:00.000Z");
+        row["updated_at"] = json!(updated);
+        fixture(root.path(), &[row])?;
+        if let Some(timestamp) = history {
+            let record = json!({
+                "op":"update", "ts":timestamp, "event_class":"substantive",
+                "patch":[{"op":"replace", "path":"/metadata/title", "value":"Updated title"}]
+            });
+            fs::write(
+                pm.join("history/sample-activity.jsonl"),
+                json_lines(&[record]),
+            )?;
+        }
+        let args = ["context", "--json"];
+        let expected = oracle(&driver, root.path(), &args)?;
+        assert!(
+            expected.status.success(),
+            "{}",
+            String::from_utf8_lossy(&expected.stderr)
+        );
+        let value: Value = serde_json::from_slice(&expected.stdout)?;
+        assert_eq!(
+            value["summary"]["in_progress_idle"]
+                .as_u64()
+                .unwrap_or_default(),
+            idle,
+            "threshold {threshold}, history {history:?}"
+        );
+        let actual = native(root.path(), &args)?;
+        compare(&expected, &actual, &args);
     }
     Ok(())
 }
@@ -582,6 +1150,11 @@ fn oracle(driver: &Path, root: &Path, args: &[&str]) -> Result<Output, Box<dyn s
 }
 /// Executes one native invocation with the same isolated application environment.
 fn native(root: &Path, args: &[&str]) -> Result<Output, std::io::Error> {
+    native_invocation(root, args).output()
+}
+
+/// Configures the native command for both direct execution and bounded tests.
+fn native_invocation(root: &Path, args: &[&str]) -> Command {
     let mut command = Command::new(env!("CARGO_BIN_EXE_pm-rust"));
     command.current_dir(root);
     mutation_differential::isolate_environment(&mut command);
@@ -592,7 +1165,7 @@ fn native(root: &Path, args: &[&str]) -> Result<Output, std::io::Error> {
     if args[0] == "context" {
         command.args(["--timestamp", CLOCK]);
     }
-    command.output()
+    command
 }
 /// Requires exact stdout, stderr and process status, including refusal bytes.
 fn compare(expected: &Output, actual: &Output, args: &[&str]) {
@@ -621,17 +1194,21 @@ fn seal_record(mut record: Value) -> Result<Value, Box<dyn std::error::Error>> {
         .ok_or("history record must be an object")?
         .shift_remove("record_hash");
     record["record_hash_version"] = json!(1);
-    let mut canonical = record.clone();
+    record["record_hash"] = json!(sorted_json_digest(&record)?);
+    Ok(record)
+}
+
+/// Hashes a fixture independently, retaining every integer digit in its JSON.
+fn sorted_json_digest(value: &Value) -> Result<String, serde_json::Error> {
+    let mut canonical = value.clone();
     canonical.sort_all_objects();
-    let digest = sha2::Sha256::digest(serde_json::to_vec(&canonical)?)
+    Ok(sha2::Sha256::digest(serde_json::to_vec(&canonical)?)
         .iter()
         .fold(String::new(), |mut output, byte| {
             use std::fmt::Write;
             let _ = write!(output, "{byte:02x}");
             output
-        });
-    record["record_hash"] = json!(digest);
-    Ok(record)
+        }))
 }
 /// Serializes complete JSONL fixtures without changing any existing tracker stream.
 fn json_lines(records: &[Value]) -> String {
@@ -1298,6 +1875,190 @@ fn history_matches_oracle() -> TestResult {
             &args,
         );
     }
+    Ok(())
+}
+
+/// Writes a native-shaped genesis with independently calculated exact-integer hashes.
+fn large_integer_genesis(
+    root: &Path,
+    history_path: &str,
+    number: i64,
+) -> Result<Value, Box<dyn std::error::Error>> {
+    let mut document = item("sample-a", "Task", "open", 1);
+    document["large_number"] = json!({"nested": [number, -number, 0.25]});
+    fixture(root, std::slice::from_ref(&document))?;
+    document
+        .as_object_mut()
+        .ok_or("item object")?
+        .shift_remove("body");
+    let metadata = serde_json::from_value(document.clone())?;
+    let patch: Vec<_> = pm_rust::canonical_metadata_pairs(&metadata)
+        .into_iter()
+        .map(|(key, value)| json!({"op":"add","path":format!("/metadata/{key}"),"value":value}))
+        .collect();
+    let row = seal_record(json!({
+        "hash_algorithm":"sha256","ts":CLOCK,"author":"fixture","author_source":"asserted",
+        "op":"create","event_class":"substantive","item_hash_version":3,"message":"",
+        "patch":patch,
+        "before_hash":sorted_json_digest(&json!({"front_matter":{},"body":""}))?,
+        "after_hash":sorted_json_digest(&json!({"front_matter":document,"body":""}))?,
+    }))?;
+    fs::write(
+        root.join(history_path),
+        json_lines(std::slice::from_ref(&row)),
+    )?;
+    Ok(row)
+}
+
+/// Confirms both unsigned native epochs and the implicit SHA-256 record envelope.
+fn verify_earlier_integer_envelopes(
+    root: &Path,
+    history_path: &str,
+    verify: &[&str],
+    record: &Value,
+) -> TestResult {
+    let mut implicit_sha256 = record.clone();
+    implicit_sha256
+        .as_object_mut()
+        .ok_or("history object")?
+        .shift_remove("hash_algorithm");
+    let implicit_sha256 = seal_record(implicit_sha256)?;
+    let mut unsigned = implicit_sha256.clone();
+    let unsigned_fields = unsigned.as_object_mut().ok_or("history object")?;
+    for key in ["record_hash_version", "record_hash", "event_class"] {
+        unsigned_fields.shift_remove(key);
+    }
+    let mut unsigned_v2 = unsigned.clone();
+    unsigned_v2["item_hash_version"] = json!(2);
+    for historical in [implicit_sha256, unsigned, unsigned_v2] {
+        fs::write(root.join(history_path), json_lines(&[historical]))?;
+        let verified = native(root, verify)?;
+        assert!(
+            verified.status.success(),
+            "{}",
+            String::from_utf8_lossy(&verified.stdout)
+        );
+    }
+    Ok(())
+}
+
+/// Checks that strict verification identifies the rejected record envelope.
+fn assert_record_hash_refusal(output: &Output, entry: usize) -> TestResult {
+    assert_eq!(output.status.code(), Some(1));
+    assert_eq!(
+        serde_json::from_slice::<Value>(&output.stdout)?["verification"]["errors"][0],
+        format!("verify_failed:record_hash_mismatch:entry_{entry}")
+    );
+    Ok(())
+}
+
+/// Legacy native digests survive a new edit, and new digests match published 2026.11.18.
+#[test]
+fn history_verifies_legacy_native_integers_and_appends_oracle_hashes() -> TestResult {
+    let Some(published) = published_cli::published_cli_or_skip("history integer epochs") else {
+        return Ok(());
+    };
+    let scratch = tempfile::tempdir()?;
+    let driver = orientation_driver(scratch.path(), &published)?;
+    let native_root = tempfile::tempdir()?;
+    let published_root = tempfile::tempdir()?;
+    let item_path = ".agents/pm/tasks/sample-a.toon";
+    let history_path = ".agents/pm/history/sample-a.jsonl";
+    let legacy_root = native_root.path();
+    for root in [legacy_root, published_root.path()] {
+        assert!(
+            oracle(&driver, root, &["init", "sample-", "--defaults"])?
+                .status
+                .success()
+        );
+    }
+    let old_record = large_integer_genesis(legacy_root, history_path, 9_007_199_254_740_993)?;
+    large_integer_genesis(published_root.path(), history_path, 9_007_199_254_740_992)?;
+    let verify = ["history", "sample-a", "--verify", "--strict-exit", "--json"];
+    let old_item = fs::read(legacy_root.join(item_path))?;
+    let old_history = fs::read(legacy_root.join(history_path))?;
+    assert_record_hash_refusal(&oracle(&driver, legacy_root, &verify)?, 1)?;
+    let legacy = native(legacy_root, &verify)?;
+    assert!(
+        legacy.status.success(),
+        "{}",
+        String::from_utf8_lossy(&legacy.stdout)
+    );
+    let legacy_verified = &serde_json::from_slice::<Value>(&legacy.stdout)?["verification"];
+    assert_eq!(
+        legacy_verified["current_item_hash"],
+        old_record["after_hash"]
+    );
+    assert_eq!(fs::read(legacy_root.join(item_path))?, old_item);
+    assert_eq!(fs::read(legacy_root.join(history_path))?, old_history);
+
+    verify_earlier_integer_envelopes(legacy_root, history_path, &verify, &old_record)?;
+
+    let mut tampered = old_record;
+    let change = tampered["patch"]
+        .as_array_mut()
+        .and_then(|patch| {
+            patch
+                .iter_mut()
+                .find(|row| row["path"] == "/metadata/large_number")
+        })
+        .ok_or("large-number patch")?;
+    change["value"]["nested"][0] = json!(9_007_199_254_740_992_u64);
+    fs::write(legacy_root.join(history_path), json_lines(&[tampered]))?;
+    assert_record_hash_refusal(&native(legacy_root, &verify)?, 1)?;
+    fs::write(legacy_root.join(history_path), &old_history)?;
+
+    let update = [
+        "update", "sample-a", "--title", "Edited", "--author", "fixture",
+    ];
+    let edited_oracle = oracle(&driver, published_root.path(), &update)?;
+    assert!(
+        edited_oracle.status.success(),
+        "{}",
+        String::from_utf8_lossy(&edited_oracle.stderr)
+    );
+    let mut native_update = update.to_vec();
+    native_update.extend(["--timestamp", CLOCK]);
+    let edited_native = native(legacy_root, &native_update)?;
+    assert!(
+        edited_native.status.success(),
+        "{}",
+        String::from_utf8_lossy(&edited_native.stderr)
+    );
+
+    let new_history = fs::read_to_string(legacy_root.join(history_path))?;
+    assert!(new_history.as_bytes().starts_with(&old_history));
+    let rows: Vec<Value> = new_history
+        .lines()
+        .map(serde_json::from_str)
+        .collect::<Result<_, _>>()?;
+    let published_history = fs::read_to_string(published_root.path().join(history_path))?;
+    let published_new: Value =
+        serde_json::from_str(published_history.lines().last().ok_or("published update")?)?;
+    for key in ["before_hash", "after_hash", "record_hash"] {
+        assert_eq!(
+            rows[1][key], published_new[key],
+            "{key} for native and published update"
+        );
+    }
+    assert_ne!(rows[1]["before_hash"], rows[0]["after_hash"]);
+    let mixed = native(legacy_root, &verify)?;
+    assert!(
+        mixed.status.success(),
+        "{}",
+        String::from_utf8_lossy(&mixed.stdout)
+    );
+    let verified_oracle = oracle(&driver, published_root.path(), &verify)?;
+    assert!(
+        verified_oracle.status.success(),
+        "{}",
+        String::from_utf8_lossy(&verified_oracle.stdout)
+    );
+
+    let mut tampered = rows;
+    tampered[1]["author"] = json!("changed");
+    fs::write(legacy_root.join(history_path), json_lines(&tampered))?;
+    assert_record_hash_refusal(&native(legacy_root, &verify)?, 2)?;
     Ok(())
 }
 

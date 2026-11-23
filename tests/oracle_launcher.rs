@@ -96,3 +96,61 @@ fn oracle_launcher_sets_child_telemetry_environment() -> Result<(), Box<dyn std:
     );
     Ok(())
 }
+
+/// Optional suites skip a stale package and required suites fail before invoking it.
+#[test]
+fn published_locator_requires_the_manifest_pin() -> Result<(), Box<dyn std::error::Error>> {
+    const CHILD: &str = "PM_RUST_TEST_ORACLE_LOCATOR_EXPECT";
+    if let Ok(expected) = std::env::var(CHILD) {
+        assert_eq!(
+            published_cli::published_cli_or_skip("oracle locator contract").is_some(),
+            expected == "found"
+        );
+        return Ok(());
+    }
+    let directory = tempfile::tempdir()?;
+    let root = directory.path();
+    let entry = root.join("dist/cli.js");
+    fs::create_dir(root.join("dist"))?;
+    fs::write(
+        &entry,
+        "throw new Error('the locator must not execute the entry');",
+    )?;
+    let manifest: serde_json::Value = serde_json::from_str(include_str!("oracle/package.json"))?;
+    let pin = manifest["dependencies"]["@unbrained/pm-cli"]
+        .as_str()
+        .ok_or("oracle pin")?;
+    for (version, required, expected, success, override_path) in [
+        ("0.0.0", false, "absent", true, root),
+        ("0.0.0", true, "absent", false, entry.as_path()),
+        (pin, true, "found", true, root),
+        (pin, true, "found", true, entry.as_path()),
+    ] {
+        fs::write(
+            root.join("package.json"),
+            serde_json::json!({"version":version}).to_string(),
+        )?;
+        let mut command = Command::new(std::env::current_exe()?);
+        command
+            .args([
+                "--exact",
+                "published_locator_requires_the_manifest_pin",
+                "--nocapture",
+            ])
+            .env(CHILD, expected)
+            .env("PM_NODE_CLI", override_path)
+            .env_remove("PM_RUST_REQUIRE_PUBLISHED_CLI");
+        if required {
+            command.env("PM_RUST_REQUIRE_PUBLISHED_CLI", "1");
+        }
+        let output = command.output()?;
+        let stdout = String::from_utf8_lossy(&output.stdout);
+        let stderr = String::from_utf8_lossy(&output.stderr);
+        assert_eq!(output.status.success(), success, "{stdout}{stderr}");
+        if version != pin {
+            assert!(stderr.contains(&format!("expected {pin}")), "{stderr}");
+            assert!(format!("{stdout}{stderr}").contains("npm ci --prefix tests/oracle"));
+        }
+    }
+    Ok(())
+}

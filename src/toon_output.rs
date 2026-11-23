@@ -298,6 +298,11 @@ fn render(value: &Value, depth: usize) -> String {
                 let indent = "  ".repeat(depth);
                 if key == "omission_receipt" && value == &json!({"has_omissions":false,"omitted_field_group_count":0,"omitted_field_groups":[]}) {
                     format!("{indent}{key}: complete")
+                } else if key == "omission_receipt" && let Some(projected) = project_omission(value) {
+                    let rows = render(value, depth + 1);
+                    let named = render(&projected, depth + 1);
+                    let preferred = if named.len() < rows.len() { named } else { rows };
+                    format!("{indent}{key}:\n{preferred}")
                 } else if value.is_array() {
                     let expanded = encode(&json!({key:value}), depth);
                     // Envelope siblings reserve this position for pre-encoded table controls.
@@ -323,6 +328,41 @@ fn render(value: &Value, depth: usize) -> String {
     } else {
         format!("{}{}", "  ".repeat(depth), read_json(value))
     }
+}
+
+/// Shares one restore hint when each omission row derives it from its name.
+fn project_omission(value: &Value) -> Option<Value> {
+    let fields = value.as_object()?;
+    if fields.contains_key("restore_with") {
+        return None;
+    }
+    let groups = fields.get("omitted_field_groups")?.as_array()?;
+    let mut prefix = None;
+    let mut names = Vec::new();
+    for group in groups {
+        let group = group.as_object().filter(|group| group.len() == 2)?;
+        let name = group
+            .get("name")?
+            .as_str()
+            .filter(|name| !name.is_empty())?;
+        let hint = group.get("restore_with")?.as_str()?.strip_suffix(name)?;
+        if prefix.is_some_and(|prefix| prefix != hint) {
+            return None;
+        }
+        prefix = Some(hint);
+        names.push(name);
+    }
+    let hint = format!("{}<name>", prefix?);
+    let mut projected = Map::new();
+    for (key, value) in fields {
+        if key == "omitted_field_groups" {
+            projected.insert(key.clone(), json!(names));
+            projected.insert("restore_with".to_owned(), json!(hint));
+        } else {
+            projected.insert(key.clone(), value.clone());
+        }
+    }
+    Some(Value::Object(projected))
 }
 
 /// Builds a bounded union-column table for nested or sparse object rows.
@@ -399,28 +439,60 @@ fn table(value: &Value, compact: bool) -> Option<(Value, Value)> {
                     value.clone()
                 }
             } else {
-                absent.push(json!([index, key]));
+                absent.push((index, key.as_str()));
                 Value::Null
             };
             fields.insert(key.clone(), value);
         }
         encoded.push(Value::Object(fields));
     }
-    let mut encoding = json!({"json_columns":nested,"absent":absent});
-    if !lists.is_empty() {
-        encoding["list_columns"] =
-            Value::Object(lists.iter().map(|key| (key.clone(), json!(";"))).collect());
+    Some((
+        json!(encoded),
+        table_encoding(&columns, &nested, lists, &nulls, absent),
+    ))
+}
+
+/// Emits only present table controls, grouping missing row indexes by column.
+fn table_encoding(
+    columns: &[String],
+    nested: &[String],
+    lists: Vec<String>,
+    nulls: &[String],
+    absent: Vec<(usize, &str)>,
+) -> Value {
+    let mut encoding = json!({});
+    if !nested.is_empty() {
+        encoding["json_columns"] = json!(nested);
     }
-    if !nulls.is_empty() {
-        encoding["null_columns"] = json!(nulls);
-        encoding["null_column_index"] = json!(
-            nulls
-                .iter()
-                .filter_map(|key| columns.iter().position(|column| column == key))
-                .collect::<Vec<_>>()
+    if !absent.is_empty() {
+        let mut groups: Vec<(&str, Vec<usize>)> = Vec::new();
+        for (index, key) in absent {
+            if let Some((_, indexes)) = groups.iter_mut().find(|(column, _)| *column == key) {
+                indexes.push(index);
+            } else {
+                groups.push((key, vec![index]));
+            }
+        }
+        encoding["absent_rows"] = Value::Object(
+            groups
+                .into_iter()
+                .map(|(key, rows)| (key.to_owned(), json!(rows)))
+                .collect(),
         );
     }
-    Some((json!(encoded), encoding))
+    if !lists.is_empty() {
+        encoding["list_columns"] =
+            Value::Object(lists.into_iter().map(|key| (key, json!(";"))).collect());
+    }
+    if !nulls.is_empty() {
+        let positions: Vec<_> = nulls
+            .iter()
+            .filter_map(|key| columns.iter().position(|column| column == key))
+            .collect();
+        encoding["null_columns"] = json!(nulls);
+        encoding["null_column_index"] = json!(positions);
+    }
+    encoding
 }
 
 #[cfg(test)]

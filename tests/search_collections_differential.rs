@@ -13,6 +13,145 @@ use mutation_differential::{copy_directory, run_minimal, write_driver};
 type TestResult = Result<(), Box<dyn std::error::Error>>;
 const CLOCK: &str = "2026-08-22T10:00:00.000Z";
 
+/// Collapsed duplicates count as removals, while written entries use persisted multiset equality.
+#[test]
+fn duplicate_artifact_receipts_match_published_storage() -> TestResult {
+    let Some(published) = published_cli::published_cli_or_skip("duplicate linked artifacts") else {
+        return Ok(());
+    };
+    let scratch = tempfile::tempdir()?;
+    let driver = write_driver(scratch.path(), &published)?;
+    let node = tempfile::tempdir()?;
+    let rust = tempfile::tempdir()?;
+    for args in [
+        vec!["init", "sample-", "--defaults"],
+        vec![
+            "create",
+            "--id",
+            "sample-item",
+            "--title",
+            "Links",
+            "--type",
+            "Task",
+            "--author",
+            "alpha",
+        ],
+    ] {
+        let result = oracle(&driver, node.path(), &args)?;
+        assert!(
+            result.status.success(),
+            "{}",
+            String::from_utf8_lossy(&result.stderr)
+        );
+    }
+    let workspace = pm_rust::Workspace::discover(node.path())?;
+    let mut item = workspace.get("sample-item")?;
+    item.metadata.extra.insert(
+        "files".to_owned(),
+        json!([
+            {"path":"linked.rs","scope":"project","note":"restored"},
+            {"path":"linked.rs","scope":"project","note":"last"}
+        ]),
+    );
+    let file = ".agents/pm/tasks/sample-item.toon";
+    fs::write(node.path().join(file), toon_format::encode_default(&item)?)?;
+    copy_directory(&node.path().join(".agents"), &rust.path().join(".agents"))?;
+    let args = [
+        "files",
+        "sample-item",
+        "--add",
+        "path=linked.rs,note=restored",
+        "--note-conflict",
+        "replace",
+        "--author",
+        "alpha",
+        "--json",
+    ];
+    let expected = oracle(&driver, node.path(), &args)?;
+    let actual = native(rust.path(), &args, true)?;
+    assert!(
+        expected.status.success(),
+        "{}",
+        String::from_utf8_lossy(&expected.stderr)
+    );
+    assert!(
+        actual.status.success(),
+        "{}",
+        String::from_utf8_lossy(&actual.stderr)
+    );
+    let receipt: Value = serde_json::from_slice(&expected.stdout)?;
+    assert_eq!(receipt["mutation_receipt"]["changed_count"], 0);
+    assert_eq!(receipt["mutation_receipt"]["removed_count"], 1);
+    assert_eq!(
+        receipt["mutation_receipt"]["link_outcomes"][0]["outcome"],
+        "note_replaced"
+    );
+    let native_receipt: Value = serde_json::from_slice(&actual.stdout)?;
+    for field in ["files", "changed", "total_count", "mutation_receipt"] {
+        assert_eq!(native_receipt[field], receipt[field], "{field}");
+    }
+    let stored = pm_rust::Workspace::discover(rust.path())?.get("sample-item")?;
+    assert_eq!(
+        stored.metadata.extra["files"],
+        json!([{"path":"linked.rs","scope":"project","note":"restored"}])
+    );
+    Ok(())
+}
+
+/// Help advertises note conflict modes only for the collections that accept them.
+#[test]
+fn linked_note_conflict_help_and_test_refusal_match_oracle() -> TestResult {
+    let Some(published) = published_cli::published_cli_or_skip("linked note conflict help") else {
+        return Ok(());
+    };
+    let scratch = tempfile::tempdir()?;
+    let driver = write_driver(scratch.path(), &published)?;
+    for (command, advertised) in [("files", true), ("docs", true), ("test", false)] {
+        let args = [command, "--help"];
+        for result in [
+            oracle(&driver, scratch.path(), &args)?,
+            native(scratch.path(), &args, false)?,
+        ] {
+            assert!(result.status.success(), "{command}");
+            assert_eq!(
+                String::from_utf8(result.stdout)?.contains("--note-conflict"),
+                advertised,
+                "{command}"
+            );
+        }
+    }
+    assert!(
+        oracle(&driver, scratch.path(), &["init", "sample-", "--defaults"])?
+            .status
+            .success()
+    );
+    let args = [
+        "test",
+        "sample-item",
+        "--add",
+        "command=cargo test",
+        "--note-conflict",
+        "replace",
+        "--author",
+        "alpha",
+        "--json",
+    ];
+    for result in [
+        oracle(&driver, scratch.path(), &args)?,
+        native(scratch.path(), &args, false)?,
+    ] {
+        assert_eq!(result.status.code(), Some(2));
+        let refusal: Value = serde_json::from_slice(&result.stderr)?;
+        assert_eq!(refusal["code"], "unknown_option");
+        assert_eq!(refusal["flag"], "--note-conflict");
+        assert_eq!(
+            refusal["recovery"]["candidate_commands"],
+            json!(["item docs", "item files"])
+        );
+    }
+    Ok(())
+}
+
 /// Executes the fixed-clock, telemetry-isolated published command.
 fn oracle(driver: &Path, root: &Path, args: &[&str]) -> Result<Output, Box<dyn std::error::Error>> {
     let mut arguments = vec![driver.to_string_lossy().into_owned()];
@@ -116,6 +255,340 @@ fn artifacts(expected: &Path, actual: &Path) -> TestResult {
     Ok(())
 }
 
+/// Creates the root link and the competing link that a relative removal can select.
+fn seed_linked_files(driver: &Path, project: &Path, other_path: &str) -> TestResult {
+    for args in [
+        vec!["init", "sample-", "--defaults"],
+        vec![
+            "create",
+            "--id",
+            "sample-item",
+            "--title",
+            "Artifacts",
+            "--type",
+            "Task",
+            "--author",
+            "alpha",
+        ],
+        vec![
+            "files",
+            "sample-item",
+            "--add",
+            "source.rs",
+            "--add",
+            other_path,
+            "--author",
+            "alpha",
+        ],
+    ] {
+        let result = oracle(driver, project, &args)?;
+        assert!(
+            result.status.success(),
+            "{args:?}: {}",
+            String::from_utf8_lossy(&result.stderr)
+        );
+    }
+    Ok(())
+}
+
+/// A logical SDK base names the same link as an explicit project path in the published CLI.
+#[cfg(unix)]
+#[test]
+fn sdk_removal_preserves_logical_symlink_operand_base() -> TestResult {
+    let Some(published) = published_cli::published_cli_or_skip("logical artifact base") else {
+        return Ok(());
+    };
+    let scratch = tempfile::tempdir()?;
+    let driver = write_driver(scratch.path(), &published)?;
+    let oracle_project = tempfile::tempdir()?;
+    let native_project = tempfile::tempdir()?;
+    let outside = tempfile::tempdir()?;
+    fs::write(outside.path().join("source.rs"), "external fixture")?;
+    for project in [oracle_project.path(), native_project.path()] {
+        fs::write(project.join("source.rs"), "project fixture")?;
+        std::os::unix::fs::symlink(outside.path(), project.join("vendor"))?;
+    }
+    seed_linked_files(&driver, oracle_project.path(), "vendor/source.rs")?;
+    copy_directory(
+        &oracle_project.path().join(".agents"),
+        &native_project.path().join(".agents"),
+    )?;
+    // The published SDK changes the process directory, which loses the logical symlink
+    // name. Spell out the logical operand from the project root to compare the write.
+    let expected = oracle(
+        &driver,
+        oracle_project.path(),
+        &[
+            "files",
+            "sample-item",
+            "--remove",
+            "vendor/source.rs",
+            "--full-history",
+            "--author",
+            "alpha",
+            "--json",
+        ],
+    )?;
+    assert!(
+        expected.status.success(),
+        "{}",
+        String::from_utf8_lossy(&expected.stderr)
+    );
+    let expected: Value = serde_json::from_slice(&expected.stdout)?;
+    assert_eq!(
+        expected["files"],
+        json!([{"path":"source.rs","scope":"project"}])
+    );
+    assert_eq!(expected["mutation_receipt"]["removed_count"], 1);
+    let workspace = pm_rust::Workspace::discover(native_project.path())?;
+    let actual = workspace.collection(
+        "sample-item",
+        "files",
+        &pm_rust::CollectionOptions {
+            remove: vec!["source.rs".to_owned()],
+            full_history: true,
+            author: "alpha".to_owned(),
+            timestamp: Some(CLOCK.to_owned()),
+            ..Default::default()
+        },
+        &native_project.path().join("vendor"),
+    )?;
+    assert_eq!(actual, expected);
+    artifacts(
+        workspace.pm_root(),
+        &oracle_project.path().join(".agents/pm"),
+    )?;
+    Ok(())
+}
+
+/// Parent traversal from a directory symlink selects the link relative to its target.
+#[cfg(unix)]
+#[test]
+fn artifact_cwd_traverses_the_symlink_target_parent() -> TestResult {
+    let Some(published) = published_cli::published_cli_or_skip("symlink parent artifact base")
+    else {
+        return Ok(());
+    };
+    let scratch = tempfile::tempdir()?;
+    let driver = write_driver(scratch.path(), &published)?;
+    let published = tempfile::tempdir()?;
+    let rust = tempfile::tempdir()?;
+    for project in [published.path(), rust.path()] {
+        fs::create_dir_all(project.join("vendor/deep"))?;
+        std::os::unix::fs::symlink("vendor/deep", project.join("link"))?;
+    }
+    seed_linked_files(&driver, published.path(), "vendor/source.rs")?;
+    copy_directory(
+        &published.path().join(".agents"),
+        &rust.path().join(".agents"),
+    )?;
+    // A process traversing the link enters a physical cwd, including on aliased temp roots.
+    let pm_root = published.path().canonicalize()?.join(".agents/pm");
+    let args = [
+        "files",
+        "sample-item",
+        "--remove",
+        "source.rs",
+        "--full-history",
+        "--author",
+        "alpha",
+        "--json",
+    ];
+    let expected = oracle(
+        &driver,
+        &published.path().join("link/.."),
+        &[
+            &["--pm-path", pm_root.to_str().ok_or("tracker path")?][..],
+            &args,
+        ]
+        .concat(),
+    )?;
+    let actual = native(
+        rust.path(),
+        &[&args[..], &["--artifact-cwd", "link/.."]].concat(),
+        true,
+    )?;
+    assert!(
+        expected.status.success(),
+        "{}",
+        String::from_utf8_lossy(&expected.stderr)
+    );
+    output(&expected, &actual, &args);
+    let receipt: Value = serde_json::from_slice(&actual.stdout)?;
+    assert_eq!(
+        receipt["files"],
+        json!([{"path":"source.rs","scope":"project"}])
+    );
+    artifacts(&pm_root, &rust.path().join(".agents/pm"))
+}
+
+/// Removing only a newly added test matches the selector without removing a stored row.
+#[test]
+fn linked_test_removal_counts_only_stored_rows() -> TestResult {
+    let Some(published) = published_cli::published_cli_or_skip("transient linked test removals")
+    else {
+        return Ok(());
+    };
+    let scratch = tempfile::tempdir()?;
+    let driver = write_driver(scratch.path(), &published)?;
+    let node = tempfile::tempdir()?;
+    let rust = tempfile::tempdir()?;
+    seed_linked_files(&driver, node.path(), "sub/source.rs")?;
+    copy_directory(&node.path().join(".agents"), &rust.path().join(".agents"))?;
+    let args = [
+        "test",
+        "sample-item",
+        "--add",
+        "command=cargo fmt",
+        "--remove-index",
+        "1",
+        "--author",
+        "alpha",
+        "--json",
+    ];
+    let expected = oracle(&driver, node.path(), &args)?;
+    assert!(
+        expected.status.success(),
+        "{}",
+        String::from_utf8_lossy(&expected.stderr)
+    );
+    let receipt: Value = serde_json::from_slice(&expected.stdout)?;
+    assert_eq!(receipt["changed"], false);
+    assert_eq!(receipt["removed"], 1);
+    assert_eq!(receipt["mutation_receipt"]["removed_count"], 0);
+    assert_eq!(receipt["tests"], json!([]));
+    let actual = native(rust.path(), &args, true)?;
+    output(&expected, &actual, &args);
+    artifacts(
+        &node.path().join(".agents/pm"),
+        &rust.path().join(".agents/pm"),
+    )
+}
+
+/// An external alias selects the same project-relative link in the native SDK and published CLI.
+#[cfg(unix)]
+#[test]
+fn sdk_removal_anchors_external_directory_aliases() -> TestResult {
+    let Some(published) = published_cli::published_cli_or_skip("external artifact aliases") else {
+        return Ok(());
+    };
+    let scratch = tempfile::tempdir()?;
+    let driver = write_driver(scratch.path(), &published)?;
+    let seed = scratch.path().join("seed");
+    fs::create_dir_all(seed.join("sub"))?;
+    for path in ["source.rs", "sub/source.rs"] {
+        fs::write(seed.join(path), "source fixture")?;
+    }
+    seed_linked_files(&driver, &seed, "sub/source.rs")?;
+    for (target, remaining) in [("", "sub/source.rs"), ("sub", "source.rs")] {
+        let oracle_project = tempfile::tempdir_in(scratch.path())?;
+        let native_project = tempfile::tempdir_in(scratch.path())?;
+        let aliases = tempfile::tempdir_in(scratch.path())?;
+        let oracle_alias = aliases.path().join("oracle");
+        let native_alias = aliases.path().join("native");
+        for (project, alias) in [
+            (oracle_project.path(), &oracle_alias),
+            (native_project.path(), &native_alias),
+        ] {
+            copy_directory(&seed, project)?;
+            std::os::unix::fs::symlink(project.join(target), alias)?;
+        }
+        let expected = oracle(
+            &driver,
+            &oracle_alias,
+            &[
+                "files",
+                "sample-item",
+                "--remove",
+                "source.rs",
+                "--full-history",
+                "--author",
+                "alpha",
+                "--json",
+            ],
+        )?;
+        assert!(
+            expected.status.success(),
+            "{}",
+            String::from_utf8_lossy(&expected.stderr)
+        );
+        let expected: Value = serde_json::from_slice(&expected.stdout)?;
+        assert_eq!(
+            expected["files"],
+            json!([{"path":remaining,"scope":"project"}])
+        );
+        assert_eq!(expected["mutation_receipt"]["removed_count"], 1);
+        let workspace = pm_rust::Workspace::discover(native_project.path())?;
+        let actual = workspace.collection(
+            "sample-item",
+            "files",
+            &pm_rust::CollectionOptions {
+                remove: vec!["source.rs".to_owned()],
+                full_history: true,
+                author: "alpha".to_owned(),
+                timestamp: Some(CLOCK.to_owned()),
+                ..Default::default()
+            },
+            &native_alias,
+        )?;
+        assert_eq!(
+            actual["files"], expected["files"],
+            "alias target {target:?}"
+        );
+        assert_eq!(actual, expected);
+        artifacts(
+            workspace.pm_root(),
+            &oracle_project.path().join(".agents/pm"),
+        )?;
+    }
+    Ok(())
+}
+
+/// Preserve the oracle wire comparison except for the known destructive expansion hint.
+/// Both renderings must round-trip exactly before projecting the native read command.
+fn scoped_collection_restore(
+    mut oracle: Output,
+    args: &[&str],
+) -> Result<Output, Box<dyn std::error::Error>> {
+    if !oracle.status.success() || !String::from_utf8_lossy(&oracle.stdout).contains("full_history")
+    {
+        return Ok(oracle);
+    }
+    let json_output = args.contains(&"--json");
+    let mut receipt: Value = if json_output {
+        serde_json::from_slice(&oracle.stdout)?
+    } else {
+        pm_rust::parse_toon(std::str::from_utf8(&oracle.stdout)?)?
+    };
+    let pointer = "/omission_receipt/omitted_field_groups/0/restore_with";
+    if receipt.pointer(pointer).is_none() {
+        return Ok(oracle);
+    }
+    let render = |receipt: &Value| -> Result<Vec<u8>, Box<dyn std::error::Error>> {
+        Ok(if json_output {
+            format!("{}\n", pm_rust::stringify_json(receipt, true)).into_bytes()
+        } else {
+            pm_rust::stringify_toon(&receipt.clone().into())?.into_bytes()
+        })
+    };
+    assert_eq!(render(&receipt)?, oracle.stdout);
+    let hint = receipt.pointer_mut(pointer).ok_or("restore hint")?;
+    assert_eq!(
+        *hint,
+        json!({"selector":"full_history","cli_flag":"--full-history","sdk_option":"fullHistory","mcp_option":"full"})
+    );
+    *hint = json!(pm_rust::render_pm_command([
+        "--pm-path",
+        ".agents/pm",
+        args[0],
+        args[1]
+    ]));
+    receipt["omission_receipt"]["omitted_field_groups"][0]["restore_guidance"] =
+        json!("Run this command from the original invocation directory.");
+    oracle.stdout = render(&receipt)?;
+    Ok(oracle)
+}
+
 /// Builds a real tracker and verifies each collection branch with exact durable artifacts.
 #[test]
 #[allow(clippy::too_many_lines)]
@@ -198,6 +671,18 @@ fn collection_commands_match_oracle() -> TestResult {
             vec!["files", "sample-item", "--add", "src/a.rs"],
             vec!["files", "sample-item", "--add", "9:artifact.rs"],
             vec!["files", "sample-item", "--add", "path=src/a.rs,note=new"],
+            vec!["files", "sample-item", "--add", "path=src/z.rs,note=last"],
+            vec![
+                "files",
+                "sample-item",
+                "--add",
+                "path=src/z.rs,note=new",
+                "--note-conflict",
+                "REPLACE",
+                "--add",
+                "path=src/z.rs,note=new",
+                "--full-history",
+            ],
             vec![
                 "files",
                 "sample-item",
@@ -317,6 +802,14 @@ fn collection_commands_match_oracle() -> TestResult {
             vec!["files", "sample-item", "--add", "x", "--remove", "./x"],
             vec!["test", "sample-item", "--remove", "wrong=x"],
             vec!["test", "sample-item", "--add", "path=tests/a.rs"],
+            vec![
+                "test",
+                "sample-item",
+                "--add",
+                "command=cargo fmt",
+                "--note-conflict",
+                "append",
+            ],
         ]
         .into_iter()
         .rev()
@@ -339,7 +832,9 @@ fn collection_commands_match_oracle() -> TestResult {
                 &snapshot.path().join(".agents"),
                 &tracker.path().join(".agents"),
             )?;
-            let actual = native(tracker.path(), &args, true)?;
+            // Native --timestamp has no published counterpart. Do not inject it into refusal retries.
+            let actual = native(tracker.path(), &args, expected.status.success())?;
+            let expected = scoped_collection_restore(expected, &args)?;
             let comparison = std::panic::catch_unwind(|| {
                 output(&expected, &actual, &args);
                 artifacts(
@@ -361,6 +856,490 @@ fn collection_commands_match_oracle() -> TestResult {
         }
     }
     assert_eq!(mismatches, 0, "collection scenarios with byte differences");
+    Ok(())
+}
+
+/// Both CLIs reject unsafe note edits before modifying any linked artifacts.
+#[test]
+#[allow(
+    clippy::too_many_lines,
+    reason = "Each case includes the complete CLI arguments"
+)]
+fn linked_note_recovery_matches_published_semantics() -> TestResult {
+    let Some(published) = published_cli::published_cli_or_skip("linked artifact note recovery")
+    else {
+        return Ok(());
+    };
+    let scratch = tempfile::tempdir()?;
+    let driver = write_driver(scratch.path(), &published)?;
+    let tracker = tempfile::tempdir()?;
+    let rust = tempfile::tempdir()?;
+    let snapshot = tempfile::tempdir()?;
+    for args in [
+        vec!["init", "sample-", "--defaults"],
+        vec![
+            "create",
+            "--id",
+            "sample-item",
+            "--title",
+            "Notes",
+            "--type",
+            "Task",
+            "--author",
+            "alpha",
+        ],
+    ] {
+        let result = oracle(&driver, tracker.path(), &args)?;
+        assert!(
+            result.status.success(),
+            "{}",
+            String::from_utf8_lossy(&result.stderr)
+        );
+    }
+    for target in [rust.path(), snapshot.path()] {
+        copy_directory(&tracker.path().join(".agents"), &target.join(".agents"))?;
+    }
+    let cases = [
+        (
+            vec![
+                "files",
+                "sample-item",
+                "--add",
+                "example.rs",
+                "--note-conflict",
+                "broken",
+            ],
+            "invalid_argument_value",
+            2,
+            0,
+        ),
+        (
+            vec![
+                "files",
+                "sample-item",
+                "--remove",
+                "example.rs",
+                "--note-conflict",
+                "append",
+            ],
+            "missing_required_argument",
+            2,
+            0,
+        ),
+    ];
+    for (command, path, extra) in [
+        ("docs", "guide.md", vec![]),
+        ("files", "source.rs", vec!["--append-stable"]),
+    ] {
+        let first = format!("path={path},note=first");
+        let second = format!("path={path},note=second");
+        let third = format!("path={path},note=third");
+        let mut args = vec![
+            command,
+            "sample-item",
+            "--add",
+            &first,
+            "--add",
+            &second,
+            "--add",
+            &third,
+            "--remove",
+            "unrelated.md",
+            "--note",
+            "-draft",
+            "--force",
+            "--full-history",
+        ];
+        if command == "docs" {
+            args.push("--message=-draft");
+        } else {
+            args.extend(["--message", "Link rationale"]);
+        }
+        args.extend(extra);
+        assert_note_refusal(
+            &driver,
+            tracker.path(),
+            rust.path(),
+            &args,
+            "linked_artifact_note_conflict",
+            4,
+            2,
+        )?;
+    }
+    for (args, code, exit, conflicts) in cases {
+        assert_note_refusal(
+            &driver,
+            tracker.path(),
+            rust.path(),
+            &args,
+            code,
+            exit,
+            conflicts,
+        )?;
+    }
+    for target in [tracker.path(), rust.path()] {
+        artifacts(
+            &snapshot.path().join(".agents/pm"),
+            &target.join(".agents/pm"),
+        )?;
+    }
+    Ok(())
+}
+
+/// A declared output flag cannot stand in for a note, while literal hyphen text can.
+#[test]
+fn collection_note_value_boundaries_match_oracle() -> TestResult {
+    let Some(published) = published_cli::published_cli_or_skip("collection note value boundaries")
+    else {
+        return Ok(());
+    };
+    let scratch = tempfile::tempdir()?;
+    let driver = write_driver(scratch.path(), &published)?;
+    let published = tempfile::tempdir()?;
+    let rust = tempfile::tempdir()?;
+    let snapshot = tempfile::tempdir()?;
+    for args in [
+        &["init", "sample-", "--defaults"][..],
+        &[
+            "create",
+            "--id",
+            "sample-item",
+            "--title",
+            "Notes",
+            "--type",
+            "Task",
+            "--author",
+            "alpha",
+        ],
+    ] {
+        let result = oracle(&driver, published.path(), args)?;
+        assert!(
+            result.status.success(),
+            "{}",
+            String::from_utf8_lossy(&result.stderr)
+        );
+    }
+    for target in [rust.path(), snapshot.path()] {
+        copy_directory(&published.path().join(".agents"), &target.join(".agents"))?;
+    }
+    let args = [
+        "files",
+        "sample-item",
+        "--add",
+        "refused.rs",
+        "--author=alpha",
+        "--note",
+        "--json",
+    ];
+    let expected = oracle(&driver, published.path(), &args)?;
+    let actual = native(rust.path(), &args, false)?;
+    assert_eq!(expected.status.code(), Some(2));
+    assert_eq!(actual.status.code(), expected.status.code());
+    assert!(expected.stdout.is_empty() && actual.stdout.is_empty());
+    let refusal: Value = serde_json::from_slice(&expected.stderr)?;
+    assert_eq!(refusal["code"], "invalid_command_usage");
+    assert!(String::from_utf8_lossy(&actual.stderr).contains("--note"));
+    for target in [published.path(), rust.path()] {
+        artifacts(
+            &snapshot.path().join(".agents/pm"),
+            &target.join(".agents/pm"),
+        )?;
+    }
+
+    for (file, flags, note) in [
+        ("draft.rs", &["--note", "-draft"][..], "-draft"),
+        (
+            "short-message.rs",
+            &["--note", "-mreviewed"][..],
+            "-mreviewed",
+        ),
+        ("short-literal.rs", &["--note=-mreviewed"][..], "-mreviewed"),
+        (
+            "unknown.rs",
+            &["--note", "--unknown-note"][..],
+            "--unknown-note",
+        ),
+        ("attached.rs", &["--note=--json"][..], "--json"),
+    ] {
+        let mut args = vec!["files", "sample-item", "--add", file, "--author=alpha"];
+        args.extend(flags);
+        args.extend(["--full-history", "--json"]);
+        let expected = oracle(&driver, published.path(), &args)?;
+        let actual = native(rust.path(), &args, true)?;
+        assert!(
+            expected.status.success(),
+            "{}",
+            String::from_utf8_lossy(&expected.stderr)
+        );
+        output(&expected, &actual, &args);
+        let receipt: Value = serde_json::from_slice(&actual.stdout)?;
+        let linked = receipt["files"].as_array().ok_or("linked files")?;
+        assert!(
+            linked
+                .iter()
+                .any(|row| row["path"] == file && row["note"] == note)
+        );
+    }
+    artifacts(
+        &published.path().join(".agents/pm"),
+        &rust.path().join(".agents/pm"),
+    )
+}
+
+/// Explicit and implicit note repair scope follows the published CLI's invocation.
+#[test]
+fn linked_note_retry_scope_matches_published_cli() -> TestResult {
+    let Some(published) = published_cli::published_cli_or_skip("linked note retry scope") else {
+        return Ok(());
+    };
+    let scratch = tempfile::tempdir()?;
+    let driver = write_driver(scratch.path(), &published)?;
+    let cwd = scratch.path().join("default");
+    let selected = scratch.path().join("selected");
+    fs::create_dir(&cwd)?;
+    fs::create_dir(&selected)?;
+    for args in [
+        vec!["init", "sample-", "--defaults"],
+        vec![
+            "create",
+            "--id",
+            "sample-item",
+            "--title",
+            "Notes",
+            "--type",
+            "Task",
+            "--author",
+            "alpha",
+        ],
+        vec![
+            "files",
+            "sample-item",
+            "--add",
+            "path=example.rs,note=first",
+            "--author",
+            "alpha",
+        ],
+    ] {
+        let result = oracle(&driver, &cwd, &args)?;
+        assert!(
+            result.status.success(),
+            "{}",
+            String::from_utf8_lossy(&result.stderr)
+        );
+    }
+    copy_directory(&cwd.join(".agents"), &selected.join(".agents"))?;
+    for scope in [&[][..], &["--pm-path", "../selected/.agents/pm"][..]] {
+        let mut args = scope.to_vec();
+        args.extend([
+            "files",
+            "sample-item",
+            "--add",
+            "path=example.rs,note=second",
+            "--author",
+            "alpha",
+            "--json",
+        ]);
+        let expected = oracle(&driver, &cwd, &args)?;
+        let actual = native(&cwd, &args, false)?;
+        assert_eq!(expected.status.code(), Some(4));
+        output(&expected, &actual, &args);
+        let refusal: Value = serde_json::from_slice(&expected.stderr)?;
+        let retry = refusal["recovery"]["suggested_retry_args"]
+            .as_array()
+            .ok_or("retry")?;
+        assert_eq!(
+            retry[..scope.len()],
+            scope.iter().map(|arg| json!(arg)).collect::<Vec<_>>()
+        );
+        assert_eq!(retry[scope.len()], "files");
+    }
+    assert_native_only_note_flags(&driver, &cwd)?;
+    // The published CLI strips structured retry fields for credential-bearing
+    // notes and still displays redacted commands in its diagnostic next steps.
+    let args = [
+        "files",
+        "sample-item",
+        "--add",
+        "path=example.rs,note=https://fixture:synthetic-secret@example.invalid",
+        "--author",
+        "alpha",
+        "--json",
+    ];
+    let expected = oracle(&driver, &cwd, &args)?;
+    let actual = native(&cwd, &args, false)?;
+    assert_eq!(expected.status.code(), Some(4));
+    output(&expected, &actual, &args);
+    let refusal: Value = serde_json::from_slice(&expected.stderr)?;
+    assert!(refusal["recovery"].get("suggested_retry_args").is_none());
+    assert!(refusal["recovery"].get("suggested_retry").is_none());
+    assert_eq!(refusal["next_steps"][0], pm_rust::refusal::RESTORE);
+    assert!(
+        refusal["next_steps"][1]
+            .to_string()
+            .contains("[redacted]@example.invalid")
+    );
+    Ok(())
+}
+
+/// A native default repair with a flag-looking note runs on the published executable.
+#[test]
+fn default_note_retry_replays_hyphen_notes_on_published_cli() -> TestResult {
+    let Some(published) = published_cli::published_cli_or_skip("default hyphen note retry") else {
+        return Ok(());
+    };
+    let scratch = tempfile::tempdir()?;
+    let driver = write_driver(scratch.path(), &published)?;
+    let project = tempfile::tempdir()?;
+    for args in [
+        vec!["init", "sample-", "--defaults"],
+        vec![
+            "create",
+            "--id",
+            "sample-item",
+            "--title",
+            "Notes",
+            "--type",
+            "Task",
+            "--author",
+            "alpha",
+        ],
+        vec![
+            "files",
+            "sample-item",
+            "--add",
+            "path=example.rs,note=first",
+            "--add",
+            "unrelated.md",
+            "--author",
+            "alpha",
+        ],
+    ] {
+        let result = oracle(&driver, project.path(), &args)?;
+        assert!(
+            result.status.success(),
+            "{}",
+            String::from_utf8_lossy(&result.stderr)
+        );
+    }
+    let args = [
+        "files",
+        "sample-item",
+        "--add",
+        "example.rs",
+        "--remove",
+        "unrelated.md",
+        "--note=--json",
+        "--author",
+        "alpha",
+        "--full-history",
+        "--json",
+    ];
+    let refused = native(project.path(), &args, false)?;
+    assert_eq!(refused.status.code(), Some(4));
+    let receipt: Value = serde_json::from_slice(&refused.stderr)?;
+    assert_eq!(receipt["code"], "linked_artifact_note_conflict");
+    let mut retry = receipt["recovery"]["suggested_retry_args"]
+        .as_array()
+        .ok_or("retry arguments")?
+        .iter()
+        .map(|arg| arg.as_str().ok_or("retry token"))
+        .collect::<Result<Vec<_>, _>>()?;
+    assert_eq!(
+        retry,
+        [
+            "files",
+            "sample-item",
+            "--add",
+            "example.rs",
+            "--remove",
+            "unrelated.md",
+            "--note=--json",
+            "--note-conflict",
+            "append",
+            "--full-history",
+            "--author",
+            "alpha"
+        ]
+    );
+    retry.push("--json");
+    let applied = oracle(&driver, project.path(), &retry)?;
+    assert!(
+        applied.status.success(),
+        "{}",
+        String::from_utf8_lossy(&applied.stderr)
+    );
+    let listed: Value = serde_json::from_slice(&applied.stdout)?;
+    assert_eq!(listed["mutation_receipt"]["removed_count"], 1);
+    assert_eq!(
+        listed["files"],
+        json!([{"path":"example.rs","scope":"project","note":"first; --json"}])
+    );
+    Ok(())
+}
+
+/// Confirms which native recovery options the published executable refuses.
+fn assert_native_only_note_flags(driver: &Path, cwd: &Path) -> TestResult {
+    for (command, flags) in [
+        ("files", &["--artifact-cwd", "."][..]),
+        ("files", &["--timestamp", CLOCK][..]),
+        ("docs", &["--append-stable"][..]),
+    ] {
+        let args = [&[command, "sample-item"][..], flags, &["--json"]].concat();
+        let native_only = oracle(driver, cwd, &args)?;
+        assert_eq!(native_only.status.code(), Some(2));
+        let refusal: Value = serde_json::from_slice(&native_only.stderr)?;
+        assert_eq!(refusal["code"], "unknown_option");
+        assert_eq!(refusal["flag"], flags[0]);
+    }
+    Ok(())
+}
+
+/// Compares the refusal contract and conflict rows independently of each CLI's rendered guidance.
+fn assert_note_refusal(
+    driver: &Path,
+    published: &Path,
+    rust: &Path,
+    args: &[&str],
+    code: &str,
+    exit: i32,
+    conflicts: usize,
+) -> TestResult {
+    let mut args = args.to_vec();
+    args.extend(["--author", "alpha", "--json"]);
+    let expected = oracle(driver, published, &args)?;
+    let hyphen_message = args.contains(&"--message=-draft");
+    // A clock override advertises native-only replay guidance.
+    let actual = native(rust, &args, !hyphen_message)?;
+    let conflict_rows =
+        [expected, actual].map(|output| -> Result<Value, Box<dyn std::error::Error>> {
+            let stderr = String::from_utf8(output.stderr)?;
+            assert_eq!(output.status.code(), Some(exit), "{args:?}: {stderr}");
+            assert!(output.stdout.is_empty());
+            let receipt: serde_json::Value = serde_json::from_str(&stderr)?;
+            assert_eq!(receipt["code"], code, "{args:?}: {stderr}");
+            if hyphen_message {
+                let retry = receipt["recovery"]["suggested_retry_args"]
+                    .as_array()
+                    .ok_or("retry args")?;
+                assert!(
+                    retry.windows(2).any(|pair| pair == ["--message", "-draft"]),
+                    "{retry:?}"
+                );
+            }
+            Ok(receipt["details"]["conflicts"].clone())
+        });
+    let [expected, actual] = conflict_rows;
+    let expected = expected?;
+    assert_eq!(actual?, expected, "{args:?}: conflict rows");
+    if conflicts > 0 {
+        let rows = expected.as_array().ok_or("conflict rows")?;
+        assert_eq!(rows.len(), conflicts);
+        for (row, requested) in rows.iter().zip(["second", "third"]) {
+            assert_eq!(row["existing_note"], "first");
+            assert_eq!(row["requested_note"], requested);
+            assert_eq!(row["source"], "this_write");
+        }
+    }
     Ok(())
 }
 
@@ -979,10 +1958,15 @@ fn collection_safety_refusals_match_oracle() -> TestResult {
                     .success()
                 );
             } else {
+                let lease_timestamp = if state == "stale" {
+                    "2000-01-01T00:00:00.000Z".to_owned()
+                } else {
+                    pm_rust::current_timestamp()
+                };
                 fs::write(
                     tracker.path().join(".agents/pm/locks/sample-item.lock"),
                     serde_json::to_string(
-                        &json!({"id":"sample-item","pid":1,"owner":"holder","created_at":if state=="stale" {"2000-01-01T00:00:00.000Z"} else {CLOCK},"ttl_seconds":1800,"token":"fixture"}),
+                        &json!({"id":"sample-item","pid":1,"owner":"holder","created_at":lease_timestamp,"ttl_seconds":1800,"token":"fixture"}),
                     )?,
                 )?;
             }

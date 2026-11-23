@@ -140,11 +140,7 @@ fn invalid_selection(detail: &str) -> PmRustError {
 
 /// Creates a published structured selection refusal.
 fn refusal(detail: &str, exit_code: u8, context: Value) -> PmRustError {
-    PmRustError::CommandRefusal {
-        detail: detail.to_owned(),
-        exit_code,
-        context,
-    }
+    crate::collections::refusal(detail, exit_code, context)
 }
 
 /// Returns a metadata extension string or an empty sentinel.

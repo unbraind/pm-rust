@@ -2,7 +2,7 @@ import { testTime } from './crash-test-depth.mts';
 import assert from 'node:assert/strict';
 import { spawnSync } from 'node:child_process';
 import { createHash } from 'node:crypto';
-import { chmodSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
+import { chmodSync, existsSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join, resolve } from 'node:path';
 import { test } from 'node:test';
@@ -85,6 +85,50 @@ for (const scenario of ['update', 'comment'] as const) {
       assert.ok(sameBytes(before, snapshot(source)));
     }));
 }
+
+test('session writer recovers after SIGKILL between publication cleanup drops',
+  { skip: process.platform !== 'linux' }, () => temporary(root => {
+    const native = { executable: resolve('target/debug/pm-rust'), args: [] };
+    const claim = ['claim', 'sample-one', '--author', 'alpha', '--json'];
+    const traceClaim = (workspace: string, injection: string[] = []) => execute({
+      executable: 'strace',
+      args: ['--kill-on-exit', '-qq', '-e', 'trace=rmdir,unlink,unlinkat', ...injection, '--', native.executable],
+    }, claim, workspace, 15000);
+    for (const name of ['reference', 'interrupted']) {
+      const workspace = join(root, name);
+      materialize(new Map([['.agents/pm/settings.json', Buffer.from('{}')]]), workspace);
+      const created = execute(native, ['create', '--id', 'sample-one', '--title', 'One', '--type', 'Task', '--author', 'alpha'], workspace, 15000);
+      assert.equal(created.status, 0, created.stderr.toString());
+    }
+
+    // Locate the second cleanup drop by path in a normal claim, regardless of their order.
+    const reference = traceClaim(join(root, 'reference'));
+    assert.equal(reference.status, 0, reference.stderr.toString());
+    const lines = reference.stderr.toString().split('\n');
+    const drops = lines.filter(line => line.includes('/locks/session-state.lock'));
+    assert.equal(drops.length, 3, reference.stderr.toString()); // Includes the acquisition gate.
+    const second = drops.at(-1);
+    assert.ok(second);
+    const syscall = second.split('(')[0];
+    const ordinal = lines.slice(0, lines.lastIndexOf(second) + 1).filter(line => line.startsWith(`${syscall}(`)).length;
+    const workspace = join(root, 'interrupted');
+    // Suppress the second removal so the successor sees the crash-time files.
+    const interrupted = traceClaim(workspace, ['-e', `inject=${syscall}:error=EINTR:signal=SIGKILL:when=${ordinal}`]);
+    assert.equal(interrupted.signal, 'SIGKILL', interrupted.stderr.toString());
+
+    const lock = join(workspace, '.agents/pm/locks/session-state.lock');
+    assert.equal(existsSync(`${lock}.stale-cleanup`), false, interrupted.stderr.toString());
+    assert.equal(existsSync(lock), true, interrupted.stderr.toString());
+    const session = join(workspace, '.agents/pm/runtime/session.json');
+    const claimed = JSON.parse(readFileSync(session, 'utf8'));
+    assert.deepEqual(Object.values(claimed.semantic_attribution).map(
+      entry => (entry as { active_item_ids: string[] }).active_item_ids), [['sample-one']]);
+    const release = execute(native, ['release', 'sample-one', '--author', 'alpha', '--json'], workspace, 15000);
+    assert.equal(release.status, 0, release.stderr.toString());
+    const receipt = JSON.parse(release.stdout.toString());
+    assert.equal(receipt.warnings, undefined, release.stdout.toString());
+    assert.deepEqual(JSON.parse(readFileSync(session, 'utf8')), {});
+  }));
 
 test('published history-open injection detects post-publication history loss despite exit-zero restart',
   { skip: process.platform !== 'linux', timeout: testTime(180000) }, () => temporary(root => {

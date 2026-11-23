@@ -1,11 +1,15 @@
 #[cfg(unix)]
 #[path = "advice_corpus.rs"]
 mod advice_corpus;
+use clap::Parser as _;
 use serde_json::Map;
+use std::collections::BTreeMap;
 use std::fs;
 use std::io;
 
-use pm_rust::{ItemDocument, ItemFilter, ItemMetadata, ListResult};
+use pm_rust::{
+    AuthorIdentity, ItemDocument, ItemFilter, ItemMetadata, ListResult, OwnershipItem, Workspace,
+};
 
 use super::{Cli, Command, run, write_json_to};
 
@@ -2097,13 +2101,15 @@ fn round5_historical_comment_receipt_preserves_scalar_rows()
 
 /// A real intervening claim contributes ownership fields to the two-step close receipt only once.
 #[test]
+#[allow(
+    clippy::too_many_lines,
+    reason = "one fixture checks the close receipt across release, an intervening claim, and reopen"
+)]
 fn round5_close_release_receipt_counts_an_intervening_claim()
 -> Result<(), Box<dyn std::error::Error>> {
-    use clap::Parser as _;
     let temp = tempfile::tempdir()?;
     let root = temp.path().join(".agents/pm");
-    fs::create_dir_all(root.join("tasks"))?;
-    fs::create_dir(root.join("history"))?;
+    fs::create_dir_all(&root)?;
     fs::write(root.join("settings.json"), "{}")?;
     run(Cli::try_parse_from([
         "pm-rust",
@@ -2143,8 +2149,17 @@ fn round5_close_release_receipt_counts_an_intervening_claim()
         if_available: false,
         provenance_role: None,
     };
-    let release = workspace.release(&request)?;
+    let close_release = OwnershipItem {
+        timestamp: Some(closed.item.metadata.updated_at.clone()),
+        ..request.clone()
+    };
+    let identity = || AuthorIdentity::resolve(Some(&request.author), None, &BTreeMap::new());
+    let release = super::release_after_close(&workspace, &close_release, identity())?;
     assert_eq!(release.changed_field_count, 0);
+    assert_eq!(
+        release.item.metadata.updated_at,
+        closed.item.metadata.updated_at
+    );
     assert_eq!(
         super::close_release_changed_field_count(
             &closed.close_changed_fields,
@@ -2153,8 +2168,12 @@ fn round5_close_release_receipt_counts_an_intervening_claim()
         4
     );
     workspace.claim(&request)?;
-    let release = workspace.release(&request)?;
+    let release = super::release_after_close(&workspace, &close_release, identity())?;
     assert_eq!(release.changed_field_count, 2);
+    assert_eq!(
+        Some(&release.item.metadata.updated_at),
+        request.timestamp.as_ref()
+    );
     assert_eq!(
         super::close_release_changed_field_count(
             &closed.close_changed_fields,
@@ -2162,12 +2181,419 @@ fn round5_close_release_receipt_counts_an_intervening_claim()
         ),
         6
     );
+    let mut foreign = request.clone();
+    "beta".clone_into(&mut foreign.author);
+    workspace.claim(&foreign)?;
+    fs::write(
+        root.join("settings.json"),
+        r#"{"governance":{"preset":"strict"}}"#,
+    )?;
+    let path = root.join("history/sample-one.jsonl");
+    let before = (workspace.get("sample-one")?, fs::read(&path)?);
+    let error = super::release_after_close(
+        &workspace,
+        &pm_rust::OwnershipItem {
+            force: false,
+            ..request.clone()
+        },
+        AuthorIdentity::resolve(Some(&request.author), None, &BTreeMap::new()),
+    )
+    .err()
+    .ok_or("foreign assignment was released")?;
+    let pm_rust::PmRustError::CommandRefusal { context, .. } = error else {
+        return Err(format!("unexpected release error: {error}").into());
+    };
+    assert_eq!(context["item_id"], "sample-one");
+    assert!(
+        context["why"]
+            .as_str()
+            .is_some_and(|why| why.contains("close completed"))
+    );
+    assert_eq!(before.0.metadata.status, "closed");
+    assert_eq!((workspace.get("sample-one")?, fs::read(&path)?), before);
+    assert_reopened_close_receipt(&workspace, &foreign, &closed)?;
     let mut duplicate_fields = closed.close_changed_fields;
     duplicate_fields.extend(["assignee".to_owned(), "claim_principal".to_owned()]);
     assert_eq!(
         super::close_release_changed_field_count(&duplicate_fields, release.changed_field_count),
         6
     );
+    Ok(())
+}
+
+/// Closing is safe to retry only while the close step has not committed.
+#[test]
+#[allow(
+    clippy::too_many_lines,
+    reason = "one fixture follows the close boundary through release-only recovery"
+)]
+fn close_lock_retry_tracks_the_failed_step() -> Result<(), Box<dyn std::error::Error>> {
+    let temp = tempfile::tempdir()?;
+    let root = temp.path().join(".agents/pm");
+    let locks = root.join("locks");
+    fs::create_dir_all(&locks)?;
+    fs::write(root.join("settings.json"), r#"{"locks":{"wait_ms":0}}"#)?;
+    let workspace = Workspace::discover(temp.path())?;
+    workspace.create(serde_json::from_value(serde_json::json!({
+        "id":"sample-one","title":"Close contention","type":"Task","author":"alpha"
+    }))?)?;
+    let close: pm_rust::CloseItem = serde_json::from_value(serde_json::json!({
+        "id":"sample-one","reason":"Done","author":"alpha"
+    }))?;
+    let request: OwnershipItem = serde_json::from_value(serde_json::json!({
+        "id":"sample-one","author":"alpha","force":false,"if_available":false
+    }))?;
+    workspace.claim(&request)?;
+    let identity = AuthorIdentity::resolve(Some("alpha"), None, &BTreeMap::new());
+    let args = [
+        "close",
+        "sample-one",
+        "Done",
+        "--release-assignment",
+        "--json",
+    ]
+    .map(str::to_owned);
+    let path = locks.join("sample-one.lock");
+    let raw = serde_json::json!({"id":"sample-one","pid":1,"owner":"fixture","created_at":pm_rust::current_timestamp(),"ttl_seconds":1800}).to_string();
+    fs::write(&path, &raw)?;
+    let precommit_error = workspace
+        .close(close.clone())
+        .err()
+        .ok_or("blocked close")?;
+    assert!(matches!(
+        precommit_error,
+        pm_rust::PmRustError::LockConflict { .. }
+    ));
+    let before_commit = super::ownership_error_json(
+        &precommit_error.to_string(),
+        &serde_json::json!({"code":"lock_conflict"}),
+        &args,
+    );
+    assert_eq!(
+        before_commit["recovery"]["suggested_retry_args"],
+        serde_json::json!(args)
+    );
+    fs::remove_file(&path)?;
+    let closed = workspace.close(close)?.item;
+    assert_eq!(closed.metadata.status, "closed");
+    assert!(!closed.metadata.extra.contains_key("assignee"));
+    // Simulate an assignment made between the close and release steps.
+    workspace.claim(&OwnershipItem {
+        force: true,
+        ..request.clone()
+    })?;
+    let history = root.join("history/sample-one.jsonl");
+    let committed = fs::read(&history)?;
+    fs::write(&path, &raw)?;
+    let error = super::release_after_close(&workspace, &request, identity)
+        .err()
+        .ok_or("the release should have encountered contention")?;
+    let pm_rust::PmRustError::CommandRefusal {
+        detail,
+        exit_code,
+        context,
+    } = error
+    else {
+        return Err(format!("unexpected release error: {error}").into());
+    };
+    let after_commit = super::command_error_json(&detail, &context, &args, exit_code);
+    assert_eq!(after_commit["code"], "lock_conflict");
+    assert_eq!(after_commit["exit_code"], 4);
+    assert_eq!(
+        after_commit["recovery"]["attempted_command"],
+        before_commit["recovery"]["attempted_command"]
+    );
+    assert_eq!(after_commit["recovery"]["retry_after_ms"], 250);
+    let recovery = after_commit["recovery"].as_object().ok_or("recovery")?;
+    for key in ["suggested_retry_args", "suggested_retry"] {
+        assert!(!recovery.contains_key(key));
+    }
+    assert_eq!(
+        after_commit["examples"],
+        serde_json::json!(["pm release --help"])
+    );
+    assert!(
+        after_commit["required"]
+            .to_string()
+            .contains("retry the release step")
+    );
+    let required = after_commit["required"]
+        .as_str()
+        .ok_or("release guidance")?;
+    assert!(required.contains("verify current ownership"));
+    assert!(required.contains("If the original assignment is gone or has changed, stop."));
+    assert!(after_commit["why"].to_string().contains("close completed"));
+    let scoped_args = ["--pm-path", ".agents/pm"]
+        .map(str::to_owned)
+        .into_iter()
+        .chain(args)
+        .collect::<Vec<_>>();
+    let scoped = super::complete_refusal(&after_commit, &scoped_args);
+    assert_eq!(scoped["examples"], after_commit["examples"]);
+    assert_eq!(
+        scoped["recovery"]["normalized_args"],
+        serde_json::json!(scoped_args)
+    );
+    assert!(scoped["recovery"].get("suggested_retry").is_none());
+    assert_eq!(fs::read_to_string(&path)?, raw);
+
+    assert_close_stale_release_recovery(&workspace, &request, &path, &raw, &scoped_args)?;
+    assert_eq!(fs::read(&history)?, committed);
+    assert_eq!(
+        workspace.get("sample-one")?.metadata.extra["assignee"],
+        "alpha"
+    );
+    fs::remove_file(path)?;
+    let released = workspace.release(&request)?;
+    assert_eq!(released.item.metadata.status, "closed");
+    assert!(!released.item.metadata.extra.contains_key("assignee"));
+    let after = fs::read_to_string(history)?;
+    let release = after
+        .as_bytes()
+        .strip_prefix(committed.as_slice())
+        .ok_or("unchanged history prefix")?;
+    let entries = std::str::from_utf8(release)?.lines().collect::<Vec<_>>();
+    assert_eq!(entries.len(), 1);
+    let entry: serde_json::Value = serde_json::from_str(entries[0])?;
+    assert_eq!(entry["op"], "release");
+    Ok(())
+}
+
+/// A typed fence conflict uses the release-only CLI envelope after close commits.
+#[test]
+fn close_release_fence_conflict_preserves_cli_recovery() -> Result<(), Box<dyn std::error::Error>> {
+    let error = pm_rust::completed_step_failure(
+        pm_rust::PmRustError::LockConflict {
+            id: "sample-one".to_owned(),
+        },
+        "sample-one",
+        "close",
+    );
+    let pm_rust::PmRustError::CommandRefusal {
+        detail,
+        context,
+        exit_code,
+    } = error
+    else {
+        return Err("expected a partial release refusal".into());
+    };
+    assert_eq!(context["completed_step"], "close");
+    let args = [
+        "close",
+        "sample-one",
+        "Done",
+        "--release-assignment",
+        "--json",
+    ]
+    .map(str::to_owned);
+    let receipt = super::command_error_json(&detail, &context, &args, exit_code);
+    assert_eq!(receipt["code"], "lock_conflict");
+    assert_eq!(receipt["exit_code"], 4);
+    assert!(
+        receipt["why"]
+            .as_str()
+            .ok_or("completed step")?
+            .contains("close completed")
+    );
+    assert_eq!(receipt["recovery"]["retry_after_ms"], 250);
+    assert!(receipt["recovery"].get("suggested_retry_args").is_none());
+    assert_eq!(
+        receipt["examples"],
+        serde_json::json!(["pm release --help"])
+    );
+    assert!(
+        receipt["required"]
+            .as_str()
+            .ok_or("release guidance")?
+            .contains("retry the release step")
+    );
+    Ok(())
+}
+
+/// Release contention after a completed pause update leaves no full-command retry.
+#[test]
+fn pause_release_fence_conflict_suppresses_forced_pause_replay()
+-> Result<(), Box<dyn std::error::Error>> {
+    let lock = pm_rust::PmRustError::LockConflict {
+        id: "sample-one".to_owned(),
+    };
+    let pm_rust::PmRustError::CommandRefusal {
+        detail,
+        context,
+        exit_code,
+    } = pm_rust::completed_step_failure(lock, "sample-one", "update")
+    else {
+        return Err("expected a partial release refusal".into());
+    };
+    assert_eq!(context["completed_step"], "update");
+    let args = ["release", "sample-one", "--pause", "--force", "--json"].map(str::to_owned);
+    let receipt = super::command_error_json(&detail, &context, &args, exit_code);
+    assert_eq!(receipt["code"], "lock_conflict");
+    assert_eq!(receipt["recovery"]["completed_step"], "update");
+    assert_eq!(receipt["recovery"]["retry_after_ms"], 250);
+    assert!(receipt["recovery"].get("suggested_retry_args").is_none());
+    assert!(receipt["recovery"].get("suggested_retry").is_none());
+    assert_eq!(
+        receipt["examples"],
+        serde_json::json!(["pm release --help"])
+    );
+    assert!(receipt["required"].as_str().is_some_and(|required| {
+        required.contains("verify current ownership before retrying only release")
+            && required.contains("If the original assignment is gone or has changed, stop.")
+    }));
+
+    let before_update = super::command_error_json(
+        &detail,
+        &serde_json::json!({"code":"lock_conflict"}),
+        &args,
+        exit_code,
+    );
+    assert_eq!(
+        before_update["recovery"]["suggested_retry_args"],
+        serde_json::json!(args)
+    );
+
+    let stale = pm_rust::PmRustError::OwnershipRefusal {
+        detail: "Expired lease".to_owned(),
+        context: serde_json::json!({
+            "code":"stale_lock_requires_override",
+            "next_steps":["pm gc --scope locks", "Remove the expired lease, then retry the same command."]
+        }),
+    };
+    let pm_rust::PmRustError::CommandRefusal {
+        detail,
+        context,
+        exit_code,
+    } = pm_rust::completed_step_failure(stale, "sample-one", "update")
+    else {
+        return Err("expected partial stale-lock refusal".into());
+    };
+    let receipt = super::command_error_json(&detail, &context, &args, exit_code);
+    assert_eq!(receipt["code"], "stale_lock_requires_override");
+    assert_eq!(context["completed_step"], "update");
+    assert!(receipt["recovery"].get("suggested_retry_args").is_none());
+    assert!(receipt["recovery"].get("suggested_retry").is_none());
+    let guidance = receipt["required"].as_str().ok_or("ownership guidance")?;
+    assert!(guidance.contains("verify current ownership before retrying only release"));
+    assert!(guidance.contains("If the original assignment is gone or has changed, stop."));
+    let steps = receipt["next_steps"].as_array().ok_or("cleanup steps")?;
+    assert!(steps.contains(&serde_json::json!("pm gc --scope locks")));
+    assert!(steps.contains(&serde_json::json!(guidance)));
+    assert!(!steps.iter().any(|step| {
+        step.as_str()
+            .unwrap_or_default()
+            .contains("retry the same command")
+    }));
+    Ok(())
+}
+
+/// A forced start is retryable only while its claim has yet to commit.
+#[test]
+fn start_fence_conflict_suppresses_forced_claim_replay() -> Result<(), Box<dyn std::error::Error>> {
+    let lock = pm_rust::PmRustError::LockConflict {
+        id: "sample-one".to_owned(),
+    };
+    let pm_rust::PmRustError::CommandRefusal {
+        detail,
+        context,
+        exit_code,
+    } = pm_rust::completed_step_failure(lock, "sample-one", "claim")
+    else {
+        return Err("expected a partial start refusal".into());
+    };
+    assert_eq!(context["completed_step"], "claim");
+    let args = ["start-task", "sample-one", "--force", "--json"].map(str::to_owned);
+    let receipt = super::command_error_json(&detail, &context, &args, exit_code);
+    assert_eq!(receipt["code"], "lock_conflict");
+    assert_eq!(receipt["recovery"]["completed_step"], "claim");
+    assert_eq!(receipt["recovery"]["retry_after_ms"], 250);
+    assert!(receipt["recovery"].get("suggested_retry_args").is_none());
+    assert!(receipt["recovery"].get("suggested_retry").is_none());
+    assert_eq!(receipt["examples"], serde_json::json!(["pm update --help"]));
+    assert!(receipt["required"].as_str().is_some_and(|required| {
+        required.contains("verify that the original claim still holds")
+            && required.contains("only the status transition")
+    }));
+    let before_claim = super::command_error_json(
+        &detail,
+        &serde_json::json!({"code":"lock_conflict"}),
+        &args,
+        exit_code,
+    );
+    assert_eq!(
+        before_claim["recovery"]["suggested_retry_args"],
+        serde_json::json!(args)
+    );
+    Ok(())
+}
+
+/// Stale-lock cleanup after close stays scoped and leads only to the release step.
+fn assert_close_stale_release_recovery(
+    workspace: &Workspace,
+    request: &OwnershipItem,
+    path: &std::path::Path,
+    raw: &str,
+    scoped_args: &[String],
+) -> Result<(), Box<dyn std::error::Error>> {
+    for created in ["2000-01-01T00:00:00.000Z", "unknown"] {
+        let mut expired: serde_json::Value = serde_json::from_str(raw)?;
+        expired["created_at"] = serde_json::json!(created);
+        fs::write(path, expired.to_string())?;
+        let identity = AuthorIdentity::resolve(Some("alpha"), None, &BTreeMap::new());
+        let Some(pm_rust::PmRustError::CommandRefusal {
+            detail,
+            exit_code,
+            context,
+        }) = super::release_after_close(workspace, request, identity).err()
+        else {
+            return Err("expected a stale-lock release refusal after close".into());
+        };
+        assert_eq!(context["code"], "stale_lock_requires_override");
+        assert_eq!(context["completed_step"], "close");
+        let payload = super::command_error_json(&detail, &context, scoped_args, exit_code);
+        let payload = super::complete_refusal(&payload, scoped_args);
+        let steps = payload["next_steps"].to_string();
+        assert!(steps.contains("retrying only release"), "{payload}");
+        assert!(steps.contains("verify current ownership"), "{payload}");
+        assert!(
+            steps.contains("If the original assignment is gone or has changed, stop."),
+            "{payload}"
+        );
+        assert!(!steps.contains("retry the same command"), "{payload}");
+        if created == "unknown" {
+            assert!(
+                steps.contains("once its owner is confirmed gone"),
+                "{payload}"
+            );
+        } else {
+            assert!(
+                steps.contains("pm --pm-path .agents/pm gc --scope locks"),
+                "{payload}"
+            );
+        }
+        assert!(payload["recovery"].get("suggested_retry_args").is_none());
+    }
+    Ok(())
+}
+
+/// Reopening between close and release preserves the earlier snapshot in the nested receipt.
+fn assert_reopened_close_receipt(
+    workspace: &pm_rust::Workspace,
+    foreign: &pm_rust::OwnershipItem,
+    closed: &pm_rust::MutationResult,
+) -> Result<(), Box<dyn std::error::Error>> {
+    workspace.update(serde_json::from_value(serde_json::json!({
+        "id":"sample-one", "status":"open", "author":"beta"
+    }))?)?;
+    let reopened = workspace.release(foreign)?;
+    let composed = super::close_release_receipt(
+        &closed.close_changed_fields,
+        closed.close_receipt.as_ref().ok_or("close receipt")?,
+        &reopened,
+    );
+    assert_eq!(composed["status"], "open");
+    assert_eq!(composed["release"]["status"], "open");
+    assert_eq!(composed["close"]["status"], "closed");
     Ok(())
 }
 
@@ -2509,13 +2935,59 @@ fn round12_hyphen_value_delimiter() {
     let args: Vec<String> = ["context", "--limit", "--", "--json"]
         .map(str::to_owned)
         .to_vec();
-    let parsed = crate::invocation::Invocation::parse(&args);
+    let parsed = crate::Invocation::parse(&args);
     assert_eq!(parsed.options[0].value, Some("--"));
     assert!(super::json_requested(&args));
     let positional: Vec<String> = ["close", "sample-one", "--", "--json"]
         .map(str::to_owned)
         .to_vec();
     assert!(!super::json_requested(&positional));
+}
+
+/// Note operands preserve output controls and recognized flags in the original invocation.
+#[test]
+fn collection_note_argv_boundaries() {
+    for next in [
+        "--",
+        "--output-format",
+        "--json",
+        "--pm-path",
+        "--author=fixture",
+        "-m",
+    ] {
+        let args = ["files", "sample-one", "--note", next].map(str::to_owned);
+        let detail = super::Invocation::parse(&args);
+        assert_eq!(detail.options[0].name, "note");
+        assert_eq!(detail.options[0].value, None, "{next}");
+        let native = ["pm-rust", "files", "sample-one", "--note", next]
+            .map(std::ffi::OsString::from)
+            .to_vec();
+        assert_eq!(super::native_arguments(native.clone()), native);
+    }
+    let plain = ["pm-rust", "files", "sample-one", "--note", "plain"]
+        .map(std::ffi::OsString::from)
+        .to_vec();
+    assert_eq!(super::native_arguments(plain.clone()), plain);
+    for next in ["-draft", "--unknown-note", "-"] {
+        let args = ["files", "sample-one", "--note", next, "--json"].map(str::to_owned);
+        let detail = super::Invocation::parse(&args);
+        assert_eq!(detail.options[0].value, Some(next));
+        assert!(super::json_requested(&args));
+        let native = std::iter::once("pm-rust".into())
+            .chain(args.into_iter().map(std::ffi::OsString::from))
+            .collect();
+        assert_eq!(
+            super::native_arguments(native),
+            [
+                "pm-rust",
+                "files",
+                "sample-one",
+                &format!("--note={next}"),
+                "--json"
+            ]
+            .map(std::ffi::OsString::from)
+        );
+    }
 }
 
 /// Refusal output uses the effective final format, with aliases and values kept separate.
@@ -2626,4 +3098,92 @@ fn round19_unclosed_recovery_advice_is_not_executable() {
         valid,
         Some("pm --pm-path selected get sample-one".to_owned())
     );
+}
+
+/// Admission handles both explicit spellings and projects a rejected environment identity safely.
+#[test]
+fn identity_refusal_keeps_explicit_and_environment_sources_distinct()
+-> Result<(), Box<dyn std::error::Error>> {
+    let identity = "https://fixture:synthetic-secret@example.invalid";
+    let directory = tempfile::tempdir()?;
+    let root = directory.path().join(".agents/pm");
+    fs::create_dir_all(&root)?;
+    fs::write(root.join("settings.json"), "{}")?;
+    let workspace = pm_rust::Workspace::discover(directory.path())?;
+    let ownership = super::ownership_request(
+        &workspace,
+        super::OwnershipArgs {
+            id: Some("sample-one".to_owned()),
+            author: Some(identity.to_owned()),
+            timestamp: None,
+            message: None,
+            force: false,
+            json: true,
+        },
+        false,
+    );
+    let collection = super::run_collection_with_cwd(
+        &workspace,
+        "files",
+        super::CollectionArgs {
+            id: "sample-one".to_owned(),
+            author: Some(identity.to_owned()),
+            add: vec!["example.rs".into()],
+            ..super::CollectionArgs::default()
+        },
+        Ok(directory.path().to_owned()),
+    );
+    for error in [ownership.err(), collection.err()] {
+        let error = error.ok_or("expected credential refusal")?;
+        assert!(matches!(
+            error.downcast_ref::<pm_rust::PmRustError>(),
+            Some(pm_rust::PmRustError::IdentityCredentials {
+                identity_source: "--author"
+            })
+        ));
+        assert!(!error.to_string().contains("synthetic-secret"));
+    }
+    assert_eq!(fs::read_dir(&root)?.count(), 1);
+    for (source, arguments) in [
+        (
+            "--author",
+            vec![
+                "claim".to_owned(),
+                "sample-one".to_owned(),
+                format!("--author={identity}"),
+                "--json".to_owned(),
+            ],
+        ),
+        (
+            "PM_AUTHOR",
+            vec![
+                "claim".to_owned(),
+                "sample-one".to_owned(),
+                "--json".to_owned(),
+            ],
+        ),
+    ] {
+        let mut output = Vec::new();
+        super::write_identity_refusal(
+            &mut output,
+            source,
+            "Identity contains URL credentials",
+            &arguments,
+        )?;
+        let receipt: serde_json::Value = serde_json::from_slice(&output)?;
+        assert_eq!(
+            receipt["flag"].as_str(),
+            (source == "--author").then_some(source)
+        );
+        assert_eq!(
+            receipt["refusal"]["surface"],
+            if source == "--author" {
+                source
+            } else {
+                "claim"
+            }
+        );
+        assert!(!String::from_utf8(output)?.contains("synthetic-secret"));
+    }
+    Ok(())
 }
