@@ -288,32 +288,20 @@ fn resolve_artifact_cwd_with_override(
     // `std::path::absolute` collapses `file\..` prefixes lexically on
     // non-verbatim Windows paths, which would skip the directory validation
     // the traversal loop applies to every parent component. Those components
-    // are retained here for the loop to traverse after the head is made
+    // are split off here for the loop to traverse after the head is made
     // absolute. Verbatim paths and other platforms preserve them already.
     #[cfg(windows)]
-    let retained = split_at_first_parent(path);
-    #[cfg(not(windows))]
-    let retained: Option<(PathBuf, PathBuf)> = None;
-    let absolute = {
-        let head = match retained.as_ref() {
-            Some((head, _)) => head.as_path(),
-            None => path,
-        };
-        std::path::absolute(head).map_err(|source| PmRustError::Io {
-            path: path.to_path_buf(),
-            source,
-        })?
+    let (absolute, parents): (PathBuf, Option<PathBuf>) = match split_at_first_parent(path) {
+        Some((head, tail)) => (absolute_artifact_path(path, &head)?, Some(tail)),
+        None => (absolute_artifact_path(path, path)?, None),
     };
+    #[cfg(not(windows))]
+    let (absolute, parents): (PathBuf, Option<PathBuf>) =
+        (absolute_artifact_path(path, path)?, None);
     let mut normalized = PathBuf::new();
     for component in absolute
         .components()
-        .chain(
-            retained
-                .as_ref()
-                .map(|(_, tail)| tail.as_path())
-                .into_iter()
-                .flat_map(Path::components),
-        )
+        .chain(parents.as_deref().into_iter().flat_map(Path::components))
         .chain(suffix.into_iter().flat_map(Path::components))
     {
         if component == Component::ParentDir {
@@ -356,6 +344,14 @@ fn resolve_artifact_cwd_with_override(
         }
     }
     Ok(normalized)
+}
+
+/// Makes one artifact-cwd base absolute, reporting failures against the full path.
+fn absolute_artifact_path(path: &Path, head: &Path) -> Result<PathBuf, PmRustError> {
+    std::path::absolute(head).map_err(|source| PmRustError::Io {
+        path: path.to_path_buf(),
+        source,
+    })
 }
 
 /// Splits a non-verbatim Windows path at the first parent component that follows

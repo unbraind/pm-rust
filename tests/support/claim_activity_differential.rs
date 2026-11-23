@@ -140,6 +140,7 @@ fn end_of_day_timestamp_checks_zero_time_and_calendar() {
         "2026-08-0éT00:00Z",
         "2026-08-06X24:00:00Z",
         "2026-08-06T24:00:00+01x0",
+        "2026-08-06T10:00:00+0x",
         "2026-08-06 24:01:00Z",
         "2026-08-06T24:01:00Z",
         "2026-08-06T24:00:01Z",
@@ -163,6 +164,21 @@ fn end_of_day_timestamp_checks_zero_time_and_calendar() {
     for value in ["2026-08-06T24:00Z", "2026-08-06T24:00:00.000Z"] {
         assert_eq!(super::parse_stored_timestamp(value), utc_end, "{value}");
     }
+    // The published Date parser expands a bare two-digit offset to ±HH:00, so
+    // `10:00:00+05` resolves to the same instant as `10:00:00+05:00`.
+    let plus_five = super::parse_stored_timestamp("2026-08-06 10:00:00+05:00");
+    assert!(plus_five.is_some());
+    for value in [
+        "2026-08-06 10:00:00+0500",
+        "2026-08-06 10:00:00+05",
+        "2026-08-06 10:00:00.000+05",
+    ] {
+        assert_eq!(super::parse_stored_timestamp(value), plus_five, "{value}");
+    }
+    assert_eq!(
+        super::parse_stored_timestamp("2026-08-06 10:00:00-05"),
+        super::parse_stored_timestamp("2026-08-06 10:00:00-05:00")
+    );
 }
 
 /// Stored activity accepts the Date range and normalizes the date before the clock.
