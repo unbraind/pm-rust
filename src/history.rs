@@ -494,23 +494,47 @@ fn json_index(key: &str) -> u32 {
 /// Computes the published SHA-256 digest of a reanchored patch.
 pub(crate) fn hash_history_patch(patch: &Value) -> String {
     let mut output = String::new();
-    encode_stable_json(patch, &mut output, |left, right| {
-        json_index(left)
-            .cmp(&json_index(right))
-            .then_with(|| left.encode_utf16().cmp(right.encode_utf16()))
-    });
+    encode_stable_json(
+        patch,
+        &mut output,
+        NumberEncoding::JavaScript,
+        |left, right| {
+            json_index(left)
+                .cmp(&json_index(right))
+                .then_with(|| left.encode_utf16().cmp(right.encode_utf16()))
+        },
+    );
     sha256_digest(output.as_bytes())
 }
 
-/// Appends recursively key-sorted compact JSON for stable hashing.
+/// Number encoding used in canonical history hashes.
+#[derive(Clone, Copy)]
+pub(crate) enum NumberEncoding {
+    /// Published JavaScript number semantics.
+    JavaScript,
+    /// Integer digits retained by earlier native writers.
+    ExactIntegers,
+}
+
+/// Appends recursively key-sorted compact JSON for new history hashes.
 pub(crate) fn stable_json(value: &Value, output: &mut String) {
-    encode_stable_json(value, output, str::cmp);
+    stable_json_with_numbers(value, output, NumberEncoding::JavaScript);
+}
+
+/// Appends canonical history JSON using the selected number encoding.
+pub(crate) fn stable_json_with_numbers(
+    value: &Value,
+    output: &mut String,
+    numbers: NumberEncoding,
+) {
+    encode_stable_json(value, output, numbers, str::cmp);
 }
 
 /// Uses the selected key order while sharing the scalar and array encoding.
 fn encode_stable_json(
     value: &Value,
     output: &mut String,
+    numbers: NumberEncoding,
     key_order: fn(&str, &str) -> std::cmp::Ordering,
 ) {
     match value {
@@ -520,7 +544,7 @@ fn encode_stable_json(
                 if index > 0 {
                     output.push(',');
                 }
-                encode_stable_json(entry, output, key_order);
+                encode_stable_json(entry, output, numbers, key_order);
             }
             output.push(']');
         }
@@ -535,11 +559,17 @@ fn encode_stable_json(
                 let encoded = serde_json::to_string(key).unwrap_or_default();
                 output.push_str(&encoded);
                 output.push(':');
-                encode_stable_json(&entries[key], output, key_order);
+                encode_stable_json(&entries[key], output, numbers, key_order);
             }
             output.push('}');
         }
-        Value::Number(number) => output.push_str(&javascript_number(number)),
+        Value::Number(number) => {
+            let encoded = match numbers {
+                NumberEncoding::ExactIntegers if !number.is_f64() => number.to_string(),
+                _ => javascript_number(number),
+            };
+            output.push_str(&encoded);
+        }
         scalar => {
             let encoded = serde_json::to_string(scalar).unwrap_or_default();
             output.push_str(&encoded);

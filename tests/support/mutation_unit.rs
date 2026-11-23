@@ -4805,27 +4805,24 @@ fn closure_session_lock_shape_diagnostics() -> Result<(), Box<dyn std::error::Er
         ),
         PmRustError::LockConflict { .. }
     ));
-    // A present but unreadable receipt keeps the published invalid-json
-    // classification; only a missing file counts as gate contention.
-    #[cfg(unix)]
-    {
-        use std::os::unix::fs::PermissionsExt as _;
-        fs::write(&path, "unreadable receipt")?;
-        let mode = fs::metadata(&path)?.permissions();
-        fs::set_permissions(&path, std::fs::Permissions::from_mode(0o000))?;
-        assert!(matches!(
-            session_lock_refusal(
-                &pm_root,
-                PmRustError::LockConflict {
-                    id: "session-state".to_owned()
-                },
-                TS,
-                1800
-            ),
-            PmRustError::CommandRefusal { detail, .. } if detail.contains("lock_info_invalid_json")
-        ));
-        fs::set_permissions(&path, mode)?;
-    }
+    // A read error on a present receipt goes through the stale-lock refusal.
+    // Only a missing receipt counts as gate contention.
+    fs::create_dir(&path)?;
+    let read_error = fs::read_to_string(&path)
+        .err()
+        .ok_or("a directory must fail to read as a receipt")?;
+    assert_ne!(read_error.kind(), std::io::ErrorKind::NotFound);
+    assert!(matches!(
+        session_lock_refusal(
+            &pm_root,
+            PmRustError::LockConflict {
+                id: "session-state".to_owned()
+            },
+            TS,
+            1800
+        ),
+        PmRustError::CommandRefusal { detail, .. } if detail.contains("lock_info_invalid_json")
+    ));
     let io = fs::read_to_string(pm_root.join("missing-file"))
         .err()
         .ok_or("missing I/O failure")?;

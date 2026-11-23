@@ -1,0 +1,16 @@
+id: pm-rust-session-receipt-read-warning
+title: Match the published diagnostic for unreadable session lock receipts
+description: "With a directory at locks/session-state.lock, pm-cli 2026.11.18 readLockInfo reports lock_info_read_failed and acquireLockLease refuses with stale_lock_requires_override. Native session_lock_refusal returns stale-lock advice annotated lock_info_invalid_json. Preserve separate malformed, unreadable, and missing-receipt behavior when aligning the diagnostic."
+type: Issue
+status: open
+priority: 3
+tags[3]: follow-up,locking,oracle
+created_at: "2026-11-23T10:54:36.069Z"
+updated_at: "2026-11-23T11:01:49.709Z"
+author: codex-sol
+acceptance_criteria: Compare the native and pinned published warning when reading an existing receipt fails. Keep malformed JSON and missing-receipt contention covered.
+parent: pm-rust-oracle-1118
+files[2]{path,scope}:
+  src/mutation.rs,project
+  tests/support/mutation_unit.rs,project
+body: ""

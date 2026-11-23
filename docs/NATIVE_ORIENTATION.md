@@ -71,6 +71,9 @@ without the strict flag, a failed verification is a successful read containing
 `verification.ok: false`. Tests cover changed immutable authors, broken hashes,
 malformed patches, empty streams and current-state drift. History is never
 repaired, re-anchored, truncated or rewritten by these commands.
+Native verification accepts the exact-integer SHA-256 digests written by earlier
+native versions. New records use the published number encoding. A single native
+verification can replay records using both encodings.
 Replay applies the oracle's prototype-path prohibition to both destinations and
 copy/move sources, including `constructor/prototype`. A sealed-record regression
 failed against the preceding verifier and passes with the matching guard.

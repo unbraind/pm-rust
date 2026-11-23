@@ -1768,9 +1768,12 @@ fn sdk_non_verbatim_parent_refuses_file_prefix_before_removal() -> TestResult {
     std::fs::create_dir_all(project.join("sub"))?;
     let directory_parent = format!(r"{}\sub\..", non_verbatim);
     workspace.collection("sample-one", "files", &remove, Path::new(&directory_parent))?;
-    assert_eq!(
-        workspace.get("sample-one")?.metadata.extra["files"],
-        json!([])
+    assert!(
+        !workspace
+            .get("sample-one")?
+            .metadata
+            .extra
+            .contains_key("files")
     );
     Ok(())
 }

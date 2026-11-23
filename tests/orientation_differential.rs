@@ -1194,17 +1194,21 @@ fn seal_record(mut record: Value) -> Result<Value, Box<dyn std::error::Error>> {
         .ok_or("history record must be an object")?
         .shift_remove("record_hash");
     record["record_hash_version"] = json!(1);
-    let mut canonical = record.clone();
+    record["record_hash"] = json!(sorted_json_digest(&record)?);
+    Ok(record)
+}
+
+/// Hashes a fixture independently, retaining every integer digit in its JSON.
+fn sorted_json_digest(value: &Value) -> Result<String, serde_json::Error> {
+    let mut canonical = value.clone();
     canonical.sort_all_objects();
-    let digest = sha2::Sha256::digest(serde_json::to_vec(&canonical)?)
+    Ok(sha2::Sha256::digest(serde_json::to_vec(&canonical)?)
         .iter()
         .fold(String::new(), |mut output, byte| {
             use std::fmt::Write;
             let _ = write!(output, "{byte:02x}");
             output
-        });
-    record["record_hash"] = json!(digest);
-    Ok(record)
+        }))
 }
 /// Serializes complete JSONL fixtures without changing any existing tracker stream.
 fn json_lines(records: &[Value]) -> String {
@@ -1871,6 +1875,190 @@ fn history_matches_oracle() -> TestResult {
             &args,
         );
     }
+    Ok(())
+}
+
+/// Writes a native-shaped genesis with independently calculated exact-integer hashes.
+fn large_integer_genesis(
+    root: &Path,
+    history_path: &str,
+    number: i64,
+) -> Result<Value, Box<dyn std::error::Error>> {
+    let mut document = item("sample-a", "Task", "open", 1);
+    document["large_number"] = json!({"nested": [number, -number, 0.25]});
+    fixture(root, std::slice::from_ref(&document))?;
+    document
+        .as_object_mut()
+        .ok_or("item object")?
+        .shift_remove("body");
+    let metadata = serde_json::from_value(document.clone())?;
+    let patch: Vec<_> = pm_rust::canonical_metadata_pairs(&metadata)
+        .into_iter()
+        .map(|(key, value)| json!({"op":"add","path":format!("/metadata/{key}"),"value":value}))
+        .collect();
+    let row = seal_record(json!({
+        "hash_algorithm":"sha256","ts":CLOCK,"author":"fixture","author_source":"asserted",
+        "op":"create","event_class":"substantive","item_hash_version":3,"message":"",
+        "patch":patch,
+        "before_hash":sorted_json_digest(&json!({"front_matter":{},"body":""}))?,
+        "after_hash":sorted_json_digest(&json!({"front_matter":document,"body":""}))?,
+    }))?;
+    fs::write(
+        root.join(history_path),
+        json_lines(std::slice::from_ref(&row)),
+    )?;
+    Ok(row)
+}
+
+/// Confirms both unsigned native epochs and the implicit SHA-256 record envelope.
+fn verify_earlier_integer_envelopes(
+    root: &Path,
+    history_path: &str,
+    verify: &[&str],
+    record: &Value,
+) -> TestResult {
+    let mut implicit_sha256 = record.clone();
+    implicit_sha256
+        .as_object_mut()
+        .ok_or("history object")?
+        .shift_remove("hash_algorithm");
+    let implicit_sha256 = seal_record(implicit_sha256)?;
+    let mut unsigned = implicit_sha256.clone();
+    let unsigned_fields = unsigned.as_object_mut().ok_or("history object")?;
+    for key in ["record_hash_version", "record_hash", "event_class"] {
+        unsigned_fields.shift_remove(key);
+    }
+    let mut unsigned_v2 = unsigned.clone();
+    unsigned_v2["item_hash_version"] = json!(2);
+    for historical in [implicit_sha256, unsigned, unsigned_v2] {
+        fs::write(root.join(history_path), json_lines(&[historical]))?;
+        let verified = native(root, verify)?;
+        assert!(
+            verified.status.success(),
+            "{}",
+            String::from_utf8_lossy(&verified.stdout)
+        );
+    }
+    Ok(())
+}
+
+/// Checks that strict verification identifies the rejected record envelope.
+fn assert_record_hash_refusal(output: &Output, entry: usize) -> TestResult {
+    assert_eq!(output.status.code(), Some(1));
+    assert_eq!(
+        serde_json::from_slice::<Value>(&output.stdout)?["verification"]["errors"][0],
+        format!("verify_failed:record_hash_mismatch:entry_{entry}")
+    );
+    Ok(())
+}
+
+/// Legacy native digests survive a new edit, and new digests match published 2026.11.18.
+#[test]
+fn history_verifies_legacy_native_integers_and_appends_oracle_hashes() -> TestResult {
+    let Some(published) = published_cli::published_cli_or_skip("history integer epochs") else {
+        return Ok(());
+    };
+    let scratch = tempfile::tempdir()?;
+    let driver = orientation_driver(scratch.path(), &published)?;
+    let native_root = tempfile::tempdir()?;
+    let published_root = tempfile::tempdir()?;
+    let item_path = ".agents/pm/tasks/sample-a.toon";
+    let history_path = ".agents/pm/history/sample-a.jsonl";
+    let legacy_root = native_root.path();
+    for root in [legacy_root, published_root.path()] {
+        assert!(
+            oracle(&driver, root, &["init", "sample-", "--defaults"])?
+                .status
+                .success()
+        );
+    }
+    let old_record = large_integer_genesis(legacy_root, history_path, 9_007_199_254_740_993)?;
+    large_integer_genesis(published_root.path(), history_path, 9_007_199_254_740_992)?;
+    let verify = ["history", "sample-a", "--verify", "--strict-exit", "--json"];
+    let old_item = fs::read(legacy_root.join(item_path))?;
+    let old_history = fs::read(legacy_root.join(history_path))?;
+    assert_record_hash_refusal(&oracle(&driver, legacy_root, &verify)?, 1)?;
+    let legacy = native(legacy_root, &verify)?;
+    assert!(
+        legacy.status.success(),
+        "{}",
+        String::from_utf8_lossy(&legacy.stdout)
+    );
+    let legacy_verified = &serde_json::from_slice::<Value>(&legacy.stdout)?["verification"];
+    assert_eq!(
+        legacy_verified["current_item_hash"],
+        old_record["after_hash"]
+    );
+    assert_eq!(fs::read(legacy_root.join(item_path))?, old_item);
+    assert_eq!(fs::read(legacy_root.join(history_path))?, old_history);
+
+    verify_earlier_integer_envelopes(legacy_root, history_path, &verify, &old_record)?;
+
+    let mut tampered = old_record;
+    let change = tampered["patch"]
+        .as_array_mut()
+        .and_then(|patch| {
+            patch
+                .iter_mut()
+                .find(|row| row["path"] == "/metadata/large_number")
+        })
+        .ok_or("large-number patch")?;
+    change["value"]["nested"][0] = json!(9_007_199_254_740_992_u64);
+    fs::write(legacy_root.join(history_path), json_lines(&[tampered]))?;
+    assert_record_hash_refusal(&native(legacy_root, &verify)?, 1)?;
+    fs::write(legacy_root.join(history_path), &old_history)?;
+
+    let update = [
+        "update", "sample-a", "--title", "Edited", "--author", "fixture",
+    ];
+    let edited_oracle = oracle(&driver, published_root.path(), &update)?;
+    assert!(
+        edited_oracle.status.success(),
+        "{}",
+        String::from_utf8_lossy(&edited_oracle.stderr)
+    );
+    let mut native_update = update.to_vec();
+    native_update.extend(["--timestamp", CLOCK]);
+    let edited_native = native(legacy_root, &native_update)?;
+    assert!(
+        edited_native.status.success(),
+        "{}",
+        String::from_utf8_lossy(&edited_native.stderr)
+    );
+
+    let new_history = fs::read_to_string(legacy_root.join(history_path))?;
+    assert!(new_history.as_bytes().starts_with(&old_history));
+    let rows: Vec<Value> = new_history
+        .lines()
+        .map(serde_json::from_str)
+        .collect::<Result<_, _>>()?;
+    let published_history = fs::read_to_string(published_root.path().join(history_path))?;
+    let published_new: Value =
+        serde_json::from_str(published_history.lines().last().ok_or("published update")?)?;
+    for key in ["before_hash", "after_hash", "record_hash"] {
+        assert_eq!(
+            rows[1][key], published_new[key],
+            "{key} for native and published update"
+        );
+    }
+    assert_ne!(rows[1]["before_hash"], rows[0]["after_hash"]);
+    let mixed = native(legacy_root, &verify)?;
+    assert!(
+        mixed.status.success(),
+        "{}",
+        String::from_utf8_lossy(&mixed.stdout)
+    );
+    let verified_oracle = oracle(&driver, published_root.path(), &verify)?;
+    assert!(
+        verified_oracle.status.success(),
+        "{}",
+        String::from_utf8_lossy(&verified_oracle.stdout)
+    );
+
+    let mut tampered = rows;
+    tampered[1]["author"] = json!("changed");
+    fs::write(legacy_root.join(history_path), json_lines(&tampered))?;
+    assert_record_hash_refusal(&native(legacy_root, &verify)?, 2)?;
     Ok(())
 }
 

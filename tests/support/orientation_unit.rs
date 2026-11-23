@@ -104,7 +104,11 @@ fn record_envelopes_and_replay_hashes() {
         let mut entry = genesis();
         entry["hash_algorithm"] = json!(algorithm);
         entry["record_hash_version"] = json!(1);
-        entry["record_hash"] = json!(history_digest(&entry, algorithm));
+        entry["record_hash"] = json!(history_digest(
+            &entry,
+            algorithm,
+            NumberEncoding::JavaScript
+        ));
         assert_eq!(record_error(&entry), None);
         entry["author"] = json!("modified");
         assert_eq!(record_error(&entry), Some("record_hash_mismatch"));
@@ -232,21 +236,33 @@ fn verification_failures_and_epochs() -> Result<(), Box<dyn std::error::Error>> 
             record["hash_algorithm"] = json!(algorithm);
             let before = json!({"metadata":{},"body":""});
             let after = json!({"metadata":entry["patch"][0]["value"],"body":""});
-            record["before_hash"] = json!(replay_hash(&before, epoch, false, algorithm));
-            record["after_hash"] = json!(replay_hash(&after, epoch, false, algorithm));
+            record["before_hash"] = json!(replay_hash(
+                &before,
+                epoch,
+                false,
+                algorithm,
+                NumberEncoding::JavaScript
+            ));
+            record["after_hash"] = json!(replay_hash(
+                &after,
+                epoch,
+                false,
+                algorithm,
+                NumberEncoding::JavaScript
+            ));
             assert_eq!(verify_records(&[record], Some(&current))["ok"], true);
         }
     }
     let invalid = json!({"metadata":{"not":"an item"},"body":""});
-    assert!(!replay_hash(&invalid, 3, false, "sha256").is_empty());
+    assert!(!replay_hash(&invalid, 3, false, "sha256", NumberEncoding::JavaScript).is_empty());
     let legacy = json!({"metadata":{"id":"sample-one","title":"One","type":"Task","status":"open","priority":1,"tags":[],"created_at":"now","updated_at":"now","dependencies":[{"id":"UPPER","kind":"related"}],"tests":[{"command":"z","workspace_context_mode":"isolated","provenance":{}},{"command":"a"}],"test_runs":[{"executions":[]}]},"body":""});
     assert_ne!(
-        replay_hash(&legacy, 1, false, "sha256"),
-        replay_hash(&legacy, 3, false, "sha256")
+        replay_hash(&legacy, 1, false, "sha256", NumberEncoding::JavaScript),
+        replay_hash(&legacy, 3, false, "sha256", NumberEncoding::JavaScript)
     );
     assert_ne!(
-        replay_hash(&legacy, 1, false, "sha256"),
-        replay_hash(&legacy, 2, true, "sha256")
+        replay_hash(&legacy, 1, false, "sha256", NumberEncoding::JavaScript),
+        replay_hash(&legacy, 2, true, "sha256", NumberEncoding::JavaScript)
     );
     Ok(())
 }
@@ -592,13 +608,15 @@ fn legacy_epoch_two_current_state() -> Result<(), Box<dyn std::error::Error>> {
         &json!({"metadata":{},"body":""}),
         2,
         true,
-        "sha256"
+        "sha256",
+        NumberEncoding::JavaScript,
     ));
     entry["after_hash"] = json!(replay_hash(
         &json!({"metadata":metadata,"body":""}),
         2,
         true,
-        "sha256"
+        "sha256",
+        NumberEncoding::JavaScript,
     ));
     assert_eq!(verify_records(&[entry], Some(&current))["ok"], true);
     Ok(())
@@ -685,7 +703,11 @@ fn retained_proof_hash_algorithms() {
         let mut original = genesis();
         original["hash_algorithm"] = json!(algorithm);
         original["record_hash_version"] = json!(1);
-        original["record_hash"] = json!(history_digest(&original, algorithm));
+        original["record_hash"] = json!(history_digest(
+            &original,
+            algorithm,
+            NumberEncoding::JavaScript
+        ));
         let proof = json!({"before_hash":original["before_hash"],"after_hash":original["after_hash"],"item_hash_version":3,"patch_hash":digest(&original["patch"]),"record_hash_version":1,"record_hash":original["record_hash"],"hash_algorithm":algorithm,"record":original});
         let mut rewritten = original;
         rewritten["reanchor_evidence"] = json!([proof]);
@@ -702,8 +724,8 @@ fn legacy_optional_row_shapes() {
     metadata["test_runs"] = json!([42]);
     let document = json!({"metadata":metadata,"body":""});
     assert_eq!(
-        replay_hash(&document, 1, false, "sha256"),
-        replay_hash(&document, 3, false, "sha256")
+        replay_hash(&document, 1, false, "sha256", NumberEncoding::JavaScript),
+        replay_hash(&document, 3, false, "sha256", NumberEncoding::JavaScript)
     );
     let original = genesis();
     let proof = json!({"before_hash":original["before_hash"],"after_hash":original["after_hash"],"patch_hash":digest(&original["patch"]),"record":original,"hash_algorithm":"sha512"});
