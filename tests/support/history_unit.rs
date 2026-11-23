@@ -351,9 +351,7 @@ fn floats_hash_the_way_json_stringify_renders_them() {
         };
         assert_eq!(javascript_number(number), expected, "rendering {value}");
     }
-    // Safe-range integers keep their stored digits and must not take the float
-    // path.
-    // path. Integers outside the JavaScript safe range exist in the published
+    // Safe-range integers keep their stored digits. Larger integers exist in the published
     // CLI only as the rounded double JSON.parse produced, so the two runtimes
     // must render them identically or reanchor digests diverge.
     for (value, expected) in [

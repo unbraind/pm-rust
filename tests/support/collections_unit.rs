@@ -1742,6 +1742,9 @@ fn sdk_non_verbatim_parent_refuses_file_prefix_before_removal() -> TestResult {
         ..Default::default()
     };
     workspace.collection("sample-one", "files", &options, &project)?;
+    let item = workspace.pm_root().join("tasks/sample-one.toon");
+    let history = workspace.pm_root().join("history/sample-one.jsonl");
+    let before = (std::fs::read(&item)?, std::fs::read(&history)?);
     let remove = CollectionOptions {
         add: vec![],
         remove: vec!["source.rs".into()],
@@ -1759,10 +1762,7 @@ fn sdk_non_verbatim_parent_refuses_file_prefix_before_removal() -> TestResult {
         workspace.collection("sample-one", "files", &remove, Path::new(&file_parent)),
         Err(PmRustError::CommandRefusal { exit_code: 2, .. })
     ));
-    assert_eq!(
-        workspace.get("sample-one")?.metadata.extra["files"][0]["path"],
-        "source.rs"
-    );
+    assert_eq!((std::fs::read(&item)?, std::fs::read(&history)?), before);
     // A traversal that never leaves the project still removes the project link
     // when every retained parent component resolves to a directory.
     std::fs::create_dir_all(project.join("sub"))?;

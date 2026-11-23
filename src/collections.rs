@@ -365,7 +365,7 @@ fn absolute_artifact_path(path: &Path, head: &Path) -> Result<PathBuf, PmRustErr
 #[cfg(windows)]
 fn split_at_first_parent(path: &Path) -> Option<(PathBuf, PathBuf)> {
     let prefix = match path.components().next()? {
-        Component::Prefix(prefix) if !prefix.is_verbatim() => prefix,
+        Component::Prefix(prefix) if !prefix.kind().is_verbatim() => prefix,
         _ => return None,
     };
     let mut head = PathBuf::from(prefix.as_os_str());

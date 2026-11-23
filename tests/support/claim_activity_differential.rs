@@ -823,6 +823,18 @@ fn stored_claim_edge_cases_match_published() -> TestResult {
             false,
         ),
         (
+            "iso-bare-offset-clock",
+            vec![record("claim", "2026-08-06T10:00:00+05", assignee(HOLDER))],
+            None,
+            false,
+        ),
+        (
+            "lowercase-iso-bare-offset-clock",
+            vec![record("claim", "2026-08-06t10:00:00-05", assignee(HOLDER))],
+            None,
+            false,
+        ),
+        (
             "abbreviated-year-clock",
             vec![record("claim", "2026T00:00:00Z", assignee(HOLDER))],
             Some("2026T00:00:00Z"),
