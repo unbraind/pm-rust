@@ -1729,7 +1729,51 @@ fn sdk_verbatim_parent_refuses_file_prefix_before_removal() -> TestResult {
     Ok(())
 }
 
-/// A verbatim Windows path traverses a directory link before removing its parent component.
+/// A non-verbatim Windows parent component cannot conceal a file and redirect a removal.
+#[cfg(windows)]
+#[test]
+fn sdk_non_verbatim_parent_refuses_file_prefix_before_removal() -> TestResult {
+    let (directory, workspace) = tracker()?;
+    let project = directory.path().canonicalize()?;
+    std::fs::write(project.join("base.txt"), "regular file")?;
+    let options = CollectionOptions {
+        author: "fixture".into(),
+        add: vec!["source.rs".into()],
+        ..Default::default()
+    };
+    workspace.collection("sample-one", "files", &options, &project)?;
+    let remove = CollectionOptions {
+        add: vec![],
+        remove: vec!["source.rs".into()],
+        ..options
+    };
+    // `std::path::absolute` collapses `base.txt\..` on this spelling, so the
+    // resolver must keep the parent component to validate `base.txt` itself.
+    let non_verbatim = project
+        .as_os_str()
+        .to_string_lossy()
+        .trim_start_matches(r"\\?\")
+        .to_string();
+    let file_parent = format!(r"{}\base.txt\..", non_verbatim);
+    assert!(matches!(
+        workspace.collection("sample-one", "files", &remove, Path::new(&file_parent)),
+        Err(PmRustError::CommandRefusal { exit_code: 2, .. })
+    ));
+    assert_eq!(
+        workspace.get("sample-one")?.metadata.extra["files"][0]["path"],
+        "source.rs"
+    );
+    // A traversal that never leaves the project still removes the project link
+    // when every retained parent component resolves to a directory.
+    std::fs::create_dir_all(project.join("sub"))?;
+    let directory_parent = format!(r"{}\sub\..", non_verbatim);
+    workspace.collection("sample-one", "files", &remove, Path::new(&directory_parent))?;
+    assert_eq!(
+        workspace.get("sample-one")?.metadata.extra["files"],
+        json!([])
+    );
+    Ok(())
+}
 #[cfg(windows)]
 #[test]
 fn sdk_verbatim_directory_link_parent_removes_the_target_parent_link() -> TestResult {

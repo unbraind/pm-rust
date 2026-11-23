@@ -233,6 +233,10 @@ fn progress_fallback(definitions: &BTreeMap<String, (Value, f64)>, open: &str) -
 }
 
 /// Selects the first definition with the requested role, or the first definition overall.
+#[allow(
+    clippy::float_cmp,
+    reason = "the published registry compares order numbers with JavaScript equality"
+)]
 fn ordered_status<'a>(
     definitions: &'a BTreeMap<String, (Value, f64)>,
     role: &str,
@@ -241,7 +245,16 @@ fn ordered_status<'a>(
         |(left_id, (left, left_order)), (right_id, (right, right_order))| {
             has_role(right, role)
                 .cmp(&has_role(left, role))
-                .then_with(|| left_order.total_cmp(right_order))
+                .then_with(|| {
+                    // The published registry compares orders numerically, where
+                    // `-0.0` and `0` are equal, so numerically equal orders reach
+                    // the ID tie-breaker instead of `total_cmp`'s zero ordering.
+                    if left_order == right_order {
+                        std::cmp::Ordering::Equal
+                    } else {
+                        left_order.total_cmp(right_order)
+                    }
+                })
                 .then_with(|| crate::collation::compare(left_id, right_id))
         },
     )
@@ -259,6 +272,26 @@ mod activity_progress_tests {
                 {"id":"alpha","order":10,"roles":["active"]},
                 {"id":"closed","order":1,"roles":["terminal"]},
                 {"id":"later","order":20,"roles":["active"]}
+            ],
+            "workflow":{"in_progress_status":" ", "open_status":"absent"}
+        }});
+        assert_eq!(
+            Lifecycle::from_values(&settings, &Value::Null, &Value::Null)
+                .activity_progress_status(),
+            "alpha"
+        );
+    }
+
+    #[test]
+    fn negative_zero_order_ties_with_zero_before_the_id_tie_breaker() {
+        // The published registry treats -0.0 and 0 as the same order, so the
+        // selection falls to the ID tie-breaker instead of `total_cmp`, which
+        // orders -0.0 first and would pick zeta.
+        let settings = json!({"schema":{
+            "statuses":[
+                {"id":"zeta","order":-0.0,"roles":["active"]},
+                {"id":"alpha","order":0,"roles":["active"]},
+                {"id":"closed","order":1,"roles":["terminal"]}
             ],
             "workflow":{"in_progress_status":" ", "open_status":"absent"}
         }});

@@ -147,6 +147,17 @@ fn parse_stored_clock(
             &value[value.len() - 2..]
         );
         normalized.as_str()
+    } else if clock_end
+        .as_bytes()
+        .last_chunk::<3>()
+        .is_some_and(|offset| {
+            matches!(offset[0], b'+' | b'-') && offset[1..].iter().all(u8::is_ascii_digit)
+        })
+    {
+        // The published Date parser expands a bare `±HH` offset to `±HH:00`, so
+        // `10:00:00+05` resolves to the same instant as `10:00:00+05:00`.
+        normalized = format!("{value}:00");
+        normalized.as_str()
     } else {
         value
     };

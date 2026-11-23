@@ -285,13 +285,35 @@ fn resolve_artifact_cwd_with_override(
         }
         None => (base, None),
     };
-    let absolute = std::path::absolute(path).map_err(|source| PmRustError::Io {
-        path: path.to_path_buf(),
-        source,
-    })?;
+    // `std::path::absolute` collapses `file\..` prefixes lexically on
+    // non-verbatim Windows paths, which would skip the directory validation
+    // the traversal loop applies to every parent component. Those components
+    // are retained here for the loop to traverse after the head is made
+    // absolute. Verbatim paths and other platforms preserve them already.
+    #[cfg(windows)]
+    let retained = split_at_first_parent(path);
+    #[cfg(not(windows))]
+    let retained: Option<(PathBuf, PathBuf)> = None;
+    let absolute = {
+        let head = match retained.as_ref() {
+            Some((head, _)) => head.as_path(),
+            None => path,
+        };
+        std::path::absolute(head).map_err(|source| PmRustError::Io {
+            path: path.to_path_buf(),
+            source,
+        })?
+    };
     let mut normalized = PathBuf::new();
     for component in absolute
         .components()
+        .chain(
+            retained
+                .as_ref()
+                .map(|(_, tail)| tail.as_path())
+                .into_iter()
+                .flat_map(Path::components),
+        )
         .chain(suffix.into_iter().flat_map(Path::components))
     {
         if component == Component::ParentDir {
@@ -334,6 +356,38 @@ fn resolve_artifact_cwd_with_override(
         }
     }
     Ok(normalized)
+}
+
+/// Splits a non-verbatim Windows path at the first parent component that follows
+/// a directory, keeping `file\..` prefixes out of `std::path::absolute`.
+///
+/// `absolute` resolves `..` lexically for non-verbatim Windows paths, which would
+/// erase the very prefix the traversal loop must validate as a directory. The
+/// head keeps everything before that parent component; the tail carries the
+/// parent and everything after it. Verbatim paths, rooted parents and other
+/// platforms return `None` because `absolute` preserves their components.
+#[cfg(windows)]
+fn split_at_first_parent(path: &Path) -> Option<(PathBuf, PathBuf)> {
+    let prefix = match path.components().next()? {
+        Component::Prefix(prefix) if !prefix.is_verbatim() => prefix,
+        _ => return None,
+    };
+    let mut head = PathBuf::from(prefix.as_os_str());
+    let mut tail = PathBuf::new();
+    let mut directory = false;
+    let mut split = false;
+    for component in path.components().skip(1) {
+        if split {
+            tail.push(component.as_os_str());
+        } else if matches!(component, Component::ParentDir) && directory {
+            split = true;
+            tail.push("..");
+        } else {
+            directory |= matches!(component, Component::Normal(_));
+            head.push(component.as_os_str());
+        }
+    }
+    split.then_some((head, tail))
 }
 
 /// A missing suffix is usable if its nearest filesystem entry resolves to a directory.

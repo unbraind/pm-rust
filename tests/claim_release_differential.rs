@@ -3471,15 +3471,39 @@ fn pause_progress_fallback_admission_matches_published_no_write()
         )?;
     }
     let before = start_snapshot(fixture.node.path())?;
-    fixture.step(&[
-        "release",
-        "sample-own",
-        "--pause",
-        "--author",
-        "alpha",
-        "--json",
-    ])?;
-    fixture.step(&["pause-task", "sample-own", "--author", "alpha", "--json"])?;
+    // Both pause entrypoints must refuse the blocked transition with the start
+    // admission refusal: `Fixture::step` only proves the two implementations agree,
+    // so a shared silent success would also pass its byte and snapshot checks.
+    for entrypoint in [
+        vec![
+            "release",
+            "sample-own",
+            "--pause",
+            "--author",
+            "alpha",
+            "--json",
+        ],
+        vec!["pause-task", "sample-own", "--author", "alpha", "--json"],
+    ] {
+        let oracle = published_run(&fixture.driver, fixture.node.path(), &entrypoint)?;
+        let native = native_command(fixture.rust.path(), &entrypoint).output()?;
+        assert_eq!(
+            native.status.code(),
+            oracle.status.code(),
+            "{entrypoint:?}: native {}, oracle {}",
+            String::from_utf8_lossy(&native.stderr),
+            String::from_utf8_lossy(&oracle.stderr)
+        );
+        assert_eq!(oracle.status.code(), Some(4), "{entrypoint:?}");
+        assert_eq!(native.stdout, oracle.stdout, "{entrypoint:?}");
+        assert_eq!(native.stderr, oracle.stderr, "{entrypoint:?}");
+        let refusal: serde_json::Value = serde_json::from_slice(&oracle.stderr)?;
+        assert_eq!(
+            refusal["code"], "start_blocked_by_open_dependency",
+            "{entrypoint:?}"
+        );
+        fixture.compare_bytes()?;
+    }
     assert_eq!(start_snapshot(fixture.node.path())?, before);
     assert_eq!(start_snapshot(fixture.rust.path())?, before);
     Ok(())

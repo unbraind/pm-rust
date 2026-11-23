@@ -338,11 +338,21 @@ fn context_progress_and_blank_assignees_match_oracle() -> TestResult {
                 String::from_utf8_lossy(&result.stderr)
             );
             let result: Value = serde_json::from_slice(&result.stdout)?;
-            assert_eq!(
-                result["summary"]["in_progress_unowned"].as_u64(),
-                expected_count,
-                "{progress:?}"
-            );
+            // `as_u64() == None` would also accept an explicit null or a string;
+            // the advisory output omits the key entirely when nothing is in progress.
+            if expected_count.is_some() {
+                assert_eq!(
+                    result["summary"]["in_progress_unowned"].as_u64(),
+                    expected_count,
+                    "{progress:?}"
+                );
+            } else {
+                assert!(
+                    result["summary"].get("in_progress_unowned").is_none(),
+                    "{progress:?}: {}",
+                    result["summary"]
+                );
+            }
         }
     }
     Ok(())

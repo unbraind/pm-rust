@@ -47,6 +47,9 @@ thread_local! {
 
     /// Holds a real gate until publication observes contention on this thread.
     static TRANSIENT_PUBLICATION_GATE: std::cell::RefCell<Option<CleanupGate>> = const { std::cell::RefCell::new(None) };
+
+    /// Replaces the wall-clock publication retry budget on this thread.
+    static PUBLICATION_RETRY: std::cell::RefCell<Option<Box<dyn FnMut() -> bool>>> = const { std::cell::RefCell::new(None) };
 }
 
 /// Interposes the recovery race only on the requesting thread.
@@ -66,6 +69,16 @@ pub(super) fn after_item_read() {
 /// Releases the test gate only after an acquisition attempt returns contention.
 pub(super) fn release_session_publication_gate() {
     drop(TRANSIENT_PUBLICATION_GATE.take());
+}
+
+/// Injects the publication retry decision for the next gated publication.
+pub(super) fn inject_publication_retry(retry: impl FnMut() -> bool + 'static) {
+    PUBLICATION_RETRY.replace(Some(Box::new(retry)));
+}
+
+/// Takes the injected publication retry decision, if the next publication set one.
+pub(super) fn take_publication_retry() -> Option<Box<dyn FnMut() -> bool>> {
+    PUBLICATION_RETRY.take()
 }
 
 /// Releases the item gate after observing contention and the caller's retry budget.
@@ -4777,6 +4790,21 @@ fn closure_session_lock_shape_diagnostics() -> Result<(), Box<dyn std::error::Er
     assert!(
         matches!(session_lock_refusal(&pm_root,PmRustError::LockConflict{id:"session-state".to_owned()},TS,1800),PmRustError::CommandRefusal{detail,..} if !detail.contains("lock_info_invalid"))
     );
+    // A missing receipt is gate contention before the lease exists, so the
+    // original conflict keeps its wait-and-retry guidance instead of a stale-lock
+    // refusal that would reroute a saved claim or release to --force advice.
+    fs::remove_file(&path)?;
+    assert!(matches!(
+        session_lock_refusal(
+            &pm_root,
+            PmRustError::LockConflict {
+                id: "session-state".to_owned()
+            },
+            TS,
+            1800
+        ),
+        PmRustError::LockConflict { .. }
+    ));
     let io = fs::read_to_string(pm_root.join("missing-file"))
         .err()
         .ok_or("missing I/O failure")?;
@@ -5404,6 +5432,16 @@ fn item_publication_uses_the_mutation_lock_wait_budget() -> Result<(), Box<dyn s
     let owner = acquire_lock(&pm_root, "sample-unit", "writer", &locks(1800), false, 2000)?;
     let gate = acquire_cleanup_gate(&pm_root.join("locks"), "sample-unit", 1800)?;
     TRANSIENT_ITEM_GATE.set(Some(gate));
+    // Inject the retry decision: the first attempt observes contention and the
+    // next attempt must succeed once the gate is released. A wall-clock budget
+    // would fail the test whenever the CI thread is descheduled past the
+    // deadline even though the gate is already free.
+    let budget = std::cell::Cell::new(1_u8);
+    inject_publication_retry(move || {
+        let remaining = budget.get();
+        budget.set(remaining.saturating_sub(1));
+        remaining > 0
+    });
     let _fence = fence_item(&pm_root, "sample-unit", &owner, 1800)?;
     assert!(TRANSIENT_ITEM_GATE.take().is_none());
     Ok(())
@@ -7409,6 +7447,15 @@ fn session_publication_waits_for_transient_cleanup_gate() -> Result<(), Box<dyn 
 {
     let (_temp, pm_root) = root("{}")?;
     let locks = pm_root.join("locks");
+    // Inject the retry decision so the test does not depend on the real 250 ms
+    // publication deadline: the first attempt observes contention and the next
+    // attempt must succeed once the gate is released.
+    let budget = std::cell::Cell::new(1_u8);
+    inject_publication_retry(move || {
+        let remaining = budget.get();
+        budget.set(remaining.saturating_sub(1));
+        remaining > 0
+    });
     let result = mutate_session_state(&pm_root, false, &mut |state| {
         TRANSIENT_PUBLICATION_GATE.replace(Some(acquire_cleanup_gate(
             &locks,

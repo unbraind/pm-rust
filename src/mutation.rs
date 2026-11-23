@@ -1121,6 +1121,20 @@ fn lock_retry(wait_ms: u64) -> impl FnMut() -> bool {
     }
 }
 
+/// Waits before retrying publication-gate contention, with a test-injected budget.
+///
+/// Publication retries succeed as soon as the competing gate holder releases,
+/// so the wall-clock budget only decides how long to keep trying. Tests inject
+/// the decision so a descheduled CI thread cannot outlast a real deadline while
+/// the gate is already free; production keeps the fixed budget.
+fn publication_retry(wait_ms: u64) -> Box<dyn FnMut() -> bool> {
+    #[cfg(test)]
+    if let Some(retry) = tests::take_publication_retry() {
+        return retry;
+    }
+    Box::new(lock_retry(wait_ms))
+}
+
 /// Retries only lock contention, propagating other failures immediately.
 fn wait_for_lock<T>(
     id: &str,
@@ -1198,7 +1212,7 @@ fn fence_item(
     // Other writers can briefly hold this gate while checking our lease.
     // Preserve the existing short wait for immediate-acquisition callers.
     let wait_ms = lock.wait_ms.max(250);
-    let gate = wait_for_lock(id, lock_retry(wait_ms), || {
+    let gate = wait_for_lock(id, publication_retry(wait_ms), || {
         let result = acquire_cleanup_gate(&locks, id, ttl);
         #[cfg(test)]
         if matches!(result, Err(PmRustError::LockConflict { .. })) {
@@ -4216,7 +4230,15 @@ fn session_lock_refusal(
     if !matches!(error, PmRustError::LockConflict { .. }) {
         return error;
     }
-    let raw = fs::read_to_string(pm_root.join("locks/session-state.lock")).unwrap_or_default();
+    let raw = match fs::read_to_string(pm_root.join("locks/session-state.lock")) {
+        Ok(raw) => raw,
+        // A missing receipt means acquisition failed while another writer held
+        // the cleanup gate before creating the lease. That is contention to wait
+        // out, not an expired incumbent, so the original conflict guidance with
+        // its wait-and-retry advice survives instead of stale-lock recovery.
+        Err(source) if source.kind() == std::io::ErrorKind::NotFound => return error,
+        Err(_) => String::new(),
+    };
     let receipt = crate::strict_json::from_str(&raw);
     let warning = lock_receipt_warning(&receipt);
     let entry = receipt.as_ref().unwrap_or(&Value::Null);
@@ -4314,7 +4336,7 @@ fn publish_session_state(
     #[cfg(test)]
     tests::replace_session_lease_before_publication(&lock.path);
     // A competing lease check can briefly hold this gate even while our lease is current.
-    let gate = match wait_for_lock("session-state", lock_retry(250), || {
+    let gate = match wait_for_lock("session-state", publication_retry(250), || {
         let attempt = acquire_cleanup_gate(&locks, "session-state", ttl);
         #[cfg(test)]
         if matches!(attempt, Err(PmRustError::LockConflict { .. })) {

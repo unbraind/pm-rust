@@ -351,12 +351,18 @@ fn floats_hash_the_way_json_stringify_renders_them() {
         };
         assert_eq!(javascript_number(number), expected, "rendering {value}");
     }
-    // Integers are already agreed on and must not be routed through the float
-    // path, where a large u64 would lose precision through f64.
+    // Safe-range integers keep their stored digits and must not take the float
+    // path.
+    // path. Integers outside the JavaScript safe range exist in the published
+    // CLI only as the rounded double JSON.parse produced, so the two runtimes
+    // must render them identically or reanchor digests diverge.
     for (value, expected) in [
         (json!(30), "30"),
         (json!(-4), "-4"),
-        (json!(9_007_199_254_740_993_u64), "9007199254740993"),
+        (json!(9_007_199_254_740_991_u64), "9007199254740991"),
+        (json!(9_007_199_254_740_993_u64), "9007199254740992"),
+        (json!(9_007_199_254_740_994_u64), "9007199254740994"),
+        (json!(-9_007_199_254_740_993_i64), "-9007199254740992"),
     ] {
         let Value::Number(number) = &value else {
             unreachable!("the table holds only numbers");
@@ -371,5 +377,35 @@ fn floats_hash_the_way_json_stringify_renders_them() {
         document_hash(&whole),
         document_hash(&integer),
         "a whole-valued float and the same integer must hash identically, as they do in JavaScript",
+    );
+}
+
+/// Reanchor digests keep the published digest for integers beyond the safe range.
+#[test]
+fn big_integer_patches_hash_the_published_rounded_doubles() {
+    // The locked SDK's hashHistoryPatch output for this exact stored patch text:
+    // JSON.parse reads 9007199254740993 as the double 9007199254740992, keeps
+    // the exactly representable 9007199254740994, and stableStringify prints
+    // both rounded spellings before hashing.
+    let raw = r#"[{"op":"replace","path":"/metadata/data","value":{"count":9007199254740993,"rows":[9007199254740994]}}]"#;
+    let patch: serde_json::Value = serde_json::from_str(raw).unwrap_or_default();
+    assert_eq!(
+        super::hash_history_patch(&patch),
+        "0a00c4372c56c7313bc70b226e810dfbb7527577c0324f6570424653ba992890"
+    );
+    // The same rounding decides whether two stored spellings are one revision:
+    // the published CLI cannot distinguish 9007199254740992 from 9007199254740993.
+    let adjacent = ordered(
+        &json!({"id": "sample-x", "big": 9_007_199_254_740_993_u64}),
+        "b",
+    );
+    let rounded = ordered(
+        &json!({"id": "sample-x", "big": 9_007_199_254_740_992_u64}),
+        "b",
+    );
+    assert_eq!(
+        document_hash(&adjacent),
+        document_hash(&rounded),
+        "the published CLI parses both spellings as the same double, so their digests match",
     );
 }

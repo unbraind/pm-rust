@@ -556,19 +556,22 @@ fn encode_stable_json(
 /// item carrying a float in its metadata, which reads downstream as a corrupt
 /// history chain rather than as a formatting disagreement.
 ///
-/// Integers retain their stored representation. Floats use ECMAScript's
-/// shortest decimal representation, including its exponent thresholds and zero.
+/// Integers within the JavaScript safe range keep their stored digits.
+/// The published CLI parses every stored patch and document as a JavaScript
+/// number, so integers outside that range already exist there only as the
+/// rounded double `JSON.stringify` prints, and the two runtimes must render
+/// them identically or reanchor digests diverge.
 ///
 /// @param number - The decoded JSON number.
 /// @returns The number formatted as `JSON.stringify` would format it.
 pub(crate) fn javascript_number(number: &serde_json::Number) -> String {
-    let Some(float) = number
-        .as_f64()
-        .filter(|_| number.as_i64().is_none() && number.as_u64().is_none())
-    else {
-        return number.to_string();
-    };
-    javascript_float(float)
+    if let Some(exact) = number
+        .as_i64()
+        .filter(|exact| exact.unsigned_abs() <= 9_007_199_254_740_991)
+    {
+        return exact.to_string();
+    }
+    javascript_float(number.as_f64().unwrap_or_default())
 }
 
 /// Renders one finite double the way `JSON.stringify` renders it.
