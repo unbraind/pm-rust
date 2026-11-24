@@ -16,7 +16,7 @@ permissions:
   actions: write
 jobs:
   gated-closeout:
-    uses: unbraind/pm-github/.github/workflows/pm-github-closeout.yml@ead49814902d9429c0b805cf81dcd6f08952e6f9 # pm-github 2026.11.18
+    uses: unbraind/pm-github/.github/workflows/pm-github-closeout.yml@ab42c97245be2c5de4a53fd1ed5f0faafaee027f # pm-github 2026.11.19
     with:
       npm-project-dir: "tests/oracle" # pm-rust keeps its pinned pm CLI oracle here; the tracker stays at the repository root.
       post-closeout-script: "changelog:full"
