@@ -1,0 +1,878 @@
+{
+  "needs_review": [
+    {
+      "item": "pm-rust-373x",
+      "action": "needs_review",
+      "candidates": [
+        111
+      ],
+      "missing_evidence": [
+        {
+          "pr": 111,
+          "code": "head_evidence_unavailable",
+          "reason": "GitHub GET /repos/unbraind/pm-rust/pulls/111 failed; verify token read access and retry: HTTP 422"
+        },
+        {
+          "pr": 111,
+          "code": "head_evidence_unavailable",
+          "reason": "Commit delivery evidence unavailable or incomplete."
+        }
+      ]
+    },
+    {
+      "item": "pm-rust-4jq3",
+      "action": "needs_review",
+      "candidates": [
+        111
+      ],
+      "missing_evidence": [
+        {
+          "pr": 111,
+          "code": "head_evidence_unavailable",
+          "reason": "GitHub GET /repos/unbraind/pm-rust/pulls/111 failed; verify token read access and retry: HTTP 422"
+        },
+        {
+          "pr": 111,
+          "code": "head_evidence_unavailable",
+          "reason": "Commit delivery evidence unavailable or incomplete."
+        }
+      ]
+    },
+    {
+      "item": "pm-rust-9bci",
+      "action": "needs_review",
+      "candidates": [
+        111
+      ],
+      "missing_evidence": [
+        {
+          "pr": 111,
+          "code": "head_evidence_unavailable",
+          "reason": "GitHub GET /repos/unbraind/pm-rust/pulls/111 failed; verify token read access and retry: HTTP 422"
+        },
+        {
+          "pr": 111,
+          "code": "head_evidence_unavailable",
+          "reason": "Commit delivery evidence unavailable or incomplete."
+        }
+      ]
+    },
+    {
+      "item": "pm-rust-admission-schema",
+      "action": "needs_review",
+      "candidates": [
+        111
+      ],
+      "missing_evidence": [
+        {
+          "pr": 111,
+          "code": "head_evidence_unavailable",
+          "reason": "GitHub GET /repos/unbraind/pm-rust/pulls/111 failed; verify token read access and retry: HTTP 422"
+        },
+        {
+          "pr": 111,
+          "code": "head_evidence_unavailable",
+          "reason": "Commit delivery evidence unavailable or incomplete."
+        }
+      ]
+    },
+    {
+      "item": "pm-rust-b4yl",
+      "action": "needs_review",
+      "candidates": [
+        111
+      ],
+      "missing_evidence": [
+        {
+          "pr": 111,
+          "code": "head_evidence_unavailable",
+          "reason": "GitHub GET /repos/unbraind/pm-rust/pulls/111 failed; verify token read access and retry: HTTP 422"
+        },
+        {
+          "pr": 111,
+          "code": "head_evidence_unavailable",
+          "reason": "Commit delivery evidence unavailable or incomplete."
+        }
+      ]
+    },
+    {
+      "item": "pm-rust-bench-workflow",
+      "action": "needs_review",
+      "candidates": [
+        111
+      ],
+      "missing_evidence": [
+        {
+          "pr": 111,
+          "code": "head_evidence_unavailable",
+          "reason": "GitHub GET /repos/unbraind/pm-rust/pulls/111 failed; verify token read access and retry: HTTP 422"
+        },
+        {
+          "pr": 111,
+          "code": "head_evidence_unavailable",
+          "reason": "Commit delivery evidence unavailable or incomplete."
+        }
+      ]
+    },
+    {
+      "item": "pm-rust-blank-workflow-focus-order",
+      "action": "needs_review",
+      "candidates": [
+        111
+      ],
+      "missing_evidence": [
+        {
+          "pr": 111,
+          "code": "head_evidence_unavailable",
+          "reason": "GitHub GET /repos/unbraind/pm-rust/pulls/111 failed; verify token read access and retry: HTTP 422"
+        },
+        {
+          "pr": 111,
+          "code": "head_evidence_unavailable",
+          "reason": "Commit delivery evidence unavailable or incomplete."
+        }
+      ]
+    },
+    {
+      "item": "pm-rust-bu9t",
+      "action": "needs_review",
+      "candidates": [
+        111
+      ],
+      "missing_evidence": [
+        {
+          "pr": 111,
+          "code": "head_evidence_unavailable",
+          "reason": "GitHub GET /repos/unbraind/pm-rust/pulls/111 failed; verify token read access and retry: HTTP 422"
+        },
+        {
+          "pr": 111,
+          "code": "head_evidence_unavailable",
+          "reason": "Commit delivery evidence unavailable or incomplete."
+        }
+      ]
+    },
+    {
+      "item": "pm-rust-build-script-coverage",
+      "action": "needs_review",
+      "candidates": [
+        111
+      ],
+      "missing_evidence": [
+        {
+          "pr": 111,
+          "code": "head_evidence_unavailable",
+          "reason": "GitHub GET /repos/unbraind/pm-rust/pulls/111 failed; verify token read access and retry: HTTP 422"
+        },
+        {
+          "pr": 111,
+          "code": "head_evidence_unavailable",
+          "reason": "Commit delivery evidence unavailable or incomplete."
+        }
+      ]
+    },
+    {
+      "item": "pm-rust-ci-v2",
+      "action": "needs_review",
+      "candidates": [
+        111
+      ],
+      "missing_evidence": [
+        {
+          "pr": 111,
+          "code": "head_evidence_unavailable",
+          "reason": "GitHub GET /repos/unbraind/pm-rust/pulls/111 failed; verify token read access and retry: HTTP 422"
+        },
+        {
+          "pr": 111,
+          "code": "head_evidence_unavailable",
+          "reason": "Commit delivery evidence unavailable or incomplete."
+        }
+      ]
+    },
+    {
+      "item": "pm-rust-comment-lock-receipt",
+      "action": "needs_review",
+      "candidates": [
+        111
+      ],
+      "missing_evidence": [
+        {
+          "pr": 111,
+          "code": "head_evidence_unavailable",
+          "reason": "GitHub GET /repos/unbraind/pm-rust/pulls/111 failed; verify token read access and retry: HTTP 422"
+        },
+        {
+          "pr": 111,
+          "code": "head_evidence_unavailable",
+          "reason": "Commit delivery evidence unavailable or incomplete."
+        }
+      ]
+    },
+    {
+      "item": "pm-rust-context-activity-utf8",
+      "action": "needs_review",
+      "candidates": [
+        111
+      ],
+      "missing_evidence": [
+        {
+          "pr": 111,
+          "code": "head_evidence_unavailable",
+          "reason": "GitHub GET /repos/unbraind/pm-rust/pulls/111 failed; verify token read access and retry: HTTP 422"
+        },
+        {
+          "pr": 111,
+          "code": "head_evidence_unavailable",
+          "reason": "Commit delivery evidence unavailable or incomplete."
+        }
+      ]
+    },
+    {
+      "item": "pm-rust-history-redaction-prefix",
+      "action": "needs_review",
+      "candidates": [
+        111
+      ],
+      "missing_evidence": [
+        {
+          "pr": 111,
+          "code": "head_evidence_unavailable",
+          "reason": "GitHub GET /repos/unbraind/pm-rust/pulls/111 failed; verify token read access and retry: HTTP 422"
+        },
+        {
+          "pr": 111,
+          "code": "head_evidence_unavailable",
+          "reason": "Commit delivery evidence unavailable or incomplete."
+        }
+      ]
+    },
+    {
+      "item": "pm-rust-identity-unbrained",
+      "action": "needs_review",
+      "candidates": [
+        111
+      ],
+      "missing_evidence": [
+        {
+          "pr": 111,
+          "code": "head_evidence_unavailable",
+          "reason": "GitHub GET /repos/unbraind/pm-rust/pulls/111 failed; verify token read access and retry: HTTP 422"
+        },
+        {
+          "pr": 111,
+          "code": "head_evidence_unavailable",
+          "reason": "Commit delivery evidence unavailable or incomplete."
+        }
+      ]
+    },
+    {
+      "item": "pm-rust-invalid-guard-fallback",
+      "action": "needs_review",
+      "candidates": [
+        111
+      ],
+      "missing_evidence": [
+        {
+          "pr": 111,
+          "code": "head_evidence_unavailable",
+          "reason": "GitHub GET /repos/unbraind/pm-rust/pulls/111 failed; verify token read access and retry: HTTP 422"
+        },
+        {
+          "pr": 111,
+          "code": "head_evidence_unavailable",
+          "reason": "Commit delivery evidence unavailable or incomplete."
+        }
+      ]
+    },
+    {
+      "item": "pm-rust-legacy-hour24-separators",
+      "action": "needs_review",
+      "candidates": [
+        111
+      ],
+      "missing_evidence": [
+        {
+          "pr": 111,
+          "code": "head_evidence_unavailable",
+          "reason": "GitHub GET /repos/unbraind/pm-rust/pulls/111 failed; verify token read access and retry: HTTP 422"
+        },
+        {
+          "pr": 111,
+          "code": "head_evidence_unavailable",
+          "reason": "Commit delivery evidence unavailable or incomplete."
+        }
+      ]
+    },
+    {
+      "item": "pm-rust-legacy-offset-range",
+      "action": "needs_review",
+      "candidates": [
+        111
+      ],
+      "missing_evidence": [
+        {
+          "pr": 111,
+          "code": "head_evidence_unavailable",
+          "reason": "GitHub GET /repos/unbraind/pm-rust/pulls/111 failed; verify token read access and retry: HTTP 422"
+        },
+        {
+          "pr": 111,
+          "code": "head_evidence_unavailable",
+          "reason": "Commit delivery evidence unavailable or incomplete."
+        }
+      ]
+    },
+    {
+      "item": "pm-rust-linked-note-diagnostics",
+      "action": "needs_review",
+      "candidates": [
+        111
+      ],
+      "missing_evidence": [
+        {
+          "pr": 111,
+          "code": "head_evidence_unavailable",
+          "reason": "GitHub GET /repos/unbraind/pm-rust/pulls/111 failed; verify token read access and retry: HTTP 422"
+        },
+        {
+          "pr": 111,
+          "code": "head_evidence_unavailable",
+          "reason": "Commit delivery evidence unavailable or incomplete."
+        }
+      ]
+    },
+    {
+      "item": "pm-rust-local-packet-deadline",
+      "action": "needs_review",
+      "candidates": [
+        111
+      ],
+      "missing_evidence": [
+        {
+          "pr": 111,
+          "code": "head_evidence_unavailable",
+          "reason": "GitHub GET /repos/unbraind/pm-rust/pulls/111 failed; verify token read access and retry: HTTP 422"
+        },
+        {
+          "pr": 111,
+          "code": "head_evidence_unavailable",
+          "reason": "Commit delivery evidence unavailable or incomplete."
+        }
+      ]
+    },
+    {
+      "item": "pm-rust-lock-gc-receipt-ttl",
+      "action": "needs_review",
+      "candidates": [
+        111
+      ],
+      "missing_evidence": [
+        {
+          "pr": 111,
+          "code": "head_evidence_unavailable",
+          "reason": "GitHub GET /repos/unbraind/pm-rust/pulls/111 failed; verify token read access and retry: HTTP 422"
+        },
+        {
+          "pr": 111,
+          "code": "head_evidence_unavailable",
+          "reason": "Commit delivery evidence unavailable or incomplete."
+        }
+      ]
+    },
+    {
+      "item": "pm-rust-mixed-cleanup-gate",
+      "action": "needs_review",
+      "candidates": [
+        111
+      ],
+      "missing_evidence": [
+        {
+          "pr": 111,
+          "code": "head_evidence_unavailable",
+          "reason": "GitHub GET /repos/unbraind/pm-rust/pulls/111 failed; verify token read access and retry: HTTP 422"
+        },
+        {
+          "pr": 111,
+          "code": "head_evidence_unavailable",
+          "reason": "Commit delivery evidence unavailable or incomplete."
+        }
+      ]
+    },
+    {
+      "item": "pm-rust-native-journal-integer-hash",
+      "action": "needs_review",
+      "candidates": [
+        111
+      ],
+      "missing_evidence": [
+        {
+          "pr": 111,
+          "code": "head_evidence_unavailable",
+          "reason": "GitHub GET /repos/unbraind/pm-rust/pulls/111 failed; verify token read access and retry: HTTP 422"
+        },
+        {
+          "pr": 111,
+          "code": "head_evidence_unavailable",
+          "reason": "Commit delivery evidence unavailable or incomplete."
+        }
+      ]
+    },
+    {
+      "item": "pm-rust-native-writer-contention",
+      "action": "needs_review",
+      "candidates": [
+        111
+      ],
+      "missing_evidence": [
+        {
+          "pr": 111,
+          "code": "head_evidence_unavailable",
+          "reason": "GitHub GET /repos/unbraind/pm-rust/pulls/111 failed; verify token read access and retry: HTTP 422"
+        },
+        {
+          "pr": 111,
+          "code": "head_evidence_unavailable",
+          "reason": "Commit delivery evidence unavailable or incomplete."
+        }
+      ]
+    },
+    {
+      "item": "pm-rust-node-tooling-audit",
+      "action": "needs_review",
+      "candidates": [
+        111
+      ],
+      "missing_evidence": [
+        {
+          "pr": 111,
+          "code": "head_evidence_unavailable",
+          "reason": "GitHub GET /repos/unbraind/pm-rust/pulls/111 failed; verify token read access and retry: HTTP 422"
+        },
+        {
+          "pr": 111,
+          "code": "head_evidence_unavailable",
+          "reason": "Commit delivery evidence unavailable or incomplete."
+        }
+      ]
+    },
+    {
+      "item": "pm-rust-oracle-1118-coverage",
+      "action": "needs_review",
+      "candidates": [
+        111
+      ],
+      "missing_evidence": [
+        {
+          "pr": 111,
+          "code": "head_evidence_unavailable",
+          "reason": "GitHub GET /repos/unbraind/pm-rust/pulls/111 failed; verify token read access and retry: HTTP 422"
+        },
+        {
+          "pr": 111,
+          "code": "head_evidence_unavailable",
+          "reason": "Commit delivery evidence unavailable or incomplete."
+        }
+      ]
+    },
+    {
+      "item": "pm-rust-oracle-close-preview",
+      "action": "needs_review",
+      "candidates": [
+        111
+      ],
+      "missing_evidence": [
+        {
+          "pr": 111,
+          "code": "head_evidence_unavailable",
+          "reason": "GitHub GET /repos/unbraind/pm-rust/pulls/111 failed; verify token read access and retry: HTTP 422"
+        },
+        {
+          "pr": 111,
+          "code": "head_evidence_unavailable",
+          "reason": "Commit delivery evidence unavailable or incomplete."
+        }
+      ]
+    },
+    {
+      "item": "pm-rust-oracle-malformed-recency",
+      "action": "needs_review",
+      "candidates": [
+        111
+      ],
+      "missing_evidence": [
+        {
+          "pr": 111,
+          "code": "head_evidence_unavailable",
+          "reason": "GitHub GET /repos/unbraind/pm-rust/pulls/111 failed; verify token read access and retry: HTTP 422"
+        },
+        {
+          "pr": 111,
+          "code": "head_evidence_unavailable",
+          "reason": "Commit delivery evidence unavailable or incomplete."
+        }
+      ]
+    },
+    {
+      "item": "pm-rust-oracle-recovery-167",
+      "action": "needs_review",
+      "candidates": [
+        111
+      ],
+      "missing_evidence": [
+        {
+          "pr": 111,
+          "code": "head_evidence_unavailable",
+          "reason": "GitHub GET /repos/unbraind/pm-rust/pulls/111 failed; verify token read access and retry: HTTP 422"
+        },
+        {
+          "pr": 111,
+          "code": "head_evidence_unavailable",
+          "reason": "Commit delivery evidence unavailable or incomplete."
+        }
+      ]
+    },
+    {
+      "item": "pm-rust-orientation-history-file-type",
+      "action": "needs_review",
+      "candidates": [
+        111
+      ],
+      "missing_evidence": [
+        {
+          "pr": 111,
+          "code": "head_evidence_unavailable",
+          "reason": "GitHub GET /repos/unbraind/pm-rust/pulls/111 failed; verify token read access and retry: HTTP 422"
+        },
+        {
+          "pr": 111,
+          "code": "head_evidence_unavailable",
+          "reason": "Commit delivery evidence unavailable or incomplete."
+        }
+      ]
+    },
+    {
+      "item": "pm-rust-orientation-stale-evidence",
+      "action": "needs_review",
+      "candidates": [
+        111
+      ],
+      "missing_evidence": [
+        {
+          "pr": 111,
+          "code": "head_evidence_unavailable",
+          "reason": "GitHub GET /repos/unbraind/pm-rust/pulls/111 failed; verify token read access and retry: HTTP 422"
+        },
+        {
+          "pr": 111,
+          "code": "head_evidence_unavailable",
+          "reason": "Commit delivery evidence unavailable or incomplete."
+        }
+      ]
+    },
+    {
+      "item": "pm-rust-published-history-open",
+      "action": "needs_review",
+      "candidates": [
+        111
+      ],
+      "missing_evidence": [
+        {
+          "pr": 111,
+          "code": "head_evidence_unavailable",
+          "reason": "GitHub GET /repos/unbraind/pm-rust/pulls/111 failed; verify token read access and retry: HTTP 422"
+        },
+        {
+          "pr": 111,
+          "code": "head_evidence_unavailable",
+          "reason": "Commit delivery evidence unavailable or incomplete."
+        }
+      ]
+    },
+    {
+      "item": "pm-rust-qhem",
+      "action": "needs_review",
+      "candidates": [
+        111
+      ],
+      "missing_evidence": [
+        {
+          "pr": 111,
+          "code": "head_evidence_unavailable",
+          "reason": "GitHub GET /repos/unbraind/pm-rust/pulls/111 failed; verify token read access and retry: HTTP 422"
+        },
+        {
+          "pr": 111,
+          "code": "head_evidence_unavailable",
+          "reason": "Commit delivery evidence unavailable or incomplete."
+        }
+      ]
+    },
+    {
+      "item": "pm-rust-refusal-projection-whitespace",
+      "action": "needs_review",
+      "candidates": [
+        111
+      ],
+      "missing_evidence": [
+        {
+          "pr": 111,
+          "code": "head_evidence_unavailable",
+          "reason": "GitHub GET /repos/unbraind/pm-rust/pulls/111 failed; verify token read access and retry: HTTP 422"
+        },
+        {
+          "pr": 111,
+          "code": "head_evidence_unavailable",
+          "reason": "Commit delivery evidence unavailable or incomplete."
+        }
+      ]
+    },
+    {
+      "item": "pm-rust-rz25",
+      "action": "needs_review",
+      "candidates": [
+        111
+      ],
+      "missing_evidence": [
+        {
+          "pr": 111,
+          "code": "head_evidence_unavailable",
+          "reason": "GitHub GET /repos/unbraind/pm-rust/pulls/111 failed; verify token read access and retry: HTTP 422"
+        },
+        {
+          "pr": 111,
+          "code": "head_evidence_unavailable",
+          "reason": "Commit delivery evidence unavailable or incomplete."
+        }
+      ]
+    },
+    {
+      "item": "pm-rust-scoped-close-provenance",
+      "action": "needs_review",
+      "candidates": [
+        111
+      ],
+      "missing_evidence": [
+        {
+          "pr": 111,
+          "code": "head_evidence_unavailable",
+          "reason": "GitHub GET /repos/unbraind/pm-rust/pulls/111 failed; verify token read access and retry: HTTP 422"
+        },
+        {
+          "pr": 111,
+          "code": "head_evidence_unavailable",
+          "reason": "Commit delivery evidence unavailable or incomplete."
+        }
+      ]
+    },
+    {
+      "item": "pm-rust-sdk-holder-projection",
+      "action": "needs_review",
+      "candidates": [
+        111
+      ],
+      "missing_evidence": [
+        {
+          "pr": 111,
+          "code": "head_evidence_unavailable",
+          "reason": "GitHub GET /repos/unbraind/pm-rust/pulls/111 failed; verify token read access and retry: HTTP 422"
+        },
+        {
+          "pr": 111,
+          "code": "head_evidence_unavailable",
+          "reason": "Commit delivery evidence unavailable or incomplete."
+        }
+      ]
+    },
+    {
+      "item": "pm-rust-session-receipt-read-warning",
+      "action": "needs_review",
+      "candidates": [
+        111
+      ],
+      "missing_evidence": [
+        {
+          "pr": 111,
+          "code": "head_evidence_unavailable",
+          "reason": "GitHub GET /repos/unbraind/pm-rust/pulls/111 failed; verify token read access and retry: HTTP 422"
+        },
+        {
+          "pr": 111,
+          "code": "head_evidence_unavailable",
+          "reason": "Commit delivery evidence unavailable or incomplete."
+        }
+      ]
+    },
+    {
+      "item": "pm-rust-shared-lock-wall-clock",
+      "action": "needs_review",
+      "candidates": [
+        111
+      ],
+      "missing_evidence": [
+        {
+          "pr": 111,
+          "code": "head_evidence_unavailable",
+          "reason": "GitHub GET /repos/unbraind/pm-rust/pulls/111 failed; verify token read access and retry: HTTP 422"
+        },
+        {
+          "pr": 111,
+          "code": "head_evidence_unavailable",
+          "reason": "Commit delivery evidence unavailable or incomplete."
+        }
+      ]
+    },
+    {
+      "item": "pm-rust-stale-claim-takeover",
+      "action": "needs_review",
+      "candidates": [
+        111
+      ],
+      "missing_evidence": [
+        {
+          "pr": 111,
+          "code": "head_evidence_unavailable",
+          "reason": "GitHub GET /repos/unbraind/pm-rust/pulls/111 failed; verify token read access and retry: HTTP 422"
+        },
+        {
+          "pr": 111,
+          "code": "head_evidence_unavailable",
+          "reason": "Commit delivery evidence unavailable or incomplete."
+        }
+      ]
+    },
+    {
+      "item": "pm-rust-start-claim-compensation",
+      "action": "needs_review",
+      "candidates": [
+        111
+      ],
+      "missing_evidence": [
+        {
+          "pr": 111,
+          "code": "head_evidence_unavailable",
+          "reason": "GitHub GET /repos/unbraind/pm-rust/pulls/111 failed; verify token read access and retry: HTTP 422"
+        },
+        {
+          "pr": 111,
+          "code": "head_evidence_unavailable",
+          "reason": "Commit delivery evidence unavailable or incomplete."
+        }
+      ]
+    },
+    {
+      "item": "pm-rust-status-token-edge-hyphens",
+      "action": "needs_review",
+      "candidates": [
+        111
+      ],
+      "missing_evidence": [
+        {
+          "pr": 111,
+          "code": "head_evidence_unavailable",
+          "reason": "GitHub GET /repos/unbraind/pm-rust/pulls/111 failed; verify token read access and retry: HTTP 422"
+        },
+        {
+          "pr": 111,
+          "code": "head_evidence_unavailable",
+          "reason": "Commit delivery evidence unavailable or incomplete."
+        }
+      ]
+    },
+    {
+      "item": "pm-rust-tdps",
+      "action": "needs_review",
+      "candidates": [
+        111
+      ],
+      "missing_evidence": [
+        {
+          "pr": 111,
+          "code": "head_evidence_unavailable",
+          "reason": "GitHub GET /repos/unbraind/pm-rust/pulls/111 failed; verify token read access and retry: HTTP 422"
+        },
+        {
+          "pr": 111,
+          "code": "head_evidence_unavailable",
+          "reason": "Commit delivery evidence unavailable or incomplete."
+        }
+      ]
+    },
+    {
+      "item": "pm-rust-unsafe-libyaml-maintenance",
+      "action": "needs_review",
+      "candidates": [
+        111
+      ],
+      "missing_evidence": [
+        {
+          "pr": 111,
+          "code": "head_evidence_unavailable",
+          "reason": "GitHub GET /repos/unbraind/pm-rust/pulls/111 failed; verify token read access and retry: HTTP 422"
+        },
+        {
+          "pr": 111,
+          "code": "head_evidence_unavailable",
+          "reason": "Commit delivery evidence unavailable or incomplete."
+        }
+      ]
+    },
+    {
+      "item": "pm-rust-vuwe",
+      "action": "needs_review",
+      "candidates": [
+        111
+      ],
+      "missing_evidence": [
+        {
+          "pr": 111,
+          "code": "head_evidence_unavailable",
+          "reason": "GitHub GET /repos/unbraind/pm-rust/pulls/111 failed; verify token read access and retry: HTTP 422"
+        },
+        {
+          "pr": 111,
+          "code": "head_evidence_unavailable",
+          "reason": "Commit delivery evidence unavailable or incomplete."
+        }
+      ]
+    },
+    {
+      "item": "pm-rust-wc8b",
+      "action": "needs_review",
+      "candidates": [
+        111
+      ],
+      "missing_evidence": [
+        {
+          "pr": 111,
+          "code": "head_evidence_unavailable",
+          "reason": "GitHub GET /repos/unbraind/pm-rust/pulls/111 failed; verify token read access and retry: HTTP 422"
+        },
+        {
+          "pr": 111,
+          "code": "head_evidence_unavailable",
+          "reason": "Commit delivery evidence unavailable or incomplete."
+        }
+      ]
+    },
+    {
+      "item": "pm-rust-windows-artifact-cwd-parent",
+      "action": "needs_review",
+      "candidates": [
+        111
+      ],
+      "missing_evidence": [
+        {
+          "pr": 111,
+          "code": "head_evidence_unavailable",
+          "reason": "GitHub GET /repos/unbraind/pm-rust/pulls/111 failed; verify token read access and retry: HTTP 422"
+        },
+        {
+          "pr": 111,
+          "code": "head_evidence_unavailable",
+          "reason": "Commit delivery evidence unavailable or incomplete."
+        }
+      ]
+    }
+  ]
+}
