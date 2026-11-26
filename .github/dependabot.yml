@@ -17,6 +17,10 @@ updates:
       codeql:
         patterns:
           - "github/codeql-action*"
+      # The pm-github sync and closeout callers are one reviewed release and move in one pull request.
+      pm-github-workflows:
+        patterns:
+          - "unbraind/pm-github/*"
     labels:
       - dependencies
 
