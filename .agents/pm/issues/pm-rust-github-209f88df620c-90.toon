@@ -1,0 +1,30 @@
+id: pm-rust-github-209f88df620c-90
+title: Gated sync/closeout PRs cannot regenerate CHANGELOG.md because the changelog recipe lives in the justfile
+description: "GH issue #90: https://github.com/unbraind/pm-rust/issues/90 · author @unbraind · state reason completed · created 2026-10-16T17:45:44Z · updated 2026-10-23T16:00:23Z"
+type: Issue
+pm_format_version: 4
+status: closed
+priority: 2
+tags[2]: "gh:unbraind/pm-rust#90","github_author:unbraind"
+created_at: "2026-10-16T17:45:44Z"
+updated_at: "2026-11-27T09:43:29.503Z"
+closed_at: "2026-10-23T16:00:23Z"
+completed_at: "2026-10-23T16:00:23Z"
+author: pm-github
+deferred_fields[4]{field,reason}:
+  acceptance_criteria,Imported from GitHub issue #90. Required fields can be filled after triage.
+  assignee,Imported from GitHub issue #90. Required fields can be filled after triage.
+  deadline,Imported from GitHub issue #90. Required fields can be filled after triage.
+  estimated_minutes,Imported from GitHub issue #90. Required fields can be filled after triage.
+close_reason: "Closed on GitHub as completed on 2026-10-23T16:00:23Z; closing PR https://github.com/unbraind/pm-rust/pull/111 (\"Regenerate changelogs after gated tracker changes\")"
+github_close_reason: "Closed on GitHub as completed on 2026-10-23T16:00:23Z; closing PR https://github.com/unbraind/pm-rust/pull/111 (\"Regenerate changelogs after gated tracker changes\")"
+github_closed_at: "2026-10-23T16:00:23Z"
+github_created_at: "2026-10-16T17:45:44Z"
+github_link_only: false
+github_number: 90
+github_release: ""
+github_state: closed
+github_state_reason: completed
+github_updated_at: "2026-10-23T16:00:23Z"
+github_url: "https://github.com/unbraind/pm-rust/issues/90"
+body: "Raised by CodeRabbit on #84. pm-github's reusable sync and closeout workflows only run an npm script from `npm-project-dir` after the tracker change. pm-rust's callers use `tests/oracle`, which has no scripts, so both post-change scripts are disabled. A closeout PR that closes items therefore ships an unchanged `CHANGELOG.md`, and the dispatched `ci.yml` (`just release-check` → `just changelog-check`) rejects it.\n\nOptions:\n1. Add `\"changelog:full\"` to `tests/oracle/package.json`, delegating to the single source of truth: `just changelog-full` from the repository root. This needs `just` on the runner, so either the reusable workflow installs it, or a node wrapper reproduces the recipe from the justfile constants.\n2. Add an optional pm-github input that installs a named tool (pinned action) before the post-change script.\n\nUntil this is fixed, a closeout PR needs a manual `just changelog-full` push."
