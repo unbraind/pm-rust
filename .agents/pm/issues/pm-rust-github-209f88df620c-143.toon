@@ -1,0 +1,27 @@
+id: pm-rust-github-209f88df620c-143
+title: "macOS release gate: disconnected-consumer query-cost check returned success"
+description: "GH issue #143: https://github.com/unbraind/pm-rust/issues/143 · author @unbraind · created 2026-11-02T20:32:46Z · updated 2026-11-02T20:32:46Z"
+type: Issue
+pm_format_version: 4
+status: open
+priority: 2
+tags[2]: "gh:unbraind/pm-rust#143","github_author:unbraind"
+created_at: "2026-11-02T20:32:46Z"
+updated_at: "2026-11-27T09:43:29.319Z"
+author: pm-github
+deferred_fields[4]{field,reason}:
+  acceptance_criteria,Imported from GitHub issue #143. Required fields can be filled after triage.
+  assignee,Imported from GitHub issue #143. Required fields can be filled after triage.
+  deadline,Imported from GitHub issue #143. Required fields can be filled after triage.
+  estimated_minutes,Imported from GitHub issue #143. Required fields can be filled after triage.
+github_close_reason: ""
+github_closed_at: ""
+github_created_at: "2026-11-02T20:32:46Z"
+github_link_only: false
+github_number: 143
+github_release: ""
+github_state: open
+github_state_reason: unspecified
+github_updated_at: "2026-11-02T20:32:46Z"
+github_url: "https://github.com/unbraind/pm-rust/issues/143"
+body: "## Hosted CI evidence, not a local reproduction\n\nAt default HEAD `c75260050298de1d287957d1e57d05fb1859ff34`, [macOS release gate job 125474280178](https://github.com/unbraind/pm-rust/actions/runs/41502788789/job/125474280178) failed on 2026-11-02 at 20:18 UTC. The same HEAD remains current and this gate remains failed at 20:32 UTC; Linux, Bun and Windows aggregate jobs succeeded.\n\n`tests/query_cost_contract.rs:138:9`, test `cli_json_toon_refusals_and_zero_writes`, reports:\n```text\nassertion `left == right` failed: disconnected consumers must refuse delivery\n  left: Some(0)\n right: Some(2)\n```\nThe query-cost contract binary finished with one passed and one failed test; `just release-check` exited 101. This is not evidence that every preceding/following release check passed, nor proof of a shipped artifact regression.\n\n## Intended guarantee and impact\n[Canonical pm-rust-query-cost](https://github.com/unbraind/pm-rust/blob/c75260050298de1d287957d1e57d05fb1859ff34/.agents/pm/features/pm-rust-query-cost.toon), delivered by [PR #117](https://github.com/unbraind/pm-rust/pull/117), explicitly records actual CLI closed-pipe checks for JSON and TOON to prove disconnected-consumer refusal. The current macOS aggregate cannot establish that guarantee and blocks its release gate.\n\n## Investigation / acceptance criteria\n- Reproduce the exact macOS command/environment from the linked job, including repeated JSON and TOON closed-pipe cases.\n- Establish whether this is a subprocess/pipe synchronization flaw in the test or a real delivery-refusal defect; the hosted log alone does **not** distinguish these.\n- Preserve a working-consumer success control and zero tracker/history writes. If the consumer is verified disconnected before delivery, verify the intended typed refusal/exit contract rather than silently succeeding.\n- Add deterministic regression coverage for the established cause and pass the unchanged aggregate gates; do not lower coverage/safety thresholds to make this green.\n\nDedup checked all-status repository issues/PRs, current discussions and canonical PM records. No runtime source was executed locally and no provider or production state was changed."

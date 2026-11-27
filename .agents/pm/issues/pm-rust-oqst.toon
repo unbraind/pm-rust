@@ -4,9 +4,9 @@ description: "GitHub issue https://github.com/unbraind/pm-rust/issues/86: centra
 type: Issue
 status: closed
 priority: 1
-tags[3]: ci,oracle,telemetry
+tags[4]: ci,"gh:unbraind/pm-rust#86",oracle,telemetry
 created_at: "2026-10-15T21:43:01.955Z"
-updated_at: "2026-10-21T18:58:09.488Z"
+updated_at: "2026-11-27T09:43:29.562Z"
 closed_at: "2026-10-21T18:58:01.553Z"
 completed_at: "2026-10-21T18:58:01.553Z"
 author: codex-agent
@@ -46,4 +46,14 @@ docs[3]{path,scope}:
   docs/CONFIGURED_LIST_REGISTRIES.md,project
   "https://github.com/unbraind/pm-rust/issues/86",project
 close_reason: "Re-verified current main c0154dbd7cd8: delivery ec83fe123659 remains in main ancestry; src/lib.rs, tests/branch_merge_contract.rs remain present. Audit delivery: Keep oracle test runs out of Sentry. [PR #87](https://github.com/unbraind/pm-rust/pull/87) (ec83fe1) centralizes oracle telemetry-isolation environment and tests spawned invocations; this audit changes no telemetry configuration."
+github_close_reason: "Closed on GitHub as completed on 2026-10-16T04:17:49Z; closing PR https://github.com/unbraind/pm-rust/pull/87 (\"Keep oracle runs out of Sentry and select native list pages over configured lifecycle and hierarchy registries\")"
+github_closed_at: "2026-10-16T04:17:49Z"
+github_created_at: "2026-10-15T16:32:19Z"
+github_link_only: true
+github_number: 86
+github_release: ""
+github_state: closed
+github_state_reason: completed
+github_updated_at: "2026-11-02T11:14:36Z"
+github_url: "https://github.com/unbraind/pm-rust/issues/86"
 body: ""
